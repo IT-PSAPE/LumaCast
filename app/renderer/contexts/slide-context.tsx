@@ -128,7 +128,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
   }, [armOutputPlaylistEntry, selectPlaylistEntryInNavigation, liveSelection.update]);
 
   // Clicking an entry inside a segment should arm it on the program output
-  // (preview + monitor surfaces). Free-floating selections that don't belong
+  // (program + monitor surfaces). Free-floating selections that don't belong
   // to a segment go through other code paths and are not armed here.
   const selectPlaylistEntry = useCallback((entryId: Id) => {
     selectPlaylistEntryInNavigation(entryId);

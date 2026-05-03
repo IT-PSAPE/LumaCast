@@ -6,7 +6,12 @@ import type {
   ElementCreateInput,
   ElementUpdateInput,
   Id,
-  MediaAsset,
+  MediaAssetCreateInput,
+  CollectionAssignmentInput,
+  CollectionCreateInput,
+  CollectionDeleteInput,
+  CollectionRenameInput,
+  CollectionReorderInput,
   NdiDiagnostics,
   NdiOutputConfig,
   NdiOutputConfigMap,
@@ -17,8 +22,8 @@ import type {
   OverlayUpdateInput,
   StageCreateInput,
   StageUpdateInput,
-  TemplateCreateInput,
-  TemplateUpdateInput,
+  ThemeCreateInput,
+  ThemeUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput
@@ -31,7 +36,10 @@ export interface MainApi {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getInlineWindowMenuItems: () => Promise<InlineWindowMenuItem[]>;
-  popupInlineWindowMenu: (menuId: string, x: number, y: number) => Promise<void>;
+  popupInlineWindowMenu: (menuId: string, bounds: InlineWindowMenuBounds) => Promise<void>;
+  updateAppMenuState: (state: AppMenuState) => Promise<void>;
+  checkForAppUpdates: (manual?: boolean) => Promise<void>;
+  onAppMenuCommand: (callback: (commandId: AppMenuCommandId) => void) => () => void;
   getSnapshot: () => Promise<AppSnapshot>;
   restoreFromSnapshot: (snapshot: AppSnapshot) => Promise<AppSnapshot>;
   chooseDeckBundleExportPath: (suggestedName: string) => Promise<string | null>;
@@ -68,20 +76,20 @@ export interface MainApi {
   updateElementsBatch: (inputs: ElementUpdateInput[]) => Promise<SnapshotPatch>;
   deleteElement: (id: Id) => Promise<SnapshotPatch>;
   deleteElementsBatch: (ids: Id[]) => Promise<SnapshotPatch>;
-  createMediaAsset: (asset: Omit<MediaAsset, 'id' | 'order' | 'createdAt' | 'updatedAt'>) => Promise<SnapshotPatch>;
+  createMediaAsset: (asset: MediaAssetCreateInput) => Promise<SnapshotPatch>;
   deleteMediaAsset: (id: Id) => Promise<SnapshotPatch>;
   updateMediaAssetSrc: (id: Id, src: string) => Promise<SnapshotPatch>;
   createOverlay: (overlay: OverlayCreateInput) => Promise<SnapshotPatch>;
   updateOverlay: (input: OverlayUpdateInput) => Promise<SnapshotPatch>;
   setOverlayEnabled: (overlayId: Id, enabled: boolean) => Promise<SnapshotPatch>;
   deleteOverlay: (overlayId: Id) => Promise<SnapshotPatch>;
-  createTemplate: (input: TemplateCreateInput) => Promise<SnapshotPatch>;
-  updateTemplate: (input: TemplateUpdateInput) => Promise<SnapshotPatch>;
-  deleteTemplate: (templateId: Id) => Promise<SnapshotPatch>;
-  applyTemplateToDeckItem: (templateId: Id, itemId: Id) => Promise<SnapshotPatch>;
-  detachTemplateFromDeckItem: (itemId: Id) => Promise<SnapshotPatch>;
-  syncTemplateToLinkedDeckItems: (templateId: Id) => Promise<SnapshotPatch>;
-  applyTemplateToOverlay: (templateId: Id, overlayId: Id) => Promise<SnapshotPatch>;
+  createTheme: (input: ThemeCreateInput) => Promise<SnapshotPatch>;
+  updateTheme: (input: ThemeUpdateInput) => Promise<SnapshotPatch>;
+  deleteTheme: (themeId: Id) => Promise<SnapshotPatch>;
+  applyThemeToDeckItem: (themeId: Id, itemId: Id) => Promise<SnapshotPatch>;
+  detachThemeFromDeckItem: (itemId: Id) => Promise<SnapshotPatch>;
+  syncThemeToLinkedDeckItems: (themeId: Id) => Promise<SnapshotPatch>;
+  applyThemeToOverlay: (themeId: Id, overlayId: Id) => Promise<SnapshotPatch>;
   createStage: (input: StageCreateInput) => Promise<SnapshotPatch>;
   updateStage: (input: StageUpdateInput) => Promise<SnapshotPatch>;
   deleteStage: (stageId: Id) => Promise<SnapshotPatch>;
@@ -110,6 +118,11 @@ export interface MainApi {
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => () => void;
   getAudioCoverArt: (src: string) => Promise<string | null>;
   onNdiDiagnosticsChanged: (callback: (diagnostics: NdiDiagnostics) => void) => () => void;
+  createCollection: (input: CollectionCreateInput) => Promise<SnapshotPatch>;
+  renameCollection: (input: CollectionRenameInput) => Promise<SnapshotPatch>;
+  deleteCollection: (input: CollectionDeleteInput) => Promise<SnapshotPatch>;
+  reorderCollections: (input: CollectionReorderInput) => Promise<SnapshotPatch>;
+  setItemCollection: (input: CollectionAssignmentInput) => Promise<SnapshotPatch>;
 }
 
 export interface InlineWindowMenuItem {
@@ -117,11 +130,81 @@ export interface InlineWindowMenuItem {
   label: string;
 }
 
+export interface InlineWindowMenuBounds {
+  x: number;
+  y: number;
+}
+
+export type AppMenuCommandId =
+  | 'file.newPresentation'
+  | 'file.newLyric'
+  | 'file.newLibrary'
+  | 'file.newPlaylist'
+  | 'file.newSegment'
+  | 'file.newSlide'
+  | 'file.exportCurrentItem'
+  | 'file.exportWorkspace'
+  | 'app.openSettings'
+  | 'app.checkForUpdates'
+  | 'edit.undo'
+  | 'edit.redo'
+  | 'edit.cut'
+  | 'edit.copy'
+  | 'edit.paste'
+  | 'edit.duplicate'
+  | 'edit.delete'
+  | 'edit.clearSelection'
+  | 'view.openCommandPalette'
+  | 'view.mode.show'
+  | 'view.mode.deckEditor'
+  | 'view.mode.overlayEditor'
+  | 'view.mode.themeEditor'
+  | 'view.mode.stageEditor'
+  | 'view.mode.settings'
+  | 'view.slideBrowser.grid'
+  | 'view.slideBrowser.list'
+  | 'view.playlistBrowser.current'
+  | 'view.playlistBrowser.tabs'
+  | 'view.playlistBrowser.continuous'
+  | 'playback.takeSlide'
+  | 'playback.previousSlide'
+  | 'playback.nextSlide'
+  | 'playback.toggleAudienceOutput'
+  | 'playback.toggleStageOutput';
+
+export interface AppMenuState {
+  workbenchMode: 'show' | 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'settings';
+  slideBrowserMode: 'grid' | 'list';
+  playlistBrowserMode: 'current' | 'tabs' | 'continuous';
+  hasCurrentLibrary: boolean;
+  hasCurrentPlaylist: boolean;
+  hasCurrentDeckItem: boolean;
+  hasCurrentSlide: boolean;
+  hasMultipleSlides: boolean;
+  hasEditableSelection: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+  canCut: boolean;
+  canCopy: boolean;
+  canPaste: boolean;
+  canDuplicate: boolean;
+  canDelete: boolean;
+  canClearSelection: boolean;
+  canTakeSlide: boolean;
+  canGoToPreviousSlide: boolean;
+  canGoToNextSlide: boolean;
+  canExportWorkspace: boolean;
+  audienceOutputEnabled: boolean;
+  stageOutputEnabled: boolean;
+}
+
 export const IPC = {
   readClipboardText: 'cast:readClipboardText',
   writeClipboardText: 'cast:writeClipboardText',
   getInlineWindowMenuItems: 'cast:getInlineWindowMenuItems',
   popupInlineWindowMenu: 'cast:popupInlineWindowMenu',
+  updateAppMenuState: 'cast:updateAppMenuState',
+  checkForAppUpdates: 'cast:checkForAppUpdates',
   getSnapshot: 'cast:getSnapshot',
   restoreFromSnapshot: 'cast:restoreFromSnapshot',
   chooseDeckBundleExportPath: 'cast:chooseDeckBundleExportPath',
@@ -165,13 +248,13 @@ export const IPC = {
   updateOverlay: 'cast:updateOverlay',
   setOverlayEnabled: 'cast:setOverlayEnabled',
   deleteOverlay: 'cast:deleteOverlay',
-  createTemplate: 'cast:createTemplate',
-  updateTemplate: 'cast:updateTemplate',
-  deleteTemplate: 'cast:deleteTemplate',
-  applyTemplateToDeckItem: 'cast:applyTemplateToDeckItem',
-  detachTemplateFromDeckItem: 'cast:detachTemplateFromDeckItem',
-  syncTemplateToLinkedDeckItems: 'cast:syncTemplateToLinkedDeckItems',
-  applyTemplateToOverlay: 'cast:applyTemplateToOverlay',
+  createTheme: 'cast:createTheme',
+  updateTheme: 'cast:updateTheme',
+  deleteTheme: 'cast:deleteTheme',
+  applyThemeToDeckItem: 'cast:applyThemeToDeckItem',
+  detachThemeFromDeckItem: 'cast:detachThemeFromDeckItem',
+  syncThemeToLinkedDeckItems: 'cast:syncThemeToLinkedDeckItems',
+  applyThemeToOverlay: 'cast:applyThemeToOverlay',
   createStage: 'cast:createStage',
   updateStage: 'cast:updateStage',
   deleteStage: 'cast:deleteStage',
@@ -192,9 +275,18 @@ export const IPC = {
   updateNdiOutputConfig: 'ndi:updateOutputConfig',
   getNdiDiagnostics: 'ndi:getDiagnostics',
   sendNdiFrame: 'ndi:sendFrame',
+  createCollection: 'cast:createCollection',
+  renameCollection: 'cast:renameCollection',
+  deleteCollection: 'cast:deleteCollection',
+  reorderCollections: 'cast:reorderCollections',
+  setItemCollection: 'cast:setItemCollection',
 } as const;
 
 export const NDI_EVENTS = {
   outputStateChanged: 'ndi:outputStateChanged',
   diagnosticsChanged: 'ndi:diagnosticsChanged',
+} as const;
+
+export const APP_MENU_EVENTS = {
+  command: 'app-menu:command',
 } as const;

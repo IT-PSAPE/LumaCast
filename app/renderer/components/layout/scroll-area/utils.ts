@@ -94,14 +94,14 @@ export function mergeRefs<T>(
 // Inject a global stylesheet rule that hides native scrollbars on opted-in elements.
 // Done once per page; React 19 could hoist a <style> tag but this keeps the rule
 // owned by the scroll-area module so deletions/edits stay local.
-export const HIDE_NATIVE_SCROLLBAR_CLASS = 'recast-scroll-area-hide-native';
+export const HIDE_NATIVE_SCROLLBAR_CLASS = 'lumacast-scroll-area-hide-native';
 
 let hideScrollbarStylesInjected = false;
 export function ensureHideScrollbarStyles(): void {
   if (hideScrollbarStylesInjected || typeof document === 'undefined') return;
   hideScrollbarStylesInjected = true;
   const style = document.createElement('style');
-  style.dataset.recastScrollArea = 'hide-native-scrollbar';
+  style.dataset.lumacastScrollArea = 'hide-native-scrollbar';
   style.textContent = `
     .${HIDE_NATIVE_SCROLLBAR_CLASS} {
       scrollbar-width: none;

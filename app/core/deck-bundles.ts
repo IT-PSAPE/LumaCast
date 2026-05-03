@@ -4,7 +4,7 @@ import type {
   DeckBundleMediaReference,
   DeckBundleOverlay,
   DeckBundleStage,
-  DeckBundleTemplate,
+  DeckBundleTheme,
   SlideElement,
 } from './types';
 
@@ -28,7 +28,7 @@ export function readElementMediaReference(element: SlideElement): { source: stri
 
 export function collectDeckBundleMediaReferences(
   items: DeckBundleItem[],
-  templates: DeckBundleTemplate[],
+  themes: DeckBundleTheme[],
   overlays: DeckBundleOverlay[] = [],
   stages: DeckBundleStage[] = [],
 ): DeckBundleMediaReference[] {
@@ -54,8 +54,8 @@ export function collectDeckBundleMediaReferences(
     }
   }
 
-  for (const template of templates) {
-    collect(template.elements);
+  for (const theme of themes) {
+    collect(theme.elements);
   }
 
   for (const overlay of overlays) {
@@ -80,7 +80,7 @@ export function normalizeDeckBundleManifest(manifest: DeckBundleManifest): DeckB
     ...manifest,
     mediaReferences: collectDeckBundleMediaReferences(
       manifest.items,
-      manifest.templates,
+      manifest.themes,
       manifest.overlays ?? [],
       manifest.stages ?? [],
     ),

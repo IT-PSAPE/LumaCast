@@ -233,11 +233,11 @@ async function seedScenario(page) {
       return next.mediaAssets.find((asset) => asset.name === name)?.id ?? null;
     }
 
-    async function ensureTemplate(name, kind, elements) {
+    async function ensureTheme(name, kind, elements) {
       const snapshot = await getSnapshot();
-      const existing = snapshot.templates.find((template) => template.name === name);
+      const existing = snapshot.themes.find((theme) => theme.name === name);
       if (existing) return existing.id;
-      await window.castApi.createTemplate({
+      await window.castApi.createTheme({
         name,
         kind,
         width: 1920,
@@ -245,7 +245,7 @@ async function seedScenario(page) {
         elements,
       });
       const next = await getSnapshot();
-      return next.templates.find((template) => template.name === name)?.id ?? null;
+      return next.themes.find((theme) => theme.name === name)?.id ?? null;
     }
 
     async function ensureDeck(ids, title, slideSpecs) {
@@ -328,12 +328,12 @@ async function seedScenario(page) {
       },
     ]);
 
-    await ensureTemplate('Service Slide Template', 'slides', [
+    await ensureTheme('Service Slide Theme', 'slides', [
       createShapeElement('#111827CC', 160, 280, 1600, 440),
-      createTextElement('Template Title', 240, 420, 1440, 140),
+      createTextElement('Theme Title', 240, 420, 1440, 140),
     ]);
 
-    await ensureTemplate('Lower Third Overlay', 'overlays', [
+    await ensureTheme('Lower Third Overlay Theme', 'overlays', [
       createShapeElement('#0F172ACC', 120, 820, 1680, 180),
       createTextElement('Overlay Title', 220, 850, 1280, 90),
     ]);
@@ -416,8 +416,8 @@ async function captureAppScreenshots() {
     await clickResourceDrawerTab(page, 'Presentations');
     await captureLocator(page.locator('[data-ui-region="resource-drawer"]'), path.join(FEATURE_OUTPUT_DIR, 'resource-drawer-content.png'));
 
-    await clickResourceDrawerTab(page, 'Templates');
-    await captureLocator(page.locator('[data-ui-region="resource-drawer"]'), path.join(FEATURE_OUTPUT_DIR, 'resource-drawer-templates.png'));
+    await clickResourceDrawerTab(page, 'Themes');
+    await captureLocator(page.locator('[data-ui-region="resource-drawer"]'), path.join(FEATURE_OUTPUT_DIR, 'resource-drawer-themes.png'));
 
     await clickResourceDrawerTab(page, 'Media');
     await clickSlideBrowserMode(page, 'Grid view');

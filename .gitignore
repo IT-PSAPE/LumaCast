@@ -6,6 +6,7 @@ dist
 *.db
 packages/ndi-native/build
 .electron-dev-dist
+.npm-cache
 
 bun.lock
 test-results/

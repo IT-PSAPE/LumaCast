@@ -19,8 +19,9 @@ function buildEmptySnapshot(): AppSnapshot {
     slideElements: [],
     mediaAssets: [],
     overlays: [],
-    templates: [],
+    themes: [],
     stages: [],
+    collections: [],
   };
 }
 
@@ -60,6 +61,9 @@ async function installCastApiMock(page: Page): Promise<void> {
       writeClipboardText: async (text: string) => { clipboardText = text; },
       getInlineWindowMenuItems: async () => [],
       popupInlineWindowMenu: async () => {},
+      updateAppMenuState: async () => {},
+      checkForAppUpdates: async () => {},
+      onAppMenuCommand: () => unsubscribe,
       getSnapshot: async () => mockPayload.snapshot,
       chooseDeckBundleExportPath: async () => null,
       chooseDeckBundleImportPath: async () => null,
@@ -68,12 +72,12 @@ async function installCastApiMock(page: Page): Promise<void> {
       inspectImportBundle: async () => ({
         exportedAt: '',
         itemCount: 0,
-        templateCount: 0,
+        themeCount: 0,
         mediaReferenceCount: 0,
         overlayCount: 0,
         stageCount: 0,
         items: [],
-        templates: [],
+        themes: [],
         overlays: [],
         stages: [],
         mediaReferences: [],
@@ -116,13 +120,13 @@ async function installCastApiMock(page: Page): Promise<void> {
       updateOverlay: async () => emptyPatch,
       setOverlayEnabled: async () => emptyPatch,
       deleteOverlay: async () => emptyPatch,
-      createTemplate: async () => emptyPatch,
-      updateTemplate: async () => emptyPatch,
-      deleteTemplate: async () => emptyPatch,
-      applyTemplateToDeckItem: async () => emptyPatch,
-      detachTemplateFromDeckItem: async () => emptyPatch,
-      syncTemplateToLinkedDeckItems: async () => emptyPatch,
-      applyTemplateToOverlay: async () => emptyPatch,
+      createTheme: async () => emptyPatch,
+      updateTheme: async () => emptyPatch,
+      deleteTheme: async () => emptyPatch,
+      applyThemeToDeckItem: async () => emptyPatch,
+      detachThemeFromDeckItem: async () => emptyPatch,
+      syncThemeToLinkedDeckItems: async () => emptyPatch,
+      applyThemeToOverlay: async () => emptyPatch,
       renameLibrary: async () => emptyPatch,
       renamePlaylist: async () => emptyPatch,
       renamePresentation: async () => emptyPatch,
@@ -177,10 +181,10 @@ test('editor add menus only expose actions for their own editor type', async ({ 
   await expect(page.getByRole('menuitem', { name: /^New presentation$/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  await applicationViews.getByRole('button', { name: 'Templates' }).click();
+  await applicationViews.getByRole('button', { name: 'Themes' }).click();
   await page.getByLabel('Add').click();
-  await expect(page.getByRole('menuitem', { name: 'New presentation template' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'New lyric template' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'New presentation theme' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'New lyric theme' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: /^New lyric$/ })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: /^New presentation$/ })).toHaveCount(0);
   await page.keyboard.press('Escape');

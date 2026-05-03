@@ -285,12 +285,12 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   }, [deckItems, mutatePatch, runOperation, setStatusText]);
 
   // Granular create flow used by the create-deck-item dialog. Creates the deck item
-  // with a chosen name, then optionally applies a template and adds it to a segment
+  // with a chosen name, then optionally applies a theme and adds it to a segment
   // — all atomic from the user's perspective (one click of the dialog's New button).
   const createDeckItem = useCallback(async (input: {
     kind: 'presentation' | 'lyric';
     name: string;
-    templateId?: Id;
+    themeId?: Id;
     segmentId?: Id;
   }) => {
     const trimmedName = input.name.trim() || (input.kind === 'lyric' ? 'New Lyric' : 'New Presentation');
@@ -310,8 +310,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
           : window.castApi.createSlide({ presentationId: createdId })
       ));
 
-      if (input.templateId) {
-        await mutatePatch(() => window.castApi.applyTemplateToDeckItem(input.templateId!, createdId));
+      if (input.themeId) {
+        await mutatePatch(() => window.castApi.applyThemeToDeckItem(input.themeId!, createdId));
       }
 
       if (input.segmentId) {

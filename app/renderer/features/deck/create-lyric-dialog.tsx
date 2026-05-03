@@ -1,5 +1,5 @@
 import { ReacstButton } from '@renderer/components/controls/button';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { DeckItemIcon } from '../../components/display/entity-icon';
 import { Dialog } from '../../components/overlays/dialog';
 
@@ -30,7 +30,7 @@ export function CreateLyricDialog({ isBusy, isOpen, onClose, onCreateEditableLyr
               <Dialog.CloseButton />
             </Dialog.Header>
             <Dialog.Body className="bg-primary/95 px-6 py-6">
-              <RecastPanel.Root className="justify-between rounded-lg border border-primary bg-tertiary/20 p-6">
+              <LumaCastPanel.Root className="justify-between rounded-lg border border-primary bg-tertiary/20 p-6">
                 <div className="flex flex-col gap-5">
                   <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary bg-primary text-secondary">
                     <DeckItemIcon entity="lyric" size={22} strokeWidth={1.75} />
@@ -52,7 +52,7 @@ export function CreateLyricDialog({ isBusy, isOpen, onClose, onCreateEditableLyr
                     </ReacstButton>
                   </div>
                 </div>
-              </RecastPanel.Root>
+              </LumaCastPanel.Root>
             </Dialog.Body>
           </Dialog.Content>
         </Dialog.Positioner>

@@ -59,15 +59,15 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
       return;
     }
 
-    if (activeEditorSource.mode === 'template-editor') {
-      const currentTemplate = activeEditorSource.meta.template;
-      if (!currentTemplate) return;
-      if (currentTemplate.kind === 'lyrics' && activeEditorSource.elements.some((element) => element.type === 'text')) {
-        setStatusText('Lyric templates only support the existing lyric text element.');
+    if (activeEditorSource.mode === 'theme-editor') {
+      const currentTheme = activeEditorSource.meta.theme;
+      if (!currentTheme) return;
+      if (currentTheme.kind === 'lyrics' && activeEditorSource.elements.some((element) => element.type === 'text')) {
+        setStatusText('Lyric themes only support the existing lyric text element.');
         return;
       }
-      addToSource(newSlideTextElement(currentTemplate.id));
-      setStatusText('Added template text');
+      addToSource(newSlideTextElement(currentTheme.id));
+      setStatusText('Added theme text');
       return;
     }
 
@@ -120,11 +120,11 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
       return;
     }
 
-    if (activeEditorSource.mode === 'template-editor') {
-      const currentTemplate = activeEditorSource.meta.template;
-      if (!currentTemplate) return;
-      addToSource(newSlideShapeElement(currentTemplate.id));
-      setStatusText('Added template shape');
+    if (activeEditorSource.mode === 'theme-editor') {
+      const currentTheme = activeEditorSource.meta.theme;
+      if (!currentTheme) return;
+      addToSource(newSlideShapeElement(currentTheme.id));
+      setStatusText('Added theme shape');
       return;
     }
 
@@ -163,22 +163,22 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     if (activeEditorSource.mode === 'overlay-editor') {
       const currentOverlay = activeEditorSource.meta.overlay;
       if (!currentOverlay) return;
-      const elementType = asset.type === 'video' || asset.type === 'animation' ? 'video' as const : 'image' as const;
+      const elementType = asset.type === 'video' ? 'video' as const : 'image' as const;
       const width = asset.type === 'image' ? 640 : 960;
       const height = asset.type === 'image' ? 360 : 540;
-      const payload = asset.type === 'video' || asset.type === 'animation'
-        ? { src: asset.src, autoplay: true, loop: true, muted: true }
+      const payload = asset.type === 'video'
+        ? { src: asset.src, autoplay: true, loop: true, muted: false, playbackRate: 1 }
         : { src: asset.src };
       addToSource(newOverlayElement(currentOverlay.id, elementType, x, y, width, height, nextOverlayZIndex(currentOverlay.elements, 10), payload));
       setStatusText(`Added ${asset.type} overlay`);
       return;
     }
 
-    if (activeEditorSource.mode === 'template-editor') {
-      const currentTemplate = activeEditorSource.meta.template;
-      if (!currentTemplate) return;
-      addToSource(newSlideMediaElement(currentTemplate.id, asset, x, y));
-      setStatusText(`Added ${asset.type} template element`);
+    if (activeEditorSource.mode === 'theme-editor') {
+      const currentTheme = activeEditorSource.meta.theme;
+      if (!currentTheme) return;
+      addToSource(newSlideMediaElement(currentTheme.id, asset, x, y));
+      setStatusText(`Added ${asset.type} theme element`);
       return;
     }
 
@@ -202,8 +202,8 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     let input: ElementCreateInput;
     if (asset.type === 'image') {
       input = { slideId: currentSlideId, type: 'image', x, y, width: 640, height: 360, zIndex: 10, layer: 'media', payload: { src: asset.src } };
-    } else if (asset.type === 'video' || asset.type === 'animation') {
-      input = { slideId: currentSlideId, type: 'video', x, y, width: 960, height: 540, zIndex: 10, layer: 'media', payload: { src: asset.src, autoplay: true, loop: true, muted: true } };
+    } else if (asset.type === 'video') {
+      input = { slideId: currentSlideId, type: 'video', x, y, width: 960, height: 540, zIndex: 10, layer: 'media', payload: { src: asset.src, autoplay: true, loop: true, muted: false, playbackRate: 1 } };
     } else {
       input = {
         slideId: currentSlideId,

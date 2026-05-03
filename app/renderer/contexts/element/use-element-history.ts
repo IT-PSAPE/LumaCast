@@ -72,7 +72,7 @@ interface UseElementHistoryInput {
 }
 
 // Clipboard is module-scoped so a copy in one context survives navigating to
-// another scene/slide/template/stage/overlay. Element ids are regenerated on
+// another scene/slide/theme/stage/overlay. Element ids are regenerated on
 // paste, so cross-context insertion never collides.
 const clipboardRef: { current: SlideElement[] } = { current: [] };
 

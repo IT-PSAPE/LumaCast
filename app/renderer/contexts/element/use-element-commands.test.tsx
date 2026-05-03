@@ -23,8 +23,8 @@ function makeStageSource(replaceElements: ReturnType<typeof vi.fn>): ActiveEdito
     historyKey: 'stage-1',
     emptyStateLabel: 'No stage selected.',
     editable: true,
-    createCapabilities: { text: true, shape: true, media: true },
-    meta: { stage: { id: 'stage-1', name: 'Stage', width: 1920, height: 1080, order: 0, elements: [], createdAt: '', updatedAt: '' } },
+    createCapabilities: { text: true, shape: true, image: true, video: true },
+    meta: { stage: { id: 'stage-1', slideId: 'stage-1:slide', name: 'Stage', width: 1920, height: 1080, order: 0, elements: [], collectionId: 'stage-default', createdAt: '', updatedAt: '' } },
   };
 }
 
@@ -90,6 +90,7 @@ describe('useElementCommands', () => {
       type: 'image',
       order: 0,
       src: '/photo.jpg',
+      collectionId: 'image-default',
       createdAt: '',
       updatedAt: '',
     };

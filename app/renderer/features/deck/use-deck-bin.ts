@@ -5,8 +5,10 @@ import { useProjectContent } from '../../contexts/use-project-content';
 import { filterByText } from '../../utils/filter-by-text';
 import { useLibraryPanelManagement } from '../library/use-library-panel-management';
 import { useDeckBinSort, compareByKey, type BinSort, type DeckBinSortKey } from '../workbench/use-bin-sort';
+import { useBinCollections } from '../workbench/use-bin-collections';
+import type { ResourceDrawerViewMode } from '../../types/ui';
 
-export function useDeckBin(filterText: string) {
+export function useDeckBin() {
   const {
     currentDrawerDeckItemId,
     browseDeckItem,
@@ -18,15 +20,23 @@ export function useDeckBin(filterText: string) {
   } = useLibraryPanelManagement();
   const [editingDeckItemId, setEditingPresentationId] = useState<Id | null>(null);
   const { sort } = useDeckBinSort();
+  const collections = useBinCollections('deck');
+  const [searchValue, setSearchValue] = useState('');
+  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
+
+  const filteredByCollection = useMemo(
+    () => collections.filterByActiveCollection(deckItems),
+    [deckItems, collections],
+  );
 
   const filteredDeckItems = useMemo(() => {
-    const filtered = filterByText(deckItems, filterText, (item) => {
+    const filtered = filterByText(filteredByCollection, searchValue, (item) => {
       const slides = slidesByDeckItemId.get(item.id) ?? [];
       const slideLabels = slides.map((slide) => `slide ${slide.order + 1}`);
       return [item.title, item.type, ...slideLabels];
     });
     return sortDeckItems(filtered, sort, slidesByDeckItemId);
-  }, [deckItems, filterText, slidesByDeckItemId, sort]);
+  }, [filteredByCollection, searchValue, slidesByDeckItemId, sort]);
 
   function handleRename(itemId: Id, title: string) {
     void renameDeckItem(itemId, title);
@@ -41,6 +51,11 @@ export function useDeckBin(filterText: string) {
     currentDrawerDeckItemId,
     handleRename,
     slidesByDeckItemId,
+    collections,
+    searchValue,
+    setSearchValue,
+    viewMode,
+    setViewMode,
   };
 }
 

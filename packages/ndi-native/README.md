@@ -1,4 +1,4 @@
-# @recast/ndi-native
+# @lumacast/ndi-native
 
 Native Node-API bridge for sending renderer paint frames over NDI.
 

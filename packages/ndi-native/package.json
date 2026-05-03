@@ -1,8 +1,8 @@
 {
-  "name": "@recast/ndi-native",
+  "name": "@lumacast/ndi-native",
   "version": "0.1.0",
   "private": true,
-  "description": "Native NDI sender bridge for Recast",
+  "description": "Native NDI sender bridge for LumaCast",
   "main": "index.js",
   "types": "index.d.ts",
   "gypfile": false,

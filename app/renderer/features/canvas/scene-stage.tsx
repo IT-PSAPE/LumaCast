@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Fragment } from 'react';
-import { FastLayer, Layer, Line, Rect, Stage, Transformer, Group } from 'react-konva';
+import { Layer, Line, Rect, Stage, Transformer, Group } from 'react-konva';
 import type Konva from 'konva';
 import type { Id, NdiOutputName } from '@core/types';
 import { ContextMenu } from '../../components/overlays/context-menu';
@@ -200,10 +200,8 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
     handleNodeDragStart,
     handleNodeDragMove,
   } = editor;
-  const SceneLayer = editable ? Layer : FastLayer;
-
   // Konva renders Stage at its literal width/height in CSS pixels. When
-  // fixedViewport is set (preview/monitor/stage NDI surfaces) those dimensions
+  // fixedViewport is set (program/monitor/stage NDI surfaces) those dimensions
   // are 1920x1080 — far larger than the actual on-screen container — so we
   // visually scale the wrapper to fit. The canvas keeps its native resolution
   // for capture; only the display is scaled.
@@ -230,7 +228,7 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
         onMouseMove={editor.handleStageMouseMove}
         onMouseUp={editor.handleStageMouseUp}
       >
-        <SceneLayer listening={editable}>
+        <Layer listening={editable}>
           <Group name="scene-root" x={viewport.sceneOffsetX} y={viewport.sceneOffsetY} scaleX={viewport.sceneScale} scaleY={viewport.sceneScale}>
             {scene.nodes.map((node) => (
               <SceneNode
@@ -273,7 +271,7 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
               </>
             ) : null}
           </Group>
-        </SceneLayer>
+        </Layer>
 
         {editable && editor.selectionBox ? (
           <Layer listening={false}>

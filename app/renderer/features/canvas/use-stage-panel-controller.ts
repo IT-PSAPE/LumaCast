@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { MediaAsset } from '@core/types';
+import type { MediaPickerAssetKind } from '../../components/overlays/media-picker-dialog';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { useActiveEditorSource } from '../../contexts/canvas/use-active-editor-source';
 import { useProjectContent } from '../../contexts/use-project-content';
@@ -15,14 +16,15 @@ interface StagePanelControllerState {
   emptyStateLabel: string;
   hasCanvasSource: boolean;
   mediaAssets: MediaAsset[];
+  pickerKind: MediaPickerAssetKind | null;
   selectionMetrics: SelectionMetrics;
-  showMediaPicker: boolean;
 }
 
 interface StagePanelControllerActions {
-  closeMediaPicker: () => void;
+  closeAssetPicker: () => void;
   confirmMedia: (selected: MediaAsset[]) => void;
-  openMediaPicker: () => void;
+  importAssets: (files: FileList) => Promise<void>;
+  openAssetPicker: (kind: MediaPickerAssetKind) => void;
 }
 
 interface StagePanelController {
@@ -32,35 +34,35 @@ interface StagePanelController {
 
 export function useStagePanelController(): StagePanelController {
   const activeEditorSource = useActiveEditorSource();
-  const { selectedElement, elementDraft, createFromMedia } = useElements();
+  const { selectedElement, elementDraft, createFromMedia, importMedia } = useElements();
   const { mediaAssets } = useProjectContent();
-  const [showMediaPicker, setShowMediaPicker] = useState(false);
+  const [pickerKind, setPickerKind] = useState<MediaPickerAssetKind | null>(null);
 
   const state = useMemo<StagePanelControllerState>(() => {
     return {
       emptyStateLabel: activeEditorSource.emptyStateLabel,
       hasCanvasSource: activeEditorSource.editable && activeEditorSource.hasSource,
       mediaAssets,
+      pickerKind,
       selectionMetrics: {
         x: elementDraft?.x ?? selectedElement?.x ?? null,
         y: elementDraft?.y ?? selectedElement?.y ?? null,
         width: elementDraft?.width ?? selectedElement?.width ?? null,
         height: elementDraft?.height ?? selectedElement?.height ?? null
-      },
-      showMediaPicker
+      }
     };
-  }, [activeEditorSource, elementDraft, mediaAssets, selectedElement, showMediaPicker]);
+  }, [activeEditorSource, elementDraft, mediaAssets, pickerKind, selectedElement]);
 
-  const openMediaPicker = useCallback(() => {
-    setShowMediaPicker(true);
+  const openAssetPicker = useCallback((kind: MediaPickerAssetKind) => {
+    setPickerKind(kind);
   }, []);
 
-  const closeMediaPicker = useCallback(() => {
-    setShowMediaPicker(false);
+  const closeAssetPicker = useCallback(() => {
+    setPickerKind(null);
   }, []);
 
   const confirmMedia = useCallback((selected: MediaAsset[]) => {
-    setShowMediaPicker(false);
+    setPickerKind(null);
     const startX = 200;
     const startY = 200;
     const offset = 40;
@@ -70,11 +72,16 @@ export function useStagePanelController(): StagePanelController {
     }
   }, [createFromMedia]);
 
+  const importAssets = useCallback(async (files: FileList) => {
+    await importMedia(files);
+  }, [importMedia]);
+
   return {
     actions: {
-      closeMediaPicker,
+      closeAssetPicker,
       confirmMedia,
-      openMediaPicker
+      importAssets,
+      openAssetPicker
     },
     state
   };

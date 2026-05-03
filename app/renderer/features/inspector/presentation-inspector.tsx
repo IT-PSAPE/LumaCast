@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Unlink } from 'lucide-react';
-import { isTemplateCompatibleWithDeckItem } from '@core/templates';
+import { isThemeCompatibleWithDeckItem } from '@core/themes';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
-import { useTemplateEditor } from '../../contexts/asset-editor/asset-editor-context';
+import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { Section } from './inspector-section';
 import { Label } from '@renderer/components/display/text';
 
@@ -13,23 +13,23 @@ const NO_TEMPLATE_VALUE = '';
 
 export function DeckItemInspector() {
   const { currentDeckItem, renameDeckItem } = useNavigation();
-  const { templates, templatesById } = useProjectContent();
-  const { applyTemplateToTarget, detachTemplateFromDeckItem } = useTemplateEditor();
+  const { themes, themesById } = useProjectContent();
+  const { applyThemeToTarget, detachThemeFromDeckItem } = useThemeEditor();
   const [titleDraft, setTitleDraft] = useState('');
 
-  const assignedTemplate = currentDeckItem?.templateId
-    ? templatesById.get(currentDeckItem.templateId) ?? null
+  const assignedTheme = currentDeckItem?.themeId
+    ? themesById.get(currentDeckItem.themeId) ?? null
     : null;
 
-  const compatibleTemplates = useMemo(() => {
+  const compatibleThemes = useMemo(() => {
     if (!currentDeckItem) return [];
-    return templates.filter((template) => isTemplateCompatibleWithDeckItem(template, currentDeckItem.type));
-  }, [currentDeckItem, templates]);
+    return themes.filter((theme) => isThemeCompatibleWithDeckItem(theme, currentDeckItem.type));
+  }, [currentDeckItem, themes]);
 
-  const templateOptions = useMemo(() => [
-    { value: NO_TEMPLATE_VALUE, label: 'Select a template…' },
-    ...compatibleTemplates.map((template) => ({ value: template.id, label: template.name })),
-  ], [compatibleTemplates]);
+  const themeOptions = useMemo(() => [
+    { value: NO_TEMPLATE_VALUE, label: 'Select a theme…' },
+    ...compatibleThemes.map((theme) => ({ value: theme.id, label: theme.name })),
+  ], [compatibleThemes]);
 
   useEffect(() => {
     if (!currentDeckItem) {
@@ -50,19 +50,19 @@ export function DeckItemInspector() {
     void renameDeckItem(currentDeckItem.id, trimmed);
   }
 
-  function handleResetToTemplate() {
-    if (!currentDeckItem?.templateId) return;
-    void applyTemplateToTarget(currentDeckItem.templateId, { type: 'deck-item', itemId: currentDeckItem.id });
+  function handleResetToTheme() {
+    if (!currentDeckItem?.themeId) return;
+    void applyThemeToTarget(currentDeckItem.themeId, { type: 'deck-item', itemId: currentDeckItem.id });
   }
 
-  function handleApplyTemplate(templateId: string) {
-    if (!currentDeckItem || templateId === NO_TEMPLATE_VALUE) return;
-    void applyTemplateToTarget(templateId, { type: 'deck-item', itemId: currentDeckItem.id });
+  function handleApplyTheme(themeId: string) {
+    if (!currentDeckItem || themeId === NO_TEMPLATE_VALUE) return;
+    void applyThemeToTarget(themeId, { type: 'deck-item', itemId: currentDeckItem.id });
   }
 
-  function handleDetachTemplate() {
+  function handleDetachTheme() {
     if (!currentDeckItem) return;
-    void detachTemplateFromDeckItem(currentDeckItem.id);
+    void detachThemeFromDeckItem(currentDeckItem.id);
   }
 
   if (!currentDeckItem) {
@@ -70,7 +70,7 @@ export function DeckItemInspector() {
   }
 
   const itemLabel = currentDeckItem.type === 'lyric' ? 'Lyric' : 'Presentation';
-  const hasTemplateId = Boolean(currentDeckItem.templateId);
+  const hasThemeId = Boolean(currentDeckItem.themeId);
 
   return (
     <>
@@ -85,38 +85,38 @@ export function DeckItemInspector() {
 
       <Section.Root>
         <Section.Header>
-          <Label.xs>Template</Label.xs>
+          <Label.xs>Theme</Label.xs>
         </Section.Header>
         <Section.Body>
-          {assignedTemplate ? (
+          {assignedTheme ? (
             <>
               <div className="flex flex-col gap-1">
-                <span className="text-sm text-tertiary uppercase tracking-wider">Assigned Template</span>
-                <p className="m-0 text-sm text-secondary">{assignedTemplate.name}</p>
+                <span className="text-sm text-tertiary uppercase tracking-wider">Assigned Theme</span>
+                <p className="m-0 text-sm text-secondary">{assignedTheme.name}</p>
               </div>
               <div className="flex gap-2">
-                <ReacstButton onClick={handleResetToTemplate} className="flex-1">Reset To Template</ReacstButton>
-                <ReacstButton.Icon label="Remove template" onClick={handleDetachTemplate}>
+                <ReacstButton onClick={handleResetToTheme} className="flex-1">Reset To Theme</ReacstButton>
+                <ReacstButton.Icon label="Remove theme" onClick={handleDetachTheme}>
                   <Unlink size={14} />
                 </ReacstButton.Icon>
               </div>
             </>
-          ) : hasTemplateId ? (
+          ) : hasThemeId ? (
             <>
-              <p className="m-0 text-sm text-tertiary">Assigned template unavailable.</p>
+              <p className="m-0 text-sm text-tertiary">Assigned theme unavailable.</p>
               <div className="flex gap-2">
                 <div className="flex-1 min-w-0">
-                  <FieldSelect value={NO_TEMPLATE_VALUE} onChange={handleApplyTemplate} options={templateOptions} />
+                  <FieldSelect value={NO_TEMPLATE_VALUE} onChange={handleApplyTheme} options={themeOptions} />
                 </div>
-                <ReacstButton.Icon label="Remove template" onClick={handleDetachTemplate}>
+                <ReacstButton.Icon label="Remove theme" onClick={handleDetachTheme}>
                   <Unlink size={14} />
                 </ReacstButton.Icon>
               </div>
             </>
-          ) : compatibleTemplates.length === 0 ? (
-            <p className="m-0 text-sm text-tertiary">No compatible templates available.</p>
+          ) : compatibleThemes.length === 0 ? (
+            <p className="m-0 text-sm text-tertiary">No compatible themes available.</p>
           ) : (
-            <FieldSelect value={NO_TEMPLATE_VALUE} onChange={handleApplyTemplate} options={templateOptions} />
+            <FieldSelect value={NO_TEMPLATE_VALUE} onChange={handleApplyTheme} options={themeOptions} />
           )}
         </Section.Body>
       </Section.Root>

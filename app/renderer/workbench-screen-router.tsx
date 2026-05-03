@@ -5,7 +5,7 @@ import { OverlayEditorScreen } from './screens/overlay-editor/page';
 import { SettingsScreen } from './screens/settings/page';
 import { ShowScreen } from './screens/show/page';
 import { StageEditorScreen } from './screens/stage-editor/page';
-import { TemplateEditorScreen } from './screens/template-editor/page';
+import { ThemeEditorScreen } from './screens/theme-editor/page';
 
 export function WorkbenchScreenRouter() {
   const { state: { workbenchMode } } = useWorkbench();
@@ -24,8 +24,8 @@ export function WorkbenchScreenRouter() {
     return <OverlayEditorScreen />;
   }
 
-  if (workbenchMode === 'template-editor') {
-    return <TemplateEditorScreen />;
+  if (workbenchMode === 'theme-editor') {
+    return <ThemeEditorScreen />;
   }
 
   if (workbenchMode === 'stage-editor') {

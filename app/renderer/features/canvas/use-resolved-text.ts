@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { ClockFormat, TextBinding, TextElementPayload, TimerFormat } from '@core/types';
-import { useBinding, type BindingValue } from './binding-context';
+import { useBinding, type BindingOverride, type BindingValue } from './binding-context';
 
 const PLACEHOLDER_CURRENT_SLIDE_TEXT = '[Current Slide]';
 const PLACEHOLDER_NEXT_SLIDE_TEXT = '[Next Slide]';
@@ -65,8 +65,15 @@ function resolveBindingText(binding: TextBinding, fallback: string, runtime: Bin
   return fallback;
 }
 
-export function useResolvedText(payload: Pick<TextElementPayload, 'text' | 'binding'>): string {
-  const runtime = useBinding();
+export function useResolvedText(
+  payload: Pick<TextElementPayload, 'text' | 'binding'>,
+  bindingOverride?: BindingOverride,
+): string {
+  const baseRuntime = useBinding();
+  const runtime: BindingValue = {
+    ...baseRuntime,
+    ...bindingOverride,
+  };
   const binding = payload.binding;
   const needsTick = binding?.kind === 'clock' || (binding?.kind === 'timer' && runtime.armedAtMs !== null);
   const [now, setNow] = useState<Date>(() => new Date());

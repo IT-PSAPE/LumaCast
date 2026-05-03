@@ -3,14 +3,15 @@ import { overlayToLayerElements } from '@core/presentation-layers';
 import type { SlideElement } from '@core/types';
 import { useNavigation } from '../navigation-context';
 import { useSlides } from '../slide-context';
-import { useOverlayEditor, useDeckEditor, useStageEditor, useTemplateEditor } from '../asset-editor/asset-editor-context';
+import { useOverlayEditor, useDeckEditor, useStageEditor, useThemeEditor } from '../asset-editor/asset-editor-context';
 import { useWorkbench } from '../workbench-context';
 import type { ActiveEditorSource, EditorCreateCapabilities } from './editor-source';
 
 const NOOP_CREATE_CAPABILITIES: EditorCreateCapabilities = {
   text: false,
   shape: false,
-  media: false,
+  image: false,
+  video: false,
 };
 
 function noopReplaceElements(_elements: SlideElement[]) {}
@@ -20,7 +21,7 @@ export function useActiveEditorSource(): ActiveEditorSource {
   const { currentSlide } = useSlides();
   const { currentOverlay, updateOverlayDraft } = useOverlayEditor();
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
-  const { currentTemplate, replaceTemplateElements } = useTemplateEditor();
+  const { currentTheme, replaceThemeElements } = useThemeEditor();
   const { currentStage, replaceStageElements } = useStageEditor();
   const { state: { workbenchMode } } = useWorkbench();
 
@@ -42,7 +43,8 @@ export function useActiveEditorSource(): ActiveEditorSource {
         createCapabilities: {
           text: currentDeckItem?.type !== 'lyric',
           shape: true,
-          media: true,
+          image: true,
+          video: true,
         },
         meta: {
           slide: currentSlide,
@@ -75,7 +77,8 @@ export function useActiveEditorSource(): ActiveEditorSource {
         createCapabilities: {
           text: true,
           shape: true,
-          media: true,
+          image: true,
+          video: true,
         },
         meta: {
           overlay: currentOverlay,
@@ -83,27 +86,28 @@ export function useActiveEditorSource(): ActiveEditorSource {
       };
     }
 
-    if (workbenchMode === 'template-editor') {
+    if (workbenchMode === 'theme-editor') {
       return {
         mode: workbenchMode,
-        entityId: currentTemplate?.id ?? null,
-        hasSource: Boolean(currentTemplate),
-        frame: currentTemplate ? { width: currentTemplate.width, height: currentTemplate.height } : null,
-        elements: currentTemplate?.elements ?? [],
+        entityId: currentTheme?.id ?? null,
+        hasSource: Boolean(currentTheme),
+        frame: currentTheme ? { width: currentTheme.width, height: currentTheme.height } : null,
+        elements: currentTheme?.elements ?? [],
         replaceElements: (elements) => {
-          replaceTemplateElements(elements);
+          replaceThemeElements(elements);
         },
-        historyKey: currentTemplate?.id ?? null,
-        emptyStateLabel: 'No template selected.',
+        historyKey: currentTheme?.id ?? null,
+        emptyStateLabel: 'No theme selected.',
         editable: true,
         createCapabilities: {
-          text: currentTemplate?.kind !== 'lyrics',
+          text: currentTheme?.kind !== 'lyrics',
           shape: true,
-          media: true,
+          image: true,
+          video: true,
         },
         meta: {
-          template: currentTemplate,
-          templateKind: currentTemplate?.kind ?? null,
+          theme: currentTheme,
+          themeKind: currentTheme?.kind ?? null,
         },
       };
     }
@@ -124,7 +128,8 @@ export function useActiveEditorSource(): ActiveEditorSource {
         createCapabilities: {
           text: true,
           shape: true,
-          media: true,
+          image: true,
+          video: true,
         },
         meta: {
           stage: currentStage,
@@ -150,11 +155,11 @@ export function useActiveEditorSource(): ActiveEditorSource {
     currentOverlay,
     currentSlide,
     currentStage,
-    currentTemplate,
+    currentTheme,
     getSlideElements,
     replaceSlideElements,
     replaceStageElements,
-    replaceTemplateElements,
+    replaceThemeElements,
     updateOverlayDraft,
     workbenchMode,
   ]);

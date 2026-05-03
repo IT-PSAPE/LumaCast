@@ -1,6 +1,6 @@
 import { overlayToLayerElements } from '@core/presentation-layers';
 import { Plus } from 'lucide-react';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { Dropdown } from '../../components/form/dropdown';
@@ -29,11 +29,11 @@ function OverlayEditorScreenContent() {
   return (
     <SplitPanel.Panel splitId="editor-main" orientation="horizontal" className="h-full" data-ui-region="editor-layout">
       <SplitPanel.Segment id="editor-left" defaultSize={280} minSize={140} collapsible>
-        <RecastPanel.Root className="h-full border-r border-secondary">
+        <LumaCastPanel.Root className="h-full border-r border-secondary">
           <SplitPanel.Panel splitId="overlay-list-panel" orientation="vertical" className="h-full">
             <SplitPanel.Segment id="overlay-list" defaultSize={440} minSize={180}>
-              <RecastPanel.Group>
-                <RecastPanel.GroupTitle>
+              <LumaCastPanel.Group className="h-full min-h-0">
+                <LumaCastPanel.GroupTitle>
                   <Label.sm className="mr-auto">Overlays</Label.sm>
                   <Dropdown>
                     <Dropdown.Trigger
@@ -48,8 +48,8 @@ function OverlayEditorScreenContent() {
                       </Dropdown.Item>
                     </Dropdown.Panel>
                   </Dropdown>
-                </RecastPanel.GroupTitle>
-                <RecastPanel.Content>
+                </LumaCastPanel.GroupTitle>
+                <LumaCastPanel.Content>
                   {state.overlays.length === 0 ? (
                     <EmptyState.Root>
                       <EmptyState.Title>No overlays yet</EmptyState.Title>
@@ -69,21 +69,21 @@ function OverlayEditorScreenContent() {
                       </ScrollArea.Scrollbar>
                     </ScrollArea.Root>
                   )}
-                </RecastPanel.Content>
-              </RecastPanel.Group>
+                </LumaCastPanel.Content>
+              </LumaCastPanel.Group>
             </SplitPanel.Segment>
             <SplitPanel.Segment id="overlay-objects" defaultSize={220} minSize={160}>
-              <RecastPanel.Group>
-                <RecastPanel.GroupTitle className="border-t">
+              <LumaCastPanel.Group className="h-full min-h-0">
+                <LumaCastPanel.GroupTitle className="border-t">
                   <Label.xs className="mr-auto">Layers</Label.xs>
-                </RecastPanel.GroupTitle>
-                <RecastPanel.Content className="overflow-y-auto p-2">
+                </LumaCastPanel.GroupTitle>
+                <LumaCastPanel.Content className="overflow-y-auto p-2">
                   <OverlayEditorLayersPanel />
-                </RecastPanel.Content>
-              </RecastPanel.Group>
+                </LumaCastPanel.Content>
+              </LumaCastPanel.Group>
             </SplitPanel.Segment>
           </SplitPanel.Panel>
-        </RecastPanel.Root>
+        </LumaCastPanel.Root>
       </SplitPanel.Segment>
       <SplitPanel.Segment id="editor-center" defaultSize={840} minSize={360}>
         <StagePanel />

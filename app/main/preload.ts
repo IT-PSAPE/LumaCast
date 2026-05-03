@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { IPC, NDI_EVENTS } from '@core/ipc';
+import { APP_MENU_EVENTS, IPC, NDI_EVENTS } from '@core/ipc';
 import type {
   AppSnapshot,
   DeckBundleBrokenReferenceDecision,
@@ -8,7 +8,12 @@ import type {
   ElementCreateInput,
   ElementUpdateInput,
   Id,
-  MediaAsset,
+  MediaAssetCreateInput,
+  CollectionAssignmentInput,
+  CollectionCreateInput,
+  CollectionDeleteInput,
+  CollectionRenameInput,
+  CollectionReorderInput,
   NdiDiagnostics,
   NdiOutputConfig,
   NdiOutputConfigMap,
@@ -19,8 +24,8 @@ import type {
   OverlayUpdateInput,
   StageCreateInput,
   StageUpdateInput,
-  TemplateCreateInput,
-  TemplateUpdateInput,
+  ThemeCreateInput,
+  ThemeUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput
@@ -32,7 +37,12 @@ const api = {
   readClipboardText: () => ipcRenderer.invoke(IPC.readClipboardText) as Promise<string>,
   writeClipboardText: (text: string) => ipcRenderer.invoke(IPC.writeClipboardText, text) as Promise<void>,
   getInlineWindowMenuItems: () => ipcRenderer.invoke(IPC.getInlineWindowMenuItems) as Promise<import('@core/ipc').InlineWindowMenuItem[]>,
-  popupInlineWindowMenu: (menuId: string, x: number, y: number) => ipcRenderer.invoke(IPC.popupInlineWindowMenu, menuId, x, y) as Promise<void>,
+  popupInlineWindowMenu: (menuId: string, bounds: import('@core/ipc').InlineWindowMenuBounds) =>
+    ipcRenderer.invoke(IPC.popupInlineWindowMenu, menuId, bounds) as Promise<void>,
+  updateAppMenuState: (state: import('@core/ipc').AppMenuState) =>
+    ipcRenderer.invoke(IPC.updateAppMenuState, state) as Promise<void>,
+  checkForAppUpdates: (manual = false) =>
+    ipcRenderer.invoke(IPC.checkForAppUpdates, manual) as Promise<void>,
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot),
   restoreFromSnapshot: (snapshot: AppSnapshot) => ipcRenderer.invoke(IPC.restoreFromSnapshot, snapshot) as Promise<AppSnapshot>,
   chooseDeckBundleExportPath: (suggestedName: string) => ipcRenderer.invoke(IPC.chooseDeckBundleExportPath, suggestedName) as Promise<string | null>,
@@ -75,7 +85,7 @@ const api = {
   updateElementsBatch: (inputs: ElementUpdateInput[]) => ipcRenderer.invoke(IPC.updateElementsBatch, inputs),
   deleteElement: (id: Id) => ipcRenderer.invoke(IPC.deleteElement, id),
   deleteElementsBatch: (ids: Id[]) => ipcRenderer.invoke(IPC.deleteElementsBatch, ids),
-  createMediaAsset: (asset: Omit<MediaAsset, 'id' | 'order' | 'createdAt' | 'updatedAt'>) => ipcRenderer.invoke(IPC.createMediaAsset, asset),
+  createMediaAsset: (asset: MediaAssetCreateInput) => ipcRenderer.invoke(IPC.createMediaAsset, asset),
   deleteMediaAsset: (id: Id) => ipcRenderer.invoke(IPC.deleteMediaAsset, id),
   updateMediaAssetSrc: (id: Id, src: string) => ipcRenderer.invoke(IPC.updateMediaAssetSrc, id, src),
   getAudioCoverArt: (src: string) => ipcRenderer.invoke(IPC.getAudioCoverArt, src) as Promise<string | null>,
@@ -83,17 +93,17 @@ const api = {
   updateOverlay: (input: OverlayUpdateInput) => ipcRenderer.invoke(IPC.updateOverlay, input),
   setOverlayEnabled: (overlayId: Id, enabled: boolean) => ipcRenderer.invoke(IPC.setOverlayEnabled, overlayId, enabled),
   deleteOverlay: (overlayId: Id) => ipcRenderer.invoke(IPC.deleteOverlay, overlayId),
-  createTemplate: (input: TemplateCreateInput) => ipcRenderer.invoke(IPC.createTemplate, input),
-  updateTemplate: (input: TemplateUpdateInput) => ipcRenderer.invoke(IPC.updateTemplate, input),
-  deleteTemplate: (templateId: Id) => ipcRenderer.invoke(IPC.deleteTemplate, templateId),
-  applyTemplateToDeckItem: (templateId: Id, itemId: Id) =>
-    ipcRenderer.invoke(IPC.applyTemplateToDeckItem, templateId, itemId),
-  detachTemplateFromDeckItem: (itemId: Id) =>
-    ipcRenderer.invoke(IPC.detachTemplateFromDeckItem, itemId),
-  syncTemplateToLinkedDeckItems: (templateId: Id) =>
-    ipcRenderer.invoke(IPC.syncTemplateToLinkedDeckItems, templateId),
-  applyTemplateToOverlay: (templateId: Id, overlayId: Id) =>
-    ipcRenderer.invoke(IPC.applyTemplateToOverlay, templateId, overlayId),
+  createTheme: (input: ThemeCreateInput) => ipcRenderer.invoke(IPC.createTheme, input),
+  updateTheme: (input: ThemeUpdateInput) => ipcRenderer.invoke(IPC.updateTheme, input),
+  deleteTheme: (themeId: Id) => ipcRenderer.invoke(IPC.deleteTheme, themeId),
+  applyThemeToDeckItem: (themeId: Id, itemId: Id) =>
+    ipcRenderer.invoke(IPC.applyThemeToDeckItem, themeId, itemId),
+  detachThemeFromDeckItem: (itemId: Id) =>
+    ipcRenderer.invoke(IPC.detachThemeFromDeckItem, itemId),
+  syncThemeToLinkedDeckItems: (themeId: Id) =>
+    ipcRenderer.invoke(IPC.syncThemeToLinkedDeckItems, themeId),
+  applyThemeToOverlay: (themeId: Id, overlayId: Id) =>
+    ipcRenderer.invoke(IPC.applyThemeToOverlay, themeId, overlayId),
   createStage: (input: StageCreateInput) => ipcRenderer.invoke(IPC.createStage, input),
   updateStage: (input: StageUpdateInput) => ipcRenderer.invoke(IPC.updateStage, input),
   deleteStage: (stageId: Id) => ipcRenderer.invoke(IPC.deleteStage, stageId),
@@ -126,6 +136,16 @@ const api = {
     const handler = (_event: IpcRendererEvent, diagnostics: NdiDiagnostics) => callback(diagnostics);
     ipcRenderer.on(NDI_EVENTS.diagnosticsChanged, handler);
     return () => { ipcRenderer.removeListener(NDI_EVENTS.diagnosticsChanged, handler); };
+  },
+  createCollection: (input: CollectionCreateInput) => ipcRenderer.invoke(IPC.createCollection, input),
+  renameCollection: (input: CollectionRenameInput) => ipcRenderer.invoke(IPC.renameCollection, input),
+  deleteCollection: (input: CollectionDeleteInput) => ipcRenderer.invoke(IPC.deleteCollection, input),
+  reorderCollections: (input: CollectionReorderInput) => ipcRenderer.invoke(IPC.reorderCollections, input),
+  setItemCollection: (input: CollectionAssignmentInput) => ipcRenderer.invoke(IPC.setItemCollection, input),
+  onAppMenuCommand: (callback: (commandId: import('@core/ipc').AppMenuCommandId) => void) => {
+    const handler = (_event: IpcRendererEvent, commandId: import('@core/ipc').AppMenuCommandId) => callback(commandId);
+    ipcRenderer.on(APP_MENU_EVENTS.command, handler);
+    return () => { ipcRenderer.removeListener(APP_MENU_EVENTS.command, handler); };
   },
 };
 

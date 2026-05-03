@@ -35,7 +35,7 @@ export interface NavigationActionsValue {
   createDeckItem: (input: {
     kind: 'presentation' | 'lyric';
     name: string;
-    templateId?: Id;
+    themeId?: Id;
     segmentId?: Id;
   }) => Promise<void>;
   createSegment: () => Promise<void>;

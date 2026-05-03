@@ -17,7 +17,7 @@ import {
 } from './split-resize';
 import { fitSplitLayoutToContainer } from './split-normalize';
 
-const STORAGE_KEY = 'recast.workbench-layout.v1';
+const STORAGE_KEY = 'lumacast.workbench-layout.v1';
 const STORAGE_VERSION = 3;
 
 interface PersistedWorkbenchLayouts {

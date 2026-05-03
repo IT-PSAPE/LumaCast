@@ -71,25 +71,25 @@ export type BinTabSortKey = 'name' | 'created' | 'modified';
 export type DeckBinSortKey = BinTabSortKey | 'slides';
 
 export const useDeckBinSort = createBinSortHook<DeckBinSortKey>({
-  storageKey: 'recast.deck-bin-sort',
+  storageKey: 'lumacast.deck-bin-sort',
   defaultSort: { key: 'modified', direction: 'desc' },
   validKeys: ['name', 'created', 'modified', 'slides'],
 });
 
 export const useMediaBinSort = createBinSortHook<BinTabSortKey>({
-  storageKey: 'recast.media-bin-sort',
+  storageKey: 'lumacast.media-bin-sort',
   defaultSort: { key: 'modified', direction: 'desc' },
   validKeys: ['name', 'created', 'modified'],
 });
 
 export const useAudioBinSort = createBinSortHook<BinTabSortKey>({
-  storageKey: 'recast.audio-bin-sort',
+  storageKey: 'lumacast.audio-bin-sort',
   defaultSort: { key: 'modified', direction: 'desc' },
   validKeys: ['name', 'created', 'modified'],
 });
 
-export const useTemplateBinSort = createBinSortHook<BinTabSortKey>({
-  storageKey: 'recast.template-bin-sort',
+export const useThemeBinSort = createBinSortHook<BinTabSortKey>({
+  storageKey: 'lumacast.theme-bin-sort',
   defaultSort: { key: 'modified', direction: 'desc' },
   validKeys: ['name', 'created', 'modified'],
 });

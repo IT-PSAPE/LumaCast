@@ -1,4 +1,4 @@
-# Recast UI Specification
+# LumaCast UI Specification
 
 Updated on 2026-03-08.
 

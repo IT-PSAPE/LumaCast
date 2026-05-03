@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SelectableRow } from '../../components/display/selectable-row';
 import { AppearanceSettingsPanel } from './appearance-settings-panel';
 import { OutputSettingsPanel } from '../../features/playback/output-settings-panel';
@@ -16,8 +16,8 @@ export function SettingsScreen() {
     <section data-ui-region="settings-layout" className="h-full min-h-0 overflow-hidden">
       <SplitPanel.Panel splitId="settings-main" orientation="horizontal" className="h-full">
         <SplitPanel.Segment id="settings-left" defaultSize={240} minSize={180}>
-          <RecastPanel.Root className="h-full border-r border-secondary bg-primary/35">
-            <RecastPanel.Content className="p-3">
+          <LumaCastPanel.Root className="h-full border-r border-secondary bg-primary/35">
+            <LumaCastPanel.Content className="p-3">
               <div className="flex w-full flex-col gap-1">
                 <SelectableRow.Root selected={activeTab === 'appearance'} onClick={() => setActiveTab('appearance')}>
                   <SelectableRow.Label>Appearance</SelectableRow.Label>
@@ -32,8 +32,8 @@ export function SettingsScreen() {
                   <SelectableRow.Label>Import &amp; Export</SelectableRow.Label>
                 </SelectableRow.Root>
               </div>
-            </RecastPanel.Content>
-          </RecastPanel.Root>
+            </LumaCastPanel.Content>
+          </LumaCastPanel.Root>
         </SplitPanel.Segment>
 
         <SplitPanel.Segment id="settings-right" defaultSize={960} minSize={320}>

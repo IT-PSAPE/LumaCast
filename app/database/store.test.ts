@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppSnapshot, DeckBundleManifest, MediaAsset, PlaylistTree, SlideElement } from '@core/types';
+import { SqliteDatabase } from './sqlite';
 
 let currentUserDataPath = '';
 
@@ -21,8 +22,9 @@ function buildEmptySnapshot(): AppSnapshot {
     slideElements: [],
     mediaAssets: [],
     overlays: [],
-    templates: [],
+    themes: [],
     stages: [],
+    collections: [],
   };
 }
 
@@ -76,7 +78,7 @@ describe('CastRepository', () => {
 
   beforeEach(() => {
     vi.resetModules();
-    tempRoot = fs.mkdtempSync(path.join(process.cwd(), '.tmp-recast-store-test-'));
+    tempRoot = fs.mkdtempSync(path.join(process.cwd(), '.tmp-lumacast-store-test-'));
     currentUserDataPath = tempRoot;
   });
 
@@ -137,7 +139,7 @@ describe('CastRepository', () => {
         id: 'item-1',
         type: 'presentation',
         title: 'Imported deck',
-        templateId: null,
+        themeId: null,
         order: 0,
         slides: [{
           id: 'slide-1',
@@ -148,7 +150,7 @@ describe('CastRepository', () => {
           elements: [buildImageElement(missingSource)],
         }],
       }],
-      templates: [],
+      themes: [],
       mediaReferences: [],
     };
 
@@ -214,5 +216,90 @@ describe('CastRepository', () => {
       { id: 'playlist-a', order: 0 },
       { id: 'playlist-b', order: 1 },
     ]);
+  });
+
+  it('migrates legacy template tables and columns to theme naming', async () => {
+    const storeModule = await import('./store');
+    const presentationId = 'legacy-presentation';
+    const themeId = 'legacy-theme';
+    const now = '2026-01-01T00:00:00.000Z';
+
+    repo = new storeModule.CastRepository();
+    repo.db.close();
+    repo = null;
+
+    const dbPath = path.join(tempRoot, 'lumacast.sqlite');
+    const db = new SqliteDatabase(dbPath);
+    db.exec('DROP INDEX IF EXISTS idx_themes_order_index;');
+    db.exec('DROP INDEX IF EXISTS idx_themes_collection_id;');
+    db.exec('DROP INDEX IF EXISTS idx_decks_theme_id;');
+    db.exec('DROP INDEX IF EXISTS idx_lyrics_theme_id;');
+    db.exec('DROP INDEX IF EXISTS idx_theme_collections_order_index;');
+    db.pragma('foreign_keys = OFF');
+    db.exec('DROP TABLE IF EXISTS themes;');
+    db.exec('ALTER TABLE theme_collections RENAME TO template_collections;');
+    db.exec('ALTER TABLE presentations RENAME COLUMN theme_id TO template_id;');
+    db.exec('ALTER TABLE lyrics RENAME COLUMN theme_id TO template_id;');
+    db.exec('DELETE FROM presentations;');
+    db.exec('DELETE FROM playlist_entries;');
+    db.exec('DELETE FROM slides;');
+    db.exec('DELETE FROM slide_elements;');
+    // Recreate `templates` in its pre-v11 form (elements_json column, no
+    // slide_id) so this fixture mirrors the v9 schema. The v10 + v11
+    // migrations will rename it to themes and add slide_id on next open.
+    db.exec(`
+      CREATE TABLE templates (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        elements_json TEXT NOT NULL DEFAULT '[]',
+        collection_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    const deckCollectionId = (db.prepare('SELECT id FROM deck_collections WHERE is_default = 1 LIMIT 1').get() as { id: string }).id;
+    const themeCollectionId = (db.prepare('SELECT id FROM template_collections WHERE is_default = 1 LIMIT 1').get() as { id: string }).id;
+    db.prepare(
+      `INSERT INTO templates (id, name, kind, width, height, order_index, elements_json, collection_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(themeId, 'Legacy theme', 'slides', 1920, 1080, 0, '[]', themeCollectionId, now, now);
+    db.prepare(
+      `INSERT INTO presentations (id, title, template_id, collection_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(presentationId, 'Migrated deck', themeId, deckCollectionId, 0, now, now);
+    db.exec('CREATE INDEX idx_templates_order_index ON templates(order_index);');
+    db.exec('CREATE INDEX idx_templates_collection_id ON templates(collection_id);');
+    db.exec('CREATE INDEX idx_presentations_template_id ON presentations(template_id);');
+    db.exec('CREATE INDEX idx_lyrics_template_id ON lyrics(template_id);');
+    db.exec('CREATE INDEX idx_template_collections_order_index ON template_collections(order_index);');
+    db.pragma('foreign_keys = ON');
+    db.pragma('user_version = 9');
+    db.close();
+
+    repo = new storeModule.CastRepository();
+
+    const migratedSnapshot = repo.getSnapshot();
+    expect(migratedSnapshot.themes).toHaveLength(1);
+    expect(migratedSnapshot.themes[0]?.id).toBe(themeId);
+    expect(migratedSnapshot.presentations[0]?.themeId).toBe(themeId);
+
+    const migratedDb = new SqliteDatabase(dbPath, { readonly: true });
+    expect(
+      migratedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'themes'").get()
+    ).toBeTruthy();
+    expect(
+      migratedDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'templates'").get()
+    ).toBeUndefined();
+    expect(
+      (migratedDb.prepare('PRAGMA table_info(presentations)').all() as Array<{ name: string }>).some((column) => column.name === 'theme_id')
+    ).toBe(true);
+    expect(
+      (migratedDb.prepare('PRAGMA table_info(presentations)').all() as Array<{ name: string }>).some((column) => column.name === 'template_id')
+    ).toBe(false);
+    migratedDb.close();
   });
 });

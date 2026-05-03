@@ -16,7 +16,7 @@ interface ImportDecisionState {
 }
 
 interface ExtraIncludeFlags {
-  includeAllTemplates: boolean;
+  includeAllThemes: boolean;
   includeOverlays: boolean;
   includeStages: boolean;
 }
@@ -66,7 +66,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
   const [decisionMap, setDecisionMap] = useState<Map<string, ImportDecisionState>>(new Map());
   const [message, setMessage] = useState<string | null>(null);
   const [extras, setExtras] = useState<ExtraIncludeFlags>({
-    includeAllTemplates: false,
+    includeAllThemes: false,
     includeOverlays: false,
     includeStages: false,
   });
@@ -77,7 +77,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
 
   function buildExportOptions(): DeckBundleExportOptions {
     return {
-      includeAllTemplates: extras.includeAllTemplates,
+      includeAllThemes: extras.includeAllThemes,
       includeOverlays: extras.includeOverlays,
       includeStages: extras.includeStages,
     };
@@ -174,7 +174,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
 
   async function runExport(itemIds: Id[], suggestedName: string, options: DeckBundleExportOptions) {
     const hasItems = itemIds.length > 0;
-    const hasExtras = Boolean(options.includeAllTemplates || options.includeOverlays || options.includeStages);
+    const hasExtras = Boolean(options.includeAllThemes || options.includeOverlays || options.includeStages);
     if ((!hasItems && !hasExtras) || exportInFlight) return;
     setExportInFlight(true);
     updateMessage(null);
@@ -199,7 +199,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
   async function handleExportWorkspace() {
     const allIds = deckItems.map((item) => item.id);
     await runExport(allIds, 'cast-workspace', {
-      includeAllTemplates: true,
+      includeAllThemes: true,
       includeOverlays: true,
       includeStages: true,
     });
@@ -326,7 +326,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
 
 function describeExtras(options: DeckBundleExportOptions): string {
   const parts: string[] = [];
-  if (options.includeAllTemplates) parts.push('all templates');
+  if (options.includeAllThemes) parts.push('all themes');
   if (options.includeOverlays) parts.push('overlays');
   if (options.includeStages) parts.push('page layouts');
   return parts.join(', ');

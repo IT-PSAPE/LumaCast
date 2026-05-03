@@ -1,6 +1,6 @@
 import { ResourceDrawer } from '../../features/workbench/resource-drawer';
 import { ContinuousSlideBrowser } from '../../features/deck/continuous-slide-browser';
-import { PreviewPanel } from '../../features/playback/preview-panel';
+import { ProgramPanel } from '../../features/playback/program-panel';
 import { DeckBrowserToolbar } from '../../features/deck/deck-browser-toolbar';
 import { SlideBrowserContent } from '../../features/deck/slide-browser-content';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
@@ -47,7 +47,7 @@ function ShowScreenContent() {
         </SplitPanel.Panel>
       </SplitPanel.Segment>
       <SplitPanel.Segment id="show-right" defaultSize={320} minSize={140} maxSize={360} collapsible>
-        <PreviewPanel />
+        <ProgramPanel />
       </SplitPanel.Segment>
     </SplitPanel.Panel>
   );

@@ -38,12 +38,13 @@ export interface PlaylistEntry {
 }
 
 export type DeckItemType = 'presentation' | 'lyric';
-export type TemplateKind = 'slides' | 'lyrics' | 'overlays';
+export type ThemeKind = 'slides' | 'lyrics' | 'overlays';
 
 interface DeckItemBase {
   id: Id;
   title: string;
-  templateId?: Id | null;
+  themeId?: Id | null;
+  collectionId: Id;
   order: number;
   createdAt: string;
   updatedAt: string;
@@ -59,10 +60,17 @@ export interface Lyric extends DeckItemBase {
 
 export type DeckItem = Presentation | Lyric;
 
+export type SlideKind = 'presentation' | 'lyric' | 'theme' | 'overlay' | 'stage';
+
 export interface Slide {
   id: Id;
+  // Exactly one of the parent FKs is set; the rest are null.
   presentationId: Id | null;
   lyricId: Id | null;
+  themeId: Id | null;
+  overlayId: Id | null;
+  stageId: Id | null;
+  kind: SlideKind;
   width: number;
   height: number;
   notes: string;
@@ -164,6 +172,7 @@ export interface VideoElementPayload extends ElementVisualPayload {
   autoplay: boolean;
   loop: boolean;
   muted?: boolean;
+  playbackRate?: number;
 }
 
 export interface ShapeElementPayload extends ElementVisualPayload {
@@ -188,13 +197,14 @@ export interface SlideElement extends SlideElementBase {
   payload: SlideElementPayload;
 }
 
-export type MediaAssetType = 'image' | 'video' | 'audio' | 'animation';
+export type MediaAssetType = 'image' | 'video' | 'audio';
 
 export interface MediaAsset {
   id: Id;
   name: string;
   type: MediaAssetType;
   src: string;
+  collectionId: Id;
   order: number;
   createdAt: string;
   updatedAt: string;
@@ -210,29 +220,25 @@ export interface OverlayAnimation {
 
 export interface Overlay {
   id: Id;
+  slideId: Id;
   name: string;
-  type: OverlayType;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  opacity: number;
-  zIndex: number;
   enabled: boolean;
-  payload: SlideElementPayload;
   elements: SlideElement[];
   animation: OverlayAnimation;
+  collectionId: Id;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface Template {
+export interface Theme {
   id: Id;
+  slideId: Id;
   name: string;
-  kind: TemplateKind;
+  kind: ThemeKind;
   width: number;
   height: number;
   elements: SlideElement[];
+  collectionId: Id;
   order: number;
   createdAt: string;
   updatedAt: string;
@@ -240,19 +246,68 @@ export interface Template {
 
 export interface Stage {
   id: Id;
+  slideId: Id;
   name: string;
   width: number;
   height: number;
   elements: SlideElement[];
+  collectionId: Id;
   order: number;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface DeckBundleTemplate {
+export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage';
+
+export interface Collection {
+  id: Id;
+  binKind: CollectionBinKind;
+  name: string;
+  order: number;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectionCreateInput {
+  binKind: CollectionBinKind;
+  name: string;
+}
+
+export interface CollectionRenameInput {
+  binKind: CollectionBinKind;
   id: Id;
   name: string;
-  kind: TemplateKind;
+}
+
+export interface CollectionDeleteInput {
+  binKind: CollectionBinKind;
+  id: Id;
+}
+
+export interface CollectionReorderInput {
+  binKind: CollectionBinKind;
+  ids: Id[];
+}
+
+export type CollectionItemType =
+  | 'presentation'
+  | 'lyric'
+  | 'media_asset'
+  | 'theme'
+  | 'overlay'
+  | 'stage';
+
+export interface CollectionAssignmentInput {
+  itemType: CollectionItemType;
+  itemId: Id;
+  collectionId: Id;
+}
+
+export interface DeckBundleTheme {
+  id: Id;
+  name: string;
+  kind: ThemeKind;
   width: number;
   height: number;
   order: number;
@@ -272,7 +327,7 @@ export interface DeckBundleItem {
   id: Id;
   type: DeckItemType;
   title: string;
-  templateId: Id | null;
+  themeId: Id | null;
   order: number;
   slides: DeckBundleSlide[];
 }
@@ -312,14 +367,14 @@ export interface DeckBundleManifest {
   version: 1;
   exportedAt: string;
   items: DeckBundleItem[];
-  templates: DeckBundleTemplate[];
+  themes: DeckBundleTheme[];
   mediaReferences: DeckBundleMediaReference[];
   overlays?: DeckBundleOverlay[];
   stages?: DeckBundleStage[];
 }
 
 export interface DeckBundleExportOptions {
-  includeAllTemplates?: boolean;
+  includeAllThemes?: boolean;
   includeOverlays?: boolean;
   includeStages?: boolean;
 }
@@ -329,13 +384,13 @@ export interface DeckBundleInspectionItem {
   title: string;
   type: DeckItemType;
   slideCount: number;
-  templateId: Id | null;
+  themeId: Id | null;
 }
 
-export interface DeckBundleInspectionTemplate {
+export interface DeckBundleInspectionTheme {
   id: Id;
   name: string;
-  kind: TemplateKind;
+  kind: ThemeKind;
 }
 
 export interface DeckBundleInspectionOverlay {
@@ -354,7 +409,7 @@ export interface BrokenDeckBundleReference {
   elementTypes: Array<'image' | 'video'>;
   occurrenceCount: number;
   itemTitles: string[];
-  templateNames: string[];
+  themeNames: string[];
   overlayNames: string[];
   stageNames: string[];
 }
@@ -362,12 +417,12 @@ export interface BrokenDeckBundleReference {
 export interface DeckBundleInspection {
   exportedAt: string;
   itemCount: number;
-  templateCount: number;
+  themeCount: number;
   mediaReferenceCount: number;
   overlayCount: number;
   stageCount: number;
   items: DeckBundleInspectionItem[];
-  templates: DeckBundleInspectionTemplate[];
+  themes: DeckBundleInspectionTheme[];
   overlays: DeckBundleInspectionOverlay[];
   stages: DeckBundleInspectionStage[];
   mediaReferences: DeckBundleMediaReference[];
@@ -407,8 +462,9 @@ export interface AppSnapshot {
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
-  templates: Template[];
+  themes: Theme[];
   stages: Stage[];
+  collections: Collection[];
 }
 
 export interface PlaybackState {
@@ -529,6 +585,7 @@ export interface OverlayCreateInput {
   name: string;
   elements?: SlideElement[];
   animation?: OverlayAnimation;
+  collectionId?: Id;
 }
 
 export interface OverlayUpdateInput {
@@ -538,18 +595,19 @@ export interface OverlayUpdateInput {
   animation?: OverlayAnimation;
 }
 
-export interface TemplateCreateInput {
+export interface ThemeCreateInput {
   name: string;
-  kind: TemplateKind;
+  kind: ThemeKind;
   width?: number;
   height?: number;
   elements?: SlideElement[];
+  collectionId?: Id;
 }
 
-export interface TemplateUpdateInput {
+export interface ThemeUpdateInput {
   id: Id;
   name?: string;
-  kind?: TemplateKind;
+  kind?: ThemeKind;
   width?: number;
   height?: number;
   elements?: SlideElement[];
@@ -560,6 +618,7 @@ export interface StageCreateInput {
   width?: number;
   height?: number;
   elements?: SlideElement[];
+  collectionId?: Id;
 }
 
 export interface StageUpdateInput {
@@ -568,4 +627,11 @@ export interface StageUpdateInput {
   width?: number;
   height?: number;
   elements?: SlideElement[];
+}
+
+export interface MediaAssetCreateInput {
+  name: string;
+  type: MediaAssetType;
+  src: string;
+  collectionId?: Id;
 }

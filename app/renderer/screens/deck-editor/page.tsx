@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Play, Plus, Search } from 'lucide-react';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 import type { Id } from '@core/types';
 import { cn } from '@renderer/utils/cn';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
@@ -38,11 +38,11 @@ function DeckEditorScreenContent() {
       <SplitPanel.Panel splitId="edit-main" orientation="horizontal" className="h-full" data-ui-region="deck-editor-layout">
         {/* LEFT PANEL: LAYERS PANEL */}
         <SplitPanel.Segment id="edit-left" defaultSize={280} minSize={140} collapsible>
-          <RecastPanel.Root className="h-full border-r border-secondary">
+          <LumaCastPanel.Root className="h-full border-r border-secondary">
             <SplitPanel.Panel splitId={'slide-list-panel'} orientation="vertical" className="h-full">
               <SplitPanel.Segment id={'slide-list'} defaultSize={440} minSize={180}>
-                <RecastPanel.Group>
-                  <RecastPanel.GroupTitle>
+                <LumaCastPanel.Group className="h-full min-h-0">
+                  <LumaCastPanel.GroupTitle>
                     <DeckItemPicker />
                     <Dropdown>
                       <Dropdown.Trigger
@@ -64,8 +64,8 @@ function DeckEditorScreenContent() {
                         </Dropdown.Item>
                       </Dropdown.Panel>
                     </Dropdown>
-                  </RecastPanel.GroupTitle>
-                  <RecastPanel.Content className="min-h-0">
+                  </LumaCastPanel.GroupTitle>
+                  <LumaCastPanel.Content className="min-h-0">
                     {!state.currentDeckItem ? (
                       <EmptyState.Root>
                         <EmptyState.Title>No item selected</EmptyState.Title>
@@ -90,21 +90,21 @@ function DeckEditorScreenContent() {
                         </ScrollArea.Scrollbar>
                       </ScrollArea.Root>
                     )}
-                  </RecastPanel.Content>
-                </RecastPanel.Group>
+                  </LumaCastPanel.Content>
+                </LumaCastPanel.Group>
               </SplitPanel.Segment>
               <SplitPanel.Segment id={"slide-objects"} defaultSize={220} minSize={160}>
-                <RecastPanel.Group>
-                  <RecastPanel.GroupTitle className="border-t">
+                <LumaCastPanel.Group className="h-full min-h-0">
+                  <LumaCastPanel.GroupTitle className="border-t">
                     <Label.xs className="mr-auto">Layers</Label.xs>
-                  </RecastPanel.GroupTitle>
-                  <RecastPanel.Content className="overflow-y-auto p-2">
+                  </LumaCastPanel.GroupTitle>
+                  <LumaCastPanel.Content className="overflow-y-auto p-2">
                     <DeckEditorLayersPanel />
-                  </RecastPanel.Content>
-                </RecastPanel.Group>
+                  </LumaCastPanel.Content>
+                </LumaCastPanel.Group>
               </SplitPanel.Segment>
             </SplitPanel.Panel>
-          </RecastPanel.Root>
+          </LumaCastPanel.Root>
         </SplitPanel.Segment>
 
         {/* CENTER PANEL: CANVAS & NOTES PANEL */}

@@ -63,12 +63,12 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const { currentSlide, liveSlide, liveElements, slideElementsById } = useSlides();
   const { slides: projectSlides, slideElementsBySlideId: projectSlideElementsBySlideId } = useProjectContent();
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
-  const { mediaLayerAsset, activeOverlays, contentLayerVisible } = usePresentationRenderLayer();
+  const { mediaLayerAsset, videoLayerAsset, videoLayerPlayback, activeOverlays, contentLayerVisible } = usePresentationRenderLayer();
   const { state: { workbenchMode } } = useWorkbench();
   const activeEditorSource = useActiveEditorSource();
   const isDeckEdit = activeEditorSource.mode === 'deck-editor';
   const isOverlayEdit = activeEditorSource.mode === 'overlay-editor';
-  const isTemplateEdit = activeEditorSource.mode === 'template-editor';
+  const isThemeEdit = activeEditorSource.mode === 'theme-editor';
 
   // ════════════════════════════════════════════════════════════════════
   // Element editing
@@ -170,7 +170,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const deleteSelected = useCallback(async () => {
     const protectedLyricTextIds = new Set(getProtectedLyricTextSelectionIds(
       effectiveElements, selection.selectedElementIds,
-      isTemplateEdit ? activeEditorSource.meta.templateKind === 'lyrics' : isDeckEdit && isLyricDeckItem(currentDeckItem),
+      isThemeEdit ? activeEditorSource.meta.themeKind === 'lyrics' : isDeckEdit && isLyricDeckItem(currentDeckItem),
     ));
     const targetIds = getUnlockedSelectedElementIds(effectiveElements, selection.selectedElementIds)
       .filter((id) => !protectedLyricTextIds.has(id));
@@ -188,7 +188,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     setStatusText('Deleted selected object(s)');
     selection.selectElements(selection.selectedElementIds.filter((id) => protectedLyricTextIds.has(id)));
     setDraftElements({});
-  }, [activeEditorSource, currentDeckItem, effectiveElements, history, isDeckEdit, isTemplateEdit, mutatePatch, selection, setStatusText]);
+  }, [activeEditorSource, currentDeckItem, effectiveElements, history, isDeckEdit, isThemeEdit, mutatePatch, selection, setStatusText]);
 
   const toggleElementVisibility = useCallback(async (id: Id, visible: boolean) => {
     const target = effectiveElements.find((el) => el.id === id);
@@ -272,15 +272,18 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     return buildLayeredRenderScene({
       slide: liveSlide,
       contentElements: liveElements,
+      videoAsset: videoLayerAsset,
+      videoPlayback: videoLayerPlayback,
       mediaAsset: mediaLayerAsset,
       overlays: activeOverlays.map((overlay) => ({
         overlay: overlay.overlay,
         opacityMultiplier: overlay.opacityMultiplier,
         stackOrder: overlay.stackOrder,
+        startedAt: overlay.startedAt,
       })),
       includeContent: contentLayerVisible,
     });
-  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset]);
+  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset, videoLayerAsset, videoLayerPlayback]);
 
   const isEditing = workbenchMode !== 'show';
   const [frozenProgramScene, setFrozenProgramScene] = useState<RenderScene | null>(null);

@@ -14,6 +14,7 @@ function buildSnapshot(): AppSnapshot {
     id: 'presentation-1',
     title: 'Presentation',
     type: 'presentation',
+    collectionId: 'deck-default',
     order: 0,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -32,8 +33,9 @@ function buildSnapshot(): AppSnapshot {
     slideElements: [],
     mediaAssets: [],
     overlays: [],
-    templates: [],
+    themes: [],
     stages: [],
+    collections: [],
   };
 }
 
@@ -45,6 +47,7 @@ describe('invertPatch', () => {
       id: 'presentation-2',
       title: 'Created',
       type: 'presentation',
+      collectionId: 'deck-default',
       order: 1,
       createdAt: '2026-01-02T00:00:00.000Z',
       updatedAt: '2026-01-02T00:00:00.000Z',

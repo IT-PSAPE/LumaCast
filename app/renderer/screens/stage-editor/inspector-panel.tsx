@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { ReacstButton } from '@renderer/components/controls/button';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '@renderer/components/display/tabs';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
@@ -8,6 +8,7 @@ import { ShapeElementInspector } from '@renderer/features/inspector/shape-elemen
 import { StageInspector } from '@renderer/features/inspector/stage-inspector';
 import { TextElementInspector } from '@renderer/features/inspector/text-element-inspector';
 import { BindingInspector } from '@renderer/features/inspector/binding-inspector';
+import { VideoElementInspector } from '@renderer/features/inspector/video-element-inspector';
 import type { InspectorTab } from '@renderer/types/ui';
 import { useStageEditorScreen } from './screen-context';
 
@@ -17,13 +18,14 @@ export function StageEditorInspectorPanel() {
   const { selectedElement } = useElements();
   const hasSelection = Boolean(selectedElement);
   const isTextSelected = selectedElement?.type === 'text';
+  const isVideoSelected = selectedElement?.type === 'video';
 
   useEffect(() => {
     if (!hasSelection) {
-      // Mirror the template-editor pattern: when nothing is selected, fall
+      // Mirror the theme-editor pattern: when nothing is selected, fall
       // back to the stage-level tab (rename + meta) so the panel always has
       // something useful instead of an empty state.
-      if (inspectorTab === 'shape' || inspectorTab === 'text' || inspectorTab === 'binding' || inspectorTab === 'slide' || inspectorTab === 'presentation' || inspectorTab === 'template') {
+      if (inspectorTab === 'shape' || inspectorTab === 'text' || inspectorTab === 'binding' || inspectorTab === 'slide' || inspectorTab === 'presentation' || inspectorTab === 'theme' || inspectorTab === 'video') {
         setInspectorTab('stage');
       }
       return;
@@ -32,15 +34,20 @@ export function StageEditorInspectorPanel() {
       if (inspectorTab !== 'shape' && inspectorTab !== 'text' && inspectorTab !== 'binding') setInspectorTab('shape');
       return;
     }
+
+    if (isVideoSelected) {
+      if (inspectorTab !== 'shape' && inspectorTab !== 'video') setInspectorTab('video');
+      return;
+    }
     if (inspectorTab !== 'shape') setInspectorTab('shape');
-  }, [hasSelection, inspectorTab, setInspectorTab, isTextSelected]);
+  }, [hasSelection, inspectorTab, setInspectorTab, isTextSelected, isVideoSelected]);
 
   function handleTabChange(value: string) {
     setInspectorTab(value as InspectorTab);
   }
 
   return (
-    <RecastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
+    <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
       <Tabs.Root value={inspectorTab} onValueChange={handleTabChange}>
         <section className="flex flex-1 flex-col">
           <div className="border-b border-primary">
@@ -49,6 +56,7 @@ export function StageEditorInspectorPanel() {
               {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
               {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
               {isTextSelected && <Tabs.Trigger value="binding">Binding</Tabs.Trigger>}
+              {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
             </Tabs.List>
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
@@ -56,16 +64,17 @@ export function StageEditorInspectorPanel() {
             {inspectorTab === 'shape' && <ShapeElementInspector />}
             {inspectorTab === 'text' && <TextElementInspector />}
             {inspectorTab === 'binding' && <BindingInspector />}
+            {inspectorTab === 'video' && <VideoElementInspector />}
           </div>
         </section>
       </Tabs.Root>
       {state.hasPendingChanges && (
-        <RecastPanel.Footer className="p-3">
+        <LumaCastPanel.Footer className="p-3">
           <ReacstButton onClick={() => { void actions.saveChanges(); }} disabled={state.isPushingChanges} className="w-full">
             {state.isPushingChanges ? 'Pushing…' : 'Save Changes'}
           </ReacstButton>
-        </RecastPanel.Footer>
+        </LumaCastPanel.Footer>
       )}
-    </RecastPanel.Root>
+    </LumaCastPanel.Root>
   );
 }

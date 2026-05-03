@@ -74,9 +74,20 @@ No signing is configured. Linux artifacts are still published to the GitHub Rele
 
 ## Wiring app-managed auto-update
 
-Updater metadata alone is not enough. The application still needs explicit main-process wiring before release builds will self-update in the installed app.
+The app is wired to `electron-updater` and consumes the GitHub release metadata produced by the release workflow.
 
-That work is not present in the current codebase. When the project is ready to add it, install `electron-updater` and integrate update checks in the main process as a separate application change.
+Current behavior:
+
+- Installed builds automatically check for updates shortly after launch.
+- The native application menu exposes `Check for Updates…` for a manual check.
+- When a newer release is found, the app prompts the user before downloading it.
+- After the update finishes downloading, the app prompts to install and restart immediately.
+
+Operational notes:
+
+- macOS auto-update requires a properly signed app build.
+- Development builds skip update checks because `electron-updater` is intended for installed packages.
+- The GitHub release must include the platform installer artifacts and generated `latest*.yml` metadata for the target platform.
 
 ## Cutting a release
 
@@ -104,4 +115,4 @@ gh run watch
 - Release was not created after pushing to `main`: confirm `package.json#version` actually changed and that `v<version>` does not already exist as a GitHub Release. Check the `guard` job's notice line for `should_release=...`.
 - macOS artifact is produced but cannot be opened cleanly: signing or notarization secrets are missing or invalid.
 - Windows artifact shows SmartScreen warnings: the build is unsigned or the signing certificate reputation is still warming up.
-- Installed app does not auto-update: expected until `electron-updater` wiring is added to the app itself.
+- Installed app does not auto-update: confirm the build is packaged, the GitHub Release contains the updater metadata files, and the release is newer than `package.json#version` in the installed app.

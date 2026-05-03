@@ -1,4 +1,4 @@
-import { Image, Square, Type } from 'lucide-react';
+import { Film, Image, Square, Type } from 'lucide-react';
 import { ReacstButtonGroup } from '@renderer/components/controls/button-group';
 import { MediaPickerDialog } from '../../components/overlays/media-picker-dialog';
 import { useElements } from '../../contexts/canvas/canvas-context';
@@ -17,12 +17,6 @@ export function StagePanel() {
   const { x, y, width, height } = state.selectionMetrics;
   const { createText, createShape } = useElements();
   const activeEditorSource = useActiveEditorSource();
-
-  function handleAddMedia() {
-    if (actions.openMediaPicker) {
-      actions.openMediaPicker();
-    }
-  }
 
   return (
     <section
@@ -45,18 +39,25 @@ export function StagePanel() {
                     <Square strokeWidth={1.5} />
                   </ReacstButtonGroup.Icon>
                 ) : null}
-                {activeEditorSource.createCapabilities.media ? (
-                  <ReacstButtonGroup.Icon native label="Add media" onClick={handleAddMedia}>
+                {activeEditorSource.createCapabilities.image ? (
+                  <ReacstButtonGroup.Icon native label="Add image" onClick={() => actions.openAssetPicker('image')}>
                     <Image strokeWidth={1.5} />
+                  </ReacstButtonGroup.Icon>
+                ) : null}
+                {activeEditorSource.createCapabilities.video ? (
+                  <ReacstButtonGroup.Icon native label="Add video" onClick={() => actions.openAssetPicker('video')}>
+                    <Film strokeWidth={1.5} />
                   </ReacstButtonGroup.Icon>
                 ) : null}
               </ReacstButtonGroup.Root>
             </div>
-            {state.showMediaPicker ? (
+            {state.pickerKind ? (
               <MediaPickerDialog
                 assets={state.mediaAssets}
+                kind={state.pickerKind}
                 onConfirm={actions.confirmMedia}
-                onClose={actions.closeMediaPicker}
+                onClose={actions.closeAssetPicker}
+                onImportAssets={actions.importAssets}
               />
             ) : null}
           </>

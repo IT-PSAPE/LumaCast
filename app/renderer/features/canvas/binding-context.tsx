@@ -7,6 +7,8 @@ export interface BindingValue {
   armedAtMs: number | null;
 }
 
+export type BindingOverride = Partial<BindingValue>;
+
 const EMPTY_VALUE: BindingValue = {
   currentSlideText: null,
   nextSlideText: null,

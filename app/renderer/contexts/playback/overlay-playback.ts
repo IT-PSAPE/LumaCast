@@ -18,6 +18,7 @@ export interface OverlayRenderLayer {
   overlay: Overlay;
   opacityMultiplier: number;
   state: OverlayPlaybackState;
+  startedAt: number;
   remainingAutoClearMs: number | null;
   stackOrder: number;
 }
@@ -160,6 +161,7 @@ export function getOverlayRenderLayers(
         overlay,
         opacityMultiplier: resolveOverlayOpacity(entry, overlay, now),
         state: entry.state,
+        startedAt: entry.startedAt,
         remainingAutoClearMs: resolveRemainingAutoClearMs(entry, overlay, now),
         stackOrder: entry.stackOrder,
       };

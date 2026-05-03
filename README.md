@@ -1,4 +1,4 @@
-# Recast Prototype
+# LumaCast Prototype
 
 Cross-platform Electron prototype for a ProPresenter-style presentation workflow focused on reusable content, slide rendering, and NDI output.
 
@@ -103,7 +103,7 @@ See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release 
 
 ## Updater status
 
-The release workflow publishes platform artifacts and update metadata, but the app does not currently wire `electron-updater` into the main process. Installed builds therefore do not self-check for updates yet.
+Installed builds now check GitHub Releases for updates on startup and expose a manual `Check for Updates…` action from the native application menu. The updater flow is wired through `electron-updater`, so release artifacts and updater metadata published by the release workflow are consumed directly by the app.
 
 ## Architecture
 
@@ -116,4 +116,4 @@ The release workflow publishes platform artifacts and update metadata, but the a
 ## Notes
 
 - `node:sqlite` still emits an experimental/release-candidate warning on current Node 22+ lines. That warning is expected.
-- The persistence database is stored in the Electron user data path as `recast.sqlite`.
+- The persistence database is stored in the Electron user data path as `lumacast.sqlite`. Older installs with a `recast.sqlite` file are renamed automatically on first launch.

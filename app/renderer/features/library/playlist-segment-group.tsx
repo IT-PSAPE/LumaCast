@@ -8,21 +8,38 @@ import { DeckItemIcon } from '../../components/display/entity-icon';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useLibraryBrowser } from './library-browser-context';
+import { useLibraryPanelManagement } from './use-library-panel-management';
 import { getSegmentHeaderColors } from './segment-header-color';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { hasDeckItemDragData, readDeckItemDragData } from '../../utils/deck-item-drag';
 
 interface PlaylistSegmentGroupProps {
   segment: PlaylistTree['segments'][number];
+  index: number;
+  totalSegments: number;
 }
 
-export function PlaylistSegmentGroup({ segment }: PlaylistSegmentGroupProps) {
+export function PlaylistSegmentGroup(props: PlaylistSegmentGroupProps) {
+  return (
+    <ContextMenu.Root>
+      <PlaylistSegmentGroupBody {...props} />
+    </ContextMenu.Root>
+  );
+}
+
+function PlaylistSegmentGroupBody({ segment, index, totalSegments }: PlaylistSegmentGroupProps) {
   const { addDeckItemToSegmentAt } = useNavigation();
   const { actions } = useLibraryBrowser();
+  const { deleteSegment, movePlaylistSegment } = useLibraryPanelManagement();
+  const confirm = useConfirm();
   const isSegmentEditing = actions.isEditing('segment', segment.segment.id);
   const segmentHeaderColors = getSegmentHeaderColors(segment.segment.id, segment.segment.colorKey);
   const renameRef = useRef<RenameFieldHandle>(null);
+  const { ref: segmentTriggerRef, ...segmentTriggerHandlers } = useContextMenuTrigger();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  const isFirst = index === 0;
+  const isLast = index === totalSegments - 1;
 
   useEffect(() => {
     if (isSegmentEditing) renameRef.current?.startEditing();
@@ -31,6 +48,16 @@ export function PlaylistSegmentGroup({ segment }: PlaylistSegmentGroupProps) {
   function handleSegmentRename(name: string) {
     actions.renameSegment(segment.segment.id, name);
     actions.clearEditing();
+  }
+
+  async function handleSegmentDelete() {
+    const ok = await confirm({
+      title: `Delete "${segment.segment.name}"?`,
+      description: 'All entries in this segment will be removed from the playlist.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (ok) await deleteSegment(segment.segment.id);
   }
 
   function acceptDeckItemDrop(event: React.DragEvent<HTMLElement>, nextDropIndex: number) {
@@ -49,7 +76,7 @@ export function PlaylistSegmentGroup({ segment }: PlaylistSegmentGroupProps) {
     acceptDeckItemDrop(event, segment.entries.length);
   }
 
-  function handleEntryDragOver(index: number, event: React.DragEvent<HTMLElement>) {
+  function handleEntryDragOver(entryIndex: number, event: React.DragEvent<HTMLElement>) {
     if (!hasDeckItemDragData(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -57,7 +84,7 @@ export function PlaylistSegmentGroup({ segment }: PlaylistSegmentGroupProps) {
 
     const bounds = event.currentTarget.getBoundingClientRect();
     const isAfter = event.clientY > bounds.top + (bounds.height / 2);
-    setDropIndex(isAfter ? index + 1 : index);
+    setDropIndex(isAfter ? entryIndex + 1 : entryIndex);
   }
 
   function handleDragLeave(event: React.DragEvent<HTMLElement>) {
@@ -80,24 +107,37 @@ export function PlaylistSegmentGroup({ segment }: PlaylistSegmentGroupProps) {
   }
 
   return (
-    <Accordion.Item value={segment.segment.id} className="group/segment" onDragLeave={handleDragLeave}>
-      <Accordion.Trigger
-        className={`h-7 flex items-center justify-between px-2 ${dropIndex !== null ? 'ring-1 ring-brand_solid/60' : ''}`}
-        style={{ backgroundColor: segmentHeaderColors.backgroundColor, color: segmentHeaderColors.textColor }}
-        onDragOver={handleHeaderDragOver}
-        onDrop={handleDrop}
-      >
-        <RenameField ref={renameRef} value={segment.segment.name} onValueChange={handleSegmentRename} className="label-xs" />
-      </Accordion.Trigger>
-      <Accordion.Content className='p-1' onDragOver={handleContentDragOver} onDrop={handleDrop}>
-        {renderSegmentEntries({
-          entries: segment.entries,
-          dropIndex,
-          onEntryDragOver: handleEntryDragOver,
-          onEntryDrop: handleDrop,
-        })}
-      </Accordion.Content>
-    </Accordion.Item>
+    <>
+      <Accordion.Item value={segment.segment.id} className="group/segment" onDragLeave={handleDragLeave}>
+        <Accordion.Trigger
+          className={`h-7 flex items-center justify-between px-2 ${dropIndex !== null ? 'ring-1 ring-brand_solid/60' : ''}`}
+          style={{ backgroundColor: segmentHeaderColors.backgroundColor, color: segmentHeaderColors.textColor }}
+          onDragOver={handleHeaderDragOver}
+          onDrop={handleDrop}
+        >
+          <div ref={segmentTriggerRef} {...segmentTriggerHandlers} className="flex-1 min-w-0">
+            <RenameField ref={renameRef} value={segment.segment.name} onValueChange={handleSegmentRename} className="label-xs" />
+          </div>
+        </Accordion.Trigger>
+        <Accordion.Content className='p-1' onDragOver={handleContentDragOver} onDrop={handleDrop}>
+          {renderSegmentEntries({
+            entries: segment.entries,
+            dropIndex,
+            onEntryDragOver: handleEntryDragOver,
+            onEntryDrop: handleDrop,
+          })}
+        </Accordion.Content>
+      </Accordion.Item>
+      <ContextMenu.Portal>
+        <ContextMenu.Menu>
+          <ContextMenu.Item disabled={isFirst} onSelect={() => { void movePlaylistSegment(segment.segment.id, index, 'up'); }}>Move up</ContextMenu.Item>
+          <ContextMenu.Item disabled={isLast} onSelect={() => { void movePlaylistSegment(segment.segment.id, index, 'down'); }}>Move down</ContextMenu.Item>
+          <ContextMenu.Separator />
+          <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleSegmentDelete(); }}>Delete segment</ContextMenu.Item>
+        </ContextMenu.Menu>
+      </ContextMenu.Portal>
+    </>
   );
 }
 
@@ -154,7 +194,7 @@ function SegmentEntryRowBody({
 
   return (
     <>
-      <RecastPanel.MenuItem
+      <LumaCastPanel.MenuItem
         {...triggerHandlers}
         ref={triggerRef}
         active={isSelected}
@@ -165,7 +205,7 @@ function SegmentEntryRowBody({
       >
         <DeckItemIcon entity={item} className="shrink-0" />
         <RenameField ref={renameRef} value={item.title} onValueChange={handleRename} className="label-xs" />
-      </RecastPanel.MenuItem>
+      </LumaCastPanel.MenuItem>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
           <ContextMenu.Item disabled={isFirst} onSelect={() => { void movePlaylistEntryDirection(entry.id, 'up'); }}>Move up</ContextMenu.Item>

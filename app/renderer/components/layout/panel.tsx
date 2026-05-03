@@ -107,7 +107,7 @@ const PanelMenuItem = forwardRef<HTMLButtonElement, PanelMenuItemProps>(function
     );
 });
 
-export const RecastPanel = {
+export const LumaCastPanel = {
     Root: PanelRoot,
     Header: PanelHeader,
     Content: PanelContent,

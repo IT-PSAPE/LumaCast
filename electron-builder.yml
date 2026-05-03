@@ -1,6 +1,6 @@
-appId: com.recast.app
-productName: Recast
-copyright: Copyright © 2026 Recast
+appId: com.lumacast.app
+productName: LumaCast
+copyright: Copyright © 2026 LumaCast
 
 directories:
   buildResources: resources
@@ -8,12 +8,16 @@ directories:
 
 publish:
   provider: github
+  owner: IT-PSAPE
+  repo: cast-interface
   releaseType: release
+
+electronUpdaterCompatibility: ">=2.16"
 
 files:
   - out/**/*
   - resources/**/*
-  - "!node_modules/@recast/ndi-native/{src,binding.gyp}"
+  - "!node_modules/@lumacast/ndi-native/{src,binding.gyp}"
 
 extraResources:
   - from: resources/

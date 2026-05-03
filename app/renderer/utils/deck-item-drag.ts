@@ -1,6 +1,6 @@
 import type { Id } from '@core/types';
 
-const DECK_ITEM_DRAG_TYPE = 'application/x-recast-deck-item';
+const DECK_ITEM_DRAG_TYPE = 'application/x-lumacast-deck-item';
 
 interface DeckItemDragPayload {
   itemId: Id;

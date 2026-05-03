@@ -1,7 +1,7 @@
-import type { DeckItemType, Id, Overlay, Slide, SlideElement, Stage, Template, TemplateKind } from '@core/types';
+import type { DeckItemType, Id, Overlay, Slide, SlideElement, Stage, Theme, ThemeKind } from '@core/types';
 import type { WorkbenchMode } from '../../types/ui';
 
-export type EditorWorkbenchMode = 'deck-editor' | 'overlay-editor' | 'template-editor' | 'stage-editor';
+export type EditorWorkbenchMode = 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor';
 
 export interface EditorSourceFrame {
   width: number;
@@ -11,7 +11,8 @@ export interface EditorSourceFrame {
 export interface EditorCreateCapabilities {
   text: boolean;
   shape: boolean;
-  media: boolean;
+  image: boolean;
+  video: boolean;
 }
 
 interface EditorSourceBase<TMode extends WorkbenchMode, TMeta> {
@@ -38,9 +39,9 @@ export interface OverlayEditorSource extends EditorSourceBase<'overlay-editor', 
   overlay: Overlay | null;
 }> {}
 
-export interface TemplateEditorSource extends EditorSourceBase<'template-editor', {
-  template: Template | null;
-  templateKind: TemplateKind | null;
+export interface ThemeEditorSource extends EditorSourceBase<'theme-editor', {
+  theme: Theme | null;
+  themeKind: ThemeKind | null;
 }> {}
 
 export interface StageEditorSource extends EditorSourceBase<'stage-editor', {
@@ -52,10 +53,10 @@ export interface InactiveEditorSource extends EditorSourceBase<Exclude<Workbench
 export type ActiveEditorSource =
   | DeckEditorSource
   | OverlayEditorSource
-  | TemplateEditorSource
+  | ThemeEditorSource
   | StageEditorSource
   | InactiveEditorSource;
 
 export function isEditorWorkbenchMode(mode: WorkbenchMode): mode is EditorWorkbenchMode {
-  return mode === 'deck-editor' || mode === 'overlay-editor' || mode === 'template-editor' || mode === 'stage-editor';
+  return mode === 'deck-editor' || mode === 'overlay-editor' || mode === 'theme-editor' || mode === 'stage-editor';
 }

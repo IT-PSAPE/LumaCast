@@ -1,4 +1,4 @@
-import type { AppSnapshot, Id, LibraryPlaylistBundle, Library, Lyric, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Template } from './types';
+import type { AppSnapshot, Collection, Id, LibraryPlaylistBundle, Library, Lyric, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Theme } from './types';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -29,8 +29,9 @@ export interface SnapshotPatch {
     slideElements?: SlideElement[];
     mediaAssets?: MediaAsset[];
     overlays?: Overlay[];
-    templates?: Template[];
+    themes?: Theme[];
     stages?: Stage[];
+    collections?: Collection[];
     libraryBundles?: LibraryPlaylistBundle[];
   };
   deletes: {
@@ -41,8 +42,9 @@ export interface SnapshotPatch {
     slideElements?: Id[];
     mediaAssets?: Id[];
     overlays?: Id[];
-    templates?: Id[];
+    themes?: Id[];
     stages?: Id[];
+    collections?: Id[];
   };
 }
 
@@ -54,8 +56,9 @@ type SnapshotTableKey =
   | 'slideElements'
   | 'mediaAssets'
   | 'overlays'
-  | 'templates'
-  | 'stages';
+  | 'themes'
+  | 'stages'
+  | 'collections';
 
 type SnapshotTableRecordMap = {
   libraries: Library;
@@ -65,8 +68,9 @@ type SnapshotTableRecordMap = {
   slideElements: SlideElement;
   mediaAssets: MediaAsset;
   overlays: Overlay;
-  templates: Template;
+  themes: Theme;
   stages: Stage;
+  collections: Collection;
 };
 
 // ─── Utilities ──────────────────────────────────────────────────────
@@ -91,8 +95,9 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
     slideElements: mergeTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements),
     mediaAssets: mergeTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets),
     overlays: mergeTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays),
-    templates: mergeTable(snapshot.templates, patch.upserts.templates, patch.deletes.templates),
+    themes: mergeTable(snapshot.themes, patch.upserts.themes, patch.deletes.themes),
     stages: mergeTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages),
+    collections: mergeTable(snapshot.collections, patch.upserts.collections, patch.deletes.collections),
     libraryBundles: patch.upserts.libraryBundles ?? snapshot.libraryBundles,
   };
   return next;
@@ -114,8 +119,9 @@ export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): Snapsh
   invertTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements, inverse, 'slideElements');
   invertTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets, inverse, 'mediaAssets');
   invertTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays, inverse, 'overlays');
-  invertTable(snapshot.templates, patch.upserts.templates, patch.deletes.templates, inverse, 'templates');
+  invertTable(snapshot.themes, patch.upserts.themes, patch.deletes.themes, inverse, 'themes');
   invertTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages, inverse, 'stages');
+  invertTable(snapshot.collections, patch.upserts.collections, patch.deletes.collections, inverse, 'collections');
 
   if (patch.upserts.libraryBundles) {
     inverse.upserts.libraryBundles = snapshot.libraryBundles;
@@ -210,8 +216,8 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'overlays':
       inverse.upserts.overlays = [...(inverse.upserts.overlays ?? []), value as Overlay];
       return;
-    case 'templates':
-      inverse.upserts.templates = [...(inverse.upserts.templates ?? []), value as Template];
+    case 'themes':
+      inverse.upserts.themes = [...(inverse.upserts.themes ?? []), value as Theme];
       return;
     case 'stages':
       inverse.upserts.stages = [...(inverse.upserts.stages ?? []), value as Stage];
@@ -242,8 +248,8 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
     case 'overlays':
       inverse.deletes.overlays = [...(inverse.deletes.overlays ?? []), id];
       return;
-    case 'templates':
-      inverse.deletes.templates = [...(inverse.deletes.templates ?? []), id];
+    case 'themes':
+      inverse.deletes.themes = [...(inverse.deletes.themes ?? []), id];
       return;
     case 'stages':
       inverse.deletes.stages = [...(inverse.deletes.stages ?? []), id];

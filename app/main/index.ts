@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, nativeImage, protocol, type BrowserWindowConstructorOptions } from 'electron';
 import path from 'node:path';
 import { CastRepository } from '@database/store';
+import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';
 import { NdiService } from './ndi/ndi-service';
@@ -24,8 +25,8 @@ interface CliOptions {
 
 type RendererView = CliOptions['rendererView'];
 
-const APP_NAME = 'Recast';
-const APP_ID = 'com.recast.app';
+const APP_NAME = 'LumaCast';
+const APP_ID = 'com.lumacast.app';
 const cliOptions = resolveCliOptions(process.argv);
 app.setName(APP_NAME);
 if (cliOptions.userDataDir) {
@@ -44,6 +45,9 @@ const ndiService = new NdiService({
   },
 });
 let isShuttingDown = false;
+const appUpdater = new AppUpdater({
+  getMainWindow: () => mainWindow,
+});
 
 function teardownNdi(reason: string, error?: unknown) {
   if (error !== undefined) {
@@ -196,7 +200,7 @@ app.whenReady().then(() => {
       return createForbiddenResponse();
     }
 
-    return fetchLocalFileResponse(filePath).catch((error: unknown) => {
+    return fetchLocalFileResponse(filePath, request).catch((error: unknown) => {
       console.error('[cast-media] Failed to fetch local media', error);
       return createNotFoundResponse();
     });
@@ -218,8 +222,10 @@ app.whenReady().then(() => {
   });
 
   Menu.setApplicationMenu(createApplicationMenu());
-  registerIpcHandlers(repository, ndiService, () => mainWindow);
+  registerIpcHandlers(repository, ndiService, () => mainWindow, appUpdater);
   createMainWindow();
+  appUpdater.initialize();
+  appUpdater.scheduleStartupCheck();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

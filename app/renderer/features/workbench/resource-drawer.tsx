@@ -1,24 +1,21 @@
 import { createContext, useContext, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Ellipsis, Grid2x2, List } from 'lucide-react';
-import { SegmentedControl } from '../../components/controls/segmented-control';
+import { ArrowDown, ArrowUp, Ellipsis } from 'lucide-react';
 import { Tabs } from '../../components/display/tabs';
 import { Dropdown } from '../../components/form/dropdown';
 import { FileTrigger } from '../../components/form/file-trigger';
-import { GridSizeSlider } from '../../components/form/grid-size-slider';
-import { useTemplateEditor } from '../../contexts/asset-editor/asset-editor-context';
+import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { useWorkbench } from '../../contexts/workbench-context';
 import { useCreateDeckItem } from '../deck/create-deck-item';
 import { useResourceDrawer } from './resource-drawer-context';
-import { useGridSize } from '../../hooks/use-grid-size';
-import type { DrawerTab, ResourceDrawerViewMode } from '../../types/ui';
+import type { DrawerTab } from '../../types/ui';
 import { MediaBinPanel } from '../assets/media/media-bin-panel';
-import { TemplateBinPanel } from '../assets/templates/template-bin-panel';
+import { ThemeBinPanel } from '../assets/themes/theme-bin-panel';
 import { DeckBinPanel } from '../deck/deck-bin-panel';
 import {
   useDeckBinSort,
   useMediaBinSort,
-  useTemplateBinSort,
+  useThemeBinSort,
   type BinSort,
 } from './use-bin-sort';
 import { cn } from '@renderer/utils/cn';
@@ -39,27 +36,20 @@ const STANDARD_SORT_OPTIONS = [
 const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transparent text-tertiary hover:bg-quaternary hover:text-primary [&>svg]:size-4';
 
 const IMPORT_ACCEPT_BY_TAB = {
-  media: 'image/*,video/*',
+  image: 'image/*',
 } as const;
 
 const IMPORT_TYPE_PREFIXES_BY_TAB = {
-  media: ['image/', 'video/'],
+  image: ['image/'],
 } as const;
 
 interface ResourceDrawerContextValue {
   state: { drawerTab: DrawerTab };
   meta: {
-    gridSize: number;
-    gridSizeMin: number;
-    gridSizeMax: number;
-    gridSizeStep: number;
-    showGridSizeControl: boolean;
     showImportAction: boolean;
-    showModeControl: boolean;
   };
   actions: {
     setDrawerTab: (tab: DrawerTab) => void;
-    setGridSize: (size: number) => void;
     handleImport: (event: ChangeEvent<HTMLInputElement>) => void;
   };
 }
@@ -73,7 +63,7 @@ function useDrawer() {
 }
 
 function isImportTab(tab: DrawerTab): tab is keyof typeof IMPORT_ACCEPT_BY_TAB {
-  return tab === 'media';
+  return tab === 'image';
 }
 
 function hasImportableFiles(transfer: DataTransfer, tab: DrawerTab): boolean {
@@ -84,18 +74,13 @@ function hasImportableFiles(transfer: DataTransfer, tab: DrawerTab): boolean {
   ));
 }
 
-function isResourceDrawerViewMode(value: string): value is ResourceDrawerViewMode {
-  return value === 'grid' || value === 'list';
-}
-
 // ─── Root ─────────────────────────────────────────────────
 // Owns drag/drop, the drawer context, and Tabs.Root. Holds the outer footer
 // element so siblings (Header, Body) sit at one level below.
 
 function Root({ children }: { children: ReactNode }) {
-  const { drawerTab, drawerViewMode, setDrawerTab } = useResourceDrawer();
+  const { drawerTab, setDrawerTab } = useResourceDrawer();
   const { importMedia } = useElements();
-  const { gridSize, setGridSize, min: gridSizeMin, max: gridSizeMax, step: gridSizeStep } = useGridSize('recast.grid-size.resource-drawer', 6, 4, 8);
   const [isDragOver, setIsDragOver] = useState(false);
 
   function handleImport(event: ChangeEvent<HTMLInputElement>) {
@@ -130,15 +115,9 @@ function Root({ children }: { children: ReactNode }) {
   const value: ResourceDrawerContextValue = {
     state: { drawerTab },
     meta: {
-      gridSize,
-      gridSizeMin,
-      gridSizeMax,
-      gridSizeStep,
-      showGridSizeControl: drawerViewMode === 'grid',
-      showImportAction: drawerTab === 'media',
-      showModeControl: true,
+      showImportAction: drawerTab === 'image',
     },
-    actions: { setDrawerTab, setGridSize, handleImport },
+    actions: { setDrawerTab, handleImport },
   };
 
   return (
@@ -169,8 +148,8 @@ function Header() {
     <div className="flex h-8 items-end border-b border-primary px-1">
       <Tabs.List label="Resource tabs" className="min-w-0 flex-1" tabsClassName="gap-0.5">
         <Tabs.Trigger value="deck">Deck</Tabs.Trigger>
-        <Tabs.Trigger value="media">Media</Tabs.Trigger>
-        <Tabs.Trigger value="templates">Templates</Tabs.Trigger>
+        <Tabs.Trigger value="image">Images</Tabs.Trigger>
+        <Tabs.Trigger value="themes">Themes</Tabs.Trigger>
       </Tabs.List>
       <Toolbar />
     </div>
@@ -178,18 +157,12 @@ function Header() {
 }
 
 // ─── Toolbar ──────────────────────────────────────────────
-// Right-side controls: grid size, view mode, import file picker, more actions.
+// Right-side controls: import file picker, more actions. View mode and grid
+// size live in each panel's own footer.
 
 function Toolbar() {
-  const { actions, meta } = useDrawer();
-  const { drawerViewMode, setDrawerViewMode } = useResourceDrawer();
+  const { actions, state } = useDrawer();
   const importInputRef = useRef<HTMLInputElement>(null);
-
-  function handleViewModeChange(nextValue: string | string[]) {
-    if (Array.isArray(nextValue)) return;
-    if (!isResourceDrawerViewMode(nextValue)) return;
-    setDrawerViewMode(nextValue);
-  }
 
   function handleImportClick() {
     importInputRef.current?.click();
@@ -201,29 +174,10 @@ function Toolbar() {
 
   return (
     <div className="flex shrink-0 items-center gap-0.5 py-0.5">
-      {meta.showGridSizeControl ? (
-        <GridSizeSlider
-          value={meta.gridSize}
-          min={meta.gridSizeMin}
-          max={meta.gridSizeMax}
-          step={meta.gridSizeStep}
-          onChange={actions.setGridSize}
-        />
-      ) : null}
-      {meta.showModeControl ? (
-        <SegmentedControl value={drawerViewMode} onValueChange={handleViewModeChange} aria-label="Resource drawer mode">
-          <SegmentedControl.Icon value="grid" title="Grid view" aria-label="Grid view">
-            <Grid2x2 size={14} strokeWidth={1.5} />
-          </SegmentedControl.Icon>
-          <SegmentedControl.Icon value="list" title="List view" aria-label="List view">
-            <List size={14} strokeWidth={1.5} />
-          </SegmentedControl.Icon>
-        </SegmentedControl>
-      ) : null}
       <FileTrigger.Root
         hidden
         inputRef={importInputRef}
-        accept={IMPORT_ACCEPT_BY_TAB.media}
+        accept={isImportTab(state.drawerTab) ? IMPORT_ACCEPT_BY_TAB[state.drawerTab] : 'image/*'}
         multiple
         onSelect={handleImportSelect}
       />
@@ -238,15 +192,15 @@ function Toolbar() {
 function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
   const { state } = useDrawer();
   const { open: openCreateDeckItem } = useCreateDeckItem();
-  const { createTemplate } = useTemplateEditor();
+  const { createTheme } = useThemeEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const deckSort = useDeckBinSort();
   const mediaSort = useMediaBinSort();
-  const templateSort = useTemplateBinSort();
+  const themeSort = useThemeBinSort();
 
-  function handleCreateTemplate(kind: 'slides' | 'lyrics') {
-    createTemplate(kind);
-    setWorkbenchMode('template-editor');
+  function handleCreateTheme(kind: 'slides' | 'lyrics') {
+    createTheme(kind);
+    setWorkbenchMode('theme-editor');
   }
 
   return (
@@ -263,19 +217,19 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
             <SortMenuItems options={DECK_SORT_OPTIONS} sort={deckSort.sort} onChange={deckSort.setSort} />
           </>
         )}
-        {state.drawerTab === 'media' && (
+        {state.drawerTab === 'image' && (
           <>
-            <Dropdown.Item onClick={onImportClick}>Import media</Dropdown.Item>
+            <Dropdown.Item onClick={onImportClick}>Import images</Dropdown.Item>
             <Dropdown.Separator />
             <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={mediaSort.sort} onChange={mediaSort.setSort} />
           </>
         )}
-        {state.drawerTab === 'templates' && (
+        {state.drawerTab === 'themes' && (
           <>
-            <Dropdown.Item onClick={() => handleCreateTemplate('slides')}>New slides template</Dropdown.Item>
-            <Dropdown.Item onClick={() => handleCreateTemplate('lyrics')}>New lyrics template</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleCreateTheme('slides')}>New slides theme</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleCreateTheme('lyrics')}>New lyrics theme</Dropdown.Item>
             <Dropdown.Separator />
-            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={templateSort.sort} onChange={templateSort.setSort} />
+            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={themeSort.sort} onChange={themeSort.setSort} />
           </>
         )}
       </Dropdown.Panel>
@@ -287,15 +241,14 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
 // Single scrollable container; the active tab decides which bin panel renders.
 
 function Body() {
-  const { state, meta } = useDrawer();
+  const { state } = useDrawer();
   const { drawerTab } = state;
-  const gridItemSize = meta.gridSize;
 
   return (
-    <div className="min-h-0 overflow-auto px-2 pb-2 pt-1.5">
-      {drawerTab === 'deck' && <DeckBinPanel filterText="" gridItemSize={gridItemSize} />}
-      {drawerTab === 'media' && <MediaBinPanel filterText="" gridItemSize={gridItemSize} />}
-      {drawerTab === 'templates' && <TemplateBinPanel filterText="" gridItemSize={gridItemSize} />}
+    <div className="flex min-h-0 flex-1">
+      {drawerTab === 'deck' && <DeckBinPanel />}
+      {drawerTab === 'image' && <MediaBinPanel binKind="image" />}
+      {drawerTab === 'themes' && <ThemeBinPanel />}
     </div>
   );
 }

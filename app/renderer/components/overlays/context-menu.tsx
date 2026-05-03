@@ -23,6 +23,7 @@ import { Popover } from './popover';
 
 const DEFAULT_LONG_PRESS_DELAY = 500;
 const DEFAULT_VIEWPORT_PADDING = 8;
+const OWNED_MENU_SELECTOR = '[data-context-menu-owned="true"]';
 
 export interface ContextMenuPoint {
   x: number;
@@ -146,6 +147,9 @@ function Root({
 
     function handlePointerDown(event: PointerEvent) {
       const target = event.target as Node;
+      if (target instanceof Element && target.closest(OWNED_MENU_SELECTOR)) {
+        return;
+      }
 
       if (positionerRef.current?.contains(target) || triggerRef.current?.contains(target)) {
         return;
@@ -413,6 +417,7 @@ function Positioner({
     <div
       {...props}
       ref={meta.positionerRef}
+      data-context-menu-owned="true"
       className={cn('pointer-events-auto fixed', className)}
       onContextMenu={handleContextMenu}
       style={{
@@ -593,6 +598,7 @@ function Submenu({ label, children, disabled = false, className }: SubmenuProps)
       >
         <div
           role="menu"
+          data-context-menu-owned="true"
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
           className="min-w-30 max-h-60 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg"

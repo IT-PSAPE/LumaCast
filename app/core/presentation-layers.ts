@@ -7,6 +7,10 @@ export const LAYER_PREVIEW_SLIDE: Slide = {
   id: '__layer_preview__',
   presentationId: null,
   lyricId: null,
+  themeId: null,
+  overlayId: null,
+  stageId: null,
+  kind: 'presentation',
   width: OUTPUT_FRAME_WIDTH,
   height: OUTPUT_FRAME_HEIGHT,
   notes: '',
@@ -15,10 +19,23 @@ export const LAYER_PREVIEW_SLIDE: Slide = {
   updatedAt: '',
 };
 
-export function mediaAssetToLayerElement(asset: MediaAsset): SlideElement {
+interface PlaybackLayerElementOptions {
+  id?: string;
+  zIndex?: number;
+  videoPlayback?: {
+    autoplay?: boolean;
+    loop?: boolean;
+    muted?: boolean;
+    playbackRate?: number;
+  };
+}
+
+export function mediaAssetToLayerElement(asset: MediaAsset, options: PlaybackLayerElementOptions = {}): SlideElement {
+  const { id = '__layer_media', zIndex = 0, videoPlayback } = options;
+
   if (asset.type === 'audio') {
     return {
-      id: '__layer_media',
+      id,
       slideId: LAYER_PREVIEW_SLIDE.id,
       type: 'text',
       x: 0,
@@ -27,7 +44,7 @@ export function mediaAssetToLayerElement(asset: MediaAsset): SlideElement {
       height: 180,
       rotation: 0,
       opacity: 1,
-      zIndex: 0,
+      zIndex,
       layer: 'media',
       payload: {
         text: `[AUDIO] ${asset.name}`,
@@ -44,10 +61,10 @@ export function mediaAssetToLayerElement(asset: MediaAsset): SlideElement {
     };
   }
 
-  const isVideo = asset.type === 'video' || asset.type === 'animation';
+  const isVideo = asset.type === 'video';
 
   return {
-    id: '__layer_media',
+    id,
     slideId: LAYER_PREVIEW_SLIDE.id,
     type: isVideo ? 'video' : 'image',
     x: 0,
@@ -56,10 +73,16 @@ export function mediaAssetToLayerElement(asset: MediaAsset): SlideElement {
     height: OUTPUT_FRAME_HEIGHT,
     rotation: 0,
     opacity: 1,
-    zIndex: 0,
+    zIndex,
     layer: 'media',
     payload: isVideo
-      ? { src: asset.src, autoplay: true, loop: true, muted: true }
+      ? {
+        src: asset.src,
+        autoplay: videoPlayback?.autoplay ?? true,
+        loop: videoPlayback?.loop ?? true,
+        muted: videoPlayback?.muted ?? true,
+        playbackRate: videoPlayback?.playbackRate ?? 1,
+      }
       : { src: asset.src },
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
@@ -67,25 +90,6 @@ export function mediaAssetToLayerElement(asset: MediaAsset): SlideElement {
 }
 
 export function overlayToLayerElements(overlay: Overlay): SlideElement[] {
-  if (!overlay.elements || overlay.elements.length === 0) {
-    return [{
-      id: overlay.id,
-      slideId: '__overlay__',
-      type: overlay.type === 'shape' ? 'shape' : overlay.type === 'text' ? 'text' : overlay.type === 'video' ? 'video' : 'image',
-      x: overlay.x,
-      y: overlay.y,
-      width: overlay.width,
-      height: overlay.height,
-      rotation: 0,
-      opacity: overlay.opacity,
-      zIndex: overlay.zIndex,
-      layer: 'content',
-      payload: overlay.payload,
-      createdAt: overlay.createdAt,
-      updatedAt: overlay.updatedAt,
-    }];
-  }
-
   return overlay.elements.map((element) => ({
     ...element,
     slideId: '__overlay__',

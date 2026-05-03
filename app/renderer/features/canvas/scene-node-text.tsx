@@ -148,7 +148,7 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
     binding?: TextBinding;
   };
 
-  const resolvedText = useResolvedText({ text: payload.text, binding: payload.binding });
+  const resolvedText = useResolvedText({ text: payload.text, binding: payload.binding }, node.bindingOverride);
   const fontStyle = resolveKonvaTextStyle(payload.weight, payload.italic);
   const lineHeight = payload.lineHeight ?? 1.25;
   const verticalAlign = payload.verticalAlign ?? 'middle';

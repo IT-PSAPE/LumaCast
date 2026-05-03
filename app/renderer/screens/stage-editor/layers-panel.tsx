@@ -49,7 +49,7 @@ function StageLayerRow({
 }) {
   function handleClick() {
     onSelect(element.id);
-    onSetInspectorTab(element.type === 'text' ? 'text' : 'shape');
+    onSetInspectorTab(element.type === 'text' ? 'text' : element.type === 'video' ? 'video' : 'shape');
   }
 
   return (

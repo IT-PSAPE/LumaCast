@@ -1,6 +1,6 @@
 import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { CastRepository } from '@database/store';
-import { IPC, NDI_EVENTS, type InlineWindowMenuItem } from '@core/ipc';
+import { IPC, NDI_EVENTS, type AppMenuState, type InlineWindowMenuBounds, type InlineWindowMenuItem } from '@core/ipc';
 import type {
   AppSnapshot,
   DeckBundleBrokenReferenceDecision,
@@ -8,7 +8,12 @@ import type {
   ElementCreateInput,
   ElementUpdateInput,
   Id,
-  MediaAsset,
+  MediaAssetCreateInput,
+  CollectionAssignmentInput,
+  CollectionCreateInput,
+  CollectionDeleteInput,
+  CollectionRenameInput,
+  CollectionReorderInput,
   NdiDiagnostics,
   NdiFrameTelemetry,
   NdiOutputConfig,
@@ -17,13 +22,14 @@ import type {
   OverlayUpdateInput,
   StageCreateInput,
   StageUpdateInput,
-  TemplateCreateInput,
-  TemplateUpdateInput,
+  ThemeCreateInput,
+  ThemeUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput
 } from '@core/types';
-import { getInlineWindowMenuItems, popupInlineWindowMenu } from './application-menu';
+import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
+import type { AppUpdater } from './app-updater';
 import { readDeckBundleArchive, writeDeckBundleArchive } from './deck-bundle-archive';
 import { NdiService } from './ndi/ndi-service';
 import { assertTrustedIpcSender } from './security';
@@ -53,7 +59,8 @@ function safeHandle<Args extends unknown[], R>(
 export const registerIpcHandlers = (
   repo: CastRepository,
   ndiService: NdiService,
-  getMainWindow: () => BrowserWindow | null
+  getMainWindow: () => BrowserWindow | null,
+  appUpdater: AppUpdater,
 ): void => {
   function getDialogWindow(event: IpcMainInvokeEvent): BrowserWindow | null {
     return BrowserWindow.fromWebContents(event.sender) ?? getMainWindow();
@@ -93,13 +100,27 @@ export const registerIpcHandlers = (
     clipboard.writeText(text);
   });
   safeHandle(IPC.getInlineWindowMenuItems, (): InlineWindowMenuItem[] => getInlineWindowMenuItems());
-  safeHandle(IPC.popupInlineWindowMenu, async (event, menuId: string, x: number, y: number) => {
+  safeHandle(IPC.popupInlineWindowMenu, async (event, menuId: string, bounds: InlineWindowMenuBounds) => {
     const browserWindow = getDialogWindow(event);
     if (!browserWindow) return;
-    if (typeof menuId !== 'string' || !isSafeFiniteNumber(x) || !isSafeFiniteNumber(y)) {
+    if (
+      typeof menuId !== 'string'
+      || typeof bounds !== 'object'
+      || bounds === null
+      || !isSafeFiniteNumber(bounds.x)
+      || !isSafeFiniteNumber(bounds.y)
+    ) {
       throw new Error('Invalid inline menu payload');
     }
-    await popupInlineWindowMenu(menuId, browserWindow, x, y);
+    await popupInlineWindowMenu(menuId, browserWindow, bounds);
+  });
+  safeHandle(IPC.updateAppMenuState, (event, state: AppMenuState) => {
+    const browserWindow = getDialogWindow(event);
+    updateApplicationMenu(browserWindow, state);
+  });
+  safeHandle(IPC.checkForAppUpdates, async (event, manual = false) => {
+    const browserWindow = getDialogWindow(event);
+    await appUpdater.checkForUpdates(Boolean(manual), browserWindow);
   });
   safeHandle(IPC.getSnapshot, () => repo.getSnapshot());
   safeHandle(IPC.restoreFromSnapshot, (_event, snapshot: AppSnapshot) => repo.restoreFromSnapshot(snapshot));
@@ -191,7 +212,7 @@ export const registerIpcHandlers = (
   safeHandle(IPC.updateElementsBatch, (_event, inputs: ElementUpdateInput[]) => repo.updateElementsBatch(inputs));
   safeHandle(IPC.deleteElement, (_event, id: Id) => repo.deleteElement(id));
   safeHandle(IPC.deleteElementsBatch, (_event, ids: Id[]) => repo.deleteElementsBatch(ids));
-  safeHandle(IPC.createMediaAsset, (_event, asset: Omit<MediaAsset, 'id' | 'order' | 'createdAt' | 'updatedAt'>) =>
+  safeHandle(IPC.createMediaAsset, (_event, asset: MediaAssetCreateInput) =>
     repo.createMediaAsset(asset)
   );
   safeHandle(IPC.deleteMediaAsset, (_event, id: Id) => repo.deleteMediaAsset(id));
@@ -214,20 +235,20 @@ export const registerIpcHandlers = (
   safeHandle(IPC.updateOverlay, (_event, input: OverlayUpdateInput) => repo.updateOverlay(input));
   safeHandle(IPC.setOverlayEnabled, (_event, overlayId: Id, enabled: boolean) => repo.setOverlayEnabled(overlayId, enabled));
   safeHandle(IPC.deleteOverlay, (_event, overlayId: Id) => repo.deleteOverlay(overlayId));
-  safeHandle(IPC.createTemplate, (_event, input: TemplateCreateInput) => repo.createTemplate(input));
-  safeHandle(IPC.updateTemplate, (_event, input: TemplateUpdateInput) => repo.updateTemplate(input));
-  safeHandle(IPC.deleteTemplate, (_event, templateId: Id) => repo.deleteTemplate(templateId));
-  safeHandle(IPC.applyTemplateToDeckItem, (_event, templateId: Id, itemId: Id) =>
-    repo.applyTemplateToDeckItem(templateId, itemId)
+  safeHandle(IPC.createTheme, (_event, input: ThemeCreateInput) => repo.createTheme(input));
+  safeHandle(IPC.updateTheme, (_event, input: ThemeUpdateInput) => repo.updateTheme(input));
+  safeHandle(IPC.deleteTheme, (_event, themeId: Id) => repo.deleteTheme(themeId));
+  safeHandle(IPC.applyThemeToDeckItem, (_event, themeId: Id, itemId: Id) =>
+    repo.applyThemeToDeckItem(themeId, itemId)
   );
-  safeHandle(IPC.detachTemplateFromDeckItem, (_event, itemId: Id) =>
-    repo.detachTemplateFromDeckItem(itemId)
+  safeHandle(IPC.detachThemeFromDeckItem, (_event, itemId: Id) =>
+    repo.detachThemeFromDeckItem(itemId)
   );
-  safeHandle(IPC.syncTemplateToLinkedDeckItems, (_event, templateId: Id) =>
-    repo.syncTemplateToLinkedDeckItems(templateId)
+  safeHandle(IPC.syncThemeToLinkedDeckItems, (_event, themeId: Id) =>
+    repo.syncThemeToLinkedDeckItems(themeId)
   );
-  safeHandle(IPC.applyTemplateToOverlay, (_event, templateId: Id, overlayId: Id) =>
-    repo.applyTemplateToOverlay(templateId, overlayId)
+  safeHandle(IPC.applyThemeToOverlay, (_event, themeId: Id, overlayId: Id) =>
+    repo.applyThemeToOverlay(themeId, overlayId)
   );
   safeHandle(IPC.createStage, (_event, input: StageCreateInput) => repo.createStage(input));
   safeHandle(IPC.updateStage, (_event, input: StageUpdateInput) => repo.updateStage(input));
@@ -242,6 +263,11 @@ export const registerIpcHandlers = (
   safeHandle(IPC.deletePlaylistSegment, (_event, id: Id) => repo.deletePlaylistSegment(id));
   safeHandle(IPC.deletePresentation, (_event, id: Id) => repo.deletePresentation(id));
   safeHandle(IPC.deleteLyric, (_event, id: Id) => repo.deleteLyric(id));
+  safeHandle(IPC.createCollection, (_event, input: CollectionCreateInput) => repo.createCollection(input));
+  safeHandle(IPC.renameCollection, (_event, input: CollectionRenameInput) => repo.renameCollection(input));
+  safeHandle(IPC.deleteCollection, (_event, input: CollectionDeleteInput) => repo.deleteCollection(input));
+  safeHandle(IPC.reorderCollections, (_event, input: CollectionReorderInput) => repo.reorderCollections(input));
+  safeHandle(IPC.setItemCollection, (_event, input: CollectionAssignmentInput) => repo.setItemCollection(input));
   safeHandle(IPC.setNdiOutputEnabled, (_event, name: NdiOutputName, enabled: boolean) => {
     if (!NDI_OUTPUT_NAMES.has(name) || typeof enabled !== 'boolean') {
       throw new Error('Invalid NDI output toggle payload');

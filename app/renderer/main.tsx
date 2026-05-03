@@ -1,7 +1,10 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { migrateLegacyRecastStorage } from './utils/migrate-legacy-storage';
 import './theme.css';
+
+migrateLegacyRecastStorage();
 
 window.addEventListener('error', (event) => {
   console.error('[Global error]', event.error);

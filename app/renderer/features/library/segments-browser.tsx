@@ -9,7 +9,7 @@ import { PlaylistSegmentGroup } from './playlist-segment-group';
 import { Label } from '@renderer/components/display/text';
 import { Accordion } from '@renderer/components/display/accordion';
 import { EmptyState } from '../../components/display/empty-state';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 
 type SegmentList = PlaylistTree['segments'];
 
@@ -31,23 +31,25 @@ export function SegmentsBrowser() {
 
   return (
     <>
-      <RecastPanel.Group>
-        <RecastPanel.GroupTitle className='border-t'>
+      <LumaCastPanel.Group>
+        <LumaCastPanel.GroupTitle className='border-t'>
           <Label.xs className='mr-auto'>Segments</Label.xs>
           <ReacstButton.Icon onClick={handleNewSegment}>
             <Plus />
           </ReacstButton.Icon>
-        </RecastPanel.GroupTitle>
-      </RecastPanel.Group>
+        </LumaCastPanel.GroupTitle>
+      </LumaCastPanel.Group>
 
-      <RecastPanel.Group>
+      <LumaCastPanel.Group>
         <ScrollArea.Root>
           <ScrollArea.Viewport>
             <Accordion type='multiple' value={expandedSegmentIds} onValueChange={handleSegmentValueChange}>
-              {rawSegments.map((segment) => (
+              {rawSegments.map((segment, index) => (
                 <PlaylistSegmentGroup
                   key={segment.segment.id}
                   segment={segment}
+                  index={index}
+                  totalSegments={rawSegments.length}
                 />
               ))}
             </Accordion>
@@ -56,7 +58,7 @@ export function SegmentsBrowser() {
             <ScrollArea.Thumb />
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
-      </RecastPanel.Group>
+      </LumaCastPanel.Group>
     </>
   );
 

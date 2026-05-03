@@ -25,6 +25,22 @@ type LoadedMedia =
     resource: HTMLVideoElement;
   };
 
+function resolveVideoOptions(videoPayload: VideoElementPayload | null, surface: SceneSurface): {
+  autoplay: boolean;
+  loop: boolean;
+  muted: boolean;
+  playbackRate: number;
+} {
+  const isLiveSurface = surface === 'show' || surface === 'monitor' || surface === 'stage' || surface === 'ndi-show' || surface === 'ndi-stage';
+  const allowAudio = surface === 'show';
+  return {
+    autoplay: isLiveSurface ? (videoPayload?.autoplay ?? false) : false,
+    loop: videoPayload?.loop ?? false,
+    muted: allowAudio ? (videoPayload?.muted ?? false) : true,
+    playbackRate: videoPayload?.playbackRate ?? 1,
+  };
+}
+
 function getMediaRequestKey(node: RenderNode): string | null {
   if (node.element.type === 'image') {
     const payload = node.element.payload as { src: string };
@@ -89,11 +105,13 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   const imageRef = useRef<Konva.Image | null>(null);
   const imageSrc = node.element.type === 'image' ? (node.element.payload as { src: string }).src ?? null : null;
   const videoPayload = node.element.type === 'video' ? node.element.payload as VideoElementPayload : null;
+  const videoOptions = resolveVideoOptions(videoPayload, surface);
   const imageState = useKImage(imageSrc);
   const videoState = useKVideo(videoPayload?.src ?? null, {
-    autoplay: videoPayload?.autoplay ?? false,
-    loop: videoPayload?.loop ?? false,
-    muted: videoPayload?.muted ?? true,
+    autoplay: videoOptions.autoplay,
+    loop: videoOptions.loop,
+    muted: videoOptions.muted,
+    playbackRate: videoOptions.playbackRate,
   });
   const requestKey = getMediaRequestKey(node);
   const resolvedState = node.element.type === 'image' ? imageState : videoState;

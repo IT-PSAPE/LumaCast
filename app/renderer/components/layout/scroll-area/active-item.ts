@@ -7,7 +7,7 @@ import type { ScrollPadding } from './root';
  * surrounding ScrollArea.Viewport whenever `isActive` becomes true. Optional
  * scroll padding is read from <ScrollArea.Root scrollPadding={...}>.
  *
- * Custom to recast — Base UI's scroll-area does not ship this hook.
+ * Custom to lumacast — Base UI's scroll-area does not ship this hook.
  */
 export function useScrollAreaActiveItem<T extends HTMLElement = HTMLDivElement>(isActive: boolean) {
   const { viewportRef, scrollPaddingRef } = useScrollAreaRootContext();

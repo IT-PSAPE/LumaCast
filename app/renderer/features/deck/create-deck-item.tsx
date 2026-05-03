@@ -1,10 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Id } from '@core/types';
-import { isTemplateCompatibleWithDeckItem } from '@core/templates';
+import { isThemeCompatibleWithDeckItem } from '@core/themes';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '../../components/overlays/dialog';
 import { FieldSelect } from '../../components/form/field';
-import { useTemplateEditor } from '../../contexts/asset-editor/asset-editor-context';
+import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLyricEditor } from './lyric-editor';
 
@@ -49,12 +49,12 @@ interface CreateDeckItemDialogProps {
 }
 
 function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogProps) {
-  const { templates } = useTemplateEditor();
+  const { themes } = useThemeEditor();
   const { currentLibraryBundle, createDeckItem } = useNavigation();
   const { open: openLyricEditor } = useLyricEditor();
 
   const [name, setName] = useState('');
-  const [templateId, setTemplateId] = useState<string>('');
+  const [themeId, setThemeId] = useState<string>('');
   const [segmentId, setSegmentId] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -63,7 +63,7 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
   useEffect(() => {
     if (!isOpen) return;
     setName('');
-    setTemplateId('');
+    setThemeId('');
     setSegmentId('');
     setBusy(false);
     // Focus after the Dialog content takes focus on mount.
@@ -71,9 +71,9 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
     return () => clearTimeout(handle);
   }, [isOpen]);
 
-  const compatibleTemplates = useMemo(
-    () => templates.filter((template) => isTemplateCompatibleWithDeckItem(template, kind)),
-    [templates, kind],
+  const compatibleThemes = useMemo(
+    () => themes.filter((theme) => isThemeCompatibleWithDeckItem(theme, kind)),
+    [themes, kind],
   );
 
   const segmentOptions = useMemo(() => {
@@ -93,7 +93,7 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
       await createDeckItem({
         kind,
         name,
-        templateId: templateId ? (templateId as Id) : undefined,
+        themeId: themeId ? (themeId as Id) : undefined,
         segmentId: segmentId ? (segmentId as Id) : undefined,
       });
       onClose();
@@ -139,14 +139,14 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
                   className="min-h-8 min-w-0 rounded bg-tertiary px-2 py-1 text-sm text-primary outline-none transition-colors focus:ring-1 focus:ring-brand"
                 />
               </label>
-              {compatibleTemplates.length > 0 ? (
+              {compatibleThemes.length > 0 ? (
                 <FieldSelect
-                  label="Template"
-                  value={templateId}
-                  onChange={setTemplateId}
+                  label="Theme"
+                  value={themeId}
+                  onChange={setThemeId}
                   options={[
-                    { value: '', label: 'No template' },
-                    ...compatibleTemplates.map((template) => ({ value: template.id, label: template.name })),
+                    { value: '', label: 'No theme' },
+                    ...compatibleThemes.map((theme) => ({ value: theme.id, label: theme.name })),
                   ]}
                 />
               ) : null}

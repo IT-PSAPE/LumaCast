@@ -1,4 +1,4 @@
-# Recast UI Code Design Spec
+# LumaCast UI Code Design Spec
 
 Updated on 2026-03-08.
 Scope: `app/renderer` runtime structure, terminology, and screenshot coverage after the workbench, library-browser, slide-browser, and stage refactor.
@@ -315,11 +315,11 @@ States covered:
 
 - `media`
 - `presentations`
-- `templates`
+- `themes`
 
 ![Resource drawer media](./ui-spec-assets/features/resource-drawer-media.png)
 ![Resource drawer presentations](./ui-spec-assets/features/resource-drawer-presentations.png)
-![Resource drawer templates](./ui-spec-assets/features/resource-drawer-templates.png)
+![Resource drawer themes](./ui-spec-assets/features/resource-drawer-themes.png)
 
 ### Outputs
 

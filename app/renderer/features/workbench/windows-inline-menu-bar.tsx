@@ -1,12 +1,12 @@
 import { useEffect, useState, type CSSProperties, type MouseEventHandler, type ReactNode } from 'react';
 import type { InlineWindowMenuItem } from '@core/ipc';
 import { ReacstButton } from '@renderer/components/controls/button';
-import { cn } from '@renderer/utils/cn';
 
 const isMac = window.castApi.platform === 'darwin';
 const isWindows = window.castApi.platform === 'win32';
 const dragRegionStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
+const WINDOW_MENU_POPUP_OFFSET = 2;
 
 interface WindowsInlineMenuBarProps {
   children: ReactNode;
@@ -36,12 +36,13 @@ export function WindowsInlineMenuBar({ children }: WindowsInlineMenuBarProps) {
 
   async function handleOpenMenu(item: InlineWindowMenuItem, button: HTMLButtonElement) {
     const rect = button.getBoundingClientRect();
-    const popupX = window.screenX + rect.left;
-    const popupY = window.screenY + rect.bottom + 4;
 
     setActiveMenuId(item.id);
     try {
-      await window.castApi.popupInlineWindowMenu(item.id, popupX, popupY);
+      await window.castApi.popupInlineWindowMenu(item.id, {
+        x: rect.left,
+        y: rect.bottom + WINDOW_MENU_POPUP_OFFSET,
+      });
     } finally {
       setActiveMenuId(null);
     }
@@ -75,11 +76,15 @@ export function WindowsInlineMenuBar({ children }: WindowsInlineMenuBarProps) {
   return (
     <header
       data-ui-region="app-toolbar"
-      className="border-b border-primary bg-primary/95 px-3"
+      className="border-b border-primary bg-primary px-3"
       style={headerStyle}
     >
       <div className="flex h-full items-center gap-3">
-        <div data-ui-region="windows-inline-menu-bar" className="flex shrink-0 items-center gap-1">
+        <div
+          data-ui-region="windows-inline-menu-bar"
+          className="flex shrink-0 items-center gap-0.5 rounded-md border border-primary bg-secondary/60 p-0.5"
+          style={noDragStyle}
+        >
           {hasMenuItems ? items.map((item) => (
             <ReacstButton
               key={item.id}
@@ -87,8 +92,7 @@ export function WindowsInlineMenuBar({ children }: WindowsInlineMenuBarProps) {
               data-menu-id={item.id}
               onClick={handleMenuButtonClick}
               active={activeMenuId === item.id}
-              className={cn('rounded-md px-2 py-1 text-sm text-secondary hover:bg-tertiary hover:text-primary', activeMenuId === item.id && 'bg-tertiary text-primary')}
-              style={noDragStyle}
+              className="min-h-7 rounded-sm px-2.5 py-1 label-xs text-secondary hover:bg-quaternary"
             >
               {item.label}
             </ReacstButton>

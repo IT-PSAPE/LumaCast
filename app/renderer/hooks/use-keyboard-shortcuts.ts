@@ -36,7 +36,7 @@ export function useKeyboardShortcuts(): void {
   const { selectedElementId, clearSelection, deleteSelected, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, undo, redo } = useElements();
   const { setSlideBrowserMode, setPlaylistBrowserMode } = useDeckBrowser();
   const { state: { workbenchMode } } = useWorkbench();
-  const isEditSlideBrowser = workbenchMode === 'deck-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'template-editor' || workbenchMode === 'stage-editor';
+  const isEditSlideBrowser = workbenchMode === 'deck-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'theme-editor' || workbenchMode === 'stage-editor';
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

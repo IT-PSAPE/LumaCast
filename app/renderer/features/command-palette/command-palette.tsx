@@ -1,17 +1,17 @@
 import { Folder, Layers2, LayoutTemplate, ListMusic, Monitor, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Id, Library, LibraryPlaylistBundle, MediaAsset, Overlay, Playlist, Stage, Template } from '@core/types';
+import type { Id, Library, LibraryPlaylistBundle, MediaAsset, Overlay, Playlist, Stage, Theme } from '@core/types';
 import { Dialog } from '@renderer/components/overlays/dialog';
 import { DeckItemIcon, MediaAssetIcon } from '@renderer/components/display/entity-icon';
 import { useCast } from '@renderer/contexts/app-context';
 import { useNavigation } from '@renderer/contexts/navigation-context';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
-import { useAudio, usePresentationMediaLayer } from '@renderer/contexts/playback/playback-context';
+import { useAudio, usePresentationMediaLayer, useVideo } from '@renderer/contexts/playback/playback-context';
 import {
   useOverlayEditor,
   useStageEditor,
-  useTemplateEditor,
+  useThemeEditor,
 } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { cn } from '@renderer/utils/cn';
 import { useCommandPalette } from './command-palette-context';
@@ -21,7 +21,7 @@ type ResultKind =
   | 'playlist'
   | 'deckItem'
   | 'overlay'
-  | 'template'
+  | 'theme'
   | 'stage'
   | 'media'
   | 'audio';
@@ -40,7 +40,7 @@ const SECTION_ORDER: Array<{ kind: ResultKind; title: string }> = [
   { kind: 'playlist', title: 'Playlists' },
   { kind: 'deckItem', title: 'Deck items' },
   { kind: 'overlay', title: 'Overlays' },
-  { kind: 'template', title: 'Templates' },
+  { kind: 'theme', title: 'Themes' },
   { kind: 'stage', title: 'Stages' },
   { kind: 'media', title: 'Media' },
   { kind: 'audio', title: 'Audio' },
@@ -57,9 +57,10 @@ export function CommandPalette() {
   const navigation = useNavigation();
   const { actions: workbenchActions } = useWorkbench();
   const overlayEditor = useOverlayEditor();
-  const templateEditor = useTemplateEditor();
+  const themeEditor = useThemeEditor();
   const stageEditor = useStageEditor();
   const { setMediaLayerAsset } = usePresentationMediaLayer();
+  const video = useVideo();
   const audio = useAudio();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
@@ -130,15 +131,15 @@ export function CommandPalette() {
       },
     }));
 
-    const templateResults: ResultItem[] = templateEditor.templates.map((template: Template) => ({
-      id: `template:${template.id}`,
-      kind: 'template',
-      label: template.name,
-      subtitle: `Template · ${template.kind}`,
+    const themeResults: ResultItem[] = themeEditor.themes.map((theme: Theme) => ({
+      id: `theme:${theme.id}`,
+      kind: 'theme',
+      label: theme.name,
+      subtitle: `Theme · ${theme.kind}`,
       icon: <LayoutTemplate size={16} />,
       onSelect: () => {
-        templateEditor.openTemplateEditor(template.id);
-        workbenchActions.setWorkbenchMode('template-editor');
+        themeEditor.openThemeEditor(theme.id);
+        workbenchActions.setWorkbenchMode('theme-editor');
       },
     }));
 
@@ -163,9 +164,14 @@ export function CommandPalette() {
         subtitle: `Media · ${asset.type}`,
         icon: <MediaAssetIcon asset={asset} size={16} />,
         onSelect: () => {
-          // Open the media bin and set this asset as the active media layer.
-          // Behaves like clicking the asset in the resource drawer.
-          workbenchActions.setDrawerTab('media');
+          // Behaves like clicking the asset in its bin: arms the relevant
+          // layer. Image assets live in the resource drawer; video assets
+          // should arm the video transport and begin playback immediately.
+          if (asset.type === 'video') {
+            video.armVideo(asset.id);
+            return;
+          }
+          workbenchActions.setDrawerTab('image');
           setMediaLayerAsset(asset.id);
         },
       }));
@@ -190,7 +196,7 @@ export function CommandPalette() {
       ...playlistItems,
       ...deckItemResults,
       ...overlayResults,
-      ...templateResults,
+      ...themeResults,
       ...stageResults,
       ...mediaResults,
       ...audioResults,
@@ -207,7 +213,7 @@ export function CommandPalette() {
       .sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label))
       .map(({ item }) => item)
       .slice(0, RESULT_LIMIT);
-  }, [snapshot, deckItems, mediaAssets, overlayEditor, templateEditor, stageEditor, audio, setMediaLayerAsset, query, navigation, workbenchActions]);
+  }, [snapshot, deckItems, mediaAssets, overlayEditor, themeEditor, stageEditor, audio, setMediaLayerAsset, video, query, navigation, workbenchActions]);
 
   const sectionedResults = useMemo(() => groupBySection(results), [results]);
 
@@ -244,7 +250,7 @@ export function CommandPalette() {
                 value={query}
                 onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
                 onKeyDown={handleKeyDown}
-                placeholder="Search libraries, playlists, decks, overlays, templates, stages, media…"
+                placeholder="Search libraries, playlists, decks, overlays, themes, stages, media…"
                 className="w-full bg-transparent text-sm text-primary placeholder:text-tertiary outline-none"
                 autoComplete="off"
                 spellCheck={false}

@@ -31,7 +31,7 @@ export interface ScrollAreaRootProps extends Omit<HTMLAttributes<HTMLDivElement>
   overflowEdgeThreshold?: OverflowEdgeThreshold;
   /**
    * Padding (px or '%') applied when useScrollAreaActiveItem scrolls a child into view.
-   * Custom to recast — Base UI does not ship this.
+   * Custom to lumacast — Base UI does not ship this.
    */
   scrollPadding?: ScrollPadding;
   children?: React.ReactNode;

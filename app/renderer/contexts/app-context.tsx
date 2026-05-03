@@ -10,6 +10,8 @@ import { useLocalStorage } from '../hooks/use-local-storage';
 interface AppContextValue {
   state: {
     snapshot: AppSnapshot | null;
+    isLoadingSnapshot: boolean;
+    snapshotLoadError: string | null;
     isRunningOperation: boolean;
     operationText: string | null;
     statusText: string;
@@ -28,6 +30,7 @@ interface AppContextValue {
     redo: () => Promise<void>;
     runOperation: <T>(text: string, action: () => Promise<T>) => Promise<T>;
     setStatusText: (text: string) => void;
+    retrySnapshotLoad: () => Promise<void>;
     setThemeMode: (mode: ThemeMode) => void;
     setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) => void;
     toggleAudienceOutput: () => void;
@@ -40,6 +43,8 @@ interface AppContextValue {
 
 interface CastSlice {
   snapshot: AppSnapshot | null;
+  isLoadingSnapshot: boolean;
+  snapshotLoadError: string | null;
   isRunningOperation: boolean;
   operationText: string | null;
   statusText: string;
@@ -51,6 +56,7 @@ interface CastSlice {
   redo: () => Promise<void>;
   runOperation: <T>(text: string, action: () => Promise<T>) => Promise<T>;
   setStatusText: (text: string) => void;
+  retrySnapshotLoad: () => Promise<void>;
 }
 
 interface ThemeSlice {
@@ -95,6 +101,8 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   // ── Snapshot & mutation queue ──
   const [snapshot, setSnapshot] = useState<AppSnapshot | null>(null);
+  const [isLoadingSnapshot, setIsLoadingSnapshot] = useState(true);
+  const [snapshotLoadError, setSnapshotLoadError] = useState<string | null>(null);
   const [isRunningOperation, setIsRunningOperation] = useState(false);
   const [operationText, setOperationText] = useState<string | null>(null);
   const [statusText, setStatusText] = useState('Ready');
@@ -127,15 +135,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     syncHistoryFlags();
   }, [syncHistoryFlags]);
 
-  useEffect(() => {
-    void window.castApi.getSnapshot().then((loaded) => {
+  const loadInitialSnapshot = useCallback(async () => {
+    setIsLoadingSnapshot(true);
+    setSnapshotLoadError(null);
+
+    try {
+      const loaded = await Promise.race<AppSnapshot>([
+        window.castApi.getSnapshot(),
+        new Promise<AppSnapshot>((_, reject) => {
+          window.setTimeout(() => reject(new Error('Timed out while loading project data.')), 15000);
+        }),
+      ]);
       snapshotRef.current = loaded;
       setSnapshot(loaded);
-    }).catch((error) => {
+      setStatusText('Ready');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       console.error('[AppProvider] Failed to load snapshot:', error);
+      snapshotRef.current = null;
+      setSnapshot(null);
+      setSnapshotLoadError(message);
       setStatusText('Failed to load data');
-    });
+    } finally {
+      setIsLoadingSnapshot(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadInitialSnapshot();
+  }, [loadInitialSnapshot]);
 
   const mutate = useCallback((action: () => Promise<AppSnapshot>) => {
     const run = async () => {
@@ -346,6 +374,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ── Context value ──
   const state = useMemo<AppContextValue['state']>(() => ({
     snapshot,
+    isLoadingSnapshot,
+    snapshotLoadError,
     isRunningOperation,
     operationText,
     statusText,
@@ -356,7 +386,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     ndiDiagnostics,
     ndiOutputConfigs,
     ndiOutputState,
-  }), [snapshot, isRunningOperation, operationText, statusText, canUndo, canRedo, themeMode, resolvedTheme, ndiDiagnostics, ndiOutputConfigs, ndiOutputState]);
+  }), [snapshot, isLoadingSnapshot, snapshotLoadError, isRunningOperation, operationText, statusText, canUndo, canRedo, themeMode, resolvedTheme, ndiDiagnostics, ndiOutputConfigs, ndiOutputState]);
 
   const actions = useMemo<AppContextValue['actions']>(() => ({
     mutate,
@@ -365,12 +395,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
     redo,
     runOperation,
     setStatusText,
+    retrySnapshotLoad: loadInitialSnapshot,
     setThemeMode,
     setNdiOutputEnabled,
     toggleAudienceOutput,
     toggleStageOutput,
     updateNdiOutputConfig,
-  }), [mutate, mutatePatch, undo, redo, runOperation, setThemeMode, setNdiOutputEnabled, toggleAudienceOutput, toggleStageOutput, updateNdiOutputConfig]);
+  }), [mutate, mutatePatch, undo, redo, runOperation, loadInitialSnapshot, setThemeMode, setNdiOutputEnabled, toggleAudienceOutput, toggleStageOutput, updateNdiOutputConfig]);
 
   const value = useMemo<AppContextValue>(() => ({ state, actions }), [state, actions]);
 
@@ -389,6 +420,8 @@ export function useCast(): CastSlice {
   const { state, actions } = useApp();
   return {
     snapshot: state.snapshot,
+    isLoadingSnapshot: state.isLoadingSnapshot,
+    snapshotLoadError: state.snapshotLoadError,
     isRunningOperation: state.isRunningOperation,
     operationText: state.operationText,
     statusText: state.statusText,
@@ -400,6 +433,7 @@ export function useCast(): CastSlice {
     redo: actions.redo,
     runOperation: actions.runOperation,
     setStatusText: actions.setStatusText,
+    retrySnapshotLoad: actions.retrySnapshotLoad,
   };
 }
 

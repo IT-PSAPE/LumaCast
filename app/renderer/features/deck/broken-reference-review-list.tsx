@@ -28,7 +28,7 @@ function BrokenReferenceRow({
   onActionChange,
   onChooseReplacement,
 }: BrokenReferenceRowProps) {
-  const ownerSummary = [...reference.itemTitles, ...reference.templateNames].join(', ');
+  const ownerSummary = [...reference.itemTitles, ...reference.themeNames].join(', ');
 
   function handleValueChange(value: string | string[]) {
     if (Array.isArray(value)) return;

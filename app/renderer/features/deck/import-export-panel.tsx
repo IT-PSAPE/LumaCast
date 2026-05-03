@@ -99,14 +99,14 @@ export function ImportExportPanel() {
       {activeTab === 'export' ? (
         <section className="flex flex-col gap-4">
           <p className="text-xs text-tertiary">
-            Bundle decks, templates, and referenced media into a portable .cst file.
+            Bundle decks, themes, and referenced media into a portable .cst file.
           </p>
 
           <div className="flex items-center justify-between gap-3 rounded border border-primary bg-tertiary/25 p-3">
             <div className="flex flex-col gap-0.5">
               <div className="text-sm font-medium text-primary">Entire workspace</div>
               <div className="text-xs text-tertiary">
-                {pluralize(allDeckItemIds.length, 'item', 'items')} · every presentation, lyric, playlist, template, overlay, page layout and referenced media file.
+                {pluralize(allDeckItemIds.length, 'item', 'items')} · every presentation, lyric, playlist, theme, overlay, page layout and referenced media file.
               </div>
             </div>
             <ReacstButton onClick={handleExportWorkspace} disabled={state.exportInFlight}>
@@ -120,9 +120,9 @@ export function ImportExportPanel() {
               <span className="text-xs text-tertiary">Applies to scoped &amp; per-playlist exports</span>
             </div>
             <div className="flex flex-col gap-2">
-              <Checkbox.Root checked={state.extras.includeAllTemplates} onCheckedChange={(v) => actions.setExtraFlag('includeAllTemplates', v)}>
+              <Checkbox.Root checked={state.extras.includeAllThemes} onCheckedChange={(v) => actions.setExtraFlag('includeAllThemes', v)}>
                 <Checkbox.Indicator />
-                <Checkbox.Label>All templates (not just those used by selected items)</Checkbox.Label>
+                <Checkbox.Label>All themes (not just those used by selected items)</Checkbox.Label>
               </Checkbox.Root>
               <Checkbox.Root checked={state.extras.includeOverlays} onCheckedChange={(v) => actions.setExtraFlag('includeOverlays', v)}>
                 <Checkbox.Indicator />
@@ -213,7 +213,7 @@ export function ImportExportPanel() {
             <EmptyState.Root className="rounded border border-dashed border-primary bg-tertiary/20 py-8">
               <EmptyState.Title>No bundle loaded</EmptyState.Title>
               <EmptyState.Description>
-                Choose a .cst file to preview its items, templates, and media references before importing.
+                Choose a .cst file to preview its items, themes, and media references before importing.
               </EmptyState.Description>
             </EmptyState.Root>
           ) : (
@@ -223,7 +223,7 @@ export function ImportExportPanel() {
                 <div className="text-xs text-tertiary">
                   {[
                     pluralize(inspection.itemCount, 'item', 'items'),
-                    pluralize(inspection.templateCount, 'template', 'templates'),
+                    pluralize(inspection.themeCount, 'theme', 'themes'),
                     inspection.overlayCount > 0 ? pluralize(inspection.overlayCount, 'overlay', 'overlays') : null,
                     inspection.stageCount > 0 ? pluralize(inspection.stageCount, 'page layout', 'page layouts') : null,
                     pluralize(inspection.mediaReferenceCount, 'media reference', 'media references'),

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createDefaultTemplateElements } from '@core/templates';
-import type { Id, Overlay, OverlayCreateInput, OverlayUpdateInput, SlideElement, Stage, Template, TemplateKind } from '@core/types';
+import { createDefaultThemeElements } from '@core/themes';
+import type { Id, Overlay, OverlayCreateInput, OverlayUpdateInput, SlideElement, Stage, Theme, ThemeKind } from '@core/types';
 import { cloneElements, slideElementsSignature } from '../../utils/staged-editor-utils';
 import { getOverlayDefaults } from '../../utils/slides';
 import { createId } from '../../utils/create-id';
@@ -12,7 +12,7 @@ import { useWorkbench } from '../workbench-context';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-export type TemplateApplyTarget =
+export type ThemeApplyTarget =
   | { type: 'deck-item'; itemId: Id }
   | { type: 'overlay'; overlayId: Id };
 
@@ -33,25 +33,25 @@ interface OverlayEditorValue {
   pushChanges: () => Promise<void>;
 }
 
-interface TemplateEditorValue {
-  templates: Template[];
-  currentTemplateId: Id | null;
-  currentTemplate: Template | null;
+interface ThemeEditorValue {
+  themes: Theme[];
+  currentThemeId: Id | null;
+  currentTheme: Theme | null;
   hasPendingChanges: boolean;
   isPushingChanges: boolean;
   nameFocusRequest: number;
-  setCurrentTemplateId: (templateId: Id | null) => void;
-  openTemplateEditor: (templateId: Id) => void;
-  updateTemplateDraft: (input: { id: Id; name?: string; kind?: TemplateKind; elements?: SlideElement[] }) => void;
-  replaceTemplateElements: (elements: SlideElement[]) => void;
-  createTemplate: (kind: TemplateKind) => void;
-  applyTemplateToTarget: (templateId: Id, target: TemplateApplyTarget) => Promise<void>;
-  detachTemplateFromDeckItem: (itemId: Id) => Promise<void>;
-  syncLinkedDeckItems: (templateId: Id) => Promise<void>;
-  deleteTemplate: (templateId: Id) => void;
-  duplicateTemplate: (templateId: Id) => void;
-  renameTemplate: (templateId: Id, name: string) => void;
-  requestNameFocus: (templateId: Id) => void;
+  setCurrentThemeId: (themeId: Id | null) => void;
+  openThemeEditor: (themeId: Id) => void;
+  updateThemeDraft: (input: { id: Id; name?: string; kind?: ThemeKind; elements?: SlideElement[] }) => void;
+  replaceThemeElements: (elements: SlideElement[]) => void;
+  createTheme: (kind: ThemeKind) => void;
+  applyThemeToTarget: (themeId: Id, target: ThemeApplyTarget) => Promise<void>;
+  detachThemeFromDeckItem: (itemId: Id) => Promise<void>;
+  syncLinkedDeckItems: (themeId: Id) => Promise<void>;
+  deleteTheme: (themeId: Id) => void;
+  duplicateTheme: (themeId: Id) => void;
+  renameTheme: (themeId: Id, name: string) => void;
+  requestNameFocus: (themeId: Id) => void;
   pushChanges: () => Promise<Id | null>;
 }
 
@@ -83,7 +83,7 @@ interface StageEditorValue {
 
 interface AssetEditorContextValue {
   overlay: OverlayEditorValue;
-  template: TemplateEditorValue;
+  theme: ThemeEditorValue;
   deck: DeckEditorValue;
   stage: StageEditorValue;
 }
@@ -91,7 +91,7 @@ interface AssetEditorContextValue {
 // ─── Context ────────────────────────────────────────────────────────
 
 const OverlayEditorContext = createContext<OverlayEditorValue | null>(null);
-const TemplateEditorContext = createContext<TemplateEditorValue | null>(null);
+const ThemeEditorContext = createContext<ThemeEditorValue | null>(null);
 const DeckEditorContext = createContext<DeckEditorValue | null>(null);
 const StageEditorContext = createContext<StageEditorValue | null>(null);
 
@@ -102,7 +102,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   const { state: { workbenchMode, overlayDefaults } } = useWorkbench();
   const {
     overlays: persistedOverlays,
-    templates: persistedTemplates,
+    themes: persistedThemes,
     stages: persistedStages,
     slideElementsBySlideId,
   } = useProjectContent();
@@ -138,11 +138,12 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
 
   const createOverlayAction = useCallback(async () => {
     const now = new Date().toISOString();
+    const overlayId = createId();
     const draft: Overlay = {
-      id: createId(),
-      type: 'text',
-      x: 0, y: 0, width: 1920, height: 1080, opacity: 1, zIndex: 0, enabled: true,
-      payload: { text: '', fontFamily: 'Avenir Next', fontSize: 48, color: '#FFFFFF', alignment: 'left', weight: '700' },
+      id: overlayId,
+      slideId: `${overlayId}:slide`,
+      enabled: true,
+      collectionId: '',
       createdAt: now, updatedAt: now,
       ...getOverlayDefaults({
         animationKind: overlayDefaults.animationKind,
@@ -271,203 +272,206 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     pushChanges: pushOverlayChanges,
   }), [createOverlayAction, duplicateOverlayAction, overlayStaged.currentItem, overlayStaged.currentItemId, deleteCurrentOverlay, deleteOverlayAction, overlayStaged.hasPendingChanges, overlayStaged.isPushingChanges, overlayNameFocusRequest, overlays, pushOverlayChanges, overlayStaged.setCurrentItemId, requestOverlayNameFocus, updateOverlayDraft]);
 
-  // ── Template editor ──
+  // ── Theme editor ──
 
-  const templateStaged = useStagedCollection<Template>({
-    persistedItems: persistedTemplates,
-    signatureOf: templateSignature,
-    workbenchModeKey: 'template-editor',
+  const themeStaged = useStagedCollection<Theme>({
+    persistedItems: persistedThemes,
+    signatureOf: themeSignature,
+    workbenchModeKey: 'theme-editor',
     currentWorkbenchMode: workbenchMode,
   });
 
-  const templates = templateStaged.items;
-  const [templateNameFocusRequest, setTemplateNameFocusRequest] = useState(0);
+  const themes = themeStaged.items;
+  const [themeNameFocusRequest, setThemeNameFocusRequest] = useState(0);
 
-  const requestTemplateNameFocus = useCallback((templateId: Id) => {
-    templateStaged.setCurrentItemId(templateId);
-    setTemplateNameFocusRequest((v) => v + 1);
-  }, [templateStaged]);
+  const requestThemeNameFocus = useCallback((themeId: Id) => {
+    themeStaged.setCurrentItemId(themeId);
+    setThemeNameFocusRequest((v) => v + 1);
+  }, [themeStaged]);
 
-  const updateTemplateDraft = useCallback((input: { id: Id; name?: string; kind?: TemplateKind; elements?: SlideElement[] }) => {
-    templateStaged.setStagedItems((current) => {
-      const source = current ?? persistedTemplates;
-      return source.map((template) => (
-        template.id === input.id
+  const updateThemeDraft = useCallback((input: { id: Id; name?: string; kind?: ThemeKind; elements?: SlideElement[] }) => {
+    themeStaged.setStagedItems((current) => {
+      const source = current ?? persistedThemes;
+      return source.map((theme) => (
+        theme.id === input.id
           ? {
-            ...template,
-            name: input.name ?? template.name,
-            kind: input.kind ?? template.kind,
-            elements: input.elements ? cloneElements(input.elements) : template.elements,
+            ...theme,
+            name: input.name ?? theme.name,
+            kind: input.kind ?? theme.kind,
+            elements: input.elements ? cloneElements(input.elements) : theme.elements,
             updatedAt: new Date().toISOString(),
           }
-          : template
+          : theme
       ));
     });
-  }, [persistedTemplates, templateStaged]);
+  }, [persistedThemes, themeStaged]);
 
-  const replaceTemplateElements = useCallback((elements: SlideElement[]) => {
-    if (!templateStaged.currentItemId) return;
-    updateTemplateDraft({ id: templateStaged.currentItemId, elements });
-  }, [templateStaged.currentItemId, updateTemplateDraft]);
+  const replaceThemeElements = useCallback((elements: SlideElement[]) => {
+    if (!themeStaged.currentItemId) return;
+    updateThemeDraft({ id: themeStaged.currentItemId, elements });
+  }, [themeStaged.currentItemId, updateThemeDraft]);
 
-  const createTemplate = useCallback((kind: TemplateKind) => {
+  const createTheme = useCallback((kind: ThemeKind) => {
     const now = new Date().toISOString();
     const id = createId();
-    const draft: Template = {
+    const slideId = `${id}:slide`;
+    const draft: Theme = {
       id,
-      name: kind === 'lyrics' ? 'New Lyric Template' : kind === 'overlays' ? 'New Overlay Template' : 'New Slide Template',
+      slideId,
+      name: kind === 'lyrics' ? 'New Lyric Theme' : kind === 'overlays' ? 'New Overlay Theme' : 'New Slide Theme',
       kind, width: 1920, height: 1080,
-      order: (templates.at(-1)?.order ?? -1) + 1,
-      elements: createDefaultTemplateElements(kind, id, now),
+      order: (themes.at(-1)?.order ?? -1) + 1,
+      elements: createDefaultThemeElements(kind, slideId, now),
+      collectionId: '',
       createdAt: now, updatedAt: now,
     };
-    templateStaged.setStagedItems((current) => [...(current ?? persistedTemplates), draft]);
-    templateStaged.setCurrentItemId(draft.id);
-    setStatusText('Created template');
-  }, [persistedTemplates, setStatusText, templateStaged, templates]);
+    themeStaged.setStagedItems((current) => [...(current ?? persistedThemes), draft]);
+    themeStaged.setCurrentItemId(draft.id);
+    setStatusText('Created theme');
+  }, [persistedThemes, setStatusText, themeStaged, themes]);
 
-  const duplicateTemplate = useCallback((templateId: Id) => {
-    const sourceTemplate = templates.find((t) => t.id === templateId) ?? null;
-    if (!sourceTemplate) return;
+  const duplicateTheme = useCallback((themeId: Id) => {
+    const sourceTheme = themes.find((t) => t.id === themeId) ?? null;
+    if (!sourceTheme) return;
     const now = new Date().toISOString();
-    const duplicate: Template = {
-      ...cloneTemplate(sourceTemplate),
+    const duplicate: Theme = {
+      ...cloneTheme(sourceTheme),
       id: createId(),
-      name: `${sourceTemplate.name} Copy`,
-      order: (templates.at(-1)?.order ?? -1) + 1,
+      name: `${sourceTheme.name} Copy`,
+      order: (themes.at(-1)?.order ?? -1) + 1,
       createdAt: now, updatedAt: now,
     };
-    templateStaged.setStagedItems((current) => [...(current ?? persistedTemplates), duplicate]);
-    templateStaged.setCurrentItemId(duplicate.id);
-    setStatusText('Duplicated template');
-  }, [persistedTemplates, setStatusText, templateStaged, templates]);
+    themeStaged.setStagedItems((current) => [...(current ?? persistedThemes), duplicate]);
+    themeStaged.setCurrentItemId(duplicate.id);
+    setStatusText('Duplicated theme');
+  }, [persistedThemes, setStatusText, themeStaged, themes]);
 
-  const renameTemplate = useCallback((templateId: Id, name: string) => {
-    updateTemplateDraft({ id: templateId, name });
-  }, [updateTemplateDraft]);
+  const renameTheme = useCallback((themeId: Id, name: string) => {
+    updateThemeDraft({ id: themeId, name });
+  }, [updateThemeDraft]);
 
-  const deleteTemplate = useCallback((templateId: Id) => {
-    templateStaged.setStagedItems((current) => (current ?? persistedTemplates).filter((t) => t.id !== templateId));
-    templateStaged.setCurrentItemId((current) => (current === templateId ? null : current));
-    setStatusText('Deleted template');
-  }, [persistedTemplates, setStatusText, templateStaged]);
+  const deleteTheme = useCallback((themeId: Id) => {
+    themeStaged.setStagedItems((current) => (current ?? persistedThemes).filter((t) => t.id !== themeId));
+    themeStaged.setCurrentItemId((current) => (current === themeId ? null : current));
+    setStatusText('Deleted theme');
+  }, [persistedThemes, setStatusText, themeStaged]);
 
-  const openTemplateEditor = useCallback((templateId: Id) => {
-    templateStaged.setCurrentItemId(templateId);
-  }, [templateStaged]);
+  const openThemeEditor = useCallback((themeId: Id) => {
+    themeStaged.setCurrentItemId(themeId);
+  }, [themeStaged]);
 
-  const pushTemplateChanges = useCallback(async (): Promise<Id | null> => {
-    if (!templateStaged.stagedItems || templateStaged.isPushingChanges) return templateStaged.currentItemId;
-    const stagedTemplates = templateStaged.stagedItems;
-    const stagedSig = stagedTemplates.map(templateSignature).join();
-    const persistedSig = persistedTemplates.map(templateSignature).join();
+  const pushThemeChanges = useCallback(async (): Promise<Id | null> => {
+    if (!themeStaged.stagedItems || themeStaged.isPushingChanges) return themeStaged.currentItemId;
+    const stagedThemes = themeStaged.stagedItems;
+    const stagedSig = stagedThemes.map(themeSignature).join();
+    const persistedSig = persistedThemes.map(themeSignature).join();
     if (stagedSig === persistedSig) {
-      templateStaged.setStagedItems(null);
-      return templateStaged.currentItemId;
+      themeStaged.setStagedItems(null);
+      return themeStaged.currentItemId;
     }
 
-    templateStaged.setIsPushingChanges(true);
+    themeStaged.setIsPushingChanges(true);
     try {
-      let resolvedCurrentTemplateId = templateStaged.currentItemId;
-      let knownTemplates = persistedTemplates;
-        const persistedById = new Map(persistedTemplates.map((t) => [t.id, t]));
-        const stagedById = new Map(stagedTemplates.map((t) => [t.id, t]));
+      let resolvedCurrentThemeId = themeStaged.currentItemId;
+      let knownThemes = persistedThemes;
+        const persistedById = new Map(persistedThemes.map((t) => [t.id, t]));
+        const stagedById = new Map(stagedThemes.map((t) => [t.id, t]));
 
-        for (const template of persistedTemplates) {
-          if (stagedById.has(template.id)) continue;
-          const next = await mutatePatch(() => window.castApi.deleteTemplate(template.id));
-          knownTemplates = next.templates;
+        for (const theme of persistedThemes) {
+          if (stagedById.has(theme.id)) continue;
+          const next = await mutatePatch(() => window.castApi.deleteTheme(theme.id));
+          knownThemes = next.themes;
         }
-        for (const template of stagedTemplates) {
-          if (persistedById.has(template.id)) continue;
-          const previousIds = new Set(knownTemplates.map((item) => item.id));
-          const next = await mutatePatch(() => window.castApi.createTemplate({
-            name: template.name, kind: template.kind, width: template.width, height: template.height,
-            elements: cloneElements(template.elements),
+        for (const theme of stagedThemes) {
+          if (persistedById.has(theme.id)) continue;
+          const previousIds = new Set(knownThemes.map((item) => item.id));
+          const next = await mutatePatch(() => window.castApi.createTheme({
+            name: theme.name, kind: theme.kind, width: theme.width, height: theme.height,
+            elements: cloneElements(theme.elements),
           }));
-          knownTemplates = next.templates;
-          const createdTemplate = knownTemplates.find((item) => !previousIds.has(item.id)) ?? null;
-          if (createdTemplate && resolvedCurrentTemplateId === template.id) resolvedCurrentTemplateId = createdTemplate.id;
+          knownThemes = next.themes;
+          const createdTheme = knownThemes.find((item) => !previousIds.has(item.id)) ?? null;
+          if (createdTheme && resolvedCurrentThemeId === theme.id) resolvedCurrentThemeId = createdTheme.id;
         }
-        for (const template of stagedTemplates) {
-          if (!persistedById.has(template.id)) continue;
-          const persisted = persistedById.get(template.id);
-          if (!persisted || templateSignature(template) === templateSignature(persisted)) continue;
-          const next = await mutatePatch(() => window.castApi.updateTemplate({
-            id: template.id, name: template.name, kind: template.kind, width: template.width, height: template.height,
-            elements: cloneElements(template.elements),
+        for (const theme of stagedThemes) {
+          if (!persistedById.has(theme.id)) continue;
+          const persisted = persistedById.get(theme.id);
+          if (!persisted || themeSignature(theme) === themeSignature(persisted)) continue;
+          const next = await mutatePatch(() => window.castApi.updateTheme({
+            id: theme.id, name: theme.name, kind: theme.kind, width: theme.width, height: theme.height,
+            elements: cloneElements(theme.elements),
           }));
-          knownTemplates = next.templates;
+          knownThemes = next.themes;
         }
 
-      templateStaged.setStagedItems(null);
-      const currentStillExists = resolvedCurrentTemplateId ? knownTemplates.some((t) => t.id === resolvedCurrentTemplateId) : false;
-      if (!resolvedCurrentTemplateId || !currentStillExists) resolvedCurrentTemplateId = knownTemplates[0]?.id ?? null;
-      templateStaged.setCurrentItemId(resolvedCurrentTemplateId);
-      setStatusText('Template changes pushed');
-      return resolvedCurrentTemplateId;
+      themeStaged.setStagedItems(null);
+      const currentStillExists = resolvedCurrentThemeId ? knownThemes.some((t) => t.id === resolvedCurrentThemeId) : false;
+      if (!resolvedCurrentThemeId || !currentStillExists) resolvedCurrentThemeId = knownThemes[0]?.id ?? null;
+      themeStaged.setCurrentItemId(resolvedCurrentThemeId);
+      setStatusText('Theme changes pushed');
+      return resolvedCurrentThemeId;
     } finally {
-      templateStaged.setIsPushingChanges(false);
+      themeStaged.setIsPushingChanges(false);
     }
-  }, [templateStaged, mutatePatch, persistedTemplates, setStatusText]);
+  }, [themeStaged, mutatePatch, persistedThemes, setStatusText]);
 
-  const resolveTemplateIdForMutation = useCallback(async (templateId: Id): Promise<Id | null> => {
-    if (templateStaged.currentItemId === templateId) return await pushTemplateChanges() ?? templateId;
-    if (templateStaged.hasPendingChanges) await pushTemplateChanges();
-    return templateId;
-  }, [templateStaged.currentItemId, templateStaged.hasPendingChanges, pushTemplateChanges]);
+  const resolveThemeIdForMutation = useCallback(async (themeId: Id): Promise<Id | null> => {
+    if (themeStaged.currentItemId === themeId) return await pushThemeChanges() ?? themeId;
+    if (themeStaged.hasPendingChanges) await pushThemeChanges();
+    return themeId;
+  }, [themeStaged.currentItemId, themeStaged.hasPendingChanges, pushThemeChanges]);
 
-  const applyTemplateToTarget = useCallback(async (templateId: Id, target: TemplateApplyTarget) => {
-    const resolvedTemplateId = await resolveTemplateIdForMutation(templateId);
-    if (!resolvedTemplateId) return;
+  const applyThemeToTarget = useCallback(async (themeId: Id, target: ThemeApplyTarget) => {
+    const resolvedThemeId = await resolveThemeIdForMutation(themeId);
+    if (!resolvedThemeId) return;
     if (target.type === 'deck-item') {
-      await mutatePatch(() => window.castApi.applyTemplateToDeckItem(resolvedTemplateId, target.itemId));
-      setStatusText('Applied template to item');
+      await mutatePatch(() => window.castApi.applyThemeToDeckItem(resolvedThemeId, target.itemId));
+      setStatusText('Applied theme to item');
       return;
     }
-    await mutatePatch(() => window.castApi.applyTemplateToOverlay(resolvedTemplateId, target.overlayId));
-    setStatusText('Applied template to overlay');
-  }, [mutatePatch, resolveTemplateIdForMutation, setStatusText]);
+    await mutatePatch(() => window.castApi.applyThemeToOverlay(resolvedThemeId, target.overlayId));
+    setStatusText('Applied theme to overlay');
+  }, [mutatePatch, resolveThemeIdForMutation, setStatusText]);
 
-  const detachTemplateFromDeckItem = useCallback(async (itemId: Id) => {
-    await mutatePatch(() => window.castApi.detachTemplateFromDeckItem(itemId));
-    setStatusText('Detached template from item');
+  const detachThemeFromDeckItem = useCallback(async (itemId: Id) => {
+    await mutatePatch(() => window.castApi.detachThemeFromDeckItem(itemId));
+    setStatusText('Detached theme from item');
   }, [mutatePatch, setStatusText]);
 
-  const syncLinkedDeckItems = useCallback(async (templateId: Id) => {
-    await mutatePatch(() => window.castApi.syncTemplateToLinkedDeckItems(templateId));
-    setStatusText('Synced linked items to template');
+  const syncLinkedDeckItems = useCallback(async (themeId: Id) => {
+    await mutatePatch(() => window.castApi.syncThemeToLinkedDeckItems(themeId));
+    setStatusText('Synced linked items to theme');
   }, [mutatePatch, setStatusText]);
 
   useEffect(() => {
-    templateStaged.registerAutoPush(() => void pushTemplateChanges());
-  }, [templateStaged, pushTemplateChanges]);
+    themeStaged.registerAutoPush(() => void pushThemeChanges());
+  }, [themeStaged, pushThemeChanges]);
 
-  const templateValue = useMemo<TemplateEditorValue>(() => ({
-    templates,
-    currentTemplateId: templateStaged.currentItemId,
-    currentTemplate: templateStaged.currentItem,
-    hasPendingChanges: templateStaged.hasPendingChanges,
-    isPushingChanges: templateStaged.isPushingChanges,
-    nameFocusRequest: templateNameFocusRequest,
-    setCurrentTemplateId: templateStaged.setCurrentItemId,
-    openTemplateEditor,
-    updateTemplateDraft,
-    replaceTemplateElements,
-    createTemplate,
-    applyTemplateToTarget,
-    detachTemplateFromDeckItem,
+  const themeValue = useMemo<ThemeEditorValue>(() => ({
+    themes,
+    currentThemeId: themeStaged.currentItemId,
+    currentTheme: themeStaged.currentItem,
+    hasPendingChanges: themeStaged.hasPendingChanges,
+    isPushingChanges: themeStaged.isPushingChanges,
+    nameFocusRequest: themeNameFocusRequest,
+    setCurrentThemeId: themeStaged.setCurrentItemId,
+    openThemeEditor,
+    updateThemeDraft,
+    replaceThemeElements,
+    createTheme,
+    applyThemeToTarget,
+    detachThemeFromDeckItem,
     syncLinkedDeckItems,
-    deleteTemplate,
-    duplicateTemplate,
-    renameTemplate,
-    requestNameFocus: requestTemplateNameFocus,
-    pushChanges: pushTemplateChanges,
+    deleteTheme,
+    duplicateTheme,
+    renameTheme,
+    requestNameFocus: requestThemeNameFocus,
+    pushChanges: pushThemeChanges,
   }), [
-    applyTemplateToTarget, createTemplate, templateStaged.currentItem, templateStaged.currentItemId,
-    deleteTemplate, detachTemplateFromDeckItem, syncLinkedDeckItems, duplicateTemplate, templateStaged.hasPendingChanges, templateStaged.isPushingChanges,
-    openTemplateEditor, pushTemplateChanges, renameTemplate, replaceTemplateElements, requestTemplateNameFocus,
-    templateStaged.setCurrentItemId, templateNameFocusRequest, templates, updateTemplateDraft,
+    applyThemeToTarget, createTheme, themeStaged.currentItem, themeStaged.currentItemId,
+    deleteTheme, detachThemeFromDeckItem, syncLinkedDeckItems, duplicateTheme, themeStaged.hasPendingChanges, themeStaged.isPushingChanges,
+    openThemeEditor, pushThemeChanges, renameTheme, replaceThemeElements, requestThemeNameFocus,
+    themeStaged.setCurrentItemId, themeNameFocusRequest, themes, updateThemeDraft,
   ]);
 
   // ── Stage editor ──
@@ -505,13 +509,16 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
 
   const createStageAction = useCallback(async () => {
     const now = new Date().toISOString();
+    const stageId = createId();
     const draft: Stage = {
-      id: createId(),
+      id: stageId,
+      slideId: `${stageId}:slide`,
       name: 'New Stage',
       width: 1920,
       height: 1080,
       order: (stages.at(-1)?.order ?? -1) + 1,
       elements: [],
+      collectionId: '',
       createdAt: now,
       updatedAt: now,
     };
@@ -741,13 +748,13 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
 
   return (
     <OverlayEditorContext.Provider value={overlayValue}>
-      <TemplateEditorContext.Provider value={templateValue}>
+      <ThemeEditorContext.Provider value={themeValue}>
         <DeckEditorContext.Provider value={deckValue}>
           <StageEditorContext.Provider value={stageValue}>
             {children}
           </StageEditorContext.Provider>
         </DeckEditorContext.Provider>
-      </TemplateEditorContext.Provider>
+      </ThemeEditorContext.Provider>
     </OverlayEditorContext.Provider>
   );
 }
@@ -756,10 +763,10 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
 
 export function useAssetEditor(): AssetEditorContextValue {
   const overlay = useOverlayEditor();
-  const template = useTemplateEditor();
+  const theme = useThemeEditor();
   const deck = useDeckEditor();
   const stage = useStageEditor();
-  return { overlay, template, deck, stage };
+  return { overlay, theme, deck, stage };
 }
 
 export function useOverlayEditor(): OverlayEditorValue {
@@ -768,9 +775,9 @@ export function useOverlayEditor(): OverlayEditorValue {
   return ctx;
 }
 
-export function useTemplateEditor(): TemplateEditorValue {
-  const ctx = useContext(TemplateEditorContext);
-  if (!ctx) throw new Error('useTemplateEditor must be used within AssetEditorProvider');
+export function useThemeEditor(): ThemeEditorValue {
+  const ctx = useContext(ThemeEditorContext);
+  if (!ctx) throw new Error('useThemeEditor must be used within AssetEditorProvider');
   return ctx;
 }
 
@@ -800,12 +807,12 @@ function overlaySignature(overlay: Overlay): string {
   return JSON.stringify({ id: overlay.id, name: overlay.name, animation: overlay.animation, elements: overlay.elements });
 }
 
-function templateSignature(template: Template): string {
-  return JSON.stringify({ id: template.id, name: template.name, kind: template.kind, width: template.width, height: template.height, elements: template.elements });
+function themeSignature(theme: Theme): string {
+  return JSON.stringify({ id: theme.id, name: theme.name, kind: theme.kind, width: theme.width, height: theme.height, elements: theme.elements });
 }
 
-function cloneTemplate(template: Template): Template {
-  return JSON.parse(JSON.stringify(template)) as Template;
+function cloneTheme(theme: Theme): Theme {
+  return JSON.parse(JSON.stringify(theme)) as Theme;
 }
 
 function stageSignature(stage: Stage): string {

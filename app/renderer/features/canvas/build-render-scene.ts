@@ -2,14 +2,21 @@ import { readVisualPayload } from '@core/element-payload';
 import { LAYER_PREVIEW_SLIDE, mediaAssetToLayerElement, overlayToLayerElements } from '@core/presentation-layers';
 import type { MediaAsset, Overlay, Slide, SlideElement } from '@core/types';
 import { sortElements } from '../../utils/slides';
+import type { BindingOverride } from './binding-context';
 import type { RenderNode, RenderScene } from './scene-types';
 
-function toRenderNode(element: SlideElement): RenderNode {
+interface SceneElementInput {
+  element: SlideElement;
+  bindingOverride?: BindingOverride;
+}
+
+function toRenderNode({ element, bindingOverride }: SceneElementInput): RenderNode {
   return {
     id: element.id,
     element,
     visual: readVisualPayload(element.type, element.payload),
     isVideo: element.type === 'video',
+    bindingOverride,
   };
 }
 
@@ -40,21 +47,32 @@ function toPresentationLayerElement(element: SlideElement): SlideElement {
   };
 }
 
-export function buildRenderScene(frame: RenderSceneFrameInput, elements: SlideElement[]): RenderScene {
+export function buildRenderScene(frame: RenderSceneFrameInput, elements: SlideElement[] | SceneElementInput[]): RenderScene {
   const nextSlide = resolveSceneSlide(frame);
   const size = sceneSize(nextSlide);
-  const sorted = sortElements(elements).map(toRenderNode);
+  const normalizedInputs = elements.map((entry) => ('element' in entry ? entry : { element: entry }));
+  const sorted = sortElements(normalizedInputs.map((entry) => entry.element))
+    .map((element) => normalizedInputs.find((entry) => entry.element === element) ?? { element })
+    .map(toRenderNode);
   return { slide: nextSlide, width: size.width, height: size.height, nodes: sorted };
 }
 
 interface LayeredSceneInput {
   slide: Slide | null;
   contentElements: SlideElement[];
+  videoAsset: MediaAsset | null;
+  videoPlayback?: {
+    autoplay?: boolean;
+    loop?: boolean;
+    muted?: boolean;
+    playbackRate?: number;
+  };
   mediaAsset: MediaAsset | null;
   overlays: Array<{
     overlay: Overlay;
     opacityMultiplier: number;
     stackOrder: number;
+    startedAt: number;
   }>;
   includeContent: boolean;
 }
@@ -62,17 +80,33 @@ interface LayeredSceneInput {
 const OVERLAY_LAYER_Z_INDEX_OFFSET = 10000;
 const OVERLAY_STACK_Z_INDEX_OFFSET = 1000;
 
-export function buildLayeredRenderScene({ slide, contentElements, mediaAsset, overlays, includeContent }: LayeredSceneInput): RenderScene {
-  const merged: SlideElement[] = [];
-  if (mediaAsset) merged.push(mediaAssetToLayerElement(mediaAsset));
-  if (includeContent) merged.push(...contentElements.map(toPresentationLayerElement));
+export function buildLayeredRenderScene({
+  slide,
+  contentElements,
+  videoAsset,
+  videoPlayback,
+  mediaAsset,
+  overlays,
+  includeContent,
+}: LayeredSceneInput): RenderScene {
+  const merged: SceneElementInput[] = [];
+  if (videoAsset) merged.push({ element: mediaAssetToLayerElement(videoAsset, {
+    id: '__layer_video',
+    zIndex: -1,
+    videoPlayback,
+  }) });
+  if (mediaAsset) merged.push({ element: mediaAssetToLayerElement(mediaAsset) });
+  if (includeContent) merged.push(...contentElements.map((element) => ({ element: toPresentationLayerElement(element) })));
 
   for (const overlayLayer of overlays) {
     if (overlayLayer.opacityMultiplier <= 0) continue;
     merged.push(...overlayToLayerElements(overlayLayer.overlay).map((element) => ({
-      ...element,
-      opacity: element.opacity * overlayLayer.opacityMultiplier,
-      zIndex: element.zIndex + OVERLAY_LAYER_Z_INDEX_OFFSET + (overlayLayer.stackOrder * OVERLAY_STACK_Z_INDEX_OFFSET),
+      element: {
+        ...element,
+        opacity: element.opacity * overlayLayer.opacityMultiplier,
+        zIndex: element.zIndex + OVERLAY_LAYER_Z_INDEX_OFFSET + (overlayLayer.stackOrder * OVERLAY_STACK_Z_INDEX_OFFSET),
+      },
+      bindingOverride: { armedAtMs: overlayLayer.startedAt },
     })));
   }
   return buildRenderScene(slide, merged);

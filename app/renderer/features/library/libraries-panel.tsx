@@ -6,7 +6,7 @@ import { useNavigation } from '@renderer/contexts/navigation-context';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Label } from '@renderer/components/display/text';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
-import { RecastPanel } from '@renderer/components/layout/panel';
+import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { useLibraryPanelState } from './library-panel-context';
 
 export function LibrariesPanel() {
@@ -17,19 +17,19 @@ export function LibrariesPanel() {
   if (!snapshot || libraryPanelView !== 'libraries') return null;
 
   return (
-    <RecastPanel.Root className='h-full'>
-      <RecastPanel.Group>
-        <RecastPanel.GroupTitle>
+    <LumaCastPanel.Root className='h-full'>
+      <LumaCastPanel.Group>
+        <LumaCastPanel.GroupTitle>
           <Label.sm className="mr-auto">Library</Label.sm>
           <ReacstButton.Icon label="New library" onClick={createLibrary}>
             <Plus />
           </ReacstButton.Icon>
-        </RecastPanel.GroupTitle>
-        <RecastPanel.GroupContent className='py-2 space-y-1'>
+        </LumaCastPanel.GroupTitle>
+        <LumaCastPanel.GroupContent className='py-2 space-y-1'>
           {snapshot.libraryBundles.map((bundle) => <SortableLibraryRow key={bundle.library.id} bundle={bundle} />)}
-        </RecastPanel.GroupContent>
-      </RecastPanel.Group>
-    </RecastPanel.Root>
+        </LumaCastPanel.GroupContent>
+      </LumaCastPanel.Group>
+    </LumaCastPanel.Root>
   );
 }
 
@@ -56,9 +56,9 @@ function SortableLibraryRow({ bundle }: { bundle: LibraryPlaylistBundle }) {
   }
 
   return (
-    <RecastPanel.MenuItem active={isSelected} onClick={handleSelect}>
+    <LumaCastPanel.MenuItem active={isSelected} onClick={handleSelect}>
       <Folder className='size-4' />
       <RenameField ref={renameRef} value={bundle.library.name} onValueChange={handleRename} className="label-xs" />
-    </RecastPanel.MenuItem>
+    </LumaCastPanel.MenuItem>
   );
 }

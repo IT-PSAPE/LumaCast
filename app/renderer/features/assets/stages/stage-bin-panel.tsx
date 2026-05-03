@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import type { Id, Stage } from '@core/types';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
@@ -13,40 +13,63 @@ import { useStageEditor } from '../../../contexts/asset-editor/asset-editor-cont
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
+import { useGridSize } from '../../../hooks/use-grid-size';
+import type { ResourceDrawerViewMode } from '../../../types/ui';
+import { BinShell } from '../../workbench/bin-shell';
+import { useBinCollections, type BinCollectionsApi } from '../../workbench/use-bin-collections';
 
-interface StageBinPanelProps {
-  filterText: string;
-  gridItemSize: number;
-}
-
-export function StageBinPanel({ filterText, gridItemSize }: StageBinPanelProps) {
+export function StageBinPanel() {
   const { stages: allStages } = useProjectContent();
   const { currentStageId, setCurrentStageId } = useStagePlayback();
   const { setCurrentStageId: setEditorStageId } = useStageEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
+  const collections = useBinCollections('stage');
+  const [searchValue, setSearchValue] = useState('');
+  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
+  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.stage-bin', 3, 2, 4);
+
+  const filteredByCollection = useMemo(
+    () => collections.filterByActiveCollection(allStages),
+    [allStages, collections],
+  );
 
   const stages = useMemo(
-    () => filterByText(allStages, filterText, (stage: Stage) => [stage.name]),
-    [allStages, filterText],
+    () => filterByText(filteredByCollection, searchValue, (stage: Stage) => [stage.name]),
+    [filteredByCollection, searchValue],
   );
 
   return (
-    <BinPanelLayout gridItemSize={gridItemSize}>
-      {stages.map((stage, index) => (
-        <StageCard
-          key={stage.id}
-          stage={stage}
-          index={index}
-          isActive={stage.id === currentStageId}
-          onActivate={setCurrentStageId}
-          onEdit={(id) => {
-            setEditorStageId(id);
-            setCurrentStageId(id);
-            setWorkbenchMode('stage-editor');
-          }}
-        />
-      ))}
-    </BinPanelLayout>
+    <BinShell
+      collections={collections}
+      searchValue={searchValue}
+      onSearchChange={setSearchValue}
+      searchPlaceholder="Search stages…"
+      viewMode={viewMode}
+      onViewModeChange={setViewMode}
+      gridSize={gridSize}
+      gridSizeMin={min}
+      gridSizeMax={max}
+      gridSizeStep={step}
+      onGridSizeChange={setGridSize}
+    >
+      <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+        {stages.map((stage, index) => (
+          <StageCard
+            key={stage.id}
+            stage={stage}
+            index={index}
+            isActive={stage.id === currentStageId}
+            onActivate={setCurrentStageId}
+            onEdit={(id) => {
+              setEditorStageId(id);
+              setCurrentStageId(id);
+              setWorkbenchMode('stage-editor');
+            }}
+            collectionsApi={collections}
+          />
+        ))}
+      </BinPanelLayout>
+    </BinShell>
   );
 }
 
@@ -56,6 +79,7 @@ interface StageCardProps {
   isActive: boolean;
   onActivate: (id: Id | null) => void;
   onEdit: (id: Id) => void;
+  collectionsApi: BinCollectionsApi;
 }
 
 function StageCardImpl(props: StageCardProps) {
@@ -66,7 +90,7 @@ function StageCardImpl(props: StageCardProps) {
   );
 }
 
-function StageCardBody({ stage, index, isActive, onActivate, onEdit }: StageCardProps) {
+function StageCardBody({ stage, index, isActive, onActivate, onEdit, collectionsApi }: StageCardProps) {
   const { updateStageDraft, deleteStage, duplicateStage } = useStageEditor();
   const scene = useMemo(() => buildRenderScene(null, stage.elements), [stage.elements]);
   const renameRef = useRef<RenameFieldHandle>(null);
@@ -101,7 +125,7 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit }: StageCard
         <Thumbnail.Tile onClick={handleActivate} onDoubleClick={handleEdit} selected={isActive}>
           <Thumbnail.Body>
             <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
-              <LazySceneStage scene={scene} surface="stage" className="absolute inset-0" />
+              <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
             </SceneFrame>
           </Thumbnail.Body>
           <Thumbnail.Caption>
@@ -117,6 +141,18 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit }: StageCard
           <ContextMenu.Item onSelect={handleEdit}>Edit</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { duplicateStage(stage.id); }}>Duplicate</ContextMenu.Item>
+          {collectionsApi.collections.filter((c) => c.id !== stage.collectionId).length > 0 ? (
+            <ContextMenu.Submenu label="Move to collection">
+              {collectionsApi.collections.filter((c) => c.id !== stage.collectionId).map((collection) => (
+                <ContextMenu.Item
+                  key={collection.id}
+                  onSelect={() => { void collectionsApi.assignItem('stage', stage.id, collection.id); }}
+                >
+                  {collection.name}
+                </ContextMenu.Item>
+              ))}
+            </ContextMenu.Submenu>
+          ) : null}
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

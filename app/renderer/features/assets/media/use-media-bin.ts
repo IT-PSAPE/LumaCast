@@ -7,7 +7,7 @@ import { compareByKey, useMediaBinSort } from '../../workbench/use-bin-sort';
 
 export function useMediaBin(filterText: string) {
   const { mediaAssets: allMediaAssets } = useProjectContent();
-  const { mediaLayerAssetId, setMediaLayerAsset } = usePresentationMediaLayer();
+  const { mediaLayerAssetId, videoLayerAssetId, setMediaLayerAsset } = usePresentationMediaLayer();
   const { sort } = useMediaBinSort();
 
   const mediaAssets = useMemo(() => {
@@ -24,5 +24,5 @@ export function useMediaBin(filterText: string) {
     setMediaLayerAsset(assetId);
   }
 
-  return { mediaAssets, mediaLayerAssetId, setMediaLayerAsset, handleApply };
+  return { mediaAssets, mediaLayerAssetId, videoLayerAssetId, setMediaLayerAsset, handleApply };
 }

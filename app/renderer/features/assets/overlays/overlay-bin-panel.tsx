@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import type { Id, Overlay } from '@core/types';
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useOverlayEditor } from '../../../contexts/asset-editor/asset-editor-context';
@@ -13,36 +13,59 @@ import { SceneFrame } from '../../../components/display/scene-frame';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
 import { filterByText } from '../../../utils/filter-by-text';
+import { useGridSize } from '../../../hooks/use-grid-size';
+import type { ResourceDrawerViewMode } from '../../../types/ui';
+import { BinShell } from '../../workbench/bin-shell';
+import { useBinCollections, type BinCollectionsApi } from '../../workbench/use-bin-collections';
 
-interface OverlayBinPanelProps {
-  filterText: string;
-  gridItemSize: number;
-}
-
-export function OverlayBinPanel({ filterText, gridItemSize }: OverlayBinPanelProps) {
+export function OverlayBinPanel() {
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const { overlays: allOverlays, setCurrentOverlayId } = useOverlayEditor();
   const { activeOverlayIds, activateOverlay } = usePresentationOverlayLayer();
+  const collections = useBinCollections('overlay');
+  const [searchValue, setSearchValue] = useState('');
+  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
+  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.overlay-bin', 3, 2, 4);
+
+  const filteredByCollection = useMemo(
+    () => collections.filterByActiveCollection(allOverlays),
+    [allOverlays, collections],
+  );
 
   const overlays = useMemo(
-    () => filterByText(allOverlays, filterText, (overlay: Overlay) => [overlay.name, overlay.type]),
-    [allOverlays, filterText],
+    () => filterByText(filteredByCollection, searchValue, (overlay: Overlay) => [overlay.name]),
+    [filteredByCollection, searchValue],
   );
 
   return (
-    <BinPanelLayout gridItemSize={gridItemSize}>
-      {overlays.map((overlay, index) => (
-        <OverlayCard
-          key={overlay.id}
-          overlay={overlay}
-          index={index}
-          isActive={activeOverlayIds.includes(overlay.id)}
-          onActivate={activateOverlay}
-          onEdit={setCurrentOverlayId}
-          setWorkbenchMode={setWorkbenchMode}
-        />
-      ))}
-    </BinPanelLayout>
+    <BinShell
+      collections={collections}
+      searchValue={searchValue}
+      onSearchChange={setSearchValue}
+      searchPlaceholder="Search overlays…"
+      viewMode={viewMode}
+      onViewModeChange={setViewMode}
+      gridSize={gridSize}
+      gridSizeMin={min}
+      gridSizeMax={max}
+      gridSizeStep={step}
+      onGridSizeChange={setGridSize}
+    >
+      <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+        {overlays.map((overlay, index) => (
+          <OverlayCard
+            key={overlay.id}
+            overlay={overlay}
+            index={index}
+            isActive={activeOverlayIds.includes(overlay.id)}
+            onActivate={activateOverlay}
+            onEdit={setCurrentOverlayId}
+            setWorkbenchMode={setWorkbenchMode}
+            collectionsApi={collections}
+          />
+        ))}
+      </BinPanelLayout>
+    </BinShell>
   );
 }
 
@@ -53,6 +76,7 @@ interface OverlayCardProps {
   onActivate: (id: Id) => void;
   onEdit: (id: Id) => void;
   setWorkbenchMode: (mode: 'overlay-editor') => void;
+  collectionsApi: BinCollectionsApi;
 }
 
 function OverlayCardImpl(props: OverlayCardProps) {
@@ -63,12 +87,13 @@ function OverlayCardImpl(props: OverlayCardProps) {
   );
 }
 
-function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWorkbenchMode }: OverlayCardProps) {
+function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWorkbenchMode, collectionsApi }: OverlayCardProps) {
   const { updateOverlayDraft, deleteOverlay, duplicateOverlay } = useOverlayEditor();
   const scene = useMemo(() => buildRenderScene(null, overlayToLayerElements(overlay)), [overlay]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const otherCollections = collectionsApi.collections.filter((c) => c.id !== overlay.collectionId);
 
   function handleActivate() {
     onEdit(overlay.id);
@@ -116,6 +141,18 @@ function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWork
           <ContextMenu.Item onSelect={handleEdit}>Edit</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { duplicateOverlay(overlay.id); }}>Duplicate</ContextMenu.Item>
+          {otherCollections.length > 0 ? (
+            <ContextMenu.Submenu label="Move to collection">
+              {otherCollections.map((collection) => (
+                <ContextMenu.Item
+                  key={collection.id}
+                  onSelect={() => { void collectionsApi.assignItem('overlay', overlay.id, collection.id); }}
+                >
+                  {collection.name}
+                </ContextMenu.Item>
+              ))}
+            </ContextMenu.Submenu>
+          ) : null}
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

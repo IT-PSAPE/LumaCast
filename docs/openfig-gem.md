@@ -1,6 +1,6 @@
 # OpenFIG Gem: Storage Model And Entity Relationships
 
-This file documents the current persistence model used by Recast, based on the domain types in `app/core/types.ts` and the SQLite schema and repository behavior in `app/database/store.ts`.
+This file documents the current persistence model used by LumaCast, based on the domain types in `app/core/types.ts` and the SQLite schema and repository behavior in `app/database/store.ts`.
 
 ## Domain Relationship Summary
 
@@ -10,18 +10,18 @@ This file documents the current persistence model used by Recast, based on the d
 - A `playlist_entry` points to one `presentation`.
 - A `presentation` owns many `slides`.
 - A `slide` owns many `slide_elements`.
-- A `template` can be assigned to many `presentations` through `presentations.template_id`.
+- A `theme` can be assigned to many `presentations` through `presentations.theme_id`.
 - An `overlay` is a standalone global record and stores its own composed `elements_json`.
 - A `media_asset` is a standalone global record.
 
 ## Important Modeling Notes
 
-- `presentations`, `media_assets`, `overlays`, and `templates` are global content. They are not scoped to a `library`.
+- `presentations`, `media_assets`, `overlays`, and `themes` are global content. They are not scoped to a `library`.
 - `libraries` are currently used to scope playlists only.
 - A `presentation` can appear in multiple playlists because `playlist_entries` references `presentations`.
 - Within a single playlist, the repository enforces one placement per presentation by deleting existing entries in that playlist before inserting a new one.
 - `slide_elements.payload_json` is polymorphic JSON. It stores text, image, video, shape, or group-specific data.
-- `templates.elements_json` stores reusable slide elements as embedded JSON instead of normalized child rows.
+- `themes.elements_json` stores reusable slide elements as embedded JSON instead of normalized child rows.
 - `overlays.elements_json` stores embedded slide-like elements instead of using the `slide_elements` table.
 - Media usage is denormalized: image/video elements point to asset paths in `payload.src`, not to `media_assets.id`.
 
@@ -71,11 +71,11 @@ This file documents the current persistence model used by Recast, based on the d
 - `id` TEXT PRIMARY KEY
 - `title` TEXT NOT NULL
 - `kind` TEXT NOT NULL DEFAULT `canvas`
-- `template_id` TEXT NULL
+- `theme_id` TEXT NULL
 - `order_index` INTEGER NOT NULL DEFAULT 0
 - `created_at` TEXT NOT NULL
 - `updated_at` TEXT NOT NULL
-- Logical reference `template_id -> templates.id`
+- Logical reference `theme_id -> themes.id`
 
 ### `slides`
 
@@ -134,7 +134,7 @@ This file documents the current persistence model used by Recast, based on the d
 - `created_at` TEXT NOT NULL
 - `updated_at` TEXT NOT NULL
 
-### `templates`
+### `themes`
 
 - `id` TEXT PRIMARY KEY
 - `name` TEXT NOT NULL
@@ -156,7 +156,7 @@ erDiagram
   PRESENTATIONS ||--o{ PLAYLIST_ENTRIES : referenced_by
   PRESENTATIONS ||--o{ SLIDES : contains
   SLIDES ||--o{ SLIDE_ELEMENTS : contains
-  TEMPLATES ||--o{ PRESENTATIONS : assigned_to
+  THEMES ||--o{ PRESENTATIONS : assigned_to
 
   LIBRARIES {
     text id PK
@@ -197,7 +197,7 @@ erDiagram
     text id PK
     text title
     text kind
-    text template_id FK
+    text theme_id FK
     int order_index
     text created_at
     text updated_at
@@ -273,7 +273,7 @@ erDiagram
 
 ## Storage Gaps To Be Aware Of
 
-- `presentations.template_id` is indexed and used like a foreign key, but the schema does not currently declare a database-level FK constraint.
+- `presentations.theme_id` is indexed and used like a foreign key, but the schema does not currently declare a database-level FK constraint.
 - `media_assets` are not relationally linked to `slide_elements` or `overlays`; the connection exists only through file-path strings inside JSON payloads.
 - `overlays` duplicate summary fields (`type`, `x`, `y`, `width`, `height`, `opacity`, `z_index`, `payload_json`) that are derived from the highest z-index element in `elements_json`.
 - `group` slide elements nest child elements inside `payload_json.children`, which creates a second level of embedded composition outside normalized tables.

@@ -191,7 +191,7 @@ export function BundleDropImport() {
                   <div className="flex flex-col gap-4">
                     <div className="text-sm text-secondary">
                       <span className="font-medium text-primary">{target.inspection.itemCount}</span> item{target.inspection.itemCount === 1 ? '' : 's'},{' '}
-                      <span className="font-medium text-primary">{target.inspection.templateCount}</span> template{target.inspection.templateCount === 1 ? '' : 's'},{' '}
+                      <span className="font-medium text-primary">{target.inspection.themeCount}</span> theme{target.inspection.themeCount === 1 ? '' : 's'},{' '}
                       <span className="font-medium text-primary">{target.inspection.mediaReferenceCount}</span> media reference{target.inspection.mediaReferenceCount === 1 ? '' : 's'}.
                     </div>
                     {target.inspection.brokenReferences.length > 0 && (

@@ -45,7 +45,7 @@ export function useSceneStageViewport(sceneWidth: number, sceneHeight: number, f
 
   // Always observe the container — even with a fixedViewport — so we can
   // compute a CSS displayScale that fits the fixed-resolution canvas inside
-  // the actual on-screen container (preview surfaces, NDI thumbnails, etc.).
+  // the actual on-screen container (program surfaces, NDI thumbnails, etc.).
   useLayoutEffect(() => {
     const target = containerRef.current;
     if (!target) return;

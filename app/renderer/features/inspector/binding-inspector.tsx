@@ -142,7 +142,7 @@ export function BindingInspector() {
         <Section.Root>
           <Section.Body>
             <p className="text-xs text-tertiary">
-              This element will display the live value when the stage is connected to a presentation. In the editor, a placeholder is shown.
+              This element will display the live value when the output is connected to a presentation. In the editor, a placeholder is shown.
             </p>
           </Section.Body>
         </Section.Root>

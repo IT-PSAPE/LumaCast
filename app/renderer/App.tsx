@@ -18,6 +18,7 @@ import { AppToolbar } from './features/workbench/app-toolbar';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { StatusBar } from './features/workbench/status-bar';
 import { WindowsInlineMenuBar } from './features/workbench/windows-inline-menu-bar';
+import { useAppMenu } from './hooks/use-app-menu';
 import { WorkbenchScreenRouter } from './workbench-screen-router';
 
 export function App() {
@@ -56,12 +57,38 @@ export function App() {
 }
 
 function AppLayoutContent() {
-  const { snapshot } = useCast();
+  const { snapshot, isLoadingSnapshot, snapshotLoadError, retrySnapshotLoad } = useCast();
+  useAppMenu();
+
+  if (isLoadingSnapshot) {
+    return (
+      <div className="flex items-center justify-center h-full text-secondary">
+        Loading LumaCast App
+      </div>
+    );
+  }
 
   if (!snapshot) {
     return (
-      <div className="flex items-center justify-center h-full text-secondary">
-        Loading Recast App
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="flex max-w-xl flex-col gap-3 rounded-lg border border-secondary bg-secondary/30 p-5 text-left">
+          <div className="text-base font-semibold text-primary">LumaCast could not load its project data.</div>
+          <div className="text-sm text-secondary">
+            {snapshotLoadError ?? 'Unknown startup error.'}
+          </div>
+          <div className="text-xs text-tertiary">
+            This often points to a corrupted or incompatible local database on this machine.
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={() => { void retrySnapshotLoad(); }}
+              className="rounded-sm bg-brand_solid px-3 py-1.5 text-sm font-medium text-primary transition-opacity hover:opacity-90"
+            >
+              Retry startup
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

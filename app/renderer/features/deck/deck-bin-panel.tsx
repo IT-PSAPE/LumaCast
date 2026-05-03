@@ -8,21 +8,17 @@ import { SceneFrame } from '../../components/display/scene-frame';
 import { SelectableRow } from '../../components/display/selectable-row';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { useProjectContent } from '../../contexts/use-project-content';
-import { useResourceDrawer } from '../workbench/resource-drawer-context';
 import { useLibraryPanelManagement } from '../library/use-library-panel-management';
 import { buildThumbnailScene } from '../canvas/build-render-scene';
 import { SceneStage } from '../canvas/scene-stage';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
+import { useGridSize } from '../../hooks/use-grid-size';
+import { BinShell } from '../workbench/bin-shell';
+import type { BinCollectionsApi } from '../workbench/use-bin-collections';
 import { useDeckBin } from './use-deck-bin';
 import { writeDeckItemDragData } from '../../utils/deck-item-drag';
 
-interface DeckBinPanelProps {
-  filterText: string;
-  gridItemSize: number;
-}
-
-export function DeckBinPanel({ filterText, gridItemSize }: DeckBinPanelProps) {
-  const { drawerViewMode } = useResourceDrawer();
+export function DeckBinPanel() {
   const {
     filteredDeckItems,
     editingDeckItemId,
@@ -31,28 +27,48 @@ export function DeckBinPanel({ filterText, gridItemSize }: DeckBinPanelProps) {
     currentDrawerDeckItemId,
     handleRename,
     slidesByDeckItemId,
-  } = useDeckBin(filterText);
+    collections,
+    searchValue,
+    setSearchValue,
+    viewMode,
+    setViewMode,
+  } = useDeckBin();
+  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.deck-bin', 6, 4, 8);
 
   return (
-    <BinPanelLayout
-      gridItemSize={gridItemSize}
-      mode={drawerViewMode}
+    <BinShell
+      collections={collections}
+      searchValue={searchValue}
+      onSearchChange={setSearchValue}
+      searchPlaceholder="Search deck…"
+      viewMode={viewMode}
+      onViewModeChange={setViewMode}
+      gridSize={gridSize}
+      gridSizeMin={min}
+      gridSizeMax={max}
+      gridSizeStep={step}
+      onGridSizeChange={setGridSize}
     >
-      {filteredDeckItems.map((presentation) => {
-        const shared = {
-          key: presentation.id,
-          item: presentation,
-          slides: slidesByDeckItemId.get(presentation.id) ?? [],
-          isSelected: isDetachedDeckBrowser && currentDrawerDeckItemId === presentation.id,
-          isEditing: editingDeckItemId === presentation.id,
-          onOpen: browseDeckItem,
-          onRename: handleRename,
-        };
-        return drawerViewMode === 'list'
-          ? <DeckItemRow {...shared} />
-          : <DeckItemTile {...shared} />;
-      })}
-    </BinPanelLayout>
+      <BinPanelLayout
+        gridItemSize={gridSize}
+        mode={viewMode}
+      >
+        {filteredDeckItems.map((presentation) => {
+          const shared = {
+            item: presentation,
+            slides: slidesByDeckItemId.get(presentation.id) ?? [],
+            isSelected: isDetachedDeckBrowser && currentDrawerDeckItemId === presentation.id,
+            isEditing: editingDeckItemId === presentation.id,
+            onOpen: browseDeckItem,
+            onRename: handleRename,
+            collectionsApi: collections,
+          };
+          return viewMode === 'list'
+            ? <DeckItemRow key={presentation.id} {...shared} />
+            : <DeckItemTile key={presentation.id} {...shared} />;
+        })}
+      </BinPanelLayout>
+    </BinShell>
   );
 }
 
@@ -63,11 +79,13 @@ interface DeckItemProps {
   isEditing: boolean;
   onOpen: (itemId: Id) => void;
   onRename: (itemId: Id, title: string) => void;
+  collectionsApi: BinCollectionsApi;
 }
 
-function DeckItemContextMenuItems({ item, renameRef }: { item: DeckItem; renameRef: React.RefObject<RenameFieldHandle | null> }) {
+function DeckItemContextMenuItems({ item, renameRef, collectionsApi }: { item: DeckItem; renameRef: React.RefObject<RenameFieldHandle | null>; collectionsApi: BinCollectionsApi }) {
   const { deleteDeckItem } = useLibraryPanelManagement();
   const confirm = useConfirm();
+  const otherCollections = collectionsApi.collections.filter((c) => c.id !== item.collectionId);
 
   async function handleDelete() {
     const ok = await confirm({
@@ -83,6 +101,18 @@ function DeckItemContextMenuItems({ item, renameRef }: { item: DeckItem; renameR
     <ContextMenu.Portal>
       <ContextMenu.Menu>
         <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
+        {otherCollections.length > 0 ? (
+          <ContextMenu.Submenu label="Move to collection">
+            {otherCollections.map((collection) => (
+              <ContextMenu.Item
+                key={collection.id}
+                onSelect={() => { void collectionsApi.assignItem(item.type === 'lyric' ? 'lyric' : 'presentation', item.id, collection.id); }}
+              >
+                {collection.name}
+              </ContextMenu.Item>
+            ))}
+          </ContextMenu.Submenu>
+        ) : null}
         <ContextMenu.Separator />
         <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
       </ContextMenu.Menu>
@@ -98,7 +128,7 @@ function DeckItemRow(props: DeckItemProps) {
   );
 }
 
-function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename }: DeckItemProps) {
+function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename, collectionsApi }: DeckItemProps) {
   const renameRef = useRef<RenameFieldHandle>(null);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
 
@@ -139,7 +169,7 @@ function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename
           <span className="text-xs text-tertiary">{slides.length} {slides.length === 1 ? 'slide' : 'slides'}</span>
         </SelectableRow.Trailing>
       </SelectableRow.Root>
-      <DeckItemContextMenuItems item={item} renameRef={renameRef} />
+      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} />
     </>
   );
 }
@@ -152,7 +182,7 @@ function DeckItemTile(props: DeckItemProps) {
   );
 }
 
-function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRename }: DeckItemProps) {
+function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRename, collectionsApi }: DeckItemProps) {
   const { slideElementsBySlideId } = useProjectContent();
   const firstSlide = slides[0] ?? null;
   const firstSlideElements = firstSlide ? slideElementsBySlideId.get(firstSlide.id) ?? [] : [];
@@ -201,7 +231,7 @@ function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRenam
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
-      <DeckItemContextMenuItems item={item} renameRef={renameRef} />
+      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} />
     </>
   );
 }
