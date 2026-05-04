@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type ButtonHTMLAttributes, type CSSProperties, type Ref } from 'react';
 import type { Id } from '@core/types';
 import { cn } from '@renderer/utils/cn';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
@@ -9,7 +9,7 @@ import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { useScrollAreaActiveItem } from '../../components/layout/scroll-area';
 import { useSlides } from '../../contexts/slide-context';
-import { Play } from 'lucide-react';
+import { GripVertical, Play } from 'lucide-react';
 import type { OutlineSlideRow } from './use-slide-list-view';
 import type { RenderScene } from '../canvas/scene-types';
 
@@ -20,6 +20,10 @@ interface SlideOutlineRowProps {
   onSelect: (index: number) => void;
   onOpen: (index: number) => void;
   onTextCommit: (slideId: Id, nextText: string) => void;
+  containerRef?: Ref<HTMLDivElement>;
+  containerStyle?: CSSProperties;
+  dragging?: boolean;
+  dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
 }
 
 function SlideOutlineRowImpl(props: SlideOutlineRowProps) {
@@ -30,7 +34,18 @@ function SlideOutlineRowImpl(props: SlideOutlineRowProps) {
   );
 }
 
-function SlideOutlineRowBody({ row, scene, isFocused, onSelect, onOpen, onTextCommit }: SlideOutlineRowProps) {
+function SlideOutlineRowBody({
+  row,
+  scene,
+  isFocused,
+  onSelect,
+  onOpen,
+  onTextCommit,
+  containerRef,
+  containerStyle,
+  dragging = false,
+  dragHandleProps,
+}: SlideOutlineRowProps) {
   // Gating: this row component is shared between single-mode and continuous-mode
   // browsers. Slide actions live on the slide-context for the *current* deck item;
   // in continuous mode the row may belong to a different deck item, so we disable
@@ -95,10 +110,13 @@ function SlideOutlineRowBody({ row, scene, isFocused, onSelect, onOpen, onTextCo
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          if (typeof containerRef === 'function') containerRef(node);
+          else if (containerRef) containerRef.current = node;
         }}
+        style={containerStyle}
         onClick={handleSelect}
         onDoubleClick={row.textEditable ? undefined : handleOpen}
-        className={rowStateClass}
+        className={cn(rowStateClass, dragging && 'opacity-70 shadow-lg')}
       >
         <Thumbnail.Preview>
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0">
@@ -113,6 +131,16 @@ function SlideOutlineRowBody({ row, scene, isFocused, onSelect, onOpen, onTextCo
         <Thumbnail.Body className={row.textEditable ? 'content-start' : 'content-center'}>
           <>
             <div className={cn('flex gap-2', row.textEditable ? 'items-start' : 'items-center')}>
+              <button
+                type="button"
+                {...dragHandleProps}
+                onClick={(event) => { event.stopPropagation(); }}
+                className="mt-0.5 inline-flex h-5 w-5 shrink-0 cursor-grab items-center justify-center rounded-[2px] bg-tertiary text-tertiary transition-colors hover:bg-quaternary hover:text-primary active:cursor-grabbing"
+                title="Reorder slide"
+                aria-label={`Reorder slide ${row.index + 1}`}
+              >
+                <GripVertical size={12} strokeWidth={1.9} />
+              </button>
               <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{row.index + 1}.</span>
               {renderRowText()}
             </div>

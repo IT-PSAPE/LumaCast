@@ -613,7 +613,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [videoIsPlaying, setVideoIsPlaying] = useState(false);
   const [videoMuted, setVideoMuted] = useState(false);
   const [videoRequestedPlay, setVideoRequestedPlay] = useState(false);
-  const pendingVideoRestoreRef = useRef<{ time: number; shouldPlay: boolean } | null>(null);
   const videoLayerPlayback = useMemo(() => ({
     autoplay: videoRequestedPlay,
     loop: true,
@@ -633,13 +632,13 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   // when videoLayerAsset changes.
   useEffect(() => {
     function refresh() {
-      const next = videoLayerAsset ? getLayerVideoElement(videoLayerAsset.src, videoLayerPlayback) : null;
+      const next = videoLayerAsset ? getLayerVideoElement(videoLayerAsset.src) : null;
       setLayerVideoElement((prev) => (prev === next ? prev : next));
     }
     refresh();
     const unsubscribe = subscribeToVideoPool(refresh);
     return () => { unsubscribe(); };
-  }, [videoLayerAsset, videoLayerPlayback]);
+  }, [videoLayerAsset]);
 
   // Mirror the element's playback state into React state for the UI.
   useEffect(() => {
@@ -651,28 +650,6 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
 
     const el = layerVideoElement;
-    const pendingRestore = pendingVideoRestoreRef.current;
-    if (pendingRestore) {
-      const restore = () => {
-        const max = Number.isFinite(el.duration) ? el.duration : pendingRestore.time;
-        el.currentTime = Math.min(Math.max(pendingRestore.time, 0), max);
-        if (pendingRestore.shouldPlay) {
-          void el.play().catch(() => undefined);
-        }
-        pendingVideoRestoreRef.current = null;
-      };
-
-      if (el.readyState >= HTMLMediaElement.HAVE_METADATA) {
-        restore();
-      } else {
-        const handleLoadedMetadata = () => {
-          el.removeEventListener('loadedmetadata', handleLoadedMetadata);
-          restore();
-        };
-        el.addEventListener('loadedmetadata', handleLoadedMetadata);
-      }
-    }
-
     function handleTimeUpdate() { setVideoCurrentTime(el.currentTime); }
     function handleDurationChange() {
       setVideoDuration(Number.isFinite(el.duration) ? el.duration : 0);
@@ -743,14 +720,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   }, [videoLayerAsset]);
 
   const toggleVideoMuted = useCallback(() => {
-    if (layerVideoElement) {
-      pendingVideoRestoreRef.current = {
-        time: layerVideoElement.currentTime,
-        shouldPlay: !layerVideoElement.paused && !layerVideoElement.ended,
-      };
-    }
     setVideoMuted((prev) => !prev);
-  }, [layerVideoElement]);
+  }, []);
 
   const seekVideo = useCallback((time: number) => {
     if (!layerVideoElement) return;

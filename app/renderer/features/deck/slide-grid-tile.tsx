@@ -1,5 +1,5 @@
-import { memo } from 'react';
-import { Play } from 'lucide-react';
+import { memo, type ButtonHTMLAttributes, type CSSProperties, type Ref } from 'react';
+import { GripVertical, Play } from 'lucide-react';
 import type { Id } from '@core/types';
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
@@ -20,6 +20,10 @@ interface SlideGridTileProps {
   textPreview: string;
   onActivate: (index: number) => void;
   onFocus: (index: number) => void;
+  containerRef?: Ref<HTMLDivElement>;
+  containerStyle?: CSSProperties;
+  dragging?: boolean;
+  dragHandleProps?: ButtonHTMLAttributes<HTMLButtonElement>;
 }
 
 function SlideGridTileImpl(props: SlideGridTileProps) {
@@ -30,7 +34,21 @@ function SlideGridTileImpl(props: SlideGridTileProps) {
   );
 }
 
-function SlideGridTileBody({ slideId, index, scene, selected, isLive, isEmpty, textPreview, onActivate, onFocus }: SlideGridTileProps) {
+function SlideGridTileBody({
+  slideId,
+  index,
+  scene,
+  selected,
+  isLive,
+  isEmpty,
+  textPreview,
+  onActivate,
+  onFocus,
+  containerRef,
+  containerStyle,
+  dragging = false,
+  dragHandleProps,
+}: SlideGridTileProps) {
   const { slides, duplicateSlide, deleteSlide, moveSlide } = useSlides();
   const confirm = useConfirm();
   const isFirst = index === 0;
@@ -63,10 +81,14 @@ function SlideGridTileBody({ slideId, index, scene, selected, isLive, isEmpty, t
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          if (typeof containerRef === 'function') containerRef(node);
+          else if (containerRef) containerRef.current = node;
         }}
+        style={containerStyle}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         selected={selected}
+        className={dragging ? 'opacity-70 shadow-lg' : undefined}
       >
         <Thumbnail.Body>
           <SceneFrame
@@ -91,6 +113,18 @@ function SlideGridTileBody({ slideId, index, scene, selected, isLive, isEmpty, t
             </span>
           </Thumbnail.Overlay>
         ) : null}
+        <Thumbnail.Overlay position="top-right" className="right-2 top-2">
+          <button
+            type="button"
+            {...dragHandleProps}
+            onClick={(event) => { event.stopPropagation(); }}
+            className="inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-[2px] bg-black/45 text-white/85 shadow-sm transition-colors hover:bg-black/60 active:cursor-grabbing"
+            title="Reorder slide"
+            aria-label={`Reorder slide ${index + 1}`}
+          >
+            <GripVertical size={12} strokeWidth={1.9} />
+          </button>
+        </Thumbnail.Overlay>
         <Thumbnail.Caption>
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>

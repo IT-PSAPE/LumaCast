@@ -1666,8 +1666,19 @@ export class CastRepository {
     return this.getCollections().filter((collection) => idSet.has(collection.id));
   }
 
+  private assertCollectionNameAvailable(binKind: CollectionBinKind, name: string, excludeId?: Id): void {
+    const table = COLLECTION_TABLE_BY_BIN[binKind];
+    const existing = this.db.prepare(
+      `SELECT id FROM ${table} WHERE lower(trim(name)) = lower(trim(?)) ${excludeId ? 'AND id != ?' : ''} LIMIT 1`,
+    ).get(...(excludeId ? [name, excludeId] : [name])) as { id: string } | undefined;
+    if (existing) {
+      throw new Error(`A collection named "${name.trim()}" already exists.`);
+    }
+  }
+
   createCollection(input: CollectionCreateInput): SnapshotPatch {
     const table = COLLECTION_TABLE_BY_BIN[input.binKind];
+    this.assertCollectionNameAvailable(input.binKind, input.name);
     const now = nowIso();
     const id = createId();
     const nextOrder =
@@ -1687,6 +1698,7 @@ export class CastRepository {
     if (existing.is_default === 1) {
       throw new Error('Default collection cannot be renamed');
     }
+    this.assertCollectionNameAvailable(input.binKind, input.name, input.id);
     this.db
       .prepare(`UPDATE ${table} SET name = ?, updated_at = ? WHERE id = ?`)
       .run(input.name, nowIso(), input.id);

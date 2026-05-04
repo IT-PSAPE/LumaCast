@@ -14,17 +14,19 @@ interface VideoPoolEntry {
   refCount: number;
   video: HTMLVideoElement;
   listeners: Set<() => void>;
+  consumers: Map<symbol, UseKVideoOptions>;
   cleanup: () => void;
 }
 
 const videoPool = new Map<string, VideoPoolEntry>();
 const videoPoolListeners = new Set<() => void>();
 
-// Pool identity must stay stable across transient transport state like
-// play/pause. If autoplay participates in the key, toggling playback swaps the
-// underlying <video> element and loses currentTime.
-function getVideoPoolKey(src: string, { loop, muted, playbackRate }: UseKVideoOptions): string {
-  return [src, loop ? '1' : '0', muted ? '1' : '0', String(playbackRate)].join('|');
+// Pool identity is `src` alone. All per-surface playback state (autoplay,
+// loop, muted, playbackRate) is layered on top via consumer aggregation, so
+// toggling any of those does not swap the underlying <video> element and
+// never loses currentTime.
+function getVideoPoolKey(src: string): string {
+  return src;
 }
 
 function notifyVideoPoolListeners() {
@@ -38,23 +40,22 @@ export function subscribeToVideoPool(listener: () => void): () => void {
   return () => { videoPoolListeners.delete(listener); };
 }
 
-// Looks up the loaded HTMLVideoElement for the layer-video src using the same
-// stable rendering options that were used to acquire/retain it.
-export function getLayerVideoElement(src: string | null, options: UseKVideoOptions): HTMLVideoElement | null {
+// Looks up the loaded HTMLVideoElement for `src` regardless of playback flags.
+export function getLayerVideoElement(src: string | null): HTMLVideoElement | null {
   if (!src) return null;
-  const key = getVideoPoolKey(src, options);
-  const entry = videoPool.get(key);
+  const entry = videoPool.get(getVideoPoolKey(src));
   if (!entry || entry.status !== 'loaded') return null;
   return entry.video;
 }
 
 export function retainVideoSource(src: string, options: UseKVideoOptions): () => void {
-  const entry = acquireVideoEntry(src, options);
+  const consumerId = Symbol(src);
+  const entry = acquireVideoEntry(src, options, consumerId);
   let released = false;
   return () => {
     if (released) return;
     released = true;
-    releaseVideoEntry(entry);
+    releaseVideoEntry(entry, consumerId);
   };
 }
 
@@ -72,6 +73,28 @@ function notifyListeners(entry: VideoPoolEntry) {
   });
 }
 
+function syncVideoEntryState(entry: VideoPoolEntry) {
+  const consumers = Array.from(entry.consumers.values());
+  const autoplay = consumers.some((consumer) => consumer.autoplay);
+  const muted = consumers.every((consumer) => consumer.muted);
+  const loop = consumers.some((consumer) => consumer.loop);
+  const playbackRate = consumers[0]?.playbackRate ?? 1;
+
+  entry.video.autoplay = autoplay;
+  entry.video.loop = loop;
+  entry.video.muted = muted;
+  entry.video.playbackRate = playbackRate;
+
+  if (entry.status !== 'loaded') return;
+  if (autoplay) {
+    void entry.video.play().catch(() => undefined);
+    return;
+  }
+  if (!entry.video.paused) {
+    entry.video.pause();
+  }
+}
+
 function createVideoPoolEntry(src: string, { autoplay, loop, muted, playbackRate }: UseKVideoOptions): VideoPoolEntry {
   const video = document.createElement('video');
   video.src = src;
@@ -84,11 +107,12 @@ function createVideoPoolEntry(src: string, { autoplay, loop, muted, playbackRate
   video.preload = 'metadata';
 
   const entry: VideoPoolEntry = {
-    key: getVideoPoolKey(src, { autoplay, loop, muted, playbackRate }),
+    key: getVideoPoolKey(src),
     status: 'loading',
     refCount: 0,
     video,
     listeners: new Set(),
+    consumers: new Map(),
     cleanup: () => undefined,
   };
 
@@ -127,8 +151,8 @@ function createVideoPoolEntry(src: string, { autoplay, loop, muted, playbackRate
   return entry;
 }
 
-function acquireVideoEntry(src: string, options: UseKVideoOptions): VideoPoolEntry {
-  const key = getVideoPoolKey(src, options);
+function acquireVideoEntry(src: string, options: UseKVideoOptions, consumerId: symbol): VideoPoolEntry {
+  const key = getVideoPoolKey(src);
   let entry = videoPool.get(key);
   const created = !entry;
   if (!entry) {
@@ -136,17 +160,26 @@ function acquireVideoEntry(src: string, options: UseKVideoOptions): VideoPoolEnt
     videoPool.set(key, entry);
   }
 
+  entry.consumers.set(consumerId, options);
   entry.refCount += 1;
-  if (entry.status === 'loaded' && options.autoplay) {
-    void entry.video.play().catch(() => undefined);
-  }
+  syncVideoEntryState(entry);
   if (created) notifyVideoPoolListeners();
   return entry;
 }
 
-function releaseVideoEntry(entry: VideoPoolEntry) {
+function updateVideoEntryConsumer(entry: VideoPoolEntry, consumerId: symbol, options: UseKVideoOptions) {
+  if (!entry.consumers.has(consumerId)) return;
+  entry.consumers.set(consumerId, options);
+  syncVideoEntryState(entry);
+}
+
+function releaseVideoEntry(entry: VideoPoolEntry, consumerId: symbol) {
+  entry.consumers.delete(consumerId);
   entry.refCount -= 1;
-  if (entry.refCount > 0) return;
+  if (entry.refCount > 0) {
+    syncVideoEntryState(entry);
+    return;
+  }
 
   videoPool.delete(entry.key);
   entry.cleanup();
@@ -156,19 +189,22 @@ function releaseVideoEntry(entry: VideoPoolEntry) {
 export function useKVideo(src: string | null, { autoplay, loop, muted, playbackRate }: UseKVideoOptions): ResolvedMediaState {
   const [state, setState] = useState<ResolvedMediaState>({ status: 'empty' });
   const activeEntryRef = useRef<VideoPoolEntry | null>(null);
+  const consumerIdRef = useRef(Symbol('use-k-video'));
+  const optionsRef = useRef<UseKVideoOptions>({ autoplay, loop, muted, playbackRate });
+  optionsRef.current = { autoplay, loop, muted, playbackRate };
 
   useEffect(() => {
     if (!src) {
       const currentEntry = activeEntryRef.current;
       if (currentEntry) {
-        releaseVideoEntry(currentEntry);
+        releaseVideoEntry(currentEntry, consumerIdRef.current);
       }
       activeEntryRef.current = null;
       setState({ status: 'empty' });
       return;
     }
 
-    const entry = acquireVideoEntry(src, { autoplay, loop, muted, playbackRate });
+    const entry = acquireVideoEntry(src, optionsRef.current, consumerIdRef.current);
     activeEntryRef.current = entry;
     setState(toResolvedMediaState(entry));
 
@@ -183,24 +219,21 @@ export function useKVideo(src: string | null, { autoplay, loop, muted, playbackR
       if (activeEntryRef.current === entry) {
         activeEntryRef.current = null;
       }
-      releaseVideoEntry(entry);
+      releaseVideoEntry(entry, consumerIdRef.current);
     };
-  }, [loop, muted, playbackRate, src]);
+  }, [src]);
 
   useEffect(() => {
     const entry = activeEntryRef.current;
     if (!entry) return;
-    entry.video.autoplay = autoplay;
-    if (entry.status === 'loaded' && autoplay) {
-      void entry.video.play().catch(() => undefined);
-    }
-  }, [autoplay]);
+    updateVideoEntryConsumer(entry, consumerIdRef.current, { autoplay, loop, muted, playbackRate });
+  }, [autoplay, loop, muted, playbackRate]);
 
   useEffect(() => {
     return () => {
       const currentEntry = activeEntryRef.current;
       if (!currentEntry) return;
-      releaseVideoEntry(currentEntry);
+      releaseVideoEntry(currentEntry, consumerIdRef.current);
       activeEntryRef.current = null;
     };
   }, []);

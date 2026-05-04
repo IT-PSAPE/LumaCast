@@ -4,19 +4,26 @@ import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 
 const STORAGE_KEY_PREFIX = 'lumacast.bin.activeCollection.';
+const ALL_COLLECTIONS_SENTINEL = '__all__';
+const NO_SELECTION = '__unset__';
 
-function readPersistedActive(binKind: CollectionBinKind): Id | null {
+function readPersistedActive(binKind: CollectionBinKind): Id | null | typeof NO_SELECTION {
   try {
-    return window.localStorage.getItem(`${STORAGE_KEY_PREFIX}${binKind}`);
+    const value = window.localStorage.getItem(`${STORAGE_KEY_PREFIX}${binKind}`);
+    if (value === null) return NO_SELECTION;
+    return value === ALL_COLLECTIONS_SENTINEL ? null : value;
   } catch {
-    return null;
+    return NO_SELECTION;
   }
 }
 
 function writePersistedActive(binKind: CollectionBinKind, id: Id | null): void {
   try {
-    if (id) window.localStorage.setItem(`${STORAGE_KEY_PREFIX}${binKind}`, id);
-    else window.localStorage.removeItem(`${STORAGE_KEY_PREFIX}${binKind}`);
+    if (id) {
+      window.localStorage.setItem(`${STORAGE_KEY_PREFIX}${binKind}`, id);
+      return;
+    }
+    window.localStorage.setItem(`${STORAGE_KEY_PREFIX}${binKind}`, ALL_COLLECTIONS_SENTINEL);
   } catch {
     // ignore
   }
@@ -39,25 +46,25 @@ export function useBinCollections(binKind: CollectionBinKind): BinCollectionsApi
   const { collectionsByBinKind } = useProjectContent();
   const collections = useMemo(() => collectionsByBinKind.get(binKind) ?? [], [collectionsByBinKind, binKind]);
 
-  const [activeId, setActiveId] = useState<Id | null>(() => readPersistedActive(binKind));
+  const [activeId, setActiveId] = useState<Id | null | typeof NO_SELECTION>(() => readPersistedActive(binKind));
 
   useEffect(() => {
-    if (activeId && !collections.some((collection) => collection.id === activeId)) {
-      // Stored selection no longer exists — fall back to the default collection.
+    if (activeId === NO_SELECTION) {
+      if (collections.length === 0) return;
       const fallback = collections.find((c) => c.isDefault) ?? collections[0] ?? null;
       const fallbackId = fallback?.id ?? null;
       setActiveId(fallbackId);
       writePersistedActive(binKind, fallbackId);
+      return;
     }
-    if (!activeId && collections.length > 0) {
-      const fallback = collections.find((c) => c.isDefault) ?? collections[0];
-      setActiveId(fallback.id);
-      writePersistedActive(binKind, fallback.id);
+    if (activeId && !collections.some((collection) => collection.id === activeId)) {
+      setActiveId(null);
+      writePersistedActive(binKind, null);
     }
   }, [activeId, collections, binKind]);
 
   const activeCollection = useMemo(
-    () => collections.find((c) => c.id === activeId) ?? null,
+    () => activeId && activeId !== NO_SELECTION ? (collections.find((c) => c.id === activeId) ?? null) : null,
     [collections, activeId],
   );
 
@@ -85,7 +92,7 @@ export function useBinCollections(binKind: CollectionBinKind): BinCollectionsApi
       }
       return null;
     } catch (error) {
-      setStatusText(`Failed to create collection`);
+      setStatusText(error instanceof Error ? error.message : 'Failed to create collection');
       throw error;
     }
   }, [binKind, mutatePatch, setStatusText]);
@@ -93,8 +100,13 @@ export function useBinCollections(binKind: CollectionBinKind): BinCollectionsApi
   const renameCollection = useCallback(async (id: Id, name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    await mutatePatch(() => window.castApi.renameCollection({ binKind, id, name: trimmed }));
-    setStatusText(`Renamed collection`);
+    try {
+      await mutatePatch(() => window.castApi.renameCollection({ binKind, id, name: trimmed }));
+      setStatusText(`Renamed collection`);
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : 'Failed to rename collection');
+      throw error;
+    }
   }, [binKind, mutatePatch, setStatusText]);
 
   const deleteCollection = useCallback(async (id: Id) => {
