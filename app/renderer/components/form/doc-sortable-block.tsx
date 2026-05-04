@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { cn } from '@renderer/utils/cn'
+import { parseLyricImportText } from '@renderer/features/deck/lyric-text-utils'
 import type { Block } from './doc-editor'
 import { Label } from '../display/text'
 
@@ -14,14 +15,6 @@ export type SortableBlockProps = {
     onMergeWithPrev: (text: string) => void
     onPaste: (before: string, blocks: string[], after: string) => void
     onTextareaFocus: () => void
-}
-
-function splitPastedLines(text: string): string[] {
-    return text
-        .replace(/\r\n?/g, '\n')
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
 }
 
 function resizeTextarea(element: HTMLTextAreaElement) {
@@ -51,7 +44,7 @@ export function SortableBlock({ index, block, isSelected, contentRef, onUpdate, 
             e.stopPropagation()
             const { selectionStart, selectionEnd, value } = e.currentTarget
             void window.castApi.readClipboardText().then((text) => {
-                const blocks = splitPastedLines(text)
+                const blocks = parseLyricImportText(text)
                 if (blocks.length <= 1) {
                     const nextValue = `${value.slice(0, selectionStart)}${text}${value.slice(selectionEnd)}`
                     onUpdate(nextValue)
