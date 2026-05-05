@@ -4,9 +4,8 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
+    paths:
+      - package.json
   workflow_dispatch:
 
 permissions:
@@ -21,12 +20,10 @@ concurrency:
 
 jobs:
   guard:
-    name: Check branch and release status
-    if: github.event_name != 'pull_request' || github.base_ref == 'main'
+    name: Check release status
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.detect.outputs.version }}
-      is_new_version: ${{ steps.detect.outputs.is_new_version }}
       should_release: ${{ steps.detect.outputs.should_release }}
     steps:
       - name: Checkout
@@ -36,8 +33,6 @@ jobs:
         id: detect
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EVENT_NAME: ${{ github.event_name }}
-          GIT_REF: ${{ github.ref }}
         shell: bash
         run: |
           set -euo pipefail
@@ -46,24 +41,18 @@ jobs:
 
           LAST_TAG="$(gh release view --json tagName -q .tagName 2>/dev/null || echo '')"
           if [ "$LAST_TAG" = "v$VERSION" ]; then
-            IS_NEW="false"
-          else
-            IS_NEW="true"
-          fi
-          echo "is_new_version=$IS_NEW" >> "$GITHUB_OUTPUT"
-
-          if [ "$IS_NEW" = "true" ] && [ "$EVENT_NAME" != "pull_request" ] && [ "$GIT_REF" = "refs/heads/main" ]; then
-            SHOULD="true"
-          else
             SHOULD="false"
+          else
+            SHOULD="true"
           fi
           echo "should_release=$SHOULD" >> "$GITHUB_OUTPUT"
 
-          echo "::notice::package.json version=$VERSION, latest release=$LAST_TAG, is_new_version=$IS_NEW, should_release=$SHOULD"
+          echo "::notice::package.json version=$VERSION, latest release=$LAST_TAG, should_release=$SHOULD"
 
   build:
     name: Build (${{ matrix.platform }})
     needs: guard
+    if: needs.guard.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -112,8 +101,8 @@ jobs:
       - name: Build app
         run: npm run build
 
-      - name: Package signed (macOS)
-        if: matrix.platform == 'mac' && needs.guard.outputs.should_release == 'true'
+      - name: Package (macOS)
+        if: matrix.platform == 'mac'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -137,14 +126,8 @@ jobs:
           fi
           npx electron-builder --mac --publish never
 
-      - name: Package unsigned (macOS)
-        if: matrix.platform == 'mac' && needs.guard.outputs.should_release != 'true'
-        run: npx electron-builder --mac --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-
-      - name: Package signed (Windows)
-        if: matrix.platform == 'win' && needs.guard.outputs.should_release == 'true'
+      - name: Package (Windows)
+        if: matrix.platform == 'win'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -161,12 +144,6 @@ jobs:
             echo "::warning::WIN_CSC_LINK secret not set; building unsigned Windows artifacts. See docs/release-setup.md."
           fi
           npx electron-builder --win --publish never
-
-      - name: Package unsigned (Windows)
-        if: matrix.platform == 'win' && needs.guard.outputs.should_release != 'true'
-        run: npx electron-builder --win --publish never
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Package (Linux)
         if: matrix.platform == 'linux'
