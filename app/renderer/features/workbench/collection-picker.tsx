@@ -9,9 +9,10 @@ import type { BinCollectionsApi } from './use-bin-collections';
 interface CollectionPickerProps {
   api: BinCollectionsApi;
   className?: string;
+  popoverPlacement?: 'top-start' | 'bottom-start';
 }
 
-export function CollectionPicker({ api, className }: CollectionPickerProps) {
+export function CollectionPicker({ api, className, popoverPlacement = 'top-start' }: CollectionPickerProps) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const activeName = api.activeCollection?.name ?? 'All collections';
@@ -23,21 +24,21 @@ export function CollectionPicker({ api, className }: CollectionPickerProps) {
         type="button"
         onClick={() => setOpen((current) => !current)}
         className={cn(
-          'flex h-7 items-center gap-1.5 rounded bg-tertiary px-2 text-sm text-secondary transition-colors hover:bg-tertiary/60 hover:text-primary',
+          'flex h-6 items-center gap-1.5 rounded bg-tertiary px-2 text-sm text-secondary transition-colors hover:bg-tertiary/60 hover:text-primary',
           open && 'bg-tertiary/60 text-primary',
           className,
         )}
         title="Collections"
       >
         {api.activeCollection ? (
-          <FolderOpen size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
+          <FolderOpen className="size-3 shrink-0 text-tertiary" />
         ) : (
-          <FolderClosed size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
+          <FolderClosed className="size-3 shrink-0 text-tertiary" />
         )}
         <span className="max-w-[140px] truncate">{activeName}</span>
-        <ChevronDown size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
+        <ChevronDown className="size-3 shrink-0 text-tertiary" />
       </button>
-      <Popover anchor={triggerRef.current} open={open} onClose={() => setOpen(false)} placement="top-start" offset={6}>
+      <Popover anchor={triggerRef.current} open={open} onClose={() => setOpen(false)} placement={popoverPlacement} offset={6}>
         <CollectionPickerPopover api={api} onClose={() => setOpen(false)} />
       </Popover>
     </>
@@ -86,6 +87,11 @@ function CollectionPickerPopover({ api, onClose }: PopoverContentProps) {
 
   function handleSelect(collection: Collection) {
     api.setActiveCollectionId(collection.id);
+    onClose();
+  }
+
+  function handleSelectAllCollections() {
+    api.setActiveCollectionId(null);
     onClose();
   }
 
@@ -140,6 +146,21 @@ function CollectionPickerPopover({ api, onClose }: PopoverContentProps) {
       <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
         {filtered.length === 0 && !showCreateOption ? (
           <div className="px-2 py-2 text-center text-xs text-tertiary">No collections</div>
+        ) : null}
+        {query.trim().length === 0 ? (
+          <button
+            type="button"
+            onClick={handleSelectAllCollections}
+            className={cn(
+              'flex h-7 min-w-0 items-center gap-1.5 rounded px-1.5 text-left transition-colors',
+              api.activeCollection
+                ? 'text-secondary hover:bg-tertiary/55'
+                : 'bg-active text-primary',
+            )}
+          >
+            <FolderClosed size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
+            <span className="truncate text-sm font-medium">All collections</span>
+          </button>
         ) : null}
         {filtered.map((collection) => {
           const isActive = api.activeCollection?.id === collection.id;

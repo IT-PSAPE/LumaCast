@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Id, MediaAsset } from '@core/types';
 import { cn } from '@renderer/utils/cn';
 import { AlertTriangle } from 'lucide-react';
@@ -14,25 +14,35 @@ import { useCast } from '../../../contexts/app-context';
 import { usePresentationMediaLayer, useVideo } from '../../../contexts/playback/playback-context';
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useGridSize } from '../../../hooks/use-grid-size';
+import { useVideoPoster } from '../../../hooks/use-video-poster';
 import { BinShell } from '../../workbench/bin-shell';
 import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import { useMediaTypeBin, type MediaBinKind } from './use-media-type-bin';
 
 interface MediaBinPanelProps {
   binKind: MediaBinKind;
+  collections: BinCollectionsApi;
+  hideFooterPicker?: boolean;
 }
 
-export function MediaBinPanel({ binKind }: MediaBinPanelProps) {
-  const { mediaAssets, collections, searchValue, setSearchValue, viewMode, setViewMode, moveAssetToCollection } =
-    useMediaTypeBin(binKind);
+const GRID_CONFIG: Record<MediaBinKind, { default: number; min: number; max: number }> = {
+  image: { default: 6, min: 4, max: 8 },
+  video: { default: 3, min: 2, max: 4 },
+  audio: { default: 3, min: 2, max: 4 },
+};
+
+export function MediaBinPanel({ binKind, collections, hideFooterPicker = false }: MediaBinPanelProps) {
+  const { mediaAssets, searchValue, setSearchValue, viewMode, setViewMode, moveAssetToCollection } =
+    useMediaTypeBin(binKind, collections);
   const { mediaLayerAssetId, videoLayerAssetId, setMediaLayerAsset } = usePresentationMediaLayer();
   const { armVideo } = useVideo();
   const gridStorageKey = `lumacast.grid-size.${binKind}-bin`;
-  const { gridSize, setGridSize, min, max, step } = useGridSize(gridStorageKey, 3, 2, 4);
+  const gridConfig = GRID_CONFIG[binKind];
+  const { gridSize, setGridSize, min, max, step } = useGridSize(gridStorageKey, gridConfig.default, gridConfig.min, gridConfig.max);
 
   return (
     <BinShell
-      collections={collections}
+      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder={`Search ${binKind}…`}
@@ -242,11 +252,19 @@ function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collections
 
 function MediaThumbnail({ asset }: { asset: MediaAsset }) {
   const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const { posterSrc, status: posterStatus } = useVideoPoster(asset.type === 'video' ? asset.src : null);
   const isBroken = brokenSrc === asset.src;
 
-  if (brokenSrc !== null && brokenSrc !== asset.src) {
-    setBrokenSrc(null);
-  }
+  useEffect(() => {
+    if (brokenSrc !== null && brokenSrc !== asset.src) {
+      setBrokenSrc(null);
+    }
+  }, [asset.src, brokenSrc]);
+
+  useEffect(() => {
+    if (asset.type !== 'video' || posterStatus !== 'error') return;
+    setBrokenSrc(asset.src);
+  }, [asset.src, asset.type, posterStatus]);
 
   if (isBroken) {
     return (
@@ -270,15 +288,21 @@ function MediaThumbnail({ asset }: { asset: MediaAsset }) {
     );
   }
   if (asset.type === 'video') {
+    if (posterSrc) {
+      return (
+        <img
+          src={posterSrc}
+          alt={asset.name}
+          loading="lazy"
+          draggable={false}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      );
+    }
     return (
-      <video
-        src={asset.src}
-        muted
-        playsInline
-        preload="metadata"
-        onError={() => setBrokenSrc(asset.src)}
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+      <div className="absolute inset-0 flex items-center justify-center bg-tertiary/45 text-tertiary">
+        <MediaAssetIcon asset={asset} size={20} strokeWidth={1.75} />
+      </div>
     );
   }
   return <span className="text-tertiary text-sm font-bold tracking-wider uppercase">{asset.type}</span>;

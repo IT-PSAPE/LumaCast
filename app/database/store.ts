@@ -25,11 +25,14 @@ import type {
   DeckBundleExportOptions,
   DeckBundleInspection,
   DeckBundleInspectionOverlay,
+  DeckBundleInspectionPlaylist,
   DeckBundleInspectionStage,
   DeckBundleInspectionTheme,
   DeckBundleItem,
   DeckBundleManifest,
   DeckBundleOverlay,
+  DeckBundlePlaylist,
+  DeckBundlePlaylistSegment,
   DeckBundleSlide,
   DeckBundleStage,
   DeckBundleTheme,
@@ -1666,8 +1669,19 @@ export class CastRepository {
     return this.getCollections().filter((collection) => idSet.has(collection.id));
   }
 
+  private assertCollectionNameAvailable(binKind: CollectionBinKind, name: string, excludeId?: Id): void {
+    const table = COLLECTION_TABLE_BY_BIN[binKind];
+    const existing = this.db.prepare(
+      `SELECT id FROM ${table} WHERE lower(trim(name)) = lower(trim(?)) ${excludeId ? 'AND id != ?' : ''} LIMIT 1`,
+    ).get(...(excludeId ? [name, excludeId] : [name])) as { id: string } | undefined;
+    if (existing) {
+      throw new Error(`A collection named "${name.trim()}" already exists.`);
+    }
+  }
+
   createCollection(input: CollectionCreateInput): SnapshotPatch {
     const table = COLLECTION_TABLE_BY_BIN[input.binKind];
+    this.assertCollectionNameAvailable(input.binKind, input.name);
     const now = nowIso();
     const id = createId();
     const nextOrder =
@@ -1687,6 +1701,7 @@ export class CastRepository {
     if (existing.is_default === 1) {
       throw new Error('Default collection cannot be renamed');
     }
+    this.assertCollectionNameAvailable(input.binKind, input.name, input.id);
     this.db
       .prepare(`UPDATE ${table} SET name = ?, updated_at = ? WHERE id = ?`)
       .run(input.name, nowIso(), input.id);
@@ -2563,11 +2578,39 @@ export class CastRepository {
   }
 
   exportDeckBundle(itemIds: Id[], options: DeckBundleExportOptions = {}): DeckBundleManifest {
-    const uniqueIds = Array.from(new Set(itemIds));
+    const playlistIds = Array.from(new Set(options.playlistIds ?? []));
+    const playlists = playlistIds
+      .map((playlistId) => this.getDeckBundlePlaylistById(playlistId))
+      .filter((playlist): playlist is DeckBundlePlaylist => playlist !== null)
+      .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
+
+    const playlistItemIds = new Set<Id>();
+    for (const playlist of playlists) {
+      for (const segment of playlist.segments) {
+        for (const entry of segment.entries) {
+          const itemId = entry.presentationId ?? entry.lyricId;
+          if (itemId) playlistItemIds.add(itemId);
+        }
+      }
+    }
+
+    const uniqueIds = Array.from(new Set([...itemIds, ...playlistItemIds]));
     const items = uniqueIds
       .map((itemId) => this.getDeckBundleItemById(itemId))
       .filter((item): item is DeckBundleItem => item !== null)
       .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
+
+    const includedItemIds = new Set(items.map((item) => item.id));
+    const filteredPlaylists: DeckBundlePlaylist[] = playlists.map((playlist) => ({
+      ...playlist,
+      segments: playlist.segments.map((segment) => ({
+        ...segment,
+        entries: segment.entries.filter((entry) => {
+          const refId = entry.presentationId ?? entry.lyricId;
+          return refId !== null && includedItemIds.has(refId);
+        }),
+      })),
+    }));
 
     const themes = options.includeAllThemes
       ? this.getThemes().map(toDeckBundleTheme)
@@ -2592,6 +2635,7 @@ export class CastRepository {
       themes,
       overlays,
       stages,
+      playlists: filteredPlaylists,
       mediaReferences: collectDeckBundleMediaReferences(items, themes, overlays, stages),
     };
   }
@@ -2601,6 +2645,7 @@ export class CastRepository {
     const normalizedManifest = cloneDeckBundleManifest(manifest);
     const overlays = normalizedManifest.overlays ?? [];
     const stages = normalizedManifest.stages ?? [];
+    const playlists = normalizedManifest.playlists ?? [];
     const mediaReferences = collectDeckBundleMediaReferences(
       normalizedManifest.items,
       normalizedManifest.themes,
@@ -2616,6 +2661,7 @@ export class CastRepository {
       mediaReferenceCount: mediaReferences.length,
       overlayCount: overlays.length,
       stageCount: stages.length,
+      playlistCount: playlists.length,
       items: normalizedManifest.items
         .map((item) => ({
           id: item.id,
@@ -2637,6 +2683,15 @@ export class CastRepository {
         .sort((left, right) => left.name.localeCompare(right.name)),
       stages: stages
         .map((stage): DeckBundleInspectionStage => ({ id: stage.id, name: stage.name }))
+        .sort((left, right) => left.name.localeCompare(right.name)),
+      playlists: playlists
+        .map((playlist): DeckBundleInspectionPlaylist => ({
+          id: playlist.id,
+          name: playlist.name,
+          libraryName: playlist.libraryName,
+          segmentCount: playlist.segments.length,
+          entryCount: playlist.segments.reduce((sum, segment) => sum + segment.entries.length, 0),
+        }))
         .sort((left, right) => left.name.localeCompare(right.name)),
       mediaReferences,
       brokenReferences,
@@ -2709,6 +2764,19 @@ export class CastRepository {
       `INSERT INTO stages (id, name, width, height, order_index, collection_id, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
+    const insertLibrary = this.db.prepare(
+      'INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    );
+    const insertPlaylist = this.db.prepare(
+      'INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const insertPlaylistSegment = this.db.prepare(
+      'INSERT INTO playlist_segments (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insertPlaylistEntry = this.db.prepare(
+      `INSERT INTO playlist_entries (id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
 
     const nextStageOrder = (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM stages').get() as { next_order: number }).next_order;
     const importDeckCollectionId = this.getDefaultCollectionId('deck');
@@ -2718,6 +2786,7 @@ export class CastRepository {
 
     const tx = this.db.transaction(() => {
       const themeIdMap = new Map<Id, Id>();
+      const itemIdMap = new Map<Id, Id>();
       const replacementAssetKeys = new Set<string>();
 
       workingManifest.themes
@@ -2767,6 +2836,7 @@ export class CastRepository {
         .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title))
         .forEach((item, itemIndex) => {
           const newItemId = createId();
+          itemIdMap.set(item.id, newItemId);
           const importedThemeId = item.themeId ? themeIdMap.get(item.themeId) ?? null : null;
           if (item.themeId && !importedThemeId) {
             throw new Error(`Missing imported theme for ${item.title}`);
@@ -2859,6 +2929,84 @@ export class CastRepository {
         this.createContainerSlide(newStageSlideId, 'stage', newStageId, stage.width, stage.height, now);
         this.replaceContainerElements(newStageSlideId, stage.elements, now);
       });
+
+      const importedPlaylists = workingManifest.playlists ?? [];
+      if (importedPlaylists.length > 0) {
+        const libraryByName = new Map<string, Id>();
+        for (const lib of this.getLibraries()) libraryByName.set(lib.name, lib.id);
+        let nextLibraryOrder =
+          ((this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM libraries').get() as { maxOrder: number | null }).maxOrder ?? -1) + 1;
+
+        const resolveLibraryId = (libraryName: string): Id => {
+          const trimmed = libraryName.trim();
+          const lookupName = trimmed || 'Imported';
+          const existing = libraryByName.get(lookupName);
+          if (existing) return existing;
+          const newLibraryId = createId();
+          insertLibrary.run(newLibraryId, lookupName, nextLibraryOrder, now, now);
+          nextLibraryOrder += 1;
+          libraryByName.set(lookupName, newLibraryId);
+          return newLibraryId;
+        };
+
+        const playlistOrderByLibrary = new Map<Id, number>();
+        const nextPlaylistOrderFor = (libraryId: Id): number => {
+          if (!playlistOrderByLibrary.has(libraryId)) {
+            const maxOrder =
+              (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlists WHERE library_id = ?').get(libraryId) as {
+                maxOrder: number | null;
+              }).maxOrder ?? -1;
+            playlistOrderByLibrary.set(libraryId, maxOrder + 1);
+          }
+          const next = playlistOrderByLibrary.get(libraryId) ?? 0;
+          playlistOrderByLibrary.set(libraryId, next + 1);
+          return next;
+        };
+
+        importedPlaylists
+          .slice()
+          .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name))
+          .forEach((playlist) => {
+            const libraryId = resolveLibraryId(playlist.libraryName);
+            const newPlaylistId = createId();
+            insertPlaylist.run(newPlaylistId, libraryId, playlist.name, nextPlaylistOrderFor(libraryId), now, now);
+
+            playlist.segments
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .forEach((segment, segmentIndex) => {
+                const newSegmentId = createId();
+                insertPlaylistSegment.run(
+                  newSegmentId,
+                  newPlaylistId,
+                  segment.name,
+                  segment.colorKey,
+                  segmentIndex,
+                  now,
+                  now,
+                );
+
+                segment.entries
+                  .slice()
+                  .sort((left, right) => left.order - right.order)
+                  .forEach((entry, entryIndex) => {
+                    const sourceItemId = entry.presentationId ?? entry.lyricId;
+                    if (!sourceItemId) return;
+                    const importedItemId = itemIdMap.get(sourceItemId);
+                    if (!importedItemId) return;
+                    insertPlaylistEntry.run(
+                      createId(),
+                      newSegmentId,
+                      entry.presentationId ? importedItemId : null,
+                      entry.lyricId ? importedItemId : null,
+                      entryIndex,
+                      now,
+                      now,
+                    );
+                  });
+              });
+          });
+      }
     });
 
     tx();
@@ -4703,6 +4851,42 @@ export class CastRepository {
     };
   }
 
+  private getDeckBundlePlaylistById(playlistId: Id): DeckBundlePlaylist | null {
+    const row = this.db
+      .prepare(
+        `SELECT p.id, p.name, p.order_index, p.library_id, l.name AS library_name
+         FROM playlists p
+         LEFT JOIN libraries l ON l.id = p.library_id
+         WHERE p.id = ?`
+      )
+      .get(playlistId) as
+      | { id: string; name: string; order_index: number; library_id: string; library_name: string | null }
+      | undefined;
+
+    if (!row) return null;
+
+    const segments = this.getPlaylistSegments(playlistId).map((segment): DeckBundlePlaylistSegment => ({
+      id: segment.id,
+      name: segment.name,
+      colorKey: segment.colorKey,
+      order: segment.order,
+      entries: this.getPlaylistEntries(segment.id).map((entry) => ({
+        id: entry.id,
+        presentationId: entry.presentationId,
+        lyricId: entry.lyricId,
+        order: entry.order,
+      })),
+    }));
+
+    return {
+      id: row.id,
+      name: row.name,
+      libraryName: row.library_name ?? '',
+      order: row.order_index,
+      segments,
+    };
+  }
+
   private getDeckBundleThemeById(themeId: Id): DeckBundleTheme | null {
     const row = this.db
       .prepare(
@@ -5323,6 +5507,27 @@ export class CastRepository {
       for (const stage of manifest.stages) {
         if (!stage?.id || !stage.name || !Array.isArray(stage.elements)) {
           throw new Error('Invalid bundle stage.');
+        }
+      }
+    }
+
+    if (manifest.playlists !== undefined) {
+      if (!Array.isArray(manifest.playlists)) throw new Error('Invalid bundle playlists.');
+      for (const playlist of manifest.playlists) {
+        if (!playlist?.id || !playlist.name || !Array.isArray(playlist.segments)) {
+          throw new Error('Invalid bundle playlist.');
+        }
+        for (const segment of playlist.segments) {
+          if (!segment?.id || !Array.isArray(segment.entries)) {
+            throw new Error(`Invalid segment in playlist ${playlist.name}.`);
+          }
+          for (const entry of segment.entries) {
+            if (!entry?.id) throw new Error(`Invalid entry in playlist ${playlist.name}.`);
+            const refId = entry.presentationId ?? entry.lyricId;
+            if (!refId) {
+              throw new Error(`Playlist entry ${entry.id} is missing an item reference.`);
+            }
+          }
         }
       }
     }

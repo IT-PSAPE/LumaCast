@@ -85,7 +85,7 @@ function SenderDiagnosticsBlock({ name, diagnostics }: { name: NdiOutputName; di
       <div>{OUTPUT_TITLES[name]} frames replayed: {performance.framesReplayed}</div>
       <div>{OUTPUT_TITLES[name]} frames skipped with no connections: {performance.framesSkippedNoConnections}</div>
       <div>{OUTPUT_TITLES[name]} skipped captures: {performance.skippedCaptures}</div>
-      <div>{OUTPUT_TITLES[name]} heartbeat captures: {performance.heartbeatCaptures}</div>
+      <div>{OUTPUT_TITLES[name]} frames dropped (backpressure): {performance.framesDroppedBackpressure}</div>
       <div>{OUTPUT_TITLES[name]} bytes received: {formatBytes(performance.bytesReceived)}</div>
       <div>{OUTPUT_TITLES[name]} cache copy bytes: {formatBytes(performance.cacheCopyBytes)}</div>
       <div>{OUTPUT_TITLES[name]} average capture time: {performance.avgCaptureDurationMs.toFixed(2)} ms</div>

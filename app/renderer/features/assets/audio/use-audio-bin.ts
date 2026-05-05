@@ -2,13 +2,12 @@ import { useMemo, useState } from 'react';
 import { useAudio } from '../../../contexts/playback/playback-context';
 import { filterByText } from '../../../utils/filter-by-text';
 import { compareByKey, useAudioBinSort } from '../../workbench/use-bin-sort';
-import { useBinCollections } from '../../workbench/use-bin-collections';
+import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 
-export function useAudioBin() {
+export function useAudioBin(collections: BinCollectionsApi) {
   const { audioAssets: allAudioAssets, currentAudioAssetId, armAudio } = useAudio();
   const { sort } = useAudioBinSort();
-  const collections = useBinCollections('audio');
   const [searchValue, setSearchValue] = useState('');
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('list');
 
@@ -27,7 +26,6 @@ export function useAudioBin() {
     audioAssets,
     currentAudioAssetId,
     armAudio,
-    collections,
     searchValue,
     setSearchValue,
     viewMode,

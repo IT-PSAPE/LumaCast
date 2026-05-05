@@ -9,11 +9,13 @@ import { SceneNodeShape } from '../canvas/scene-node-shape';
 import { SceneNodeText } from '../canvas/scene-node-text';
 import type { RenderNode, RenderScene, SceneSurface } from '../canvas/scene-types';
 import { useNdiCaptureSource } from './ndi-capture-source';
+import NdiReadbackWorker from './ndi-readback-worker?worker';
+import type { CaptureRequest, WorkerOutbound } from './ndi-readback-worker';
 
 const FRAME_INTERVAL_MS = 1000 / 30;
-// If the scene doesn't change for this long, send a heartbeat frame so
-// NDI receivers don't flag the stream as stale.
-const HEARTBEAT_MS = 500;
+// If we've been waiting on an ack longer than this, assume it was lost
+// and free up the back-pressure slot so capture can resume.
+const ACK_WATCHDOG_MS = 250;
 
 function renderNodeContent(node: RenderNode, surface: SceneSurface, onImageLoad?: () => void) {
   if (node.element.type === 'shape') return <SceneNodeShape node={node} />;
@@ -47,118 +49,142 @@ interface NdiFrameCaptureProps {
 export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }: NdiFrameCaptureProps) {
   const { state: { outputConfigs } } = useNdi();
   const stageRef = useRef<Konva.Stage>(null);
-  const normalizedCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const normalizedContextRef = useRef<CanvasRenderingContext2D | null>(null);
   const pendingSkippedCapturesRef = useRef(0);
-  const pendingHeartbeatCapturesRef = useRef(0);
+  const pendingDroppedBackpressureRef = useRef(0);
+  const inFlightSentAtRef = useRef<number | null>(null);
+  const captureStartedAtRef = useRef(0);
+  const requestIdRef = useRef(0);
+  const workerRef = useRef<Worker | null>(null);
   const sharedCaptureSource = useNdiCaptureSource(senderName);
   const hasVideoNodes = useMemo(
     () => scene.nodes.some((node) => node.element.type === 'video'),
     [scene.nodes],
   );
+  const withAlpha = outputConfigs[senderName].withAlpha;
 
-  const getReadbackContext = useCallback((sourceCanvas: HTMLCanvasElement): CanvasRenderingContext2D | null => {
-    if (sourceCanvas.width === NDI_OUTPUT_WIDTH && sourceCanvas.height === NDI_OUTPUT_HEIGHT) {
-      return sourceCanvas.getContext('2d', { willReadFrequently: true });
-    }
-
-    let normalizedCanvas = normalizedCanvasRef.current;
-    if (!normalizedCanvas) {
-      normalizedCanvas = document.createElement('canvas');
-      normalizedCanvasRef.current = normalizedCanvas;
-    }
-
-    if (normalizedCanvas.width !== NDI_OUTPUT_WIDTH || normalizedCanvas.height !== NDI_OUTPUT_HEIGHT) {
-      normalizedCanvas.width = NDI_OUTPUT_WIDTH;
-      normalizedCanvas.height = NDI_OUTPUT_HEIGHT;
-      normalizedContextRef.current = null;
-    }
-
-    let normalizedContext = normalizedContextRef.current;
-    if (!normalizedContext) {
-      normalizedContext = normalizedCanvas.getContext('2d', { willReadFrequently: true });
-      normalizedContextRef.current = normalizedContext;
-    }
-    if (!normalizedContext) return null;
-
-    normalizedContext.clearRect(0, 0, NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT);
-    normalizedContext.drawImage(
-      sourceCanvas,
-      0,
-      0,
-      sourceCanvas.width,
-      sourceCanvas.height,
-      0,
-      0,
-      NDI_OUTPUT_WIDTH,
-      NDI_OUTPUT_HEIGHT,
-    );
-    return normalizedContext;
-  }, []);
-
-  const captureFrame = useCallback((heartbeatCapture: boolean) => {
-    const stage = stageRef.current;
-    const canvas = sharedCaptureSource ?? stage?.getLayers()[0]?.getNativeCanvasElement();
-    if (!canvas) return;
-
-    try {
-      const captureStartedAt = performance.now();
-      const ctx = getReadbackContext(canvas);
-      if (!ctx) return;
-      const readbackStartedAt = performance.now();
-      const imageData = ctx.getImageData(0, 0, NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT);
-      const readbackDurationMs = performance.now() - readbackStartedAt;
-      const captureDurationMs = performance.now() - captureStartedAt;
+  // Spin up a dedicated worker that owns an OffscreenCanvas and performs the
+  // 8 MB pixel readback off the renderer main thread.
+  useEffect(() => {
+    if (!enabled) return;
+    const worker = new NdiReadbackWorker();
+    workerRef.current = worker;
+    worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
+      const data = event.data;
+      if (!data) return;
+      if (data.type === 'capture-failed') {
+        console.error('[NdiFrameCapture] Worker readback failed:', data.error);
+        inFlightSentAtRef.current = null;
+        return;
+      }
+      if (data.type !== 'captured') return;
+      const captureDurationMs = performance.now() - captureStartedAtRef.current;
       window.castApi.sendNdiFrame(
         senderName,
-        imageData.data.buffer as ArrayBuffer,
-        NDI_OUTPUT_WIDTH,
-        NDI_OUTPUT_HEIGHT,
+        data.buffer,
+        data.width,
+        data.height,
         {
           captureDurationMs,
-          readbackDurationMs,
+          readbackDurationMs: data.readbackDurationMs,
           skippedCaptures: pendingSkippedCapturesRef.current,
-          heartbeatCaptures: pendingHeartbeatCapturesRef.current + (heartbeatCapture ? 1 : 0),
+          framesDroppedBackpressure: pendingDroppedBackpressureRef.current,
         },
       );
       pendingSkippedCapturesRef.current = 0;
-      pendingHeartbeatCapturesRef.current = 0;
-    } catch (error) {
-      console.error('[NdiFrameCapture] Frame capture failed:', error);
-    }
-  }, [getReadbackContext, senderName, sharedCaptureSource]);
+      pendingDroppedBackpressureRef.current = 0;
+    };
+    return () => {
+      worker.terminate();
+      if (workerRef.current === worker) workerRef.current = null;
+    };
+  }, [enabled, senderName]);
+
+  const captureFrame = useCallback(() => {
+    const stage = stageRef.current;
+    const canvas = sharedCaptureSource ?? stage?.getLayers()[0]?.getNativeCanvasElement();
+    if (!canvas) return;
+    const worker = workerRef.current;
+    if (!worker) return;
+
+    captureStartedAtRef.current = performance.now();
+    inFlightSentAtRef.current = performance.now();
+    const requestId = ++requestIdRef.current;
+
+    // Snapshot the current Konva canvas into a transferable ImageBitmap, then
+    // hand it to the worker. createImageBitmap is async on the main thread but
+    // does not block; the actual pixel readback happens off-thread.
+    createImageBitmap(canvas)
+      .then((bitmap) => {
+        const activeWorker = workerRef.current;
+        if (!activeWorker) {
+          bitmap.close();
+          inFlightSentAtRef.current = null;
+          return;
+        }
+        const request: CaptureRequest = {
+          type: 'capture',
+          bitmap,
+          requestId,
+          withAlpha,
+        };
+        activeWorker.postMessage(request, [bitmap]);
+      })
+      .catch((error) => {
+        console.error('[NdiFrameCapture] createImageBitmap failed:', error);
+        inFlightSentAtRef.current = null;
+      });
+  }, [sharedCaptureSource, withAlpha]);
 
   const handleImageLoad = useCallback(() => {
+    if (inFlightSentAtRef.current !== null) return;
     stageRef.current?.batchDraw();
-    captureFrame(false);
+    captureFrame();
   }, [captureFrame]);
 
-  // Single RAF loop driving capture at ~30fps. Skips the capture/send when
-  // the scene hasn't changed and there are no video nodes, so an idle output
-  // costs ~zero IPC traffic. Sends a heartbeat frame every HEARTBEAT_MS so
-  // NDI receivers don't think the source died.
-  const withAlpha = outputConfigs[senderName].withAlpha;
+  // Listen for main-process acks to free up the back-pressure slot.
+  useEffect(() => {
+    if (!enabled) return;
+    return window.castApi.onNdiFrameAck((ackedName) => {
+      if (ackedName !== senderName) return;
+      inFlightSentAtRef.current = null;
+    });
+  }, [enabled, senderName]);
+
+  // Single RAF loop driving capture at ~30fps. Only captures when the scene
+  // signature changed or there are video nodes; the main process replays the
+  // last frame on its own heartbeat when this side stays idle.
+  // Back-pressure: if a frame is in flight (no ack yet), skip — bursts piling
+  // up in IPC are the main cause of latency under load.
   useEffect(() => {
     if (!enabled) return;
 
     let rafId: number | null = null;
     let running = true;
     let lastCaptureTime = 0;
-    let lastSentTime = 0;
     let lastSignature = '';
 
     function tick(timestamp: number) {
       if (!running) return;
       if (timestamp - lastCaptureTime >= FRAME_INTERVAL_MS) {
         lastCaptureTime = timestamp;
+
+        // Watchdog: if the main process never acked, free the slot so we
+        // don't stall forever after a dropped IPC message.
+        const sentAt = inFlightSentAtRef.current;
+        if (sentAt !== null && performance.now() - sentAt > ACK_WATCHDOG_MS) {
+          inFlightSentAtRef.current = null;
+        }
+
         const currentSignature = sceneSignature(scene.nodes, withAlpha);
         const signatureChanged = currentSignature !== lastSignature;
-        const heartbeatDue = timestamp - lastSentTime >= HEARTBEAT_MS;
-        if (signatureChanged || hasVideoNodes || heartbeatDue) {
-          stageRef.current?.batchDraw();
-          captureFrame(heartbeatDue && !signatureChanged && !hasVideoNodes);
-          lastSignature = currentSignature;
-          lastSentTime = timestamp;
+        if (signatureChanged || hasVideoNodes) {
+          if (inFlightSentAtRef.current !== null) {
+            pendingDroppedBackpressureRef.current += 1;
+          } else {
+            stageRef.current?.batchDraw();
+            captureFrame();
+            lastSignature = currentSignature;
+          }
         } else {
           pendingSkippedCapturesRef.current += 1;
         }
@@ -170,6 +196,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     return () => {
       running = false;
       if (rafId !== null) cancelAnimationFrame(rafId);
+      inFlightSentAtRef.current = null;
     };
   }, [captureFrame, enabled, hasVideoNodes, scene, withAlpha]);
 

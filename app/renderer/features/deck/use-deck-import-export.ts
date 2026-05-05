@@ -6,6 +6,7 @@ import type {
   DeckBundleInspection,
   DeckItem,
   Id,
+  Playlist,
 } from '@core/types';
 import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
@@ -24,7 +25,8 @@ interface ExtraIncludeFlags {
 interface ImportExportSettingsState {
   deckItems: DeckItem[];
   filterText: string;
-  selectedIds: Set<Id>;
+  selectedItemIds: Set<Id>;
+  selectedPlaylistIds: Set<Id>;
   selectedCount: number;
   exportInFlight: boolean;
   importInFlight: boolean;
@@ -38,14 +40,13 @@ interface ImportExportSettingsState {
 
 interface ImportExportSettingsActions {
   setFilterText: (value: string) => void;
-  toggleSelectedId: (id: Id) => void;
-  addToSelection: (ids: Id[]) => void;
-  removeFromSelection: (ids: Id[]) => void;
-  selectAllVisible: () => void;
+  toggleItemId: (id: Id) => void;
+  togglePlaylistId: (id: Id) => void;
   clearSelection: () => void;
   setExtraFlag: (flag: keyof ExtraIncludeFlags, value: boolean) => void;
   exportSelected: () => Promise<void>;
-  exportIds: (ids: Id[], suggestedName: string) => Promise<void>;
+  exportPlaylist: (playlist: Playlist) => Promise<void>;
+  exportDeckItem: (item: DeckItem) => Promise<void>;
   exportWorkspace: () => Promise<void>;
   chooseImportBundle: () => Promise<void>;
   clearImportReview: () => void;
@@ -56,9 +57,10 @@ interface ImportExportSettingsActions {
 
 export function useDeckImportExport(): { state: ImportExportSettingsState; actions: ImportExportSettingsActions } {
   const { deckItems } = useProjectContent();
-  const { mutate, setStatusText } = useCast();
+  const { snapshot, mutate, setStatusText } = useCast();
   const [filterText, setFilterText] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<Id>>(new Set());
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<Id>>(new Set());
+  const [selectedPlaylistIds, setSelectedPlaylistIds] = useState<Set<Id>>(new Set());
   const [exportInFlight, setExportInFlight] = useState(false);
   const [importInFlight, setImportInFlight] = useState(false);
   const [importPath, setImportPath] = useState<string | null>(null);
@@ -71,15 +73,12 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     includeStages: false,
   });
 
-  function handleSetExtraFlag(flag: keyof ExtraIncludeFlags, value: boolean) {
-    setExtras((current) => ({ ...current, [flag]: value }));
-  }
-
-  function buildExportOptions(): DeckBundleExportOptions {
+  function buildExportOptions(playlistIds: Id[] = []): DeckBundleExportOptions {
     return {
       includeAllThemes: extras.includeAllThemes,
       includeOverlays: extras.includeOverlays,
       includeStages: extras.includeStages,
+      playlistIds,
     };
   }
 
@@ -93,12 +92,23 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
 
   useEffect(() => {
     const contentIds = new Set(deckItems.map((item) => item.id));
-    setSelectedIds((current) => {
+    setSelectedItemIds((current) => {
       const next = new Set(Array.from(current).filter((id) => contentIds.has(id)));
       if (next.size === current.size) return current;
       return next;
     });
   }, [deckItems]);
+
+  useEffect(() => {
+    const playlistIds = new Set(
+      (snapshot?.libraryBundles ?? []).flatMap((bundle) => bundle.playlists.map((tree) => tree.playlist.id)),
+    );
+    setSelectedPlaylistIds((current) => {
+      const next = new Set(Array.from(current).filter((id) => playlistIds.has(id)));
+      if (next.size === current.size) return current;
+      return next;
+    });
+  }, [snapshot]);
 
   const blockedImportReasons = useMemo(() => {
     if (!inspection) return [];
@@ -119,72 +129,65 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     }
   }
 
-  function handleFilterTextChange(value: string) {
-    setFilterText(value);
-  }
-
-  function handleToggleSelectedId(id: Id) {
-    setSelectedIds((current) => {
+  function handleToggleItemId(id: Id) {
+    setSelectedItemIds((current) => {
       const next = new Set(current);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }
 
-  function handleAddToSelection(ids: Id[]) {
-    if (ids.length === 0) return;
-    setSelectedIds((current) => {
+  function handleTogglePlaylistId(id: Id) {
+    setSelectedPlaylistIds((current) => {
       const next = new Set(current);
-      for (const id of ids) next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
-  }
-
-  function handleRemoveFromSelection(ids: Id[]) {
-    if (ids.length === 0) return;
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      for (const id of ids) next.delete(id);
-      return next;
-    });
-  }
-
-  function handleSelectAllVisible() {
-    setSelectedIds(new Set(filteredItems.map((item) => item.id)));
   }
 
   function handleClearSelection() {
-    setSelectedIds(new Set());
+    setSelectedItemIds(new Set());
+    setSelectedPlaylistIds(new Set());
   }
 
   function buildSuggestedBundleName(): string {
-    const selectedItems = deckItems.filter((item) => selectedIds.has(item.id));
-    if (selectedItems.length === 1) return selectedItems[0].title;
-    return selectedItems.length > 1 ? `cast-deck-${selectedItems.length}-items` : 'cast-deck';
+    const itemCount = selectedItemIds.size;
+    const playlistCount = selectedPlaylistIds.size;
+
+    if (itemCount === 1 && playlistCount === 0) {
+      const only = deckItems.find((item) => selectedItemIds.has(item.id));
+      if (only) return only.title;
+    }
+    if (itemCount === 0 && playlistCount === 1) {
+      const tree = (snapshot?.libraryBundles ?? [])
+        .flatMap((bundle) => bundle.playlists)
+        .find((entry) => selectedPlaylistIds.has(entry.playlist.id));
+      if (tree) return `cast-playlist-${tree.playlist.name.trim() || 'playlist'}`;
+    }
+
+    const total = itemCount + playlistCount;
+    return total > 0 ? `cast-bundle-${total}` : 'cast-bundle';
   }
 
-  async function handleExportSelected() {
-    if (selectedIds.size === 0 || exportInFlight) return;
-    await runExport(Array.from(selectedIds), buildSuggestedBundleName(), buildExportOptions());
-  }
-
-  async function runExport(itemIds: Id[], suggestedName: string, options: DeckBundleExportOptions) {
+  async function runExport(itemIds: Id[], playlistIds: Id[], suggestedName: string, options: DeckBundleExportOptions) {
     const hasItems = itemIds.length > 0;
+    const hasPlaylists = playlistIds.length > 0;
     const hasExtras = Boolean(options.includeAllThemes || options.includeOverlays || options.includeStages);
-    if ((!hasItems && !hasExtras) || exportInFlight) return;
+    if ((!hasItems && !hasPlaylists && !hasExtras) || exportInFlight) return;
     setExportInFlight(true);
     updateMessage(null);
     try {
       const filePath = await window.castApi.chooseDeckBundleExportPath(suggestedName);
       if (!filePath) return;
       const result = await window.castApi.exportDeckBundle(itemIds, filePath, options);
+      const summary: string[] = [];
+      summary.push(`${result.itemCount} item${result.itemCount === 1 ? '' : 's'}`);
+      if (hasPlaylists) summary.push(`${playlistIds.length} playlist${playlistIds.length === 1 ? '' : 's'}`);
       const extrasNote = describeExtras(options);
-      const itemNote = `${result.itemCount} item${result.itemCount === 1 ? '' : 's'}`;
-      updateMessage(extrasNote ? `Exported ${itemNote} (${extrasNote}).` : `Exported ${itemNote}.`);
+      if (extrasNote) summary.push(extrasNote);
+      updateMessage(`Exported ${summary.join(', ')}.`);
     } catch (error) {
       updateMessage((error as Error).message);
     } finally {
@@ -192,16 +195,31 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     }
   }
 
-  async function handleExportIds(ids: Id[], suggestedName: string) {
-    await runExport(Array.from(new Set(ids)), suggestedName, buildExportOptions());
+  async function handleExportSelected() {
+    if (selectedItemIds.size === 0 && selectedPlaylistIds.size === 0) return;
+    const playlistIds = Array.from(selectedPlaylistIds);
+    await runExport(Array.from(selectedItemIds), playlistIds, buildSuggestedBundleName(), buildExportOptions(playlistIds));
+  }
+
+  async function handleExportPlaylist(playlist: Playlist) {
+    const slug = playlist.name.trim() || 'playlist';
+    await runExport([], [playlist.id], `cast-playlist-${slug}`, buildExportOptions([playlist.id]));
+  }
+
+  async function handleExportDeckItem(item: DeckItem) {
+    await runExport([item.id], [], item.title, buildExportOptions());
   }
 
   async function handleExportWorkspace() {
-    const allIds = deckItems.map((item) => item.id);
-    await runExport(allIds, 'cast-workspace', {
+    const allItemIds = deckItems.map((item) => item.id);
+    const allPlaylistIds = (snapshot?.libraryBundles ?? []).flatMap((bundle) =>
+      bundle.playlists.map((tree) => tree.playlist.id),
+    );
+    await runExport(allItemIds, allPlaylistIds, 'cast-workspace', {
       includeAllThemes: true,
       includeOverlays: true,
       includeStages: true,
+      playlistIds: allPlaylistIds,
     });
   }
 
@@ -289,12 +307,21 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     }
   }
 
+  function handleSetExtraFlag(flag: keyof ExtraIncludeFlags, value: boolean) {
+    setExtras((current) => ({ ...current, [flag]: value }));
+  }
+
+  function handleFilterTextChange(value: string) {
+    setFilterText(value);
+  }
+
   return {
     state: {
       deckItems: filteredItems,
       filterText,
-      selectedIds,
-      selectedCount: selectedIds.size,
+      selectedItemIds,
+      selectedPlaylistIds,
+      selectedCount: selectedItemIds.size + selectedPlaylistIds.size,
       exportInFlight,
       importInFlight,
       importPath,
@@ -306,14 +333,13 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     },
     actions: {
       setFilterText: handleFilterTextChange,
-      toggleSelectedId: handleToggleSelectedId,
-      addToSelection: handleAddToSelection,
-      removeFromSelection: handleRemoveFromSelection,
-      selectAllVisible: handleSelectAllVisible,
+      toggleItemId: handleToggleItemId,
+      togglePlaylistId: handleTogglePlaylistId,
       clearSelection: handleClearSelection,
       setExtraFlag: handleSetExtraFlag,
       exportSelected: handleExportSelected,
-      exportIds: handleExportIds,
+      exportPlaylist: handleExportPlaylist,
+      exportDeckItem: handleExportDeckItem,
       exportWorkspace: handleExportWorkspace,
       chooseImportBundle: handleChooseImportBundle,
       clearImportReview: handleClearImportReview,

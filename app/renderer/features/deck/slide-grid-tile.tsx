@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type CSSProperties, type HTMLAttributes, type Ref } from 'react';
 import { Play } from 'lucide-react';
 import type { Id } from '@core/types';
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
@@ -20,6 +20,10 @@ interface SlideGridTileProps {
   textPreview: string;
   onActivate: (index: number) => void;
   onFocus: (index: number) => void;
+  containerRef?: Ref<HTMLDivElement>;
+  containerStyle?: CSSProperties;
+  dragging?: boolean;
+  dragHandleProps?: HTMLAttributes<HTMLElement>;
 }
 
 function SlideGridTileImpl(props: SlideGridTileProps) {
@@ -30,7 +34,21 @@ function SlideGridTileImpl(props: SlideGridTileProps) {
   );
 }
 
-function SlideGridTileBody({ slideId, index, scene, selected, isLive, isEmpty, textPreview, onActivate, onFocus }: SlideGridTileProps) {
+function SlideGridTileBody({
+  slideId,
+  index,
+  scene,
+  selected,
+  isLive,
+  isEmpty,
+  textPreview,
+  onActivate,
+  onFocus,
+  containerRef,
+  containerStyle,
+  dragging = false,
+  dragHandleProps,
+}: SlideGridTileProps) {
   const { slides, duplicateSlide, deleteSlide, moveSlide } = useSlides();
   const confirm = useConfirm();
   const isFirst = index === 0;
@@ -60,13 +78,18 @@ function SlideGridTileBody({ slideId, index, scene, selected, isLive, isEmpty, t
     <>
       <Thumbnail.Tile
         {...triggerHandlers}
+        {...dragHandleProps}
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          if (typeof containerRef === 'function') containerRef(node);
+          else if (containerRef) containerRef.current = node;
         }}
+        style={containerStyle}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         selected={selected}
+        className={dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab'}
       >
         <Thumbnail.Body>
           <SceneFrame

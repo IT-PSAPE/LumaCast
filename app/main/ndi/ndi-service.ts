@@ -18,6 +18,7 @@ const HEARTBEAT_STALL_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 2;
 const DIAGNOSTICS_EMIT_INTERVAL_MS = 250;
 const BYTES_PER_PIXEL = 4;
 const MAX_FRAME_BYTES = NDI_OUTPUT_WIDTH * NDI_OUTPUT_HEIGHT * BYTES_PER_PIXEL;
+const ROLLING_AVERAGE_WINDOW = 60;
 
 type StateChangeCallback = (state: NdiOutputState) => void;
 type DiagnosticsChangeCallback = (diagnostics: NdiDiagnostics) => void;
@@ -35,6 +36,34 @@ interface SenderState {
   lastFrameWidth: number;
   lastFrameHeight: number;
   lastFrameReceivedAt: number;
+  captureDurationRolling: RollingAverage;
+  readbackDurationRolling: RollingAverage;
+  sendDurationRolling: RollingAverage;
+}
+
+class RollingAverage {
+  private samples: number[] = [];
+  private sum = 0;
+  private writeIndex = 0;
+
+  constructor(private readonly windowSize: number = ROLLING_AVERAGE_WINDOW) {}
+
+  push(value: number): number {
+    if (!Number.isFinite(value) || value < 0) return this.value;
+    if (this.samples.length < this.windowSize) {
+      this.samples.push(value);
+      this.sum += value;
+    } else {
+      this.sum += value - this.samples[this.writeIndex];
+      this.samples[this.writeIndex] = value;
+      this.writeIndex = (this.writeIndex + 1) % this.windowSize;
+    }
+    return this.value;
+  }
+
+  get value(): number {
+    return this.samples.length === 0 ? 0 : this.sum / this.samples.length;
+  }
 }
 
 export class NdiService {
@@ -125,17 +154,9 @@ export class NdiService {
 
     if (telemetry) {
       sender.diagnostics.performance.skippedCaptures += telemetry.skippedCaptures;
-      sender.diagnostics.performance.heartbeatCaptures += telemetry.heartbeatCaptures;
-      sender.diagnostics.performance.avgCaptureDurationMs = updateAverage(
-        sender.diagnostics.performance.avgCaptureDurationMs,
-        telemetry.captureDurationMs,
-        sender.diagnostics.performance.framesCaptured,
-      );
-      sender.diagnostics.performance.avgReadbackDurationMs = updateAverage(
-        sender.diagnostics.performance.avgReadbackDurationMs,
-        telemetry.readbackDurationMs,
-        sender.diagnostics.performance.framesCaptured,
-      );
+      sender.diagnostics.performance.framesDroppedBackpressure += telemetry.framesDroppedBackpressure;
+      sender.diagnostics.performance.avgCaptureDurationMs = sender.captureDurationRolling.push(telemetry.captureDurationMs);
+      sender.diagnostics.performance.avgReadbackDurationMs = sender.readbackDurationRolling.push(telemetry.readbackDurationMs);
     }
 
     sender.lastFrame = rgba;
@@ -269,6 +290,9 @@ export class NdiService {
         lastFrameWidth: 0,
         lastFrameHeight: 0,
         lastFrameReceivedAt: 0,
+        captureDurationRolling: new RollingAverage(),
+        readbackDurationRolling: new RollingAverage(),
+        sendDurationRolling: new RollingAverage(),
       });
       this.lastError = null;
     } catch (error) {
@@ -367,11 +391,7 @@ export class NdiService {
       }
       const startedAt = performance.now();
       this.module.sendRgbaFrame(sender.diagnostics.senderName, rgba, width, height);
-      sender.diagnostics.performance.avgSendDurationMs = updateAverage(
-        sender.diagnostics.performance.avgSendDurationMs,
-        performance.now() - startedAt,
-        sender.diagnostics.performance.framesSent + 1,
-      );
+      sender.diagnostics.performance.avgSendDurationMs = sender.sendDurationRolling.push(performance.now() - startedAt);
       sender.diagnostics.performance.framesSent += 1;
       if (replayed) {
         sender.diagnostics.performance.framesReplayed += 1;
@@ -464,7 +484,7 @@ function createEmptySenderPerformanceDiagnostics(): NdiSenderPerformanceDiagnost
     framesRejected: 0,
     framesSkippedNoConnections: 0,
     skippedCaptures: 0,
-    heartbeatCaptures: 0,
+    framesDroppedBackpressure: 0,
     bytesReceived: 0,
     cacheCopyBytes: 0,
     avgCaptureDurationMs: 0,
@@ -481,8 +501,3 @@ function cloneSenderDiagnostics(diagnostics: NdiActiveSenderDiagnostics): NdiAct
   };
 }
 
-function updateAverage(current: number, sample: number, sampleCount: number): number {
-  if (!Number.isFinite(sample) || sample < 0) return current;
-  if (sampleCount <= 1) return sample;
-  return current + (sample - current) / sampleCount;
-}

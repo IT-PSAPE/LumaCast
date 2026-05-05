@@ -31,7 +31,7 @@ import type {
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
 import type { AppUpdater } from './app-updater';
 import { readDeckBundleArchive, writeDeckBundleArchive } from './deck-bundle-archive';
-import { NdiService } from './ndi/ndi-service';
+import type { NdiServiceLike } from './ndi/ndi-protocol';
 import { assertTrustedIpcSender } from './security';
 
 const NDI_OUTPUT_NAMES = new Set<NdiOutputName>(['audience', 'stage']);
@@ -58,7 +58,7 @@ function safeHandle<Args extends unknown[], R>(
 
 export const registerIpcHandlers = (
   repo: CastRepository,
-  ndiService: NdiService,
+  ndiService: NdiServiceLike,
   getMainWindow: () => BrowserWindow | null,
   appUpdater: AppUpdater,
 ): void => {
@@ -285,18 +285,34 @@ export const registerIpcHandlers = (
   safeHandle(IPC.getNdiDiagnostics, (): NdiDiagnostics => ndiService.getDiagnostics());
   ipcMain.on(
     IPC.sendNdiFrame,
-    (event, name: NdiOutputName, buffer: ArrayBuffer, width: number, height: number, telemetry?: NdiFrameTelemetry) => {
+    (event, payload: {
+      name: NdiOutputName;
+      buffer: ArrayBuffer;
+      width: number;
+      height: number;
+      telemetry?: NdiFrameTelemetry;
+    }) => {
+    const ackName = payload?.name;
     try {
       assertTrustedIpcSender(event);
+      if (!payload || typeof payload !== 'object') {
+        throw new Error('NDI frame payload must be an object');
+      }
+      const { name, buffer, width, height, telemetry } = payload;
       if (!NDI_OUTPUT_NAMES.has(name)) {
         throw new Error(`Invalid NDI output name: ${String(name)}`);
       }
       if (!(buffer instanceof ArrayBuffer)) {
-        throw new Error('NDI frame payload must be an ArrayBuffer');
+        throw new Error('NDI frame payload must include an ArrayBuffer');
       }
       ndiService.receiveFrame(name, new Uint8Array(buffer), width, height, telemetry);
     } catch (error) {
       console.error(`[IPC ${IPC.sendNdiFrame}]`, error);
+    } finally {
+      // Always ack so renderer back-pressure releases even after a rejected frame.
+      if (ackName && !event.sender.isDestroyed()) {
+        event.sender.send(NDI_EVENTS.frameAck, ackName);
+      }
     }
     },
   );

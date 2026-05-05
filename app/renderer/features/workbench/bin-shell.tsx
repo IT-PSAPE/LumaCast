@@ -5,7 +5,7 @@ import { BinFooter } from './bin-footer';
 import type { BinCollectionsApi } from './use-bin-collections';
 
 interface BinShellProps {
-  collections: BinCollectionsApi;
+  collections?: BinCollectionsApi;
   children: ReactNode;
   searchValue: string;
   onSearchChange: (value: string) => void;

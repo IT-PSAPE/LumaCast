@@ -218,6 +218,28 @@ describe('CastRepository', () => {
     ]);
   });
 
+  it('rejects duplicate collection names within the same bin on create and rename', async () => {
+    const storeModule = await import('./store');
+    repo = new storeModule.CastRepository();
+    repo.restoreFromSnapshot(buildEmptySnapshot());
+
+    const firstPatch = repo.createCollection({ binKind: 'image', name: 'Series A' });
+    const firstId = firstPatch.upserts.collections?.[0]?.id;
+    expect(firstId).toBeTruthy();
+
+    expect(() => repo.createCollection({ binKind: 'image', name: 'Series A' })).toThrow(
+      'A collection named "Series A" already exists.',
+    );
+
+    const secondPatch = repo.createCollection({ binKind: 'image', name: 'Series B' });
+    const secondId = secondPatch.upserts.collections?.[0]?.id;
+    expect(secondId).toBeTruthy();
+
+    expect(() => repo.renameCollection({ binKind: 'image', id: secondId, name: 'Series A' })).toThrow(
+      'A collection named "Series A" already exists.',
+    );
+  });
+
   it('migrates legacy template tables and columns to theme naming', async () => {
     const storeModule = await import('./store');
     const presentationId = 'legacy-presentation';

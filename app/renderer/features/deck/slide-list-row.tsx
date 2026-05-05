@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, type CSSProperties, type HTMLAttributes, type Ref } from 'react';
 import type { Id } from '@core/types';
 import { cn } from '@renderer/utils/cn';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
@@ -20,6 +20,10 @@ interface SlideOutlineRowProps {
   onSelect: (index: number) => void;
   onOpen: (index: number) => void;
   onTextCommit: (slideId: Id, nextText: string) => void;
+  containerRef?: Ref<HTMLDivElement>;
+  containerStyle?: CSSProperties;
+  dragging?: boolean;
+  dragHandleProps?: HTMLAttributes<HTMLElement>;
 }
 
 function SlideOutlineRowImpl(props: SlideOutlineRowProps) {
@@ -30,7 +34,18 @@ function SlideOutlineRowImpl(props: SlideOutlineRowProps) {
   );
 }
 
-function SlideOutlineRowBody({ row, scene, isFocused, onSelect, onOpen, onTextCommit }: SlideOutlineRowProps) {
+function SlideOutlineRowBody({
+  row,
+  scene,
+  isFocused,
+  onSelect,
+  onOpen,
+  onTextCommit,
+  containerRef,
+  containerStyle,
+  dragging = false,
+  dragHandleProps,
+}: SlideOutlineRowProps) {
   // Gating: this row component is shared between single-mode and continuous-mode
   // browsers. Slide actions live on the slide-context for the *current* deck item;
   // in continuous mode the row may belong to a different deck item, so we disable
@@ -92,13 +107,17 @@ function SlideOutlineRowBody({ row, scene, isFocused, onSelect, onOpen, onTextCo
     <>
       <Thumbnail.Row
         {...triggerHandlers}
+        {...dragHandleProps}
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          if (typeof containerRef === 'function') containerRef(node);
+          else if (containerRef) containerRef.current = node;
         }}
+        style={containerStyle}
         onClick={handleSelect}
         onDoubleClick={row.textEditable ? undefined : handleOpen}
-        className={rowStateClass}
+        className={cn(rowStateClass, dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab')}
       >
         <Thumbnail.Preview>
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0">

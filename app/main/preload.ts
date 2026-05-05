@@ -125,7 +125,22 @@ const api = {
     ipcRenderer.invoke(IPC.updateNdiOutputConfig, name, config) as Promise<NdiOutputConfigMap>,
   getNdiDiagnostics: () => ipcRenderer.invoke(IPC.getNdiDiagnostics) as Promise<NdiDiagnostics>,
   sendNdiFrame: (name: NdiOutputName, buffer: ArrayBuffer, width: number, height: number, telemetry?: NdiFrameTelemetry) => {
-    ipcRenderer.send(IPC.sendNdiFrame, name, buffer, width, height, telemetry);
+    // postMessage transfers ownership of the ArrayBuffer to the main process
+    // (no copy). The transfer-list typing only documents MessagePort, but the
+    // underlying V8 structured-clone serializer transfers ArrayBuffers as well.
+    // Must keep the ipcRenderer receiver — postMessage uses private fields and
+    // throws if called without the right `this`.
+    (ipcRenderer.postMessage as unknown as (
+      this: typeof ipcRenderer,
+      channel: string,
+      message: unknown,
+      transfer: unknown[],
+    ) => void).call(
+      ipcRenderer,
+      IPC.sendNdiFrame,
+      { name, buffer, width, height, telemetry },
+      [buffer],
+    );
   },
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => {
     const handler = (_event: IpcRendererEvent, state: NdiOutputState) => callback(state);
@@ -136,6 +151,11 @@ const api = {
     const handler = (_event: IpcRendererEvent, diagnostics: NdiDiagnostics) => callback(diagnostics);
     ipcRenderer.on(NDI_EVENTS.diagnosticsChanged, handler);
     return () => { ipcRenderer.removeListener(NDI_EVENTS.diagnosticsChanged, handler); };
+  },
+  onNdiFrameAck: (callback: (name: NdiOutputName) => void) => {
+    const handler = (_event: IpcRendererEvent, name: NdiOutputName) => callback(name);
+    ipcRenderer.on(NDI_EVENTS.frameAck, handler);
+    return () => { ipcRenderer.removeListener(NDI_EVENTS.frameAck, handler); };
   },
   createCollection: (input: CollectionCreateInput) => ipcRenderer.invoke(IPC.createCollection, input),
   renameCollection: (input: CollectionRenameInput) => ipcRenderer.invoke(IPC.renameCollection, input),

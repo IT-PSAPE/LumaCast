@@ -16,13 +16,17 @@ import { filterByText } from '../../../utils/filter-by-text';
 import { useGridSize } from '../../../hooks/use-grid-size';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 import { BinShell } from '../../workbench/bin-shell';
-import { useBinCollections, type BinCollectionsApi } from '../../workbench/use-bin-collections';
+import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 
-export function OverlayBinPanel() {
+interface OverlayBinPanelProps {
+  collections: BinCollectionsApi;
+  hideFooterPicker?: boolean;
+}
+
+export function OverlayBinPanel({ collections, hideFooterPicker = false }: OverlayBinPanelProps) {
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const { overlays: allOverlays, setCurrentOverlayId } = useOverlayEditor();
   const { activeOverlayIds, activateOverlay } = usePresentationOverlayLayer();
-  const collections = useBinCollections('overlay');
   const [searchValue, setSearchValue] = useState('');
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.overlay-bin', 3, 2, 4);
@@ -39,7 +43,7 @@ export function OverlayBinPanel() {
 
   return (
     <BinShell
-      collections={collections}
+      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search overlays…"
