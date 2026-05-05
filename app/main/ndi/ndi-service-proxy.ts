@@ -36,15 +36,22 @@ export class NdiServiceProxy implements NdiServiceLike {
     this.cachedOutputConfigs = options.outputConfigs;
     this.onOutputConfigsChanged = options.onOutputConfigsChanged;
     this.cachedDiagnostics = createInitialDiagnostics(options.outputConfigs);
-    this.host = utilityProcess.fork(options.hostModulePath, [], {
-      serviceName: 'ndi-host',
-      stdio: 'pipe',
-    });
+    console.log(`[NdiServiceProxy] Forking host at ${options.hostModulePath}`);
+    try {
+      this.host = utilityProcess.fork(options.hostModulePath, [], {
+        serviceName: 'ndi-host',
+        stdio: 'pipe',
+      });
+    } catch (error) {
+      console.error(`[NdiServiceProxy] Failed to fork host at ${options.hostModulePath}:`, error);
+      throw error;
+    }
     this.host.stdout?.on('data', (chunk: Buffer) => {
-      process.stdout.write(`[ndi-host] ${chunk.toString()}`);
+      // Route through console so the file logger captures host stdout.
+      console.log(`[ndi-host] ${stripTrailingNewline(chunk.toString())}`);
     });
     this.host.stderr?.on('data', (chunk: Buffer) => {
-      process.stderr.write(`[ndi-host] ${chunk.toString()}`);
+      console.error(`[ndi-host] ${stripTrailingNewline(chunk.toString())}`);
     });
     this.host.on('exit', (code) => {
       if (!this.destroyed) {
@@ -168,6 +175,10 @@ export class NdiServiceProxy implements NdiServiceLike {
         break;
     }
   }
+}
+
+function stripTrailingNewline(text: string): string {
+  return text.endsWith('\n') ? text.slice(0, -1) : text;
 }
 
 function createInitialDiagnostics(configs: NdiOutputConfigMap): NdiDiagnostics {
