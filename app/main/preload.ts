@@ -125,22 +125,10 @@ const api = {
     ipcRenderer.invoke(IPC.updateNdiOutputConfig, name, config) as Promise<NdiOutputConfigMap>,
   getNdiDiagnostics: () => ipcRenderer.invoke(IPC.getNdiDiagnostics) as Promise<NdiDiagnostics>,
   sendNdiFrame: (name: NdiOutputName, buffer: ArrayBuffer, width: number, height: number, telemetry?: NdiFrameTelemetry) => {
-    // postMessage transfers ownership of the ArrayBuffer to the main process
-    // (no copy). The transfer-list typing only documents MessagePort, but the
-    // underlying V8 structured-clone serializer transfers ArrayBuffers as well.
-    // Must keep the ipcRenderer receiver — postMessage uses private fields and
-    // throws if called without the right `this`.
-    (ipcRenderer.postMessage as unknown as (
-      this: typeof ipcRenderer,
-      channel: string,
-      message: unknown,
-      transfer: unknown[],
-    ) => void).call(
-      ipcRenderer,
-      IPC.sendNdiFrame,
-      { name, buffer, width, height, telemetry },
-      [buffer],
-    );
+    // Use ordinary IPC cloning for frame delivery. Electron's renderer
+    // transfer-list path rejects ArrayBuffer here, which prevents frames from
+    // reaching main and leaves NDI diagnostics stuck at zero.
+    ipcRenderer.send(IPC.sendNdiFrame, { name, buffer, width, height, telemetry });
   },
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => {
     const handler = (_event: IpcRendererEvent, state: NdiOutputState) => callback(state);

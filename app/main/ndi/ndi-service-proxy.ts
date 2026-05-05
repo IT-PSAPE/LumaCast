@@ -97,13 +97,12 @@ export class NdiServiceProxy implements NdiServiceLike {
     telemetry?: NdiFrameTelemetry,
   ): void {
     if (this.destroyed) return;
-    // Transfer the buffer to the utility process so no copy occurs on this hop.
-    // rgba is a freshly-wrapped view over the IPC-owned ArrayBuffer; transferring is safe.
     const buffer = rgba.buffer as ArrayBuffer;
-    this.send(
-      { type: 'frame', name, buffer, width, height, telemetry },
-      [buffer],
-    );
+    // Keep the main -> utility-process hop on plain structured clone. Electron
+    // utilityProcess.postMessage only documents MessagePort transfer support;
+    // attempting ArrayBuffer transfer can throw before the NDI host receives the
+    // frame, leaving the sender advertised with zero frame diagnostics.
+    this.send({ type: 'frame', name, buffer, width, height, telemetry });
   }
 
   onOutputStateChanged(callback: StateChangeCallback): () => void {
@@ -135,21 +134,9 @@ export class NdiServiceProxy implements NdiServiceLike {
     }
   }
 
-  private send(cmd: NdiHostCommand, transfer?: ArrayBuffer[]): void {
+  private send(cmd: NdiHostCommand): void {
     if (this.destroyed) return;
-    // Electron's typings restrict the transfer list to MessagePortMain[], but the
-    // underlying V8 structured-clone serializer transfers ArrayBuffers as well.
-    // Call with proper `this` binding — postMessage uses private class fields
-    // internally and will throw if invoked without the receiver.
-    if (transfer && transfer.length > 0) {
-      (this.host.postMessage as unknown as (
-        this: UtilityProcess,
-        message: NdiHostCommand,
-        transferList: unknown[],
-      ) => void).call(this.host, cmd, transfer);
-    } else {
-      this.host.postMessage(cmd);
-    }
+    this.host.postMessage(cmd);
   }
 
   private handleHostEvent(event: NdiHostEvent): void {
