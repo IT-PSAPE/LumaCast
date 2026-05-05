@@ -362,6 +362,29 @@ export interface DeckBundleOverlay {
   animation: OverlayAnimation;
 }
 
+export interface DeckBundlePlaylistEntry {
+  id: Id;
+  presentationId: Id | null;
+  lyricId: Id | null;
+  order: number;
+}
+
+export interface DeckBundlePlaylistSegment {
+  id: Id;
+  name: string;
+  colorKey: string | null;
+  order: number;
+  entries: DeckBundlePlaylistEntry[];
+}
+
+export interface DeckBundlePlaylist {
+  id: Id;
+  name: string;
+  libraryName: string;
+  order: number;
+  segments: DeckBundlePlaylistSegment[];
+}
+
 export interface DeckBundleManifest {
   format: 'cast-deck-bundle';
   version: 1;
@@ -371,12 +394,14 @@ export interface DeckBundleManifest {
   mediaReferences: DeckBundleMediaReference[];
   overlays?: DeckBundleOverlay[];
   stages?: DeckBundleStage[];
+  playlists?: DeckBundlePlaylist[];
 }
 
 export interface DeckBundleExportOptions {
   includeAllThemes?: boolean;
   includeOverlays?: boolean;
   includeStages?: boolean;
+  playlistIds?: Id[];
 }
 
 export interface DeckBundleInspectionItem {
@@ -404,6 +429,14 @@ export interface DeckBundleInspectionStage {
   name: string;
 }
 
+export interface DeckBundleInspectionPlaylist {
+  id: Id;
+  name: string;
+  libraryName: string;
+  segmentCount: number;
+  entryCount: number;
+}
+
 export interface BrokenDeckBundleReference {
   source: string;
   elementTypes: Array<'image' | 'video'>;
@@ -421,10 +454,12 @@ export interface DeckBundleInspection {
   mediaReferenceCount: number;
   overlayCount: number;
   stageCount: number;
+  playlistCount: number;
   items: DeckBundleInspectionItem[];
   themes: DeckBundleInspectionTheme[];
   overlays: DeckBundleInspectionOverlay[];
   stages: DeckBundleInspectionStage[];
+  playlists: DeckBundleInspectionPlaylist[];
   mediaReferences: DeckBundleMediaReference[];
   brokenReferences: BrokenDeckBundleReference[];
 }
@@ -550,7 +585,7 @@ export interface NdiFrameTelemetry {
   captureDurationMs: number;
   readbackDurationMs: number;
   skippedCaptures: number;
-  heartbeatCaptures: number;
+  framesDroppedBackpressure: number;
 }
 
 export interface NdiSenderPerformanceDiagnostics {
@@ -560,7 +595,7 @@ export interface NdiSenderPerformanceDiagnostics {
   framesRejected: number;
   framesSkippedNoConnections: number;
   skippedCaptures: number;
-  heartbeatCaptures: number;
+  framesDroppedBackpressure: number;
   bytesReceived: number;
   cacheCopyBytes: number;
   avgCaptureDurationMs: number;

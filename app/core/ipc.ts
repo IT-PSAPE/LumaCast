@@ -118,6 +118,7 @@ export interface MainApi {
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => () => void;
   getAudioCoverArt: (src: string) => Promise<string | null>;
   onNdiDiagnosticsChanged: (callback: (diagnostics: NdiDiagnostics) => void) => () => void;
+  onNdiFrameAck: (callback: (name: NdiOutputName) => void) => () => void;
   createCollection: (input: CollectionCreateInput) => Promise<SnapshotPatch>;
   renameCollection: (input: CollectionRenameInput) => Promise<SnapshotPatch>;
   deleteCollection: (input: CollectionDeleteInput) => Promise<SnapshotPatch>;
@@ -285,6 +286,7 @@ export const IPC = {
 export const NDI_EVENTS = {
   outputStateChanged: 'ndi:outputStateChanged',
   diagnosticsChanged: 'ndi:diagnosticsChanged',
+  frameAck: 'ndi:frameAck',
 } as const;
 
 export const APP_MENU_EVENTS = {

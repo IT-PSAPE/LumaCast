@@ -7,7 +7,7 @@ import { CollectionPicker } from './collection-picker';
 import type { BinCollectionsApi } from './use-bin-collections';
 
 interface BinFooterProps {
-  collections: BinCollectionsApi;
+  collections?: BinCollectionsApi;
   searchValue: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
@@ -46,7 +46,7 @@ export function BinFooter(props: BinFooterProps) {
 
   return (
     <div className={cn('flex shrink-0 items-center gap-1.5 border-t border-secondary bg-background-secondary px-1.5 py-1', className)}>
-      <CollectionPicker api={collections} />
+      {collections ? <CollectionPicker api={collections} /> : null}
       <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-tertiary px-1.5 py-1 focus-within:bg-tertiary/60">
         <Search size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
         <input

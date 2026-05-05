@@ -3,7 +3,7 @@ import type { CollectionBinKind, Id, MediaAsset } from '@core/types';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
 import { compareByKey, useMediaBinSort } from '../../workbench/use-bin-sort';
-import { useBinCollections } from '../../workbench/use-bin-collections';
+import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 
 export type MediaBinKind = Extract<CollectionBinKind, 'image' | 'video' | 'audio'>;
@@ -14,9 +14,12 @@ const TYPE_FILTERS: Record<MediaBinKind, (asset: MediaAsset) => boolean> = {
   audio: (asset) => asset.type === 'audio',
 };
 
-export function useMediaTypeBin(binKind: MediaBinKind, defaultViewMode: ResourceDrawerViewMode = 'grid') {
+export function useMediaTypeBin(
+  binKind: MediaBinKind,
+  collections: BinCollectionsApi,
+  defaultViewMode: ResourceDrawerViewMode = 'grid',
+) {
   const { mediaAssets: allMediaAssets } = useProjectContent();
-  const collections = useBinCollections(binKind);
   const { sort } = useMediaBinSort();
 
   const [searchValue, setSearchValue] = useState('');
@@ -48,7 +51,6 @@ export function useMediaTypeBin(binKind: MediaBinKind, defaultViewMode: Resource
 
   return {
     mediaAssets,
-    collections,
     searchValue,
     setSearchValue,
     viewMode,

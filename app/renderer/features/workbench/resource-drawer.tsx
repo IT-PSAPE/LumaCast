@@ -12,6 +12,7 @@ import type { DrawerTab } from '../../types/ui';
 import { MediaBinPanel } from '../assets/media/media-bin-panel';
 import { ThemeBinPanel } from '../assets/themes/theme-bin-panel';
 import { DeckBinPanel } from '../deck/deck-bin-panel';
+import { useBinCollections } from './use-bin-collections';
 import {
   useDeckBinSort,
   useMediaBinSort,
@@ -243,11 +244,12 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
 function Body() {
   const { state } = useDrawer();
   const { drawerTab } = state;
+  const imageCollections = useBinCollections('image');
 
   return (
     <div className="flex min-h-0 flex-1">
       {drawerTab === 'deck' && <DeckBinPanel />}
-      {drawerTab === 'image' && <MediaBinPanel binKind="image" />}
+      {drawerTab === 'image' && <MediaBinPanel binKind="image" collections={imageCollections} />}
       {drawerTab === 'themes' && <ThemeBinPanel />}
     </div>
   );

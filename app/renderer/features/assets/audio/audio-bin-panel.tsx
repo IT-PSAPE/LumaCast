@@ -11,21 +11,25 @@ import { BinShell } from '../../workbench/bin-shell';
 import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import { useAudioBin } from './use-audio-bin';
 
-export function AudioBinPanel() {
+interface AudioBinPanelProps {
+  collections: BinCollectionsApi;
+  hideFooterPicker?: boolean;
+}
+
+export function AudioBinPanel({ collections, hideFooterPicker = false }: AudioBinPanelProps) {
   const {
     audioAssets,
     currentAudioAssetId,
     armAudio,
-    collections,
     searchValue,
     setSearchValue,
     viewMode,
     setViewMode,
-  } = useAudioBin();
+  } = useAudioBin(collections);
 
   return (
     <BinShell
-      collections={collections}
+      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search audio…"

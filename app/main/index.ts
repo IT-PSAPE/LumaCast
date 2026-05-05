@@ -4,7 +4,7 @@ import { CastRepository } from '@database/store';
 import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';
-import { NdiService } from './ndi/ndi-service';
+import { NdiServiceProxy } from './ndi/ndi-service-proxy';
 import { NdiConfigStore } from './ndi/ndi-config-store';
 import {
   createForbiddenResponse,
@@ -38,12 +38,7 @@ const WORKBENCH_MIN_WIDTH = 140 + 360 + 140;
 const WORKBENCH_MIN_HEIGHT = Math.max(360 + 96, 240 + 120) + 96;
 const repository = new CastRepository();
 const ndiConfigStore = new NdiConfigStore();
-const ndiService = new NdiService({
-  outputConfigs: ndiConfigStore.load(),
-  onOutputConfigsChanged: (configs) => {
-    ndiConfigStore.save(configs);
-  },
-});
+let ndiService: NdiServiceProxy | null = null;
 let isShuttingDown = false;
 const appUpdater = new AppUpdater({
   getMainWindow: () => mainWindow,
@@ -53,6 +48,7 @@ function teardownNdi(reason: string, error?: unknown) {
   if (error !== undefined) {
     console.error(`[Main process ${reason}]`, error);
   }
+  if (!ndiService) return;
   try {
     ndiService.destroy();
   } catch (destroyError) {
@@ -222,6 +218,13 @@ app.whenReady().then(() => {
   });
 
   Menu.setApplicationMenu(createApplicationMenu());
+  ndiService = new NdiServiceProxy({
+    outputConfigs: ndiConfigStore.load(),
+    onOutputConfigsChanged: (configs) => {
+      ndiConfigStore.save(configs);
+    },
+    hostModulePath: path.join(__dirname, 'ndi-host.js'),
+  });
   registerIpcHandlers(repository, ndiService, () => mainWindow, appUpdater);
   createMainWindow();
   appUpdater.initialize();

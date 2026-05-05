@@ -21,19 +21,28 @@ import { useMediaTypeBin, type MediaBinKind } from './use-media-type-bin';
 
 interface MediaBinPanelProps {
   binKind: MediaBinKind;
+  collections: BinCollectionsApi;
+  hideFooterPicker?: boolean;
 }
 
-export function MediaBinPanel({ binKind }: MediaBinPanelProps) {
-  const { mediaAssets, collections, searchValue, setSearchValue, viewMode, setViewMode, moveAssetToCollection } =
-    useMediaTypeBin(binKind);
+const GRID_CONFIG: Record<MediaBinKind, { default: number; min: number; max: number }> = {
+  image: { default: 6, min: 4, max: 8 },
+  video: { default: 3, min: 2, max: 4 },
+  audio: { default: 3, min: 2, max: 4 },
+};
+
+export function MediaBinPanel({ binKind, collections, hideFooterPicker = false }: MediaBinPanelProps) {
+  const { mediaAssets, searchValue, setSearchValue, viewMode, setViewMode, moveAssetToCollection } =
+    useMediaTypeBin(binKind, collections);
   const { mediaLayerAssetId, videoLayerAssetId, setMediaLayerAsset } = usePresentationMediaLayer();
   const { armVideo } = useVideo();
   const gridStorageKey = `lumacast.grid-size.${binKind}-bin`;
-  const { gridSize, setGridSize, min, max, step } = useGridSize(gridStorageKey, 3, 2, 4);
+  const gridConfig = GRID_CONFIG[binKind];
+  const { gridSize, setGridSize, min, max, step } = useGridSize(gridStorageKey, gridConfig.default, gridConfig.min, gridConfig.max);
 
   return (
     <BinShell
-      collections={collections}
+      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder={`Search ${binKind}…`}

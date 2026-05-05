@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { ChevronDown, AlignLeft, Film, Image, Layers, Layers2, LayoutGrid, Pause, Play, Plus, RectangleHorizontal, SkipBack, SkipForward, Upload, Volume2, VolumeX, XCircle } from 'lucide-react';
+import { ChevronDown, AlignLeft, Film, Image, Layers, Layers2, LayoutGrid, Pause, Pencil, Play, Plus, RectangleHorizontal, SkipBack, SkipForward, Upload, Volume2, VolumeX, XCircle } from 'lucide-react';
 import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
@@ -20,6 +20,8 @@ import { AudioBinPanel } from '../assets/audio/audio-bin-panel';
 import { MediaBinPanel } from '../assets/media/media-bin-panel';
 import { OverlayBinPanel } from '../assets/overlays/overlay-bin-panel';
 import { StageBinPanel } from '../assets/stages/stage-bin-panel';
+import { CollectionPicker } from '../workbench/collection-picker';
+import { useBinCollections } from '../workbench/use-bin-collections';
 import { useProgramOutput } from './use-program-output';
 import { useProgramBindingValue, useStageBindingValue, useStageScene } from './use-stage-scene';
 import { SceneStage } from '../canvas/scene-stage';
@@ -38,6 +40,15 @@ export function ProgramPanel() {
   const [bottomTab, setBottomTab] = useState<BottomTab>('overlays');
   const audioImportInputRef = useRef<HTMLInputElement>(null);
   const videoImportInputRef = useRef<HTMLInputElement>(null);
+  const overlayCollections = useBinCollections('overlay');
+  const stageCollections = useBinCollections('stage');
+  const videoCollections = useBinCollections('video');
+  const audioCollections = useBinCollections('audio');
+  const activeCollections =
+    bottomTab === 'overlays' ? overlayCollections
+      : bottomTab === 'stage' ? stageCollections
+      : bottomTab === 'video' ? videoCollections
+      : audioCollections;
   const mediaActive = Boolean(mediaLayerAsset);
   const videoActive = Boolean(videoLayerAsset);
   const contentActive = contentLayerVisible && Boolean(currentOutputDeckItemId);
@@ -69,6 +80,14 @@ export function ProgramPanel() {
       if (newStageId) setPlaybackStageId(newStageId);
       setWorkbenchMode('stage-editor');
     });
+  }
+
+  function handleEditOverlays() {
+    setWorkbenchMode('overlay-editor');
+  }
+
+  function handleEditStages() {
+    setWorkbenchMode('stage-editor');
   }
 
   function handleTabChange(value: string) {
@@ -126,54 +145,68 @@ export function ProgramPanel() {
               <Tabs.Trigger value="video">Video</Tabs.Trigger>
               <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
             </Tabs.List>
-            {bottomTab === 'overlays' ? (
-              <>
-                <ReacstButton.Icon label={overlayModeLabel} variant="ghost" onClick={handleOverlayModeToggle}>
-                  {overlayMode === 'single' ? <Layers /> : <Layers2 />}
-                </ReacstButton.Icon>
-                <ReacstButton.Icon label="Add overlay" onClick={handleCreateOverlay}>
-                  <Plus />
-                </ReacstButton.Icon>
-              </>
-            ) : bottomTab === 'stage' ? (
-              <ReacstButton.Icon label="Add stage" onClick={handleCreateStage}>
-                <Plus />
-              </ReacstButton.Icon>
-            ) : bottomTab === 'video' ? (
-              <>
-                <FileTrigger.Root
-                  hidden
-                  inputRef={videoImportInputRef}
-                  accept="video/*"
-                  multiple
-                  onSelect={handleMediaImportSelect}
-                />
-                <ReacstButton.Icon label="Import video" onClick={handleVideoImportClick}>
-                  <Upload />
-                </ReacstButton.Icon>
-              </>
-            ) : (
-              <>
-                <FileTrigger.Root
-                  hidden
-                  inputRef={audioImportInputRef}
-                  accept="audio/*"
-                  multiple
-                  onSelect={handleMediaImportSelect}
-                />
-                <ReacstButton.Icon label="Import audio" onClick={handleAudioImportClick}>
-                  <Upload />
-                </ReacstButton.Icon>
-              </>
-            )}
           </LumaCastPanel.GroupTitle>
+          <div className="w-full flex shrink-0 items-center gap-1 border-b border-secondary px-1.5 py-1">
+            <CollectionPicker api={activeCollections} popoverPlacement="bottom-start" />
+            <div className="ml-auto flex items-center gap-1">
+              {bottomTab === 'overlays' ? (
+                <>
+                  <ReacstButton.Icon label={overlayModeLabel} variant="ghost" onClick={handleOverlayModeToggle}>
+                    {overlayMode === 'single' ? <Layers /> : <Layers2 />}
+                  </ReacstButton.Icon>
+                  <span aria-hidden className="mx-1 h-5 w-px bg-secondary" />
+                  <ReacstButton.Icon label="Edit overlays" variant="ghost" onClick={handleEditOverlays}>
+                    <Pencil />
+                  </ReacstButton.Icon>
+                  <ReacstButton.Icon label="Add overlay" onClick={handleCreateOverlay}>
+                    <Plus />
+                  </ReacstButton.Icon>
+                </>
+              ) : bottomTab === 'stage' ? (
+                <>
+                  <ReacstButton.Icon label="Edit stages" variant="ghost" onClick={handleEditStages}>
+                    <Pencil />
+                  </ReacstButton.Icon>
+                  <ReacstButton.Icon label="Add stage" onClick={handleCreateStage}>
+                    <Plus />
+                  </ReacstButton.Icon>
+                </>
+              ) : bottomTab === 'video' ? (
+                <>
+                  <FileTrigger.Root
+                    hidden
+                    inputRef={videoImportInputRef}
+                    accept="video/*"
+                    multiple
+                    onSelect={handleMediaImportSelect}
+                  />
+                  <ReacstButton.Icon label="Import video" onClick={handleVideoImportClick}>
+                    <Upload />
+                  </ReacstButton.Icon>
+                </>
+              ) : (
+                <>
+                  <FileTrigger.Root
+                    hidden
+                    inputRef={audioImportInputRef}
+                    accept="audio/*"
+                    multiple
+                    onSelect={handleMediaImportSelect}
+                  />
+                  <ReacstButton.Icon label="Import audio" onClick={handleAudioImportClick}>
+                    <Upload />
+                  </ReacstButton.Icon>
+                </>
+              )}
+            </div>
+          </div>
           {bottomTab === 'audio' ? (
             <LumaCastPanel.Content className='flex flex-col flex-1 min-h-0'>
               <div className="w-full bg-primary border-b border-secondary px-1">
                 <AudioBackgroundControls />
               </div>
               <div className='flex flex-1 min-h-0 w-full'>
-                <AudioBinPanel />
+                <AudioBinPanel collections={audioCollections} hideFooterPicker />
               </div>
             </LumaCastPanel.Content>
           ) : bottomTab === 'video' ? (
@@ -182,15 +215,15 @@ export function ProgramPanel() {
                 <VideoBackgroundControls />
               </div>
               <div className='flex flex-1 min-h-0 w-full'>
-                <MediaBinPanel binKind="video" />
+                <MediaBinPanel binKind="video" collections={videoCollections} hideFooterPicker />
               </div>
             </LumaCastPanel.Content>
           ) : (
-            <LumaCastPanel.Content className='flex-1 min-h-0 py-2 px-1'>
+            <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
               {bottomTab === 'overlays' ? (
-                <OverlayBinPanel />
+                <OverlayBinPanel collections={overlayCollections} hideFooterPicker />
               ) : (
-                <StageBinPanel />
+                <StageBinPanel collections={stageCollections} hideFooterPicker />
               )}
             </LumaCastPanel.Content>
           )}

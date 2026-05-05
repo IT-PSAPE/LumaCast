@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type MouseEventHandler, type ReactNode } from 'react';
 import type { InlineWindowMenuItem } from '@core/ipc';
-import { ReacstButton } from '@renderer/components/controls/button';
+import { cn } from '@renderer/utils/cn';
 
 const isMac = window.castApi.platform === 'darwin';
 const isWindows = window.castApi.platform === 'win32';
@@ -82,20 +82,22 @@ export function WindowsInlineMenuBar({ children }: WindowsInlineMenuBarProps) {
       <div className="flex h-full items-center gap-3">
         <div
           data-ui-region="windows-inline-menu-bar"
-          className="flex shrink-0 items-center gap-0.5 rounded-md border border-primary bg-secondary/60 p-0.5"
+          className="flex h-full shrink-0 items-stretch"
           style={noDragStyle}
         >
           {hasMenuItems ? items.map((item) => (
-            <ReacstButton
+            <button
               key={item.id}
-              variant="ghost"
+              type="button"
               data-menu-id={item.id}
               onClick={handleMenuButtonClick}
-              active={activeMenuId === item.id}
-              className="min-h-7 rounded-sm px-2.5 py-1 label-xs text-secondary hover:bg-quaternary"
+              className={cn(
+                'flex h-full items-center px-3 label-xs text-secondary transition-colors hover:bg-tertiary/60',
+                activeMenuId === item.id && 'bg-tertiary/60 text-primary',
+              )}
             >
               {item.label}
-            </ReacstButton>
+            </button>
           )) : null}
         </div>
 

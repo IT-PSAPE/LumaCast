@@ -16,14 +16,18 @@ import { filterByText } from '../../../utils/filter-by-text';
 import { useGridSize } from '../../../hooks/use-grid-size';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 import { BinShell } from '../../workbench/bin-shell';
-import { useBinCollections, type BinCollectionsApi } from '../../workbench/use-bin-collections';
+import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 
-export function StageBinPanel() {
+interface StageBinPanelProps {
+  collections: BinCollectionsApi;
+  hideFooterPicker?: boolean;
+}
+
+export function StageBinPanel({ collections, hideFooterPicker = false }: StageBinPanelProps) {
   const { stages: allStages } = useProjectContent();
   const { currentStageId, setCurrentStageId } = useStagePlayback();
   const { setCurrentStageId: setEditorStageId } = useStageEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
-  const collections = useBinCollections('stage');
   const [searchValue, setSearchValue] = useState('');
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.stage-bin', 3, 2, 4);
@@ -40,7 +44,7 @@ export function StageBinPanel() {
 
   return (
     <BinShell
-      collections={collections}
+      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search stages…"

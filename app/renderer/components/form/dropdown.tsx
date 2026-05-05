@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { cn } from '@renderer/utils/cn';
 import { Popover, PopoverPlacement } from '../overlays/popover';
 
@@ -159,12 +159,24 @@ function Root({ className, children }: RootProps) {
 
 // ─── Trigger ─────────────────────────────────────────────
 
-interface TriggerProps extends Omit<HTMLAttributes<HTMLButtonElement>, 'onClick' | 'onKeyDown'> {
+interface TriggerProps extends Omit<HTMLAttributes<HTMLButtonElement>, 'onClick' | 'onKeyDown' | 'onPointerDown'> {
   children: ReactNode;
 }
 
 function Trigger({ children, className, ...rest }: TriggerProps) {
   const ctx = useDropdown();
+
+  // Toggle on pointerdown rather than click. The Popover registers its
+  // outside-close listener on `window` for `pointerdown`; using `click` here
+  // means another open dropdown closes during pointerdown and the click that
+  // should open this one can be lost when React re-renders between events.
+  // Handling both on pointerdown keeps the toggle in the same event tick.
+  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    if (ctx.open) ctx.onClose();
+    else ctx.onOpen();
+  }
 
   return (
     <button
@@ -173,7 +185,7 @@ function Trigger({ children, className, ...rest }: TriggerProps) {
       type="button"
       aria-expanded={ctx.open}
       aria-haspopup="menu"
-      onClick={ctx.open ? ctx.onClose : ctx.onOpen}
+      onPointerDown={handlePointerDown}
       onKeyDown={ctx.handleKeyDown}
       className={className}
     >

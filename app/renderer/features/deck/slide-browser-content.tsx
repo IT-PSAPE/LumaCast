@@ -39,7 +39,7 @@ function SingleSlideGrid() {
       <ScrollArea.Viewport className="p-2">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={slides.map((slide) => slide.id)} strategy={rectSortingStrategy}>
-            <ThumbnailGrid columns={gridItemSize} className="auto-rows-max content-start" role="grid" aria-label="Slides">
+            <ThumbnailGrid columns={gridItemSize} className="auto-rows-max content-start isolate" role="grid" aria-label="Slides">
               {slides.map((slide, idx) => {
                 const elements = slideElementsById.get(slide.id) ?? [];
                 const scene = getThumbnailScene(slide.id, 'show');
@@ -108,7 +108,7 @@ function SingleSlideList() {
       <ScrollArea.Viewport className="p-2">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={rows.map((row) => row.slide.id)} strategy={verticalListSortingStrategy}>
-            <div className="flex flex-col gap-3" role="list" aria-label="Slide outline">
+            <div className="isolate flex flex-col gap-3" role="list" aria-label="Slide outline">
               {rows.map(renderRow)}
             </div>
           </SortableContext>
@@ -140,27 +140,37 @@ function useSlideReorderHandler(slideIds: Id[], reorderSlide: (slideId: Id, newO
 }
 
 function SortableSlideGridTile(props: ComponentProps<typeof SlideGridTile>) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.slideId });
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.slideId });
   return (
     <SlideGridTile
       {...props}
       containerRef={setNodeRef}
-      containerStyle={{ transform: CSS.Transform.toString(transform), transition }}
+      containerStyle={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 9999 : undefined,
+        position: isDragging ? 'relative' : undefined,
+      }}
       dragging={isDragging}
-      dragHandleProps={{ ...attributes, ...listeners }}
+      dragHandleProps={listeners}
     />
   );
 }
 
 function SortableSlideOutlineRow(props: ComponentProps<typeof SlideOutlineRow>) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.row.slide.id });
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.row.slide.id });
   return (
     <SlideOutlineRow
       {...props}
       containerRef={setNodeRef}
-      containerStyle={{ transform: CSS.Transform.toString(transform), transition }}
+      containerStyle={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        zIndex: isDragging ? 9999 : undefined,
+        position: isDragging ? 'relative' : undefined,
+      }}
       dragging={isDragging}
-      dragHandleProps={{ ...attributes, ...listeners }}
+      dragHandleProps={listeners}
     />
   );
 }

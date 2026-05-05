@@ -39,7 +39,7 @@ describe('NdiService', () => {
       captureDurationMs: 5,
       readbackDurationMs: 3,
       skippedCaptures: 2,
-      heartbeatCaptures: 1,
+      framesDroppedBackpressure: 1,
     });
 
     const diagnostics = service.getDiagnostics();
@@ -52,7 +52,7 @@ describe('NdiService', () => {
       framesReplayed: 0,
       framesRejected: 0,
       skippedCaptures: 2,
-      heartbeatCaptures: 1,
+      framesDroppedBackpressure: 1,
       bytesReceived: frame.byteLength,
       cacheCopyBytes: 0,
       lastFrameBytes: frame.byteLength,
@@ -79,7 +79,7 @@ describe('NdiService', () => {
       captureDurationMs: 4,
       readbackDurationMs: 2,
       skippedCaptures: 0,
-      heartbeatCaptures: 0,
+      framesDroppedBackpressure: 0,
     });
 
     vi.advanceTimersByTime(100);
@@ -107,7 +107,7 @@ describe('NdiService', () => {
       captureDurationMs: 4,
       readbackDurationMs: 2,
       skippedCaptures: 0,
-      heartbeatCaptures: 0,
+      framesDroppedBackpressure: 0,
     });
 
     service.updateOutputConfig('audience', { withAlpha: true });
@@ -130,7 +130,7 @@ describe('NdiService', () => {
       captureDurationMs: 1,
       readbackDurationMs: 1,
       skippedCaptures: 0,
-      heartbeatCaptures: 0,
+      framesDroppedBackpressure: 0,
     });
 
     const diagnostics = service.getDiagnostics();
@@ -155,7 +155,7 @@ describe('NdiService', () => {
       captureDurationMs: 2,
       readbackDurationMs: 1,
       skippedCaptures: 0,
-      heartbeatCaptures: 0,
+      framesDroppedBackpressure: 0,
     });
 
     const diagnostics = service.getDiagnostics();
@@ -181,7 +181,7 @@ describe('NdiService', () => {
       captureDurationMs: 3,
       readbackDurationMs: 2,
       skippedCaptures: 0,
-      heartbeatCaptures: 0,
+      framesDroppedBackpressure: 0,
     });
 
     const diagnostics = service.getDiagnostics();
