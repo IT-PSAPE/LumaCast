@@ -139,8 +139,8 @@ export function useAppMenu(): void {
       case 'file.newPlaylist':
         await navigation.createPlaylist();
         return;
-      case 'file.newSegment':
-        await navigation.createSegment();
+      case 'file.newGroup':
+        await navigation.createGroup();
         return;
       case 'file.newSlide':
         await slides.createSlide();

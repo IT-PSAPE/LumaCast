@@ -32,7 +32,7 @@ import type {
   DeckBundleManifest,
   DeckBundleOverlay,
   DeckBundlePlaylist,
-  DeckBundlePlaylistSegment,
+  DeckBundlePlaylistGroup,
   DeckBundleSlide,
   DeckBundleStage,
   DeckBundleTheme,
@@ -53,7 +53,7 @@ import type {
   OverlayUpdateInput,
   Playlist,
   PlaylistEntry,
-  PlaylistSegment,
+  PlaylistGroup,
   PlaylistTree,
   Slide,
   SlideElement,
@@ -82,7 +82,8 @@ const STAGES_SCHEMA_VERSION = 8;
 const COLLECTIONS_SCHEMA_VERSION = 9;
 const THEME_NAMING_SCHEMA_VERSION = 10;
 const UNIFIED_SLIDES_SCHEMA_VERSION = 11;
-const LATEST_SCHEMA_VERSION = UNIFIED_SLIDES_SCHEMA_VERSION;
+const PLAYLIST_GROUPS_RENAME_SCHEMA_VERSION = 12;
+const LATEST_SCHEMA_VERSION = PLAYLIST_GROUPS_RENAME_SCHEMA_VERSION;
 const GLOBAL_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 2;
 
@@ -361,10 +362,25 @@ export class CastRepository {
     this.dbPath = path.join(userData, 'lumacast.sqlite');
     migrateLegacyRecastDatabase(userData, this.dbPath);
     this.db = new SqliteDatabase(this.dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
+    this.applyConnectionTuning();
     this.initializeSchema();
     this.seedIfEmpty();
+  }
+
+  private applyConnectionTuning(): void {
+    // WAL allows concurrent reads/writes; NORMAL is safe with WAL and
+    // significantly faster than the default FULL fsync on commit.
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('foreign_keys = ON');
+    // 64 MB page cache (negative = KB). Cuts page misses on large snapshot reads.
+    this.db.pragma('cache_size = -65536');
+    // 256 MB mmap window — fewer read syscalls; OS pages cached implicitly.
+    this.db.pragma('mmap_size = 268435456');
+    // Keep temp tables in RAM (sorts, joins) instead of spilling to disk.
+    this.db.pragma('temp_store = MEMORY');
+    // Checkpoint the WAL every ~1000 pages so it doesn't grow unboundedly.
+    this.db.pragma('wal_autocheckpoint = 1000');
   }
 
   private initializeSchema(): void {
@@ -428,6 +444,40 @@ export class CastRepository {
       this.migrateToUnifiedSlides();
       this.setUserVersion(UNIFIED_SLIDES_SCHEMA_VERSION);
     }
+
+    if (this.getUserVersion() < PLAYLIST_GROUPS_RENAME_SCHEMA_VERSION) {
+      this.renamePlaylistSegmentsToGroups();
+      this.setUserVersion(PLAYLIST_GROUPS_RENAME_SCHEMA_VERSION);
+    }
+  }
+
+  // v12 — rename `playlist_segments` to `playlist_groups` and the
+  // `playlist_entries.segment_id` column to `group_id`. Indexes that reference
+  // the renamed columns are dropped and recreated under their new names.
+  // Idempotent so a half-applied migration can be retried without harm.
+  private renamePlaylistSegmentsToGroups(): void {
+    const tx = this.db.transaction(() => {
+      if (this.hasTable('playlist_segments') && !this.hasTable('playlist_groups')) {
+        this.db.exec('DROP INDEX IF EXISTS idx_playlist_segments_playlist_id');
+        this.db.exec('DROP INDEX IF EXISTS idx_playlist_entries_segment_id');
+        this.db.exec('ALTER TABLE playlist_segments RENAME TO playlist_groups');
+      }
+
+      if (
+        this.hasColumn('playlist_entries', 'segment_id')
+        && !this.hasColumn('playlist_entries', 'group_id')
+      ) {
+        this.db.exec('ALTER TABLE playlist_entries RENAME COLUMN segment_id TO group_id');
+      }
+
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_playlist_groups_playlist_id ON playlist_groups(playlist_id)',
+      );
+      this.db.exec(
+        'CREATE INDEX IF NOT EXISTS idx_playlist_entries_group_id ON playlist_entries(group_id)',
+      );
+    });
+    tx();
   }
 
   /**
@@ -735,7 +785,7 @@ export class CastRepository {
         FOREIGN KEY(library_id) REFERENCES libraries(id)
       );
 
-      CREATE TABLE IF NOT EXISTS playlist_segments (
+      CREATE TABLE IF NOT EXISTS playlist_groups (
         id TEXT PRIMARY KEY,
         playlist_id TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -748,13 +798,13 @@ export class CastRepository {
 
       CREATE TABLE IF NOT EXISTS playlist_entries (
         id TEXT PRIMARY KEY,
-        segment_id TEXT NOT NULL,
+        group_id TEXT NOT NULL,
         presentation_id TEXT,
         lyric_id TEXT,
         order_index INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        FOREIGN KEY(segment_id) REFERENCES playlist_segments(id),
+        FOREIGN KEY(group_id) REFERENCES playlist_groups(id),
         FOREIGN KEY(presentation_id) REFERENCES presentations(id),
         FOREIGN KEY(lyric_id) REFERENCES lyrics(id)
       );
@@ -892,11 +942,24 @@ export class CastRepository {
       );
     `);
 
-    this.createCommonIndexes();
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);
+      CREATE INDEX IF NOT EXISTS idx_slides_lyric_id ON slides(lyric_id);
+      CREATE INDEX IF NOT EXISTS idx_slide_elements_slide_id ON slide_elements(slide_id);
+      CREATE INDEX IF NOT EXISTS idx_playlists_library_id ON playlists(library_id);
+      CREATE INDEX IF NOT EXISTS idx_playlist_groups_playlist_id ON playlist_groups(playlist_id);
+      CREATE INDEX IF NOT EXISTS idx_playlist_entries_group_id ON playlist_entries(group_id);
+      CREATE INDEX IF NOT EXISTS idx_playlist_entries_presentation_id ON playlist_entries(presentation_id);
+      CREATE INDEX IF NOT EXISTS idx_playlist_entries_lyric_id ON playlist_entries(lyric_id);
+    `);
     this.createGlobalContentIndexes();
     this.createCollectionsIndexes();
   }
 
+  // Used only by legacy v0→v2 path and the v10→v11 migration, both of which
+  // operate on the pre-v12 schema where the table is `playlist_segments` and
+  // the column is `segment_id`. Fresh installs and current code use
+  // `playlist_groups` / `group_id` and bypass this helper entirely.
   private createCommonIndexes(): void {
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);
@@ -2072,7 +2135,7 @@ export class CastRepository {
     const presentationId = createId();
     const slideId = createId();
     const playlistId = createId();
-    const segmentId = createId();
+    const groupId = createId();
     const now = nowIso();
 
     const tx = this.db.transaction(() => {
@@ -2127,15 +2190,15 @@ export class CastRepository {
 
       this.db
         .prepare(
-          'INSERT INTO playlist_segments (id, playlist_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+          'INSERT INTO playlist_groups (id, playlist_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
         )
-        .run(segmentId, playlistId, 'Opening', 0, now, now);
+        .run(groupId, playlistId, 'Opening', 0, now, now);
 
       this.db
         .prepare(
-          'INSERT INTO playlist_entries (id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
         )
-        .run(createId(), segmentId, presentationId, null, 0, now, now);
+        .run(createId(), groupId, presentationId, null, 0, now, now);
 
       const overlayCollectionId = this.getDefaultCollectionId('overlay');
       const overlayId = createId();
@@ -2352,7 +2415,7 @@ export class CastRepository {
         DELETE FROM overlays;
         DELETE FROM themes;
         DELETE FROM stages;
-        DELETE FROM playlist_segments;
+        DELETE FROM playlist_groups;
         DELETE FROM playlists;
         DELETE FROM presentations;
         DELETE FROM lyrics;
@@ -2469,11 +2532,11 @@ export class CastRepository {
       const insertPlaylist = this.db.prepare(
         'INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
-      const insertSegment = this.db.prepare(
-        'INSERT INTO playlist_segments (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+      const insertGroup = this.db.prepare(
+        'INSERT INTO playlist_groups (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
       const insertEntry = this.db.prepare(
-        'INSERT INTO playlist_entries (id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
       for (const bundle of snapshot.libraryBundles) {
         for (const tree of bundle.playlists) {
@@ -2485,20 +2548,20 @@ export class CastRepository {
             tree.playlist.createdAt,
             tree.playlist.updatedAt,
           );
-          for (const { segment, entries } of tree.segments) {
-            insertSegment.run(
-              segment.id,
-              segment.playlistId,
-              segment.name,
-              segment.colorKey,
-              segment.order,
-              segment.createdAt,
-              segment.updatedAt,
+          for (const { group, entries } of tree.groups) {
+            insertGroup.run(
+              group.id,
+              group.playlistId,
+              group.name,
+              group.colorKey,
+              group.order,
+              group.createdAt,
+              group.updatedAt,
             );
             for (const { entry } of entries) {
               insertEntry.run(
                 entry.id,
-                entry.segmentId,
+                entry.groupId,
                 entry.presentationId,
                 entry.lyricId,
                 entry.order,
@@ -2586,8 +2649,8 @@ export class CastRepository {
 
     const playlistItemIds = new Set<Id>();
     for (const playlist of playlists) {
-      for (const segment of playlist.segments) {
-        for (const entry of segment.entries) {
+      for (const group of playlist.groups) {
+        for (const entry of group.entries) {
           const itemId = entry.presentationId ?? entry.lyricId;
           if (itemId) playlistItemIds.add(itemId);
         }
@@ -2603,9 +2666,9 @@ export class CastRepository {
     const includedItemIds = new Set(items.map((item) => item.id));
     const filteredPlaylists: DeckBundlePlaylist[] = playlists.map((playlist) => ({
       ...playlist,
-      segments: playlist.segments.map((segment) => ({
-        ...segment,
-        entries: segment.entries.filter((entry) => {
+      groups: playlist.groups.map((group) => ({
+        ...group,
+        entries: group.entries.filter((entry) => {
           const refId = entry.presentationId ?? entry.lyricId;
           return refId !== null && includedItemIds.has(refId);
         }),
@@ -2689,8 +2752,8 @@ export class CastRepository {
           id: playlist.id,
           name: playlist.name,
           libraryName: playlist.libraryName,
-          segmentCount: playlist.segments.length,
-          entryCount: playlist.segments.reduce((sum, segment) => sum + segment.entries.length, 0),
+          groupCount: playlist.groups.length,
+          entryCount: playlist.groups.reduce((sum, group) => sum + group.entries.length, 0),
         }))
         .sort((left, right) => left.name.localeCompare(right.name)),
       mediaReferences,
@@ -2770,11 +2833,11 @@ export class CastRepository {
     const insertPlaylist = this.db.prepare(
       'INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
     );
-    const insertPlaylistSegment = this.db.prepare(
-      'INSERT INTO playlist_segments (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    const insertPlaylistGroup = this.db.prepare(
+      'INSERT INTO playlist_groups (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     const insertPlaylistEntry = this.db.prepare(
-      `INSERT INTO playlist_entries (id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at)
+      `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, order_index, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
 
@@ -2971,22 +3034,22 @@ export class CastRepository {
             const newPlaylistId = createId();
             insertPlaylist.run(newPlaylistId, libraryId, playlist.name, nextPlaylistOrderFor(libraryId), now, now);
 
-            playlist.segments
+            playlist.groups
               .slice()
               .sort((left, right) => left.order - right.order)
-              .forEach((segment, segmentIndex) => {
-                const newSegmentId = createId();
-                insertPlaylistSegment.run(
-                  newSegmentId,
+              .forEach((group, groupIndex) => {
+                const newGroupId = createId();
+                insertPlaylistGroup.run(
+                  newGroupId,
                   newPlaylistId,
-                  segment.name,
-                  segment.colorKey,
-                  segmentIndex,
+                  group.name,
+                  group.colorKey,
+                  groupIndex,
                   now,
                   now,
                 );
 
-                segment.entries
+                group.entries
                   .slice()
                   .sort((left, right) => left.order - right.order)
                   .forEach((entry, entryIndex) => {
@@ -2996,7 +3059,7 @@ export class CastRepository {
                     if (!importedItemId) return;
                     insertPlaylistEntry.run(
                       createId(),
-                      newSegmentId,
+                      newGroupId,
                       entry.presentationId ? importedItemId : null,
                       entry.lyricId ? importedItemId : null,
                       entryIndex,
@@ -3038,60 +3101,60 @@ export class CastRepository {
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  createPlaylistSegment(playlistId: Id, name: string): SnapshotPatch {
+  createPlaylistGroup(playlistId: Id, name: string): SnapshotPatch {
     const now = nowIso();
     const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_segments WHERE playlist_id = ?').get(playlistId) as {
+      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_groups WHERE playlist_id = ?').get(playlistId) as {
         maxOrder: number | null;
       }).maxOrder ?? -1;
 
     this.db
       .prepare(
-        'INSERT INTO playlist_segments (id, playlist_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO playlist_groups (id, playlist_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       )
       .run(createId(), playlistId, name, currentOrder + 1, now, now);
 
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  renamePlaylistSegment(id: Id, name: string): SnapshotPatch {
+  renamePlaylistGroup(id: Id, name: string): SnapshotPatch {
     this.db
-      .prepare('UPDATE playlist_segments SET name = ?, updated_at = ? WHERE id = ?')
+      .prepare('UPDATE playlist_groups SET name = ?, updated_at = ? WHERE id = ?')
       .run(name, nowIso(), id);
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  setPlaylistSegmentColor(id: Id, colorKey: string | null): SnapshotPatch {
+  setPlaylistGroupColor(id: Id, colorKey: string | null): SnapshotPatch {
     this.db
-      .prepare('UPDATE playlist_segments SET color_key = ?, updated_at = ? WHERE id = ?')
+      .prepare('UPDATE playlist_groups SET color_key = ?, updated_at = ? WHERE id = ?')
       .run(colorKey, nowIso(), id);
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  addDeckItemToSegment(segmentId: Id, itemId: Id): SnapshotPatch {
+  addDeckItemToGroup(groupId: Id, itemId: Id): SnapshotPatch {
     const owner = this.resolveDeckOwnerRow(itemId);
     if (!owner) return this.buildPatch({});
 
     const exists = this.db
-      .prepare('SELECT id FROM playlist_segments WHERE id = ?')
-      .get(segmentId) as { id: string } | undefined;
+      .prepare('SELECT id FROM playlist_groups WHERE id = ?')
+      .get(groupId) as { id: string } | undefined;
 
     if (!exists) return this.buildPatch({});
 
     const now = nowIso();
     const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE segment_id = ?').get(segmentId) as {
+      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
         maxOrder: number | null;
       }).maxOrder ?? -1;
 
     this.db
       .prepare(
-        `INSERT INTO playlist_entries (id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at)
+        `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, order_index, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         createId(),
-        segmentId,
+        groupId,
         owner.type === 'presentation' ? itemId : null,
         owner.type === 'lyric' ? itemId : null,
         currentOrder + 1,
@@ -3102,7 +3165,7 @@ export class CastRepository {
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  moveDeckItemToSegment(playlistId: Id, itemId: Id, segmentId: Id | null): SnapshotPatch {
+  moveDeckItemToGroup(playlistId: Id, itemId: Id, groupId: Id | null): SnapshotPatch {
     const owner = this.resolveDeckOwnerRow(itemId);
     if (!owner) return this.buildPatch({});
     const ownerColumn = this.getDeckOwnerColumn(owner.type);
@@ -3111,32 +3174,32 @@ export class CastRepository {
       .prepare(
         `DELETE FROM playlist_entries
          WHERE (${ownerColumn} = ?)
-         AND segment_id IN (SELECT id FROM playlist_segments WHERE playlist_id = ?)`
+         AND group_id IN (SELECT id FROM playlist_groups WHERE playlist_id = ?)`
       )
       .run(itemId, playlistId);
 
-    if (!segmentId) return this.buildPatch({ replaceLibraryBundles: true });
+    if (!groupId) return this.buildPatch({ replaceLibraryBundles: true });
 
     const exists = this.db
-      .prepare('SELECT id FROM playlist_segments WHERE id = ? AND playlist_id = ?')
-      .get(segmentId, playlistId) as { id: string } | undefined;
+      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
+      .get(groupId, playlistId) as { id: string } | undefined;
 
     if (!exists) return this.buildPatch({ replaceLibraryBundles: true });
 
     const now = nowIso();
     const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE segment_id = ?').get(segmentId) as {
+      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
         maxOrder: number | null;
       }).maxOrder ?? -1;
 
     this.db
       .prepare(
-        `INSERT INTO playlist_entries (id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at)
+        `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, order_index, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         createId(),
-        segmentId,
+        groupId,
         owner.type === 'presentation' ? itemId : null,
         owner.type === 'lyric' ? itemId : null,
         currentOrder + 1,
@@ -3149,22 +3212,22 @@ export class CastRepository {
 
   movePlaylistEntry(entryId: Id, direction: 'up' | 'down'): AppSnapshot {
     const current = this.db
-      .prepare('SELECT id, segment_id, order_index FROM playlist_entries WHERE id = ?')
-      .get(entryId) as { id: string; segment_id: string; order_index: number } | undefined;
+      .prepare('SELECT id, group_id, order_index FROM playlist_entries WHERE id = ?')
+      .get(entryId) as { id: string; group_id: string; order_index: number } | undefined;
 
     if (!current) return this.getSnapshot();
 
     const neighbor = direction === 'up'
       ? this.db
         .prepare(
-          'SELECT id, order_index FROM playlist_entries WHERE segment_id = ? AND order_index < ? ORDER BY order_index DESC LIMIT 1'
+          'SELECT id, order_index FROM playlist_entries WHERE group_id = ? AND order_index < ? ORDER BY order_index DESC LIMIT 1'
         )
-        .get(current.segment_id, current.order_index)
+        .get(current.group_id, current.order_index)
       : this.db
         .prepare(
-          'SELECT id, order_index FROM playlist_entries WHERE segment_id = ? AND order_index > ? ORDER BY order_index ASC LIMIT 1'
+          'SELECT id, order_index FROM playlist_entries WHERE group_id = ? AND order_index > ? ORDER BY order_index ASC LIMIT 1'
         )
-        .get(current.segment_id, current.order_index);
+        .get(current.group_id, current.order_index);
 
     if (!neighbor) return this.getSnapshot();
 
@@ -3182,40 +3245,40 @@ export class CastRepository {
     return this.getSnapshot();
   }
 
-  movePlaylistEntryToSegment(entryId: Id, segmentId: Id | null): SnapshotPatch {
+  movePlaylistEntryToGroup(entryId: Id, groupId: Id | null): SnapshotPatch {
     const entry = this.db
       .prepare(
-        `SELECT pe.id, pe.segment_id, ps.playlist_id
+        `SELECT pe.id, pe.group_id, pg.playlist_id
          FROM playlist_entries pe
-         JOIN playlist_segments ps ON ps.id = pe.segment_id
+         JOIN playlist_groups pg ON pg.id = pe.group_id
          WHERE pe.id = ?`
       )
-      .get(entryId) as { id: string; segment_id: string; playlist_id: string } | undefined;
+      .get(entryId) as { id: string; group_id: string; playlist_id: string } | undefined;
 
     if (!entry) return this.buildPatch({});
 
-    if (!segmentId) {
+    if (!groupId) {
       this.db
         .prepare('DELETE FROM playlist_entries WHERE id = ?')
         .run(entryId);
       return this.buildPatch({ replaceLibraryBundles: true });
     }
 
-    const targetSegment = this.db
-      .prepare('SELECT id FROM playlist_segments WHERE id = ? AND playlist_id = ?')
-      .get(segmentId, entry.playlist_id) as { id: string } | undefined;
+    const targetGroup = this.db
+      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
+      .get(groupId, entry.playlist_id) as { id: string } | undefined;
 
-    if (!targetSegment) return this.buildPatch({});
+    if (!targetGroup) return this.buildPatch({});
 
     const now = nowIso();
     const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE segment_id = ?').get(segmentId) as {
+      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
         maxOrder: number | null;
       }).maxOrder ?? -1;
 
     this.db
-      .prepare('UPDATE playlist_entries SET segment_id = ?, order_index = ?, updated_at = ? WHERE id = ?')
-      .run(segmentId, currentOrder + 1, now, entryId);
+      .prepare('UPDATE playlist_entries SET group_id = ?, order_index = ?, updated_at = ? WHERE id = ?')
+      .run(groupId, currentOrder + 1, now, entryId);
 
     return this.buildPatch({ replaceLibraryBundles: true });
   }
@@ -3972,30 +4035,30 @@ export class CastRepository {
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  movePlaylistEntryTo(entryId: Id, segmentId: Id, newOrder: number): SnapshotPatch {
+  movePlaylistEntryTo(entryId: Id, groupId: Id, newOrder: number): SnapshotPatch {
     const entry = this.db
       .prepare(
-        `SELECT pe.id, pe.segment_id, ps.playlist_id
+        `SELECT pe.id, pe.group_id, pg.playlist_id
          FROM playlist_entries pe
-         JOIN playlist_segments ps ON ps.id = pe.segment_id
+         JOIN playlist_groups pg ON pg.id = pe.group_id
          WHERE pe.id = ?`
       )
-      .get(entryId) as { id: string; segment_id: string; playlist_id: string } | undefined;
+      .get(entryId) as { id: string; group_id: string; playlist_id: string } | undefined;
     if (!entry) return this.buildPatch({});
 
-    const targetSegment = this.db
-      .prepare('SELECT id FROM playlist_segments WHERE id = ? AND playlist_id = ?')
-      .get(segmentId, entry.playlist_id) as { id: string } | undefined;
-    if (!targetSegment) return this.buildPatch({});
+    const targetGroup = this.db
+      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
+      .get(groupId, entry.playlist_id) as { id: string } | undefined;
+    if (!targetGroup) return this.buildPatch({});
 
     const now = nowIso();
-    const isSameSegment = entry.segment_id === segmentId;
+    const isSameGroup = entry.group_id === groupId;
 
     const tx = this.db.transaction(() => {
-      if (isSameSegment) {
+      if (isSameGroup) {
         const siblings = this.db
-          .prepare('SELECT id FROM playlist_entries WHERE segment_id = ? ORDER BY order_index ASC')
-          .all(segmentId) as { id: string }[];
+          .prepare('SELECT id FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC')
+          .all(groupId) as { id: string }[];
         const currentIndex = siblings.findIndex((s) => s.id === entryId);
         if (currentIndex === -1) return;
         const maxOrder = siblings.length - 1;
@@ -4012,16 +4075,16 @@ export class CastRepository {
       }
 
       const targetSiblings = this.db
-        .prepare('SELECT id FROM playlist_entries WHERE segment_id = ? ORDER BY order_index ASC')
-        .all(segmentId) as { id: string }[];
+        .prepare('SELECT id FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC')
+        .all(groupId) as { id: string }[];
       const clampedOrder = Math.max(0, Math.min(newOrder, targetSiblings.length));
       const newTargetList = [...targetSiblings];
       newTargetList.splice(clampedOrder, 0, { id: entryId });
       newTargetList.forEach((item, index) => {
         if (item.id === entryId) {
           this.db
-            .prepare('UPDATE playlist_entries SET segment_id = ?, order_index = ?, updated_at = ? WHERE id = ?')
-            .run(segmentId, index, now, item.id);
+            .prepare('UPDATE playlist_entries SET group_id = ?, order_index = ?, updated_at = ? WHERE id = ?')
+            .run(groupId, index, now, item.id);
         } else {
           this.db
             .prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?')
@@ -4030,8 +4093,8 @@ export class CastRepository {
       });
 
       const sourceSiblings = this.db
-        .prepare('SELECT id FROM playlist_entries WHERE segment_id = ? ORDER BY order_index ASC')
-        .all(entry.segment_id) as { id: string }[];
+        .prepare('SELECT id FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC')
+        .all(entry.group_id) as { id: string }[];
       sourceSiblings.forEach((sibling, index) => {
         this.db
           .prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?')
@@ -4043,19 +4106,19 @@ export class CastRepository {
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  setPlaylistSegmentOrder(segmentId: Id, newOrder: number): SnapshotPatch {
+  setPlaylistGroupOrder(groupId: Id, newOrder: number): SnapshotPatch {
     const now = nowIso();
     const current = this.db
-      .prepare('SELECT id, playlist_id, order_index FROM playlist_segments WHERE id = ?')
-      .get(segmentId) as { id: string; playlist_id: string; order_index: number } | undefined;
+      .prepare('SELECT id, playlist_id, order_index FROM playlist_groups WHERE id = ?')
+      .get(groupId) as { id: string; playlist_id: string; order_index: number } | undefined;
 
     if (!current) return this.buildPatch({});
 
     const siblings = this.db
-      .prepare('SELECT id, order_index FROM playlist_segments WHERE playlist_id = ? ORDER BY order_index ASC')
+      .prepare('SELECT id, order_index FROM playlist_groups WHERE playlist_id = ? ORDER BY order_index ASC')
       .all(current.playlist_id) as { id: string; order_index: number }[];
 
-    const currentIndex = siblings.findIndex((s) => s.id === segmentId);
+    const currentIndex = siblings.findIndex((s) => s.id === groupId);
     if (currentIndex === -1) return this.buildPatch({});
 
     const maxOrder = siblings.length - 1;
@@ -4068,7 +4131,7 @@ export class CastRepository {
     const tx = this.db.transaction(() => {
       reordered.forEach((sibling, index) => {
         this.db
-          .prepare('UPDATE playlist_segments SET order_index = ?, updated_at = ? WHERE id = ?')
+          .prepare('UPDATE playlist_groups SET order_index = ?, updated_at = ? WHERE id = ?')
           .run(index, now, sibling.id);
       });
     });
@@ -4387,10 +4450,10 @@ export class CastRepository {
       this.db
         .prepare(
           `DELETE FROM playlist_entries
-           WHERE segment_id IN (
-             SELECT ps.id
-             FROM playlist_segments ps
-             JOIN playlists p ON p.id = ps.playlist_id
+           WHERE group_id IN (
+             SELECT pg.id
+             FROM playlist_groups pg
+             JOIN playlists p ON p.id = pg.playlist_id
              WHERE p.library_id = ?
            )`
         )
@@ -4398,7 +4461,7 @@ export class CastRepository {
 
       this.db
         .prepare(
-          `DELETE FROM playlist_segments
+          `DELETE FROM playlist_groups
            WHERE playlist_id IN (SELECT id FROM playlists WHERE library_id = ?)`
         )
         .run(libraryId);
@@ -4425,11 +4488,11 @@ export class CastRepository {
       this.db
         .prepare(
           `DELETE FROM playlist_entries
-           WHERE segment_id IN (SELECT id FROM playlist_segments WHERE playlist_id = ?)`
+           WHERE group_id IN (SELECT id FROM playlist_groups WHERE playlist_id = ?)`
         )
         .run(playlistId);
       this.db
-        .prepare('DELETE FROM playlist_segments WHERE playlist_id = ?')
+        .prepare('DELETE FROM playlist_groups WHERE playlist_id = ?')
         .run(playlistId);
       this.db
         .prepare('DELETE FROM playlists WHERE id = ?')
@@ -4441,14 +4504,14 @@ export class CastRepository {
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  deletePlaylistSegment(id: Id): SnapshotPatch {
-    const tx = this.db.transaction((segmentId: Id) => {
+  deletePlaylistGroup(id: Id): SnapshotPatch {
+    const tx = this.db.transaction((groupId: Id) => {
       this.db
-        .prepare('DELETE FROM playlist_entries WHERE segment_id = ?')
-        .run(segmentId);
+        .prepare('DELETE FROM playlist_entries WHERE group_id = ?')
+        .run(groupId);
       this.db
-        .prepare('DELETE FROM playlist_segments WHERE id = ?')
-        .run(segmentId);
+        .prepare('DELETE FROM playlist_groups WHERE id = ?')
+        .run(groupId);
     });
 
     tx(id);
@@ -4865,12 +4928,12 @@ export class CastRepository {
 
     if (!row) return null;
 
-    const segments = this.getPlaylistSegments(playlistId).map((segment): DeckBundlePlaylistSegment => ({
-      id: segment.id,
-      name: segment.name,
-      colorKey: segment.colorKey,
-      order: segment.order,
-      entries: this.getPlaylistEntries(segment.id).map((entry) => ({
+    const groups = this.getPlaylistGroups(playlistId).map((group): DeckBundlePlaylistGroup => ({
+      id: group.id,
+      name: group.name,
+      colorKey: group.colorKey,
+      order: group.order,
+      entries: this.getPlaylistEntries(group.id).map((entry) => ({
         id: entry.id,
         presentationId: entry.presentationId,
         lyricId: entry.lyricId,
@@ -4883,7 +4946,7 @@ export class CastRepository {
       name: row.name,
       libraryName: row.library_name ?? '',
       order: row.order_index,
-      segments,
+      groups,
     };
   }
 
@@ -5514,14 +5577,14 @@ export class CastRepository {
     if (manifest.playlists !== undefined) {
       if (!Array.isArray(manifest.playlists)) throw new Error('Invalid bundle playlists.');
       for (const playlist of manifest.playlists) {
-        if (!playlist?.id || !playlist.name || !Array.isArray(playlist.segments)) {
+        if (!playlist?.id || !playlist.name || !Array.isArray(playlist.groups)) {
           throw new Error('Invalid bundle playlist.');
         }
-        for (const segment of playlist.segments) {
-          if (!segment?.id || !Array.isArray(segment.entries)) {
-            throw new Error(`Invalid segment in playlist ${playlist.name}.`);
+        for (const group of playlist.groups) {
+          if (!group?.id || !Array.isArray(group.entries)) {
+            throw new Error(`Invalid group in playlist ${playlist.name}.`);
           }
-          for (const entry of segment.entries) {
+          for (const entry of group.entries) {
             if (!entry?.id) throw new Error(`Invalid entry in playlist ${playlist.name}.`);
             const refId = entry.presentationId ?? entry.lyricId;
             if (!refId) {
@@ -5914,10 +5977,10 @@ export class CastRepository {
     }));
   }
 
-  private getPlaylistSegments(playlistId: Id): PlaylistSegment[] {
+  private getPlaylistGroups(playlistId: Id): PlaylistGroup[] {
     const rows = this.db
       .prepare(
-        'SELECT id, playlist_id, name, color_key, order_index, created_at, updated_at FROM playlist_segments WHERE playlist_id = ? ORDER BY order_index ASC'
+        'SELECT id, playlist_id, name, color_key, order_index, created_at, updated_at FROM playlist_groups WHERE playlist_id = ? ORDER BY order_index ASC'
       )
       .all(playlistId) as Array<{
       id: string;
@@ -5940,14 +6003,14 @@ export class CastRepository {
     }));
   }
 
-  private getPlaylistEntries(segmentId: Id): PlaylistEntry[] {
+  private getPlaylistEntries(groupId: Id): PlaylistEntry[] {
     const rows = this.db
       .prepare(
-        'SELECT id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at FROM playlist_entries WHERE segment_id = ? ORDER BY order_index ASC'
+        'SELECT id, group_id, presentation_id, lyric_id, order_index, created_at, updated_at FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC'
       )
-      .all(segmentId) as Array<{
+      .all(groupId) as Array<{
       id: string;
-      segment_id: string;
+      group_id: string;
       presentation_id: string | null;
       lyric_id: string | null;
       order_index: number;
@@ -5957,7 +6020,7 @@ export class CastRepository {
 
     return rows.map((row) => ({
       id: row.id,
-      segmentId: row.segment_id,
+      groupId: row.group_id,
       presentationId: row.presentation_id,
       lyricId: row.lyric_id,
       order: row.order_index,
@@ -5968,8 +6031,8 @@ export class CastRepository {
 
   private getPlaylistTreesByLibrary(libraryId: Id, itemsById: ReadonlyMap<Id, DeckItem>): PlaylistTree[] {
     return this.getPlaylistsByLibrary(libraryId).map((playlist) => {
-      const segments = this.getPlaylistSegments(playlist.id).map((segment) => {
-        const entries = this.getPlaylistEntries(segment.id)
+      const groups = this.getPlaylistGroups(playlist.id).map((group) => {
+        const entries = this.getPlaylistEntries(group.id)
           .map((entry) => {
             const itemId = entry.presentationId ?? entry.lyricId;
             if (!itemId) return null;
@@ -5979,12 +6042,12 @@ export class CastRepository {
           })
           .filter((value): value is { entry: PlaylistEntry; item: DeckItem } => value !== null);
 
-        return { segment, entries };
+        return { group, entries };
       });
 
       return {
         playlist,
-        segments
+        groups
       };
     });
   }

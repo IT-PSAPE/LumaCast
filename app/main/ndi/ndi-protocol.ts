@@ -20,6 +20,15 @@ export type NdiHostCommand =
       height: number;
       telemetry?: NdiFrameTelemetry;
     }
+  | {
+      type: 'audio';
+      name: NdiOutputName;
+      // Planar Float32 PCM: ch0 samples first, then ch1, etc.
+      buffer: ArrayBuffer;
+      sampleRate: number;
+      channels: number;
+      samplesPerChannel: number;
+    }
   | { type: 'destroy' };
 
 // Emitted from the NDI utility process to the main process.
@@ -46,6 +55,13 @@ export interface NdiServiceLike {
     width: number,
     height: number,
     telemetry?: NdiFrameTelemetry,
+  ): void;
+  receiveAudioFrame(
+    name: NdiOutputName,
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
   ): void;
   onOutputStateChanged(callback: (state: NdiOutputState) => void): () => void;
   onDiagnosticsChanged(callback: (diagnostics: NdiDiagnostics) => void): () => void;

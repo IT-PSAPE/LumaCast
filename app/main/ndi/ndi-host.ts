@@ -56,6 +56,15 @@ parentPort.on('message', (event: { data: NdiHostCommand }) => {
         cmd.telemetry,
       );
       break;
+    case 'audio':
+      service.receiveAudioFrame(
+        cmd.name,
+        new Float32Array(cmd.buffer),
+        cmd.sampleRate,
+        cmd.channels,
+        cmd.samplesPerChannel,
+      );
+      break;
     case 'destroy':
       service.destroy();
       service = null;

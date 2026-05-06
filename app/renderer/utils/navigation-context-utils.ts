@@ -26,8 +26,8 @@ export function resolveCurrentPlaylistDeckItemId(currentDeckItemId: Id | null, s
 export function findPlaylistEntryById(selectedTree: PlaylistTree | null, entryId: Id | null): PlaylistEntryLookup | null {
   if (!selectedTree || !entryId) return null;
 
-  for (const segment of selectedTree.segments) {
-    for (const entry of segment.entries) {
+  for (const group of selectedTree.groups) {
+    for (const entry of group.entries) {
       if (entry.entry.id === entryId) {
         return { entryId: entry.entry.id, itemId: entry.item.id };
       }
@@ -40,8 +40,8 @@ export function findPlaylistEntryById(selectedTree: PlaylistTree | null, entryId
 export function findFirstPlaylistEntryByDeckItemId(selectedTree: PlaylistTree | null, deckItemId: Id | null): PlaylistEntryLookup | null {
   if (!selectedTree || !deckItemId) return null;
 
-  for (const segment of selectedTree.segments) {
-    for (const entry of segment.entries) {
+  for (const group of selectedTree.groups) {
+    for (const entry of group.entries) {
       if (entry.item.id === deckItemId) {
         return { entryId: entry.entry.id, itemId: entry.item.id };
       }
@@ -77,8 +77,8 @@ export function extractPlaylistDeckItemIds(selectedTree: PlaylistTree | null): I
   if (!selectedTree) return [];
 
   const itemIds: Id[] = [];
-  for (const segment of selectedTree.segments) {
-    for (const entry of segment.entries) {
+  for (const group of selectedTree.groups) {
+    for (const entry of group.entries) {
       itemIds.push(entry.item.id);
     }
   }

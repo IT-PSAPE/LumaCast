@@ -8,11 +8,11 @@ import { findCreatedId, findFirstPlaylistEntryByDeckItemId, findPlaylistEntryByI
 
 type ContentBrowseSource = 'playlist' | 'project';
 
-function getSegmentEntryIds(snapshot: { libraryBundles: LibraryPlaylistBundle[] } | null | undefined, segmentId: Id): Id[] {
+function getGroupEntryIds(snapshot: { libraryBundles: LibraryPlaylistBundle[] } | null | undefined, groupId: Id): Id[] {
   for (const bundle of snapshot?.libraryBundles ?? []) {
     for (const playlist of bundle.playlists) {
-      const segment = playlist.segments.find((entry) => entry.segment.id === segmentId);
-      if (segment) return segment.entries.map((entry) => entry.entry.id);
+      const group = playlist.groups.find((entry) => entry.group.id === groupId);
+      if (group) return group.entries.map((entry) => entry.entry.id);
     }
   }
 
@@ -285,13 +285,13 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   }, [deckItems, mutatePatch, runOperation, setStatusText]);
 
   // Granular create flow used by the create-deck-item dialog. Creates the deck item
-  // with a chosen name, then optionally applies a theme and adds it to a segment
+  // with a chosen name, then optionally applies a theme and adds it to a group
   // — all atomic from the user's perspective (one click of the dialog's New button).
   const createDeckItem = useCallback(async (input: {
     kind: 'presentation' | 'lyric';
     name: string;
     themeId?: Id;
-    segmentId?: Id;
+    groupId?: Id;
   }) => {
     const trimmedName = input.name.trim() || (input.kind === 'lyric' ? 'New Lyric' : 'New Presentation');
     const labelKind = input.kind === 'lyric' ? 'lyric' : 'deck';
@@ -314,8 +314,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
         await mutatePatch(() => window.castApi.applyThemeToDeckItem(input.themeId!, createdId));
       }
 
-      if (input.segmentId) {
-        await mutatePatch(() => window.castApi.addDeckItemToSegment(input.segmentId!, createdId));
+      if (input.groupId) {
+        await mutatePatch(() => window.castApi.addDeckItemToGroup(input.groupId!, createdId));
       }
 
       setCurrentDrawerDeckItemId(createdId);
@@ -325,47 +325,47 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     });
   }, [deckItems, mutatePatch, runOperation, setStatusText]);
 
-  const createSegment = useCallback(async () => {
+  const createGroup = useCallback(async () => {
     if (!currentPlaylistId) return;
     const currentTree = currentLibraryBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId);
-    const previousIds = new Set(currentTree?.segments.map((segment) => segment.segment.id) ?? []);
-    const next = await mutatePatch(() => window.castApi.createPlaylistSegment(currentPlaylistId, 'New Segment'));
-    setStatusText('Created segment');
+    const previousIds = new Set(currentTree?.groups.map((group) => group.group.id) ?? []);
+    const next = await mutatePatch(() => window.castApi.createPlaylistGroup(currentPlaylistId, 'New Group'));
+    setStatusText('Created group');
     const updatedBundle = next.libraryBundles.find((bundle) => bundle.library.id === currentLibraryId);
     const updatedTree = updatedBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId);
-    const createdId = findCreatedId(previousIds, updatedTree?.segments.map((segment) => segment.segment.id) ?? []);
+    const createdId = findCreatedId(previousIds, updatedTree?.groups.map((group) => group.group.id) ?? []);
     if (createdId) setRecentlyCreatedId(createdId);
   }, [currentLibraryBundle, currentLibraryId, currentPlaylistId, mutatePatch, setStatusText]);
 
-  const addDeckItemToSegment = useCallback(async (segmentId: Id) => {
+  const addDeckItemToGroup = useCallback(async (groupId: Id) => {
     if (!currentDeckItemId || !currentPlaylistId) return;
-    await mutatePatch(() => window.castApi.addDeckItemToSegment(segmentId, currentDeckItemId));
-    setStatusText('Added item to segment');
+    await mutatePatch(() => window.castApi.addDeckItemToGroup(groupId, currentDeckItemId));
+    setStatusText('Added item to group');
   }, [currentDeckItemId, currentPlaylistId, mutatePatch, setStatusText]);
 
-  const addDeckItemToSegmentAt = useCallback(async (segmentId: Id, itemId: Id, newOrder: number) => {
+  const addDeckItemToGroupAt = useCallback(async (groupId: Id, itemId: Id, newOrder: number) => {
     if (!currentPlaylistId || !deckItemsById.has(itemId)) return null;
 
-    const previousEntryIds = new Set(getSegmentEntryIds(snapshot, segmentId));
-    const afterAdd = await mutatePatch(() => window.castApi.addDeckItemToSegment(segmentId, itemId));
-    const createdEntryId = findCreatedId(previousEntryIds, getSegmentEntryIds(afterAdd, segmentId));
+    const previousEntryIds = new Set(getGroupEntryIds(snapshot, groupId));
+    const afterAdd = await mutatePatch(() => window.castApi.addDeckItemToGroup(groupId, itemId));
+    const createdEntryId = findCreatedId(previousEntryIds, getGroupEntryIds(afterAdd, groupId));
     if (!createdEntryId) {
-      setStatusText('Added item to segment');
+      setStatusText('Added item to group');
       return null;
     }
 
-    await mutatePatch(() => window.castApi.movePlaylistEntryTo(createdEntryId, segmentId, newOrder));
+    await mutatePatch(() => window.castApi.movePlaylistEntryTo(createdEntryId, groupId, newOrder));
     setCurrentPlaylistEntryId(createdEntryId);
     setCurrentPlaylistDeckItemId(itemId);
     setContentBrowseSource('playlist');
-    setStatusText('Added item to segment');
+    setStatusText('Added item to group');
     return createdEntryId;
   }, [currentPlaylistId, deckItemsById, mutatePatch, setStatusText, snapshot]);
 
-  const moveCurrentDeckItemToSegment = useCallback(async (segmentId: Id | null) => {
+  const moveCurrentDeckItemToGroup = useCallback(async (groupId: Id | null) => {
     if (!currentDeckItemId || !currentPlaylistId) return;
-    await mutatePatch(() => window.castApi.moveDeckItemToSegment(currentPlaylistId, currentDeckItemId, segmentId));
-    setStatusText(segmentId ? 'Moved item to segment' : 'Removed item from playlist');
+    await mutatePatch(() => window.castApi.moveDeckItemToGroup(currentPlaylistId, currentDeckItemId, groupId));
+    setStatusText(groupId ? 'Moved item to group' : 'Removed item from playlist');
   }, [currentDeckItemId, currentPlaylistId, mutatePatch, setStatusText]);
 
   const renameLibrary = useCallback(async (id: Id, name: string) => {
@@ -383,13 +383,13 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setStatusText('Reordered playlist');
   }, [mutatePatch, setStatusText]);
 
-  const reorderSegment = useCallback(async (segmentId: Id, newOrder: number) => {
-    await mutatePatch(() => window.castApi.setPlaylistSegmentOrder(segmentId, newOrder));
-    setStatusText('Reordered segment');
+  const reorderGroup = useCallback(async (groupId: Id, newOrder: number) => {
+    await mutatePatch(() => window.castApi.setPlaylistGroupOrder(groupId, newOrder));
+    setStatusText('Reordered group');
   }, [mutatePatch, setStatusText]);
 
-  const movePlaylistEntry = useCallback(async (entryId: Id, segmentId: Id, newOrder: number) => {
-    await mutatePatch(() => window.castApi.movePlaylistEntryTo(entryId, segmentId, newOrder));
+  const movePlaylistEntry = useCallback(async (entryId: Id, groupId: Id, newOrder: number) => {
+    await mutatePatch(() => window.castApi.movePlaylistEntryTo(entryId, groupId, newOrder));
     setStatusText('Moved item');
   }, [mutatePatch, setStatusText]);
 
@@ -399,8 +399,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   }, [mutate, setStatusText]);
 
   const removePlaylistEntry = useCallback(async (entryId: Id) => {
-    await mutatePatch(() => window.castApi.movePlaylistEntryToSegment(entryId, null));
-    setStatusText('Removed item from segment');
+    await mutatePatch(() => window.castApi.movePlaylistEntryToGroup(entryId, null));
+    setStatusText('Removed item from group');
   }, [mutatePatch, setStatusText]);
 
   const renamePlaylist = useCallback(async (id: Id, name: string) => {
@@ -468,22 +468,22 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     createPresentation,
     createEmptyLyric,
     createDeckItem,
-    createSegment,
-    addDeckItemToSegment,
-    addDeckItemToSegmentAt,
-    moveCurrentDeckItemToSegment,
+    createGroup,
+    addDeckItemToGroup,
+    addDeckItemToGroupAt,
+    moveCurrentDeckItemToGroup,
     renameLibrary,
     renamePlaylist,
     renameDeckItem,
     reorderLibrary,
     reorderPlaylist,
-    reorderSegment,
+    reorderGroup,
     movePlaylistEntry,
     movePlaylistEntryDirection,
     removePlaylistEntry,
   }), [
-    addDeckItemToSegment,
-    addDeckItemToSegmentAt,
+    addDeckItemToGroup,
+    addDeckItemToGroupAt,
     armOutputPlaylistEntry,
     armOutputDeckItem,
     browseDeckItem,
@@ -494,14 +494,14 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     createDeckItem,
     createLibrary,
     createPlaylist,
-    createSegment,
-    moveCurrentDeckItemToSegment,
+    createGroup,
+    moveCurrentDeckItemToGroup,
     renameDeckItem,
     renameLibrary,
     renamePlaylist,
     reorderLibrary,
     reorderPlaylist,
-    reorderSegment,
+    reorderGroup,
     movePlaylistEntry,
     movePlaylistEntryDirection,
     removePlaylistEntry,

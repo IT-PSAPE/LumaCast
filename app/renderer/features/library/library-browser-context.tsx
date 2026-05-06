@@ -4,7 +4,7 @@ import { useNavigation } from '../../contexts/navigation-context';
 import { useLibraryPanelManagement } from './use-library-panel-management';
 import { useLibraryPanelState } from './library-panel-context';
 
-export type EditingTarget = { type: 'library' | 'playlist' | 'segment' | 'presentation'; id: string } | null;
+export type EditingTarget = { type: 'library' | 'playlist' | 'group' | 'presentation'; id: string } | null;
 
 interface LibraryBrowserContextValue {
   state: {
@@ -15,7 +15,7 @@ interface LibraryBrowserContextValue {
     beginEditing: (type: NonNullable<EditingTarget>['type'], id: string) => void;
     setLibrariesView: () => void;
     setPlaylistView: () => void;
-    renameSegment: (segmentId: string, name: string) => void;
+    renameGroup: (groupId: string, name: string) => void;
     renameDeckItem: (itemId: string, title: string) => void;
     isEditing: (type: NonNullable<EditingTarget>['type'], id: string) => boolean;
     clearEditing: () => void;
@@ -27,7 +27,7 @@ const LibraryBrowserContext = createContext<LibraryBrowserContextValue | null>(n
 export function LibraryBrowserProvider({ children }: { children: ReactNode }) {
   const { currentLibraryBundle, currentPlaylistId, clearRecentlyCreated } = useNavigation();
   const { libraryPanelView, setLibraryPanelView } = useLibraryPanelState();
-  const { renameSegment, renameDeckItem } = useLibraryPanelManagement();
+  const { renameGroup, renameDeckItem } = useLibraryPanelManagement();
   const [editingTarget, setEditingTarget] = useState<EditingTarget>(null);
 
   const selectedTree = currentLibraryBundle?.playlists.find((playlist) => playlist.playlist.id === currentPlaylistId) ?? null;
@@ -54,12 +54,12 @@ export function LibraryBrowserProvider({ children }: { children: ReactNode }) {
       setLibrariesView: () => { setLibraryPanelView('libraries'); },
       setPlaylistView: () => { setLibraryPanelView('playlist'); },
       beginEditing,
-      renameSegment: (segmentId: string, name: string) => { void renameSegment(segmentId, name); },
+      renameGroup: (groupId: string, name: string) => { void renameGroup(groupId, name); },
       renameDeckItem: (itemId: string, title: string) => { void renameDeckItem(itemId, title); },
       isEditing,
       clearEditing,
     },
-  }), [beginEditing, clearEditing, editingTarget, isEditing, renameDeckItem, renameSegment, selectedTree, setLibraryPanelView]);
+  }), [beginEditing, clearEditing, editingTarget, isEditing, renameDeckItem, renameGroup, selectedTree, setLibraryPanelView]);
 
   return <LibraryBrowserContext.Provider value={value}>{children}</LibraryBrowserContext.Provider>;
 }

@@ -35,7 +35,7 @@ function SingleSlideGrid() {
   const handleDragEnd = useSlideReorderHandler(slides.map((slide) => slide.id), reorderSlide);
 
   return (
-    <ScrollArea.Root>
+    <ScrollArea.Root scrollPadding={16}>
       <ScrollArea.Viewport className="p-2">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={slides.map((slide) => slide.id)} strategy={rectSortingStrategy}>

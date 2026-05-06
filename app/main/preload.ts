@@ -55,16 +55,16 @@ const api = {
     ipcRenderer.invoke(IPC.finalizeImportBundle, filePath, decisions) as Promise<AppSnapshot>,
   createLibrary: (name: string) => ipcRenderer.invoke(IPC.createLibrary, name),
   createPlaylist: (libraryId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylist, libraryId, name),
-  createPlaylistSegment: (playlistId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylistSegment, playlistId, name),
-  renamePlaylistSegment: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylistSegment, id, name),
-  setPlaylistSegmentColor: (id: Id, colorKey: string | null) => ipcRenderer.invoke(IPC.setPlaylistSegmentColor, id, colorKey),
+  createPlaylistGroup: (playlistId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylistGroup, playlistId, name),
+  renamePlaylistGroup: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylistGroup, id, name),
+  setPlaylistGroupColor: (id: Id, colorKey: string | null) => ipcRenderer.invoke(IPC.setPlaylistGroupColor, id, colorKey),
   movePlaylist: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.movePlaylist, id, direction),
-  addDeckItemToSegment: (segmentId: Id, itemId: Id) =>
-    ipcRenderer.invoke(IPC.addDeckItemToSegment, segmentId, itemId),
-  moveDeckItemToSegment: (playlistId: Id, itemId: Id, segmentId: Id | null) =>
-    ipcRenderer.invoke(IPC.moveDeckItemToSegment, playlistId, itemId, segmentId),
-  movePlaylistEntryToSegment: (entryId: Id, segmentId: Id | null) =>
-    ipcRenderer.invoke(IPC.movePlaylistEntryToSegment, entryId, segmentId),
+  addDeckItemToGroup: (groupId: Id, itemId: Id) =>
+    ipcRenderer.invoke(IPC.addDeckItemToGroup, groupId, itemId),
+  moveDeckItemToGroup: (playlistId: Id, itemId: Id, groupId: Id | null) =>
+    ipcRenderer.invoke(IPC.moveDeckItemToGroup, playlistId, itemId, groupId),
+  movePlaylistEntryToGroup: (entryId: Id, groupId: Id | null) =>
+    ipcRenderer.invoke(IPC.movePlaylistEntryToGroup, entryId, groupId),
   movePlaylistEntry: (entryId: Id, direction: 'up' | 'down') =>
     ipcRenderer.invoke(IPC.movePlaylistEntry, entryId, direction),
   moveDeckItem: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.moveDeckItem, id, direction),
@@ -77,8 +77,8 @@ const api = {
   setSlideOrder: (input: SlideOrderUpdateInput) => ipcRenderer.invoke(IPC.setSlideOrder, input),
   setLibraryOrder: (libraryId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setLibraryOrder, libraryId, newOrder),
   setPlaylistOrder: (playlistId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistOrder, playlistId, newOrder),
-  setPlaylistSegmentOrder: (segmentId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistSegmentOrder, segmentId, newOrder),
-  movePlaylistEntryTo: (entryId: Id, segmentId: Id, newOrder: number) => ipcRenderer.invoke(IPC.movePlaylistEntryTo, entryId, segmentId, newOrder),
+  setPlaylistGroupOrder: (groupId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistGroupOrder, groupId, newOrder),
+  movePlaylistEntryTo: (entryId: Id, groupId: Id, newOrder: number) => ipcRenderer.invoke(IPC.movePlaylistEntryTo, entryId, groupId, newOrder),
   createElement: (input: ElementCreateInput) => ipcRenderer.invoke(IPC.createElement, input),
   createElementsBatch: (inputs: ElementCreateInput[]) => ipcRenderer.invoke(IPC.createElementsBatch, inputs),
   updateElement: (input: ElementUpdateInput) => ipcRenderer.invoke(IPC.updateElement, input),
@@ -114,7 +114,7 @@ const api = {
   renameLyric: (id: Id, title: string) => ipcRenderer.invoke(IPC.renameLyric, id, title),
   deleteLibrary: (id: Id) => ipcRenderer.invoke(IPC.deleteLibrary, id),
   deletePlaylist: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylist, id),
-  deletePlaylistSegment: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylistSegment, id),
+  deletePlaylistGroup: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylistGroup, id),
   deletePresentation: (id: Id) => ipcRenderer.invoke(IPC.deletePresentation, id),
   deleteLyric: (id: Id) => ipcRenderer.invoke(IPC.deleteLyric, id),
   setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) =>
@@ -129,6 +129,18 @@ const api = {
     // transfer-list path rejects ArrayBuffer here, which prevents frames from
     // reaching main and leaves NDI diagnostics stuck at zero.
     ipcRenderer.send(IPC.sendNdiFrame, { name, buffer, width, height, telemetry });
+  },
+  sendNdiAudio: (
+    name: NdiOutputName,
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
+  ) => {
+    // Slice so the buffer we ship is exactly the audio data — Float32Array
+    // views can sit inside a larger backing buffer.
+    const buffer = samples.slice().buffer as ArrayBuffer;
+    ipcRenderer.send(IPC.sendNdiAudio, { name, buffer, sampleRate, channels, samplesPerChannel });
   },
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => {
     const handler = (_event: IpcRendererEvent, state: NdiOutputState) => callback(state);

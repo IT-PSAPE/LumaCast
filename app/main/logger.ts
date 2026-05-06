@@ -26,9 +26,13 @@ export function initializeLogger(baseDir: string): void {
     console.error('[logger] Could not create logs dir:', error);
   }
 
-  logFilePath = path.join(logsDir, 'main.log');
+  const sessionStamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, '-')
+    .replace('T', '_')
+    .replace('Z', '');
+  logFilePath = path.join(logsDir, `session-${sessionStamp}.log`);
   try {
-    rotateIfLarge(logFilePath);
     writeStream = fs.createWriteStream(logFilePath, { flags: 'a' });
   } catch (error) {
     writeStream = null;
@@ -84,13 +88,3 @@ function formatArg(arg: unknown): string {
   }
 }
 
-function rotateIfLarge(filePath: string): void {
-  try {
-    const stats = fs.statSync(filePath);
-    if (stats.size > 5 * 1024 * 1024) {
-      fs.renameSync(filePath, `${filePath}.1`);
-    }
-  } catch {
-    // File doesn't exist yet — nothing to rotate.
-  }
-}

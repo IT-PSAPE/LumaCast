@@ -8,6 +8,7 @@ import type {
   NdiOutputConfigMap,
   NdiOutputName,
   NdiOutputState,
+  NdiSenderAudioDiagnostics,
   NdiSenderPerformanceDiagnostics,
   NdiSourceStatus,
 } from '@core/types';
@@ -19,6 +20,13 @@ const DIAGNOSTICS_EMIT_INTERVAL_MS = 250;
 const BYTES_PER_PIXEL = 4;
 const MAX_FRAME_BYTES = NDI_OUTPUT_WIDTH * NDI_OUTPUT_HEIGHT * BYTES_PER_PIXEL;
 const ROLLING_AVERAGE_WINDOW = 60;
+
+// Hard caps for audio frames, applied before handing the buffer to the
+// native sender. These are loose enough for any sane Web Audio source but
+// catch corrupt payloads (e.g. mis-sized buffers from a malicious renderer).
+const MAX_AUDIO_CHANNELS = 32;
+const MAX_AUDIO_SAMPLES_PER_CHANNEL = 192000; // 1 second at 192 kHz
+const MAX_AUDIO_SAMPLE_RATE = 192000;
 
 type StateChangeCallback = (state: NdiOutputState) => void;
 type DiagnosticsChangeCallback = (diagnostics: NdiDiagnostics) => void;
@@ -170,6 +178,52 @@ export class NdiService {
     this.queueDiagnosticsEmit();
   }
 
+  receiveAudioFrame(
+    name: NdiOutputName,
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
+  ): void {
+    if (this.destroyed) return;
+    if (!this.outputState[name]) return;
+
+    const sender = this.senders.get(name);
+    if (!sender) return;
+
+    if (!this.isValidAudioPayload(samples, sampleRate, channels, samplesPerChannel)) {
+      sender.diagnostics.audio.audioFramesRejected += 1;
+      this.lastError = `Rejected invalid NDI audio frame for ${name}`;
+      this.queueDiagnosticsEmit();
+      return;
+    }
+
+    sender.diagnostics.audio.audioFramesReceived += 1;
+    sender.diagnostics.audio.lastSampleRate = sampleRate;
+    sender.diagnostics.audio.lastChannels = channels;
+
+    if (!this.module) return;
+    const sendAudio = this.module.sendAudioFrame;
+    if (!sendAudio) {
+      // Native runtime doesn't support audio (older NDI lib). Drop silently —
+      // diagnostics will show frames received but not sent.
+      this.queueDiagnosticsEmit();
+      return;
+    }
+
+    try {
+      sendAudio(sender.diagnostics.senderName, samples, sampleRate, channels, samplesPerChannel);
+      sender.diagnostics.audio.audioFramesSent += 1;
+      sender.diagnostics.audio.audioSamplesSent += samplesPerChannel;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[NdiService] Audio frame send failed:', message);
+      this.lastError = message;
+    }
+
+    this.queueDiagnosticsEmit();
+  }
+
   setSourceStatus(status: NdiSourceStatus): void {
     if (this.sourceStatus === status) return;
     this.sourceStatus = status;
@@ -243,10 +297,7 @@ export class NdiService {
 
     try {
       this.module = this.moduleLoader();
-      const info = this.module.getRuntimeInfo?.();
-      this.runtimeLoaded = info?.loaded ?? true;
-      this.runtimePath = info?.path ?? null;
-      this.asyncVideoSend = info?.asyncVideoSend ?? false;
+      this.refreshRuntimeInfo();
       this.lastError = null;
       return true;
     } catch (error) {
@@ -257,6 +308,13 @@ export class NdiService {
       this.asyncVideoSend = false;
       return false;
     }
+  }
+
+  private refreshRuntimeInfo(): void {
+    const info = this.module?.getRuntimeInfo?.();
+    this.runtimeLoaded = info?.loaded ?? Boolean(this.module);
+    this.runtimePath = info?.path ?? null;
+    this.asyncVideoSend = info?.asyncVideoSend ?? false;
   }
 
   private ensureSender(name: NdiOutputName): void {
@@ -275,6 +333,7 @@ export class NdiService {
         height,
         withAlpha: config.withAlpha,
       });
+      this.refreshRuntimeInfo();
       this.senders.set(name, {
         diagnostics: {
           senderName,
@@ -284,6 +343,7 @@ export class NdiService {
           asyncVideoSend: this.asyncVideoSend,
           connectionCount: null,
           performance: createEmptySenderPerformanceDiagnostics(),
+          audio: createEmptySenderAudioDiagnostics(),
         },
         outputName: name,
         lastFrame: null,
@@ -334,6 +394,7 @@ export class NdiService {
       restored.lastFrameHeight = previous.lastFrameHeight;
       restored.lastFrameReceivedAt = previous.lastFrameReceivedAt;
       restored.diagnostics.performance = { ...previous.diagnostics.performance };
+      restored.diagnostics.audio = { ...previous.diagnostics.audio };
       if (previous.lastFrame) {
         restored.diagnostics.performance.cacheCopyBytes += previous.lastFrame.byteLength;
       }
@@ -361,6 +422,18 @@ export class NdiService {
     return `${requestedName} (${suffix})`;
   }
 
+  private isValidAudioPayload(
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
+  ): boolean {
+    if (!Number.isInteger(sampleRate) || sampleRate <= 0 || sampleRate > MAX_AUDIO_SAMPLE_RATE) return false;
+    if (!Number.isInteger(channels) || channels <= 0 || channels > MAX_AUDIO_CHANNELS) return false;
+    if (!Number.isInteger(samplesPerChannel) || samplesPerChannel <= 0 || samplesPerChannel > MAX_AUDIO_SAMPLES_PER_CHANNEL) return false;
+    return samples.length >= channels * samplesPerChannel;
+  }
+
   private isValidFramePayload(rgba: Uint8Array, width: number, height: number): boolean {
     if (!Number.isInteger(width) || !Number.isInteger(height)) {
       return false;
@@ -385,10 +458,6 @@ export class NdiService {
     try {
       const connectionCount = this.module.getSenderConnections?.(sender.diagnostics.senderName, 0) ?? null;
       sender.diagnostics.connectionCount = typeof connectionCount === 'number' && connectionCount >= 0 ? connectionCount : null;
-      if (sender.diagnostics.connectionCount === 0) {
-        sender.diagnostics.performance.framesSkippedNoConnections += 1;
-        return;
-      }
       const startedAt = performance.now();
       this.module.sendRgbaFrame(sender.diagnostics.senderName, rgba, width, height);
       sender.diagnostics.performance.avgSendDurationMs = sender.sendDurationRolling.push(performance.now() - startedAt);
@@ -494,10 +563,21 @@ function createEmptySenderPerformanceDiagnostics(): NdiSenderPerformanceDiagnost
   };
 }
 
+function createEmptySenderAudioDiagnostics(): NdiSenderAudioDiagnostics {
+  return {
+    audioFramesReceived: 0,
+    audioFramesSent: 0,
+    audioFramesRejected: 0,
+    audioSamplesSent: 0,
+    lastSampleRate: 0,
+    lastChannels: 0,
+  };
+}
+
 function cloneSenderDiagnostics(diagnostics: NdiActiveSenderDiagnostics): NdiActiveSenderDiagnostics {
   return {
     ...diagnostics,
     performance: { ...diagnostics.performance },
+    audio: { ...diagnostics.audio },
   };
 }
-

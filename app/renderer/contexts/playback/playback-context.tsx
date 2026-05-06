@@ -4,6 +4,7 @@ import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
 import { useProjectContent } from '../use-project-content';
 import { getLayerVideoElement, retainVideoSource, subscribeToVideoPool } from '../../features/canvas/use-k-video';
+import { addNdiAudioElement, removeNdiAudioElement } from '../../features/playback/ndi-audio-capture';
 import {
   activateOverlayPlayback,
   advanceOverlayPlayback,
@@ -117,6 +118,7 @@ interface VideoValue {
   currentTime: number;
   duration: number;
   isPlaying: boolean;
+  loopEnabled: boolean;
   muted: boolean;
   armVideo: (assetId: Id) => void;
   clearVideo: () => void;
@@ -125,6 +127,7 @@ interface VideoValue {
   playNext: () => void;
   playPrevious: () => void;
   seekTo: (time: number) => void;
+  toggleLoop: () => void;
   toggleMuted: () => void;
   togglePlayback: () => void;
 }
@@ -377,7 +380,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
   const [currentAudioAssetId, setCurrentAudioAssetId] = useState<Id | null>(null);
   const [requestedPlay, setRequestedPlay] = useState(false);
-  const [loopEnabled, setLoopEnabled] = useState(false);
+  const [loopEnabled, setLoopEnabled] = useState(true);
   const [audioMuted, setAudioMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -396,6 +399,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const audioEl = document.createElement('audio');
     audioEl.preload = 'auto';
+    // Required so MediaElementAudioSourceNode (NDI audio capture) doesn't
+    // taint to silence — pairs with the ACAO header the cast-media protocol
+    // handler returns.
+    audioEl.crossOrigin = 'anonymous';
     audioElementRef.current = audioEl;
 
     function handleTimeUpdate() { setCurrentTime(audioEl.currentTime); }
@@ -417,12 +424,14 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     audioEl.addEventListener('durationchange', handleDurationChange);
     audioEl.addEventListener('ended', handleEnded);
     audioEl.addEventListener('error', handleError);
+    addNdiAudioElement(audioEl);
 
     return () => {
       audioEl.removeEventListener('timeupdate', handleTimeUpdate);
       audioEl.removeEventListener('durationchange', handleDurationChange);
       audioEl.removeEventListener('ended', handleEnded);
       audioEl.removeEventListener('error', handleError);
+      removeNdiAudioElement(audioEl);
       audioEl.pause();
       audioEl.removeAttribute('src');
       audioEl.load();
@@ -612,13 +621,14 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoIsPlaying, setVideoIsPlaying] = useState(false);
   const [videoMuted, setVideoMuted] = useState(false);
+  const [videoLoopEnabled, setVideoLoopEnabled] = useState(true);
   const [videoRequestedPlay, setVideoRequestedPlay] = useState(false);
   const videoLayerPlayback = useMemo(() => ({
     autoplay: videoRequestedPlay,
-    loop: true,
+    loop: videoLoopEnabled,
     muted: videoMuted,
     playbackRate: 1,
-  }), [videoMuted, videoRequestedPlay]);
+  }), [videoLoopEnabled, videoMuted, videoRequestedPlay]);
 
   // Keep the armed layer video alive even if the currently visible surface
   // changes and temporarily unmounts the SceneStage that was using it.
@@ -640,6 +650,15 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     return () => { unsubscribe(); };
   }, [videoLayerAsset]);
 
+  // Hand each layer-video element to the NDI audio bus while it's the active
+  // source. The bus retains its source nodes per element so re-arming the
+  // same element later is idempotent.
+  useEffect(() => {
+    if (!layerVideoElement) return;
+    addNdiAudioElement(layerVideoElement);
+    return () => { removeNdiAudioElement(layerVideoElement); };
+  }, [layerVideoElement]);
+
   // Mirror the element's playback state into React state for the UI.
   useEffect(() => {
     if (!layerVideoElement) {
@@ -656,7 +675,13 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     }
     function handlePlay() { setVideoIsPlaying(true); }
     function handlePause() { setVideoIsPlaying(false); }
-    function handleEnded() { setVideoIsPlaying(false); }
+    function handleEnded() {
+      // When loop is on the element auto-restarts and 'ended' won't fire.
+      // When loop is off, drop the play intent so the toggle button reflects
+      // the natural stop instead of staying armed in a "playing" state.
+      setVideoIsPlaying(false);
+      setVideoRequestedPlay(false);
+    }
 
     el.addEventListener('timeupdate', handleTimeUpdate);
     el.addEventListener('durationchange', handleDurationChange);
@@ -723,6 +748,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setVideoMuted((prev) => !prev);
   }, []);
 
+  const toggleVideoLoop = useCallback(() => {
+    setVideoLoopEnabled((prev) => !prev);
+  }, []);
+
   const seekVideo = useCallback((time: number) => {
     if (!layerVideoElement) return;
     const max = Number.isFinite(layerVideoElement.duration) ? layerVideoElement.duration : time;
@@ -755,6 +784,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     currentTime: videoCurrentTime,
     duration: videoDuration,
     isPlaying: videoIsPlaying,
+    loopEnabled: videoLoopEnabled,
     muted: videoMuted,
     armVideo,
     clearVideo,
@@ -763,9 +793,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     playNext: playNextVideo,
     playPrevious: playPreviousVideo,
     seekTo: seekVideo,
+    toggleLoop: toggleVideoLoop,
     toggleMuted: toggleVideoMuted,
     togglePlayback: toggleVideoPlayback,
-  }), [armVideo, clearVideo, pauseVideo, playNextVideo, playPreviousVideo, playVideo, seekVideo, toggleVideoMuted, toggleVideoPlayback, videoAssets, videoCurrentTime, videoDuration, videoIsPlaying, videoLayerAsset, videoMuted]);
+  }), [armVideo, clearVideo, pauseVideo, playNextVideo, playPreviousVideo, playVideo, seekVideo, toggleVideoLoop, toggleVideoMuted, toggleVideoPlayback, videoAssets, videoCurrentTime, videoDuration, videoIsPlaying, videoLayerAsset, videoLoopEnabled, videoMuted]);
 
   // ── Stage selection ──
 

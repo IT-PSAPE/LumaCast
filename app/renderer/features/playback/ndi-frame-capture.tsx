@@ -54,6 +54,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
   const inFlightSentAtRef = useRef<number | null>(null);
   const captureStartedAtRef = useRef(0);
   const requestIdRef = useRef(0);
+  const framesAckedRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
   const sharedCaptureSource = useNdiCaptureSource(senderName);
   const hasVideoNodes = useMemo(
@@ -96,15 +97,16 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     return () => {
       worker.terminate();
       if (workerRef.current === worker) workerRef.current = null;
+      framesAckedRef.current = 0;
     };
   }, [enabled, senderName]);
 
-  const captureFrame = useCallback(() => {
+  const captureFrame = useCallback((): boolean => {
     const stage = stageRef.current;
     const canvas = sharedCaptureSource ?? stage?.getLayers()[0]?.getNativeCanvasElement();
-    if (!canvas) return;
+    if (!canvas) return false;
     const worker = workerRef.current;
-    if (!worker) return;
+    if (!worker) return false;
 
     captureStartedAtRef.current = performance.now();
     inFlightSentAtRef.current = performance.now();
@@ -133,6 +135,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
         console.error('[NdiFrameCapture] createImageBitmap failed:', error);
         inFlightSentAtRef.current = null;
       });
+    return true;
   }, [sharedCaptureSource, withAlpha]);
 
   const handleImageLoad = useCallback(() => {
@@ -146,6 +149,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     if (!enabled) return;
     return window.castApi.onNdiFrameAck((ackedName) => {
       if (ackedName !== senderName) return;
+      framesAckedRef.current += 1;
       inFlightSentAtRef.current = null;
     });
   }, [enabled, senderName]);
@@ -177,13 +181,15 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
 
         const currentSignature = sceneSignature(scene.nodes, withAlpha);
         const signatureChanged = currentSignature !== lastSignature;
-        if (signatureChanged || hasVideoNodes) {
+        const needsInitialFrame = framesAckedRef.current === 0;
+        if (needsInitialFrame || signatureChanged || hasVideoNodes) {
           if (inFlightSentAtRef.current !== null) {
             pendingDroppedBackpressureRef.current += 1;
           } else {
             stageRef.current?.batchDraw();
-            captureFrame();
-            lastSignature = currentSignature;
+            if (captureFrame()) {
+              lastSignature = currentSignature;
+            }
           }
         } else {
           pendingSkippedCapturesRef.current += 1;
@@ -216,8 +222,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
         pointerEvents: 'none',
       }}
     >
-      <Stage ref={stageRef} width={NDI_OUTPUT_WIDTH} height={NDI_OUTPUT_HEIGHT}>
-        <Layer>
+      <Stage ref={stageRef} width={NDI_OUTPUT_WIDTH} height={NDI_OUTPUT_HEIGHT} listening={false}>
+        <Layer listening={false}>
           {!withAlpha ? (
             <Group>
               <SceneNodeShape node={{

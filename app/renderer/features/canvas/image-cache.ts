@@ -70,16 +70,23 @@ function createEntry(src: string): ImageCacheEntry {
     }
   }
 
-  image.addEventListener('load', () => {
-    replaceEntrySize(entry, Math.max(0, image.naturalWidth * image.naturalHeight * 4));
-    notify('loaded');
-    evictIfNeeded();
-  });
   image.addEventListener('error', () => {
     replaceEntrySize(entry, 0);
     notify('error');
   });
   image.src = src;
+
+  // image.decode() performs the decode off the main thread and resolves once
+  // the bitmap is ready to paint without further work. This avoids the
+  // synchronous decode pause that the 'load' event historically triggers.
+  image.decode().then(() => {
+    replaceEntrySize(entry, Math.max(0, image.naturalWidth * image.naturalHeight * 4));
+    notify('loaded');
+    evictIfNeeded();
+  }).catch(() => {
+    replaceEntrySize(entry, 0);
+    notify('error');
+  });
 
   if (image.complete) {
     entry.status = image.naturalWidth > 0 ? 'loaded' : 'error';

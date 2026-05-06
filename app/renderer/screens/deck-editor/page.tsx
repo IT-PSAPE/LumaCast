@@ -77,7 +77,7 @@ function DeckEditorScreenContent() {
                         <EmptyState.Description>Click the + button to add your first slide.</EmptyState.Description>
                       </EmptyState.Root>
                     ) : (
-                      <ScrollArea.Root>
+                      <ScrollArea.Root scrollPadding={8}>
                         <ScrollArea.Viewport className="p-2">
                           <div className="grid min-w-0 grid-cols-1 content-start gap-3" role="grid" aria-label={`Current ${state.currentDeckItem?.type === 'lyric' ? 'lyrics' : 'slides'}`}>
                             {state.slides.map((slide, index) => (

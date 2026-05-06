@@ -1,7 +1,7 @@
 {
   "name": "lumacast",
   "productName": "LumaCast",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "Cross-platform presentation tool with reusable content hierarchy, slide rendering, and NDI output",
   "author": "IT-PSAPE",
@@ -48,6 +48,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@lumacast/ndi-native": "file:packages/ndi-native",
     "@tailwindcss/vite": "^4.2.1",
+    "@tanstack/react-virtual": "^3.13.24",
     "electron-updater": "^6.8.3",
     "konva": "^10.2.0",
     "lucide-react": "^1.7.0",
@@ -57,7 +58,8 @@
     "react-konva": "^19.2.3",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

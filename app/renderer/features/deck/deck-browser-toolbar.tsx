@@ -76,7 +76,7 @@ export function DeckBrowserToolbar({ items, headerVariant }: DeckBrowserToolbarP
   }
 
   return (
-    <header className="flex h-9 items-center gap-2 border-b border-secondary bg-primary/80 px-2">
+    <header className="flex h-9 shrink-0 items-center gap-2 border-b border-secondary bg-primary/80 px-2">
         {/* Left: content info */}
         {showContentInfo && (
           <div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">

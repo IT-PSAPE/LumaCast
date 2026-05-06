@@ -10,11 +10,11 @@ function findCreatedId(previousIds: Set<Id>, currentIds: Id[]): Id | null {
   return null;
 }
 
-function getSegmentEntryIds(snapshot: AppSnapshot | null | undefined, segmentId: Id): Id[] {
+function getGroupEntryIds(snapshot: AppSnapshot | null | undefined, groupId: Id): Id[] {
   for (const bundle of snapshot?.libraryBundles ?? []) {
     for (const playlist of bundle.playlists) {
-      const segment = playlist.segments.find((entry) => entry.segment.id === segmentId);
-      if (segment) return segment.entries.map((entry) => entry.entry.id);
+      const group = playlist.groups.find((entry) => entry.group.id === groupId);
+      if (group) return group.entries.map((entry) => entry.entry.id);
     }
   }
 
@@ -44,23 +44,17 @@ export function useLibraryPanelManagement() {
     setStatusText(`Renamed playlist: ${name}`);
   }, [mutatePatch, setStatusText]);
 
-  const renameSegment = useCallback(async (id: Id, name: string) => {
-    await mutatePatch(() => window.castApi.renamePlaylistSegment(id, name));
-    setStatusText(`Renamed segment: ${name}`);
+  const renameGroup = useCallback(async (id: Id, name: string) => {
+    await mutatePatch(() => window.castApi.renamePlaylistGroup(id, name));
+    setStatusText(`Renamed group: ${name}`);
   }, [mutatePatch, setStatusText]);
 
-  const setSegmentColor = useCallback(async (id: Id, colorKey: string | null) => {
-    const setColorApi = (window.castApi as { setPlaylistSegmentColor?: (segmentId: Id, nextColorKey: string | null) => Promise<SnapshotPatch> }).setPlaylistSegmentColor;
-    if (!setColorApi) {
-      setStatusText('Restart required: segment color API is not loaded');
-      return;
-    }
-
+  const setGroupColor = useCallback(async (id: Id, colorKey: string | null) => {
     try {
-      await mutatePatch(() => setColorApi(id, colorKey));
-      setStatusText(colorKey ? 'Updated segment color' : 'Removed segment color');
+      await mutatePatch(() => window.castApi.setPlaylistGroupColor(id, colorKey));
+      setStatusText(colorKey ? 'Updated group color' : 'Removed group color');
     } catch {
-      setStatusText('Failed to update segment color');
+      setStatusText('Failed to update group color');
     }
   }, [mutatePatch, setStatusText]);
 
@@ -83,9 +77,9 @@ export function useLibraryPanelManagement() {
     setStatusText('Deleted playlist');
   }, [mutatePatch, setStatusText]);
 
-  const deleteSegment = useCallback(async (id: Id) => {
-    await mutatePatch(() => window.castApi.deletePlaylistSegment(id));
-    setStatusText('Deleted segment');
+  const deleteGroup = useCallback(async (id: Id) => {
+    await mutatePatch(() => window.castApi.deletePlaylistGroup(id));
+    setStatusText('Deleted group');
   }, [mutatePatch, setStatusText]);
 
   const deleteDeckItem = useCallback(async (id: Id) => {
@@ -97,14 +91,14 @@ export function useLibraryPanelManagement() {
     setStatusText('Deleted item');
   }, [mutatePatch, setStatusText, snapshot]);
 
-  const moveDeckItemToSegment = useCallback(async (playlistId: Id, itemId: Id, segmentId: Id | null) => {
-    await mutatePatch(() => window.castApi.moveDeckItemToSegment(playlistId, itemId, segmentId));
-    setStatusText(segmentId ? 'Moved item to segment' : 'Removed item from playlist');
+  const moveDeckItemToGroup = useCallback(async (playlistId: Id, itemId: Id, groupId: Id | null) => {
+    await mutatePatch(() => window.castApi.moveDeckItemToGroup(playlistId, itemId, groupId));
+    setStatusText(groupId ? 'Moved item to group' : 'Removed item from playlist');
   }, [mutatePatch, setStatusText]);
 
-  const movePlaylistEntryToSegment = useCallback(async (entryId: Id, segmentId: Id | null) => {
-    await mutatePatch(() => window.castApi.movePlaylistEntryToSegment(entryId, segmentId));
-    setStatusText(segmentId ? 'Moved item to segment' : 'Removed item from playlist');
+  const movePlaylistEntryToGroup = useCallback(async (entryId: Id, groupId: Id | null) => {
+    await mutatePatch(() => window.castApi.movePlaylistEntryToGroup(entryId, groupId));
+    setStatusText(groupId ? 'Moved item to group' : 'Removed item from playlist');
   }, [mutatePatch, setStatusText]);
 
   const movePlaylist = useCallback(async (id: Id, direction: 'up' | 'down') => {
@@ -112,10 +106,10 @@ export function useLibraryPanelManagement() {
     setStatusText(direction === 'up' ? 'Moved playlist up' : 'Moved playlist down');
   }, [mutatePatch, setStatusText]);
 
-  const movePlaylistSegment = useCallback(async (id: Id, currentOrder: number, direction: 'up' | 'down') => {
+  const movePlaylistGroup = useCallback(async (id: Id, currentOrder: number, direction: 'up' | 'down') => {
     const newOrder = direction === 'up' ? currentOrder - 1 : currentOrder + 1;
-    await mutatePatch(() => window.castApi.setPlaylistSegmentOrder(id, newOrder));
-    setStatusText(direction === 'up' ? 'Moved segment up' : 'Moved segment down');
+    await mutatePatch(() => window.castApi.setPlaylistGroupOrder(id, newOrder));
+    setStatusText(direction === 'up' ? 'Moved group up' : 'Moved group down');
   }, [mutatePatch, setStatusText]);
 
   const moveDeckItem = useCallback(async (id: Id, direction: 'up' | 'down') => {
@@ -128,15 +122,15 @@ export function useLibraryPanelManagement() {
     setStatusText(direction === 'up' ? 'Moved entry up' : 'Moved entry down');
   }, [mutate, setStatusText]);
 
-  const addDeckItemToSegment = useCallback(async (segmentId: Id, itemId: Id) => {
-    const previousEntryIds = new Set(getSegmentEntryIds(snapshot, segmentId));
-    const nextSnapshot = await mutatePatch(() => window.castApi.addDeckItemToSegment(segmentId, itemId));
-    setStatusText('Added item to segment');
-    return findCreatedId(previousEntryIds, getSegmentEntryIds(nextSnapshot, segmentId));
+  const addDeckItemToGroup = useCallback(async (groupId: Id, itemId: Id) => {
+    const previousEntryIds = new Set(getGroupEntryIds(snapshot, groupId));
+    const nextSnapshot = await mutatePatch(() => window.castApi.addDeckItemToGroup(groupId, itemId));
+    setStatusText('Added item to group');
+    return findCreatedId(previousEntryIds, getGroupEntryIds(nextSnapshot, groupId));
   }, [mutatePatch, setStatusText, snapshot]);
 
-  const createDeckItemEntryInSegment = useCallback(async (
-    segmentId: Id,
+  const createDeckItemEntryInGroup = useCallback(async (
+    groupId: Id,
     createEntry: () => Promise<SnapshotPatch>,
     createSlide: (itemId: Id) => Promise<SnapshotPatch>,
     statusText: string,
@@ -150,47 +144,47 @@ export function useLibraryPanelManagement() {
     if (!createdItemId) return null;
 
     await mutatePatch(() => createSlide(createdItemId));
-    await addDeckItemToSegment(segmentId, createdItemId);
+    await addDeckItemToGroup(groupId, createdItemId);
     setStatusText(statusText);
     return createdItemId;
-  }, [addDeckItemToSegment, snapshot, mutatePatch, setStatusText]);
+  }, [addDeckItemToGroup, snapshot, mutatePatch, setStatusText]);
 
-  const createPresentationInSegment = useCallback(async (_libraryId: Id, segmentId: Id) => {
-    return createDeckItemEntryInSegment(
-      segmentId,
+  const createPresentationInGroup = useCallback(async (_libraryId: Id, groupId: Id) => {
+    return createDeckItemEntryInGroup(
+      groupId,
       () => window.castApi.createPresentation('New Presentation'),
       (itemId) => window.castApi.createSlide({ presentationId: itemId }),
-      'Created deck and added to segment'
+      'Created deck and added to group'
     );
-  }, [createDeckItemEntryInSegment]);
+  }, [createDeckItemEntryInGroup]);
 
-  const createLyricInSegment = useCallback(async (_libraryId: Id, segmentId: Id) => {
-    return createDeckItemEntryInSegment(
-      segmentId,
+  const createLyricInGroup = useCallback(async (_libraryId: Id, groupId: Id) => {
+    return createDeckItemEntryInGroup(
+      groupId,
       () => window.castApi.createLyric('New Lyric'),
       (itemId) => window.castApi.createSlide({ lyricId: itemId }),
-      'Created lyric and added to segment'
+      'Created lyric and added to group'
     );
-  }, [createDeckItemEntryInSegment]);
+  }, [createDeckItemEntryInGroup]);
 
   return {
     renameLibrary,
     renamePlaylist,
-    renameSegment,
-    setSegmentColor,
+    renameGroup,
+    setGroupColor,
     renameDeckItem,
     deleteLibrary,
     deletePlaylist,
-    deleteSegment,
+    deleteGroup,
     deleteDeckItem,
-    moveDeckItemToSegment,
-    movePlaylistEntryToSegment,
+    moveDeckItemToGroup,
+    movePlaylistEntryToGroup,
     movePlaylist,
-    movePlaylistSegment,
+    movePlaylistGroup,
     moveDeckItem,
     movePlaylistEntry,
-    addDeckItemToSegment,
-    createPresentationInSegment,
-    createLyricInSegment
+    addDeckItemToGroup,
+    createPresentationInGroup,
+    createLyricInGroup
   };
 }

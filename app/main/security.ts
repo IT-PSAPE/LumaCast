@@ -159,23 +159,40 @@ export function resolveTrustedCastMediaRequest(request: CastMediaRequest): strin
 }
 
 export function createForbiddenResponse(message = 'Forbidden'): Response {
-  return new Response(message, {
+  return withCorsHeaders(new Response(message, {
     status: 403,
     headers: {
       'content-type': 'text/plain; charset=utf-8',
       'cache-control': 'no-store',
     },
-  });
+  }));
 }
 
 export function createNotFoundResponse(message = 'Not found'): Response {
-  return new Response(message, {
+  return withCorsHeaders(new Response(message, {
     status: 404,
     headers: {
       'content-type': 'text/plain; charset=utf-8',
       'cache-control': 'no-store',
     },
-  });
+  }));
+}
+
+// Allow MediaElementAudioSourceNode to read audio off cast-media:// URLs
+// without tainting to silence. Pairs with crossOrigin='anonymous' on the
+// renderer's <audio>/<video> elements.
+const CORS_HEADERS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, HEAD',
+  'access-control-allow-headers': 'range',
+  'access-control-expose-headers': 'accept-ranges, content-length, content-range, content-type',
+} as const;
+
+function withCorsHeaders(response: Response): Response {
+  for (const [name, value] of Object.entries(CORS_HEADERS)) {
+    response.headers.set(name, value);
+  }
+  return response;
 }
 
 export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequest): Promise<Response> {
@@ -188,7 +205,7 @@ export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequ
     const contentType = guessContentType(filePath);
 
     if (!resolvedRange) {
-      return Promise.resolve(new Response(null, {
+      return Promise.resolve(withCorsHeaders(new Response(null, {
         status: 416,
         headers: {
           'accept-ranges': 'bytes',
@@ -196,7 +213,7 @@ export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequ
           'content-type': contentType,
           'cache-control': 'no-store',
         },
-      }));
+      })));
     }
 
     const { start, end } = resolvedRange;
@@ -210,20 +227,18 @@ export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequ
     };
 
     if (method === 'HEAD') {
-      return Promise.resolve(new Response(null, {
+      return Promise.resolve(withCorsHeaders(new Response(null, {
         status: 206,
         headers,
-      }));
+      })));
     }
 
     const stream = fs.createReadStream(filePath, { start, end });
-    return Promise.resolve(new Response(Readable.toWeb(stream) as BodyInit, {
+    return Promise.resolve(withCorsHeaders(new Response(Readable.toWeb(stream) as BodyInit, {
       status: 206,
       headers,
-    }));
+    })));
   }
 
-  return net.fetch(pathToFileURL(filePath).toString(), {
-    method,
-  });
+  return net.fetch(pathToFileURL(filePath).toString(), { method }).then(withCorsHeaders);
 }

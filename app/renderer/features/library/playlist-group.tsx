@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import type { DeckItem, PlaylistEntry, PlaylistTree } from '@core/types';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { Accordion } from '../../components/display/accordion';
@@ -9,71 +10,74 @@ import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useLibraryBrowser } from './library-browser-context';
 import { useLibraryPanelManagement } from './use-library-panel-management';
-import { getSegmentHeaderColors } from './segment-header-color';
+import { getGroupHeaderColors, GROUP_COLOR_OPTIONS } from './group-header-color';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { hasDeckItemDragData, readDeckItemDragData } from '../../utils/deck-item-drag';
 
-interface PlaylistSegmentGroupProps {
-  segment: PlaylistTree['segments'][number];
+interface PlaylistGroupProps {
+  group: PlaylistTree['groups'][number];
   index: number;
-  totalSegments: number;
+  totalGroups: number;
 }
 
-export function PlaylistSegmentGroup(props: PlaylistSegmentGroupProps) {
+export function PlaylistGroup(props: PlaylistGroupProps) {
   return (
     <ContextMenu.Root>
-      <PlaylistSegmentGroupBody {...props} />
+      <PlaylistGroupBody {...props} />
     </ContextMenu.Root>
   );
 }
 
-function PlaylistSegmentGroupBody({ segment, index, totalSegments }: PlaylistSegmentGroupProps) {
-  const { addDeckItemToSegmentAt } = useNavigation();
+function PlaylistGroupBody({ group, index, totalGroups }: PlaylistGroupProps) {
+  const { addDeckItemToGroupAt } = useNavigation();
   const { actions } = useLibraryBrowser();
-  const { deleteSegment, movePlaylistSegment } = useLibraryPanelManagement();
+  const { deleteGroup, movePlaylistGroup, setGroupColor } = useLibraryPanelManagement();
   const confirm = useConfirm();
-  const isSegmentEditing = actions.isEditing('segment', segment.segment.id);
-  const segmentHeaderColors = getSegmentHeaderColors(segment.segment.id, segment.segment.colorKey);
+  const isGroupEditing = actions.isEditing('group', group.group.id);
+  const groupHeaderColors = getGroupHeaderColors(group.group.id, group.group.colorKey);
   const renameRef = useRef<RenameFieldHandle>(null);
-  const { ref: segmentTriggerRef, ...segmentTriggerHandlers } = useContextMenuTrigger();
+  const { ref: groupTriggerRef, ...groupTriggerHandlers } = useContextMenuTrigger();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
 
   const isFirst = index === 0;
-  const isLast = index === totalSegments - 1;
+  const isLast = index === totalGroups - 1;
 
   useEffect(() => {
-    if (isSegmentEditing) renameRef.current?.startEditing();
-  }, [isSegmentEditing]);
+    if (isGroupEditing) renameRef.current?.startEditing();
+  }, [isGroupEditing]);
 
-  function handleSegmentRename(name: string) {
-    actions.renameSegment(segment.segment.id, name);
+  function handleGroupRename(name: string) {
+    actions.renameGroup(group.group.id, name);
     actions.clearEditing();
   }
 
-  async function handleSegmentDelete() {
+  async function handleGroupDelete() {
     const ok = await confirm({
-      title: `Delete "${segment.segment.name}"?`,
-      description: 'All entries in this segment will be removed from the playlist.',
+      title: `Delete "${group.group.name}"?`,
+      description: 'All entries in this group will be removed from the playlist.',
       confirmLabel: 'Delete',
       destructive: true,
     });
-    if (ok) await deleteSegment(segment.segment.id);
+    if (ok) await deleteGroup(group.group.id);
   }
 
-  function acceptDeckItemDrop(event: React.DragEvent<HTMLElement>, nextDropIndex: number) {
-    if (!hasDeckItemDragData(event.dataTransfer)) return false;
+  // Container handlers (header / empty content) only seed an initial dropIndex
+  // when nothing is set yet — they never overwrite a value that an entry-level
+  // handler already chose. Without this, a user who positioned the indicator
+  // on a specific entry would see it snap back to the group's default zone the
+  // moment the cursor crossed a gap or the trigger row.
+  function handleHeaderDragOver(event: React.DragEvent<HTMLDivElement>) {
+    if (!hasDeckItemDragData(event.dataTransfer)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
-    setDropIndex(nextDropIndex);
-    return true;
-  }
-
-  function handleHeaderDragOver(event: React.DragEvent<HTMLDivElement>) {
-    acceptDeckItemDrop(event, segment.entries.length);
+    setDropIndex((prev) => prev ?? 0);
   }
 
   function handleContentDragOver(event: React.DragEvent<HTMLDivElement>) {
-    acceptDeckItemDrop(event, segment.entries.length);
+    if (!hasDeckItemDragData(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setDropIndex((prev) => prev ?? group.entries.length);
   }
 
   function handleEntryDragOver(entryIndex: number, event: React.DragEvent<HTMLElement>) {
@@ -99,49 +103,77 @@ function PlaylistSegmentGroupBody({ segment, index, totalSegments }: PlaylistSeg
     event.stopPropagation();
 
     const itemId = readDeckItemDragData(event.dataTransfer);
-    const nextDropIndex = dropIndex ?? segment.entries.length;
+    const nextDropIndex = dropIndex ?? group.entries.length;
     setDropIndex(null);
     if (!itemId) return;
 
-    void addDeckItemToSegmentAt(segment.segment.id, itemId, nextDropIndex);
+    void addDeckItemToGroupAt(group.group.id, itemId, nextDropIndex);
   }
 
   return (
     <>
-      <Accordion.Item value={segment.segment.id} className="group/segment" onDragLeave={handleDragLeave}>
+      <Accordion.Item value={group.group.id} className="group/group" onDragLeave={handleDragLeave}>
         <Accordion.Trigger
-          className={`h-7 flex items-center justify-between px-2 ${dropIndex !== null ? 'ring-1 ring-brand_solid/60' : ''}`}
-          style={{ backgroundColor: segmentHeaderColors.backgroundColor, color: segmentHeaderColors.textColor }}
+          className={`h-7 flex items-center gap-1 px-2 ${dropIndex !== null ? 'ring-1 ring-brand-600/60' : ''}`}
+          style={{ backgroundColor: groupHeaderColors.backgroundColor, color: groupHeaderColors.textColor }}
           onDragOver={handleHeaderDragOver}
           onDrop={handleDrop}
         >
-          <div ref={segmentTriggerRef} {...segmentTriggerHandlers} className="flex-1 min-w-0">
-            <RenameField ref={renameRef} value={segment.segment.name} onValueChange={handleSegmentRename} className="label-xs" />
+          <ChevronRight
+            aria-hidden
+            className="size-3.5 shrink-0 transition-transform duration-150 group-data-[state=open]/group:rotate-90"
+          />
+          <div ref={groupTriggerRef} {...groupTriggerHandlers} className="flex-1 min-w-0">
+            <RenameField ref={renameRef} value={group.group.name} onValueChange={handleGroupRename} className="label-xs" />
           </div>
         </Accordion.Trigger>
-        <Accordion.Content className='p-1' onDragOver={handleContentDragOver} onDrop={handleDrop}>
-          {renderSegmentEntries({
-            entries: segment.entries,
-            dropIndex,
-            onEntryDragOver: handleEntryDragOver,
-            onEntryDrop: handleDrop,
-          })}
-        </Accordion.Content>
+        {group.entries.length > 0 ? (
+          <Accordion.Content className='p-1' onDragOver={handleContentDragOver} onDrop={handleDrop}>
+            {renderGroupEntries({
+              entries: group.entries,
+              dropIndex,
+              onEntryDragOver: handleEntryDragOver,
+              onEntryDrop: handleDrop,
+            })}
+          </Accordion.Content>
+        ) : null}
       </Accordion.Item>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item disabled={isFirst} onSelect={() => { void movePlaylistSegment(segment.segment.id, index, 'up'); }}>Move up</ContextMenu.Item>
-          <ContextMenu.Item disabled={isLast} onSelect={() => { void movePlaylistSegment(segment.segment.id, index, 'down'); }}>Move down</ContextMenu.Item>
+          <ContextMenu.Item disabled={isFirst} onSelect={() => { void movePlaylistGroup(group.group.id, index, 'up'); }}>Move up</ContextMenu.Item>
+          <ContextMenu.Item disabled={isLast} onSelect={() => { void movePlaylistGroup(group.group.id, index, 'down'); }}>Move down</ContextMenu.Item>
           <ContextMenu.Separator />
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleSegmentDelete(); }}>Delete segment</ContextMenu.Item>
+          <ContextMenu.Submenu label="Color">
+            <ContextMenu.Item onSelect={() => { void setGroupColor(group.group.id, null); }}>
+              <span className="inline-block size-3 shrink-0 rounded-sm border border-secondary bg-transparent" aria-hidden />
+              <span>Default</span>
+            </ContextMenu.Item>
+            <ContextMenu.Separator />
+            {GROUP_COLOR_OPTIONS.map((option) => {
+              const isActive = group.group.colorKey === option.key;
+              return (
+                <ContextMenu.Item key={option.key} onSelect={() => { void setGroupColor(group.group.id, option.key); }}>
+                  <span
+                    className="inline-block size-3 shrink-0 rounded-sm border border-secondary"
+                    style={{ backgroundColor: option.swatch }}
+                    aria-hidden
+                  />
+                  <span className="flex-1">{option.label}</span>
+                  {isActive ? <span aria-hidden className="text-tertiary">✓</span> : null}
+                </ContextMenu.Item>
+              );
+            })}
+          </ContextMenu.Submenu>
+          <ContextMenu.Separator />
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleGroupDelete(); }}>Delete group</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>
   );
 }
 
-interface SegmentEntryRowProps {
+interface GroupEntryRowProps {
   entry: PlaylistEntry;
   item: DeckItem;
   index: number;
@@ -150,22 +182,22 @@ interface SegmentEntryRowProps {
   onDeckItemDrop: (event: React.DragEvent<HTMLButtonElement>) => void;
 }
 
-function SegmentEntryRow(props: SegmentEntryRowProps) {
+function GroupEntryRow(props: GroupEntryRowProps) {
   return (
     <ContextMenu.Root>
-      <SegmentEntryRowBody {...props} />
+      <GroupEntryRowBody {...props} />
     </ContextMenu.Root>
   );
 }
 
-function SegmentEntryRowBody({
+function GroupEntryRowBody({
   item,
   entry,
   index,
   totalEntries,
   onDeckItemDragOver,
   onDeckItemDrop,
-}: SegmentEntryRowProps) {
+}: GroupEntryRowProps) {
   const { currentPlaylistEntryId, renameDeckItem, movePlaylistEntryDirection, removePlaylistEntry } = useNavigation();
   const { selectPlaylistEntry } = useSlides();
   const confirm = useConfirm();
@@ -182,9 +214,9 @@ function SegmentEntryRowBody({
     void renameDeckItem(item.id, name);
   }
 
-  async function handleRemoveFromSegment() {
+  async function handleRemoveFromGroup() {
     const ok = await confirm({
-      title: `Remove "${item.title}" from segment?`,
+      title: `Remove "${item.title}" from group?`,
       description: 'The item stays in your library — only the playlist entry is removed.',
       confirmLabel: 'Remove',
       destructive: true,
@@ -212,20 +244,20 @@ function SegmentEntryRowBody({
           <ContextMenu.Item disabled={isLast} onSelect={() => { void movePlaylistEntryDirection(entry.id, 'down'); }}>Move down</ContextMenu.Item>
           <ContextMenu.Separator />
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleRemoveFromSegment(); }}>Remove from segment</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleRemoveFromGroup(); }}>Remove from group</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>
   );
 }
 
-function renderSegmentEntries({
+function renderGroupEntries({
   entries,
   dropIndex,
   onEntryDragOver,
   onEntryDrop,
 }: {
-  entries: PlaylistTree['segments'][number]['entries'];
+  entries: PlaylistTree['groups'][number]['entries'];
   dropIndex: number | null;
   onEntryDragOver: (index: number, event: React.DragEvent<HTMLButtonElement>) => void;
   onEntryDrop: (event: React.DragEvent<HTMLElement>) => void;
@@ -238,7 +270,7 @@ function renderSegmentEntries({
     }
 
     nodes.push(
-      <SegmentEntryRow
+      <GroupEntryRow
         key={entry.entry.id}
         entry={entry.entry}
         item={entry.item}

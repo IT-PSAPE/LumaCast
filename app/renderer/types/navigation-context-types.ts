@@ -36,19 +36,19 @@ export interface NavigationActionsValue {
     kind: 'presentation' | 'lyric';
     name: string;
     themeId?: Id;
-    segmentId?: Id;
+    groupId?: Id;
   }) => Promise<void>;
-  createSegment: () => Promise<void>;
-  addDeckItemToSegment: (segmentId: Id) => Promise<void>;
-  addDeckItemToSegmentAt: (segmentId: Id, itemId: Id, newOrder: number) => Promise<Id | null>;
-  moveCurrentDeckItemToSegment: (segmentId: Id | null) => Promise<void>;
+  createGroup: () => Promise<void>;
+  addDeckItemToGroup: (groupId: Id) => Promise<void>;
+  addDeckItemToGroupAt: (groupId: Id, itemId: Id, newOrder: number) => Promise<Id | null>;
+  moveCurrentDeckItemToGroup: (groupId: Id | null) => Promise<void>;
   renameLibrary: (id: Id, name: string) => Promise<void>;
   renamePlaylist: (id: Id, name: string) => Promise<void>;
   renameDeckItem: (id: Id, title: string) => Promise<void>;
   reorderLibrary: (libraryId: Id, newOrder: number) => Promise<void>;
   reorderPlaylist: (playlistId: Id, newOrder: number) => Promise<void>;
-  reorderSegment: (segmentId: Id, newOrder: number) => Promise<void>;
-  movePlaylistEntry: (entryId: Id, segmentId: Id, newOrder: number) => Promise<void>;
+  reorderGroup: (groupId: Id, newOrder: number) => Promise<void>;
+  movePlaylistEntry: (entryId: Id, groupId: Id, newOrder: number) => Promise<void>;
   movePlaylistEntryDirection: (entryId: Id, direction: 'up' | 'down') => Promise<void>;
   removePlaylistEntry: (entryId: Id) => Promise<void>;
 }

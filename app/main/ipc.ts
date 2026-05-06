@@ -166,26 +166,26 @@ export const registerIpcHandlers = (
   });
   safeHandle(IPC.createLibrary, (_event, name: string) => repo.createLibrary(name));
   safeHandle(IPC.createPlaylist, (_event, libraryId: Id, name: string) => repo.createPlaylist(libraryId, name));
-  safeHandle(IPC.createPlaylistSegment, (_event, playlistId: Id, name: string) =>
-    repo.createPlaylistSegment(playlistId, name)
+  safeHandle(IPC.createPlaylistGroup, (_event, playlistId: Id, name: string) =>
+    repo.createPlaylistGroup(playlistId, name)
   );
-  safeHandle(IPC.renamePlaylistSegment, (_event, id: Id, name: string) =>
-    repo.renamePlaylistSegment(id, name)
+  safeHandle(IPC.renamePlaylistGroup, (_event, id: Id, name: string) =>
+    repo.renamePlaylistGroup(id, name)
   );
-  safeHandle(IPC.setPlaylistSegmentColor, (_event, id: Id, colorKey: string | null) =>
-    repo.setPlaylistSegmentColor(id, colorKey)
+  safeHandle(IPC.setPlaylistGroupColor, (_event, id: Id, colorKey: string | null) =>
+    repo.setPlaylistGroupColor(id, colorKey)
   );
   safeHandle(IPC.movePlaylist, (_event, id: Id, direction: 'up' | 'down') =>
     repo.movePlaylist(id, direction)
   );
-  safeHandle(IPC.addDeckItemToSegment, (_event, segmentId: Id, itemId: Id) =>
-    repo.addDeckItemToSegment(segmentId, itemId)
+  safeHandle(IPC.addDeckItemToGroup, (_event, groupId: Id, itemId: Id) =>
+    repo.addDeckItemToGroup(groupId, itemId)
   );
-  safeHandle(IPC.moveDeckItemToSegment, (_event, playlistId: Id, itemId: Id, segmentId: Id | null) =>
-    repo.moveDeckItemToSegment(playlistId, itemId, segmentId)
+  safeHandle(IPC.moveDeckItemToGroup, (_event, playlistId: Id, itemId: Id, groupId: Id | null) =>
+    repo.moveDeckItemToGroup(playlistId, itemId, groupId)
   );
-  safeHandle(IPC.movePlaylistEntryToSegment, (_event, entryId: Id, segmentId: Id | null) =>
-    repo.movePlaylistEntryToSegment(entryId, segmentId)
+  safeHandle(IPC.movePlaylistEntryToGroup, (_event, entryId: Id, groupId: Id | null) =>
+    repo.movePlaylistEntryToGroup(entryId, groupId)
   );
   safeHandle(IPC.movePlaylistEntry, (_event, entryId: Id, direction: 'up' | 'down') =>
     repo.movePlaylistEntry(entryId, direction)
@@ -204,8 +204,8 @@ export const registerIpcHandlers = (
   safeHandle(IPC.setSlideOrder, (_event, input: SlideOrderUpdateInput) => repo.setSlideOrder(input));
   safeHandle(IPC.setLibraryOrder, (_event, libraryId: Id, newOrder: number) => repo.setLibraryOrder(libraryId, newOrder));
   safeHandle(IPC.setPlaylistOrder, (_event, playlistId: Id, newOrder: number) => repo.setPlaylistOrder(playlistId, newOrder));
-  safeHandle(IPC.setPlaylistSegmentOrder, (_event, segmentId: Id, newOrder: number) => repo.setPlaylistSegmentOrder(segmentId, newOrder));
-  safeHandle(IPC.movePlaylistEntryTo, (_event, entryId: Id, segmentId: Id, newOrder: number) => repo.movePlaylistEntryTo(entryId, segmentId, newOrder));
+  safeHandle(IPC.setPlaylistGroupOrder, (_event, groupId: Id, newOrder: number) => repo.setPlaylistGroupOrder(groupId, newOrder));
+  safeHandle(IPC.movePlaylistEntryTo, (_event, entryId: Id, groupId: Id, newOrder: number) => repo.movePlaylistEntryTo(entryId, groupId, newOrder));
   safeHandle(IPC.createElement, (_event, input: ElementCreateInput) => repo.createElement(input));
   safeHandle(IPC.createElementsBatch, (_event, inputs: ElementCreateInput[]) => repo.createElementsBatch(inputs));
   safeHandle(IPC.updateElement, (_event, input: ElementUpdateInput) => repo.updateElement(input));
@@ -260,7 +260,7 @@ export const registerIpcHandlers = (
   safeHandle(IPC.renameLyric, (_event, id: Id, title: string) => repo.renameLyric(id, title));
   safeHandle(IPC.deleteLibrary, (_event, id: Id) => repo.deleteLibrary(id));
   safeHandle(IPC.deletePlaylist, (_event, id: Id) => repo.deletePlaylist(id));
-  safeHandle(IPC.deletePlaylistSegment, (_event, id: Id) => repo.deletePlaylistSegment(id));
+  safeHandle(IPC.deletePlaylistGroup, (_event, id: Id) => repo.deletePlaylistGroup(id));
   safeHandle(IPC.deletePresentation, (_event, id: Id) => repo.deletePresentation(id));
   safeHandle(IPC.deleteLyric, (_event, id: Id) => repo.deleteLyric(id));
   safeHandle(IPC.createCollection, (_event, input: CollectionCreateInput) => repo.createCollection(input));
@@ -314,6 +314,33 @@ export const registerIpcHandlers = (
         event.sender.send(NDI_EVENTS.frameAck, ackName);
       }
     }
+    },
+  );
+  ipcMain.on(
+    IPC.sendNdiAudio,
+    (event, payload: {
+      name: NdiOutputName;
+      buffer: ArrayBuffer;
+      sampleRate: number;
+      channels: number;
+      samplesPerChannel: number;
+    }) => {
+      try {
+        assertTrustedIpcSender(event);
+        if (!payload || typeof payload !== 'object') {
+          throw new Error('NDI audio payload must be an object');
+        }
+        const { name, buffer, sampleRate, channels, samplesPerChannel } = payload;
+        if (!NDI_OUTPUT_NAMES.has(name)) {
+          throw new Error(`Invalid NDI output name: ${String(name)}`);
+        }
+        if (!(buffer instanceof ArrayBuffer)) {
+          throw new Error('NDI audio payload must include an ArrayBuffer');
+        }
+        ndiService.receiveAudioFrame(name, new Float32Array(buffer), sampleRate, channels, samplesPerChannel);
+      } catch (error) {
+        console.error(`[IPC ${IPC.sendNdiAudio}]`, error);
+      }
     },
   );
 };

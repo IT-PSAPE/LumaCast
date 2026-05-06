@@ -52,8 +52,8 @@ export function ImportExportPanel() {
     const itemRows: ItemRow[] = deckItems.map((item) => ({ kind: 'item', id: item.id, title: item.title, item }));
     const playlistRows: PlaylistRow[] = playlistTrees.map((tree) => {
       const uniqueItemIds = new Set<Id>();
-      for (const segment of tree.segments) {
-        for (const entry of segment.entries) uniqueItemIds.add(entry.item.id);
+      for (const group of tree.groups) {
+        for (const entry of group.entries) uniqueItemIds.add(entry.item.id);
       }
       return { kind: 'playlist', id: tree.playlist.id, title: tree.playlist.name, tree, itemCount: uniqueItemIds.size };
     });

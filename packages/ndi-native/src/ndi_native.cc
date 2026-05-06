@@ -64,6 +64,19 @@ struct NDIlib_video_frame_v2_t {
   int64_t timestamp;
 };
 
+// Planar 32-bit float audio. Channels are stored back-to-back: channel 0's
+// samples first, then channel 1's, separated by channel_stride_in_bytes.
+struct NDIlib_audio_frame_v2_t {
+  int32_t sample_rate;
+  int32_t no_channels;
+  int32_t no_samples;
+  int64_t timecode;
+  float* p_data;
+  int32_t channel_stride_in_bytes;
+  const char* p_metadata;
+  int64_t timestamp;
+};
+
 using NDIlib_send_instance_t = void*;
 
 using FnNdiInitialize = bool (*)();
@@ -72,6 +85,7 @@ using FnNdiSendCreate = NDIlib_send_instance_t (*)(const NDIlib_send_create_t*);
 using FnNdiSendDestroy = void (*)(NDIlib_send_instance_t);
 using FnNdiSendVideoV2 = void (*)(NDIlib_send_instance_t, const NDIlib_video_frame_v2_t*);
 using FnNdiSendVideoAsyncV2 = void (*)(NDIlib_send_instance_t, const NDIlib_video_frame_v2_t*);
+using FnNdiSendAudioV2 = void (*)(NDIlib_send_instance_t, const NDIlib_audio_frame_v2_t*);
 using FnNdiSendGetNoConnections = int32_t (*)(NDIlib_send_instance_t, uint32_t);
 
 struct NdiSymbols {
@@ -81,6 +95,7 @@ struct NdiSymbols {
   FnNdiSendDestroy sendDestroy = nullptr;
   FnNdiSendVideoV2 sendVideoV2 = nullptr;
   FnNdiSendVideoAsyncV2 sendVideoAsyncV2 = nullptr;
+  FnNdiSendAudioV2 sendAudioV2 = nullptr;
   FnNdiSendGetNoConnections sendGetNoConnections = nullptr;
 };
 
@@ -352,6 +367,8 @@ void LoadRuntimeIfNeeded(SenderState& state) {
   state.symbols.sendVideoV2 = ResolveRequired<FnNdiSendVideoV2>(state.runtime, "NDIlib_send_send_video_v2");
   state.symbols.sendVideoAsyncV2 =
       ResolveOptional<FnNdiSendVideoAsyncV2>(state.runtime, "NDIlib_send_send_video_async_v2");
+  state.symbols.sendAudioV2 =
+      ResolveOptional<FnNdiSendAudioV2>(state.runtime, "NDIlib_send_send_audio_v2");
   state.symbols.sendGetNoConnections =
       ResolveOptional<FnNdiSendGetNoConnections>(state.runtime, "NDIlib_send_get_no_connections");
 
@@ -782,6 +799,82 @@ Napi::Value SendRgbaFrame(const Napi::CallbackInfo& info) {
   return env.Undefined();
 }
 
+// Sends planar 32-bit float audio. The Float32Array holds channels back-to-
+// back: [ch0 samples..., ch1 samples..., ...]. Length must equal
+// channels * samplesPerChannel.
+Napi::Value SendAudioFrame(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+
+  if (info.Length() != 5 || !info[0].IsString() || !info[1].IsTypedArray() || !info[2].IsNumber() ||
+      !info[3].IsNumber() || !info[4].IsNumber()) {
+    Napi::TypeError::New(env, "sendAudioFrame expects (senderName, Float32Array, sampleRate, channels, samplesPerChannel)")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  Napi::TypedArray typed = info[1].As<Napi::TypedArray>();
+  if (typed.TypedArrayType() != napi_float32_array) {
+    Napi::TypeError::New(env, "sendAudioFrame expects a Float32Array").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  const std::string senderName = info[0].As<Napi::String>().Utf8Value();
+  Napi::Float32Array samples = info[1].As<Napi::Float32Array>();
+  const int32_t sampleRate = info[2].As<Napi::Number>().Int32Value();
+  const int32_t channels = info[3].As<Napi::Number>().Int32Value();
+  const int32_t samplesPerChannel = info[4].As<Napi::Number>().Int32Value();
+
+  if (senderName.empty()) {
+    Napi::TypeError::New(env, "senderName must be non-empty").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  if (sampleRate <= 0 || channels <= 0 || samplesPerChannel <= 0) {
+    Napi::TypeError::New(env, "audio frame requires positive sampleRate/channels/samplesPerChannel")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  const int64_t expectedLength = static_cast<int64_t>(channels) * static_cast<int64_t>(samplesPerChannel);
+  if (expectedLength <= 0 || expectedLength > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) {
+    Napi::TypeError::New(env, "audio frame channel count × samples overflow").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  if (samples.ElementLength() < static_cast<size_t>(expectedLength)) {
+    Napi::TypeError::New(env, "audio buffer is shorter than channels × samplesPerChannel")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  auto& state = State();
+  std::lock_guard<std::mutex> guard(state.mutex);
+
+  if (state.symbols.sendAudioV2 == nullptr) {
+    Napi::Error::New(env, "NDIlib_send_send_audio_v2 unavailable in loaded runtime").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  auto senderIt = state.senders.find(senderName);
+  if (senderIt == state.senders.end() || senderIt->second.sender == nullptr) {
+    Napi::Error::New(env, "NDI sender not initialized").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  NDIlib_audio_frame_v2_t frame{};
+  frame.sample_rate = sampleRate;
+  frame.no_channels = channels;
+  frame.no_samples = samplesPerChannel;
+  frame.timecode = kTimecodeSynthesize;
+  frame.p_data = samples.Data();
+  frame.channel_stride_in_bytes = samplesPerChannel * static_cast<int32_t>(sizeof(float));
+  frame.p_metadata = nullptr;
+  frame.timestamp = 0;
+
+  state.symbols.sendAudioV2(senderIt->second.sender, &frame);
+  return env.Undefined();
+}
+
 Napi::Value GetSenderConnections(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
 
@@ -854,6 +947,7 @@ Napi::Value GetRuntimeInfo(const Napi::CallbackInfo& info) {
   Napi::Object runtimeInfo = Napi::Object::New(env);
   runtimeInfo.Set("loaded", Napi::Boolean::New(env, state.runtimeLoaded));
   runtimeInfo.Set("asyncVideoSend", Napi::Boolean::New(env, state.symbols.sendVideoAsyncV2 != nullptr));
+  runtimeInfo.Set("audioSend", Napi::Boolean::New(env, state.symbols.sendAudioV2 != nullptr));
   if (state.loadedRuntimePath.empty()) {
     runtimeInfo.Set("path", env.Null());
   } else {
@@ -873,6 +967,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("initializeSender", Napi::Function::New(env, InitializeSender));
   exports.Set("sendBgraFrame", Napi::Function::New(env, SendBgraFrame));
   exports.Set("sendRgbaFrame", Napi::Function::New(env, SendRgbaFrame));
+  exports.Set("sendAudioFrame", Napi::Function::New(env, SendAudioFrame));
   exports.Set("getSenderConnections", Napi::Function::New(env, GetSenderConnections));
   exports.Set("destroySender", Napi::Function::New(env, DestroySender));
   exports.Set("getRuntimeInfo", Napi::Function::New(env, GetRuntimeInfo));
