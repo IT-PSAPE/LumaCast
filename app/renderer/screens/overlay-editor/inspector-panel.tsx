@@ -22,9 +22,7 @@ export function OverlayEditorInspectorPanel() {
 
   useEffect(() => {
     if (!hasSelection) {
-      if (inspectorTab === 'shape' || inspectorTab === 'text' || inspectorTab === 'presentation' || inspectorTab === 'video' || inspectorTab === 'binding') {
-        setInspectorTab('slide');
-      }
+      if (inspectorTab !== 'slide') setInspectorTab('slide');
       return;
     }
 

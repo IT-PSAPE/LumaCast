@@ -68,7 +68,7 @@ function SlideOutlineRowBody({
   }
 
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isFocused);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ disabled: !slideOwned });
+  const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: !slideOwned });
 
   const rowStateClass = isFocused
     ? 'border-brand-400/80 bg-brand-400/8'
@@ -76,6 +76,11 @@ function SlideOutlineRowBody({
 
   function handleSelect() {
     onSelect(row.index);
+  }
+
+  function handleContextMenu(event: React.MouseEvent<HTMLElement>) {
+    if (slideOwned && !isFocused) onSelect(row.index);
+    triggerContextMenu(event);
   }
 
   function handleOpen() {
@@ -116,6 +121,7 @@ function SlideOutlineRowBody({
         }}
         style={containerStyle}
         onClick={handleSelect}
+        onContextMenu={handleContextMenu}
         onDoubleClick={row.textEditable ? undefined : handleOpen}
         className={cn(rowStateClass, dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab')}
       >

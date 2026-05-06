@@ -54,7 +54,7 @@ function SlideGridTileBody({
   const isFirst = index === 0;
   const isLast = index === slides.length - 1;
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(selected);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
 
   function handleClick() {
     onActivate(index);
@@ -62,6 +62,11 @@ function SlideGridTileBody({
 
   function handleDoubleClick() {
     onFocus(index);
+  }
+
+  function handleContextMenu(event: React.MouseEvent<HTMLElement>) {
+    if (!selected) onActivate(index);
+    triggerContextMenu(event);
   }
 
   async function handleDelete() {
@@ -87,6 +92,7 @@ function SlideGridTileBody({
         }}
         style={containerStyle}
         onClick={handleClick}
+        onContextMenu={handleContextMenu}
         onDoubleClick={handleDoubleClick}
         selected={selected}
         className={dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab'}
