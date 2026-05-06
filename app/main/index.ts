@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, MessageChannelMain, nativeImage, protocol, type BrowserWindowConstructorOptions } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, protocol, type BrowserWindowConstructorOptions } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CastRepository } from '@database/store';
@@ -223,22 +223,6 @@ function createMainWindow(): void {
   });
   window.on('unresponsive', () => {
     console.warn('[window] unresponsive');
-  });
-
-  // Whenever the renderer (re)loads, hand it a fresh MessagePort that
-  // streams frames straight to the NDI utility process. Buffers transfer
-  // zero-copy on both legs (renderer→host) — main is bypassed on the hot path.
-  window.webContents.on('did-finish-load', () => {
-    if (!ndiService) return;
-    const attach = ndiService.attachFrameChannelPort?.bind(ndiService);
-    if (!attach) return;
-    try {
-      const { port1, port2 } = new MessageChannelMain();
-      window.webContents.postMessage('ndi:frame-channel', null, [port1]);
-      attach(port2);
-    } catch (error) {
-      console.error('[main] Failed to attach NDI frame channel:', error);
-    }
   });
 
   loadRendererView(window, cliOptions.rendererView);

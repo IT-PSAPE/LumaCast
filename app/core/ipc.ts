@@ -50,13 +50,13 @@ export interface MainApi {
   finalizeImportBundle: (filePath: string, decisions: DeckBundleBrokenReferenceDecision[]) => Promise<AppSnapshot>;
   createLibrary: (name: string) => Promise<SnapshotPatch>;
   createPlaylist: (libraryId: Id, name: string) => Promise<SnapshotPatch>;
-  createPlaylistSegment: (playlistId: Id, name: string) => Promise<SnapshotPatch>;
-  renamePlaylistSegment: (id: Id, name: string) => Promise<SnapshotPatch>;
-  setPlaylistSegmentColor: (id: Id, colorKey: string | null) => Promise<SnapshotPatch>;
+  createPlaylistGroup: (playlistId: Id, name: string) => Promise<SnapshotPatch>;
+  renamePlaylistGroup: (id: Id, name: string) => Promise<SnapshotPatch>;
+  setPlaylistGroupColor: (id: Id, colorKey: string | null) => Promise<SnapshotPatch>;
   movePlaylist: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
-  addDeckItemToSegment: (segmentId: Id, itemId: Id) => Promise<SnapshotPatch>;
-  moveDeckItemToSegment: (playlistId: Id, itemId: Id, segmentId: Id | null) => Promise<SnapshotPatch>;
-  movePlaylistEntryToSegment: (entryId: Id, segmentId: Id | null) => Promise<SnapshotPatch>;
+  addDeckItemToGroup: (groupId: Id, itemId: Id) => Promise<SnapshotPatch>;
+  moveDeckItemToGroup: (playlistId: Id, itemId: Id, groupId: Id | null) => Promise<SnapshotPatch>;
+  movePlaylistEntryToGroup: (entryId: Id, groupId: Id | null) => Promise<SnapshotPatch>;
   moveDeckItem: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
   createPresentation: (title: string) => Promise<SnapshotPatch>;
   createLyric: (title: string) => Promise<SnapshotPatch>;
@@ -68,8 +68,8 @@ export interface MainApi {
   setSlideOrder: (input: SlideOrderUpdateInput) => Promise<SnapshotPatch>;
   setLibraryOrder: (libraryId: Id, newOrder: number) => Promise<SnapshotPatch>;
   setPlaylistOrder: (playlistId: Id, newOrder: number) => Promise<SnapshotPatch>;
-  setPlaylistSegmentOrder: (segmentId: Id, newOrder: number) => Promise<SnapshotPatch>;
-  movePlaylistEntryTo: (entryId: Id, segmentId: Id, newOrder: number) => Promise<SnapshotPatch>;
+  setPlaylistGroupOrder: (groupId: Id, newOrder: number) => Promise<SnapshotPatch>;
+  movePlaylistEntryTo: (entryId: Id, groupId: Id, newOrder: number) => Promise<SnapshotPatch>;
   createElement: (input: ElementCreateInput) => Promise<SnapshotPatch>;
   createElementsBatch: (inputs: ElementCreateInput[]) => Promise<SnapshotPatch>;
   updateElement: (input: ElementUpdateInput) => Promise<SnapshotPatch>;
@@ -100,7 +100,7 @@ export interface MainApi {
   renameLyric: (id: Id, title: string) => Promise<SnapshotPatch>;
   deleteLibrary: (id: Id) => Promise<SnapshotPatch>;
   deletePlaylist: (id: Id) => Promise<SnapshotPatch>;
-  deletePlaylistSegment: (id: Id) => Promise<SnapshotPatch>;
+  deletePlaylistGroup: (id: Id) => Promise<SnapshotPatch>;
   deletePresentation: (id: Id) => Promise<SnapshotPatch>;
   deleteLyric: (id: Id) => Promise<SnapshotPatch>;
   setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) => Promise<NdiOutputState>;
@@ -141,7 +141,7 @@ export type AppMenuCommandId =
   | 'file.newLyric'
   | 'file.newLibrary'
   | 'file.newPlaylist'
-  | 'file.newSegment'
+  | 'file.newGroup'
   | 'file.newSlide'
   | 'file.exportCurrentItem'
   | 'file.exportWorkspace'
@@ -216,13 +216,13 @@ export const IPC = {
   finalizeImportBundle: 'cast:finalizeImportBundle',
   createLibrary: 'cast:createLibrary',
   createPlaylist: 'cast:createPlaylist',
-  createPlaylistSegment: 'cast:createPlaylistSegment',
-  renamePlaylistSegment: 'cast:renamePlaylistSegment',
-  setPlaylistSegmentColor: 'cast:setPlaylistSegmentColor',
+  createPlaylistGroup: 'cast:createPlaylistGroup',
+  renamePlaylistGroup: 'cast:renamePlaylistGroup',
+  setPlaylistGroupColor: 'cast:setPlaylistGroupColor',
   movePlaylist: 'cast:movePlaylist',
-  addDeckItemToSegment: 'cast:addDeckItemToSegment',
-  moveDeckItemToSegment: 'cast:moveDeckItemToSegment',
-  movePlaylistEntryToSegment: 'cast:movePlaylistEntryToSegment',
+  addDeckItemToGroup: 'cast:addDeckItemToGroup',
+  moveDeckItemToGroup: 'cast:moveDeckItemToGroup',
+  movePlaylistEntryToGroup: 'cast:movePlaylistEntryToGroup',
   movePlaylistEntry: 'cast:movePlaylistEntry',
   moveDeckItem: 'cast:moveDeckItem',
   createPresentation: 'cast:createPresentation',
@@ -234,7 +234,7 @@ export const IPC = {
   setSlideOrder: 'cast:setSlideOrder',
   setLibraryOrder: 'cast:setLibraryOrder',
   setPlaylistOrder: 'cast:setPlaylistOrder',
-  setPlaylistSegmentOrder: 'cast:setPlaylistSegmentOrder',
+  setPlaylistGroupOrder: 'cast:setPlaylistGroupOrder',
   movePlaylistEntryTo: 'cast:movePlaylistEntryTo',
   createElement: 'cast:createElement',
   createElementsBatch: 'cast:createElementsBatch',
@@ -266,7 +266,7 @@ export const IPC = {
   renameLyric: 'cast:renameLyric',
   deleteLibrary: 'cast:deleteLibrary',
   deletePlaylist: 'cast:deletePlaylist',
-  deletePlaylistSegment: 'cast:deletePlaylistSegment',
+  deletePlaylistGroup: 'cast:deletePlaylistGroup',
   deletePresentation: 'cast:deletePresentation',
   deleteLyric: 'cast:deleteLyric',
   getAudioCoverArt: 'cast:getAudioCoverArt',

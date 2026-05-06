@@ -23,8 +23,8 @@ export function flattenPlaylistDeckSequence(
   const countsByDeckItemId = new Map<Id, number>();
   const flattened: PlaylistDeckSequenceItem[] = [];
 
-  for (const segment of selectedTree.segments) {
-    for (const entry of segment.entries) {
+  for (const group of selectedTree.groups) {
+    for (const entry of group.entries) {
       const currentCount = countsByDeckItemId.get(entry.item.id) ?? 0;
       const occurrenceIndex = currentCount + 1;
       countsByDeckItemId.set(entry.item.id, occurrenceIndex);

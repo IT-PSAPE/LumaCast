@@ -17,7 +17,7 @@ import type { AppSnapshot, Collection, Id, LibraryPlaylistBundle, Library, Lyric
  *
  * `libraryBundles` is a derived structure. When it appears in a patch
  * it is a full replacement (rebuilt main-side from the underlying
- * libraries/playlists/segments/entries).
+ * libraries/playlists/groups/entries).
  */
 export interface SnapshotPatch {
   version: number;

@@ -67,8 +67,8 @@ function buildFileMenu(browserWindow: BrowserWindow | null, state: AppMenuState)
       label: 'New Playlist',
       enabled: state.hasCurrentLibrary,
     }),
-    createCommandItem(browserWindow, 'file.newSegment', {
-      label: 'New Segment',
+    createCommandItem(browserWindow, 'file.newGroup', {
+      label: 'New Group',
       enabled: state.hasCurrentPlaylist,
     }),
     createCommandItem(browserWindow, 'file.newSlide', {

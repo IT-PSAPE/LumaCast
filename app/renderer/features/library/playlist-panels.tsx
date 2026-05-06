@@ -4,7 +4,7 @@ import { ReacstButton } from '@renderer/components/controls/button';
 import { Label } from '@renderer/components/display/text';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { useLibraryBrowser } from './library-browser-context';
-import { SegmentsBrowser } from './segments-browser';
+import { GroupsBrowser } from './groups-browser';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { PlaylistTree } from '@core/types';
@@ -25,7 +25,7 @@ export function PlaylistPanels() {
 
   return (
     <LumaCastPanel.Root className='h-full'>
-      <LumaCastPanel.Group>
+      <LumaCastPanel.Group className="flex-1">
         <LumaCastPanel.GroupTitle>
           <ReacstButton.Icon label="Back to libraries" onClick={actions.setLibrariesView}>
             <ChevronLeft />
@@ -54,8 +54,8 @@ export function PlaylistPanels() {
               </ScrollArea.Root>
             </LumaCastPanel.GroupContent>
           </SplitPanel.Segment>
-          <SplitPanel.Segment id="library-segments" defaultSize={320} minSize={180}>
-            <SegmentsBrowser />
+          <SplitPanel.Segment id="library-groups" defaultSize={320} minSize={180}>
+            <GroupsBrowser />
           </SplitPanel.Segment>
         </SplitPanel.Panel>
       </LumaCastPanel.Group>

@@ -5,51 +5,51 @@ import { ScrollArea } from '../../components/layout/scroll-area';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLibraryBrowser } from './library-browser-context';
 import { useLibraryPanelState } from './library-panel-context';
-import { PlaylistSegmentGroup } from './playlist-segment-group';
+import { PlaylistGroup } from './playlist-group';
 import { Label } from '@renderer/components/display/text';
 import { Accordion } from '@renderer/components/display/accordion';
 import { EmptyState } from '../../components/display/empty-state';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 
-type SegmentList = PlaylistTree['segments'];
+type GroupList = PlaylistTree['groups'];
 
-const EMPTY_SEGMENTS: SegmentList = [];
+const EMPTY_GROUPS: GroupList = [];
 
-export function SegmentsBrowser() {
-  const { createSegment } = useNavigation();
-  const { libraryPanelView, expandedSegmentIds, setExpandedSegmentIds } = useLibraryPanelState();
+export function GroupsBrowser() {
+  const { createGroup } = useNavigation();
+  const { libraryPanelView, expandedGroupIds, setExpandedGroupIds } = useLibraryPanelState();
   const { state } = useLibraryBrowser();
 
-  const rawSegments = state.selectedTree?.segments ?? EMPTY_SEGMENTS;
+  const rawGroups = state.selectedTree?.groups ?? EMPTY_GROUPS;
 
   if (libraryPanelView !== 'playlist') return null;
   if (!state.selectedTree) {
     return <EmptyState.Root><EmptyState.Title>Select a playlist</EmptyState.Title></EmptyState.Root>;
   }
 
-  function handleNewSegment() { void createSegment(); }
+  function handleNewGroup() { void createGroup(); }
 
   return (
-    <>
+    <div className="flex h-full min-h-0 w-full flex-col">
       <LumaCastPanel.Group>
         <LumaCastPanel.GroupTitle className='border-t'>
-          <Label.xs className='mr-auto'>Segments</Label.xs>
-          <ReacstButton.Icon onClick={handleNewSegment}>
+          <Label.xs className='mr-auto'>Groups</Label.xs>
+          <ReacstButton.Icon onClick={handleNewGroup} aria-label="New group" title="New group">
             <Plus />
           </ReacstButton.Icon>
         </LumaCastPanel.GroupTitle>
       </LumaCastPanel.Group>
 
-      <LumaCastPanel.Group>
+      <LumaCastPanel.Group className="flex-1 min-h-0">
         <ScrollArea.Root>
           <ScrollArea.Viewport>
-            <Accordion type='multiple' value={expandedSegmentIds} onValueChange={handleSegmentValueChange}>
-              {rawSegments.map((segment, index) => (
-                <PlaylistSegmentGroup
-                  key={segment.segment.id}
-                  segment={segment}
+            <Accordion type='multiple' value={expandedGroupIds} onValueChange={handleGroupValueChange}>
+              {rawGroups.map((group, index) => (
+                <PlaylistGroup
+                  key={group.group.id}
+                  group={group}
                   index={index}
-                  totalSegments={rawSegments.length}
+                  totalGroups={rawGroups.length}
                 />
               ))}
             </Accordion>
@@ -59,10 +59,10 @@ export function SegmentsBrowser() {
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
       </LumaCastPanel.Group>
-    </>
+    </div>
   );
 
-  function handleSegmentValueChange(value: string | string[]) {
-    setExpandedSegmentIds(Array.isArray(value) ? value : value ? [value] : []);
+  function handleGroupValueChange(value: string | string[]) {
+    setExpandedGroupIds(Array.isArray(value) ? value : value ? [value] : []);
   }
 }

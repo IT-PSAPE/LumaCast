@@ -1,4 +1,4 @@
-import { utilityProcess, type MessagePortMain, type UtilityProcess } from 'electron';
+import { utilityProcess, type UtilityProcess } from 'electron';
 import type {
   NdiDiagnostics,
   NdiFrameTelemetry,
@@ -8,7 +8,6 @@ import type {
   NdiOutputState,
 } from '@core/types';
 import type {
-  AttachableFramePort,
   NdiHostCommand,
   NdiHostEvent,
   NdiServiceLike,
@@ -118,14 +117,6 @@ export class NdiServiceProxy implements NdiServiceLike {
     return () => {
       this.diagnosticsChangeListeners = this.diagnosticsChangeListeners.filter((listener) => listener !== callback);
     };
-  }
-
-  attachFrameChannelPort(port: AttachableFramePort): void {
-    if (this.destroyed) return;
-    // Forward the port to the utility host. Once attached, the host receives
-    // frame messages from the renderer directly via this port (zero-copy
-    // ArrayBuffer transfer on each post).
-    this.host.postMessage({ type: 'attach-frame-port' } as NdiHostCommand, [port as unknown as MessagePortMain]);
   }
 
   destroy(): void {

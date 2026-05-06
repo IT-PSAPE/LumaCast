@@ -243,10 +243,7 @@ export class NdiService {
 
     try {
       this.module = this.moduleLoader();
-      const info = this.module.getRuntimeInfo?.();
-      this.runtimeLoaded = info?.loaded ?? true;
-      this.runtimePath = info?.path ?? null;
-      this.asyncVideoSend = info?.asyncVideoSend ?? false;
+      this.refreshRuntimeInfo();
       this.lastError = null;
       return true;
     } catch (error) {
@@ -257,6 +254,13 @@ export class NdiService {
       this.asyncVideoSend = false;
       return false;
     }
+  }
+
+  private refreshRuntimeInfo(): void {
+    const info = this.module?.getRuntimeInfo?.();
+    this.runtimeLoaded = info?.loaded ?? Boolean(this.module);
+    this.runtimePath = info?.path ?? null;
+    this.asyncVideoSend = info?.asyncVideoSend ?? false;
   }
 
   private ensureSender(name: NdiOutputName): void {
@@ -275,6 +279,7 @@ export class NdiService {
         height,
         withAlpha: config.withAlpha,
       });
+      this.refreshRuntimeInfo();
       this.senders.set(name, {
         diagnostics: {
           senderName,
@@ -385,10 +390,6 @@ export class NdiService {
     try {
       const connectionCount = this.module.getSenderConnections?.(sender.diagnostics.senderName, 0) ?? null;
       sender.diagnostics.connectionCount = typeof connectionCount === 'number' && connectionCount >= 0 ? connectionCount : null;
-      if (sender.diagnostics.connectionCount === 0) {
-        sender.diagnostics.performance.framesSkippedNoConnections += 1;
-        return;
-      }
       const startedAt = performance.now();
       this.module.sendRgbaFrame(sender.diagnostics.senderName, rgba, width, height);
       sender.diagnostics.performance.avgSendDurationMs = sender.sendDurationRolling.push(performance.now() - startedAt);
@@ -500,4 +501,3 @@ function cloneSenderDiagnostics(diagnostics: NdiActiveSenderDiagnostics): NdiAct
     performance: { ...diagnostics.performance },
   };
 }
-

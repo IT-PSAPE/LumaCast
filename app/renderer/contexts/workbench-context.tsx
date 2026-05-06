@@ -48,7 +48,7 @@ type WorkbenchContextValue = {
     deckBrowserGridSizeStep: number;
     drawerTab: DrawerTab;
     drawerViewModes: DrawerViewModeMap;
-    expandedSegmentIds: string[];
+    expandedGroupIds: string[];
     inspectorTab: InspectorTab;
     libraryPanelView: LibraryPanelView;
     overlayDefaults: OverlayDefaultsState;
@@ -63,7 +63,7 @@ type WorkbenchContextValue = {
     setDeckBrowserGridItemSize: (size: number) => void;
     setDrawerTab: (tab: DrawerTab) => void;
     setDrawerViewMode: (tab: DrawerTab, mode: ResourceDrawerViewMode) => void;
-    setExpandedSegmentIds: (segmentIds: string[]) => void;
+    setExpandedGroupIds: (groupIds: string[]) => void;
     setInspectorTab: (tab: InspectorTab) => void;
     setLibraryPanelView: (view: LibraryPanelView) => void;
     updateOverlayDefaults: (next: Partial<OverlayDefaultsState>) => void;
@@ -85,7 +85,7 @@ const DECK_BROWSER_STORAGE_KEY = 'lumacast.deck-browser-preferences.v1';
 const DRAWER_VIEW_MODES_STORAGE_KEY = 'lumacast.drawer-view-modes.v1';
 const DEFAULT_DRAWER_VIEW_MODES: DrawerViewModeMap = { deck: 'grid', image: 'grid', themes: 'grid' };
 const LIBRARY_PANEL_VIEW_STORAGE_KEY = 'lumacast.library-panel-view.v1';
-const EXPANDED_SEGMENTS_STORAGE_KEY = 'lumacast.library-panel-expanded-segments.v1';
+const EXPANDED_GROUPS_STORAGE_KEY = 'lumacast.library-panel-expanded-groups.v1';
 const OVERLAY_DEFAULTS_STORAGE_KEY = 'lumacast.overlay-defaults.v1';
 const PROGRAM_MODE_STORAGE_KEY = 'lumacast.program-mode.v1';
 const PROGRAM_SINGLE_SURFACE_STORAGE_KEY = 'lumacast.program-single-surface.v1';
@@ -111,10 +111,10 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     'libraries',
     parseLibraryPanelView,
   );
-  const [expandedSegmentIds, setExpandedSegmentIds] = useLocalStorage<string[]>(
-    EXPANDED_SEGMENTS_STORAGE_KEY,
+  const [expandedGroupIds, setExpandedGroupIds] = useLocalStorage<string[]>(
+    EXPANDED_GROUPS_STORAGE_KEY,
     [],
-    parseExpandedSegmentIds,
+    parseExpandedGroupIds,
     JSON.stringify,
   );
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('presentation');
@@ -214,7 +214,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     deckBrowserGridSizeStep,
     drawerTab,
     drawerViewModes,
-    expandedSegmentIds,
+    expandedGroupIds,
     inspectorTab,
     libraryPanelView,
     overlayDefaults,
@@ -232,7 +232,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     deckBrowserPreferences,
     drawerTab,
     drawerViewModes,
-    expandedSegmentIds,
+    expandedGroupIds,
     inspectorTab,
     libraryPanelView,
     overlayDefaults,
@@ -246,7 +246,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setDeckBrowserGridItemSize,
     setDrawerTab,
     setDrawerViewMode,
-    setExpandedSegmentIds,
+    setExpandedGroupIds,
     setInspectorTab,
     setLibraryPanelView,
     updateOverlayDefaults,
@@ -260,7 +260,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setDeckBrowserGridItemSize,
     setDrawerTab,
     setDrawerViewMode,
-    setExpandedSegmentIds,
+    setExpandedGroupIds,
     setInspectorTab,
     setLibraryPanelView,
     updateOverlayDefaults,
@@ -325,7 +325,7 @@ function parseLibraryPanelView(raw: string): LibraryPanelView | null {
   return raw === 'playlist' ? 'playlist' : raw === 'libraries' ? 'libraries' : null;
 }
 
-function parseExpandedSegmentIds(raw: string): string[] | null {
+function parseExpandedGroupIds(raw: string): string[] | null {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || !parsed.every((value) => typeof value === 'string')) return null;

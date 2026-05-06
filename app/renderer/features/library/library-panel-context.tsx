@@ -1,28 +1,28 @@
 import { useWorkbench } from '../../contexts/workbench-context';
 
 interface LibraryPanelContextValue {
-  expandedSegmentIds: string[];
+  expandedGroupIds: string[];
   libraryPanelView: ReturnType<typeof useWorkbench>['state']['libraryPanelView'];
-  setExpandedSegmentIds: (segmentIds: string[]) => void;
+  setExpandedGroupIds: (groupIds: string[]) => void;
   setLibraryPanelView: (view: ReturnType<typeof useWorkbench>['state']['libraryPanelView']) => void;
 }
 
 export function useLibraryPanelState(): LibraryPanelContextValue {
   const {
     state: {
-      expandedSegmentIds,
+      expandedGroupIds,
       libraryPanelView,
     },
     actions: {
-      setExpandedSegmentIds,
+      setExpandedGroupIds,
       setLibraryPanelView,
     },
   } = useWorkbench();
 
   return {
-    expandedSegmentIds,
+    expandedGroupIds,
     libraryPanelView,
-    setExpandedSegmentIds,
+    setExpandedGroupIds,
     setLibraryPanelView,
   };
 }

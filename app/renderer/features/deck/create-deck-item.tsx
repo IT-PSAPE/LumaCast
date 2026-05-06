@@ -55,7 +55,7 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
 
   const [name, setName] = useState('');
   const [themeId, setThemeId] = useState<string>('');
-  const [segmentId, setSegmentId] = useState<string>('');
+  const [groupId, setGroupId] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -64,7 +64,7 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
     if (!isOpen) return;
     setName('');
     setThemeId('');
-    setSegmentId('');
+    setGroupId('');
     setBusy(false);
     // Focus after the Dialog content takes focus on mount.
     const handle = setTimeout(() => inputRef.current?.focus(), 0);
@@ -76,12 +76,12 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
     [themes, kind],
   );
 
-  const segmentOptions = useMemo(() => {
+  const groupOptions = useMemo(() => {
     if (!currentLibraryBundle) return [];
     return currentLibraryBundle.playlists.flatMap((tree) => (
-      tree.segments.map((segment) => ({
-        value: segment.segment.id,
-        label: `${tree.playlist.name} › ${segment.segment.name}`,
+      tree.groups.map((group) => ({
+        value: group.group.id,
+        label: `${tree.playlist.name} › ${group.group.name}`,
       }))
     ));
   }, [currentLibraryBundle]);
@@ -94,7 +94,7 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
         kind,
         name,
         themeId: themeId ? (themeId as Id) : undefined,
-        segmentId: segmentId ? (segmentId as Id) : undefined,
+        groupId: groupId ? (groupId as Id) : undefined,
       });
       onClose();
       if (thenOpenEditor) openLyricEditor();
@@ -150,14 +150,14 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
                   ]}
                 />
               ) : null}
-              {segmentOptions.length > 0 ? (
+              {groupOptions.length > 0 ? (
                 <FieldSelect
                   label="Add to playlist"
-                  value={segmentId}
-                  onChange={setSegmentId}
+                  value={groupId}
+                  onChange={setGroupId}
                   options={[
                     { value: '', label: "Don't add to a playlist" },
-                    ...segmentOptions,
+                    ...groupOptions,
                   ]}
                 />
               ) : null}

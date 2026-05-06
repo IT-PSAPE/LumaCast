@@ -17,7 +17,7 @@ export interface Playlist {
   updatedAt: string;
 }
 
-export interface PlaylistSegment {
+export interface PlaylistGroup {
   id: Id;
   playlistId: Id;
   name: string;
@@ -29,7 +29,7 @@ export interface PlaylistSegment {
 
 export interface PlaylistEntry {
   id: Id;
-  segmentId: Id;
+  groupId: Id;
   presentationId: Id | null;
   lyricId: Id | null;
   order: number;
@@ -369,7 +369,7 @@ export interface DeckBundlePlaylistEntry {
   order: number;
 }
 
-export interface DeckBundlePlaylistSegment {
+export interface DeckBundlePlaylistGroup {
   id: Id;
   name: string;
   colorKey: string | null;
@@ -382,7 +382,7 @@ export interface DeckBundlePlaylist {
   name: string;
   libraryName: string;
   order: number;
-  segments: DeckBundlePlaylistSegment[];
+  groups: DeckBundlePlaylistGroup[];
 }
 
 export interface DeckBundleManifest {
@@ -433,7 +433,7 @@ export interface DeckBundleInspectionPlaylist {
   id: Id;
   name: string;
   libraryName: string;
-  segmentCount: number;
+  groupCount: number;
   entryCount: number;
 }
 
@@ -474,8 +474,8 @@ export interface DeckBundleBrokenReferenceDecision {
 
 export interface PlaylistTree {
   playlist: Playlist;
-  segments: Array<{
-    segment: PlaylistSegment;
+  groups: Array<{
+    group: PlaylistGroup;
     entries: Array<{
       entry: PlaylistEntry;
       item: DeckItem;

@@ -1,31 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import { APP_MENU_EVENTS, IPC, NDI_EVENTS } from '@core/ipc';
-import type { NdiFramePortMessage, NdiFramePortReply } from './ndi/ndi-protocol';
-
-// ─── NDI frame channel (zero-copy port) ────────────────────────────
-//
-// The main process hands us a MessagePort on every renderer load so frame
-// buffers transfer straight to the NDI utility process. Until the port
-// arrives we fall back to ordinary ipcRenderer.send (cloned) — which means
-// the very first capture (if any) before page-load completes is still
-// correct, just non-zero-copy.
-let ndiFramePort: MessagePort | null = null;
-const ndiFrameAckCallbacks = new Set<(name: import('@core/types').NdiOutputName) => void>();
-
-ipcRenderer.on('ndi:frame-channel', (event) => {
-  const port = event.ports[0];
-  if (!port) return;
-  // Replace any existing port (e.g. on a hot-reload).
-  try { ndiFramePort?.close(); } catch { /* ignore */ }
-  ndiFramePort = port;
-  port.onmessage = (msg) => {
-    const data = msg.data as NdiFramePortReply | undefined;
-    if (data?.type === 'ack') {
-      for (const cb of ndiFrameAckCallbacks) cb(data.name);
-    }
-  };
-  port.start();
-});
 import type {
   AppSnapshot,
   DeckBundleBrokenReferenceDecision,
@@ -81,16 +55,16 @@ const api = {
     ipcRenderer.invoke(IPC.finalizeImportBundle, filePath, decisions) as Promise<AppSnapshot>,
   createLibrary: (name: string) => ipcRenderer.invoke(IPC.createLibrary, name),
   createPlaylist: (libraryId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylist, libraryId, name),
-  createPlaylistSegment: (playlistId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylistSegment, playlistId, name),
-  renamePlaylistSegment: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylistSegment, id, name),
-  setPlaylistSegmentColor: (id: Id, colorKey: string | null) => ipcRenderer.invoke(IPC.setPlaylistSegmentColor, id, colorKey),
+  createPlaylistGroup: (playlistId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylistGroup, playlistId, name),
+  renamePlaylistGroup: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylistGroup, id, name),
+  setPlaylistGroupColor: (id: Id, colorKey: string | null) => ipcRenderer.invoke(IPC.setPlaylistGroupColor, id, colorKey),
   movePlaylist: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.movePlaylist, id, direction),
-  addDeckItemToSegment: (segmentId: Id, itemId: Id) =>
-    ipcRenderer.invoke(IPC.addDeckItemToSegment, segmentId, itemId),
-  moveDeckItemToSegment: (playlistId: Id, itemId: Id, segmentId: Id | null) =>
-    ipcRenderer.invoke(IPC.moveDeckItemToSegment, playlistId, itemId, segmentId),
-  movePlaylistEntryToSegment: (entryId: Id, segmentId: Id | null) =>
-    ipcRenderer.invoke(IPC.movePlaylistEntryToSegment, entryId, segmentId),
+  addDeckItemToGroup: (groupId: Id, itemId: Id) =>
+    ipcRenderer.invoke(IPC.addDeckItemToGroup, groupId, itemId),
+  moveDeckItemToGroup: (playlistId: Id, itemId: Id, groupId: Id | null) =>
+    ipcRenderer.invoke(IPC.moveDeckItemToGroup, playlistId, itemId, groupId),
+  movePlaylistEntryToGroup: (entryId: Id, groupId: Id | null) =>
+    ipcRenderer.invoke(IPC.movePlaylistEntryToGroup, entryId, groupId),
   movePlaylistEntry: (entryId: Id, direction: 'up' | 'down') =>
     ipcRenderer.invoke(IPC.movePlaylistEntry, entryId, direction),
   moveDeckItem: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.moveDeckItem, id, direction),
@@ -103,8 +77,8 @@ const api = {
   setSlideOrder: (input: SlideOrderUpdateInput) => ipcRenderer.invoke(IPC.setSlideOrder, input),
   setLibraryOrder: (libraryId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setLibraryOrder, libraryId, newOrder),
   setPlaylistOrder: (playlistId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistOrder, playlistId, newOrder),
-  setPlaylistSegmentOrder: (segmentId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistSegmentOrder, segmentId, newOrder),
-  movePlaylistEntryTo: (entryId: Id, segmentId: Id, newOrder: number) => ipcRenderer.invoke(IPC.movePlaylistEntryTo, entryId, segmentId, newOrder),
+  setPlaylistGroupOrder: (groupId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistGroupOrder, groupId, newOrder),
+  movePlaylistEntryTo: (entryId: Id, groupId: Id, newOrder: number) => ipcRenderer.invoke(IPC.movePlaylistEntryTo, entryId, groupId, newOrder),
   createElement: (input: ElementCreateInput) => ipcRenderer.invoke(IPC.createElement, input),
   createElementsBatch: (inputs: ElementCreateInput[]) => ipcRenderer.invoke(IPC.createElementsBatch, inputs),
   updateElement: (input: ElementUpdateInput) => ipcRenderer.invoke(IPC.updateElement, input),
@@ -140,7 +114,7 @@ const api = {
   renameLyric: (id: Id, title: string) => ipcRenderer.invoke(IPC.renameLyric, id, title),
   deleteLibrary: (id: Id) => ipcRenderer.invoke(IPC.deleteLibrary, id),
   deletePlaylist: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylist, id),
-  deletePlaylistSegment: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylistSegment, id),
+  deletePlaylistGroup: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylistGroup, id),
   deletePresentation: (id: Id) => ipcRenderer.invoke(IPC.deletePresentation, id),
   deleteLyric: (id: Id) => ipcRenderer.invoke(IPC.deleteLyric, id),
   setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) =>
@@ -151,14 +125,9 @@ const api = {
     ipcRenderer.invoke(IPC.updateNdiOutputConfig, name, config) as Promise<NdiOutputConfigMap>,
   getNdiDiagnostics: () => ipcRenderer.invoke(IPC.getNdiDiagnostics) as Promise<NdiDiagnostics>,
   sendNdiFrame: (name: NdiOutputName, buffer: ArrayBuffer, width: number, height: number, telemetry?: NdiFrameTelemetry) => {
-    if (ndiFramePort) {
-      // Zero-copy: buffer ownership transfers to the utility process.
-      const message: NdiFramePortMessage = { type: 'frame', name, buffer, width, height, telemetry };
-      ndiFramePort.postMessage(message, [buffer]);
-      return;
-    }
-    // Fallback for the brief window before the frame port arrives — keeps
-    // existing structured-clone IPC path working end-to-end.
+    // Use ordinary IPC cloning for frame delivery. Electron's renderer
+    // transfer-list path rejects ArrayBuffer here, which prevents frames from
+    // reaching main and leaves NDI diagnostics stuck at zero.
     ipcRenderer.send(IPC.sendNdiFrame, { name, buffer, width, height, telemetry });
   },
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => {
@@ -172,15 +141,9 @@ const api = {
     return () => { ipcRenderer.removeListener(NDI_EVENTS.diagnosticsChanged, handler); };
   },
   onNdiFrameAck: (callback: (name: NdiOutputName) => void) => {
-    // Listen on both the legacy IPC channel (used during port-warmup) and
-    // the direct MessagePort. Either path yields one ack per frame.
     const handler = (_event: IpcRendererEvent, name: NdiOutputName) => callback(name);
     ipcRenderer.on(NDI_EVENTS.frameAck, handler);
-    ndiFrameAckCallbacks.add(callback);
-    return () => {
-      ipcRenderer.removeListener(NDI_EVENTS.frameAck, handler);
-      ndiFrameAckCallbacks.delete(callback);
-    };
+    return () => { ipcRenderer.removeListener(NDI_EVENTS.frameAck, handler); };
   },
   createCollection: (input: CollectionCreateInput) => ipcRenderer.invoke(IPC.createCollection, input),
   renameCollection: (input: CollectionRenameInput) => ipcRenderer.invoke(IPC.renameCollection, input),

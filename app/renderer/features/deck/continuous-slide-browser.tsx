@@ -95,7 +95,7 @@ function ContinuousSlideGridView({ items }: { items: PlaylistDeckSequenceItem[] 
   });
 
   return (
-    <ScrollArea.Root>
+    <ScrollArea.Root scrollPadding={16}>
       <ScrollArea.Viewport ref={viewportRef} style={{ contain: 'strict' }}>
         <div style={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
           {virtualizer.getVirtualItems().map((virtualRow) => {

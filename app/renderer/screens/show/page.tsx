@@ -28,15 +28,17 @@ function ShowScreenContent() {
       </SplitPanel.Segment>
       <SplitPanel.Segment id="show-center" defaultSize={840} minSize={360}>
         <SplitPanel.Panel splitId="show-center" orientation="vertical" className="h-full">
-          <SplitPanel.Segment id="show-middle" defaultSize={600} minSize={360}>
+          <SplitPanel.Segment id="show-middle" defaultSize={600} minSize={360} className="flex flex-col">
             <DeckBrowserToolbar items={browser.items} headerVariant={browser.headerVariant} />
-            {browser.contentVariant === 'empty' && (
-              <div className="flex h-full min-h-0 items-center justify-center p-2">
-                <Logo className="size-60 opacity-10" />
-              </div>
-            )}
-            <SlideBrowserContent variant={browser.contentVariant} />
-            <ContinuousSlideBrowser variant={browser.contentVariant} items={browser.items} />
+            <div className="min-h-0 flex-1">
+              {browser.contentVariant === 'empty' && (
+                <div className="flex h-full min-h-0 items-center justify-center p-2">
+                  <Logo className="size-60 opacity-10" />
+                </div>
+              )}
+              <SlideBrowserContent variant={browser.contentVariant} />
+              <ContinuousSlideBrowser variant={browser.contentVariant} items={browser.items} />
+            </div>
           </SplitPanel.Segment>
           <SplitPanel.Segment id="show-bottom" defaultSize={260} minSize={96} collapsible>
             <ResourceDrawer.Root>

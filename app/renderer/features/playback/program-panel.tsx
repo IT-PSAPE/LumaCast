@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { ChevronDown, AlignLeft, Film, Image, Layers, Layers2, LayoutGrid, Pause, Pencil, Play, Plus, RectangleHorizontal, SkipBack, SkipForward, Upload, Volume2, VolumeX, XCircle } from 'lucide-react';
+import { ChevronDown, AlignLeft, Film, Image, Layers, Layers2, LayoutGrid, Pause, Pencil, Play, Plus, RectangleHorizontal, Repeat, SkipBack, SkipForward, Upload, Volume2, VolumeX, XCircle } from 'lucide-react';
 import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
@@ -435,6 +435,14 @@ function VideoBackgroundControls() {
         <ReacstButton.Icon variant="ghost" label={video.muted ? 'Unmute video' : 'Mute video'} disabled={!hasVideo} onClick={video.toggleMuted}>
           {video.muted ? <VolumeX /> : <Volume2 />}
         </ReacstButton.Icon>
+        <ReacstButton.Icon
+          variant="ghost"
+          active={video.loopEnabled}
+          label={video.loopEnabled ? 'Loop on — click to stop at end' : 'Loop off — click to repeat'}
+          onClick={video.toggleLoop}
+        >
+          <Repeat />
+        </ReacstButton.Icon>
         <ReacstButton.Icon variant="ghost" label="Next video" disabled={!hasVideo} onClick={video.playNext}>
           <SkipForward />
         </ReacstButton.Icon>
@@ -512,6 +520,14 @@ function AudioBackgroundControls() {
         </ReacstButton.Icon>
         <ReacstButton.Icon variant="ghost" label={audio.muted ? 'Unmute audio' : 'Mute audio'} disabled={!hasAudio} onClick={audio.toggleMuted}>
           {audio.muted ? <VolumeX /> : <Volume2 />}
+        </ReacstButton.Icon>
+        <ReacstButton.Icon
+          variant="ghost"
+          active={audio.loopEnabled}
+          label={audio.loopEnabled ? 'Loop on — click to stop at end' : 'Loop off — click to repeat'}
+          onClick={audio.toggleLoop}
+        >
+          <Repeat />
         </ReacstButton.Icon>
         <ReacstButton.Icon variant="ghost" label="Next track" disabled={!hasAudio} onClick={audio.playNext}>
           <SkipForward />

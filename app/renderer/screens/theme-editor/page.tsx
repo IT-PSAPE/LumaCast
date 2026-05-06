@@ -60,7 +60,7 @@ function ThemeEditorScreenContent() {
                       <EmptyState.Description>Click the + button to create your first theme.</EmptyState.Description>
                     </EmptyState.Root>
                   ) : (
-                    <ScrollArea.Root>
+                    <ScrollArea.Root scrollPadding={8}>
                       <ScrollArea.Viewport className="p-2">
                         <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Themes">
                           {state.themes.map((theme, index) => (
