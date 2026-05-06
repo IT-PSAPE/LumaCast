@@ -4,6 +4,7 @@ import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
 import { useProjectContent } from '../use-project-content';
 import { getLayerVideoElement, retainVideoSource, subscribeToVideoPool } from '../../features/canvas/use-k-video';
+import { addNdiAudioElement, removeNdiAudioElement } from '../../features/playback/ndi-audio-capture';
 import {
   activateOverlayPlayback,
   advanceOverlayPlayback,
@@ -419,12 +420,14 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     audioEl.addEventListener('durationchange', handleDurationChange);
     audioEl.addEventListener('ended', handleEnded);
     audioEl.addEventListener('error', handleError);
+    addNdiAudioElement(audioEl);
 
     return () => {
       audioEl.removeEventListener('timeupdate', handleTimeUpdate);
       audioEl.removeEventListener('durationchange', handleDurationChange);
       audioEl.removeEventListener('ended', handleEnded);
       audioEl.removeEventListener('error', handleError);
+      removeNdiAudioElement(audioEl);
       audioEl.pause();
       audioEl.removeAttribute('src');
       audioEl.load();
@@ -642,6 +645,15 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const unsubscribe = subscribeToVideoPool(refresh);
     return () => { unsubscribe(); };
   }, [videoLayerAsset]);
+
+  // Hand each layer-video element to the NDI audio bus while it's the active
+  // source. The bus retains its source nodes per element so re-arming the
+  // same element later is idempotent.
+  useEffect(() => {
+    if (!layerVideoElement) return;
+    addNdiAudioElement(layerVideoElement);
+    return () => { removeNdiAudioElement(layerVideoElement); };
+  }, [layerVideoElement]);
 
   // Mirror the element's playback state into React state for the UI.
   useEffect(() => {

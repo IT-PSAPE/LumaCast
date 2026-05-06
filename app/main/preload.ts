@@ -130,6 +130,18 @@ const api = {
     // reaching main and leaves NDI diagnostics stuck at zero.
     ipcRenderer.send(IPC.sendNdiFrame, { name, buffer, width, height, telemetry });
   },
+  sendNdiAudio: (
+    name: NdiOutputName,
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
+  ) => {
+    // Slice so the buffer we ship is exactly the audio data — Float32Array
+    // views can sit inside a larger backing buffer.
+    const buffer = samples.slice().buffer as ArrayBuffer;
+    ipcRenderer.send(IPC.sendNdiAudio, { name, buffer, sampleRate, channels, samplesPerChannel });
+  },
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => {
     const handler = (_event: IpcRendererEvent, state: NdiOutputState) => callback(state);
     ipcRenderer.on(NDI_EVENTS.outputStateChanged, handler);

@@ -316,4 +316,31 @@ export const registerIpcHandlers = (
     }
     },
   );
+  ipcMain.on(
+    IPC.sendNdiAudio,
+    (event, payload: {
+      name: NdiOutputName;
+      buffer: ArrayBuffer;
+      sampleRate: number;
+      channels: number;
+      samplesPerChannel: number;
+    }) => {
+      try {
+        assertTrustedIpcSender(event);
+        if (!payload || typeof payload !== 'object') {
+          throw new Error('NDI audio payload must be an object');
+        }
+        const { name, buffer, sampleRate, channels, samplesPerChannel } = payload;
+        if (!NDI_OUTPUT_NAMES.has(name)) {
+          throw new Error(`Invalid NDI output name: ${String(name)}`);
+        }
+        if (!(buffer instanceof ArrayBuffer)) {
+          throw new Error('NDI audio payload must include an ArrayBuffer');
+        }
+        ndiService.receiveAudioFrame(name, new Float32Array(buffer), sampleRate, channels, samplesPerChannel);
+      } catch (error) {
+        console.error(`[IPC ${IPC.sendNdiAudio}]`, error);
+      }
+    },
+  );
 };

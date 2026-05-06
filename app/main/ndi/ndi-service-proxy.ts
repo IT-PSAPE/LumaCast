@@ -105,6 +105,28 @@ export class NdiServiceProxy implements NdiServiceLike {
     this.send({ type: 'frame', name, buffer, width, height, telemetry });
   }
 
+  receiveAudioFrame(
+    name: NdiOutputName,
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
+  ): void {
+    if (this.destroyed) return;
+    // Copy into a fresh ArrayBuffer so structured clone serializes only the
+    // actual samples — `samples.buffer` may be a view into a larger backing
+    // buffer (e.g. when slicing a worklet output).
+    const copy = samples.slice();
+    this.send({
+      type: 'audio',
+      name,
+      buffer: copy.buffer as ArrayBuffer,
+      sampleRate,
+      channels,
+      samplesPerChannel,
+    });
+  }
+
   onOutputStateChanged(callback: StateChangeCallback): () => void {
     this.stateChangeListeners.push(callback);
     return () => {

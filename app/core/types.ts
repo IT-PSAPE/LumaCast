@@ -579,6 +579,7 @@ export interface NdiActiveSenderDiagnostics {
   asyncVideoSend: boolean;
   connectionCount: number | null;
   performance: NdiSenderPerformanceDiagnostics;
+  audio: NdiSenderAudioDiagnostics;
 }
 
 export interface NdiFrameTelemetry {
@@ -602,6 +603,15 @@ export interface NdiSenderPerformanceDiagnostics {
   avgReadbackDurationMs: number;
   avgSendDurationMs: number;
   lastFrameBytes: number;
+}
+
+export interface NdiSenderAudioDiagnostics {
+  audioFramesReceived: number;
+  audioFramesSent: number;
+  audioFramesRejected: number;
+  audioSamplesSent: number;
+  lastSampleRate: number;
+  lastChannels: number;
 }
 
 export interface NdiDiagnostics {

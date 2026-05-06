@@ -115,6 +115,13 @@ export interface MainApi {
     height: number,
     telemetry?: NdiFrameTelemetry,
   ) => void;
+  sendNdiAudio: (
+    name: NdiOutputName,
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
+  ) => void;
   onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => () => void;
   getAudioCoverArt: (src: string) => Promise<string | null>;
   onNdiDiagnosticsChanged: (callback: (diagnostics: NdiDiagnostics) => void) => () => void;
@@ -276,6 +283,7 @@ export const IPC = {
   updateNdiOutputConfig: 'ndi:updateOutputConfig',
   getNdiDiagnostics: 'ndi:getDiagnostics',
   sendNdiFrame: 'ndi:sendFrame',
+  sendNdiAudio: 'ndi:sendAudio',
   createCollection: 'cast:createCollection',
   renameCollection: 'cast:renameCollection',
   deleteCollection: 'cast:deleteCollection',

@@ -59,6 +59,10 @@ export class NoopNdiService implements NdiServiceLike {
     // Silently dropped — NDI output is unavailable.
   }
 
+  receiveAudioFrame(): void {
+    // Silently dropped — NDI output is unavailable.
+  }
+
   onOutputStateChanged(): () => void {
     return () => undefined;
   }

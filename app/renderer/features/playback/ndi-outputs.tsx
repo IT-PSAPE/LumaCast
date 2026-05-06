@@ -1,7 +1,10 @@
+import { useEffect } from 'react';
+import type { NdiOutputName } from '@core/types';
 import { useNdi } from '../../contexts/app-context';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { BindingProvider } from '../canvas/binding-context';
 import { NdiFrameCapture } from './ndi-frame-capture';
+import { setNdiAudioEnabledOutputs } from './ndi-audio-capture';
 import { useProgramBindingValue, useStageBindingValue, useStageScene } from './use-stage-scene';
 
 // Mounts one NdiFrameCapture per configured NDI output. Each instance owns its
@@ -19,6 +22,14 @@ export function NdiOutputs() {
   const stageScene = useStageScene();
   const programBindingValue = useProgramBindingValue();
   const stageBindingValue = useStageBindingValue();
+
+  // Audio rides the audience feed only — the stage NDI is a presenter monitor
+  // and is intentionally silent. If that ever changes, add 'stage' here too.
+  useEffect(() => {
+    const enabled = new Set<NdiOutputName>();
+    if (outputState.audience) enabled.add('audience');
+    setNdiAudioEnabledOutputs(enabled);
+  }, [outputState.audience]);
 
   return (
     <>

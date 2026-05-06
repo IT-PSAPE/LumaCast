@@ -9,6 +9,7 @@ export type NdiRuntimeInfo = {
   loaded: boolean;
   path: string | null;
   asyncVideoSend: boolean;
+  audioSend: boolean;
 };
 
 export type NdiAddonInfo = {
@@ -20,6 +21,15 @@ export function initializeSender(config: NdiSenderConfig): void;
 export function sendBgraFrame(senderName: string, frame: Uint8Array, width: number, height: number, stride: number): void;
 
 export function sendRgbaFrame(senderName: string, frame: Uint8Array, width: number, height: number): void;
+
+// Planar 32-bit float audio: samples = [ch0..., ch1..., ...], length = channels * samplesPerChannel.
+export function sendAudioFrame(
+  senderName: string,
+  samples: Float32Array,
+  sampleRate: number,
+  channels: number,
+  samplesPerChannel: number,
+): void;
 
 export function getSenderConnections(senderName: string, timeoutMs?: number): number;
 

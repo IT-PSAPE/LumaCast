@@ -92,6 +92,17 @@ function SenderDiagnosticsBlock({ name, diagnostics }: { name: NdiOutputName; di
       <div>{OUTPUT_TITLES[name]} average readback time: {performance.avgReadbackDurationMs.toFixed(2)} ms</div>
       <div>{OUTPUT_TITLES[name]} average send time: {performance.avgSendDurationMs.toFixed(2)} ms</div>
       <div>{OUTPUT_TITLES[name]} rejected frames: {performance.framesRejected}</div>
+      <div>
+        {OUTPUT_TITLES[name]} audio: received {diagnostics.audio.audioFramesReceived} ·
+        sent {diagnostics.audio.audioFramesSent} ·
+        samples {diagnostics.audio.audioSamplesSent} ·
+        {diagnostics.audio.lastSampleRate > 0
+          ? ` ${diagnostics.audio.lastSampleRate} Hz × ${diagnostics.audio.lastChannels}ch`
+          : ' inactive'}
+        {diagnostics.audio.audioFramesRejected > 0
+          ? ` · rejected ${diagnostics.audio.audioFramesRejected}`
+          : ''}
+      </div>
     </>
   );
 }
