@@ -216,8 +216,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
         pointerEvents: 'none',
       }}
     >
-      <Stage ref={stageRef} width={NDI_OUTPUT_WIDTH} height={NDI_OUTPUT_HEIGHT}>
-        <Layer>
+      <Stage ref={stageRef} width={NDI_OUTPUT_WIDTH} height={NDI_OUTPUT_HEIGHT} listening={false}>
+        <Layer listening={false}>
           {!withAlpha ? (
             <Group>
               <SceneNodeShape node={{

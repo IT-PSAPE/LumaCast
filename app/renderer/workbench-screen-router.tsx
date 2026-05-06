@@ -1,11 +1,29 @@
+import { lazy, Suspense } from 'react';
 import { useWorkbench } from './contexts/workbench-context';
 import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
-import { DeckEditorScreen } from './screens/deck-editor/page';
-import { OverlayEditorScreen } from './screens/overlay-editor/page';
-import { SettingsScreen } from './screens/settings/page';
+
+// Show screen is the most common landing surface — keep it eagerly loaded so
+// cold open lands on a visible UI without a Suspense flash.
 import { ShowScreen } from './screens/show/page';
-import { StageEditorScreen } from './screens/stage-editor/page';
-import { ThemeEditorScreen } from './screens/theme-editor/page';
+
+// Editors and settings are heavyweight (Konva, big inspectors, asset editors)
+// and only ever entered from a menu/command. Code-splitting them keeps the
+// initial renderer bundle small.
+const DeckEditorScreen = lazy(() =>
+  import('./screens/deck-editor/page').then((m) => ({ default: m.DeckEditorScreen })),
+);
+const OverlayEditorScreen = lazy(() =>
+  import('./screens/overlay-editor/page').then((m) => ({ default: m.OverlayEditorScreen })),
+);
+const ThemeEditorScreen = lazy(() =>
+  import('./screens/theme-editor/page').then((m) => ({ default: m.ThemeEditorScreen })),
+);
+const StageEditorScreen = lazy(() =>
+  import('./screens/stage-editor/page').then((m) => ({ default: m.StageEditorScreen })),
+);
+const SettingsScreen = lazy(() =>
+  import('./screens/settings/page').then((m) => ({ default: m.SettingsScreen })),
+);
 
 export function WorkbenchScreenRouter() {
   const { state: { workbenchMode } } = useWorkbench();
@@ -16,21 +34,13 @@ export function WorkbenchScreenRouter() {
     return <ShowScreen />;
   }
 
-  if (workbenchMode === 'deck-editor') {
-    return <DeckEditorScreen />;
-  }
-
-  if (workbenchMode === 'overlay-editor') {
-    return <OverlayEditorScreen />;
-  }
-
-  if (workbenchMode === 'theme-editor') {
-    return <ThemeEditorScreen />;
-  }
-
-  if (workbenchMode === 'stage-editor') {
-    return <StageEditorScreen />;
-  }
-
-  return <SettingsScreen />;
+  return (
+    <Suspense fallback={null}>
+      {workbenchMode === 'deck-editor' ? <DeckEditorScreen /> : null}
+      {workbenchMode === 'overlay-editor' ? <OverlayEditorScreen /> : null}
+      {workbenchMode === 'theme-editor' ? <ThemeEditorScreen /> : null}
+      {workbenchMode === 'stage-editor' ? <StageEditorScreen /> : null}
+      {workbenchMode === 'settings' ? <SettingsScreen /> : null}
+    </Suspense>
+  );
 }

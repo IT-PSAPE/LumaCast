@@ -361,10 +361,25 @@ export class CastRepository {
     this.dbPath = path.join(userData, 'lumacast.sqlite');
     migrateLegacyRecastDatabase(userData, this.dbPath);
     this.db = new SqliteDatabase(this.dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
+    this.applyConnectionTuning();
     this.initializeSchema();
     this.seedIfEmpty();
+  }
+
+  private applyConnectionTuning(): void {
+    // WAL allows concurrent reads/writes; NORMAL is safe with WAL and
+    // significantly faster than the default FULL fsync on commit.
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('foreign_keys = ON');
+    // 64 MB page cache (negative = KB). Cuts page misses on large snapshot reads.
+    this.db.pragma('cache_size = -65536');
+    // 256 MB mmap window — fewer read syscalls; OS pages cached implicitly.
+    this.db.pragma('mmap_size = 268435456');
+    // Keep temp tables in RAM (sorts, joins) instead of spilling to disk.
+    this.db.pragma('temp_store = MEMORY');
+    // Checkpoint the WAL every ~1000 pages so it doesn't grow unboundedly.
+    this.db.pragma('wal_autocheckpoint = 1000');
   }
 
   private initializeSchema(): void {
