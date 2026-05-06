@@ -29,9 +29,15 @@ export function buildLyricTextElement(slideId: Id, text: string): ElementCreateI
 }
 
 export function parseLyricImportText(text: string): string[] {
-  return text
-    .replace(/\r\n/g, '\n')
-    .split(/\n\s*\n/g)
-    .map((block) => block.trim())
+  const normalized = text
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u2028\u2029]/g, '\n');
+
+  const hasBlankLineSeparator = /\n[ \t]*\n/.test(normalized);
+  const splitter = hasBlankLineSeparator ? /\n[ \t]*\n+/g : /\n+/g;
+
+  return normalized
+    .split(splitter)
+    .map((block) => block.replace(/^[ \t\n]+|[ \t\n]+$/g, ''))
     .filter((block) => block.length > 0);
 }

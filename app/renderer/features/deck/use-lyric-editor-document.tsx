@@ -7,12 +7,20 @@ import { useProjectContent } from '../../contexts/use-project-content';
 import { useSlides } from '../../contexts/slide-context';
 import { slideTextDetails } from '../../utils/slides';
 import { buildLyricTextElement } from './lyric-text-utils';
+import { groupSegmentsForSlides, joinSegments } from './lyric-slide-grouping';
+import type { LyricLayoutConfig } from './lyric-layout-config';
 
 function findTextElement(elements: SlideElement[]): SlideElement | null {
   return elements.find((element) => element.type === 'text' && 'text' in element.payload) ?? null;
 }
 
-export function useLyricEditorSave({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+interface UseLyricEditorSaveArgs {
+  isOpen: boolean;
+  onClose: () => void;
+  config: LyricLayoutConfig;
+}
+
+export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSaveArgs) {
   const { currentDeckItem } = useNavigation();
   const { slides } = useSlides();
   const { slideElementsBySlideId } = useProjectContent();
@@ -27,36 +35,31 @@ export function useLyricEditorSave({ isOpen, onClose }: { isOpen: boolean; onClo
     }));
   }, [isOpen, currentDeckItem, slideElementsBySlideId, slides]);
 
-  const slideIds = useMemo(() => new Set(slides.map((s) => s.id)), [slides]);
-
-  const saveRowText = useCallback(async (slideId: Id, text: string, currentElements: SlideElement[]) => {
+  const writeSlideText = useCallback(async (slideId: Id, text: string, currentElements: SlideElement[]) => {
     const textElement = findTextElement(currentElements);
     if (textElement && 'text' in textElement.payload) {
       const currentText = String(textElement.payload.text ?? '');
-      if (currentText !== text) {
-        await mutatePatch(() => window.castApi.updateElement({
-          id: textElement.id,
-          payload: { ...textElement.payload, text },
-        }));
-      }
+      if (currentText === text) return;
+      await mutatePatch(() => window.castApi.updateElement({
+        id: textElement.id,
+        payload: { ...textElement.payload, text },
+      }));
       return;
     }
     await mutatePatch(() => window.castApi.createElement(buildLyricTextElement(slideId, text)));
   }, [mutatePatch]);
 
-  const createSlideForRow = useCallback(async (lyricId: Id, text: string) => {
+  const createSlideWithText = useCallback(async (lyricId: Id, text: string): Promise<Id> => {
     const snapshot = await mutatePatch(() => window.castApi.createSlide({ lyricId }));
     const nextSlide = snapshot.slides
       .filter((slide) => slide.lyricId === lyricId)
       .sort((left, right) => right.order - left.order)
       .at(0);
-
     if (!nextSlide) throw new Error('Unable to create lyric slide.');
-
     const nextSlideElements = snapshot.slideElements.filter((element) => element.slideId === nextSlide.id);
-    await saveRowText(nextSlide.id, text, nextSlideElements);
+    await writeSlideText(nextSlide.id, text, nextSlideElements);
     return nextSlide.id;
-  }, [mutatePatch, saveRowText]);
+  }, [mutatePatch, writeSlideText]);
 
   const saveBlocks = useCallback(async (blocks: Block[]) => {
     if (!currentDeckItem || currentDeckItem.type !== 'lyric') return;
@@ -65,24 +68,32 @@ export function useLyricEditorSave({ isOpen, onClose }: { isOpen: boolean; onClo
 
     try {
       await runOperation('Saving lyrics...', async () => {
-        const removedSlideIds = slides
-          .filter((slide) => !blocks.some((block) => block.id === slide.id))
-          .map((slide) => slide.id);
+        const segments = blocks
+          .map((block) => block.content.replace(/^[ \t\n]+|[ \t\n]+$/g, ''))
+          .filter((content) => content.length > 0);
 
-        for (const slideId of removedSlideIds) {
-          await mutatePatch(() => window.castApi.deleteSlide(slideId));
-        }
+        const slideGroups = groupSegmentsForSlides(segments, config);
+        const slideTexts = slideGroups.map((group) => joinSegments(group));
 
         const orderedSlideIds: Id[] = [];
+        const reusableSlideIds = slides.map((slide) => slide.id);
 
-        for (const block of blocks) {
-          if (slideIds.has(block.id)) {
-            await saveRowText(block.id, block.content, slideElementsBySlideId.get(block.id) ?? []);
-            orderedSlideIds.push(block.id);
+        for (let i = 0; i < slideTexts.length; i += 1) {
+          const text = slideTexts[i];
+          const reuseId = reusableSlideIds[i];
+          if (reuseId) {
+            const elements = slideElementsBySlideId.get(reuseId) ?? [];
+            await writeSlideText(reuseId, text, elements);
+            orderedSlideIds.push(reuseId);
           } else {
-            const createdSlideId = await createSlideForRow(currentDeckItem.id, block.content);
-            orderedSlideIds.push(createdSlideId);
+            const created = await createSlideWithText(currentDeckItem.id, text);
+            orderedSlideIds.push(created);
           }
+        }
+
+        const removedSlideIds = reusableSlideIds.slice(slideTexts.length);
+        for (const slideId of removedSlideIds) {
+          await mutatePatch(() => window.castApi.deleteSlide(slideId));
         }
 
         for (const [index, slideId] of orderedSlideIds.entries()) {
@@ -98,7 +109,7 @@ export function useLyricEditorSave({ isOpen, onClose }: { isOpen: boolean; onClo
     } finally {
       setIsSaving(false);
     }
-  }, [createSlideForRow, currentDeckItem, mutatePatch, onClose, runOperation, saveRowText, setStatusText, slideElementsBySlideId, slideIds, slides]);
+  }, [config, createSlideWithText, currentDeckItem, mutatePatch, onClose, runOperation, setStatusText, slideElementsBySlideId, slides, writeSlideText]);
 
   return { initialBlocks, saveBlocks, isSaving };
 }
