@@ -5,6 +5,7 @@ import { useNavigation } from '../navigation-context';
 import { useProjectContent } from '../use-project-content';
 import { getLayerVideoElement, retainVideoSource, subscribeToVideoPool } from '../../features/canvas/use-k-video';
 import { addNdiAudioElement, removeNdiAudioElement } from '../../features/playback/ndi-audio-capture';
+import { recordObsEvent } from '../../features/observability/metrics-store';
 import {
   activateOverlayPlayback,
   advanceOverlayPlayback,
@@ -240,10 +241,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     if (asset.type === 'video') {
       setVideoLayerAssetId(asset.id);
       setStatusText(`Video layer: ${asset.name}`);
+      recordObsEvent('layer', 'Video layer set', { assetId: asset.id, name: asset.name });
       return;
     }
     setMediaLayerAssetId(asset.id);
     setStatusText(`Media layer: ${asset.name}`);
+    recordObsEvent('layer', 'Media layer set', { assetId: asset.id, name: asset.name, type: asset.type });
   }, [mediaAssetsById, setStatusText]);
 
   const activateOverlay = useCallback((overlayId: Id) => {
@@ -253,6 +256,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setPlaybackNow(now);
     setOverlayEntries((current) => activateOverlayPlayback(current, overlaysById, overlayId, overlayMode, now));
     setStatusText(`Overlay: ${overlay.name}`);
+    recordObsEvent('overlay', 'Overlay activated', { overlayId, name: overlay.name, mode: overlayMode });
   }, [overlayMode, overlaysById, setStatusText]);
 
   const clearOverlay = useCallback((overlayId: Id) => {
@@ -262,6 +266,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setPlaybackNow(now);
     setOverlayEntries((current) => clearOverlayPlayback(current, overlaysById, overlayId, now));
     setStatusText(`Overlay cleared: ${overlay.name}`);
+    recordObsEvent('overlay', 'Overlay cleared', { overlayId, name: overlay.name });
   }, [overlaysById, setStatusText]);
 
   const setOverlayMode = useCallback((mode: OverlayPlaybackMode) => {
@@ -272,6 +277,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
       setOverlayEntries((current) => collapseOverlayPlaybackToSingle(current, overlaysById, now));
     }
     setStatusText(mode === 'single' ? 'Overlay mode: single' : 'Overlay mode: multiple');
+    recordObsEvent('overlay', 'Overlay mode changed', { mode });
   }, [overlaysById, setStatusText]);
 
   const clearAllOverlays = useCallback(() => {
@@ -279,6 +285,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setPlaybackNow(now);
     setOverlayEntries((current) => clearAllOverlayPlayback(current, overlaysById, now));
     setStatusText('All overlays cleared');
+    recordObsEvent('overlay', 'All overlays cleared');
   }, [overlaysById, setStatusText]);
 
   const showContentLayer = useCallback(() => {
@@ -286,6 +293,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearLayer = useCallback((layer: PresentationLayerKey) => {
+    recordObsEvent('layer', 'Layer cleared', { layer });
     if (layer === 'media') {
       setMediaLayerAssetId(null);
       setStatusText('Media layer cleared');
@@ -315,6 +323,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setOverlayEntries([]);
     clearOutputDeckItem();
     setStatusText('All layers cleared');
+    recordObsEvent('layer', 'All layers cleared');
   }, [clearOutputDeckItem, setStatusText]);
 
   const layers = useMemo<LayersValue>(() => ({

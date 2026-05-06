@@ -8,6 +8,8 @@ import type {
   ElementCreateInput,
   ElementUpdateInput,
   Id,
+  LogReadResult,
+  LogSessionSummary,
   MediaAssetCreateInput,
   CollectionAssignmentInput,
   CollectionCreateInput,
@@ -24,6 +26,7 @@ import type {
   OverlayUpdateInput,
   StageCreateInput,
   StageUpdateInput,
+  SystemMetricsSnapshot,
   ThemeCreateInput,
   ThemeUpdateInput,
   SlideCreateInput,
@@ -167,6 +170,12 @@ const api = {
     ipcRenderer.on(APP_MENU_EVENTS.command, handler);
     return () => { ipcRenderer.removeListener(APP_MENU_EVENTS.command, handler); };
   },
+  obsListLogSessions: () => ipcRenderer.invoke(IPC.obsListLogSessions) as Promise<LogSessionSummary[]>,
+  obsReadLogSession: (filePath: string, offset: number, limit: number) =>
+    ipcRenderer.invoke(IPC.obsReadLogSession, filePath, offset, limit) as Promise<LogReadResult>,
+  obsGetCurrentLogPath: () => ipcRenderer.invoke(IPC.obsGetCurrentLogPath) as Promise<string | null>,
+  obsOpenLogFolder: () => ipcRenderer.invoke(IPC.obsOpenLogFolder) as Promise<void>,
+  obsGetSystemMetrics: () => ipcRenderer.invoke(IPC.obsGetSystemMetrics) as Promise<SystemMetricsSnapshot>,
 };
 
 contextBridge.exposeInMainWorld('castApi', api);

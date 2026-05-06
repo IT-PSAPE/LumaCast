@@ -20,6 +20,9 @@ const DIAGNOSTICS_EMIT_INTERVAL_MS = 250;
 const BYTES_PER_PIXEL = 4;
 const MAX_FRAME_BYTES = NDI_OUTPUT_WIDTH * NDI_OUTPUT_HEIGHT * BYTES_PER_PIXEL;
 const ROLLING_AVERAGE_WINDOW = 60;
+// Send-duration sample window — sized to fit ~2s of 30 fps so percentiles
+// reflect recent behavior, not lifetime stats.
+const SEND_LATENCY_SAMPLE_WINDOW = 64;
 
 // Hard caps for audio frames, applied before handing the buffer to the
 // native sender. These are loose enough for any sane Web Audio source but
@@ -27,6 +30,16 @@ const ROLLING_AVERAGE_WINDOW = 60;
 const MAX_AUDIO_CHANNELS = 32;
 const MAX_AUDIO_SAMPLES_PER_CHANNEL = 192000; // 1 second at 192 kHz
 const MAX_AUDIO_SAMPLE_RATE = 192000;
+
+// Blackout burst defaults — receivers see a clean fade to black/silence
+// before signal drop instead of a frozen last frame.
+const DEFAULT_BLACKOUT_FRAME_COUNT = 15;
+const DEFAULT_BLACKOUT_INTERVAL_MS = 1000 / 30;
+const DEFAULT_BLACKOUT_TOTAL_BUDGET_MS = 750;
+const FAST_BLACKOUT_TOTAL_BUDGET_MS = 250;
+const BLACKOUT_AUDIO_SAMPLE_RATE = 48000;
+const BLACKOUT_AUDIO_CHANNELS = 2;
+const BLACKOUT_AUDIO_SAMPLES_PER_CHANNEL = 1024;
 
 type StateChangeCallback = (state: NdiOutputState) => void;
 type DiagnosticsChangeCallback = (diagnostics: NdiDiagnostics) => void;
@@ -37,6 +50,13 @@ interface NdiServiceOptions {
   moduleLoader?: () => NdiNativeModule;
 }
 
+export interface BlackoutOptions {
+  frameCount?: number;
+  intervalMs?: number;
+  totalBudgetMs?: number;
+  destroy?: boolean;
+}
+
 interface SenderState {
   diagnostics: NdiActiveSenderDiagnostics;
   outputName: NdiOutputName;
@@ -44,9 +64,12 @@ interface SenderState {
   lastFrameWidth: number;
   lastFrameHeight: number;
   lastFrameReceivedAt: number;
+  lastSendAt: number;
   captureDurationRolling: RollingAverage;
   readbackDurationRolling: RollingAverage;
   sendDurationRolling: RollingAverage;
+  sendDurationSamples: RollingSampleBuffer;
+  sendIntervalSamples: RollingSampleBuffer;
 }
 
 class RollingAverage {
@@ -74,6 +97,55 @@ class RollingAverage {
   }
 }
 
+// Plain ring buffer of recent samples — used for percentile + jitter
+// calculations that need access to all recent values, not just an average.
+class RollingSampleBuffer {
+  private readonly buffer: number[] = [];
+  private writeIndex = 0;
+
+  constructor(private readonly windowSize: number) {}
+
+  push(value: number): void {
+    if (!Number.isFinite(value)) return;
+    if (this.buffer.length < this.windowSize) {
+      this.buffer.push(value);
+    } else {
+      this.buffer[this.writeIndex] = value;
+      this.writeIndex = (this.writeIndex + 1) % this.windowSize;
+    }
+  }
+
+  snapshot(): number[] {
+    return this.buffer.slice();
+  }
+
+  get size(): number {
+    return this.buffer.length;
+  }
+}
+
+function percentile(sortedAscending: number[], p: number): number {
+  if (sortedAscending.length === 0) return 0;
+  const idx = Math.min(
+    sortedAscending.length - 1,
+    Math.floor((p / 100) * sortedAscending.length),
+  );
+  return sortedAscending[idx];
+}
+
+function standardDeviation(samples: number[]): number {
+  if (samples.length < 2) return 0;
+  let sum = 0;
+  for (const v of samples) sum += v;
+  const mean = sum / samples.length;
+  let varianceSum = 0;
+  for (const v of samples) {
+    const d = v - mean;
+    varianceSum += d * d;
+  }
+  return Math.sqrt(varianceSum / samples.length);
+}
+
 export class NdiService {
   private module: NdiNativeModule | null = null;
   private runtimeLoaded = false;
@@ -90,6 +162,11 @@ export class NdiService {
   private diagnosticsTimer: ReturnType<typeof setTimeout> | null = null;
   private lastDiagnosticsEmitAt = 0;
   private destroyed = false;
+  // Reusable buffers for blackout frames — allocated once on first flush so
+  // every controlled-shutdown path can fire even when allocations are
+  // restricted (e.g. inside an unhandledRejection handler).
+  private blackoutVideoFrame: Uint8Array | null = null;
+  private blackoutAudioFrame: Float32Array | null = null;
 
   private stateChangeListeners: StateChangeCallback[] = [];
   private diagnosticsChangeListeners: DiagnosticsChangeCallback[] = [];
@@ -115,7 +192,10 @@ export class NdiService {
       this.rebuildActiveSenders();
       this.startHeartbeat();
     } else {
-      this.destroySenderForOutput(name);
+      // Run a blackout burst before destroying so receivers see a clean
+      // visual cutoff. Synchronous so callers can rely on the sender being
+      // gone when this returns (subject to the budget timeout).
+      this.flushBlackoutAndDestroy(name);
       this.rebuildActiveSenders();
       if (this.allOutputsDisabled()) {
         this.stopHeartbeat();
@@ -156,15 +236,22 @@ export class NdiService {
       return;
     }
 
-    sender.diagnostics.performance.framesCaptured += 1;
-    sender.diagnostics.performance.bytesReceived += rgba.byteLength;
-    sender.diagnostics.performance.lastFrameBytes = rgba.byteLength;
+    const performanceData = sender.diagnostics.performance;
+    performanceData.framesCaptured += 1;
+    performanceData.bytesReceived += rgba.byteLength;
+    performanceData.lastFrameBytes = rgba.byteLength;
+    if (performanceData.minFrameBytes === 0 || rgba.byteLength < performanceData.minFrameBytes) {
+      performanceData.minFrameBytes = rgba.byteLength;
+    }
+    if (rgba.byteLength > performanceData.maxFrameBytes) {
+      performanceData.maxFrameBytes = rgba.byteLength;
+    }
 
     if (telemetry) {
-      sender.diagnostics.performance.skippedCaptures += telemetry.skippedCaptures;
-      sender.diagnostics.performance.framesDroppedBackpressure += telemetry.framesDroppedBackpressure;
-      sender.diagnostics.performance.avgCaptureDurationMs = sender.captureDurationRolling.push(telemetry.captureDurationMs);
-      sender.diagnostics.performance.avgReadbackDurationMs = sender.readbackDurationRolling.push(telemetry.readbackDurationMs);
+      performanceData.skippedCaptures += telemetry.skippedCaptures;
+      performanceData.framesDroppedBackpressure += telemetry.framesDroppedBackpressure;
+      performanceData.avgCaptureDurationMs = sender.captureDurationRolling.push(telemetry.captureDurationMs);
+      performanceData.avgReadbackDurationMs = sender.readbackDurationRolling.push(telemetry.readbackDurationMs);
     }
 
     sender.lastFrame = rgba;
@@ -269,8 +356,87 @@ export class NdiService {
     };
   }
 
+  // Sends a brief black-video + silent-audio burst to one or all senders so
+  // receivers get a clean visual cutoff before signal loss, then destroys
+  // the sender(s). Bounded by `totalBudgetMs` so a stuck native call cannot
+  // hang process exit. Safe to call multiple times.
+  flushBlackoutAndDestroy(target?: NdiOutputName, opts?: BlackoutOptions): void {
+    if (this.destroyed) return;
+    const targets = target ? [target] : NDI_OUTPUT_ORDER.filter((name) => this.senders.has(name));
+    if (targets.length === 0) return;
+
+    const frameCount = opts?.frameCount ?? DEFAULT_BLACKOUT_FRAME_COUNT;
+    const intervalMs = opts?.intervalMs ?? DEFAULT_BLACKOUT_INTERVAL_MS;
+    const totalBudgetMs = opts?.totalBudgetMs ?? DEFAULT_BLACKOUT_TOTAL_BUDGET_MS;
+    const destroyAfter = opts?.destroy ?? true;
+
+    // Stop heartbeat first — otherwise the timer would resurrect the
+    // pre-blackout frame on the next tick.
+    this.stopHeartbeat();
+
+    const startedAt = performance.now();
+    for (const name of targets) {
+      const sender = this.senders.get(name);
+      if (!sender) continue;
+
+      const opaqueBlack = !sender.diagnostics.withAlpha;
+      const videoFrame = this.getOrCreateBlackoutVideoFrame(opaqueBlack);
+      const audioFrame = this.getOrCreateBlackoutAudioFrame();
+
+      for (let i = 0; i < frameCount; i++) {
+        if (performance.now() - startedAt > totalBudgetMs) break;
+        try {
+          this.module?.sendRgbaFrame(sender.diagnostics.senderName, videoFrame, sender.diagnostics.width, sender.diagnostics.height);
+          sender.diagnostics.performance.blackoutFramesSent += 1;
+          sender.diagnostics.performance.framesSent += 1;
+        } catch (error) {
+          // Native binding gone — abort the burst for this sender.
+          console.error('[NdiService] Blackout video send failed:', error);
+          break;
+        }
+        const sendAudio = this.module?.sendAudioFrame;
+        if (sendAudio) {
+          try {
+            sendAudio(
+              sender.diagnostics.senderName,
+              audioFrame,
+              BLACKOUT_AUDIO_SAMPLE_RATE,
+              BLACKOUT_AUDIO_CHANNELS,
+              BLACKOUT_AUDIO_SAMPLES_PER_CHANNEL,
+            );
+            sender.diagnostics.audio.audioSilenceFramesSent += 1;
+            sender.diagnostics.audio.audioFramesSent += 1;
+          } catch (error) {
+            console.error('[NdiService] Blackout audio send failed:', error);
+          }
+        }
+
+        if (i < frameCount - 1 && intervalMs > 0) {
+          this.busyWait(intervalMs);
+        }
+      }
+    }
+
+    if (destroyAfter) {
+      for (const name of targets) {
+        this.destroySenderForOutput(name);
+      }
+    }
+  }
+
   destroy(): void {
     if (this.destroyed) return;
+    // Last-chance blackout for any sender we still have open — this handles
+    // the case where teardown was reached without an explicit
+    // flushBlackoutAndDestroy call (legacy callers, signal handlers).
+    if (this.senders.size > 0) {
+      try {
+        this.flushBlackoutAndDestroy(undefined, { destroy: false });
+      } catch (error) {
+        console.error('[NdiService] Final blackout failed:', error);
+      }
+    }
+
     this.destroyed = true;
     this.stopHeartbeat();
     this.stopDiagnosticsTimer();
@@ -334,6 +500,7 @@ export class NdiService {
         withAlpha: config.withAlpha,
       });
       this.refreshRuntimeInfo();
+      console.log(`[NdiService] Sender created`, JSON.stringify({ output: name, senderName, width, height, withAlpha: config.withAlpha }));
       this.senders.set(name, {
         diagnostics: {
           senderName,
@@ -342,6 +509,7 @@ export class NdiService {
           withAlpha: config.withAlpha,
           asyncVideoSend: this.asyncVideoSend,
           connectionCount: null,
+          startedAtMs: Date.now(),
           performance: createEmptySenderPerformanceDiagnostics(),
           audio: createEmptySenderAudioDiagnostics(),
         },
@@ -350,9 +518,12 @@ export class NdiService {
         lastFrameWidth: 0,
         lastFrameHeight: 0,
         lastFrameReceivedAt: 0,
+        lastSendAt: 0,
         captureDurationRolling: new RollingAverage(),
         readbackDurationRolling: new RollingAverage(),
         sendDurationRolling: new RollingAverage(),
+        sendDurationSamples: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+        sendIntervalSamples: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
       });
       this.lastError = null;
     } catch (error) {
@@ -373,6 +544,13 @@ export class NdiService {
       console.error('[NdiService] Error destroying sender:', error);
     }
 
+    console.log(`[NdiService] Sender destroyed`, JSON.stringify({
+      output: name,
+      senderName: sender.diagnostics.senderName,
+      uptimeMs: Date.now() - sender.diagnostics.startedAtMs,
+      framesSent: sender.diagnostics.performance.framesSent,
+      blackoutFramesSent: sender.diagnostics.performance.blackoutFramesSent,
+    }));
     this.senders.delete(name);
   }
 
@@ -395,6 +573,7 @@ export class NdiService {
       restored.lastFrameReceivedAt = previous.lastFrameReceivedAt;
       restored.diagnostics.performance = { ...previous.diagnostics.performance };
       restored.diagnostics.audio = { ...previous.diagnostics.audio };
+      restored.diagnostics.startedAtMs = previous.diagnostics.startedAtMs;
       if (previous.lastFrame) {
         restored.diagnostics.performance.cacheCopyBytes += previous.lastFrame.byteLength;
       }
@@ -460,7 +639,22 @@ export class NdiService {
       sender.diagnostics.connectionCount = typeof connectionCount === 'number' && connectionCount >= 0 ? connectionCount : null;
       const startedAt = performance.now();
       this.module.sendRgbaFrame(sender.diagnostics.senderName, rgba, width, height);
-      sender.diagnostics.performance.avgSendDurationMs = sender.sendDurationRolling.push(performance.now() - startedAt);
+      const duration = performance.now() - startedAt;
+      sender.diagnostics.performance.avgSendDurationMs = sender.sendDurationRolling.push(duration);
+      sender.sendDurationSamples.push(duration);
+      if (sender.lastSendAt > 0) {
+        sender.sendIntervalSamples.push(startedAt - sender.lastSendAt);
+      }
+      sender.lastSendAt = startedAt;
+
+      const sortedDurations = sender.sendDurationSamples.snapshot().sort((a, b) => a - b);
+      sender.diagnostics.performance.p50SendDurationMs = percentile(sortedDurations, 50);
+      sender.diagnostics.performance.p95SendDurationMs = percentile(sortedDurations, 95);
+      sender.diagnostics.performance.p99SendDurationMs = percentile(sortedDurations, 99);
+      sender.diagnostics.performance.sendIntervalJitterMs = standardDeviation(
+        sender.sendIntervalSamples.snapshot(),
+      );
+
       sender.diagnostics.performance.framesSent += 1;
       if (replayed) {
         sender.diagnostics.performance.framesReplayed += 1;
@@ -543,7 +737,43 @@ export class NdiService {
     const sender = this.senders.get(name);
     return sender ? cloneSenderDiagnostics(sender.diagnostics) : null;
   }
+
+  private getOrCreateBlackoutVideoFrame(opaque: boolean): Uint8Array {
+    if (!this.blackoutVideoFrame || this.blackoutVideoFrame.length !== MAX_FRAME_BYTES) {
+      this.blackoutVideoFrame = new Uint8Array(MAX_FRAME_BYTES);
+    }
+    // Black with appropriate alpha. For non-alpha senders we fill the alpha
+    // byte so receivers showing alpha treat the frame as fully opaque.
+    if (opaque) {
+      const buf = this.blackoutVideoFrame;
+      for (let i = 3; i < buf.length; i += 4) buf[i] = 255;
+    } else {
+      this.blackoutVideoFrame.fill(0);
+    }
+    return this.blackoutVideoFrame;
+  }
+
+  private getOrCreateBlackoutAudioFrame(): Float32Array {
+    const required = BLACKOUT_AUDIO_CHANNELS * BLACKOUT_AUDIO_SAMPLES_PER_CHANNEL;
+    if (!this.blackoutAudioFrame || this.blackoutAudioFrame.length !== required) {
+      this.blackoutAudioFrame = new Float32Array(required);
+    }
+    return this.blackoutAudioFrame;
+  }
+
+  private busyWait(ms: number): void {
+    // Synchronous wait — required because shutdown handlers run on a path
+    // where async work isn't guaranteed to complete (process.exit fires on
+    // the next tick). A 33 ms spin every blackout frame is acceptable: the
+    // app is going down anyway and the budget caps total time.
+    const target = performance.now() + ms;
+    while (performance.now() < target) {
+      // Intentional empty loop — see comment above.
+    }
+  }
 }
+
+export const NDI_FAST_BLACKOUT_BUDGET_MS = FAST_BLACKOUT_TOTAL_BUDGET_MS;
 
 function createEmptySenderPerformanceDiagnostics(): NdiSenderPerformanceDiagnostics {
   return {
@@ -559,7 +789,14 @@ function createEmptySenderPerformanceDiagnostics(): NdiSenderPerformanceDiagnost
     avgCaptureDurationMs: 0,
     avgReadbackDurationMs: 0,
     avgSendDurationMs: 0,
+    p50SendDurationMs: 0,
+    p95SendDurationMs: 0,
+    p99SendDurationMs: 0,
+    sendIntervalJitterMs: 0,
     lastFrameBytes: 0,
+    minFrameBytes: 0,
+    maxFrameBytes: 0,
+    blackoutFramesSent: 0,
   };
 }
 
@@ -569,6 +806,7 @@ function createEmptySenderAudioDiagnostics(): NdiSenderAudioDiagnostics {
     audioFramesSent: 0,
     audioFramesRejected: 0,
     audioSamplesSent: 0,
+    audioSilenceFramesSent: 0,
     lastSampleRate: 0,
     lastChannels: 0,
   };

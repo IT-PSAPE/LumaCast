@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SelectableRow } from '../../components/display/selectable-row';
 import { AppearanceSettingsPanel } from './appearance-settings-panel';
+import { ObservabilityPanel } from '../../features/observability/observability-panel';
 import { OutputSettingsPanel } from '../../features/playback/output-settings-panel';
 import { OverlaySettingsPanel } from '../../features/assets/overlays/overlay-settings-panel';
 import { ImportExportPanel } from '../../features/deck/import-export-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 
-type SettingsTabId = 'appearance' | 'output' | 'overlays' | 'transfer';
+type SettingsTabId = 'appearance' | 'output' | 'overlays' | 'observability' | 'transfer';
 
 export function SettingsScreen() {
   const [activeTab, setActiveTab] = useState<SettingsTabId>('appearance');
@@ -28,6 +29,9 @@ export function SettingsScreen() {
                 <SelectableRow.Root selected={activeTab === 'overlays'} onClick={() => setActiveTab('overlays')}>
                   <SelectableRow.Label>Overlays</SelectableRow.Label>
                 </SelectableRow.Root>
+                <SelectableRow.Root selected={activeTab === 'observability'} onClick={() => setActiveTab('observability')}>
+                  <SelectableRow.Label>Observability</SelectableRow.Label>
+                </SelectableRow.Root>
                 <SelectableRow.Root selected={activeTab === 'transfer'} onClick={() => setActiveTab('transfer')}>
                   <SelectableRow.Label>Import &amp; Export</SelectableRow.Label>
                 </SelectableRow.Root>
@@ -45,6 +49,7 @@ export function SettingsScreen() {
               {activeTab === 'appearance' && <AppearanceSettingsPanel />}
               {activeTab === 'output' && <OutputSettingsPanel />}
               {activeTab === 'overlays' && <OverlaySettingsPanel />}
+              {activeTab === 'observability' && <ObservabilityPanel />}
               {activeTab === 'transfer' && <ImportExportPanel />}
             </div>
           </main>

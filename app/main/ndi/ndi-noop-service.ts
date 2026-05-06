@@ -71,6 +71,10 @@ export class NoopNdiService implements NdiServiceLike {
     return () => undefined;
   }
 
+  flushBlackoutAndDestroy(): void {
+    // No sender to blackout.
+  }
+
   destroy(): void {
     // Nothing to tear down.
   }

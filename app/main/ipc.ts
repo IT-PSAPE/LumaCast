@@ -1,4 +1,4 @@
-import { BrowserWindow, clipboard, dialog, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { CastRepository } from '@database/store';
 import { IPC, NDI_EVENTS, type AppMenuState, type InlineWindowMenuBounds, type InlineWindowMenuItem } from '@core/ipc';
 import type {
@@ -31,8 +31,15 @@ import type {
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
 import type { AppUpdater } from './app-updater';
 import { readDeckBundleArchive, writeDeckBundleArchive } from './deck-bundle-archive';
+import {
+  getLogFilePath,
+  getLogsDir,
+  listLogSessions,
+  readLogSession,
+} from './logger';
 import type { NdiServiceLike } from './ndi/ndi-protocol';
 import { assertTrustedIpcSender } from './security';
+import { sampleSystemMetrics } from './system-metrics';
 
 const NDI_OUTPUT_NAMES = new Set<NdiOutputName>(['audience', 'stage']);
 
@@ -272,6 +279,7 @@ export const registerIpcHandlers = (
     if (!NDI_OUTPUT_NAMES.has(name) || typeof enabled !== 'boolean') {
       throw new Error('Invalid NDI output toggle payload');
     }
+    console.log(`[ipc] setNdiOutputEnabled ${name}=${enabled}`);
     return ndiService.setOutputEnabled(name, enabled);
   });
   safeHandle(IPC.getNdiOutputState, () => ndiService.getOutputState());
@@ -316,6 +324,21 @@ export const registerIpcHandlers = (
     }
     },
   );
+  safeHandle(IPC.obsListLogSessions, () => listLogSessions());
+  safeHandle(IPC.obsReadLogSession, (_event, filePath: string, offset: number, limit: number) => {
+    if (typeof filePath !== 'string' || typeof offset !== 'number' || typeof limit !== 'number') {
+      throw new Error('Invalid log read payload');
+    }
+    const cappedLimit = Math.max(1, Math.min(5000, Math.floor(limit)));
+    return readLogSession(filePath, Math.floor(offset), cappedLimit);
+  });
+  safeHandle(IPC.obsGetCurrentLogPath, () => getLogFilePath());
+  safeHandle(IPC.obsOpenLogFolder, async () => {
+    const dir = getLogsDir();
+    if (!dir) return;
+    await shell.openPath(dir);
+  });
+  safeHandle(IPC.obsGetSystemMetrics, () => sampleSystemMetrics());
   ipcMain.on(
     IPC.sendNdiAudio,
     (event, payload: {
