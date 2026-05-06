@@ -66,7 +66,10 @@ function teardownNdi(reason: string, error?: unknown) {
     console.error(`[Main process ${reason}]`, error);
   }
   if (!ndiService) return;
+  console.log(`[Main process NDI teardown] reason=${reason}`);
   try {
+    // destroy() now performs its own best-effort blackout burst before
+    // releasing the native sender, so receivers see a clean cutoff.
     ndiService.destroy();
   } catch (destroyError) {
     console.error('[Main process NDI teardown failure]', destroyError);
@@ -213,6 +216,16 @@ function createMainWindow(): void {
   });
   window.webContents.on('render-process-gone', (_event, details) => {
     console.error('[renderer] render-process-gone', details);
+    // The renderer is the source of NDI frames — once it's gone, receivers
+    // would otherwise see whatever frame was in flight. Flush a quick
+    // blackout burst so the cutoff is visually clean.
+    if (ndiService) {
+      try {
+        ndiService.flushBlackoutAndDestroy(undefined, { totalBudgetMs: 500 });
+      } catch (error) {
+        console.error('[Main process render-process-gone blackout]', error);
+      }
+    }
     showWindow('render-process-gone');
   });
   window.webContents.on('preload-error', (_event, preloadPath, error) => {

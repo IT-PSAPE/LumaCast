@@ -78,10 +78,22 @@ interface AudioCaptureContext {
   ctx: AudioContext;
   mixGain: GainNode;
   worklet: AudioWorkletNode;
+  analyser: AnalyserNode;
 }
 
 let initPromise: Promise<AudioCaptureContext | null> | null = null;
+let activeContext: AudioCaptureContext | null = null;
 const sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
+
+// Read-only handle for the observability page so it can sample the same
+// AudioContext we're using for capture. Returns null when capture hasn't
+// initialized yet (no media has been hooked up).
+export function getActiveNdiAudioContext():
+  | { ctx: AudioContext; analyser: AnalyserNode }
+  | null {
+  if (!activeContext) return null;
+  return { ctx: activeContext.ctx, analyser: activeContext.analyser };
+}
 
 // Outputs that should receive audio. Updated externally when the user toggles
 // NDI outputs on/off. We always run capture (so the speaker output stays
@@ -152,7 +164,15 @@ async function ensureContext(): Promise<AudioCaptureContext | null> {
     // elements routed through the source nodes would be silent locally.
     mixGain.connect(ctx.destination);
 
-    return { ctx, mixGain, worklet };
+    // Side-tap: the observability page sniffs peak/RMS levels off this
+    // analyser. Connecting the mix into it (no further routing) doesn't
+    // contribute to playback but keeps the analyser fed.
+    const analyser = new AnalyserNode(ctx, { fftSize: 1024 });
+    mixGain.connect(analyser);
+
+    const capture: AudioCaptureContext = { ctx, mixGain, worklet, analyser };
+    activeContext = capture;
+    return capture;
   })();
   return initPromise;
 }

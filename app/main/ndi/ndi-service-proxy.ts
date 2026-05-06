@@ -8,6 +8,7 @@ import type {
   NdiOutputState,
 } from '@core/types';
 import type {
+  BlackoutFlushOptions,
   NdiHostCommand,
   NdiHostEvent,
   NdiServiceLike,
@@ -141,9 +142,29 @@ export class NdiServiceProxy implements NdiServiceLike {
     };
   }
 
+  flushBlackoutAndDestroy(target?: NdiOutputName, options?: BlackoutFlushOptions): void {
+    if (this.destroyed) return;
+    try {
+      this.send({ type: 'flushBlackout', options: { ...options, target } });
+    } catch (error) {
+      console.error('[NdiServiceProxy] Failed to dispatch blackout:', error);
+    }
+    if (target) {
+      this.cachedOutputState = { ...this.cachedOutputState, [target]: false };
+    }
+  }
+
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    // Best-effort blackout before tearing the host down. Use the fast budget —
+    // teardown can be triggered from `before-quit` and we cannot block app
+    // exit longer than the user's window-close grace period.
+    try {
+      this.send({ type: 'flushBlackout', options: { totalBudgetMs: 500 } });
+    } catch {
+      // ignore — proceed to destroy
+    }
     try {
       this.send({ type: 'destroy' });
     } catch {

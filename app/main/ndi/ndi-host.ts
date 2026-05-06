@@ -65,6 +65,11 @@ parentPort.on('message', (event: { data: NdiHostCommand }) => {
         cmd.samplesPerChannel,
       );
       break;
+    case 'flushBlackout': {
+      const { target, ...rest } = cmd.options ?? {};
+      service.flushBlackoutAndDestroy(target, rest);
+      break;
+    }
     case 'destroy':
       service.destroy();
       service = null;

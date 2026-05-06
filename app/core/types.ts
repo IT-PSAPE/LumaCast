@@ -578,6 +578,7 @@ export interface NdiActiveSenderDiagnostics {
   withAlpha: boolean;
   asyncVideoSend: boolean;
   connectionCount: number | null;
+  startedAtMs: number;
   performance: NdiSenderPerformanceDiagnostics;
   audio: NdiSenderAudioDiagnostics;
 }
@@ -602,7 +603,18 @@ export interface NdiSenderPerformanceDiagnostics {
   avgCaptureDurationMs: number;
   avgReadbackDurationMs: number;
   avgSendDurationMs: number;
+  // p50/p95/p99 of send durations over the rolling window — captures
+  // latency tail not visible from the average.
+  p50SendDurationMs: number;
+  p95SendDurationMs: number;
+  p99SendDurationMs: number;
+  // Standard deviation of the inter-send interval. High jitter is a
+  // strong signal that something upstream (capture, IPC, GC) is stalling.
+  sendIntervalJitterMs: number;
   lastFrameBytes: number;
+  minFrameBytes: number;
+  maxFrameBytes: number;
+  blackoutFramesSent: number;
 }
 
 export interface NdiSenderAudioDiagnostics {
@@ -610,6 +622,7 @@ export interface NdiSenderAudioDiagnostics {
   audioFramesSent: number;
   audioFramesRejected: number;
   audioSamplesSent: number;
+  audioSilenceFramesSent: number;
   lastSampleRate: number;
   lastChannels: number;
 }
@@ -679,4 +692,34 @@ export interface MediaAssetCreateInput {
   type: MediaAssetType;
   src: string;
   collectionId?: Id;
+}
+
+export interface SystemProcessMetrics {
+  rssBytes: number;
+  heapUsedBytes: number;
+  heapTotalBytes: number;
+  externalBytes: number;
+  cpuPercent: number;
+}
+
+export interface SystemMetricsSnapshot {
+  capturedAtMs: number;
+  uptimeSeconds: number;
+  main: SystemProcessMetrics;
+}
+
+export interface LogSessionSummary {
+  path: string;
+  fileName: string;
+  sizeBytes: number;
+  modifiedAtMs: number;
+  isCurrent: boolean;
+}
+
+export interface LogReadResult {
+  totalBytes: number;
+  // Byte offset returned to the caller for incremental reads. Pass back as
+  // `offset` to fetch the next chunk after `lines`.
+  nextOffset: number;
+  lines: string[];
 }

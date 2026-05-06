@@ -1,4 +1,5 @@
-import { useEffect, useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { recordObsEvent } from '../features/observability/metrics-store';
 import type {
   AppSnapshot,
   NdiDiagnostics,
@@ -109,6 +110,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [resolvedTheme]);
 
   // NDI diagnostics + output state subscriptions.
+  const lastSenderNamesRef = useRef<{ audience: string | null; stage: string | null }>({ audience: null, stage: null });
+  const lastErrorRef = useRef<string | null>(null);
   useEffect(() => {
     void window.castApi.getNdiDiagnostics().then(setNdiDiagnostics).catch((error) => {
       console.error('[AppProvider] Failed to get NDI diagnostics:', error);
@@ -121,7 +124,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     const unsubscribeOutput = window.castApi.onNdiOutputStateChanged(setNdiOutputStateValue);
-    const unsubscribeDiagnostics = window.castApi.onNdiDiagnosticsChanged(setNdiDiagnostics);
+    const unsubscribeDiagnostics = window.castApi.onNdiDiagnosticsChanged((diagnostics) => {
+      // Synthesize sender lifecycle events by diffing current diagnostics
+      // against the previous snapshot — keeps the timeline in sync with
+      // the main process without needing dedicated IPC events.
+      const prev = lastSenderNamesRef.current;
+      for (const name of ['audience', 'stage'] as const) {
+        const sender = diagnostics.senders[name];
+        const previousName = prev[name];
+        const nextName = sender?.senderName ?? null;
+        if (previousName === nextName) continue;
+        if (!previousName && nextName) {
+          recordObsEvent('ndi', 'Sender created', { output: name, senderName: nextName });
+        } else if (previousName && !nextName) {
+          recordObsEvent('ndi', 'Sender destroyed', { output: name, senderName: previousName });
+        } else if (previousName && nextName) {
+          recordObsEvent('ndi', 'Sender renamed', { output: name, from: previousName, to: nextName });
+        }
+        prev[name] = nextName;
+      }
+      if (diagnostics.lastError && diagnostics.lastError !== lastErrorRef.current) {
+        recordObsEvent('error', 'NDI error', { error: diagnostics.lastError }, 'error');
+      }
+      lastErrorRef.current = diagnostics.lastError;
+      setNdiDiagnostics(diagnostics);
+    });
     return () => {
       unsubscribeOutput();
       unsubscribeDiagnostics();

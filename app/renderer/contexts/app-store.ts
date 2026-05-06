@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
+import { recordObsEvent } from '../features/observability/metrics-store';
 import { createDefaultNdiOutputConfigs } from '@core/ndi';
 import {
   applyPatch,
@@ -291,11 +292,13 @@ export const useAppStore = create<AppStoreState>()((set, get) => ({
   setNdiOutputStateValue: (value) => set({ ndiOutputState: value }),
 
   setNdiOutputEnabled: (name, enabled) => {
+    recordObsEvent('ndi', `NDI output ${enabled ? 'enabled' : 'disabled'}`, { name });
     void window.castApi
       .setNdiOutputEnabled(name, enabled)
       .then((next) => set({ ndiOutputState: next }))
       .catch((error) => {
         console.error('[AppStore] Failed to update output state:', error);
+        recordObsEvent('error', 'Failed to toggle NDI output', { name, enabled, error: String(error) }, 'error');
       });
   },
 

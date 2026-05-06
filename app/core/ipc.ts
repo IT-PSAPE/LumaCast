@@ -12,6 +12,8 @@ import type {
   CollectionDeleteInput,
   CollectionRenameInput,
   CollectionReorderInput,
+  LogReadResult,
+  LogSessionSummary,
   NdiDiagnostics,
   NdiOutputConfig,
   NdiOutputConfigMap,
@@ -22,6 +24,7 @@ import type {
   OverlayUpdateInput,
   StageCreateInput,
   StageUpdateInput,
+  SystemMetricsSnapshot,
   ThemeCreateInput,
   ThemeUpdateInput,
   SlideCreateInput,
@@ -126,6 +129,12 @@ export interface MainApi {
   getAudioCoverArt: (src: string) => Promise<string | null>;
   onNdiDiagnosticsChanged: (callback: (diagnostics: NdiDiagnostics) => void) => () => void;
   onNdiFrameAck: (callback: (name: NdiOutputName) => void) => () => void;
+  // Observability
+  obsListLogSessions: () => Promise<LogSessionSummary[]>;
+  obsReadLogSession: (filePath: string, offset: number, limit: number) => Promise<LogReadResult>;
+  obsGetCurrentLogPath: () => Promise<string | null>;
+  obsOpenLogFolder: () => Promise<void>;
+  obsGetSystemMetrics: () => Promise<SystemMetricsSnapshot>;
   createCollection: (input: CollectionCreateInput) => Promise<SnapshotPatch>;
   renameCollection: (input: CollectionRenameInput) => Promise<SnapshotPatch>;
   deleteCollection: (input: CollectionDeleteInput) => Promise<SnapshotPatch>;
@@ -289,6 +298,11 @@ export const IPC = {
   deleteCollection: 'cast:deleteCollection',
   reorderCollections: 'cast:reorderCollections',
   setItemCollection: 'cast:setItemCollection',
+  obsListLogSessions: 'obs:listLogSessions',
+  obsReadLogSession: 'obs:readLogSession',
+  obsGetCurrentLogPath: 'obs:getCurrentLogPath',
+  obsOpenLogFolder: 'obs:openLogFolder',
+  obsGetSystemMetrics: 'obs:getSystemMetrics',
 } as const;
 
 export const NDI_EVENTS = {

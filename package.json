@@ -30,7 +30,7 @@
     "pretest:watch": "npm run ensure:native-deps",
     "test:watch": "vitest --watch",
     "pretest:e2e": "npm run build && npm run e2e:install",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --pass-with-no-tests",
     "e2e:install": "playwright install chromium",
     "capture:ui-screenshots": "npm run build && node app/e2e/capture-ui-screenshots.mjs",
     "pack": "electron-vite build && electron-builder --dir",

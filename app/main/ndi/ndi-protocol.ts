@@ -7,6 +7,16 @@ import type {
   NdiOutputState,
 } from '@core/types';
 
+export interface BlackoutFlushOptions {
+  // Optional sender to flush; omit to flush every active sender.
+  target?: NdiOutputName;
+  frameCount?: number;
+  intervalMs?: number;
+  totalBudgetMs?: number;
+  // When true (default) the sender(s) are destroyed after the burst.
+  destroy?: boolean;
+}
+
 // Sent from main process to the NDI utility process.
 export type NdiHostCommand =
   | { type: 'init'; outputConfigs: NdiOutputConfigMap }
@@ -29,6 +39,7 @@ export type NdiHostCommand =
       channels: number;
       samplesPerChannel: number;
     }
+  | { type: 'flushBlackout'; options?: BlackoutFlushOptions }
   | { type: 'destroy' };
 
 // Emitted from the NDI utility process to the main process.
@@ -65,5 +76,6 @@ export interface NdiServiceLike {
   ): void;
   onOutputStateChanged(callback: (state: NdiOutputState) => void): () => void;
   onDiagnosticsChanged(callback: (diagnostics: NdiDiagnostics) => void): () => void;
+  flushBlackoutAndDestroy(target?: NdiOutputName, options?: BlackoutFlushOptions): void;
   destroy(): void;
 }
