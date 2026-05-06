@@ -1,6 +1,6 @@
-# Cast-Interface Keyboard Shortcuts
+# LumaCast Keyboard Shortcuts
 
-## Cast-Interface Menu
+## LumaCast Menu
 
 | Action              | Mac                  | Windows     |
 | ------------------- | -------------------- | ----------- |
