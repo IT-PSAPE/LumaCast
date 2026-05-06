@@ -399,6 +399,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const audioEl = document.createElement('audio');
     audioEl.preload = 'auto';
+    // Required so MediaElementAudioSourceNode (NDI audio capture) doesn't
+    // taint to silence — pairs with the ACAO header the cast-media protocol
+    // handler returns.
+    audioEl.crossOrigin = 'anonymous';
     audioElementRef.current = audioEl;
 
     function handleTimeUpdate() { setCurrentTime(audioEl.currentTime); }

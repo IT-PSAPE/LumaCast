@@ -19,7 +19,10 @@ type EnabledOutputs = ReadonlySet<NdiOutputName>;
 
 // Inlined AudioWorklet processor. Buffers per-channel samples until we have
 // FRAME_SAMPLES, then ships a planar Float32Array (ch0 then ch1) back to the
-// main thread. Inlining as a string + Blob URL avoids pulling Vite into the
+// main thread. The worklet declares one output and writes silence to it so
+// the audio graph keeps it scheduled — a worklet with zero outputs is
+// considered unreachable from the destination and won't be processed.
+// Inlining as a string + Blob URL avoids pulling Vite into the
 // AudioWorklet module-loading path.
 const WORKLET_CODE = `
 class NdiAudioProcessor extends AudioWorkletProcessor {
@@ -34,8 +37,16 @@ class NdiAudioProcessor extends AudioWorkletProcessor {
     }
     this.write = 0;
   }
-  process(inputs) {
+  process(inputs, outputs) {
     const input = inputs[0];
+    const output = outputs[0];
+    // Always write silence to our output — we exist purely to capture, not
+    // to contribute to the local mix.
+    if (output) {
+      for (let ch = 0; ch < output.length; ch++) {
+        output[ch].fill(0);
+      }
+    }
     if (!input || input.length === 0) return true;
     const inCh = input.length;
     const blockSize = input[0] ? input[0].length : 0;
@@ -107,7 +118,8 @@ async function ensureContext(): Promise<AudioCaptureContext | null> {
     const mixGain = new GainNode(ctx, { gain: 1 });
     const worklet = new AudioWorkletNode(ctx, 'ndi-audio-processor', {
       numberOfInputs: 1,
-      numberOfOutputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [CHANNELS],
       channelCount: CHANNELS,
       channelCountMode: 'explicit',
       channelInterpretation: 'speakers',
@@ -133,8 +145,11 @@ async function ensureContext(): Promise<AudioCaptureContext | null> {
     };
 
     mixGain.connect(worklet);
-    // Keep speaker output alive — without this connection the elements that
-    // are routed through the source nodes would be silent locally.
+    // The worklet writes silence to its output — connect it to destination
+    // anyway so the audio graph keeps it reachable and scheduled.
+    worklet.connect(ctx.destination);
+    // Keep audible speaker output alive — without this connection the
+    // elements routed through the source nodes would be silent locally.
     mixGain.connect(ctx.destination);
 
     return { ctx, mixGain, worklet };
