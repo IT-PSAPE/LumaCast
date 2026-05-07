@@ -110,10 +110,13 @@ const COLLECTION_TABLE_BY_BIN: Record<CollectionBinKind, string> = {
 
 const DEFAULT_COLLECTION_NAME = 'Default Collection';
 
-const ITEM_TABLE_BY_TYPE: Record<CollectionItemType, string> = {
+// Media assets live in three split tables (image_assets/video_assets/audio_assets),
+// so they're resolved dynamically per id — see resolveItemTable below. Every
+// other item type maps statically.
+type StaticCollectionItemType = Exclude<CollectionItemType, 'media_asset'>;
+const ITEM_TABLE_BY_TYPE: Record<StaticCollectionItemType, string> = {
   presentation: 'presentations',
   lyric: 'lyrics',
-  media_asset: 'media_assets',
   theme: 'themes',
   overlay: 'overlays',
   stage: 'stages',
@@ -1810,11 +1813,8 @@ export class CastRepository {
   }
 
   setItemCollection(input: CollectionAssignmentInput): SnapshotPatch {
-    const itemTable = ITEM_TABLE_BY_TYPE[input.itemType];
-    const exists = this.db.prepare(`SELECT id FROM ${itemTable} WHERE id = ?`).get(input.itemId) as
-      | { id: string }
-      | undefined;
-    if (!exists) return this.buildPatch({});
+    const itemTable = this.resolveItemTable(input.itemType, input.itemId);
+    if (!itemTable) return this.buildPatch({});
 
     const targetBin = this.getCollectionBinKindByCollectionId(input.collectionId);
     if (!targetBin) {
@@ -1829,6 +1829,28 @@ export class CastRepository {
       .run(input.collectionId, nowIso(), input.itemId);
 
     return this.buildPatch(buildPatchSpecForItemType(input.itemType, input.itemId));
+  }
+
+  // Resolves the SQL table that holds a given collection item. Returns null
+  // when the item is missing, matching the previous "missing item → empty
+  // patch" behaviour. Media assets are spread across image/video/audio
+  // tables since the v11 schema split, so we probe each one until we find
+  // it; everything else maps statically.
+  private resolveItemTable(itemType: CollectionItemType, itemId: Id): string | null {
+    if (itemType === 'media_asset') {
+      for (const table of MEDIA_ASSET_TABLES) {
+        const row = this.db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(itemId) as
+          | { id: string }
+          | undefined;
+        if (row) return table;
+      }
+      return null;
+    }
+    const table = ITEM_TABLE_BY_TYPE[itemType];
+    const row = this.db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(itemId) as
+      | { id: string }
+      | undefined;
+    return row ? table : null;
   }
 
   private reassignItemsForCollection(
