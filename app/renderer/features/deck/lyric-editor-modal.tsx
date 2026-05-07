@@ -6,6 +6,7 @@ import DocEditor, { type Block } from '../../components/form/doc-editor';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLyricEditorSave } from './use-lyric-editor-document';
 import { useLyricLayoutConfig, DEFAULT_LYRIC_LAYOUT_CONFIG, type LyricLayoutConfig } from './lyric-layout-config';
+import { groupSegmentsForSlides, joinSegments } from './lyric-slide-grouping';
 import { FieldIcon, FieldInput, FieldSelect } from '../../components/form/field';
 import { Section } from '../inspector/inspector-section';
 import { Label } from '../../components/display/text';
@@ -22,9 +23,16 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
   const { initialBlocks, saveBlocks, isSaving } = useLyricEditorSave({ isOpen, onClose, config });
   const blocksRef = useRef<Block[]>(initialBlocks);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [editorBlocks, setEditorBlocks] = useState<Block[]>(initialBlocks);
+  const [editorEpoch, setEditorEpoch] = useState(0);
+  const [hasAppliedGrouping, setHasAppliedGrouping] = useState(false);
 
   useEffect(() => {
-    if (isOpen) blocksRef.current = initialBlocks;
+    if (!isOpen) return;
+    blocksRef.current = initialBlocks;
+    setEditorBlocks(initialBlocks);
+    setEditorEpoch((n) => n + 1);
+    setHasAppliedGrouping(false);
   }, [isOpen, initialBlocks]);
 
   function handleChange(blocks: Block[]) {
@@ -32,7 +40,22 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
   }
 
   function handleSave() {
-    void saveBlocks(blocksRef.current);
+    void saveBlocks(blocksRef.current, { skipGrouping: hasAppliedGrouping });
+  }
+
+  function handlePreview() {
+    const segments = blocksRef.current
+      .map((block) => block.content.replace(/^[ \t\n]+|[ \t\n]+$/g, ''))
+      .filter((content) => content.length > 0);
+    const groups = groupSegmentsForSlides(segments, config);
+    const groupedBlocks: Block[] = groups.map((group) => ({
+      id: Math.random().toString(36).slice(2, 9),
+      content: joinSegments(group),
+    }));
+    blocksRef.current = groupedBlocks;
+    setEditorBlocks(groupedBlocks);
+    setEditorEpoch((n) => n + 1);
+    setHasAppliedGrouping(true);
   }
 
   if (!isOpen || !currentDeckItem || currentDeckItem.type !== 'lyric') return null;
@@ -56,12 +79,13 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
               <Dialog.Body className="h-full overflow-auto bg-primary/95 px-0 py-0">
                 <div className="min-h-80 px-6 py-5">
                   <div className="mx-auto flex max-w-3xl justify-center">
-                    <DocEditor initialBlocks={initialBlocks} onChange={handleChange} />
+                    <DocEditor key={editorEpoch} initialBlocks={editorBlocks} onChange={handleChange} />
                   </div>
                 </div>
               </Dialog.Body>
               <Dialog.Footer>
-                <div className="ml-auto flex items-center gap-2">
+                <ReacstButton variant="default" onClick={handlePreview} disabled={isSaving}>Preview</ReacstButton>
+                <div className="flex items-center gap-2">
                   <ReacstButton variant="ghost" onClick={onClose} disabled={isSaving}>Cancel</ReacstButton>
                   <ReacstButton variant="take" onClick={handleSave} disabled={isSaving}>Save</ReacstButton>
                 </div>

@@ -61,7 +61,7 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
     return nextSlide.id;
   }, [mutatePatch, writeSlideText]);
 
-  const saveBlocks = useCallback(async (blocks: Block[]) => {
+  const saveBlocks = useCallback(async (blocks: Block[], options?: { skipGrouping?: boolean }) => {
     if (!currentDeckItem || currentDeckItem.type !== 'lyric') return;
 
     setIsSaving(true);
@@ -72,8 +72,9 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
           .map((block) => block.content.replace(/^[ \t\n]+|[ \t\n]+$/g, ''))
           .filter((content) => content.length > 0);
 
-        const slideGroups = groupSegmentsForSlides(segments, config);
-        const slideTexts = slideGroups.map((group) => joinSegments(group));
+        const slideTexts = options?.skipGrouping
+          ? segments
+          : groupSegmentsForSlides(segments, config).map((group) => joinSegments(group));
 
         const orderedSlideIds: Id[] = [];
         const reusableSlideIds = slides.map((slide) => slide.id);
