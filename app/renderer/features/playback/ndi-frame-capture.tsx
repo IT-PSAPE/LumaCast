@@ -26,13 +26,30 @@ function renderNodeContent(node: RenderNode, surface: SceneSurface, onImageLoad?
 
 // Cheap signature used to decide whether the output has visibly changed
 // since the last capture. Video nodes are excluded because their contents
-// tick forward every frame without any RenderNode field changing.
+// tick forward every frame without any RenderNode field changing; the same
+// is true for text elements with clock/timer bindings (see hasDynamicText
+// in the capture loop below) — both rely on RAF-driven re-capture instead
+// of signature changes.
 function sceneSignature(nodes: readonly RenderNode[], withAlpha: boolean): string {
   let out = withAlpha ? 'a1' : 'a0';
   for (const node of nodes) {
     out += '|' + node.id + ':' + node.element.updatedAt + ':' + (node.visual.visible === false ? '0' : '1');
   }
   return out;
+}
+
+// Detect text elements whose visible content ticks independently of any
+// RenderNode field change (clock advances every second; timer counts down).
+// When any such element is on the slide we have to capture every RAF tick,
+// because sceneSignature() will never observe their updates.
+function hasTickingTextBinding(nodes: readonly RenderNode[]): boolean {
+  for (const node of nodes) {
+    if (node.element.type !== 'text') continue;
+    if (node.visual.visible === false) continue;
+    const binding = (node.element.payload as { binding?: { kind?: string } }).binding;
+    if (binding?.kind === 'clock' || binding?.kind === 'timer') return true;
+  }
+  return false;
 }
 
 interface NdiFrameCaptureProps {
@@ -69,6 +86,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     () => scene.nodes.some((node) => node.element.type === 'video'),
     [scene.nodes],
   );
+  const hasDynamicText = useMemo(() => hasTickingTextBinding(scene.nodes), [scene.nodes]);
   const withAlpha = outputConfigs[senderName].withAlpha;
 
   // Spin up a dedicated worker that owns an OffscreenCanvas and performs the
@@ -195,7 +213,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
         const currentSignature = sceneSignature(scene.nodes, withAlpha);
         const signatureChanged = currentSignature !== lastSignature;
         const needsInitialFrame = framesAckedRef.current === 0;
-        if (needsInitialFrame || signatureChanged || hasVideoNodes) {
+        if (needsInitialFrame || signatureChanged || hasVideoNodes || hasDynamicText) {
           if (inFlightSentAtRef.current !== null) {
             pendingDroppedBackpressureRef.current += 1;
           } else {
@@ -223,7 +241,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
       if (rafId !== null) cancelAnimationFrame(rafId);
       inFlightSentAtRef.current = null;
     };
-  }, [captureFrame, enabled, hasVideoNodes, scene, withAlpha]);
+  }, [captureFrame, enabled, hasVideoNodes, hasDynamicText, scene, withAlpha]);
 
   if (!enabled) return null;
   if (sharedCaptureSource) return null;
