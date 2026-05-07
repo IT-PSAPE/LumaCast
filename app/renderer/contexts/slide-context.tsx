@@ -127,13 +127,12 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     armOutputPlaylistEntry(entryId);
   }, [armOutputPlaylistEntry, selectPlaylistEntryInNavigation, liveSelection.update]);
 
-  // Clicking an entry inside a segment should arm it on the program output
-  // (program + monitor surfaces). Free-floating selections that don't belong
-  // to a segment go through other code paths and are not armed here.
+  // Focus only — Program state is independent of which entry the operator is
+  // currently inspecting. Arming happens through explicit actions (activate,
+  // take, activatePlaylistEntrySlide, armCurrentPlaylistSelection).
   const selectPlaylistEntry = useCallback((entryId: Id) => {
     selectPlaylistEntryInNavigation(entryId);
-    armOutputPlaylistEntry(entryId);
-  }, [armOutputPlaylistEntry, selectPlaylistEntryInNavigation]);
+  }, [selectPlaylistEntryInNavigation]);
 
   const selectPlaylistDeckItem = useCallback((itemId: Id) => {
     selectPlaylistDeckItemInNavigation(itemId);

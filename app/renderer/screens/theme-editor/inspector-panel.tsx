@@ -21,9 +21,10 @@ export function ThemeEditorInspectorPanel() {
 
   useEffect(() => {
     if (!hasSelection) {
-      if (inspectorTab === 'shape' || inspectorTab === 'text' || inspectorTab === 'slide' || inspectorTab === 'presentation' || inspectorTab === 'video') {
-        setInspectorTab('theme');
-      }
+      // No selection → only the theme tab is rendered; force it so we don't
+      // strand on a foreign editor's tab (e.g. 'stage' or 'slide') leaving
+      // the panel blank when navigating between editors.
+      if (inspectorTab !== 'theme') setInspectorTab('theme');
       return;
     }
 

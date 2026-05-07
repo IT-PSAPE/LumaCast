@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import type { Theme } from '@core/types';
 import { Layers, Music, Plus, Presentation } from 'lucide-react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
@@ -12,6 +12,9 @@ import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel'
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { Label } from '@renderer/components/display/text';
 import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
+import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
+import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
+import { useThemeEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { ThemeEditorInspectorPanel } from './inspector-panel';
 import { ThemeEditorLayersPanel } from './layers-panel';
 import { ThemeEditorScreenProvider, useThemeEditorScreen } from './screen-context';
@@ -99,7 +102,19 @@ function ThemeEditorScreenContent() {
   );
 }
 
-function ThemeListItem({
+function ThemeListItem(props: {
+  theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number];
+  index: number;
+  isActive: boolean;
+}) {
+  return (
+    <ContextMenu.Root>
+      <ThemeListItemBody {...props} />
+    </ContextMenu.Root>
+  );
+}
+
+function ThemeListItemBody({
   theme,
   index,
   isActive,
@@ -109,7 +124,11 @@ function ThemeListItem({
   isActive: boolean;
 }) {
   const { actions } = useThemeEditorScreen();
+  const { duplicateTheme, deleteTheme, requestNameFocus } = useThemeEditor();
+  const confirm = useConfirm();
   const scene = useMemo(() => buildRenderScene(null, theme.elements), [theme.elements]);
+  const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
+  const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
 
   function handleSelect() {
     actions.selectTheme(theme.id);
@@ -120,27 +139,56 @@ function ThemeListItem({
     actions.requestThemeNameFocus(theme.id);
   }
 
-  return (
-    <ActiveThemeTile isActive={isActive} onClick={handleSelect} selected={isActive}>
-      <Thumbnail.Body>
-        <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
-          <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
-        </SceneFrame>
-      </Thumbnail.Body>
-      <Thumbnail.Caption>
-        <div className="flex items-center gap-2" onDoubleClick={handleCaptionDoubleClick}>
-          <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
-          <ThemeKindIcon kind={theme.kind} />
-          <span className="min-w-0 truncate text-sm text-tertiary">{theme.name}</span>
-        </div>
-      </Thumbnail.Caption>
-    </ActiveThemeTile>
-  );
-}
+  function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
+    if (!isActive) actions.selectTheme(theme.id);
+    triggerContextMenu(event);
+  }
 
-function ActiveThemeTile({ isActive, ...props }: React.ComponentProps<typeof Thumbnail.Tile> & { isActive: boolean }) {
-  const ref = useScrollAreaActiveItem(isActive);
-  return <Thumbnail.Tile ref={ref} {...props} />;
+  async function handleDelete() {
+    const ok = await confirm({
+      title: `Delete "${theme.name}"?`,
+      description: 'This theme will be permanently removed.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (ok) deleteTheme(theme.id);
+  }
+
+  return (
+    <>
+      <Thumbnail.Tile
+        {...triggerHandlers}
+        ref={(node) => {
+          activeRef.current = node;
+          triggerRef(node);
+        }}
+        onContextMenu={handleContextMenu}
+        onClick={handleSelect}
+        selected={isActive}
+      >
+        <Thumbnail.Body>
+          <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
+            <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
+          </SceneFrame>
+        </Thumbnail.Body>
+        <Thumbnail.Caption>
+          <div className="flex items-center gap-2" onDoubleClick={handleCaptionDoubleClick}>
+            <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
+            <ThemeKindIcon kind={theme.kind} />
+            <span className="min-w-0 truncate text-sm text-tertiary">{theme.name}</span>
+          </div>
+        </Thumbnail.Caption>
+      </Thumbnail.Tile>
+      <ContextMenu.Portal>
+        <ContextMenu.Menu>
+          <ContextMenu.Item onSelect={() => requestNameFocus(theme.id)}>Rename</ContextMenu.Item>
+          <ContextMenu.Item onSelect={() => duplicateTheme(theme.id)}>Duplicate</ContextMenu.Item>
+          <ContextMenu.Separator />
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+        </ContextMenu.Menu>
+      </ContextMenu.Portal>
+    </>
+  );
 }
 
 function ThemeKindIcon({ kind }: { kind: Theme['kind'] }) {
