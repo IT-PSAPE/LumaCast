@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { LogReadResult, LogSessionSummary, NdiActiveSenderDiagnostics, NdiOutputName } from '@core/types';
+import type {
+  LogReadResult,
+  LogSessionSummary,
+  NdiActiveSenderDiagnostics,
+  NdiOutputName,
+  NdiPipelineStageStats,
+  NdiSenderPerformanceDiagnostics,
+  NdiTallyState,
+} from '@core/types';
 import { useNdi } from '../../contexts/app-context';
 import { useImageCacheStats } from '../canvas/use-image-cache-stats';
 import {
@@ -121,6 +129,72 @@ function SenderCard({ name, sender }: { name: NdiOutputName; sender: NdiActiveSe
         <Stat label="Silence frames" value={formatNumber(audio.audioSilenceFramesSent)} />
         <Stat label="Audio rejected" value={formatNumber(audio.audioFramesRejected)} highlight={audio.audioFramesRejected > 0} />
         <Stat label="Audio format" value={audio.lastSampleRate > 0 ? `${audio.lastSampleRate} Hz × ${audio.lastChannels}ch` : 'inactive'} />
+      </div>
+      <PipelineLatencyGroup pipeline={performance.pipeline} />
+      <ReceiverHealthGroup connectionCount={sender.connectionCount} tally={sender.tally} />
+    </div>
+  );
+}
+
+function PipelineLatencyGroup({ pipeline }: { pipeline: NdiSenderPerformanceDiagnostics['pipeline'] }) {
+  // Captures the full sender-side pipeline: from the moment a state change
+  // is observed in the renderer to the moment bits leave the native NDI
+  // send call. Stage breakdown helps localize which IPC hop or process is
+  // dominating when the headline numbers spike.
+  return (
+    <div className="mt-3 border-t border-secondary/40 pt-2">
+      <div className="pb-1 text-xs font-semibold uppercase tracking-wide text-tertiary">
+        Pipeline latency (ms · p50 / p95 · last)
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-secondary md:grid-cols-3">
+        <PipelineStat label="Frame age at wire" stats={pipeline.frameAgeAtWire} warnP95={50} />
+        <PipelineStat label="Signature → wire" stats={pipeline.signatureToWire} warnP95={66} />
+        <PipelineStat label="Capture → renderer send" stats={pipeline.captureToRendererSend} warnP95={20} />
+        <PipelineStat label="Renderer → main IPC" stats={pipeline.rendererToMainIpc} warnP95={10} />
+        <PipelineStat label="Main handler" stats={pipeline.mainHandler} warnP95={5} />
+        <PipelineStat label="Main → host IPC" stats={pipeline.mainToHostIpc} warnP95={10} />
+        <PipelineStat label="Host → native send" stats={pipeline.hostToNative} warnP95={20} />
+      </div>
+    </div>
+  );
+}
+
+function PipelineStat({
+  label,
+  stats,
+  warnP95,
+}: {
+  label: string;
+  stats: NdiPipelineStageStats;
+  warnP95: number;
+}) {
+  const text = stats.count === 0
+    ? '—'
+    : `${stats.p50.toFixed(1)} / ${stats.p95.toFixed(1)} · ${stats.lastMs.toFixed(1)}`;
+  return <Stat label={label} value={text} highlight={stats.p95 > warnP95} />;
+}
+
+function ReceiverHealthGroup({
+  connectionCount,
+  tally,
+}: {
+  connectionCount: number | null;
+  tally: NdiTallyState | null;
+}) {
+  // Tally + connection count come from the receiver via the NDI SDK. They
+  // confirm the receiver is actually subscribed and considers itself live —
+  // useful context for interpreting pipeline-latency numbers above.
+  const tallyText = tally
+    ? `${tally.onProgram ? 'PGM' : '—'} · ${tally.onPreview ? 'PVW' : '—'}`
+    : 'unsupported';
+  return (
+    <div className="mt-3 border-t border-secondary/40 pt-2">
+      <div className="pb-1 text-xs font-semibold uppercase tracking-wide text-tertiary">
+        Receiver health
+      </div>
+      <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm text-secondary md:grid-cols-3">
+        <Stat label="Connections" value={connectionCount ?? 'unknown'} />
+        <Stat label="Tally" value={tallyText} />
       </div>
     </div>
   );

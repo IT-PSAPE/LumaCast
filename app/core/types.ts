@@ -571,6 +571,11 @@ export interface NdiOutputConfig {
 
 export type NdiOutputConfigMap = Record<NdiOutputName, NdiOutputConfig>;
 
+export interface NdiTallyState {
+  onProgram: boolean;
+  onPreview: boolean;
+}
+
 export interface NdiActiveSenderDiagnostics {
   senderName: string;
   width: number;
@@ -578,6 +583,9 @@ export interface NdiActiveSenderDiagnostics {
   withAlpha: boolean;
   asyncVideoSend: boolean;
   connectionCount: number | null;
+  // Bidirectional NDI tally signal (receiver tells sender "I'm on program /
+  // preview"). Null if the loaded runtime doesn't expose tally polling.
+  tally: NdiTallyState | null;
   startedAtMs: number;
   performance: NdiSenderPerformanceDiagnostics;
   audio: NdiSenderAudioDiagnostics;
@@ -588,6 +596,38 @@ export interface NdiFrameTelemetry {
   readbackDurationMs: number;
   skippedCaptures: number;
   framesDroppedBackpressure: number;
+  // Cross-process Date.now() timestamps. Each stage stamps as the frame
+  // travels: renderer sets signature/capture/rendererSend; main sets
+  // mainReceived and proxyForwarded; utility sets hostReceived. The native
+  // send timestamp is computed inside the service and not echoed back.
+  // Optional — older telemetry shapes still validate.
+  signatureChangedAtMs?: number | null;
+  captureStartedAtMs?: number;
+  rendererSendAtMs?: number;
+  mainReceivedAtMs?: number;
+  proxyForwardedAtMs?: number;
+  hostReceivedAtMs?: number;
+}
+
+export interface NdiPipelineStageStats {
+  p50: number;
+  p95: number;
+  lastMs: number;
+  count: number;
+}
+
+export interface NdiPipelineLatencyDiagnostics {
+  // Headline numbers — the user's symptom is sender-side latency, and
+  // signatureToWire is how long between a state change and bits on the wire.
+  frameAgeAtWire: NdiPipelineStageStats;
+  signatureToWire: NdiPipelineStageStats;
+  // Per-stage spans — for attributing where time goes when the headline
+  // numbers are too high.
+  captureToRendererSend: NdiPipelineStageStats;
+  rendererToMainIpc: NdiPipelineStageStats;
+  mainHandler: NdiPipelineStageStats;
+  mainToHostIpc: NdiPipelineStageStats;
+  hostToNative: NdiPipelineStageStats;
 }
 
 export interface NdiSenderPerformanceDiagnostics {
@@ -615,6 +655,9 @@ export interface NdiSenderPerformanceDiagnostics {
   minFrameBytes: number;
   maxFrameBytes: number;
   blackoutFramesSent: number;
+  // Stage-by-stage pipeline latency for diagnosing where sender-side time
+  // is going (renderer capture → IPC → utility process → native send).
+  pipeline: NdiPipelineLatencyDiagnostics;
 }
 
 export interface NdiSenderAudioDiagnostics {

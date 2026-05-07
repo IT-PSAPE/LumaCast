@@ -300,6 +300,7 @@ export const registerIpcHandlers = (
       height: number;
       telemetry?: NdiFrameTelemetry;
     }) => {
+    const mainReceivedAtMs = Date.now();
     const ackName = payload?.name;
     try {
       assertTrustedIpcSender(event);
@@ -313,7 +314,10 @@ export const registerIpcHandlers = (
       if (!(buffer instanceof ArrayBuffer)) {
         throw new Error('NDI frame payload must include an ArrayBuffer');
       }
-      ndiService.receiveFrame(name, new Uint8Array(buffer), width, height, telemetry);
+      const stampedTelemetry: NdiFrameTelemetry | undefined = telemetry
+        ? { ...telemetry, mainReceivedAtMs }
+        : undefined;
+      ndiService.receiveFrame(name, new Uint8Array(buffer), width, height, stampedTelemetry);
     } catch (error) {
       console.error(`[IPC ${IPC.sendNdiFrame}]`, error);
     } finally {

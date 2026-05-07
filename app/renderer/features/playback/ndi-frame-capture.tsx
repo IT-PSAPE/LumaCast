@@ -53,6 +53,14 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
   const pendingDroppedBackpressureRef = useRef(0);
   const inFlightSentAtRef = useRef<number | null>(null);
   const captureStartedAtRef = useRef(0);
+  // Date.now() epoch-ms equivalents of the perf.now() timestamps above. Used
+  // as cross-process pipeline-latency stamps (renderer's perf.now() can't be
+  // compared to main/utility perf.now() — different time origins).
+  const captureStartedAtMsRef = useRef(0);
+  // Set when the RAF tick first observes a new sceneSignature, cleared when
+  // the resulting frame is shipped. Null for heartbeat / video-driven
+  // captures where no state change triggered the frame.
+  const signatureChangedAtMsRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
   const framesAckedRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
@@ -79,6 +87,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
       }
       if (data.type !== 'captured') return;
       const captureDurationMs = performance.now() - captureStartedAtRef.current;
+      const signatureChangedAtMs = signatureChangedAtMsRef.current;
+      signatureChangedAtMsRef.current = null;
       window.castApi.sendNdiFrame(
         senderName,
         data.buffer,
@@ -89,6 +99,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
           readbackDurationMs: data.readbackDurationMs,
           skippedCaptures: pendingSkippedCapturesRef.current,
           framesDroppedBackpressure: pendingDroppedBackpressureRef.current,
+          signatureChangedAtMs,
+          captureStartedAtMs: captureStartedAtMsRef.current,
         },
       );
       pendingSkippedCapturesRef.current = 0;
@@ -109,6 +121,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     if (!worker) return false;
 
     captureStartedAtRef.current = performance.now();
+    captureStartedAtMsRef.current = Date.now();
     inFlightSentAtRef.current = performance.now();
     const requestId = ++requestIdRef.current;
 
@@ -186,6 +199,12 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
           if (inFlightSentAtRef.current !== null) {
             pendingDroppedBackpressureRef.current += 1;
           } else {
+            // Record signature-change timestamp so we can measure
+            // state-change → bits-on-wire latency end-to-end. Heartbeat /
+            // video-driven captures (no signature change) leave this null.
+            if (signatureChanged && signatureChangedAtMsRef.current === null) {
+              signatureChangedAtMsRef.current = Date.now();
+            }
             stageRef.current?.batchDraw();
             if (captureFrame()) {
               lastSignature = currentSignature;

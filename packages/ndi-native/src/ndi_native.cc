@@ -64,6 +64,11 @@ struct NDIlib_video_frame_v2_t {
   int64_t timestamp;
 };
 
+struct NDIlib_tally_t {
+  bool on_program;
+  bool on_preview;
+};
+
 // Planar 32-bit float audio. Channels are stored back-to-back: channel 0's
 // samples first, then channel 1's, separated by channel_stride_in_bytes.
 struct NDIlib_audio_frame_v2_t {
@@ -87,6 +92,7 @@ using FnNdiSendVideoV2 = void (*)(NDIlib_send_instance_t, const NDIlib_video_fra
 using FnNdiSendVideoAsyncV2 = void (*)(NDIlib_send_instance_t, const NDIlib_video_frame_v2_t*);
 using FnNdiSendAudioV2 = void (*)(NDIlib_send_instance_t, const NDIlib_audio_frame_v2_t*);
 using FnNdiSendGetNoConnections = int32_t (*)(NDIlib_send_instance_t, uint32_t);
+using FnNdiSendGetTally = bool (*)(NDIlib_send_instance_t, NDIlib_tally_t*, uint32_t);
 
 struct NdiSymbols {
   FnNdiInitialize initialize = nullptr;
@@ -97,6 +103,7 @@ struct NdiSymbols {
   FnNdiSendVideoAsyncV2 sendVideoAsyncV2 = nullptr;
   FnNdiSendAudioV2 sendAudioV2 = nullptr;
   FnNdiSendGetNoConnections sendGetNoConnections = nullptr;
+  FnNdiSendGetTally sendGetTally = nullptr;
 };
 
 class DynamicLibrary {
@@ -371,6 +378,8 @@ void LoadRuntimeIfNeeded(SenderState& state) {
       ResolveOptional<FnNdiSendAudioV2>(state.runtime, "NDIlib_send_send_audio_v2");
   state.symbols.sendGetNoConnections =
       ResolveOptional<FnNdiSendGetNoConnections>(state.runtime, "NDIlib_send_get_no_connections");
+  state.symbols.sendGetTally =
+      ResolveOptional<FnNdiSendGetTally>(state.runtime, "NDIlib_send_get_tally");
 
   state.runtimeLoaded = true;
 }
@@ -909,6 +918,44 @@ Napi::Value GetSenderConnections(const Napi::CallbackInfo& info) {
   return Napi::Number::New(env, count);
 }
 
+Napi::Value GetSenderTally(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+
+  if (info.Length() < 1 || info.Length() > 2 || !info[0].IsString() || (info.Length() == 2 && !info[1].IsNumber())) {
+    Napi::TypeError::New(env, "getSenderTally expects (senderName, timeoutMs?)").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  const std::string senderName = info[0].As<Napi::String>().Utf8Value();
+  const uint32_t timeoutMs = info.Length() == 2
+      ? static_cast<uint32_t>(std::max<int32_t>(0, info[1].As<Napi::Number>().Int32Value()))
+      : 0U;
+
+  if (senderName.empty()) {
+    Napi::TypeError::New(env, "senderName must be non-empty").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  auto& state = State();
+  std::lock_guard<std::mutex> guard(state.mutex);
+
+  if (state.symbols.sendGetTally == nullptr) {
+    return env.Null();
+  }
+
+  auto senderIt = state.senders.find(senderName);
+  if (senderIt == state.senders.end() || senderIt->second.sender == nullptr) {
+    return env.Null();
+  }
+
+  NDIlib_tally_t tally{};
+  state.symbols.sendGetTally(senderIt->second.sender, &tally, timeoutMs);
+  Napi::Object out = Napi::Object::New(env);
+  out.Set("onProgram", Napi::Boolean::New(env, tally.on_program));
+  out.Set("onPreview", Napi::Boolean::New(env, tally.on_preview));
+  return out;
+}
+
 Napi::Value DestroySender(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
 
@@ -969,6 +1016,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("sendRgbaFrame", Napi::Function::New(env, SendRgbaFrame));
   exports.Set("sendAudioFrame", Napi::Function::New(env, SendAudioFrame));
   exports.Set("getSenderConnections", Napi::Function::New(env, GetSenderConnections));
+  exports.Set("getSenderTally", Napi::Function::New(env, GetSenderTally));
   exports.Set("destroySender", Napi::Function::New(env, DestroySender));
   exports.Set("getRuntimeInfo", Napi::Function::New(env, GetRuntimeInfo));
   return exports;

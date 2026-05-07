@@ -131,7 +131,10 @@ const api = {
     // Use ordinary IPC cloning for frame delivery. Electron's renderer
     // transfer-list path rejects ArrayBuffer here, which prevents frames from
     // reaching main and leaves NDI diagnostics stuck at zero.
-    ipcRenderer.send(IPC.sendNdiFrame, { name, buffer, width, height, telemetry });
+    const stamped: NdiFrameTelemetry | undefined = telemetry
+      ? { ...telemetry, rendererSendAtMs: Date.now() }
+      : undefined;
+    ipcRenderer.send(IPC.sendNdiFrame, { name, buffer, width, height, telemetry: stamped });
   },
   sendNdiAudio: (
     name: NdiOutputName,

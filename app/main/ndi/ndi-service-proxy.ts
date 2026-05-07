@@ -103,7 +103,10 @@ export class NdiServiceProxy implements NdiServiceLike {
     // utilityProcess.postMessage only documents MessagePort transfer support;
     // attempting ArrayBuffer transfer can throw before the NDI host receives the
     // frame, leaving the sender advertised with zero frame diagnostics.
-    this.send({ type: 'frame', name, buffer, width, height, telemetry });
+    const stamped: NdiFrameTelemetry | undefined = telemetry
+      ? { ...telemetry, proxyForwardedAtMs: Date.now() }
+      : undefined;
+    this.send({ type: 'frame', name, buffer, width, height, telemetry: stamped });
   }
 
   receiveAudioFrame(
