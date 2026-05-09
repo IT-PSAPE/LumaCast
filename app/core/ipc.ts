@@ -29,7 +29,10 @@ import type {
   ThemeUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
-  SlideOrderUpdateInput
+  SlideOrderUpdateInput,
+  TalkScriptBlockCreateInput,
+  TalkScriptBlockOrderUpdateInput,
+  TalkScriptBlockUpdateInput
 } from './types';
 import type { SnapshotPatch } from './snapshot-patch';
 
@@ -63,10 +66,15 @@ export interface MainApi {
   moveDeckItem: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
   createPresentation: (title: string) => Promise<SnapshotPatch>;
   createLyric: (title: string) => Promise<SnapshotPatch>;
+  createTalk: (title: string) => Promise<SnapshotPatch>;
   createSlide: (input: SlideCreateInput) => Promise<SnapshotPatch>;
   duplicateSlide: (slideId: Id) => Promise<SnapshotPatch>;
   deleteSlide: (slideId: Id) => Promise<SnapshotPatch>;
   updateSlideNotes: (input: SlideNotesUpdateInput) => Promise<SnapshotPatch>;
+  createTalkScriptBlock: (input: TalkScriptBlockCreateInput) => Promise<SnapshotPatch>;
+  updateTalkScriptBlock: (input: TalkScriptBlockUpdateInput) => Promise<SnapshotPatch>;
+  deleteTalkScriptBlock: (id: Id) => Promise<SnapshotPatch>;
+  setTalkScriptBlockOrder: (input: TalkScriptBlockOrderUpdateInput) => Promise<SnapshotPatch>;
   movePlaylistEntry: (entryId: Id, direction: 'up' | 'down') => Promise<AppSnapshot>;
   setSlideOrder: (input: SlideOrderUpdateInput) => Promise<SnapshotPatch>;
   setLibraryOrder: (libraryId: Id, newOrder: number) => Promise<SnapshotPatch>;
@@ -101,11 +109,13 @@ export interface MainApi {
   renamePlaylist: (id: Id, name: string) => Promise<SnapshotPatch>;
   renamePresentation: (id: Id, title: string) => Promise<SnapshotPatch>;
   renameLyric: (id: Id, title: string) => Promise<SnapshotPatch>;
+  renameTalk: (id: Id, title: string) => Promise<SnapshotPatch>;
   deleteLibrary: (id: Id) => Promise<SnapshotPatch>;
   deletePlaylist: (id: Id) => Promise<SnapshotPatch>;
   deletePlaylistGroup: (id: Id) => Promise<SnapshotPatch>;
   deletePresentation: (id: Id) => Promise<SnapshotPatch>;
   deleteLyric: (id: Id) => Promise<SnapshotPatch>;
+  deleteTalk: (id: Id) => Promise<SnapshotPatch>;
   setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) => Promise<NdiOutputState>;
   getNdiOutputState: () => Promise<NdiOutputState>;
   getNdiOutputConfigs: () => Promise<NdiOutputConfigMap>;
@@ -243,10 +253,15 @@ export const IPC = {
   moveDeckItem: 'cast:moveDeckItem',
   createPresentation: 'cast:createPresentation',
   createLyric: 'cast:createLyric',
+  createTalk: 'cast:createTalk',
   createSlide: 'cast:createSlide',
   duplicateSlide: 'cast:duplicateSlide',
   deleteSlide: 'cast:deleteSlide',
   updateSlideNotes: 'cast:updateSlideNotes',
+  createTalkScriptBlock: 'cast:createTalkScriptBlock',
+  updateTalkScriptBlock: 'cast:updateTalkScriptBlock',
+  deleteTalkScriptBlock: 'cast:deleteTalkScriptBlock',
+  setTalkScriptBlockOrder: 'cast:setTalkScriptBlockOrder',
   setSlideOrder: 'cast:setSlideOrder',
   setLibraryOrder: 'cast:setLibraryOrder',
   setPlaylistOrder: 'cast:setPlaylistOrder',
@@ -280,11 +295,13 @@ export const IPC = {
   renamePlaylist: 'cast:renamePlaylist',
   renamePresentation: 'cast:renamePresentation',
   renameLyric: 'cast:renameLyric',
+  renameTalk: 'cast:renameTalk',
   deleteLibrary: 'cast:deleteLibrary',
   deletePlaylist: 'cast:deletePlaylist',
   deletePlaylistGroup: 'cast:deletePlaylistGroup',
   deletePresentation: 'cast:deletePresentation',
   deleteLyric: 'cast:deleteLyric',
+  deleteTalk: 'cast:deleteTalk',
   getAudioCoverArt: 'cast:getAudioCoverArt',
   setNdiOutputEnabled: 'ndi:setOutputEnabled',
   getNdiOutputState: 'ndi:getOutputState',

@@ -1,4 +1,4 @@
-import type { DeckItem, DeckItemType, Presentation, Lyric, PlaylistEntry, Slide } from './types';
+import type { DeckItem, DeckItemType, Presentation, Lyric, Talk, PlaylistEntry, Slide } from './types';
 
 interface DeckItemInput {
   id: string;
@@ -45,27 +45,38 @@ export function isPresentationDeckItem(item: DeckItem | null | undefined): item 
   return item?.type === 'presentation';
 }
 
-export function getDeckItemLabel(item: Pick<DeckItem, 'type'> | DeckItemType): 'Presentation' | 'Lyric' {
+export function isTalkDeckItem(item: DeckItem | null | undefined): item is Talk {
+  return item?.type === 'talk';
+}
+
+export function isPresentationLikeDeckItem(item: DeckItem | null | undefined): item is Presentation | Talk {
+  return item?.type === 'presentation' || item?.type === 'talk';
+}
+
+export function getDeckItemLabel(item: Pick<DeckItem, 'type'> | DeckItemType): 'Presentation' | 'Lyric' | 'Talk' {
   const type = typeof item === 'string' ? item : item.type;
+  if (type === 'talk') return 'Talk';
   return type === 'lyric' ? 'Lyric' : 'Presentation';
 }
 
-export function getSlideDeckItemId(slide: Pick<Slide, 'presentationId' | 'lyricId'>): string | null {
-  return slide.presentationId ?? slide.lyricId ?? null;
+export function getSlideDeckItemId(slide: Pick<Slide, 'presentationId' | 'lyricId' | 'talkId'>): string | null {
+  return slide.presentationId ?? slide.lyricId ?? slide.talkId ?? null;
 }
 
-export function getSlideDeckItemType(slide: Pick<Slide, 'presentationId' | 'lyricId'>): DeckItemType | null {
+export function getSlideDeckItemType(slide: Pick<Slide, 'presentationId' | 'lyricId' | 'talkId'>): DeckItemType | null {
   if (slide.presentationId) return 'presentation';
   if (slide.lyricId) return 'lyric';
+  if (slide.talkId) return 'talk';
   return null;
 }
 
-export function getPlaylistEntryDeckItemId(entry: Pick<PlaylistEntry, 'presentationId' | 'lyricId'>): string | null {
-  return entry.presentationId ?? entry.lyricId ?? null;
+export function getPlaylistEntryDeckItemId(entry: Pick<PlaylistEntry, 'presentationId' | 'lyricId' | 'talkId'>): string | null {
+  return entry.presentationId ?? entry.lyricId ?? entry.talkId ?? null;
 }
 
-export function getPlaylistEntryDeckItemType(entry: Pick<PlaylistEntry, 'presentationId' | 'lyricId'>): DeckItemType | null {
+export function getPlaylistEntryDeckItemType(entry: Pick<PlaylistEntry, 'presentationId' | 'lyricId' | 'talkId'>): DeckItemType | null {
   if (entry.presentationId) return 'presentation';
   if (entry.lyricId) return 'lyric';
+  if (entry.talkId) return 'talk';
   return null;
 }

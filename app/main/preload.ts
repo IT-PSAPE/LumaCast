@@ -31,7 +31,10 @@ import type {
   ThemeUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
-  SlideOrderUpdateInput
+  SlideOrderUpdateInput,
+  TalkScriptBlockCreateInput,
+  TalkScriptBlockOrderUpdateInput,
+  TalkScriptBlockUpdateInput
 } from '@core/types';
 
 const api = {
@@ -73,10 +76,15 @@ const api = {
   moveDeckItem: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.moveDeckItem, id, direction),
   createPresentation: (title: string) => ipcRenderer.invoke(IPC.createPresentation, title),
   createLyric: (title: string) => ipcRenderer.invoke(IPC.createLyric, title),
+  createTalk: (title: string) => ipcRenderer.invoke(IPC.createTalk, title),
   createSlide: (input: SlideCreateInput) => ipcRenderer.invoke(IPC.createSlide, input),
   duplicateSlide: (slideId: Id) => ipcRenderer.invoke(IPC.duplicateSlide, slideId),
   deleteSlide: (slideId: Id) => ipcRenderer.invoke(IPC.deleteSlide, slideId),
   updateSlideNotes: (input: SlideNotesUpdateInput) => ipcRenderer.invoke(IPC.updateSlideNotes, input),
+  createTalkScriptBlock: (input: TalkScriptBlockCreateInput) => ipcRenderer.invoke(IPC.createTalkScriptBlock, input),
+  updateTalkScriptBlock: (input: TalkScriptBlockUpdateInput) => ipcRenderer.invoke(IPC.updateTalkScriptBlock, input),
+  deleteTalkScriptBlock: (id: Id) => ipcRenderer.invoke(IPC.deleteTalkScriptBlock, id),
+  setTalkScriptBlockOrder: (input: TalkScriptBlockOrderUpdateInput) => ipcRenderer.invoke(IPC.setTalkScriptBlockOrder, input),
   setSlideOrder: (input: SlideOrderUpdateInput) => ipcRenderer.invoke(IPC.setSlideOrder, input),
   setLibraryOrder: (libraryId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setLibraryOrder, libraryId, newOrder),
   setPlaylistOrder: (playlistId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistOrder, playlistId, newOrder),
@@ -115,11 +123,13 @@ const api = {
   renamePlaylist: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylist, id, name),
   renamePresentation: (id: Id, title: string) => ipcRenderer.invoke(IPC.renamePresentation, id, title),
   renameLyric: (id: Id, title: string) => ipcRenderer.invoke(IPC.renameLyric, id, title),
+  renameTalk: (id: Id, title: string) => ipcRenderer.invoke(IPC.renameTalk, id, title),
   deleteLibrary: (id: Id) => ipcRenderer.invoke(IPC.deleteLibrary, id),
   deletePlaylist: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylist, id),
   deletePlaylistGroup: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylistGroup, id),
   deletePresentation: (id: Id) => ipcRenderer.invoke(IPC.deletePresentation, id),
   deleteLyric: (id: Id) => ipcRenderer.invoke(IPC.deleteLyric, id),
+  deleteTalk: (id: Id) => ipcRenderer.invoke(IPC.deleteTalk, id),
   setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) =>
     ipcRenderer.invoke(IPC.setNdiOutputEnabled, name, enabled),
   getNdiOutputState: () => ipcRenderer.invoke(IPC.getNdiOutputState),

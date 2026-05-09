@@ -32,12 +32,13 @@ export interface PlaylistEntry {
   groupId: Id;
   presentationId: Id | null;
   lyricId: Id | null;
+  talkId: Id | null;
   order: number;
   createdAt: string;
   updatedAt: string;
 }
 
-export type DeckItemType = 'presentation' | 'lyric';
+export type DeckItemType = 'presentation' | 'lyric' | 'talk';
 export type ThemeKind = 'slides' | 'lyrics' | 'overlays';
 
 interface DeckItemBase {
@@ -58,15 +59,20 @@ export interface Lyric extends DeckItemBase {
   type: 'lyric';
 }
 
-export type DeckItem = Presentation | Lyric;
+export interface Talk extends DeckItemBase {
+  type: 'talk';
+}
 
-export type SlideKind = 'presentation' | 'lyric' | 'theme' | 'overlay' | 'stage';
+export type DeckItem = Presentation | Lyric | Talk;
+
+export type SlideKind = 'presentation' | 'lyric' | 'talk' | 'theme' | 'overlay' | 'stage';
 
 export interface Slide {
   id: Id;
   // Exactly one of the parent FKs is set; the rest are null.
   presentationId: Id | null;
   lyricId: Id | null;
+  talkId: Id | null;
   themeId: Id | null;
   overlayId: Id | null;
   stageId: Id | null;
@@ -107,7 +113,9 @@ export type TextBindingKind =
   | 'clock'
   | 'current-slide-text'
   | 'next-slide-text'
-  | 'slide-notes';
+  | 'slide-notes'
+  | 'talk-script-current'
+  | 'talk-script-progress';
 
 export type ClockFormat = '12h' | '12h-seconds' | '24h' | '24h-seconds';
 export type TimerFormat = 'mm:ss' | 'hh:mm:ss';
@@ -257,6 +265,15 @@ export interface Stage {
   updatedAt: string;
 }
 
+export interface TalkScriptBlock {
+  id: Id;
+  slideId: Id;
+  text: string;
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage';
 
 export interface Collection {
@@ -293,6 +310,7 @@ export interface CollectionReorderInput {
 export type CollectionItemType =
   | 'presentation'
   | 'lyric'
+  | 'talk'
   | 'media_asset'
   | 'theme'
   | 'overlay'
@@ -321,6 +339,13 @@ export interface DeckBundleSlide {
   notes: string;
   order: number;
   elements: SlideElement[];
+  scriptBlocks?: DeckBundleTalkScriptBlock[];
+}
+
+export interface DeckBundleTalkScriptBlock {
+  id: Id;
+  text: string;
+  order: number;
 }
 
 export interface DeckBundleItem {
@@ -366,6 +391,7 @@ export interface DeckBundlePlaylistEntry {
   id: Id;
   presentationId: Id | null;
   lyricId: Id | null;
+  talkId?: Id | null;
   order: number;
 }
 
@@ -493,7 +519,9 @@ export interface AppSnapshot {
   libraryBundles: LibraryPlaylistBundle[];
   presentations: Presentation[];
   lyrics: Lyric[];
+  talks: Talk[];
   slides: Slide[];
+  talkScriptBlocks: TalkScriptBlock[];
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
@@ -513,8 +541,25 @@ export type SlideBrowserMode = 'library' | 'playlist' | 'deck' | 'deck-editor';
 export interface SlideCreateInput {
   presentationId?: Id | null;
   lyricId?: Id | null;
+  talkId?: Id | null;
   width?: number;
   height?: number;
+}
+
+export interface TalkScriptBlockCreateInput {
+  slideId: Id;
+  text?: string;
+  order?: number;
+}
+
+export interface TalkScriptBlockUpdateInput {
+  id: Id;
+  text: string;
+}
+
+export interface TalkScriptBlockOrderUpdateInput {
+  id: Id;
+  newOrder: number;
 }
 
 export interface SlideNotesUpdateInput {

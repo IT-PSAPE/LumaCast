@@ -1,14 +1,16 @@
 import { useMemo, useRef } from 'react';
 import { getSlideDeckItemId } from '@core/deck-items';
-import type { AppSnapshot, Collection, CollectionBinKind, DeckItem, Presentation, Id, Lyric, MediaAsset, Overlay, Slide, SlideElement, Stage, Theme } from '@core/types';
+import type { AppSnapshot, Collection, CollectionBinKind, DeckItem, Presentation, Id, Lyric, MediaAsset, Overlay, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from '@core/types';
 import { sortElements, sortSlides } from '../utils/slides';
 import { useCast } from './app-context';
 
 interface ProjectContent {
   presentations: Presentation[];
   lyrics: Lyric[];
+  talks: Talk[];
   deckItems: DeckItem[];
   slides: Slide[];
+  talkScriptBlocks: TalkScriptBlock[];
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
@@ -17,6 +19,7 @@ interface ProjectContent {
   collections: Collection[];
   deckItemsById: ReadonlyMap<Id, DeckItem>;
   slidesByDeckItemId: ReadonlyMap<Id, Slide[]>;
+  talkScriptBlocksBySlideId: ReadonlyMap<Id, TalkScriptBlock[]>;
   slideElementsBySlideId: ReadonlyMap<Id, SlideElement[]>;
   mediaAssetsById: ReadonlyMap<Id, MediaAsset>;
   overlaysById: ReadonlyMap<Id, Overlay>;
@@ -42,7 +45,9 @@ export function useProjectContent(): ProjectContent {
   const prevRef = useRef<{
     presentations: Presentation[];
     lyrics: Lyric[];
+    talks: Talk[];
     slides: Slide[];
+    talkScriptBlocks: TalkScriptBlock[];
     slideElements: SlideElement[];
     mediaAssets: MediaAsset[];
     overlays: Overlay[];
@@ -55,7 +60,9 @@ export function useProjectContent(): ProjectContent {
     const raw = {
       presentations: snapshot?.presentations ?? [],
       lyrics: snapshot?.lyrics ?? [],
+      talks: snapshot?.talks ?? [],
       slides: snapshot?.slides ?? [],
+      talkScriptBlocks: snapshot?.talkScriptBlocks ?? [],
       slideElements: snapshot?.slideElements ?? [],
       mediaAssets: snapshot?.mediaAssets ?? [],
       overlays: snapshot?.overlays ?? [],
@@ -68,7 +75,9 @@ export function useProjectContent(): ProjectContent {
     const result = {
       presentations: stableArray(prev?.presentations ?? null, raw.presentations),
       lyrics: stableArray(prev?.lyrics ?? null, raw.lyrics),
+      talks: stableArray(prev?.talks ?? null, raw.talks),
       slides: stableArray(prev?.slides ?? null, raw.slides),
+      talkScriptBlocks: stableArray(prev?.talkScriptBlocks ?? null, raw.talkScriptBlocks),
       slideElements: stableArray(prev?.slideElements ?? null, raw.slideElements),
       mediaAssets: stableArray(prev?.mediaAssets ?? null, raw.mediaAssets),
       overlays: stableArray(prev?.overlays ?? null, raw.overlays),
@@ -87,9 +96,9 @@ export function useProjectContent(): ProjectContent {
       if (cached) return cached;
     }
 
-    const { presentations, lyrics, slides, slideElements, mediaAssets, overlays, themes, stages, collections } = stableInputs;
+    const { presentations, lyrics, talks, slides, talkScriptBlocks, slideElements, mediaAssets, overlays, themes, stages, collections } = stableInputs;
 
-    const deckItems = [...presentations, ...lyrics].sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt));
+    const deckItems = [...presentations, ...lyrics, ...talks].sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt));
 
     const deckItemsById = new Map<Id, DeckItem>();
     for (const item of deckItems) deckItemsById.set(item.id, item);
@@ -105,6 +114,17 @@ export function useProjectContent(): ProjectContent {
     }
     slidesByDeckItemId.forEach((contentSlides, itemId) => {
       slidesByDeckItemId.set(itemId, sortSlides(contentSlides));
+    });
+
+    const talkScriptBlocksBySlideId = new Map<Id, TalkScriptBlock[]>();
+    for (const slide of slides) talkScriptBlocksBySlideId.set(slide.id, []);
+    for (const block of talkScriptBlocks) {
+      const existing = talkScriptBlocksBySlideId.get(block.slideId) ?? [];
+      existing.push(block);
+      talkScriptBlocksBySlideId.set(block.slideId, existing);
+    }
+    talkScriptBlocksBySlideId.forEach((blocks, slideId) => {
+      talkScriptBlocksBySlideId.set(slideId, [...blocks].sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt)));
     });
 
     const slideElementsBySlideId = new Map<Id, SlideElement[]>();
@@ -148,8 +168,10 @@ export function useProjectContent(): ProjectContent {
     const content = {
       presentations,
       lyrics,
+      talks,
       deckItems,
       slides,
+      talkScriptBlocks,
       slideElements,
       mediaAssets,
       overlays,
@@ -158,6 +180,7 @@ export function useProjectContent(): ProjectContent {
       collections,
       deckItemsById,
       slidesByDeckItemId,
+      talkScriptBlocksBySlideId,
       slideElementsBySlideId,
       mediaAssetsById,
       overlaysById,

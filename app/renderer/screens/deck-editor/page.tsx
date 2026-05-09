@@ -22,6 +22,7 @@ import { Label } from '@renderer/components/display/text';
 import { DeckEditorInspectorPanel } from './inspector-panel';
 import { DeckEditorLayersPanel } from './layers-panel';
 import { DeckEditorScreenProvider, useDeckEditorScreen } from './screen-context';
+import { TalkScriptBlocksPanel } from '../../features/deck/talk-script-blocks-panel';
 
 export function DeckEditorScreen() {
   return (
@@ -57,6 +58,9 @@ function DeckEditorScreenContent() {
                         </Dropdown.Item>
                         <Dropdown.Item onClick={() => actions.openCreateDeckItem('presentation')}>
                           New presentation
+                        </Dropdown.Item>
+                        <Dropdown.Item onClick={() => actions.openCreateDeckItem('talk')}>
+                          New talk
                         </Dropdown.Item>
                         <Dropdown.Separator />
                         <Dropdown.Item onClick={() => { void actions.createSlide(); }} disabled={!state.currentDeckItem}>
@@ -125,14 +129,18 @@ function DeckEditorScreenContent() {
                     </ReacstButton>
                   </div>
                 </div> */}
-                <FieldTextarea
-                  value={state.notesPanel.notesDraft}
-                  onChange={state.notesPanel.handleNotesChange}
-                  onBlur={state.notesPanel.handleSaveNotes}
-                  placeholder={state.notesPanel.placeholder}
-                  resize="none"
-                  className="h-full min-h-0 w-full resize-none rounded-none border-none bg-transparent p-4 focus:border-0 paragraph-sm"
-                />
+                {state.currentDeckItem?.type === 'talk' && state.currentSlide ? (
+                  <TalkScriptBlocksPanel slideId={state.currentSlide.id} />
+                ) : (
+                  <FieldTextarea
+                    value={state.notesPanel.notesDraft}
+                    onChange={state.notesPanel.handleNotesChange}
+                    onBlur={state.notesPanel.handleSaveNotes}
+                    placeholder={state.notesPanel.placeholder}
+                    resize="none"
+                    className="h-full min-h-0 w-full resize-none rounded-none border-none bg-transparent p-4 focus:border-0 paragraph-sm"
+                  />
+                )}
               </section>
             </SplitPanel.Segment>
           </SplitPanel.Panel>

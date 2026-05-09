@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Id } from '@core/types';
+import type { DeckItemType, Id } from '@core/types';
 import { isThemeCompatibleWithDeckItem } from '@core/themes';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '../../components/overlays/dialog';
@@ -8,7 +8,7 @@ import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLyricEditor } from './lyric-editor';
 
-type DeckItemKind = 'presentation' | 'lyric';
+type DeckItemKind = DeckItemType;
 
 interface CreateDeckItemContextValue {
   open: (kind: DeckItemKind) => void;
@@ -112,8 +112,8 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
 
   if (!isOpen) return null;
 
-  const title = kind === 'lyric' ? 'New lyric' : 'New presentation';
-  const placeholder = kind === 'lyric' ? 'New Lyric' : 'New Presentation';
+  const title = kind === 'lyric' ? 'New lyric' : kind === 'talk' ? 'New talk' : 'New presentation';
+  const placeholder = kind === 'lyric' ? 'New Lyric' : kind === 'talk' ? 'New Talk' : 'New Presentation';
 
   return (
     <Dialog.Root open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>

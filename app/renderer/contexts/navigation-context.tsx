@@ -260,7 +260,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     await runOperation('Creating deck...', async () => {
       const previousIds = new Set(deckItems.map((item) => item.id));
       const next = await mutatePatch(() => window.castApi.createPresentation('New Presentation'));
-      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics].map((item) => item.id));
+      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id));
       if (!createdId) return;
       await mutatePatch(() => window.castApi.createSlide({ presentationId: createdId }));
       setCurrentDrawerDeckItemId(createdId);
@@ -274,7 +274,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     await runOperation('Creating lyric...', async () => {
       const previousIds = new Set(deckItems.map((item) => item.id));
       const next = await mutatePatch(() => window.castApi.createLyric('New Lyric'));
-      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics].map((item) => item.id));
+      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id));
       if (!createdId) return;
       await mutatePatch(() => window.castApi.createSlide({ lyricId: createdId }));
       setCurrentDrawerDeckItemId(createdId);
@@ -288,26 +288,30 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   // with a chosen name, then optionally applies a theme and adds it to a group
   // — all atomic from the user's perspective (one click of the dialog's New button).
   const createDeckItem = useCallback(async (input: {
-    kind: 'presentation' | 'lyric';
+    kind: 'presentation' | 'lyric' | 'talk';
     name: string;
     themeId?: Id;
     groupId?: Id;
   }) => {
-    const trimmedName = input.name.trim() || (input.kind === 'lyric' ? 'New Lyric' : 'New Presentation');
-    const labelKind = input.kind === 'lyric' ? 'lyric' : 'deck';
+    const trimmedName = input.name.trim() || (input.kind === 'lyric' ? 'New Lyric' : input.kind === 'talk' ? 'New Talk' : 'New Presentation');
+    const labelKind = input.kind === 'lyric' ? 'lyric' : input.kind === 'talk' ? 'talk' : 'deck';
 
     await runOperation(`Creating ${labelKind}...`, async () => {
       const previousIds = new Set(deckItems.map((item) => item.id));
       const next = input.kind === 'lyric'
         ? await mutatePatch(() => window.castApi.createLyric(trimmedName))
-        : await mutatePatch(() => window.castApi.createPresentation(trimmedName));
-      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics].map((item) => item.id));
+        : input.kind === 'talk'
+          ? await mutatePatch(() => window.castApi.createTalk(trimmedName))
+          : await mutatePatch(() => window.castApi.createPresentation(trimmedName));
+      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id));
       if (!createdId) return;
 
       await mutatePatch(() => (
         input.kind === 'lyric'
           ? window.castApi.createSlide({ lyricId: createdId })
-          : window.castApi.createSlide({ presentationId: createdId })
+          : input.kind === 'talk'
+            ? window.castApi.createSlide({ talkId: createdId })
+            : window.castApi.createSlide({ presentationId: createdId })
       ));
 
       if (input.themeId) {

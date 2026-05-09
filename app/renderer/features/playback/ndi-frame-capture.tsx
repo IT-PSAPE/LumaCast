@@ -61,6 +61,8 @@ function bindingValueForSignature(binding: TextBinding, runtime: BindingValue): 
   if (binding.kind === 'current-slide-text') return runtime.currentSlideText ?? '';
   if (binding.kind === 'next-slide-text') return runtime.nextSlideText ?? '';
   if (binding.kind === 'slide-notes') return runtime.slideNotes ?? '';
+  if (binding.kind === 'talk-script-current') return runtime.talkScriptCurrent ?? '';
+  if (binding.kind === 'talk-script-progress') return runtime.talkScriptProgress ?? '';
   return null;
 }
 

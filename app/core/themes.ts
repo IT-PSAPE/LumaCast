@@ -23,7 +23,7 @@ function applyTextValue(themeElement: SlideElement, textValues: string[]): Slide
 }
 
 export function isThemeCompatibleWithDeckItem(theme: Theme, deckItemType: DeckItemType): boolean {
-  if (theme.kind === 'slides') return deckItemType === 'presentation';
+  if (theme.kind === 'slides') return deckItemType === 'presentation' || deckItemType === 'talk';
   if (theme.kind === 'lyrics') return deckItemType === 'lyric';
   return false;
 }

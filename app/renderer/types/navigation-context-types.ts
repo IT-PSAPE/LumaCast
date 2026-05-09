@@ -1,4 +1,4 @@
-import type { DeckItem, Id, LibraryPlaylistBundle } from '@core/types';
+import type { DeckItem, DeckItemType, Id, LibraryPlaylistBundle } from '@core/types';
 
 export interface NavigationStateValue {
   currentLibraryId: Id | null;
@@ -33,7 +33,7 @@ export interface NavigationActionsValue {
   createPresentation: () => Promise<void>;
   createEmptyLyric: () => Promise<void>;
   createDeckItem: (input: {
-    kind: 'presentation' | 'lyric';
+    kind: DeckItemType;
     name: string;
     themeId?: Id;
     groupId?: Id;

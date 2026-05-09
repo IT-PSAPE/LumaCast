@@ -214,6 +214,7 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
           <>
             <Dropdown.Item onClick={() => openCreateDeckItem('presentation')}>New presentation</Dropdown.Item>
             <Dropdown.Item onClick={() => openCreateDeckItem('lyric')}>New lyric</Dropdown.Item>
+            <Dropdown.Item onClick={() => openCreateDeckItem('talk')}>New talk</Dropdown.Item>
             <Dropdown.Separator />
             <SortMenuItems options={DECK_SORT_OPTIONS} sort={deckSort.sort} onChange={deckSort.setSort} />
           </>

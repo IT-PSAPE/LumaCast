@@ -106,7 +106,7 @@ function DeckItemContextMenuItems({ item, renameRef, collectionsApi }: { item: D
             {otherCollections.map((collection) => (
               <ContextMenu.Item
                 key={collection.id}
-                onSelect={() => { void collectionsApi.assignItem(item.type === 'lyric' ? 'lyric' : 'presentation', item.id, collection.id); }}
+                onSelect={() => { void collectionsApi.assignItem(item.type, item.id, collection.id); }}
               >
                 {collection.name}
               </ContextMenu.Item>
