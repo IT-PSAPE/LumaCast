@@ -1,5 +1,5 @@
 import type { MediaAsset, MediaAssetType, DeckItem, DeckItemType } from '@core/types';
-import { Film, Image, Mic, Music, Presentation } from 'lucide-react';
+import { FileText, Film, Image, Mic, Music, Presentation } from 'lucide-react';
 
 // ─── Media Asset Icon ────────────────────────────────
 
@@ -38,6 +38,9 @@ export function DeckItemIcon({ entity, size = 14, strokeWidth = 1.75, className 
 
   if (entityType === 'lyric') {
     return <Music size={size} strokeWidth={strokeWidth} className={className} />;
+  }
+  if (entityType === 'talk') {
+    return <FileText size={size} strokeWidth={strokeWidth} className={className} />;
   }
 
   return <Presentation size={size} strokeWidth={strokeWidth} className={className} />;

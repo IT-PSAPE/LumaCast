@@ -14,7 +14,7 @@ import { BrokenReferenceReviewList } from './broken-reference-review-list';
 import { useDeckImportExport } from './use-deck-import-export';
 
 type TransferTab = 'export' | 'import';
-type TypeFilter = 'all' | 'presentation' | 'lyric' | 'playlist';
+type TypeFilter = 'all' | 'presentation' | 'lyric' | 'talk' | 'playlist';
 
 interface ItemRow {
   kind: 'item';
@@ -67,6 +67,7 @@ export function ImportExportPanel() {
         if (typeFilter === 'playlist' && row.kind !== 'playlist') return false;
         if (typeFilter === 'presentation' && (row.kind !== 'item' || row.item.type !== 'presentation')) return false;
         if (typeFilter === 'lyric' && (row.kind !== 'item' || row.item.type !== 'lyric')) return false;
+        if (typeFilter === 'talk' && (row.kind !== 'item' || row.item.type !== 'talk')) return false;
       }
       if (!normalizedFilter) return true;
       return row.title.toLowerCase().includes(normalizedFilter);
@@ -126,6 +127,7 @@ export function ImportExportPanel() {
                 <SegmentedControl.Label value="playlist">Playlists</SegmentedControl.Label>
                 <SegmentedControl.Label value="presentation">Presentations</SegmentedControl.Label>
                 <SegmentedControl.Label value="lyric">Lyrics</SegmentedControl.Label>
+                <SegmentedControl.Label value="talk">Talks</SegmentedControl.Label>
               </SegmentedControl>
             </div>
             <label className="flex h-8 w-full items-center gap-2 rounded bg-tertiary px-2 text-sm text-primary transition-colors focus-within:ring-1 focus-within:ring-brand">

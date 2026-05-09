@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Stage, Layer, Group } from 'react-konva';
 import type Konva from 'konva';
 import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
-import type { NdiOutputName } from '@core/types';
+import type { NdiOutputName, TextBinding } from '@core/types';
 import { useNdi } from '../../contexts/app-context';
 import { SceneNodeMedia } from '../canvas/scene-node-media';
 import { SceneNodeShape } from '../canvas/scene-node-shape';
 import { SceneNodeText } from '../canvas/scene-node-text';
+import { useBinding, type BindingValue } from '../canvas/binding-context';
 import type { RenderNode, RenderScene, SceneSurface } from '../canvas/scene-types';
 import { useNdiCaptureSource } from './ndi-capture-source';
 import NdiReadbackWorker from './ndi-readback-worker?worker';
@@ -26,13 +27,69 @@ function renderNodeContent(node: RenderNode, surface: SceneSurface, onImageLoad?
 
 // Cheap signature used to decide whether the output has visibly changed
 // since the last capture. Video nodes are excluded because their contents
-// tick forward every frame without any RenderNode field changing.
-function sceneSignature(nodes: readonly RenderNode[], withAlpha: boolean): string {
-  let out = withAlpha ? 'a1' : 'a0';
+// tick forward every frame without any RenderNode field changing; the same
+// is true for text elements with ticking clock/timer bindings (see
+// hasTickingTextBinding in the capture loop below). Slide text and notes
+// bindings are included through bindingSignature because their source values
+// can change without any RenderNode field changing.
+function sceneSignature(nodes: readonly RenderNode[], withAlpha: boolean, bindingSignature: string): string {
+  let out = (withAlpha ? 'a1' : 'a0') + bindingSignature;
   for (const node of nodes) {
     out += '|' + node.id + ':' + node.element.updatedAt + ':' + (node.visual.visible === false ? '0' : '1');
   }
   return out;
+}
+
+function nodeRuntime(node: RenderNode, bindingValue: BindingValue): BindingValue {
+  return {
+    ...bindingValue,
+    ...node.bindingOverride,
+  };
+}
+
+function textBindingForNode(node: RenderNode): TextBinding | undefined {
+  if (node.element.type !== 'text') return undefined;
+  return (node.element.payload as { binding?: TextBinding }).binding;
+}
+
+function visibleTextBindingForNode(node: RenderNode): TextBinding | undefined {
+  if (node.visual.visible === false) return undefined;
+  return textBindingForNode(node);
+}
+
+function bindingValueForSignature(binding: TextBinding, runtime: BindingValue): string | null {
+  if (binding.kind === 'current-slide-text') return runtime.currentSlideText ?? '';
+  if (binding.kind === 'next-slide-text') return runtime.nextSlideText ?? '';
+  if (binding.kind === 'slide-notes') return runtime.slideNotes ?? '';
+  if (binding.kind === 'talk-script-current') return runtime.talkScriptCurrent ?? '';
+  if (binding.kind === 'talk-script-progress') return runtime.talkScriptProgress ?? '';
+  return null;
+}
+
+function sceneBindingSignature(nodes: readonly RenderNode[], bindingValue: BindingValue): string {
+  let out = '';
+  for (const node of nodes) {
+    const binding = visibleTextBindingForNode(node);
+    if (!binding) continue;
+    const value = bindingValueForSignature(binding, nodeRuntime(node, bindingValue));
+    if (value === null) continue;
+    out += '|b:' + node.id + ':' + binding.kind + ':' + value.length + ':' + value;
+  }
+  return out;
+}
+
+// Detect text elements whose visible content ticks independently of any
+// RenderNode field change (clock advances every second; timer counts down).
+// When any such element is on the slide we have to capture every RAF tick,
+// because sceneSignature() will never observe their updates.
+function hasTickingTextBinding(nodes: readonly RenderNode[], bindingValue: BindingValue): boolean {
+  for (const node of nodes) {
+    const binding = visibleTextBindingForNode(node);
+    if (!binding) continue;
+    if (binding.kind === 'clock') return true;
+    if (binding.kind === 'timer' && nodeRuntime(node, bindingValue).armedAtMs !== null) return true;
+  }
+  return false;
 }
 
 interface NdiFrameCaptureProps {
@@ -48,11 +105,20 @@ interface NdiFrameCaptureProps {
 
 export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }: NdiFrameCaptureProps) {
   const { state: { outputConfigs } } = useNdi();
+  const bindingValue = useBinding();
   const stageRef = useRef<Konva.Stage>(null);
   const pendingSkippedCapturesRef = useRef(0);
   const pendingDroppedBackpressureRef = useRef(0);
   const inFlightSentAtRef = useRef<number | null>(null);
   const captureStartedAtRef = useRef(0);
+  // Date.now() epoch-ms equivalents of the perf.now() timestamps above. Used
+  // as cross-process pipeline-latency stamps (renderer's perf.now() can't be
+  // compared to main/utility perf.now() — different time origins).
+  const captureStartedAtMsRef = useRef(0);
+  // Set when the RAF tick first observes a new sceneSignature, cleared when
+  // the resulting frame is shipped. Null for heartbeat / video-driven
+  // captures where no state change triggered the frame.
+  const signatureChangedAtMsRef = useRef<number | null>(null);
   const requestIdRef = useRef(0);
   const framesAckedRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
@@ -60,6 +126,14 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
   const hasVideoNodes = useMemo(
     () => scene.nodes.some((node) => node.element.type === 'video'),
     [scene.nodes],
+  );
+  const bindingSignature = useMemo(
+    () => sceneBindingSignature(scene.nodes, bindingValue),
+    [bindingValue, scene.nodes],
+  );
+  const hasDynamicText = useMemo(
+    () => hasTickingTextBinding(scene.nodes, bindingValue),
+    [bindingValue, scene.nodes],
   );
   const withAlpha = outputConfigs[senderName].withAlpha;
 
@@ -79,6 +153,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
       }
       if (data.type !== 'captured') return;
       const captureDurationMs = performance.now() - captureStartedAtRef.current;
+      const signatureChangedAtMs = signatureChangedAtMsRef.current;
+      signatureChangedAtMsRef.current = null;
       window.castApi.sendNdiFrame(
         senderName,
         data.buffer,
@@ -89,6 +165,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
           readbackDurationMs: data.readbackDurationMs,
           skippedCaptures: pendingSkippedCapturesRef.current,
           framesDroppedBackpressure: pendingDroppedBackpressureRef.current,
+          signatureChangedAtMs,
+          captureStartedAtMs: captureStartedAtMsRef.current,
         },
       );
       pendingSkippedCapturesRef.current = 0;
@@ -109,6 +187,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     if (!worker) return false;
 
     captureStartedAtRef.current = performance.now();
+    captureStartedAtMsRef.current = Date.now();
     inFlightSentAtRef.current = performance.now();
     const requestId = ++requestIdRef.current;
 
@@ -179,13 +258,19 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
           inFlightSentAtRef.current = null;
         }
 
-        const currentSignature = sceneSignature(scene.nodes, withAlpha);
+        const currentSignature = sceneSignature(scene.nodes, withAlpha, bindingSignature);
         const signatureChanged = currentSignature !== lastSignature;
         const needsInitialFrame = framesAckedRef.current === 0;
-        if (needsInitialFrame || signatureChanged || hasVideoNodes) {
+        if (needsInitialFrame || signatureChanged || hasVideoNodes || hasDynamicText) {
           if (inFlightSentAtRef.current !== null) {
             pendingDroppedBackpressureRef.current += 1;
           } else {
+            // Record signature-change timestamp so we can measure
+            // state-change → bits-on-wire latency end-to-end. Heartbeat /
+            // video-driven captures (no signature change) leave this null.
+            if (signatureChanged && signatureChangedAtMsRef.current === null) {
+              signatureChangedAtMsRef.current = Date.now();
+            }
             stageRef.current?.batchDraw();
             if (captureFrame()) {
               lastSignature = currentSignature;
@@ -204,7 +289,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
       if (rafId !== null) cancelAnimationFrame(rafId);
       inFlightSentAtRef.current = null;
     };
-  }, [captureFrame, enabled, hasVideoNodes, scene, withAlpha]);
+  }, [bindingSignature, captureFrame, enabled, hasVideoNodes, hasDynamicText, scene, withAlpha]);
 
   if (!enabled) return null;
   if (sharedCaptureSource) return null;

@@ -7,6 +7,7 @@ export const LAYER_PREVIEW_SLIDE: Slide = {
   id: '__layer_preview__',
   presentationId: null,
   lyricId: null,
+  talkId: null,
   themeId: null,
   overlayId: null,
   stageId: null,

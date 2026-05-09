@@ -26,7 +26,10 @@ import type {
   ThemeUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
-  SlideOrderUpdateInput
+  SlideOrderUpdateInput,
+  TalkScriptBlockCreateInput,
+  TalkScriptBlockOrderUpdateInput,
+  TalkScriptBlockUpdateInput
 } from '@core/types';
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
 import type { AppUpdater } from './app-updater';
@@ -204,10 +207,15 @@ export const registerIpcHandlers = (
   safeHandle(IPC.createLyric, (_event, title: string) =>
     repo.createLyric(title)
   );
+  safeHandle(IPC.createTalk, (_event, title: string) => repo.createTalk(title));
   safeHandle(IPC.createSlide, (_event, input: SlideCreateInput) => repo.createSlide(input));
   safeHandle(IPC.duplicateSlide, (_event, slideId: Id) => repo.duplicateSlide(slideId));
   safeHandle(IPC.deleteSlide, (_event, slideId: Id) => repo.deleteSlide(slideId));
   safeHandle(IPC.updateSlideNotes, (_event, input: SlideNotesUpdateInput) => repo.updateSlideNotes(input));
+  safeHandle(IPC.createTalkScriptBlock, (_event, input: TalkScriptBlockCreateInput) => repo.createTalkScriptBlock(input));
+  safeHandle(IPC.updateTalkScriptBlock, (_event, input: TalkScriptBlockUpdateInput) => repo.updateTalkScriptBlock(input));
+  safeHandle(IPC.deleteTalkScriptBlock, (_event, id: Id) => repo.deleteTalkScriptBlock(id));
+  safeHandle(IPC.setTalkScriptBlockOrder, (_event, input: TalkScriptBlockOrderUpdateInput) => repo.setTalkScriptBlockOrder(input));
   safeHandle(IPC.setSlideOrder, (_event, input: SlideOrderUpdateInput) => repo.setSlideOrder(input));
   safeHandle(IPC.setLibraryOrder, (_event, libraryId: Id, newOrder: number) => repo.setLibraryOrder(libraryId, newOrder));
   safeHandle(IPC.setPlaylistOrder, (_event, playlistId: Id, newOrder: number) => repo.setPlaylistOrder(playlistId, newOrder));
@@ -265,11 +273,13 @@ export const registerIpcHandlers = (
   safeHandle(IPC.renamePlaylist, (_event, id: Id, name: string) => repo.renamePlaylist(id, name));
   safeHandle(IPC.renamePresentation, (_event, id: Id, title: string) => repo.renamePresentation(id, title));
   safeHandle(IPC.renameLyric, (_event, id: Id, title: string) => repo.renameLyric(id, title));
+  safeHandle(IPC.renameTalk, (_event, id: Id, title: string) => repo.renameTalk(id, title));
   safeHandle(IPC.deleteLibrary, (_event, id: Id) => repo.deleteLibrary(id));
   safeHandle(IPC.deletePlaylist, (_event, id: Id) => repo.deletePlaylist(id));
   safeHandle(IPC.deletePlaylistGroup, (_event, id: Id) => repo.deletePlaylistGroup(id));
   safeHandle(IPC.deletePresentation, (_event, id: Id) => repo.deletePresentation(id));
   safeHandle(IPC.deleteLyric, (_event, id: Id) => repo.deleteLyric(id));
+  safeHandle(IPC.deleteTalk, (_event, id: Id) => repo.deleteTalk(id));
   safeHandle(IPC.createCollection, (_event, input: CollectionCreateInput) => repo.createCollection(input));
   safeHandle(IPC.renameCollection, (_event, input: CollectionRenameInput) => repo.renameCollection(input));
   safeHandle(IPC.deleteCollection, (_event, input: CollectionDeleteInput) => repo.deleteCollection(input));
@@ -300,6 +310,7 @@ export const registerIpcHandlers = (
       height: number;
       telemetry?: NdiFrameTelemetry;
     }) => {
+    const mainReceivedAtMs = Date.now();
     const ackName = payload?.name;
     try {
       assertTrustedIpcSender(event);
@@ -313,7 +324,10 @@ export const registerIpcHandlers = (
       if (!(buffer instanceof ArrayBuffer)) {
         throw new Error('NDI frame payload must include an ArrayBuffer');
       }
-      ndiService.receiveFrame(name, new Uint8Array(buffer), width, height, telemetry);
+      const stampedTelemetry: NdiFrameTelemetry | undefined = telemetry
+        ? { ...telemetry, mainReceivedAtMs }
+        : undefined;
+      ndiService.receiveFrame(name, new Uint8Array(buffer), width, height, stampedTelemetry);
     } catch (error) {
       console.error(`[IPC ${IPC.sendNdiFrame}]`, error);
     } finally {

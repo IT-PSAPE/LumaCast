@@ -47,15 +47,19 @@ parentPort.on('message', (event: { data: NdiHostCommand }) => {
     case 'updateOutputConfig':
       service.updateOutputConfig(cmd.name, cmd.config);
       break;
-    case 'frame':
+    case 'frame': {
+      const stampedTelemetry = cmd.telemetry
+        ? { ...cmd.telemetry, hostReceivedAtMs: Date.now() }
+        : undefined;
       service.receiveFrame(
         cmd.name,
         new Uint8Array(cmd.buffer),
         cmd.width,
         cmd.height,
-        cmd.telemetry,
+        stampedTelemetry,
       );
       break;
+    }
     case 'audio':
       service.receiveAudioFrame(
         cmd.name,

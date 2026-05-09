@@ -4,6 +4,8 @@ export interface BindingValue {
   currentSlideText: string | null;
   nextSlideText: string | null;
   slideNotes: string | null;
+  talkScriptCurrent: string | null;
+  talkScriptProgress: string | null;
   armedAtMs: number | null;
 }
 
@@ -13,6 +15,8 @@ const EMPTY_VALUE: BindingValue = {
   currentSlideText: null,
   nextSlideText: null,
   slideNotes: null,
+  talkScriptCurrent: null,
+  talkScriptProgress: null,
   armedAtMs: null,
 };
 

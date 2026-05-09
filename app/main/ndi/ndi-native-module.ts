@@ -24,6 +24,12 @@ export interface NdiNativeModule {
     samplesPerChannel: number,
   ) => void;
   getSenderConnections?: (senderName: string, timeoutMs?: number) => number;
+  // Polls the NDI tally signal from receivers. Optional because older NDI
+  // runtimes / older builds of the addon don't expose it.
+  getSenderTally?: (
+    senderName: string,
+    timeoutMs?: number,
+  ) => { onProgram: boolean; onPreview: boolean } | null;
   destroySender: (senderName?: string) => void;
   getRuntimeInfo?: () => NdiRuntimeInfo;
   getAddonInfo?: () => { path: string | null };

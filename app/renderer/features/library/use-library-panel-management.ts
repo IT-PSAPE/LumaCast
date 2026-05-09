@@ -25,12 +25,13 @@ export function useLibraryPanelManagement() {
   const { snapshot, mutate, mutatePatch, setStatusText } = useCast();
 
   function getDeckItems(nextSnapshot: AppSnapshot | null | undefined) {
-    return [...(nextSnapshot?.presentations ?? []), ...(nextSnapshot?.lyrics ?? [])];
+    return [...(nextSnapshot?.presentations ?? []), ...(nextSnapshot?.lyrics ?? []), ...(nextSnapshot?.talks ?? [])];
   }
 
   function resolveDeckItemType(itemId: Id): DeckItemType | null {
     if (snapshot?.presentations.some((item) => item.id === itemId)) return 'presentation';
     if (snapshot?.lyrics.some((item) => item.id === itemId)) return 'lyric';
+    if (snapshot?.talks.some((item) => item.id === itemId)) return 'talk';
     return null;
   }
 
@@ -63,7 +64,9 @@ export function useLibraryPanelManagement() {
     if (!itemType) return;
     await mutatePatch(() => itemType === 'presentation'
       ? window.castApi.renamePresentation(id, title)
-      : window.castApi.renameLyric(id, title));
+      : itemType === 'talk'
+        ? window.castApi.renameTalk(id, title)
+        : window.castApi.renameLyric(id, title));
     setStatusText(`Renamed item: ${title}`);
   }, [mutatePatch, setStatusText, snapshot]);
 
@@ -87,7 +90,9 @@ export function useLibraryPanelManagement() {
     if (!itemType) return;
     await mutatePatch(() => itemType === 'presentation'
       ? window.castApi.deletePresentation(id)
-      : window.castApi.deleteLyric(id));
+      : itemType === 'talk'
+        ? window.castApi.deleteTalk(id)
+        : window.castApi.deleteLyric(id));
     setStatusText('Deleted item');
   }, [mutatePatch, setStatusText, snapshot]);
 
@@ -167,6 +172,15 @@ export function useLibraryPanelManagement() {
     );
   }, [createDeckItemEntryInGroup]);
 
+  const createTalkInGroup = useCallback(async (_libraryId: Id, groupId: Id) => {
+    return createDeckItemEntryInGroup(
+      groupId,
+      () => window.castApi.createTalk('New Talk'),
+      (itemId) => window.castApi.createSlide({ talkId: itemId }),
+      'Created talk and added to group'
+    );
+  }, [createDeckItemEntryInGroup]);
+
   return {
     renameLibrary,
     renamePlaylist,
@@ -185,6 +199,7 @@ export function useLibraryPanelManagement() {
     movePlaylistEntry,
     addDeckItemToGroup,
     createPresentationInGroup,
-    createLyricInGroup
+    createLyricInGroup,
+    createTalkInGroup
   };
 }

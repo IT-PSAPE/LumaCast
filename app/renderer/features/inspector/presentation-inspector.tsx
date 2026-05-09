@@ -3,6 +3,7 @@ import { Unlink } from 'lucide-react';
 import { isThemeCompatibleWithDeckItem } from '@core/themes';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
+import { getDeckItemLabel } from '@core/deck-items';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
@@ -69,7 +70,7 @@ export function DeckItemInspector() {
     return <div className="text-sm text-tertiary">No item selected.</div>;
   }
 
-  const itemLabel = currentDeckItem.type === 'lyric' ? 'Lyric' : 'Presentation';
+  const itemLabel = getDeckItemLabel(currentDeckItem);
   const hasThemeId = Boolean(currentDeckItem.themeId);
 
   return (

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
-import { getSlideDeckItemId } from '@core/deck-items';
-import type { AppSnapshot, Id, Slide, SlideElement } from '@core/types';
+import { getSlideDeckItemId, isTalkDeckItem } from '@core/deck-items';
+import type { AppSnapshot, Id, Slide, SlideElement, TalkScriptBlock } from '@core/types';
 import { clamp, sortSlides } from '../utils/slides';
 import { useIndexedSelection } from '../hooks/use-indexed-selection';
 import { useCast } from './app-context';
@@ -16,6 +16,8 @@ interface SlideContextValue {
   liveElements: SlideElement[];
   nextLiveSlide: Slide | null;
   nextLiveElements: SlideElement[];
+  liveTalkScriptBlock: TalkScriptBlock | null;
+  liveTalkScriptProgress: string | null;
   slideElementsById: Map<Id, SlideElement[]>;
   isOutputArmedOnCurrent: boolean;
   setCurrentSlideIndex: (idx: number) => void;
@@ -54,11 +56,12 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     selectPlaylistEntry: selectPlaylistEntryInNavigation,
     selectPlaylistDeckItem: selectPlaylistDeckItemInNavigation,
   } = useNavigation();
-  const { slidesByDeckItemId, slideElementsBySlideId } = useProjectContent();
+  const { deckItemsById, slidesByDeckItemId, slideElementsBySlideId, talkScriptBlocksBySlideId } = useProjectContent();
 
   const playlistSelection = useIndexedSelection();
   const drawerSelection = useIndexedSelection();
   const liveSelection = useIndexedSelection();
+  const talkScriptSelection = useIndexedSelection();
 
   const slides = useMemo(() => {
     if (!currentDeckItemId) return [];
@@ -92,6 +95,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
   const currentSlide = slides[currentSlideIndex] ?? null;
   const liveSlide = outputSlides[liveSlideIndex] ?? null;
   const nextLiveSlide = liveSlideIndex >= 0 ? outputSlides[liveSlideIndex + 1] ?? null : null;
+  const liveOutputDeckItem = currentOutputDeckItemId ? deckItemsById.get(currentOutputDeckItemId) ?? null : null;
 
   const liveElements = useMemo(() => {
     if (!liveSlide) return [];
@@ -102,6 +106,32 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     if (!nextLiveSlide) return [];
     return slideElementsBySlideId.get(nextLiveSlide.id) ?? [];
   }, [nextLiveSlide, slideElementsBySlideId]);
+
+  const liveTalkScriptBlocks = useMemo(() => (
+    liveSlide ? talkScriptBlocksBySlideId.get(liveSlide.id) ?? [] : []
+  ), [liveSlide, talkScriptBlocksBySlideId]);
+
+  const liveTalkScriptBlockIndex = useMemo(() => {
+    if (!liveSlide || liveTalkScriptBlocks.length === 0) return NO_SLIDE_SELECTED;
+    return resolveSlideIndex(liveSlide.id, talkScriptSelection.indices, liveTalkScriptBlocks.length);
+  }, [liveSlide, liveTalkScriptBlocks.length, talkScriptSelection.indices]);
+
+  const liveTalkScriptBlock = isTalkDeckItem(liveOutputDeckItem) && liveTalkScriptBlockIndex >= 0
+    ? liveTalkScriptBlocks[liveTalkScriptBlockIndex] ?? null
+    : null;
+  const liveTalkScriptProgress = liveTalkScriptBlock
+    ? `${liveTalkScriptBlockIndex + 1} / ${liveTalkScriptBlocks.length}`
+    : null;
+
+  const setLiveTalkScriptIndexForSlide = useCallback((slide: Slide | null, mode: 'first' | 'last' = 'first') => {
+    if (!slide) return;
+    const blocks = talkScriptBlocksBySlideId.get(slide.id) ?? [];
+    if (blocks.length === 0) {
+      talkScriptSelection.update(slide.id, NO_SLIDE_SELECTED);
+      return;
+    }
+    talkScriptSelection.update(slide.id, mode === 'last' ? blocks.length - 1 : 0);
+  }, [talkScriptBlocksBySlideId, talkScriptSelection]);
 
   const slideElementsById = useMemo(() => {
     const bySlide = new Map<Id, SlideElement[]>();
@@ -171,6 +201,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     updateVisibleSelectedSlideIndex(selectionKey, nextIndex);
     if (!canDriveOutput || !currentPlaylistEntryId) return;
     liveSelection.update(currentPlaylistEntryId, nextIndex);
+    setLiveTalkScriptIndexForSlide(slides[nextIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
     setStatusText(`Live slide ${nextIndex + 1}`);
   }, [
@@ -180,7 +211,9 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     currentDeckItemId,
     isDetachedDeckBrowser,
     setStatusText,
+    setLiveTalkScriptIndexForSlide,
     slides.length,
+    slides,
     liveSelection.update,
     updateVisibleSelectedSlideIndex,
   ]);
@@ -188,6 +221,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
   const takeSlide = useCallback(() => {
     if (!canDriveOutput || !currentPlaylistEntryId || slides.length === 0 || currentSlideIndex < 0) return;
     liveSelection.update(currentPlaylistEntryId, currentSlideIndex);
+    setLiveTalkScriptIndexForSlide(slides[currentSlideIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
     setStatusText(`Taken slide ${currentSlideIndex + 1}`);
   }, [
@@ -196,7 +230,9 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     currentPlaylistEntryId,
     currentSlideIndex,
     setStatusText,
+    setLiveTalkScriptIndexForSlide,
     slides.length,
+    slides,
     liveSelection.update,
   ]);
 
@@ -206,19 +242,59 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     const nextIndex = resolveSlideIndex(currentPlaylistEntryId, playlistSelection.indices, contentSlides.length);
     if (contentSlides.length > 0) {
       liveSelection.update(currentPlaylistEntryId, nextIndex);
+      setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
     }
     armOutputPlaylistEntry(currentPlaylistEntryId);
-  }, [armOutputPlaylistEntry, currentPlaylistDeckItemId, currentPlaylistEntryId, playlistSelection.indices, slidesByDeckItemId, liveSelection.update]);
+  }, [armOutputPlaylistEntry, currentPlaylistDeckItemId, currentPlaylistEntryId, playlistSelection.indices, setLiveTalkScriptIndexForSlide, slidesByDeckItemId, liveSelection.update]);
 
   const goNext = useCallback(() => {
     if (slides.length === 0) return;
+    if (
+      canDriveOutput
+      && isTalkDeckItem(currentDeckItem)
+      && currentSlideIndex === liveSlideIndex
+      && currentSlide
+    ) {
+      const blocks = talkScriptBlocksBySlideId.get(currentSlide.id) ?? [];
+      const currentBlockIndex = resolveSlideIndex(currentSlide.id, talkScriptSelection.indices, blocks.length);
+      if (blocks.length > 0 && currentBlockIndex >= 0 && currentBlockIndex < blocks.length - 1) {
+        talkScriptSelection.update(currentSlide.id, currentBlockIndex + 1);
+        setStatusText(`Script block ${currentBlockIndex + 2}/${blocks.length}`);
+        return;
+      }
+      // End of the last block on the last slide — stop. Without this,
+      // activateSlide clamps back to this slide and resets the script
+      // index to 0, which looks like the script blocks are cycling.
+      if (currentSlideIndex >= slides.length - 1) return;
+    }
     activateSlide(currentSlideIndex + 1);
-  }, [activateSlide, currentSlideIndex, slides.length]);
+  }, [activateSlide, canDriveOutput, currentDeckItem, currentSlide, currentSlideIndex, liveSlideIndex, setStatusText, slides.length, talkScriptBlocksBySlideId, talkScriptSelection]);
 
   const goPrev = useCallback(() => {
     if (slides.length === 0) return;
+    if (
+      canDriveOutput
+      && isTalkDeckItem(currentDeckItem)
+      && currentSlideIndex === liveSlideIndex
+      && currentSlide
+    ) {
+      const blocks = talkScriptBlocksBySlideId.get(currentSlide.id) ?? [];
+      const currentBlockIndex = resolveSlideIndex(currentSlide.id, talkScriptSelection.indices, blocks.length);
+      if (blocks.length > 0) {
+        if (currentBlockIndex > 0) {
+          talkScriptSelection.update(currentSlide.id, currentBlockIndex - 1);
+          setStatusText(`Script block ${currentBlockIndex}/${blocks.length}`);
+          return;
+        }
+        if (currentSlideIndex === 0) return;
+        const previousSlide = slides[currentSlideIndex - 1] ?? null;
+        activateSlide(currentSlideIndex - 1);
+        setLiveTalkScriptIndexForSlide(previousSlide, 'last');
+        return;
+      }
+    }
     activateSlide(currentSlideIndex - 1);
-  }, [activateSlide, currentSlideIndex, slides.length]);
+  }, [activateSlide, canDriveOutput, currentDeckItem, currentSlide, currentSlideIndex, liveSlideIndex, setLiveTalkScriptIndexForSlide, setStatusText, slides, talkScriptBlocksBySlideId, talkScriptSelection]);
 
   const createSlideAction = useCallback(async () => {
     if (!currentDeckItemId || !currentDeckItem) return;
@@ -227,6 +303,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
       const nextSnapshot = await mutatePatch(() => window.castApi.createSlide({
         presentationId: currentDeckItem.type === 'presentation' ? currentDeckItemId : null,
         lyricId: currentDeckItem.type === 'lyric' ? currentDeckItemId : null,
+        talkId: currentDeckItem.type === 'talk' ? currentDeckItemId : null,
       }));
       const createdSlideIndex = findCreatedSlideIndex(nextSnapshot, currentDeckItemId, previousSlideIds);
       const selectionKey = isDetachedDeckBrowser ? currentDeckItemId : currentPlaylistEntryId;
@@ -297,9 +374,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     if (contentSlides.length === 0) return;
     const nextIndex = clamp(index, 0, contentSlides.length - 1);
     playlistSelection.update(entryId, nextIndex);
+    setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
     activatePlaylistEntry(entryId, itemId, nextIndex);
     setStatusText(`Live slide ${nextIndex + 1}`);
-  }, [activatePlaylistEntry, setStatusText, slidesByDeckItemId, playlistSelection.update]);
+  }, [activatePlaylistEntry, setLiveTalkScriptIndexForSlide, setStatusText, slidesByDeckItemId, playlistSelection.update]);
 
   const value = useMemo<SlideContextValue>(() => ({
     slides,
@@ -310,6 +388,8 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     liveElements,
     nextLiveSlide,
     nextLiveElements,
+    liveTalkScriptBlock,
+    liveTalkScriptProgress,
     slideElementsById,
     isOutputArmedOnCurrent,
     setCurrentSlideIndex,
@@ -347,6 +427,8 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     isOutputArmedOnCurrent,
     liveElements,
     liveSlide,
+    liveTalkScriptBlock,
+    liveTalkScriptProgress,
     liveSlideIndex,
     nextLiveElements,
     nextLiveSlide,

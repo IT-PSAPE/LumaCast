@@ -1,4 +1,4 @@
-import type { AppSnapshot, Collection, Id, LibraryPlaylistBundle, Library, Lyric, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Theme } from './types';
+import type { AppSnapshot, Collection, Id, LibraryPlaylistBundle, Library, Lyric, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from './types';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -25,7 +25,9 @@ export interface SnapshotPatch {
     libraries?: Library[];
     presentations?: Presentation[];
     lyrics?: Lyric[];
+    talks?: Talk[];
     slides?: Slide[];
+    talkScriptBlocks?: TalkScriptBlock[];
     slideElements?: SlideElement[];
     mediaAssets?: MediaAsset[];
     overlays?: Overlay[];
@@ -38,7 +40,9 @@ export interface SnapshotPatch {
     libraries?: Id[];
     presentations?: Id[];
     lyrics?: Id[];
+    talks?: Id[];
     slides?: Id[];
+    talkScriptBlocks?: Id[];
     slideElements?: Id[];
     mediaAssets?: Id[];
     overlays?: Id[];
@@ -52,7 +56,9 @@ type SnapshotTableKey =
   | 'libraries'
   | 'presentations'
   | 'lyrics'
+  | 'talks'
   | 'slides'
+  | 'talkScriptBlocks'
   | 'slideElements'
   | 'mediaAssets'
   | 'overlays'
@@ -64,7 +70,9 @@ type SnapshotTableRecordMap = {
   libraries: Library;
   presentations: Presentation;
   lyrics: Lyric;
+  talks: Talk;
   slides: Slide;
+  talkScriptBlocks: TalkScriptBlock;
   slideElements: SlideElement;
   mediaAssets: MediaAsset;
   overlays: Overlay;
@@ -91,7 +99,9 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
     libraries: mergeTable(snapshot.libraries, patch.upserts.libraries, patch.deletes.libraries),
     presentations: mergeTable(snapshot.presentations, patch.upserts.presentations, patch.deletes.presentations),
     lyrics: mergeTable(snapshot.lyrics, patch.upserts.lyrics, patch.deletes.lyrics),
+    talks: mergeTable(snapshot.talks, patch.upserts.talks, patch.deletes.talks),
     slides: mergeTable(snapshot.slides, patch.upserts.slides, patch.deletes.slides),
+    talkScriptBlocks: mergeTable(snapshot.talkScriptBlocks, patch.upserts.talkScriptBlocks, patch.deletes.talkScriptBlocks),
     slideElements: mergeTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements),
     mediaAssets: mergeTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets),
     overlays: mergeTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays),
@@ -115,7 +125,9 @@ export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): Snapsh
   invertTable(snapshot.libraries, patch.upserts.libraries, patch.deletes.libraries, inverse, 'libraries');
   invertTable(snapshot.presentations, patch.upserts.presentations, patch.deletes.presentations, inverse, 'presentations');
   invertTable(snapshot.lyrics, patch.upserts.lyrics, patch.deletes.lyrics, inverse, 'lyrics');
+  invertTable(snapshot.talks, patch.upserts.talks, patch.deletes.talks, inverse, 'talks');
   invertTable(snapshot.slides, patch.upserts.slides, patch.deletes.slides, inverse, 'slides');
+  invertTable(snapshot.talkScriptBlocks, patch.upserts.talkScriptBlocks, patch.deletes.talkScriptBlocks, inverse, 'talkScriptBlocks');
   invertTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements, inverse, 'slideElements');
   invertTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets, inverse, 'mediaAssets');
   invertTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays, inverse, 'overlays');
@@ -204,8 +216,14 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'lyrics':
       inverse.upserts.lyrics = [...(inverse.upserts.lyrics ?? []), value as Lyric];
       return;
+    case 'talks':
+      inverse.upserts.talks = [...(inverse.upserts.talks ?? []), value as Talk];
+      return;
     case 'slides':
       inverse.upserts.slides = [...(inverse.upserts.slides ?? []), value as Slide];
+      return;
+    case 'talkScriptBlocks':
+      inverse.upserts.talkScriptBlocks = [...(inverse.upserts.talkScriptBlocks ?? []), value as TalkScriptBlock];
       return;
     case 'slideElements':
       inverse.upserts.slideElements = [...(inverse.upserts.slideElements ?? []), value as SlideElement];
@@ -222,6 +240,9 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'stages':
       inverse.upserts.stages = [...(inverse.upserts.stages ?? []), value as Stage];
       return;
+    case 'collections':
+      inverse.upserts.collections = [...(inverse.upserts.collections ?? []), value as Collection];
+      return;
   }
 }
 
@@ -236,8 +257,14 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
     case 'lyrics':
       inverse.deletes.lyrics = [...(inverse.deletes.lyrics ?? []), id];
       return;
+    case 'talks':
+      inverse.deletes.talks = [...(inverse.deletes.talks ?? []), id];
+      return;
     case 'slides':
       inverse.deletes.slides = [...(inverse.deletes.slides ?? []), id];
+      return;
+    case 'talkScriptBlocks':
+      inverse.deletes.talkScriptBlocks = [...(inverse.deletes.talkScriptBlocks ?? []), id];
       return;
     case 'slideElements':
       inverse.deletes.slideElements = [...(inverse.deletes.slideElements ?? []), id];
@@ -253,6 +280,9 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
       return;
     case 'stages':
       inverse.deletes.stages = [...(inverse.deletes.stages ?? []), id];
+      return;
+    case 'collections':
+      inverse.deletes.collections = [...(inverse.deletes.collections ?? []), id];
       return;
   }
 }

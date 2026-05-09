@@ -5,6 +5,8 @@ import { useBinding, type BindingOverride, type BindingValue } from './binding-c
 const PLACEHOLDER_CURRENT_SLIDE_TEXT = '[Current Slide]';
 const PLACEHOLDER_NEXT_SLIDE_TEXT = '[Next Slide]';
 const PLACEHOLDER_SLIDE_NOTES = '[Slide Notes]';
+const PLACEHOLDER_TALK_SCRIPT = '[Talk Script]';
+const PLACEHOLDER_TALK_PROGRESS = '[Talk Progress]';
 
 function pad(value: number): string {
   return value < 10 ? `0${value}` : `${value}`;
@@ -61,6 +63,14 @@ function resolveBindingText(binding: TextBinding, fallback: string, runtime: Bin
   if (binding.kind === 'slide-notes') {
     if (runtime.slideNotes !== null) return runtime.slideNotes;
     return fallback || PLACEHOLDER_SLIDE_NOTES;
+  }
+  if (binding.kind === 'talk-script-current') {
+    if (runtime.talkScriptCurrent !== null) return runtime.talkScriptCurrent;
+    return fallback || PLACEHOLDER_TALK_SCRIPT;
+  }
+  if (binding.kind === 'talk-script-progress') {
+    if (runtime.talkScriptProgress !== null) return runtime.talkScriptProgress;
+    return fallback || PLACEHOLDER_TALK_PROGRESS;
   }
   return fallback;
 }
