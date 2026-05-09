@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Stage, Layer, Group } from 'react-konva';
 import type Konva from 'konva';
 import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
-import type { NdiOutputName } from '@core/types';
+import type { NdiOutputName, TextBinding } from '@core/types';
 import { useNdi } from '../../contexts/app-context';
 import { SceneNodeMedia } from '../canvas/scene-node-media';
 import { SceneNodeShape } from '../canvas/scene-node-shape';
 import { SceneNodeText } from '../canvas/scene-node-text';
+import { useBinding, type BindingValue } from '../canvas/binding-context';
 import type { RenderNode, RenderScene, SceneSurface } from '../canvas/scene-types';
 import { useNdiCaptureSource } from './ndi-capture-source';
 import NdiReadbackWorker from './ndi-readback-worker?worker';
@@ -27,13 +28,50 @@ function renderNodeContent(node: RenderNode, surface: SceneSurface, onImageLoad?
 // Cheap signature used to decide whether the output has visibly changed
 // since the last capture. Video nodes are excluded because their contents
 // tick forward every frame without any RenderNode field changing; the same
-// is true for text elements with clock/timer bindings (see hasDynamicText
-// in the capture loop below) — both rely on RAF-driven re-capture instead
-// of signature changes.
-function sceneSignature(nodes: readonly RenderNode[], withAlpha: boolean): string {
-  let out = withAlpha ? 'a1' : 'a0';
+// is true for text elements with ticking clock/timer bindings (see
+// hasTickingTextBinding in the capture loop below). Slide text and notes
+// bindings are included through bindingSignature because their source values
+// can change without any RenderNode field changing.
+function sceneSignature(nodes: readonly RenderNode[], withAlpha: boolean, bindingSignature: string): string {
+  let out = (withAlpha ? 'a1' : 'a0') + bindingSignature;
   for (const node of nodes) {
     out += '|' + node.id + ':' + node.element.updatedAt + ':' + (node.visual.visible === false ? '0' : '1');
+  }
+  return out;
+}
+
+function nodeRuntime(node: RenderNode, bindingValue: BindingValue): BindingValue {
+  return {
+    ...bindingValue,
+    ...node.bindingOverride,
+  };
+}
+
+function textBindingForNode(node: RenderNode): TextBinding | undefined {
+  if (node.element.type !== 'text') return undefined;
+  return (node.element.payload as { binding?: TextBinding }).binding;
+}
+
+function visibleTextBindingForNode(node: RenderNode): TextBinding | undefined {
+  if (node.visual.visible === false) return undefined;
+  return textBindingForNode(node);
+}
+
+function bindingValueForSignature(binding: TextBinding, runtime: BindingValue): string | null {
+  if (binding.kind === 'current-slide-text') return runtime.currentSlideText ?? '';
+  if (binding.kind === 'next-slide-text') return runtime.nextSlideText ?? '';
+  if (binding.kind === 'slide-notes') return runtime.slideNotes ?? '';
+  return null;
+}
+
+function sceneBindingSignature(nodes: readonly RenderNode[], bindingValue: BindingValue): string {
+  let out = '';
+  for (const node of nodes) {
+    const binding = visibleTextBindingForNode(node);
+    if (!binding) continue;
+    const value = bindingValueForSignature(binding, nodeRuntime(node, bindingValue));
+    if (value === null) continue;
+    out += '|b:' + node.id + ':' + binding.kind + ':' + value.length + ':' + value;
   }
   return out;
 }
@@ -42,12 +80,12 @@ function sceneSignature(nodes: readonly RenderNode[], withAlpha: boolean): strin
 // RenderNode field change (clock advances every second; timer counts down).
 // When any such element is on the slide we have to capture every RAF tick,
 // because sceneSignature() will never observe their updates.
-function hasTickingTextBinding(nodes: readonly RenderNode[]): boolean {
+function hasTickingTextBinding(nodes: readonly RenderNode[], bindingValue: BindingValue): boolean {
   for (const node of nodes) {
-    if (node.element.type !== 'text') continue;
-    if (node.visual.visible === false) continue;
-    const binding = (node.element.payload as { binding?: { kind?: string } }).binding;
-    if (binding?.kind === 'clock' || binding?.kind === 'timer') return true;
+    const binding = visibleTextBindingForNode(node);
+    if (!binding) continue;
+    if (binding.kind === 'clock') return true;
+    if (binding.kind === 'timer' && nodeRuntime(node, bindingValue).armedAtMs !== null) return true;
   }
   return false;
 }
@@ -65,6 +103,7 @@ interface NdiFrameCaptureProps {
 
 export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }: NdiFrameCaptureProps) {
   const { state: { outputConfigs } } = useNdi();
+  const bindingValue = useBinding();
   const stageRef = useRef<Konva.Stage>(null);
   const pendingSkippedCapturesRef = useRef(0);
   const pendingDroppedBackpressureRef = useRef(0);
@@ -86,7 +125,14 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     () => scene.nodes.some((node) => node.element.type === 'video'),
     [scene.nodes],
   );
-  const hasDynamicText = useMemo(() => hasTickingTextBinding(scene.nodes), [scene.nodes]);
+  const bindingSignature = useMemo(
+    () => sceneBindingSignature(scene.nodes, bindingValue),
+    [bindingValue, scene.nodes],
+  );
+  const hasDynamicText = useMemo(
+    () => hasTickingTextBinding(scene.nodes, bindingValue),
+    [bindingValue, scene.nodes],
+  );
   const withAlpha = outputConfigs[senderName].withAlpha;
 
   // Spin up a dedicated worker that owns an OffscreenCanvas and performs the
@@ -210,7 +256,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
           inFlightSentAtRef.current = null;
         }
 
-        const currentSignature = sceneSignature(scene.nodes, withAlpha);
+        const currentSignature = sceneSignature(scene.nodes, withAlpha, bindingSignature);
         const signatureChanged = currentSignature !== lastSignature;
         const needsInitialFrame = framesAckedRef.current === 0;
         if (needsInitialFrame || signatureChanged || hasVideoNodes || hasDynamicText) {
@@ -241,7 +287,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
       if (rafId !== null) cancelAnimationFrame(rafId);
       inFlightSentAtRef.current = null;
     };
-  }, [captureFrame, enabled, hasVideoNodes, hasDynamicText, scene, withAlpha]);
+  }, [bindingSignature, captureFrame, enabled, hasVideoNodes, hasDynamicText, scene, withAlpha]);
 
   if (!enabled) return null;
   if (sharedCaptureSource) return null;
