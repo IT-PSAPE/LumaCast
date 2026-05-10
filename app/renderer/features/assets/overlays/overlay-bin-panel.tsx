@@ -145,18 +145,20 @@ function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWork
           <ContextMenu.Item onSelect={handleEdit}>Edit</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { duplicateOverlay(overlay.id); }}>Duplicate</ContextMenu.Item>
-          {otherCollections.length > 0 ? (
-            <ContextMenu.Submenu label="Move to collection">
-              {otherCollections.map((collection) => (
+          <ContextMenu.Submenu label="Move to collection">
+            {otherCollections.length > 0 ? (
+              otherCollections.map((collection) => (
                 <ContextMenu.Item
                   key={collection.id}
                   onSelect={() => { void collectionsApi.assignItem('overlay', overlay.id, collection.id); }}
                 >
                   {collection.name}
                 </ContextMenu.Item>
-              ))}
-            </ContextMenu.Submenu>
-          ) : null}
+              ))
+            ) : (
+              <ContextMenu.Item disabled onSelect={() => {}}>No other collections</ContextMenu.Item>
+            )}
+          </ContextMenu.Submenu>
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

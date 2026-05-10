@@ -3584,9 +3584,12 @@ export class CastRepository {
     const slideId = `${themeId}:slide`;
     const currentOrder =
       (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM themes').get() as { maxOrder: number | null }).maxOrder ?? -1;
-    const elements = input.elements
+    const sourceElements = input.elements
       ? JSON.parse(JSON.stringify(input.elements)) as SlideElement[]
       : createDefaultThemeElements(input.kind, slideId, now);
+    // New container — regenerate element IDs so cloned input can't collide
+    // with the source theme's existing slide_elements rows.
+    const elements = sourceElements.map((el) => ({ ...el, id: createId(), slideId }));
     const collectionId = input.collectionId ?? this.getDefaultCollectionId('theme');
     const width = input.width ?? DEFAULT_W;
     const height = input.height ?? DEFAULT_H;
@@ -4732,7 +4735,9 @@ export class CastRepository {
     const now = nowIso();
     const overlayId = createId();
     const slideId = `${overlayId}:slide`;
-    const elements = input.elements ?? [];
+    // New container — regenerate element IDs so cloned/duplicated input
+    // can't collide with the source overlay's existing slide_elements rows.
+    const elements = (input.elements ?? []).map((el) => ({ ...el, id: createId(), slideId }));
     const collectionId = input.collectionId ?? this.getDefaultCollectionId('overlay');
 
     const tx = this.db.transaction(() => {
@@ -5054,7 +5059,9 @@ export class CastRepository {
     const now = nowIso();
     const stageId = createId();
     const slideId = `${stageId}:slide`;
-    const elements = input.elements ?? [];
+    // New container — regenerate element IDs so cloned input can't collide
+    // with the source stage's existing slide_elements rows.
+    const elements = (input.elements ?? []).map((el) => ({ ...el, id: createId(), slideId }));
     const width = input.width ?? 1920;
     const height = input.height ?? 1080;
     const nextOrderRow = this.db

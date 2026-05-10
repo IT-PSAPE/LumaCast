@@ -100,6 +100,7 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit, collections
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const otherCollections = collectionsApi.collections.filter((c) => c.id !== stage.collectionId);
 
   function handleActivate() {
     onActivate(isActive ? null : stage.id);
@@ -145,18 +146,20 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit, collections
           <ContextMenu.Item onSelect={handleEdit}>Edit</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { duplicateStage(stage.id); }}>Duplicate</ContextMenu.Item>
-          {collectionsApi.collections.filter((c) => c.id !== stage.collectionId).length > 0 ? (
-            <ContextMenu.Submenu label="Move to collection">
-              {collectionsApi.collections.filter((c) => c.id !== stage.collectionId).map((collection) => (
+          <ContextMenu.Submenu label="Move to collection">
+            {otherCollections.length > 0 ? (
+              otherCollections.map((collection) => (
                 <ContextMenu.Item
                   key={collection.id}
                   onSelect={() => { void collectionsApi.assignItem('stage', stage.id, collection.id); }}
                 >
                   {collection.name}
                 </ContextMenu.Item>
-              ))}
-            </ContextMenu.Submenu>
-          ) : null}
+              ))
+            ) : (
+              <ContextMenu.Item disabled onSelect={() => {}}>No other collections</ContextMenu.Item>
+            )}
+          </ContextMenu.Submenu>
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

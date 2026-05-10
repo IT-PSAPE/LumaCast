@@ -44,7 +44,7 @@ try {
   // Logger will fall back to stderr-only if the Documents dir is not writable.
   console.error('[Main process documents dir mkdir failed]', error);
 }
-initializeLogger(documentsDataDir);
+initializeLogger(documentsDataDir, { appVersion: app.getVersion() });
 console.log(`[main] userData=${app.getPath('userData')}`);
 console.log(`[main] documentsDataDir=${documentsDataDir}`);
 console.log(`[main] logFile=${getLogFilePath()}`);
@@ -231,8 +231,8 @@ function createMainWindow(): void {
   window.webContents.on('preload-error', (_event, preloadPath, error) => {
     console.error('[renderer] preload-error', { preloadPath, message: error?.message, stack: error?.stack });
   });
-  window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    console.log(`[renderer:console l=${level}] ${message} (${sourceId}:${line})`);
+  window.webContents.on('console-message', (event) => {
+    console.log(`[renderer:console l=${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`);
   });
   window.on('unresponsive', () => {
     console.warn('[window] unresponsive');
