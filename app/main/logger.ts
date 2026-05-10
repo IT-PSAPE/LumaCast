@@ -20,7 +20,11 @@ let initialized = false;
 // it explicitly so the tailer's offset semantics are unambiguous).
 let sessionStartByteOffset = 0;
 
-export function initializeLogger(baseDir: string): void {
+export interface LoggerInitOptions {
+  appVersion?: string;
+}
+
+export function initializeLogger(baseDir: string, options: LoggerInitOptions = {}): void {
   if (initialized) return;
   initialized = true;
 
@@ -54,6 +58,7 @@ export function initializeLogger(baseDir: string): void {
 
   writeLine('INFO', [
     `[logger] Logging to ${logFilePath}`,
+    `app=${options.appVersion ?? 'n/a'}`,
     `pid=${process.pid}`,
     `platform=${process.platform}`,
     `arch=${process.arch}`,
@@ -176,8 +181,20 @@ function patchConsole(method: ConsoleMethod): void {
   const original = console[method].bind(console);
   console[method] = (...args: unknown[]) => {
     original(...args);
-    writeLine(LEVEL_BY_METHOD[method], args);
+    writeLine(deriveLevel(method, args), args);
   };
+}
+
+// Node routes process warnings (e.g., ExperimentalWarning) through
+// console.error, but they're advisory — surface them as WARN.
+function deriveLevel(method: ConsoleMethod, args: unknown[]): string {
+  const base = LEVEL_BY_METHOD[method];
+  if (base !== 'ERROR') return base;
+  const first = args[0];
+  if (typeof first === 'string' && /^\(node:\d+\)\s+\w*Warning:/.test(first)) {
+    return 'WARN';
+  }
+  return base;
 }
 
 function writeLine(level: string, args: unknown[]): void {

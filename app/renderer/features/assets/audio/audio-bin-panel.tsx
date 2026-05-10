@@ -124,18 +124,18 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
       </SelectableRow.Root>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          {otherCollections.length > 0 ? (
-            <>
-              <ContextMenu.Submenu label="Move to collection">
-                {otherCollections.map((collection) => (
-                  <ContextMenu.Item key={collection.id} onSelect={() => handleMoveToCollection(collection.id)}>
-                    {collection.name}
-                  </ContextMenu.Item>
-                ))}
-              </ContextMenu.Submenu>
-              <ContextMenu.Separator />
-            </>
-          ) : null}
+          <ContextMenu.Submenu label="Move to collection">
+            {otherCollections.length > 0 ? (
+              otherCollections.map((collection) => (
+                <ContextMenu.Item key={collection.id} onSelect={() => handleMoveToCollection(collection.id)}>
+                  {collection.name}
+                </ContextMenu.Item>
+              ))
+            ) : (
+              <ContextMenu.Item disabled onSelect={() => {}}>No other collections</ContextMenu.Item>
+            )}
+          </ContextMenu.Submenu>
+          <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
