@@ -274,7 +274,7 @@ export interface TalkScriptBlock {
   updatedAt: string;
 }
 
-export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage';
+export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage' | 'macro';
 
 export interface Collection {
   id: Id;
@@ -314,7 +314,8 @@ export type CollectionItemType =
   | 'media_asset'
   | 'theme'
   | 'overlay'
-  | 'stage';
+  | 'stage'
+  | 'macro';
 
 export interface CollectionAssignmentInput {
   itemType: CollectionItemType;
@@ -512,6 +513,117 @@ export interface PlaylistTree {
 export interface LibraryPlaylistBundle {
   library: Library;
   playlists: PlaylistTree[];
+}
+
+export type CueFailurePolicy = 'continue' | 'abort';
+export type CueClearLayer = 'media' | 'video' | 'content' | 'overlay';
+export type CueKind =
+  | 'overlay.activate'
+  | 'overlay.clear'
+  | 'overlay.clearAll'
+  | 'mediaLayer.set'
+  | 'video.arm'
+  | 'video.clear'
+  | 'audio.arm'
+  | 'audio.clear'
+  | 'stage.set'
+  | 'stage.clear'
+  | 'layer.clear'
+  | 'layer.clearAll'
+  | 'flow.wait';
+export type TriggerType = 'slide.take' | 'slide.activate';
+export type TriggerBindingTargetType = 'cue' | 'macro';
+
+export type CuePayload =
+  | { overlayId: Id }
+  | { assetId: Id }
+  | { stageId: Id }
+  | { layer: CueClearLayer }
+  | { ms: number }
+  | Record<string, never>;
+
+export interface Cue {
+  id: Id;
+  kind: CueKind;
+  payload: CuePayload;
+  failurePolicy: CueFailurePolicy;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MacroCue {
+  id: Id;
+  macroId: Id;
+  cueId: Id;
+  cue: Cue;
+  orderIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Macro {
+  id: Id;
+  name: string;
+  description: string;
+  collectionId: Id;
+  cues: MacroCue[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TriggerBinding {
+  id: Id;
+  triggerType: TriggerType;
+  sourceId: Id | null;
+  targetType: TriggerBindingTargetType;
+  targetId: Id;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CueCreateInput {
+  kind: CueKind;
+  payload: CuePayload;
+  failurePolicy?: CueFailurePolicy;
+}
+
+export interface CueUpdateInput {
+  id: Id;
+  kind?: CueKind;
+  payload?: CuePayload;
+  failurePolicy?: CueFailurePolicy;
+}
+
+export interface MacroCreateInput {
+  name: string;
+  description?: string;
+  collectionId?: Id;
+  cues?: Array<{
+    cueId: Id;
+    orderIndex: number;
+  }>;
+}
+
+export interface MacroUpdateInput {
+  id: Id;
+  name?: string;
+  description?: string;
+  cues?: Array<{
+    id?: Id;
+    cueId: Id;
+    orderIndex: number;
+  }>;
+}
+
+export interface TriggerBindingCreateInput {
+  triggerType: TriggerType;
+  sourceId: Id | null;
+  targetType: TriggerBindingTargetType;
+  targetId: Id;
+  config?: Record<string, unknown>;
+  enabled?: boolean;
 }
 
 export interface AppSnapshot {

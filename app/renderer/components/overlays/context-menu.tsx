@@ -21,6 +21,10 @@ import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { OverlayPortal } from './overlay-primitives';
 import { Popover } from './popover';
 
+// Hide the native scrollbar while keeping wheel/trackpad scrolling. Used on
+// the menu flyouts where we want overflow scrolling without a visible thumb.
+const HIDE_NATIVE_SCROLLBAR = '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
+
 const DEFAULT_LONG_PRESS_DELAY = 500;
 const DEFAULT_VIEWPORT_PADDING = 8;
 const OWNED_MENU_SELECTOR = '[data-context-menu-owned="true"]';
@@ -444,7 +448,8 @@ function Menu({ children, className, ...props }: MenuProps) {
       role="menu"
       {...props}
       className={cn(
-        'min-w-30 max-h-60 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg',
+        'min-w-30 max-w-72 max-h-60 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg',
+        HIDE_NATIVE_SCROLLBAR,
         className,
       )}
     >
@@ -488,7 +493,7 @@ function Item({ children, onSelect, disabled = false, className, variant = 'defa
       // Prevent the document pointerdown from closing the menu before the click fires.
       onPointerDown={(event) => event.preventDefault()}
       className={cn(
-        'flex w-full select-none gap-2 rounded px-2 py-1.5 text-left text-sm',
+        'flex w-full min-w-0 select-none items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm',
         variantClasses,
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
         className,
@@ -581,12 +586,12 @@ function Submenu({ label, children, disabled = false, className }: SubmenuProps)
         onClick={handleTriggerClick}
         onKeyDown={handleTriggerKeyDown}
         className={cn(
-          'flex w-full select-none items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-secondary hover:bg-tertiary',
+          'flex w-full min-w-0 select-none items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-secondary hover:bg-tertiary',
           disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
           className,
         )}
       >
-        <span className="flex-1">{label}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
         <ChevronRight className="size-3.5 shrink-0 text-tertiary" />
       </button>
       <Popover
@@ -601,7 +606,10 @@ function Submenu({ label, children, disabled = false, className }: SubmenuProps)
           data-context-menu-owned="true"
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
-          className="min-w-30 max-h-60 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg"
+          className={cn(
+            'min-w-30 max-w-72 max-h-60 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg',
+            HIDE_NATIVE_SCROLLBAR,
+          )}
         >
           {children}
         </div>

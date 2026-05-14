@@ -74,13 +74,18 @@ export function Popover({ anchor, open, onClose, placement = 'bottom', offset = 
     setPosition(pos);
   }, [open, anchor, placement, offset, axisLock]);
 
-  // Close on outside pointer
+  // Close on outside pointer. We also skip when the target lives inside any
+  // popover content or context-menu-owned surface — without this, clicking
+  // an item in a nested submenu (e.g. context menu → submenu A → submenu B
+  // → item) closes ancestor popovers between pointerdown and click, so the
+  // item unmounts before its click fires and the action never runs.
   useEffect(() => {
     if (!open) return;
     function handlePointerDown(event: PointerEvent) {
       const target = event.target as Node;
       if (contentRef.current?.contains(target)) return;
       if (anchor?.contains(target)) return;
+      if (target instanceof Element && target.closest('[data-popover-content="true"],[data-context-menu-owned="true"]')) return;
       onClose();
     }
     function handleEscape(event: KeyboardEvent) {
@@ -127,6 +132,7 @@ export function Popover({ anchor, open, onClose, placement = 'bottom', offset = 
         visibility: isPositioned ? 'visible' : 'hidden',
         zIndex,
       }}
+      data-popover-content="true"
       data-popover-placement={isPositioned ? position.placement : undefined}
     >
       {children}

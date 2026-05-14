@@ -12,6 +12,12 @@ import { createId, nowIso } from '@core/utils';
 import { SqliteDatabase } from './sqlite';
 import type {
   AppSnapshot,
+  Cue,
+  CueCreateInput,
+  CueFailurePolicy,
+  CueKind,
+  CuePayload,
+  CueUpdateInput,
   BrokenDeckBundleReference,
   Collection,
   CollectionAssignmentInput,
@@ -45,6 +51,10 @@ import type {
   Library,
   LibraryPlaylistBundle,
   Lyric,
+  Macro,
+  MacroCreateInput,
+  MacroCue,
+  MacroUpdateInput,
   MediaAsset,
   MediaAssetCreateInput,
   MediaAssetType,
@@ -74,6 +84,10 @@ import type {
   ThemeCreateInput,
   ThemeKind,
   ThemeUpdateInput,
+  TriggerBindingTargetType,
+  TriggerType,
+  TriggerBinding,
+  TriggerBindingCreateInput,
 } from '@core/types';
 import { isBrokenMediaSource, toCastMediaSource } from './media-source-utils';
 import type { SnapshotPatch } from '@core/snapshot-patch';
@@ -90,11 +104,15 @@ const UNIFIED_SLIDES_SCHEMA_VERSION = 11;
 const PLAYLIST_GROUPS_RENAME_SCHEMA_VERSION = 12;
 const TALKS_SCHEMA_VERSION = 13;
 const TALKS_SLIDES_CHECK_SCHEMA_VERSION = 14;
-const LATEST_SCHEMA_VERSION = TALKS_SLIDES_CHECK_SCHEMA_VERSION;
+const ACTIONS_SCHEMA_VERSION = 15;
+const CUES_MACROS_SCHEMA_VERSION = 16;
+const MACROS_SEQUENTIAL_SCHEMA_VERSION = 17;
+const TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION = 18;
+const LATEST_SCHEMA_VERSION = TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION;
 const GLOBAL_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 2;
 
-const COLLECTION_BIN_KINDS: readonly CollectionBinKind[] = ['deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage'];
+const COLLECTION_BIN_KINDS: readonly CollectionBinKind[] = ['deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage', 'macro'];
 
 const MEDIA_ASSET_TABLES = ['image_assets', 'video_assets', 'audio_assets'] as const;
 type MediaAssetTableName = typeof MEDIA_ASSET_TABLES[number];
@@ -113,6 +131,7 @@ const COLLECTION_TABLE_BY_BIN: Record<CollectionBinKind, string> = {
   theme: 'theme_collections',
   overlay: 'overlay_collections',
   stage: 'stage_collections',
+  macro: 'macro_collections',
 };
 
 const DEFAULT_COLLECTION_NAME = 'Default Collection';
@@ -128,6 +147,7 @@ const ITEM_TABLE_BY_TYPE: Record<StaticCollectionItemType, string> = {
   theme: 'themes',
   overlay: 'overlays',
   stage: 'stages',
+  macro: 'actions',
 };
 
 function isItemTypeAllowedInBin(
@@ -140,6 +160,7 @@ function isItemTypeAllowedInBin(
   if (itemType === 'theme') return binKind === 'theme';
   if (itemType === 'overlay') return binKind === 'overlay';
   if (itemType === 'stage') return binKind === 'stage';
+  if (itemType === 'macro') return binKind === 'macro';
   if (itemType === 'media_asset') {
     if (binKind !== 'image' && binKind !== 'video' && binKind !== 'audio') return false;
     const assetType = store.peekMediaAssetType(itemId);
@@ -168,6 +189,9 @@ function buildPatchSpecForItemType(itemType: CollectionItemType, itemId: Id): {
     case 'theme': return { upsertThemeIds: [itemId] };
     case 'overlay': return { upsertOverlayIds: [itemId] };
     case 'stage': return { upsertStageIds: [itemId] };
+    // Macros live outside AppSnapshot — collection moves are picked up by
+    // the renderer's next listMacros() refresh, so the patch is empty.
+    case 'macro': return {};
   }
 }
 
@@ -472,6 +496,288 @@ export class CastRepository {
       this.repairSlidesCheckConstraintForTalks();
       this.setUserVersion(TALKS_SLIDES_CHECK_SCHEMA_VERSION);
     }
+
+    if (this.getUserVersion() < ACTIONS_SCHEMA_VERSION) {
+      this.ensureActionsSchema();
+      this.setUserVersion(ACTIONS_SCHEMA_VERSION);
+    }
+
+    if (this.getUserVersion() < CUES_MACROS_SCHEMA_VERSION) {
+      this.ensureCuesAndMacrosSchema();
+      this.setUserVersion(CUES_MACROS_SCHEMA_VERSION);
+    }
+
+    if (this.getUserVersion() < MACROS_SEQUENTIAL_SCHEMA_VERSION) {
+      this.migrateMacrosSequential();
+      this.setUserVersion(MACROS_SEQUENTIAL_SCHEMA_VERSION);
+    }
+
+    if (this.getUserVersion() < TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION) {
+      this.rebuildTriggerBindingsForTargetColumns();
+      this.setUserVersion(TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION);
+    }
+  }
+
+  // v18 — rebuild trigger_bindings to drop the legacy `action_id` column.
+  // The original v15 schema modelled bindings as macro-only (action_id NOT
+  // NULL with FK to actions ON DELETE CASCADE). v16 added (target_type,
+  // target_id) so a binding can also point at a cue, but action_id was
+  // kept around — which means binding a cue from the slide context menu
+  // fails the FK check because cue IDs don't live in `actions`. Rebuild
+  // the table without action_id, promote target_type/target_id to NOT
+  // NULL, and replace the action_id FK cascade with explicit cleanup in
+  // deleteMacro/deleteCue.
+  private rebuildTriggerBindingsForTargetColumns(): void {
+    if (!this.hasTable('trigger_bindings')) return;
+    if (!this.hasColumn('trigger_bindings', 'action_id')) return;
+
+    const previousForeignKeys = this.db.pragma('foreign_keys', { simple: true }) as number;
+    this.db.pragma('foreign_keys = OFF');
+    try {
+      const tx = this.db.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE trigger_bindings_new (
+            id TEXT PRIMARY KEY,
+            trigger_type TEXT NOT NULL,
+            source_id TEXT,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          );
+        `);
+        this.db.exec(`
+          INSERT INTO trigger_bindings_new
+            (id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at)
+          SELECT
+            id,
+            trigger_type,
+            source_id,
+            COALESCE(target_type, 'macro'),
+            COALESCE(target_id, action_id),
+            config_json,
+            enabled,
+            created_at,
+            updated_at
+          FROM trigger_bindings;
+        `);
+        this.db.exec('DROP TABLE trigger_bindings');
+        this.db.exec('ALTER TABLE trigger_bindings_new RENAME TO trigger_bindings');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_trigger_type_source_id ON trigger_bindings(trigger_type, source_id)');
+        this.db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_target ON trigger_bindings(target_type, target_id)');
+      });
+      tx();
+    } finally {
+      this.db.pragma(`foreign_keys = ${previousForeignKeys ? 'ON' : 'OFF'}`);
+    }
+  }
+
+  // v17 — collapse parallel-group ordering on action_steps to a single
+  // order_index, drop cues.name (cues no longer have user-visible names),
+  // and add macro_collections + actions.collection_id so macros can live in
+  // the new Macros bin alongside other asset bins.
+  private migrateMacrosSequential(): void {
+    const tx = this.db.transaction(() => {
+      // 1. macro_collections + default row, mirroring other bin-collection tables.
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS macro_collections (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          order_index INTEGER NOT NULL DEFAULT 0,
+          is_default INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const existingDefault = this.db.prepare(
+        'SELECT id FROM macro_collections WHERE is_default = 1 LIMIT 1'
+      ).get() as { id: string } | undefined;
+      let defaultMacroCollectionId = existingDefault?.id ?? null;
+      if (!defaultMacroCollectionId) {
+        defaultMacroCollectionId = createId();
+        const now = nowIso();
+        this.db.prepare(
+          'INSERT INTO macro_collections (id, name, order_index, is_default, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)'
+        ).run(defaultMacroCollectionId, DEFAULT_COLLECTION_NAME, 0, now, now);
+      }
+
+      if (!this.hasColumn('actions', 'collection_id')) {
+        this.db.exec(`ALTER TABLE actions ADD COLUMN collection_id TEXT NOT NULL DEFAULT ''`);
+        this.db.prepare('UPDATE actions SET collection_id = ? WHERE collection_id = \'\' OR collection_id IS NULL').run(defaultMacroCollectionId);
+      }
+
+      // 2. Add order_index to action_steps and back-fill from group/step indexes.
+      if (!this.hasColumn('action_steps', 'order_index')) {
+        this.db.exec('ALTER TABLE action_steps ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+        // Preserve the executed order: groups ran sequentially, steps within
+        // ran in parallel — flatten by (group_index, step_index) into a single
+        // monotonic order_index so the new linear UI shows them in the same
+        // sequence the user authored under the old model.
+        if (this.hasColumn('action_steps', 'group_index') && this.hasColumn('action_steps', 'step_index')) {
+          this.db.exec(`
+            WITH ranked AS (
+              SELECT id, ROW_NUMBER() OVER (
+                PARTITION BY action_id
+                ORDER BY group_index ASC, step_index ASC, created_at ASC, id ASC
+              ) - 1 AS rank FROM action_steps
+            )
+            UPDATE action_steps SET order_index = (SELECT rank FROM ranked WHERE ranked.id = action_steps.id);
+          `);
+        }
+      }
+
+      // 3. Drop cues.name — the user never sets or sees a per-cue name; the
+      //    UI derives a display label from kind + target on the fly. Wrapped
+      //    in try/catch because SQLite older than 3.35 lacks DROP COLUMN. The
+      //    column then just sits unused, which is harmless.
+      if (this.hasColumn('cues', 'name')) {
+        try {
+          this.db.exec('ALTER TABLE cues DROP COLUMN name');
+        } catch (error) {
+          console.warn('[DB] Could not drop cues.name column, leaving in place:', error);
+        }
+      }
+
+      // 4. Drop the parallel-group ordering columns now that order_index
+      //    fully replaces them. Same older-SQLite caveat as cues.name above.
+      if (this.hasColumn('action_steps', 'group_index')) {
+        try {
+          this.db.exec('ALTER TABLE action_steps DROP COLUMN group_index');
+        } catch (error) {
+          console.warn('[DB] Could not drop action_steps.group_index column, leaving in place:', error);
+        }
+      }
+      if (this.hasColumn('action_steps', 'step_index')) {
+        try {
+          this.db.exec('ALTER TABLE action_steps DROP COLUMN step_index');
+        } catch (error) {
+          console.warn('[DB] Could not drop action_steps.step_index column, leaving in place:', error);
+        }
+      }
+    });
+    tx();
+  }
+
+  private ensureActionsSchema(): void {
+    const tx = this.db.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS actions (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS action_steps (
+          id TEXT PRIMARY KEY,
+          action_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          group_index INTEGER NOT NULL,
+          step_index INTEGER NOT NULL,
+          payload_json TEXT NOT NULL,
+          failure_policy TEXT NOT NULL DEFAULT 'continue',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(action_id) REFERENCES actions(id) ON DELETE CASCADE
+        );
+      `);
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS trigger_bindings (
+          id TEXT PRIMARY KEY,
+          action_id TEXT NOT NULL,
+          trigger_type TEXT NOT NULL,
+          source_id TEXT,
+          config_json TEXT NOT NULL DEFAULT '{}',
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(action_id) REFERENCES actions(id) ON DELETE CASCADE
+        );
+      `);
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_action_steps_action_id ON action_steps(action_id)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_action_id ON trigger_bindings(action_id)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_trigger_type_source_id ON trigger_bindings(trigger_type, source_id)');
+    });
+    tx();
+  }
+
+  private ensureCuesAndMacrosSchema(): void {
+    const tx = this.db.transaction(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS cues (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          payload_json TEXT NOT NULL,
+          failure_policy TEXT NOT NULL DEFAULT 'continue',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+
+      if (!this.hasColumn('action_steps', 'cue_id')) {
+        this.db.exec('ALTER TABLE action_steps ADD COLUMN cue_id TEXT REFERENCES cues(id)');
+      }
+
+      if (!this.hasColumn('trigger_bindings', 'target_type')) {
+        this.db.exec("ALTER TABLE trigger_bindings ADD COLUMN target_type TEXT");
+      }
+      if (!this.hasColumn('trigger_bindings', 'target_id')) {
+        this.db.exec('ALTER TABLE trigger_bindings ADD COLUMN target_id TEXT');
+      }
+
+      const legacySteps = this.db.prepare(
+        `SELECT id, action_id, kind, payload_json, failure_policy, created_at, updated_at
+         FROM action_steps
+         WHERE cue_id IS NULL`
+      ).all() as Array<{
+        id: string;
+        action_id: string;
+        kind: string;
+        payload_json: string;
+        failure_policy: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+      const insertCue = this.db.prepare(
+        `INSERT INTO cues (id, name, kind, payload_json, failure_policy, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      const updateStepCueId = this.db.prepare('UPDATE action_steps SET cue_id = ? WHERE id = ?');
+
+      for (const step of legacySteps) {
+        const cueId = createId();
+        insertCue.run(
+          cueId,
+          this.defaultCueName(step.kind as CueKind),
+          step.kind,
+          step.payload_json,
+          step.failure_policy || 'continue',
+          step.created_at,
+          step.updated_at,
+        );
+        updateStepCueId.run(cueId, step.id);
+      }
+
+      if (this.hasColumn('trigger_bindings', 'action_id')) {
+        this.db.exec(`
+          UPDATE trigger_bindings
+          SET target_type = COALESCE(target_type, 'macro'),
+              target_id = COALESCE(target_id, action_id)
+          WHERE target_type IS NULL OR target_id IS NULL
+        `);
+      }
+
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_cues_updated_at ON cues(updated_at)");
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_action_steps_cue_id ON action_steps(cue_id)');
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_target ON trigger_bindings(target_type, target_id)');
+    });
+    tx();
   }
 
   // v13 — add Talk deck items and per-slide script blocks.
@@ -1036,6 +1342,60 @@ export class CastRepository {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS macro_collections (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS actions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        collection_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(collection_id) REFERENCES macro_collections(id)
+      );
+
+      CREATE TABLE IF NOT EXISTS cues (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        failure_policy TEXT NOT NULL DEFAULT 'continue',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS action_steps (
+        id TEXT PRIMARY KEY,
+        action_id TEXT NOT NULL,
+        cue_id TEXT,
+        kind TEXT NOT NULL,
+        order_index INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        failure_policy TEXT NOT NULL DEFAULT 'continue',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY(action_id) REFERENCES actions(id) ON DELETE CASCADE,
+        FOREIGN KEY(cue_id) REFERENCES cues(id) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS trigger_bindings (
+        id TEXT PRIMARY KEY,
+        trigger_type TEXT NOT NULL,
+        source_id TEXT,
+        target_type TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        config_json TEXT NOT NULL DEFAULT '{}',
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
     `);
 
     this.db.exec(`
@@ -1050,6 +1410,11 @@ export class CastRepository {
       CREATE INDEX IF NOT EXISTS idx_playlist_entries_presentation_id ON playlist_entries(presentation_id);
       CREATE INDEX IF NOT EXISTS idx_playlist_entries_lyric_id ON playlist_entries(lyric_id);
       CREATE INDEX IF NOT EXISTS idx_playlist_entries_talk_id ON playlist_entries(talk_id);
+      CREATE INDEX IF NOT EXISTS idx_action_steps_action_id ON action_steps(action_id);
+      CREATE INDEX IF NOT EXISTS idx_action_steps_cue_id ON action_steps(cue_id);
+      CREATE INDEX IF NOT EXISTS idx_trigger_bindings_trigger_type_source_id ON trigger_bindings(trigger_type, source_id);
+      CREATE INDEX IF NOT EXISTS idx_trigger_bindings_target ON trigger_bindings(target_type, target_id);
+      CREATE INDEX IF NOT EXISTS idx_cues_updated_at ON cues(updated_at);
     `);
     this.createGlobalContentIndexes();
     this.createCollectionsIndexes();
@@ -1162,6 +1527,9 @@ export class CastRepository {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_overlays_collection_id ON overlays(collection_id);');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_themes_collection_id ON themes(collection_id);');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_stages_collection_id ON stages(collection_id);');
+    if (this.hasTable('actions') && this.hasColumn('actions', 'collection_id')) {
+      this.db.exec('CREATE INDEX IF NOT EXISTS idx_actions_collection_id ON actions(collection_id);');
+    }
   }
 
   private ensureCollectionsSchema(): void {
@@ -1862,6 +2230,11 @@ export class CastRepository {
       this.db
         .prepare('UPDATE stages SET collection_id = ? WHERE collection_id IS NULL')
         .run(defaultIds.stage);
+      if (this.hasTable('actions') && this.hasColumn('actions', 'collection_id')) {
+        this.db
+          .prepare("UPDATE actions SET collection_id = ? WHERE collection_id IS NULL OR collection_id = ''")
+          .run(defaultIds.macro);
+      }
     });
     tx();
   }
@@ -2611,6 +2984,255 @@ export class CastRepository {
       stages: this.getStages(),
       collections: this.getCollections(),
     };
+  }
+
+  listCues(): Cue[] {
+    const rows = this.db.prepare(
+      `SELECT id, kind, payload_json, failure_policy, created_at, updated_at
+       FROM cues
+       ORDER BY updated_at DESC, created_at DESC, id ASC`
+    ).all() as Array<{
+      id: string;
+      kind: string;
+      payload_json: string;
+      failure_policy: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      kind: row.kind as CueKind,
+      payload: parseJson<CuePayload>(row.payload_json),
+      failurePolicy: row.failure_policy as CueFailurePolicy,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  createCue(input: CueCreateInput): Cue {
+    const now = nowIso();
+    const cueId = createId();
+    this.db.prepare(
+      `INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(
+      cueId,
+      input.kind,
+      JSON.stringify(input.payload),
+      input.failurePolicy ?? 'continue',
+      now,
+      now,
+    );
+    return this.getCue(cueId);
+  }
+
+  updateCue(input: CueUpdateInput): Cue | null {
+    const existing = this.db.prepare(
+      'SELECT id, kind, payload_json, failure_policy FROM cues WHERE id = ?'
+    ).get(input.id) as {
+      id: string;
+      kind: string;
+      payload_json: string;
+      failure_policy: string;
+    } | undefined;
+    if (!existing) return null;
+
+    const kind = input.kind ?? existing.kind as CueKind;
+    const payload = input.payload ?? parseJson<CuePayload>(existing.payload_json);
+    const failurePolicy = input.failurePolicy ?? existing.failure_policy as CueFailurePolicy;
+    this.db.prepare(
+      `UPDATE cues
+       SET kind = ?, payload_json = ?, failure_policy = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      kind,
+      JSON.stringify(payload),
+      failurePolicy,
+      nowIso(),
+      input.id,
+    );
+    return this.getCue(input.id);
+  }
+
+  deleteCue(id: Id): void {
+    this.db.prepare('DELETE FROM cues WHERE id = ?').run(id);
+    this.db.prepare('DELETE FROM action_steps WHERE cue_id = ?').run(id);
+    this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?").run(id);
+  }
+
+  listMacros(): Macro[] {
+    const rows = this.db.prepare(
+      'SELECT id, name, description, collection_id, created_at, updated_at FROM actions ORDER BY updated_at DESC, created_at DESC, id ASC'
+    ).all() as Array<{
+      id: string;
+      name: string;
+      description: string;
+      collection_id: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    const cuesByMacroId = this.getMacroCuesByMacroIds(rows.map((row) => row.id));
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      collectionId: row.collection_id,
+      cues: cuesByMacroId.get(row.id) ?? [],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  createMacro(input: MacroCreateInput): Macro {
+    const now = nowIso();
+    const macroId = createId();
+    const name = input.name.trim() || 'Untitled macro';
+    const description = input.description?.trim() ?? '';
+    const cues = input.cues ?? [];
+    const collectionId = input.collectionId ?? this.getDefaultCollectionId('macro');
+
+    const insertMacro = this.db.prepare(
+      'INSERT INTO actions (id, name, description, collection_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const insertMacroCue = this.db.prepare(
+      `INSERT INTO action_steps
+       (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+
+    const tx = this.db.transaction(() => {
+      insertMacro.run(macroId, name, description, collectionId, now, now);
+      for (const macroCue of cues) {
+        const cue = this.getCue(macroCue.cueId);
+        insertMacroCue.run(
+          createId(),
+          macroId,
+          cue.id,
+          cue.kind,
+          macroCue.orderIndex,
+          JSON.stringify(cue.payload),
+          cue.failurePolicy,
+          now,
+          now,
+        );
+      }
+    });
+    tx();
+
+    return this.getMacro(macroId);
+  }
+
+  updateMacro(input: MacroUpdateInput): Macro | null {
+    const existing = this.db.prepare(
+      'SELECT id, name, description FROM actions WHERE id = ?'
+    ).get(input.id) as { id: string; name: string; description: string } | undefined;
+    if (!existing) return null;
+
+    const updateMacro = this.db.prepare(
+      'UPDATE actions SET name = ?, description = ?, updated_at = ? WHERE id = ?'
+    );
+    const deleteMacroCues = this.db.prepare('DELETE FROM action_steps WHERE action_id = ?');
+    const insertMacroCue = this.db.prepare(
+      `INSERT INTO action_steps
+       (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const now = nowIso();
+
+    const tx = this.db.transaction(() => {
+      updateMacro.run(
+        input.name?.trim() || existing.name,
+        input.description?.trim() ?? existing.description,
+        now,
+        input.id,
+      );
+
+      if (input.cues !== undefined) {
+        deleteMacroCues.run(input.id);
+        for (const macroCue of input.cues) {
+          const cue = this.getCue(macroCue.cueId);
+          insertMacroCue.run(
+            macroCue.id ?? createId(),
+            input.id,
+            cue.id,
+            cue.kind,
+            macroCue.orderIndex,
+            JSON.stringify(cue.payload),
+            cue.failurePolicy,
+            now,
+            now,
+          );
+        }
+      }
+    });
+    tx();
+
+    return this.getMacro(input.id);
+  }
+
+  deleteMacro(id: Id): void {
+    this.db.prepare('DELETE FROM actions WHERE id = ?').run(id);
+    this.db.prepare('DELETE FROM action_steps WHERE action_id = ?').run(id);
+    this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?").run(id);
+  }
+
+  listTriggerBindings(): TriggerBinding[] {
+    const rows = this.db.prepare(
+      `SELECT id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
+       FROM trigger_bindings
+       ORDER BY created_at ASC, id ASC`
+    ).all() as Array<{
+      id: string;
+      trigger_type: string;
+      source_id: string | null;
+      target_type: string | null;
+      target_id: string | null;
+      config_json: string;
+      enabled: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      triggerType: row.trigger_type as TriggerType,
+      sourceId: row.source_id,
+      targetType: (row.target_type ?? 'macro') as TriggerBindingTargetType,
+      targetId: row.target_id ?? '',
+      config: parseJson<Record<string, unknown>>(row.config_json),
+      enabled: row.enabled === 1,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  createTriggerBinding(input: TriggerBindingCreateInput): TriggerBinding {
+    const now = nowIso();
+    const id = createId();
+    this.db.prepare(
+      `INSERT INTO trigger_bindings
+       (id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id,
+      input.triggerType,
+      input.sourceId,
+      input.targetType,
+      input.targetId,
+      JSON.stringify(input.config ?? {}),
+      input.enabled === false ? 0 : 1,
+      now,
+      now,
+    );
+
+    return this.getTriggerBinding(id);
+  }
+
+  deleteTriggerBinding(id: Id): void {
+    this.db.prepare('DELETE FROM trigger_bindings WHERE id = ?').run(id);
   }
 
   /**
@@ -5196,6 +5818,157 @@ export class CastRepository {
     tx();
 
     return this.buildPatch({ upsertStageIds: [newId] });
+  }
+
+  private getCue(cueId: Id): Cue {
+    const row = this.db.prepare(
+      `SELECT id, kind, payload_json, failure_policy, created_at, updated_at
+       FROM cues WHERE id = ?`
+    ).get(cueId) as {
+      id: string;
+      kind: string;
+      payload_json: string;
+      failure_policy: string;
+      created_at: string;
+      updated_at: string;
+    } | undefined;
+
+    if (!row) throw new Error(`Cue not found: ${cueId}`);
+
+    return {
+      id: row.id,
+      kind: row.kind as CueKind,
+      payload: parseJson<CuePayload>(row.payload_json),
+      failurePolicy: row.failure_policy as CueFailurePolicy,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private getMacro(macroId: Id): Macro {
+    const row = this.db.prepare(
+      'SELECT id, name, description, collection_id, created_at, updated_at FROM actions WHERE id = ?'
+    ).get(macroId) as {
+      id: string;
+      name: string;
+      description: string;
+      collection_id: string;
+      created_at: string;
+      updated_at: string;
+    } | undefined;
+
+    if (!row) throw new Error(`Macro not found: ${macroId}`);
+
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      collectionId: row.collection_id,
+      cues: this.getMacroCuesByMacroIds([macroId]).get(macroId) ?? [],
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private getMacroCuesByMacroIds(macroIds: Id[]): Map<Id, MacroCue[]> {
+    const byMacroId = new Map<Id, MacroCue[]>();
+    for (const macroId of macroIds) byMacroId.set(macroId, []);
+    if (macroIds.length === 0) return byMacroId;
+
+    const placeholders = macroIds.map(() => '?').join(', ');
+    const rows = this.db.prepare(
+      `SELECT step.id, step.action_id, step.cue_id, step.order_index, step.created_at, step.updated_at,
+              cue.kind AS cue_kind, cue.payload_json AS cue_payload_json,
+              cue.failure_policy AS cue_failure_policy, cue.created_at AS cue_created_at, cue.updated_at AS cue_updated_at
+       FROM action_steps step
+       JOIN cues cue ON cue.id = step.cue_id
+       WHERE step.action_id IN (${placeholders})
+       ORDER BY step.order_index ASC, step.created_at ASC, step.id ASC`
+    ).all(...macroIds) as Array<{
+      id: string;
+      action_id: string;
+      cue_id: string;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+      cue_kind: string;
+      cue_payload_json: string;
+      cue_failure_policy: string;
+      cue_created_at: string;
+      cue_updated_at: string;
+    }>;
+
+    for (const row of rows) {
+      const cues = byMacroId.get(row.action_id) ?? [];
+      cues.push({
+        id: row.id,
+        macroId: row.action_id,
+        cueId: row.cue_id,
+        cue: {
+          id: row.cue_id,
+          kind: row.cue_kind as CueKind,
+          payload: parseJson<CuePayload>(row.cue_payload_json),
+          failurePolicy: row.cue_failure_policy as CueFailurePolicy,
+          createdAt: row.cue_created_at,
+          updatedAt: row.cue_updated_at,
+        },
+        orderIndex: row.order_index,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+      byMacroId.set(row.action_id, cues);
+    }
+
+    return byMacroId;
+  }
+
+  private getTriggerBinding(bindingId: Id): TriggerBinding {
+    const row = this.db.prepare(
+      `SELECT id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
+       FROM trigger_bindings WHERE id = ?`
+    ).get(bindingId) as {
+      id: string;
+      trigger_type: string;
+      source_id: string | null;
+      target_type: string | null;
+      target_id: string | null;
+      config_json: string;
+      enabled: number;
+      created_at: string;
+      updated_at: string;
+    } | undefined;
+
+    if (!row) throw new Error(`Trigger binding not found: ${bindingId}`);
+
+    return {
+      id: row.id,
+      triggerType: row.trigger_type as TriggerType,
+      sourceId: row.source_id,
+      targetType: (row.target_type ?? 'macro') as TriggerBindingTargetType,
+      targetId: row.target_id ?? '',
+      config: parseJson<Record<string, unknown>>(row.config_json),
+      enabled: row.enabled === 1,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private defaultCueName(kind: CueKind): string {
+    switch (kind) {
+      case 'overlay.activate': return 'Activate overlay';
+      case 'overlay.clear': return 'Clear overlay';
+      case 'overlay.clearAll': return 'Clear all overlays';
+      case 'mediaLayer.set': return 'Set media layer';
+      case 'video.arm': return 'Arm video';
+      case 'video.clear': return 'Clear video';
+      case 'audio.arm': return 'Arm audio';
+      case 'audio.clear': return 'Clear audio';
+      case 'stage.set': return 'Set stage';
+      case 'stage.clear': return 'Clear stage';
+      case 'layer.clear': return 'Clear layer';
+      case 'layer.clearAll': return 'Clear all layers';
+      case 'flow.wait': return 'Wait';
+    }
   }
 
   private newLyricsTextPayload() {

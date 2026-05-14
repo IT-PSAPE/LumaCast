@@ -114,6 +114,7 @@ function ContinuousSlideGridView({ items }: { items: PlaylistDeckSequenceItem[] 
                   contain: 'layout paint',
                   willChange: 'transform',
                 }}
+                className="relative"
               >
                 {row.kind === 'header'
                   ? <ContinuousSectionHeader
@@ -312,7 +313,7 @@ function ContinuousSlideListView({ items }: { items: PlaylistDeckSequenceItem[] 
 
 function ContinuousSectionHeader({ item, isCurrent, isLive = false }: { item: PlaylistDeckSequenceItem; isCurrent: boolean; isLive?: boolean }) {
   return (
-    <div className="z-10 flex h-9 w-full items-center gap-2 border-b border-primary bg-tertiary px-2 py-1">
+    <div className="sticky top-0 z-10 flex h-9 w-full items-center gap-2 bg-tertiary px-2 py-1">
       <div className="flex min-w-0 items-center gap-2">
         <Label.xs className="mr-auto truncate font-medium text-primary">{item.item.title}</Label.xs>
         <div className="ml-auto flex shrink-0 items-center gap-1">

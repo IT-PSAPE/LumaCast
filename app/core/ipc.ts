@@ -1,5 +1,8 @@
 import type {
   AppSnapshot,
+  Cue,
+  CueCreateInput,
+  CueUpdateInput,
   DeckBundleBrokenReferenceDecision,
   DeckBundleExportOptions,
   DeckBundleInspection,
@@ -14,6 +17,9 @@ import type {
   CollectionReorderInput,
   LogReadResult,
   LogSessionSummary,
+  Macro,
+  MacroCreateInput,
+  MacroUpdateInput,
   NdiDiagnostics,
   NdiOutputConfig,
   NdiOutputConfigMap,
@@ -27,6 +33,8 @@ import type {
   SystemMetricsSnapshot,
   ThemeCreateInput,
   ThemeUpdateInput,
+  TriggerBinding,
+  TriggerBindingCreateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
@@ -54,6 +62,17 @@ export interface MainApi {
   exportDeckBundle: (itemIds: Id[], filePath: string, options?: DeckBundleExportOptions) => Promise<{ filePath: string; itemCount: number }>;
   inspectImportBundle: (filePath: string) => Promise<DeckBundleInspection>;
   finalizeImportBundle: (filePath: string, decisions: DeckBundleBrokenReferenceDecision[]) => Promise<AppSnapshot>;
+  listCues: () => Promise<Cue[]>;
+  createCue: (input: CueCreateInput) => Promise<Cue>;
+  updateCue: (input: CueUpdateInput) => Promise<Cue | null>;
+  deleteCue: (id: Id) => Promise<void>;
+  listMacros: () => Promise<Macro[]>;
+  createMacro: (input: MacroCreateInput) => Promise<Macro>;
+  updateMacro: (input: MacroUpdateInput) => Promise<Macro | null>;
+  deleteMacro: (id: Id) => Promise<void>;
+  listTriggerBindings: () => Promise<TriggerBinding[]>;
+  createTriggerBinding: (input: TriggerBindingCreateInput) => Promise<TriggerBinding>;
+  deleteTriggerBinding: (id: Id) => Promise<void>;
   createLibrary: (name: string) => Promise<SnapshotPatch>;
   createPlaylist: (libraryId: Id, name: string) => Promise<SnapshotPatch>;
   createPlaylistGroup: (playlistId: Id, name: string) => Promise<SnapshotPatch>;
@@ -200,7 +219,7 @@ export type AppMenuCommandId =
   | 'playback.toggleStageOutput';
 
 export interface AppMenuState {
-  workbenchMode: 'show' | 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'settings';
+  workbenchMode: 'show' | 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings';
   slideBrowserMode: 'grid' | 'list';
   playlistBrowserMode: 'current' | 'tabs' | 'continuous';
   hasCurrentLibrary: boolean;
@@ -240,6 +259,17 @@ export const IPC = {
   exportDeckBundle: 'cast:exportDeckBundle',
   inspectImportBundle: 'cast:inspectImportBundle',
   finalizeImportBundle: 'cast:finalizeImportBundle',
+  listCues: 'cast:listCues',
+  createCue: 'cast:createCue',
+  updateCue: 'cast:updateCue',
+  deleteCue: 'cast:deleteCue',
+  listMacros: 'cast:listMacros',
+  createMacro: 'cast:createMacro',
+  updateMacro: 'cast:updateMacro',
+  deleteMacro: 'cast:deleteMacro',
+  listTriggerBindings: 'cast:listTriggerBindings',
+  createTriggerBinding: 'cast:createTriggerBinding',
+  deleteTriggerBinding: 'cast:deleteTriggerBinding',
   createLibrary: 'cast:createLibrary',
   createPlaylist: 'cast:createPlaylist',
   createPlaylistGroup: 'cast:createPlaylistGroup',

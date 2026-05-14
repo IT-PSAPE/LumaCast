@@ -6,6 +6,7 @@ import { useIndexedSelection } from '../hooks/use-indexed-selection';
 import { useCast } from './app-context';
 import { useNavigation } from './navigation-context';
 import { useProjectContent } from './use-project-content';
+import { dispatchAutomationTriggerEvent } from '../features/automation/automation-events';
 
 interface SlideContextValue {
   slides: Slide[];
@@ -203,6 +204,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     liveSelection.update(currentPlaylistEntryId, nextIndex);
     setLiveTalkScriptIndexForSlide(slides[nextIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
+    const activatedSlideId = slides[nextIndex]?.id;
+    if (activatedSlideId) {
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
+    }
     setStatusText(`Live slide ${nextIndex + 1}`);
   }, [
     armOutputPlaylistEntry,
@@ -223,6 +228,11 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     liveSelection.update(currentPlaylistEntryId, currentSlideIndex);
     setLiveTalkScriptIndexForSlide(slides[currentSlideIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
+    const takenSlideId = slides[currentSlideIndex]?.id;
+    if (takenSlideId) {
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: takenSlideId });
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.take', sourceId: takenSlideId });
+    }
     setStatusText(`Taken slide ${currentSlideIndex + 1}`);
   }, [
     armOutputPlaylistEntry,
@@ -243,6 +253,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     if (contentSlides.length > 0) {
       liveSelection.update(currentPlaylistEntryId, nextIndex);
       setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
+      const activatedSlideId = contentSlides[nextIndex]?.id;
+      if (activatedSlideId) {
+        dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
+      }
     }
     armOutputPlaylistEntry(currentPlaylistEntryId);
   }, [armOutputPlaylistEntry, currentPlaylistDeckItemId, currentPlaylistEntryId, playlistSelection.indices, setLiveTalkScriptIndexForSlide, slidesByDeckItemId, liveSelection.update]);
@@ -376,6 +390,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     playlistSelection.update(entryId, nextIndex);
     setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
     activatePlaylistEntry(entryId, itemId, nextIndex);
+    const activatedSlideId = contentSlides[nextIndex]?.id;
+    if (activatedSlideId) {
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
+    }
     setStatusText(`Live slide ${nextIndex + 1}`);
   }, [activatePlaylistEntry, setLiveTalkScriptIndexForSlide, setStatusText, slidesByDeckItemId, playlistSelection.update]);
 

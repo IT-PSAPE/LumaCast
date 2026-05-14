@@ -20,13 +20,15 @@ import { AudioBinPanel } from '../assets/audio/audio-bin-panel';
 import { MediaBinPanel } from '../assets/media/media-bin-panel';
 import { OverlayBinPanel } from '../assets/overlays/overlay-bin-panel';
 import { StageBinPanel } from '../assets/stages/stage-bin-panel';
+import { MacroBinPanel } from '../automation/macro-bin-panel';
+import { useAutomation } from '../automation/automation-context';
 import { CollectionPicker } from '../workbench/collection-picker';
 import { useBinCollections } from '../workbench/use-bin-collections';
 import { useProgramOutput } from './use-program-output';
 import { useProgramBindingValue, useStageBindingValue, useStageScene } from './use-stage-scene';
 import { SceneStage } from '../canvas/scene-stage';
 
-type BottomTab = 'overlays' | 'stage' | 'video' | 'audio';
+type BottomTab = 'overlays' | 'stage' | 'video' | 'audio' | 'macros';
 
 export function ProgramPanel() {
   const { clearLayer, clearAllLayers, mediaLayerAsset, videoLayerAsset, contentLayerVisible, activeOverlays, overlayMode, setOverlayMode } = usePresentationLayers();
@@ -44,11 +46,14 @@ export function ProgramPanel() {
   const stageCollections = useBinCollections('stage');
   const videoCollections = useBinCollections('video');
   const audioCollections = useBinCollections('audio');
+  const macroCollections = useBinCollections('macro');
+  const { actions: { createMacro } } = useAutomation();
   const activeCollections =
     bottomTab === 'overlays' ? overlayCollections
       : bottomTab === 'stage' ? stageCollections
       : bottomTab === 'video' ? videoCollections
-      : audioCollections;
+      : bottomTab === 'audio' ? audioCollections
+      : macroCollections;
   const mediaActive = Boolean(mediaLayerAsset);
   const videoActive = Boolean(videoLayerAsset);
   const contentActive = contentLayerVisible && Boolean(currentOutputDeckItemId);
@@ -82,6 +87,12 @@ export function ProgramPanel() {
     });
   }
 
+  function handleCreateMacro() {
+    void createMacro().then(() => {
+      setWorkbenchMode('macro-editor');
+    });
+  }
+
   function handleEditOverlays() {
     setWorkbenchMode('overlay-editor');
   }
@@ -90,8 +101,12 @@ export function ProgramPanel() {
     setWorkbenchMode('stage-editor');
   }
 
+  function handleEditMacros() {
+    setWorkbenchMode('macro-editor');
+  }
+
   function handleTabChange(value: string) {
-    if (value === 'overlays' || value === 'stage' || value === 'video' || value === 'audio') setBottomTab(value);
+    if (value === 'overlays' || value === 'stage' || value === 'video' || value === 'audio' || value === 'macros') setBottomTab(value);
   }
 
   function handleAudioImportClick() {
@@ -144,6 +159,7 @@ export function ProgramPanel() {
               <Tabs.Trigger value="stage">Stage</Tabs.Trigger>
               <Tabs.Trigger value="video">Video</Tabs.Trigger>
               <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
+              <Tabs.Trigger value="macros">Macros</Tabs.Trigger>
             </Tabs.List>
           </LumaCastPanel.GroupTitle>
           <div className="w-full flex shrink-0 items-center gap-1 border-b border-secondary px-1.5 py-1">
@@ -184,7 +200,7 @@ export function ProgramPanel() {
                     <Upload />
                   </ReacstButton.Icon>
                 </>
-              ) : (
+              ) : bottomTab === 'audio' ? (
                 <>
                   <FileTrigger.Root
                     hidden
@@ -195,6 +211,15 @@ export function ProgramPanel() {
                   />
                   <ReacstButton.Icon label="Import audio" onClick={handleAudioImportClick}>
                     <Upload />
+                  </ReacstButton.Icon>
+                </>
+              ) : (
+                <>
+                  <ReacstButton.Icon label="Edit macros" variant="ghost" onClick={handleEditMacros}>
+                    <Pencil />
+                  </ReacstButton.Icon>
+                  <ReacstButton.Icon label="Add macro" onClick={handleCreateMacro}>
+                    <Plus />
                   </ReacstButton.Icon>
                 </>
               )}
@@ -217,6 +242,10 @@ export function ProgramPanel() {
               <div className='flex flex-1 min-h-0 w-full'>
                 <MediaBinPanel binKind="video" collections={videoCollections} hideFooterPicker />
               </div>
+            </LumaCastPanel.Content>
+          ) : bottomTab === 'macros' ? (
+            <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
+              <MacroBinPanel collections={macroCollections} hideFooterPicker />
             </LumaCastPanel.Content>
           ) : (
             <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>

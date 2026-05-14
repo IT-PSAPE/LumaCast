@@ -35,6 +35,10 @@ const PANEL_TOGGLE_CONFIGS: Record<WorkbenchMode, PanelToggleConfig[]> = {
     { id: 'left', label: 'Left', splitId: 'editor-main', paneId: 'editor-left' },
     { id: 'right', label: 'Right', splitId: 'editor-main', paneId: 'editor-right' },
   ],
+  'macro-editor': [
+    { id: 'left', label: 'Left', splitId: 'editor-main', paneId: 'editor-left' },
+    { id: 'right', label: 'Right', splitId: 'editor-main', paneId: 'editor-right' },
+  ],
   settings: [],
 };
 

@@ -154,7 +154,7 @@ export function useProjectContent(): ProjectContent {
     for (const collection of collections) collectionsById.set(collection.id, collection);
 
     const collectionsByBinKind = new Map<CollectionBinKind, Collection[]>();
-    for (const bin of ['deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage'] as const) {
+    for (const bin of ['deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage', 'macro'] as const) {
       collectionsByBinKind.set(bin, []);
     }
     for (const collection of collections) {

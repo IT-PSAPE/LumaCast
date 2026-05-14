@@ -3,6 +3,8 @@ import { CastRepository } from '@database/store';
 import { IPC, NDI_EVENTS, type AppMenuState, type InlineWindowMenuBounds, type InlineWindowMenuItem } from '@core/ipc';
 import type {
   AppSnapshot,
+  CueCreateInput,
+  CueUpdateInput,
   DeckBundleBrokenReferenceDecision,
   DeckBundleExportOptions,
   ElementCreateInput,
@@ -22,8 +24,11 @@ import type {
   OverlayUpdateInput,
   StageCreateInput,
   StageUpdateInput,
+  MacroCreateInput,
+  MacroUpdateInput,
   ThemeCreateInput,
   ThemeUpdateInput,
+  TriggerBindingCreateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
@@ -173,6 +178,23 @@ export const registerIpcHandlers = (
   safeHandle(IPC.finalizeImportBundle, async (_event, filePath: string, decisions: DeckBundleBrokenReferenceDecision[]) => {
     const bundle = await readDeckBundleArchive(filePath);
     return repo.finalizeImportBundle(bundle, decisions);
+  });
+  safeHandle(IPC.listCues, () => repo.listCues());
+  safeHandle(IPC.createCue, (_event, input: CueCreateInput) => repo.createCue(input));
+  safeHandle(IPC.updateCue, (_event, input: CueUpdateInput) => repo.updateCue(input));
+  safeHandle(IPC.deleteCue, (_event, id: Id) => {
+    repo.deleteCue(id);
+  });
+  safeHandle(IPC.listMacros, () => repo.listMacros());
+  safeHandle(IPC.createMacro, (_event, input: MacroCreateInput) => repo.createMacro(input));
+  safeHandle(IPC.updateMacro, (_event, input: MacroUpdateInput) => repo.updateMacro(input));
+  safeHandle(IPC.deleteMacro, (_event, id: Id) => {
+    repo.deleteMacro(id);
+  });
+  safeHandle(IPC.listTriggerBindings, () => repo.listTriggerBindings());
+  safeHandle(IPC.createTriggerBinding, (_event, input: TriggerBindingCreateInput) => repo.createTriggerBinding(input));
+  safeHandle(IPC.deleteTriggerBinding, (_event, id: Id) => {
+    repo.deleteTriggerBinding(id);
   });
   safeHandle(IPC.createLibrary, (_event, name: string) => repo.createLibrary(name));
   safeHandle(IPC.createPlaylist, (_event, libraryId: Id, name: string) => repo.createPlaylist(libraryId, name));

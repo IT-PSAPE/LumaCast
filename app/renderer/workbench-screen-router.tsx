@@ -21,6 +21,9 @@ const ThemeEditorScreen = lazy(() =>
 const StageEditorScreen = lazy(() =>
   import('./screens/stage-editor/page').then((m) => ({ default: m.StageEditorScreen })),
 );
+const MacroEditorScreen = lazy(() =>
+  import('./screens/macro-editor/page').then((m) => ({ default: m.MacroEditorScreen })),
+);
 const SettingsScreen = lazy(() =>
   import('./screens/settings/page').then((m) => ({ default: m.SettingsScreen })),
 );
@@ -40,6 +43,7 @@ export function WorkbenchScreenRouter() {
       {workbenchMode === 'overlay-editor' ? <OverlayEditorScreen /> : null}
       {workbenchMode === 'theme-editor' ? <ThemeEditorScreen /> : null}
       {workbenchMode === 'stage-editor' ? <StageEditorScreen /> : null}
+      {workbenchMode === 'macro-editor' ? <MacroEditorScreen /> : null}
       {workbenchMode === 'settings' ? <SettingsScreen /> : null}
     </Suspense>
   );

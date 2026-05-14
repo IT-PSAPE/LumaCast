@@ -11,6 +11,7 @@ import { CommandPaletteProvider } from './features/command-palette/command-palet
 import { BundleDropImport } from './features/deck/bundle-drop-import';
 import { CreateDeckItemProvider } from './features/deck/create-deck-item';
 import { LyricEditorProvider } from './features/deck/lyric-editor';
+import { AutomationProvider } from './features/automation/automation-context';
 import { NdiOutputs } from './features/playback/ndi-outputs';
 import { ConfirmProvider } from './components/overlays/confirm-dialog';
 import { ErrorBoundary } from './components/feedback/error-boundary';
@@ -30,22 +31,24 @@ export function App() {
             <NavigationProvider>
               <PlaybackProvider>
                 <SlideProvider>
-                  <AssetEditorProvider>
-                    <LyricEditorProvider>
-                      <CreateDeckItemProvider>
-                        <CanvasProvider>
-                          <CommandPaletteProvider>
-                            <NdiOutputs />
-                            <SplitPanel>
-                              <AppLayoutContent />
-                            </SplitPanel>
-                            <CommandPalette />
-                            <BundleDropImport />
-                          </CommandPaletteProvider>
-                        </CanvasProvider>
-                      </CreateDeckItemProvider>
-                    </LyricEditorProvider>
-                  </AssetEditorProvider>
+                  <AutomationProvider>
+                    <AssetEditorProvider>
+                      <LyricEditorProvider>
+                        <CreateDeckItemProvider>
+                          <CanvasProvider>
+                            <CommandPaletteProvider>
+                              <NdiOutputs />
+                              <SplitPanel>
+                                <AppLayoutContent />
+                              </SplitPanel>
+                              <CommandPalette />
+                              <BundleDropImport />
+                            </CommandPaletteProvider>
+                          </CanvasProvider>
+                        </CreateDeckItemProvider>
+                      </LyricEditorProvider>
+                    </AssetEditorProvider>
+                  </AutomationProvider>
                 </SlideProvider>
               </PlaybackProvider>
             </NavigationProvider>

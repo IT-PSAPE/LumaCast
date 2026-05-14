@@ -8,6 +8,7 @@ import { SceneFrame } from '@renderer/components/display/scene-frame';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { useSlides } from '@renderer/contexts/slide-context';
+import { SlideAutomationMenu } from '../automation/slide-automation-menu';
 import type { RenderScene } from '../canvas/scene-types';
 
 interface SlideGridTileProps {
@@ -65,7 +66,10 @@ function SlideGridTileBody({
   }
 
   function handleContextMenu(event: React.MouseEvent<HTMLElement>) {
-    if (!selected) onActivate(index);
+    // Right-click only opens the context menu — it must not activate the
+    // slide. Operators routinely right-click on slides they have NOT staged
+    // (to attach automation, delete, etc.), and switching the live slide
+    // out from under them would be destructive.
     triggerContextMenu(event);
   }
 
@@ -132,6 +136,8 @@ function SlideGridTileBody({
           <ContextMenu.Item onSelect={() => { void duplicateSlide(slideId); }}>Duplicate</ContextMenu.Item>
           <ContextMenu.Item disabled={isFirst} onSelect={() => { void moveSlide(slideId, 'up'); }}>Move up</ContextMenu.Item>
           <ContextMenu.Item disabled={isLast} onSelect={() => { void moveSlide(slideId, 'down'); }}>Move down</ContextMenu.Item>
+          <ContextMenu.Separator />
+          <SlideAutomationMenu slideId={slideId} />
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>
