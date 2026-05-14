@@ -671,6 +671,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
 
   const deckHasPendingChanges = useMemo(() => {
     for (const slideId of Object.keys(stagedSlides)) {
+      if (!persistedElementsBySlideId.has(slideId)) continue;
       const persisted = persistedElementsBySlideId.get(slideId) ?? [];
       const staged = stagedSlides[slideId] ?? [];
       if (slideElementsSignature(persisted) !== slideElementsSignature(staged)) return true;
@@ -686,9 +687,20 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     setStagedSlides((current) => ({ ...current, [slideId]: cloneElements(elements) }));
   }, []);
 
+  useEffect(() => {
+    setStagedSlides((current) => {
+      const stale = Object.keys(current).filter((slideId) => !persistedElementsBySlideId.has(slideId));
+      if (stale.length === 0) return current;
+      const next = { ...current };
+      for (const slideId of stale) delete next[slideId];
+      return next;
+    });
+  }, [persistedElementsBySlideId]);
+
   const pushDeckChanges = useCallback(async () => {
     if (isDeckPushingChanges) return;
     const pendingSlideIds = Object.keys(stagedSlides).filter((slideId) => {
+      if (!persistedElementsBySlideId.has(slideId)) return false;
       const persisted = persistedElementsBySlideId.get(slideId) ?? [];
       const staged = stagedSlides[slideId] ?? [];
       return slideElementsSignature(persisted) !== slideElementsSignature(staged);
