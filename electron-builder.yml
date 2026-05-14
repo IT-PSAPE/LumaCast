@@ -9,7 +9,7 @@ directories:
 publish:
   provider: github
   owner: IT-PSAPE
-  repo: cast-interface
+  repo: LumaCast
   releaseType: release
 
 electronUpdaterCompatibility: ">=2.16"
