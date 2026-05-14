@@ -1,5 +1,5 @@
 import { readVisualPayload } from '@core/element-payload';
-import { LAYER_PREVIEW_SLIDE, mediaAssetToLayerElement, overlayToLayerElements } from '@core/presentation-layers';
+import { LAYER_PREVIEW_SLIDE, LAYER_VIDEO_NODE_ID, mediaAssetToLayerElement, overlayToLayerElements } from '@core/presentation-layers';
 import type { MediaAsset, Overlay, Slide, SlideElement } from '@core/types';
 import { sortElements } from '../../utils/slides';
 import type { BindingOverride } from './binding-context';
@@ -91,7 +91,7 @@ export function buildLayeredRenderScene({
 }: LayeredSceneInput): RenderScene {
   const merged: SceneElementInput[] = [];
   if (videoAsset) merged.push({ element: mediaAssetToLayerElement(videoAsset, {
-    id: '__layer_video',
+    id: LAYER_VIDEO_NODE_ID,
     zIndex: -1,
     videoPlayback,
   }) });

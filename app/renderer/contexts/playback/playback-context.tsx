@@ -3,7 +3,7 @@ import type { Id, MediaAsset, Overlay } from '@core/types';
 import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
 import { useProjectContent } from '../use-project-content';
-import { getLayerVideoElement, retainVideoSource, subscribeToVideoPool } from '../../features/canvas/use-k-video';
+import { getLayerVideoElement, retainVideoSource, subscribeToVideoPool, type VideoLayerHandle } from '../../features/canvas/use-k-video';
 import { addNdiAudioElement, removeNdiAudioElement } from '../../features/playback/ndi-audio-capture';
 import { recordObsEvent } from '../../features/observability/metrics-store';
 import {
@@ -616,10 +616,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 
   // ── Video transport ──
   //
-  // The layer video is rendered through the Konva canvas via the shared
-  // `videoPool` in use-k-video. We don't own that <video> element — instead we
-  // look it up by src via `getLayerVideoElement`, subscribe to pool changes,
-  // and drive play/pause/seek directly on the looked-up element.
+  // The layer video is owned by the use-k-video layer registry via
+  // `retainVideoSource`. We hold the retain handle for its lifetime, update
+  // playback options through it, and look up the live <video> element by src
+  // for direct seek/play/pause control.
 
   const videoAssets = useMemo(
     () => mediaAssets.filter((asset) => asset.type === 'video'),
@@ -640,15 +640,29 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   }), [videoLoopEnabled, videoMuted, videoRequestedPlay]);
 
   // Keep the armed layer video alive even if the currently visible surface
-  // changes and temporarily unmounts the SceneStage that was using it.
+  // changes and temporarily unmounts the SceneStage that was using it. The
+  // retain handle is created once per src and updated in place for option
+  // changes (mute/loop/play) so toggling a transport control never tears
+  // down the underlying <video> and resets currentTime.
+  const videoLayerHandleRef = useRef<VideoLayerHandle | null>(null);
+  const videoLayerPlaybackRef = useRef(videoLayerPlayback);
+  videoLayerPlaybackRef.current = videoLayerPlayback;
   useEffect(() => {
     if (!videoLayerAsset?.src) return undefined;
-    return retainVideoSource(videoLayerAsset.src, videoLayerPlayback);
-  }, [videoLayerAsset?.src, videoLayerPlayback]);
+    const handle = retainVideoSource(videoLayerAsset.src, videoLayerPlaybackRef.current);
+    videoLayerHandleRef.current = handle;
+    return () => {
+      videoLayerHandleRef.current = null;
+      handle.release();
+    };
+  }, [videoLayerAsset?.src]);
+  useEffect(() => {
+    videoLayerHandleRef.current?.setOptions(videoLayerPlayback);
+  }, [videoLayerPlayback]);
 
-  // Track whichever HTMLVideoElement the canvas pool is using for the current
-  // layer video. Re-checks on pool changes (entry created/loaded/removed) and
-  // when videoLayerAsset changes.
+  // Track the live HTMLVideoElement for the armed layer video. Re-checks
+  // when the registry signals an entry was created/loaded/removed, and when
+  // videoLayerAsset changes.
   useEffect(() => {
     function refresh() {
       const next = videoLayerAsset ? getLayerVideoElement(videoLayerAsset.src) : null;
