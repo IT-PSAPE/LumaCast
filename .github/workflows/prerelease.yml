@@ -1,0 +1,218 @@
+name: Pre-release
+
+on:
+  push:
+    branches:
+      - testing
+    paths:
+      - package.json
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: prerelease-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Check pre-release status
+    runs-on: ubuntu-latest
+    outputs:
+      base_version: ${{ steps.detect.outputs.base_version }}
+      prerelease_version: ${{ steps.detect.outputs.prerelease_version }}
+      should_release: ${{ steps.detect.outputs.should_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect version and compute next beta
+        id: detect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_VERSION="$(node -p "require('./package.json').version")"
+          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+
+          if gh release view "v$BASE_VERSION" --json tagName >/dev/null 2>&1; then
+            echo "::notice::Stable release v$BASE_VERSION already exists; skipping pre-release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "prerelease_version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          EXISTING="$(gh release list --limit 200 --json tagName -q '.[].tagName' | { grep -E "^v${BASE_VERSION}-beta\\.[0-9]+\$" || true; })"
+          if [ -z "$EXISTING" ]; then
+            NEXT=1
+          else
+            MAX="$(echo "$EXISTING" | sed -E "s/^v${BASE_VERSION}-beta\\.([0-9]+)\$/\\1/" | sort -n | tail -1)"
+            NEXT=$((MAX + 1))
+          fi
+
+          PRERELEASE_VERSION="${BASE_VERSION}-beta.${NEXT}"
+          echo "prerelease_version=$PRERELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "should_release=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::package.json version=$BASE_VERSION, next pre-release=v$PRERELEASE_VERSION"
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: guard
+    if: needs.guard.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Python (Windows)
+        if: matrix.platform == 'win'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure native packages
+        run: node scripts/ensure-rollup-native.cjs
+
+      - name: Build native addon
+        run: npm run build:ndi-native
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Set pre-release version in package.json
+        shell: bash
+        env:
+          PRERELEASE_VERSION: ${{ needs.guard.outputs.prerelease_version }}
+        run: |
+          set -euo pipefail
+          node -e "const fs=require('fs');const p=require('./package.json');p.version=process.env.PRERELEASE_VERSION;fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n');"
+          node -p "require('./package.json').version"
+
+      - name: Build app
+        run: npm run build
+
+      - name: Package (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
+          APPLE_CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APPLE_CSC_LINK:-}" ]; then
+            export CSC_LINK="$APPLE_CSC_LINK"
+            export CSC_KEY_PASSWORD="$APPLE_CSC_KEY_PASSWORD"
+            export APPLE_ID="$APPLE_ID_SECRET"
+            export APPLE_APP_SPECIFIC_PASSWORD="$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
+            export APPLE_TEAM_ID="$APPLE_TEAM_ID_SECRET"
+            echo "::notice::Signing macOS pre-release build with provided Apple Developer ID certificate."
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "::warning::APPLE_CSC_LINK secret not set; building unsigned macOS pre-release artifacts."
+          fi
+          npx electron-builder --mac --publish never
+
+      - name: Package (Windows)
+        if: matrix.platform == 'win'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${WIN_CSC_LINK:-}" ]; then
+            export CSC_LINK="$WIN_CSC_LINK"
+            export CSC_KEY_PASSWORD="$WIN_CSC_KEY_PASSWORD"
+            echo "::notice::Signing Windows pre-release build with provided code-signing certificate."
+          else
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            echo "::warning::WIN_CSC_LINK secret not set; building unsigned Windows pre-release artifacts."
+          fi
+          npx electron-builder --win --publish never
+
+      - name: Package (Linux)
+        if: matrix.platform == 'linux'
+        run: npx electron-builder --linux --publish never
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lumacast-prerelease-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/*.AppImage
+            dist/*.blockmap
+            dist/*.deb
+            dist/*.dmg
+            dist/*.exe
+            dist/*.zip
+            dist/beta*.yml
+
+  release:
+    name: Publish pre-release
+    needs: [guard, build]
+    if: needs.guard.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+          pattern: lumacast-prerelease-*
+          merge-multiple: true
+
+      - name: Create GitHub pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE_VERSION: ${{ needs.guard.outputs.prerelease_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "v$PRERELEASE_VERSION" \
+            --title "v$PRERELEASE_VERSION" \
+            --prerelease \
+            --generate-notes \
+            --target "$GITHUB_SHA" \
+            artifacts/*
