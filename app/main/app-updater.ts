@@ -89,6 +89,9 @@ export class AppUpdater {
 
     try {
       await autoUpdater.checkForUpdates();
+    } catch {
+      // The 'error' event listener already handled logging and any user-facing notification.
+      // Swallow here so the rejection doesn't bubble up as an unhandledRejection.
     } finally {
       this.isChecking = false;
     }
