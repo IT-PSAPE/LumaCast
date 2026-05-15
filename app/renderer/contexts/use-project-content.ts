@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { getSlideDeckItemId } from '@core/deck-items';
-import type { AppSnapshot, Collection, CollectionBinKind, DeckItem, Presentation, Id, Lyric, MediaAsset, Overlay, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from '@core/types';
+import type { AppSnapshot, Collection, CollectionBinKind, Cue, DeckItem, Presentation, Id, Lyric, Macro, MediaAsset, Overlay, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme, TriggerBinding } from '@core/types';
 import { sortElements, sortSlides } from '../utils/slides';
 import { useCast } from './app-context';
 
@@ -17,6 +17,9 @@ interface ProjectContent {
   themes: Theme[];
   stages: Stage[];
   collections: Collection[];
+  cues: Cue[];
+  macros: Macro[];
+  triggerBindings: TriggerBinding[];
   deckItemsById: ReadonlyMap<Id, DeckItem>;
   slidesByDeckItemId: ReadonlyMap<Id, Slide[]>;
   talkScriptBlocksBySlideId: ReadonlyMap<Id, TalkScriptBlock[]>;
@@ -27,6 +30,8 @@ interface ProjectContent {
   stagesById: ReadonlyMap<Id, Stage>;
   collectionsByBinKind: ReadonlyMap<CollectionBinKind, Collection[]>;
   collectionsById: ReadonlyMap<Id, Collection>;
+  cuesById: ReadonlyMap<Id, Cue>;
+  macrosById: ReadonlyMap<Id, Macro>;
 }
 
 function stableArray<T extends { id: Id; updatedAt: string }>(prev: T[] | null, next: T[]): T[] {
@@ -54,6 +59,9 @@ export function useProjectContent(): ProjectContent {
     themes: Theme[];
     stages: Stage[];
     collections: Collection[];
+    cues: Cue[];
+    macros: Macro[];
+    triggerBindings: TriggerBinding[];
   } | null>(null);
 
   const stableInputs = useMemo(() => {
@@ -69,6 +77,9 @@ export function useProjectContent(): ProjectContent {
       themes: snapshot?.themes ?? [],
       stages: snapshot?.stages ?? [],
       collections: snapshot?.collections ?? [],
+      cues: snapshot?.cues ?? [],
+      macros: snapshot?.macros ?? [],
+      triggerBindings: snapshot?.triggerBindings ?? [],
     };
 
     const prev = prevRef.current;
@@ -84,6 +95,9 @@ export function useProjectContent(): ProjectContent {
       themes: stableArray(prev?.themes ?? null, raw.themes),
       stages: stableArray(prev?.stages ?? null, raw.stages),
       collections: stableArray(prev?.collections ?? null, raw.collections),
+      cues: stableArray(prev?.cues ?? null, raw.cues),
+      macros: stableArray(prev?.macros ?? null, raw.macros),
+      triggerBindings: stableArray(prev?.triggerBindings ?? null, raw.triggerBindings),
     };
     prevRef.current = result;
     return result;
@@ -96,7 +110,7 @@ export function useProjectContent(): ProjectContent {
       if (cached) return cached;
     }
 
-    const { presentations, lyrics, talks, slides, talkScriptBlocks, slideElements, mediaAssets, overlays, themes, stages, collections } = stableInputs;
+    const { presentations, lyrics, talks, slides, talkScriptBlocks, slideElements, mediaAssets, overlays, themes, stages, collections, cues, macros, triggerBindings } = stableInputs;
 
     const deckItems = [...presentations, ...lyrics, ...talks].sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt));
 
@@ -165,6 +179,12 @@ export function useProjectContent(): ProjectContent {
       list.sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt));
     });
 
+    const cuesById = new Map<Id, Cue>();
+    for (const cue of cues) cuesById.set(cue.id, cue);
+
+    const macrosById = new Map<Id, Macro>();
+    for (const macro of macros) macrosById.set(macro.id, macro);
+
     const content = {
       presentations,
       lyrics,
@@ -178,6 +198,9 @@ export function useProjectContent(): ProjectContent {
       themes,
       stages,
       collections,
+      cues,
+      macros,
+      triggerBindings,
       deckItemsById,
       slidesByDeckItemId,
       talkScriptBlocksBySlideId,
@@ -188,6 +211,8 @@ export function useProjectContent(): ProjectContent {
       stagesById,
       collectionsByBinKind,
       collectionsById,
+      cuesById,
+      macrosById,
     } satisfies ProjectContent;
 
     if (cacheKey) {

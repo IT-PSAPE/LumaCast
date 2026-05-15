@@ -1,4 +1,4 @@
-import type { AppSnapshot, Collection, Id, LibraryPlaylistBundle, Library, Lyric, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from './types';
+import type { AppSnapshot, Collection, Cue, Id, LibraryPlaylistBundle, Library, Lyric, Macro, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme, TriggerBinding } from './types';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -34,6 +34,9 @@ export interface SnapshotPatch {
     themes?: Theme[];
     stages?: Stage[];
     collections?: Collection[];
+    cues?: Cue[];
+    macros?: Macro[];
+    triggerBindings?: TriggerBinding[];
     libraryBundles?: LibraryPlaylistBundle[];
   };
   deletes: {
@@ -49,6 +52,9 @@ export interface SnapshotPatch {
     themes?: Id[];
     stages?: Id[];
     collections?: Id[];
+    cues?: Id[];
+    macros?: Id[];
+    triggerBindings?: Id[];
   };
 }
 
@@ -64,7 +70,10 @@ type SnapshotTableKey =
   | 'overlays'
   | 'themes'
   | 'stages'
-  | 'collections';
+  | 'collections'
+  | 'cues'
+  | 'macros'
+  | 'triggerBindings';
 
 type SnapshotTableRecordMap = {
   libraries: Library;
@@ -79,6 +88,9 @@ type SnapshotTableRecordMap = {
   themes: Theme;
   stages: Stage;
   collections: Collection;
+  cues: Cue;
+  macros: Macro;
+  triggerBindings: TriggerBinding;
 };
 
 // ─── Utilities ──────────────────────────────────────────────────────
@@ -108,6 +120,9 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
     themes: mergeTable(snapshot.themes, patch.upserts.themes, patch.deletes.themes),
     stages: mergeTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages),
     collections: mergeTable(snapshot.collections, patch.upserts.collections, patch.deletes.collections),
+    cues: mergeTable(snapshot.cues, patch.upserts.cues, patch.deletes.cues),
+    macros: mergeTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros),
+    triggerBindings: mergeTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings),
     libraryBundles: patch.upserts.libraryBundles ?? snapshot.libraryBundles,
   };
   return next;
@@ -134,6 +149,9 @@ export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): Snapsh
   invertTable(snapshot.themes, patch.upserts.themes, patch.deletes.themes, inverse, 'themes');
   invertTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages, inverse, 'stages');
   invertTable(snapshot.collections, patch.upserts.collections, patch.deletes.collections, inverse, 'collections');
+  invertTable(snapshot.cues, patch.upserts.cues, patch.deletes.cues, inverse, 'cues');
+  invertTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros, inverse, 'macros');
+  invertTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings, inverse, 'triggerBindings');
 
   if (patch.upserts.libraryBundles) {
     inverse.upserts.libraryBundles = snapshot.libraryBundles;
@@ -243,6 +261,15 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'collections':
       inverse.upserts.collections = [...(inverse.upserts.collections ?? []), value as Collection];
       return;
+    case 'cues':
+      inverse.upserts.cues = [...(inverse.upserts.cues ?? []), value as Cue];
+      return;
+    case 'macros':
+      inverse.upserts.macros = [...(inverse.upserts.macros ?? []), value as Macro];
+      return;
+    case 'triggerBindings':
+      inverse.upserts.triggerBindings = [...(inverse.upserts.triggerBindings ?? []), value as TriggerBinding];
+      return;
   }
 }
 
@@ -283,6 +310,15 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
       return;
     case 'collections':
       inverse.deletes.collections = [...(inverse.deletes.collections ?? []), id];
+      return;
+    case 'cues':
+      inverse.deletes.cues = [...(inverse.deletes.cues ?? []), id];
+      return;
+    case 'macros':
+      inverse.deletes.macros = [...(inverse.deletes.macros ?? []), id];
+      return;
+    case 'triggerBindings':
+      inverse.deletes.triggerBindings = [...(inverse.deletes.triggerBindings ?? []), id];
       return;
   }
 }

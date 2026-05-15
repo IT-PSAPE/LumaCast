@@ -21,7 +21,7 @@ interface MacroBinPanelProps {
 
 export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBinPanelProps) {
   const { actions: { setWorkbenchMode } } = useWorkbench();
-  const { state: { macros, currentMacroId }, actions: { setCurrentMacroId, runMacro, deleteMacro, duplicateMacro, updateMacroFields, refresh } } = useAutomation();
+  const { state: { macros, currentMacroId }, actions: { setCurrentMacroId, runMacro, deleteMacro, duplicateMacro, updateMacroFields } } = useAutomation();
   const [searchValue, setSearchValue] = useState('');
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.macro-bin', 3, 2, 4);
@@ -70,7 +70,6 @@ export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBi
             onRename={(name) => { void updateMacroFields(macro.id, { name }); }}
             onMoveToCollection={async (collectionId) => {
               await collections.assignItem('macro', macro.id, collectionId);
-              await refresh();
             }}
             collectionsApi={collections}
           />

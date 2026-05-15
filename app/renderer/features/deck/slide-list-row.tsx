@@ -10,6 +10,8 @@ import { Thumbnail } from '../../components/display/thumbnail';
 import { useScrollAreaActiveItem } from '../../components/layout/scroll-area';
 import { useSlides } from '../../contexts/slide-context';
 import { SlideAutomationMenu } from '../automation/slide-automation-menu';
+import { SlideBindingsBadge } from '../automation/slide-bindings-badge';
+import { SlideBindingsMenu } from '../automation/slide-bindings-menu';
 import { Play } from 'lucide-react';
 import type { OutlineSlideRow } from './use-slide-list-view';
 import type { RenderScene } from '../canvas/scene-types';
@@ -158,6 +160,9 @@ function SlideOutlineRowBody({
             </span>
           </Thumbnail.Overlay>
         ) : null}
+        <Thumbnail.Overlay position="bottom-left" className="bottom-2 left-2">
+          <SlideBindingsBadge slideId={row.slide.id} />
+        </Thumbnail.Overlay>
       </Thumbnail.Row>
       {slideOwned && (
         <ContextMenu.Portal>
@@ -167,6 +172,7 @@ function SlideOutlineRowBody({
             <ContextMenu.Item disabled={isLast} onSelect={() => { void moveSlide(row.slide.id, 'down'); }}>Move down</ContextMenu.Item>
             <ContextMenu.Separator />
             <SlideAutomationMenu slideId={row.slide.id} />
+            <SlideBindingsMenu slideId={row.slide.id} />
             <ContextMenu.Separator />
             <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
           </ContextMenu.Menu>

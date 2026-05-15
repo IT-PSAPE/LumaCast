@@ -9,6 +9,8 @@ import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { useSlides } from '@renderer/contexts/slide-context';
 import { SlideAutomationMenu } from '../automation/slide-automation-menu';
+import { SlideBindingsBadge } from '../automation/slide-bindings-badge';
+import { SlideBindingsMenu } from '../automation/slide-bindings-menu';
 import type { RenderScene } from '../canvas/scene-types';
 
 interface SlideGridTileProps {
@@ -124,6 +126,9 @@ function SlideGridTileBody({
             </span>
           </Thumbnail.Overlay>
         ) : null}
+        <Thumbnail.Overlay position="top-right">
+          <SlideBindingsBadge slideId={slideId} />
+        </Thumbnail.Overlay>
         <Thumbnail.Caption>
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
@@ -138,6 +143,7 @@ function SlideGridTileBody({
           <ContextMenu.Item disabled={isLast} onSelect={() => { void moveSlide(slideId, 'down'); }}>Move down</ContextMenu.Item>
           <ContextMenu.Separator />
           <SlideAutomationMenu slideId={slideId} />
+          <SlideBindingsMenu slideId={slideId} />
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

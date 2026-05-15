@@ -180,6 +180,7 @@ function buildPatchSpecForItemType(itemType: CollectionItemType, itemId: Id): {
   upsertThemeIds?: Id[];
   upsertOverlayIds?: Id[];
   upsertStageIds?: Id[];
+  upsertMacroIds?: Id[];
 } {
   switch (itemType) {
     case 'presentation': return { upsertPresentationIds: [itemId] };
@@ -189,9 +190,7 @@ function buildPatchSpecForItemType(itemType: CollectionItemType, itemId: Id): {
     case 'theme': return { upsertThemeIds: [itemId] };
     case 'overlay': return { upsertOverlayIds: [itemId] };
     case 'stage': return { upsertStageIds: [itemId] };
-    // Macros live outside AppSnapshot — collection moves are picked up by
-    // the renderer's next listMacros() refresh, so the patch is empty.
-    case 'macro': return {};
+    case 'macro': return { upsertMacroIds: [itemId] };
   }
 }
 
@@ -2983,6 +2982,9 @@ export class CastRepository {
       themes: this.getThemes(),
       stages: this.getStages(),
       collections: this.getCollections(),
+      cues: this.listCues(),
+      macros: this.listMacros(),
+      triggerBindings: this.listTriggerBindings(),
     };
   }
 
@@ -3010,7 +3012,7 @@ export class CastRepository {
     }));
   }
 
-  createCue(input: CueCreateInput): Cue {
+  createCue(input: CueCreateInput): SnapshotPatch {
     const now = nowIso();
     const cueId = createId();
     this.db.prepare(
@@ -3024,10 +3026,10 @@ export class CastRepository {
       now,
       now,
     );
-    return this.getCue(cueId);
+    return this.buildPatch({ upsertCueIds: [cueId] });
   }
 
-  updateCue(input: CueUpdateInput): Cue | null {
+  updateCue(input: CueUpdateInput): SnapshotPatch {
     const existing = this.db.prepare(
       'SELECT id, kind, payload_json, failure_policy FROM cues WHERE id = ?'
     ).get(input.id) as {
@@ -3036,7 +3038,7 @@ export class CastRepository {
       payload_json: string;
       failure_policy: string;
     } | undefined;
-    if (!existing) return null;
+    if (!existing) return this.buildPatch({});
 
     const kind = input.kind ?? existing.kind as CueKind;
     const payload = input.payload ?? parseJson<CuePayload>(existing.payload_json);
@@ -3052,13 +3054,34 @@ export class CastRepository {
       nowIso(),
       input.id,
     );
-    return this.getCue(input.id);
+    // A cue's kind/payload is embedded in action_steps as a denormalized
+    // copy; macros that reference it need to refresh their rows too.
+    const affectedMacroIds = this.db.prepare(
+      'SELECT DISTINCT action_id FROM action_steps WHERE cue_id = ?'
+    ).all(input.id) as Array<{ action_id: string }>;
+    return this.buildPatch({
+      upsertCueIds: [input.id],
+      upsertMacroIds: affectedMacroIds.map((row) => row.action_id),
+    });
   }
 
-  deleteCue(id: Id): void {
+  deleteCue(id: Id): SnapshotPatch {
+    // Capture cascade victims before deleting so the patch reflects them.
+    const affectedMacroIds = (this.db.prepare(
+      'SELECT DISTINCT action_id FROM action_steps WHERE cue_id = ?'
+    ).all(id) as Array<{ action_id: string }>).map((row) => row.action_id);
+    const orphanedBindingIds = (this.db.prepare(
+      "SELECT id FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?"
+    ).all(id) as Array<{ id: string }>).map((row) => row.id);
+
     this.db.prepare('DELETE FROM cues WHERE id = ?').run(id);
     this.db.prepare('DELETE FROM action_steps WHERE cue_id = ?').run(id);
     this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?").run(id);
+    return this.buildPatch({
+      deletedCueIds: [id],
+      upsertMacroIds: affectedMacroIds,
+      deletedTriggerBindingIds: orphanedBindingIds,
+    });
   }
 
   listMacros(): Macro[] {
@@ -3086,7 +3109,7 @@ export class CastRepository {
     }));
   }
 
-  createMacro(input: MacroCreateInput): Macro {
+  createMacro(input: MacroCreateInput): SnapshotPatch {
     const now = nowIso();
     const macroId = createId();
     const name = input.name.trim() || 'Untitled macro';
@@ -3122,14 +3145,14 @@ export class CastRepository {
     });
     tx();
 
-    return this.getMacro(macroId);
+    return this.buildPatch({ upsertMacroIds: [macroId] });
   }
 
-  updateMacro(input: MacroUpdateInput): Macro | null {
+  updateMacro(input: MacroUpdateInput): SnapshotPatch {
     const existing = this.db.prepare(
       'SELECT id, name, description FROM actions WHERE id = ?'
     ).get(input.id) as { id: string; name: string; description: string } | undefined;
-    if (!existing) return null;
+    if (!existing) return this.buildPatch({});
 
     const updateMacro = this.db.prepare(
       'UPDATE actions SET name = ?, description = ?, updated_at = ? WHERE id = ?'
@@ -3170,13 +3193,21 @@ export class CastRepository {
     });
     tx();
 
-    return this.getMacro(input.id);
+    return this.buildPatch({ upsertMacroIds: [input.id] });
   }
 
-  deleteMacro(id: Id): void {
+  deleteMacro(id: Id): SnapshotPatch {
+    const orphanedBindingIds = (this.db.prepare(
+      "SELECT id FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?"
+    ).all(id) as Array<{ id: string }>).map((row) => row.id);
+
     this.db.prepare('DELETE FROM actions WHERE id = ?').run(id);
     this.db.prepare('DELETE FROM action_steps WHERE action_id = ?').run(id);
     this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?").run(id);
+    return this.buildPatch({
+      deletedMacroIds: [id],
+      deletedTriggerBindingIds: orphanedBindingIds,
+    });
   }
 
   listTriggerBindings(): TriggerBinding[] {
@@ -3209,7 +3240,7 @@ export class CastRepository {
     }));
   }
 
-  createTriggerBinding(input: TriggerBindingCreateInput): TriggerBinding {
+  createTriggerBinding(input: TriggerBindingCreateInput): SnapshotPatch {
     const now = nowIso();
     const id = createId();
     this.db.prepare(
@@ -3228,11 +3259,12 @@ export class CastRepository {
       now,
     );
 
-    return this.getTriggerBinding(id);
+    return this.buildPatch({ upsertTriggerBindingIds: [id] });
   }
 
-  deleteTriggerBinding(id: Id): void {
+  deleteTriggerBinding(id: Id): SnapshotPatch {
     this.db.prepare('DELETE FROM trigger_bindings WHERE id = ?').run(id);
+    return this.buildPatch({ deletedTriggerBindingIds: [id] });
   }
 
   /**
@@ -3244,6 +3276,10 @@ export class CastRepository {
   restoreFromSnapshot(snapshot: AppSnapshot): AppSnapshot {
     const tx = this.db.transaction(() => {
       this.db.exec(`
+        DELETE FROM trigger_bindings;
+        DELETE FROM action_steps;
+        DELETE FROM actions;
+        DELETE FROM cues;
         DELETE FROM playlist_entries;
         DELETE FROM talk_script_blocks;
         DELETE FROM slide_elements;
@@ -3502,6 +3538,72 @@ export class CastRepository {
         );
         this.createContainerSlide(stageSlideId, 'stage', stage.id, stage.width, stage.height, stage.createdAt);
         this.replaceContainerElements(stageSlideId, stage.elements, stage.updatedAt);
+      }
+
+      const insertCue = this.db.prepare(
+        `INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const cue of snapshot.cues) {
+        insertCue.run(
+          cue.id,
+          cue.kind,
+          JSON.stringify(cue.payload),
+          cue.failurePolicy,
+          cue.createdAt,
+          cue.updatedAt,
+        );
+      }
+
+      const insertMacro = this.db.prepare(
+        'INSERT INTO actions (id, name, description, collection_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      const insertMacroStep = this.db.prepare(
+        `INSERT INTO action_steps
+         (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const macro of snapshot.macros) {
+        insertMacro.run(
+          macro.id,
+          macro.name,
+          macro.description,
+          macro.collectionId,
+          macro.createdAt,
+          macro.updatedAt,
+        );
+        for (const step of macro.cues) {
+          insertMacroStep.run(
+            step.id,
+            macro.id,
+            step.cueId,
+            step.cue.kind,
+            step.orderIndex,
+            JSON.stringify(step.cue.payload),
+            step.cue.failurePolicy,
+            step.createdAt,
+            step.updatedAt,
+          );
+        }
+      }
+
+      const insertTriggerBinding = this.db.prepare(
+        `INSERT INTO trigger_bindings
+         (id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const binding of snapshot.triggerBindings) {
+        insertTriggerBinding.run(
+          binding.id,
+          binding.triggerType,
+          binding.sourceId,
+          binding.targetType,
+          binding.targetId,
+          JSON.stringify(binding.config),
+          binding.enabled ? 1 : 0,
+          binding.createdAt,
+          binding.updatedAt,
+        );
       }
     });
     tx();
@@ -5845,31 +5947,6 @@ export class CastRepository {
     };
   }
 
-  private getMacro(macroId: Id): Macro {
-    const row = this.db.prepare(
-      'SELECT id, name, description, collection_id, created_at, updated_at FROM actions WHERE id = ?'
-    ).get(macroId) as {
-      id: string;
-      name: string;
-      description: string;
-      collection_id: string;
-      created_at: string;
-      updated_at: string;
-    } | undefined;
-
-    if (!row) throw new Error(`Macro not found: ${macroId}`);
-
-    return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      collectionId: row.collection_id,
-      cues: this.getMacroCuesByMacroIds([macroId]).get(macroId) ?? [],
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  }
-
   private getMacroCuesByMacroIds(macroIds: Id[]): Map<Id, MacroCue[]> {
     const byMacroId = new Map<Id, MacroCue[]>();
     for (const macroId of macroIds) byMacroId.set(macroId, []);
@@ -5922,35 +5999,22 @@ export class CastRepository {
     return byMacroId;
   }
 
-  private getTriggerBinding(bindingId: Id): TriggerBinding {
-    const row = this.db.prepare(
-      `SELECT id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
-       FROM trigger_bindings WHERE id = ?`
-    ).get(bindingId) as {
-      id: string;
-      trigger_type: string;
-      source_id: string | null;
-      target_type: string | null;
-      target_id: string | null;
-      config_json: string;
-      enabled: number;
-      created_at: string;
-      updated_at: string;
-    } | undefined;
+  private getCuesByIds(ids: Id[]): Cue[] {
+    if (ids.length === 0) return [];
+    const wanted = new Set(ids);
+    return this.listCues().filter((cue) => wanted.has(cue.id));
+  }
 
-    if (!row) throw new Error(`Trigger binding not found: ${bindingId}`);
+  private getMacrosByIds(ids: Id[]): Macro[] {
+    if (ids.length === 0) return [];
+    const wanted = new Set(ids);
+    return this.listMacros().filter((macro) => wanted.has(macro.id));
+  }
 
-    return {
-      id: row.id,
-      triggerType: row.trigger_type as TriggerType,
-      sourceId: row.source_id,
-      targetType: (row.target_type ?? 'macro') as TriggerBindingTargetType,
-      targetId: row.target_id ?? '',
-      config: parseJson<Record<string, unknown>>(row.config_json),
-      enabled: row.enabled === 1,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
+  private getTriggerBindingsByIds(ids: Id[]): TriggerBinding[] {
+    if (ids.length === 0) return [];
+    const wanted = new Set(ids);
+    return this.listTriggerBindings().filter((binding) => wanted.has(binding.id));
   }
 
   private defaultCueName(kind: CueKind): string {
@@ -6260,6 +6324,9 @@ export class CastRepository {
     upsertThemeIds?: Id[];
     upsertStageIds?: Id[];
     upsertCollectionIds?: Id[];
+    upsertCueIds?: Id[];
+    upsertMacroIds?: Id[];
+    upsertTriggerBindingIds?: Id[];
     deletedLibraryIds?: Id[];
     deletedPresentationIds?: Id[];
     deletedLyricIds?: Id[];
@@ -6272,6 +6339,9 @@ export class CastRepository {
     deletedThemeIds?: Id[];
     deletedStageIds?: Id[];
     deletedCollectionIds?: Id[];
+    deletedCueIds?: Id[];
+    deletedMacroIds?: Id[];
+    deletedTriggerBindingIds?: Id[];
     replaceLibraryBundles?: boolean;
   }): SnapshotPatch {
     const patch: SnapshotPatch = {
@@ -6315,6 +6385,15 @@ export class CastRepository {
     if (spec.upsertCollectionIds && spec.upsertCollectionIds.length > 0) {
       patch.upserts.collections = this.getCollectionsByIds(spec.upsertCollectionIds);
     }
+    if (spec.upsertCueIds && spec.upsertCueIds.length > 0) {
+      patch.upserts.cues = this.getCuesByIds(spec.upsertCueIds);
+    }
+    if (spec.upsertMacroIds && spec.upsertMacroIds.length > 0) {
+      patch.upserts.macros = this.getMacrosByIds(spec.upsertMacroIds);
+    }
+    if (spec.upsertTriggerBindingIds && spec.upsertTriggerBindingIds.length > 0) {
+      patch.upserts.triggerBindings = this.getTriggerBindingsByIds(spec.upsertTriggerBindingIds);
+    }
     if (spec.deletedLibraryIds && spec.deletedLibraryIds.length > 0) {
       patch.deletes.libraries = [...spec.deletedLibraryIds];
     }
@@ -6350,6 +6429,15 @@ export class CastRepository {
     }
     if (spec.deletedCollectionIds && spec.deletedCollectionIds.length > 0) {
       patch.deletes.collections = [...spec.deletedCollectionIds];
+    }
+    if (spec.deletedCueIds && spec.deletedCueIds.length > 0) {
+      patch.deletes.cues = [...spec.deletedCueIds];
+    }
+    if (spec.deletedMacroIds && spec.deletedMacroIds.length > 0) {
+      patch.deletes.macros = [...spec.deletedMacroIds];
+    }
+    if (spec.deletedTriggerBindingIds && spec.deletedTriggerBindingIds.length > 0) {
+      patch.deletes.triggerBindings = [...spec.deletedTriggerBindingIds];
     }
     if (spec.replaceLibraryBundles) {
       patch.upserts.libraryBundles = this.buildLibraryBundles();

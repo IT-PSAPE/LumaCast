@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import { APP_MENU_EVENTS, IPC, NDI_EVENTS } from '@core/ipc';
+import type { SnapshotPatch } from '@core/snapshot-patch';
 import type {
   AppSnapshot,
   Cue,
@@ -68,16 +69,16 @@ const api = {
   finalizeImportBundle: (filePath: string, decisions: DeckBundleBrokenReferenceDecision[]) =>
     ipcRenderer.invoke(IPC.finalizeImportBundle, filePath, decisions) as Promise<AppSnapshot>,
   listCues: () => ipcRenderer.invoke(IPC.listCues) as Promise<Cue[]>,
-  createCue: (input: CueCreateInput) => ipcRenderer.invoke(IPC.createCue, input) as Promise<Cue>,
-  updateCue: (input: CueUpdateInput) => ipcRenderer.invoke(IPC.updateCue, input) as Promise<Cue | null>,
-  deleteCue: (id: Id) => ipcRenderer.invoke(IPC.deleteCue, id) as Promise<void>,
+  createCue: (input: CueCreateInput) => ipcRenderer.invoke(IPC.createCue, input) as Promise<SnapshotPatch>,
+  updateCue: (input: CueUpdateInput) => ipcRenderer.invoke(IPC.updateCue, input) as Promise<SnapshotPatch>,
+  deleteCue: (id: Id) => ipcRenderer.invoke(IPC.deleteCue, id) as Promise<SnapshotPatch>,
   listMacros: () => ipcRenderer.invoke(IPC.listMacros) as Promise<Macro[]>,
-  createMacro: (input: MacroCreateInput) => ipcRenderer.invoke(IPC.createMacro, input) as Promise<Macro>,
-  updateMacro: (input: MacroUpdateInput) => ipcRenderer.invoke(IPC.updateMacro, input) as Promise<Macro | null>,
-  deleteMacro: (id: Id) => ipcRenderer.invoke(IPC.deleteMacro, id) as Promise<void>,
+  createMacro: (input: MacroCreateInput) => ipcRenderer.invoke(IPC.createMacro, input) as Promise<SnapshotPatch>,
+  updateMacro: (input: MacroUpdateInput) => ipcRenderer.invoke(IPC.updateMacro, input) as Promise<SnapshotPatch>,
+  deleteMacro: (id: Id) => ipcRenderer.invoke(IPC.deleteMacro, id) as Promise<SnapshotPatch>,
   listTriggerBindings: () => ipcRenderer.invoke(IPC.listTriggerBindings) as Promise<TriggerBinding[]>,
-  createTriggerBinding: (input: TriggerBindingCreateInput) => ipcRenderer.invoke(IPC.createTriggerBinding, input) as Promise<TriggerBinding>,
-  deleteTriggerBinding: (id: Id) => ipcRenderer.invoke(IPC.deleteTriggerBinding, id) as Promise<void>,
+  createTriggerBinding: (input: TriggerBindingCreateInput) => ipcRenderer.invoke(IPC.createTriggerBinding, input) as Promise<SnapshotPatch>,
+  deleteTriggerBinding: (id: Id) => ipcRenderer.invoke(IPC.deleteTriggerBinding, id) as Promise<SnapshotPatch>,
   createLibrary: (name: string) => ipcRenderer.invoke(IPC.createLibrary, name),
   createPlaylist: (libraryId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylist, libraryId, name),
   createPlaylistGroup: (playlistId: Id, name: string) => ipcRenderer.invoke(IPC.createPlaylistGroup, playlistId, name),

@@ -640,6 +640,9 @@ export interface AppSnapshot {
   themes: Theme[];
   stages: Stage[];
   collections: Collection[];
+  cues: Cue[];
+  macros: Macro[];
+  triggerBindings: TriggerBinding[];
 }
 
 export interface PlaybackState {
