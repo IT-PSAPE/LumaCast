@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { Group, Image as KonvaImage, Line, Rect } from 'react-konva';
+import { LAYER_VIDEO_NODE_ID } from '@core/presentation-layers';
 import type { VideoElementPayload } from '@core/types';
 import type { RenderNode, ResolvedMediaState, SceneSurface } from './scene-types';
 import { resolveMediaCover } from './resolve-media-cover';
@@ -107,12 +108,13 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   const videoPayload = node.element.type === 'video' ? node.element.payload as VideoElementPayload : null;
   const videoOptions = resolveVideoOptions(videoPayload, surface);
   const imageState = useKImage(imageSrc);
+  const isLayerVideoNode = node.element.id === LAYER_VIDEO_NODE_ID;
   const videoState = useKVideo(videoPayload?.src ?? null, {
     autoplay: videoOptions.autoplay,
     loop: videoOptions.loop,
     muted: videoOptions.muted,
     playbackRate: videoOptions.playbackRate,
-  });
+  }, isLayerVideoNode);
   const requestKey = getMediaRequestKey(node);
   const resolvedState = node.element.type === 'image' ? imageState : videoState;
   const loadedMedia = useMemo<LoadedMedia | null>(() => {

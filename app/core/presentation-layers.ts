@@ -3,6 +3,12 @@ import type { MediaAsset, Overlay, Slide, SlideElement } from './types';
 export const OUTPUT_FRAME_WIDTH = 1920;
 export const OUTPUT_FRAME_HEIGHT = 1080;
 
+// Sentinel element id for the dedicated video-layer node. Rendering treats
+// this node as "owned by the playback transport" and reads from the layer
+// registry instead of creating its own <video> element.
+export const LAYER_VIDEO_NODE_ID = '__layer_video';
+export const LAYER_MEDIA_NODE_ID = '__layer_media';
+
 export const LAYER_PREVIEW_SLIDE: Slide = {
   id: '__layer_preview__',
   presentationId: null,
@@ -32,7 +38,7 @@ interface PlaybackLayerElementOptions {
 }
 
 export function mediaAssetToLayerElement(asset: MediaAsset, options: PlaybackLayerElementOptions = {}): SlideElement {
-  const { id = '__layer_media', zIndex = 0, videoPlayback } = options;
+  const { id = LAYER_MEDIA_NODE_ID, zIndex = 0, videoPlayback } = options;
 
   if (asset.type === 'audio') {
     return {

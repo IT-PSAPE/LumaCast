@@ -8,128 +8,109 @@ interface UseKVideoOptions {
   playbackRate: number;
 }
 
-interface VideoPoolEntry {
-  key: string;
+// Video transport is split in two:
+//
+//  1. The dedicated video layer — exactly one HTMLVideoElement per `src`,
+//     owned by `retainVideoSource` and looked up via `getLayerVideoElement`.
+//     The playback context drives this element (play/pause/seek/mute via the
+//     transport UI) and keeps it alive across surface unmounts so audio does
+//     not stop when leaving Show.
+//
+//  2. Every other rendered video — slides, overlays, stages, editor canvases,
+//     bin thumbnails — gets its own per-instance HTMLVideoElement via
+//     `useKVideo`. No state is shared across instances, so a muted slide can
+//     never have its audio leaked by another consumer of the same `src`, and
+//     a preview never inherits transport state from the live layer.
+
+interface LayerEntry {
+  src: string;
+  video: HTMLVideoElement;
   status: 'loading' | 'broken' | 'loaded';
   refCount: number;
-  video: HTMLVideoElement;
-  listeners: Set<() => void>;
-  consumers: Map<symbol, UseKVideoOptions>;
+  options: UseKVideoOptions;
   cleanup: () => void;
 }
 
-const videoPool = new Map<string, VideoPoolEntry>();
-const videoPoolListeners = new Set<() => void>();
+const layerRegistry = new Map<string, LayerEntry>();
+const layerListeners = new Set<() => void>();
 
-// Pool identity is `src` alone. All per-surface playback state (autoplay,
-// loop, muted, playbackRate) is layered on top via consumer aggregation, so
-// toggling any of those does not swap the underlying <video> element and
-// never loses currentTime.
-function getVideoPoolKey(src: string): string {
-  return src;
+function notifyLayerListeners() {
+  layerListeners.forEach((listener) => { listener(); });
 }
 
-function notifyVideoPoolListeners() {
-  videoPoolListeners.forEach((listener) => listener());
-}
-
-// Subscribes to pool membership changes (entries added/removed/loaded). Lets
-// outside controllers watch for the layer-video element to come online.
+// Notifies when a layer-registry entry is created, loaded, broken, or
+// destroyed. Used by the playback context to (re-)resolve the layer element
+// via `getLayerVideoElement`.
 export function subscribeToVideoPool(listener: () => void): () => void {
-  videoPoolListeners.add(listener);
-  return () => { videoPoolListeners.delete(listener); };
+  layerListeners.add(listener);
+  return () => { layerListeners.delete(listener); };
 }
 
-// Looks up the loaded HTMLVideoElement for `src` regardless of playback flags.
 export function getLayerVideoElement(src: string | null): HTMLVideoElement | null {
   if (!src) return null;
-  const entry = videoPool.get(getVideoPoolKey(src));
+  const entry = layerRegistry.get(src);
   if (!entry || entry.status !== 'loaded') return null;
   return entry.video;
 }
 
-export function retainVideoSource(src: string, options: UseKVideoOptions): () => void {
-  const consumerId = Symbol(src);
-  const entry = acquireVideoEntry(src, options, consumerId);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    releaseVideoEntry(entry, consumerId);
-  };
-}
-
-function toResolvedMediaState(entry: VideoPoolEntry): ResolvedMediaState {
-  if (entry.status === 'loaded') {
-    return { status: 'loaded', resource: entry.video };
-  }
-
-  return { status: entry.status };
-}
-
-function notifyListeners(entry: VideoPoolEntry) {
-  entry.listeners.forEach((listener) => {
-    listener();
-  });
-}
-
-function syncVideoEntryState(entry: VideoPoolEntry) {
-  const consumers = Array.from(entry.consumers.values());
-  const autoplay = consumers.some((consumer) => consumer.autoplay);
-  const muted = consumers.every((consumer) => consumer.muted);
-  const loop = consumers.some((consumer) => consumer.loop);
-  const playbackRate = consumers[0]?.playbackRate ?? 1;
-
-  entry.video.autoplay = autoplay;
-  entry.video.loop = loop;
-  entry.video.muted = muted;
-  entry.video.playbackRate = playbackRate;
-
-  if (entry.status !== 'loaded') return;
-  if (autoplay) {
-    void entry.video.play().catch(() => undefined);
-    return;
-  }
-  if (!entry.video.paused) {
-    entry.video.pause();
-  }
-}
-
-function createVideoPoolEntry(src: string, { autoplay, loop, muted, playbackRate }: UseKVideoOptions): VideoPoolEntry {
+function createVideoElement(src: string, options: UseKVideoOptions): HTMLVideoElement {
   const video = document.createElement('video');
   video.src = src;
-  video.autoplay = autoplay;
-  video.loop = loop;
-  video.muted = muted;
-  video.playbackRate = playbackRate;
+  video.autoplay = options.autoplay;
+  video.loop = options.loop;
+  video.muted = options.muted;
+  video.playbackRate = options.playbackRate;
   video.playsInline = true;
   video.crossOrigin = 'anonymous';
   video.preload = 'metadata';
+  return video;
+}
 
-  const entry: VideoPoolEntry = {
-    key: getVideoPoolKey(src),
+function destroyVideoElement(video: HTMLVideoElement) {
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+}
+
+function applyVideoOptions(video: HTMLVideoElement, options: UseKVideoOptions) {
+  video.loop = options.loop;
+  if (video.muted !== options.muted) video.muted = options.muted;
+  if (video.playbackRate !== options.playbackRate) video.playbackRate = options.playbackRate;
+  if (options.autoplay) {
+    if (video.paused) void video.play().catch(() => undefined);
+    return;
+  }
+  if (!video.paused) video.pause();
+}
+
+export interface VideoLayerHandle {
+  release(): void;
+  setOptions(options: UseKVideoOptions): void;
+}
+
+function makeLayerEntry(src: string, options: UseKVideoOptions): LayerEntry {
+  const video = createVideoElement(src, options);
+  const entry: LayerEntry = {
+    src,
+    video,
     status: 'loading',
     refCount: 0,
-    video,
-    listeners: new Set(),
-    consumers: new Map(),
+    options,
     cleanup: () => undefined,
   };
 
   const handleReady = () => {
+    if (entry.status === 'loaded') return;
     entry.status = 'loaded';
-    notifyListeners(entry);
-    notifyVideoPoolListeners();
-    if (autoplay) {
+    notifyLayerListeners();
+    if (entry.options.autoplay) {
       void video.play().catch(() => undefined);
     }
   };
-
   const handleError = () => {
     if (entry.status === 'loaded') return;
     entry.status = 'broken';
-    notifyListeners(entry);
-    notifyVideoPoolListeners();
+    notifyLayerListeners();
   };
 
   video.addEventListener('loadeddata', handleReady);
@@ -137,106 +118,122 @@ function createVideoPoolEntry(src: string, { autoplay, loop, muted, playbackRate
   entry.cleanup = () => {
     video.removeEventListener('loadeddata', handleReady);
     video.removeEventListener('error', handleError);
-    video.pause();
-    video.removeAttribute('src');
-    video.load();
+    destroyVideoElement(video);
   };
 
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    handleReady();
+    entry.status = 'loaded';
   } else {
     video.load();
   }
-
   return entry;
 }
 
-function acquireVideoEntry(src: string, options: UseKVideoOptions, consumerId: symbol): VideoPoolEntry {
-  const key = getVideoPoolKey(src);
-  let entry = videoPool.get(key);
+export function retainVideoSource(src: string, initialOptions: UseKVideoOptions): VideoLayerHandle {
+  let entry = layerRegistry.get(src);
   const created = !entry;
   if (!entry) {
-    entry = createVideoPoolEntry(src, options);
-    videoPool.set(key, entry);
+    entry = makeLayerEntry(src, initialOptions);
+    layerRegistry.set(src, entry);
   }
+  const e = entry;
+  e.refCount += 1;
+  e.options = initialOptions;
+  applyVideoOptions(e.video, initialOptions);
+  if (created) notifyLayerListeners();
 
-  entry.consumers.set(consumerId, options);
-  entry.refCount += 1;
-  syncVideoEntryState(entry);
-  if (created) notifyVideoPoolListeners();
-  return entry;
+  let released = false;
+  return {
+    release() {
+      if (released) return;
+      released = true;
+      e.refCount -= 1;
+      if (e.refCount > 0) return;
+      layerRegistry.delete(e.src);
+      e.cleanup();
+      notifyLayerListeners();
+    },
+    setOptions(next: UseKVideoOptions) {
+      if (released) return;
+      e.options = next;
+      applyVideoOptions(e.video, next);
+    },
+  };
 }
 
-function updateVideoEntryConsumer(entry: VideoPoolEntry, consumerId: symbol, options: UseKVideoOptions) {
-  if (!entry.consumers.has(consumerId)) return;
-  entry.consumers.set(consumerId, options);
-  syncVideoEntryState(entry);
-}
-
-function releaseVideoEntry(entry: VideoPoolEntry, consumerId: symbol) {
-  entry.consumers.delete(consumerId);
-  entry.refCount -= 1;
-  if (entry.refCount > 0) {
-    syncVideoEntryState(entry);
-    return;
-  }
-
-  videoPool.delete(entry.key);
-  entry.cleanup();
-  notifyVideoPoolListeners();
-}
-
-export function useKVideo(src: string | null, { autoplay, loop, muted, playbackRate }: UseKVideoOptions): ResolvedMediaState {
+// `layerOwned` opts the hook into reading the dedicated layer element from
+// the registry instead of creating its own. SceneNodeMedia sets this when the
+// node is the sentinel layer-video node so all live surfaces (show, NDI,
+// stage) render frames from the same playback-transport-owned element.
+export function useKVideo(
+  src: string | null,
+  { autoplay, loop, muted, playbackRate }: UseKVideoOptions,
+  layerOwned: boolean = false,
+): ResolvedMediaState {
   const [state, setState] = useState<ResolvedMediaState>({ status: 'empty' });
-  const activeEntryRef = useRef<VideoPoolEntry | null>(null);
-  const consumerIdRef = useRef(Symbol('use-k-video'));
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const optionsRef = useRef<UseKVideoOptions>({ autoplay, loop, muted, playbackRate });
   optionsRef.current = { autoplay, loop, muted, playbackRate };
 
   useEffect(() => {
     if (!src) {
-      const currentEntry = activeEntryRef.current;
-      if (currentEntry) {
-        releaseVideoEntry(currentEntry, consumerIdRef.current);
-      }
-      activeEntryRef.current = null;
+      videoRef.current = null;
       setState({ status: 'empty' });
       return;
     }
 
-    const entry = acquireVideoEntry(src, optionsRef.current, consumerIdRef.current);
-    activeEntryRef.current = entry;
-    setState(toResolvedMediaState(entry));
+    if (layerOwned) {
+      const refresh = () => {
+        const entry = layerRegistry.get(src);
+        if (!entry) {
+          setState({ status: 'loading' });
+          return;
+        }
+        if (entry.status === 'loaded') {
+          setState({ status: 'loaded', resource: entry.video });
+          return;
+        }
+        setState({ status: entry.status });
+      };
+      refresh();
+      layerListeners.add(refresh);
+      return () => { layerListeners.delete(refresh); };
+    }
 
-    const handleChange = () => {
-      setState(toResolvedMediaState(entry));
+    const video = createVideoElement(src, optionsRef.current);
+    videoRef.current = video;
+    setState({ status: 'loading' });
+
+    const handleReady = () => {
+      setState({ status: 'loaded', resource: video });
+      applyVideoOptions(video, optionsRef.current);
+    };
+    const handleError = () => {
+      setState({ status: 'broken' });
     };
 
-    entry.listeners.add(handleChange);
+    video.addEventListener('loadeddata', handleReady);
+    video.addEventListener('error', handleError);
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      handleReady();
+    } else {
+      video.load();
+    }
 
     return () => {
-      entry.listeners.delete(handleChange);
-      if (activeEntryRef.current === entry) {
-        activeEntryRef.current = null;
-      }
-      releaseVideoEntry(entry, consumerIdRef.current);
+      video.removeEventListener('loadeddata', handleReady);
+      video.removeEventListener('error', handleError);
+      destroyVideoElement(video);
+      videoRef.current = null;
     };
-  }, [src]);
+  }, [src, layerOwned]);
 
   useEffect(() => {
-    const entry = activeEntryRef.current;
-    if (!entry) return;
-    updateVideoEntryConsumer(entry, consumerIdRef.current, { autoplay, loop, muted, playbackRate });
-  }, [autoplay, loop, muted, playbackRate]);
-
-  useEffect(() => {
-    return () => {
-      const currentEntry = activeEntryRef.current;
-      if (!currentEntry) return;
-      releaseVideoEntry(currentEntry, consumerIdRef.current);
-      activeEntryRef.current = null;
-    };
-  }, []);
+    if (layerOwned) return;
+    const video = videoRef.current;
+    if (!video) return;
+    applyVideoOptions(video, { autoplay, loop, muted, playbackRate });
+  }, [layerOwned, autoplay, loop, muted, playbackRate]);
 
   return state;
 }
