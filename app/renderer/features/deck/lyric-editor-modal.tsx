@@ -77,11 +77,7 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
                 </div>
               </Dialog.Header>
               <Dialog.Body className="h-full overflow-auto bg-primary/95 px-0 py-0">
-                <div className="min-h-80 px-6 py-5">
-                  <div className="mx-auto flex max-w-3xl justify-center">
-                    <DocEditor key={editorEpoch} initialBlocks={editorBlocks} onChange={handleChange} />
-                  </div>
-                </div>
+                <DocEditor key={editorEpoch} initialBlocks={editorBlocks} onChange={handleChange} />
               </Dialog.Body>
               <Dialog.Footer>
                 <ReacstButton variant="default" onClick={handlePreview} disabled={isSaving}>Preview</ReacstButton>

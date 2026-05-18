@@ -8,6 +8,7 @@ export type SortableBlockProps = {
     index: number
     block: Block
     isSelected: boolean
+    rowRef: (el: HTMLDivElement | null) => void
     contentRef: (el: HTMLTextAreaElement | null) => void
     onUpdate: (content: string) => void
     onSplit: (before: string, after: string) => void
@@ -22,7 +23,7 @@ function resizeTextarea(element: HTMLTextAreaElement) {
     element.style.height = `${element.scrollHeight}px`
 }
 
-export function SortableBlock({ index, block, isSelected, contentRef, onUpdate, onSplit, onDelete, onMergeWithPrev, onPaste, onTextareaFocus }: SortableBlockProps) {
+export function SortableBlock({ index, block, isSelected, rowRef, contentRef, onUpdate, onSplit, onDelete, onMergeWithPrev, onPaste, onTextareaFocus }: SortableBlockProps) {
     const textareaRef = useRef<HTMLTextAreaElement | null>(null)
     const setContentRef = useCallback(
         (el: HTMLTextAreaElement | null) => {
@@ -85,11 +86,17 @@ export function SortableBlock({ index, block, isSelected, contentRef, onUpdate, 
     }
 
     return (
-        <div className='flex w-full items-start gap-2'>
+        <div
+            ref={rowRef}
+            className={cn(
+                'flex w-full items-start gap-2 rounded-md px-1 transition-colors',
+                isSelected && 'bg-brand_solid/15',
+            )}
+        >
             <span className='w-3 pt-1 text-quaternary'>
                 <Label.xs className="sm">{index + 1}</Label.xs>
             </span>
-            <div className={cn('flex-1 group relative flex items-start rounded-md px-1 py-0.5 pt-1.25', 'hover:bg-tertiary', isSelected && '!bg-brand_solid/10')}>
+            <div className={cn('flex-1 group relative flex items-start rounded-md px-1 py-0.5 pt-1.25', !isSelected && 'hover:bg-tertiary')}>
                 <textarea
                     ref={setContentRef}
                     value={block.content}

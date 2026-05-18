@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import { cn } from '@renderer/utils/cn'
 import { SortableBlock } from './doc-sortable-block'
 
 const uid = () => Math.random().toString(36).slice(2, 9)
@@ -8,18 +9,26 @@ export type Block = { id: string; content: string }
 type DocEditorProps = {
     initialBlocks?: Block[]
     onChange?: (blocks: Block[]) => void
+    // Lets the caller size the editor's drag canvas (height/padding). The
+    // editor always fills its width so the marquee can be triggered from the
+    // empty margins, Notion-style; this only tunes the outer surface.
+    className?: string
 }
 
-export default function DocEditor({ initialBlocks, onChange }: DocEditorProps) {
+export default function DocEditor({ initialBlocks, onChange, className }: DocEditorProps) {
     const [blocks, setBlocks] = useState<Block[]>(
         () => initialBlocks ?? [{ id: uid(), content: '' }],
     )
     const [selectedBlockIds, setSelectedBlockIds] = useState<Set<string>>(() => new Set())
 
+    const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+
     const contentRefs = useRef<Record<string, HTMLTextAreaElement | null>>({})
+    const rowRefs = useRef<Record<string, HTMLDivElement | null>>({})
     const blocksRef = useRef(blocks)
     const selectedRef = useRef(selectedBlockIds)
     const rootRef = useRef<HTMLDivElement | null>(null)
+    const dragRef = useRef<{ startX: number; startY: number; active: boolean } | null>(null)
     useEffect(() => { blocksRef.current = blocks }, [blocks])
     useEffect(() => { selectedRef.current = selectedBlockIds }, [selectedBlockIds])
 
@@ -209,6 +218,80 @@ export default function DocEditor({ initialBlocks, onChange }: DocEditorProps) {
         clearSelection()
     }, [clearSelection])
 
+    // ── Marquee (rubber-band) selection ─────────────────────────────
+    // A drag started anywhere in the editor draws a selection rectangle and
+    // selects every block it crosses. Native text selection is suppressed
+    // while the marquee is active. A plain click (no drag past the threshold)
+    // is left untouched so the textarea still focuses normally.
+
+    const DRAG_THRESHOLD = 4
+
+    const selectBlocksInRect = useCallback((top: number, bottom: number) => {
+        const ids = new Set<string>()
+        for (const block of blocksRef.current) {
+            const row = rowRefs.current[block.id]
+            if (!row) continue
+            const r = row.getBoundingClientRect()
+            if (r.bottom >= top && r.top <= bottom) ids.add(block.id)
+        }
+        setSelectedBlockIds(prev => {
+            if (prev.size === ids.size && [...ids].every(id => prev.has(id))) return prev
+            return ids
+        })
+    }, [])
+
+    const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.button !== 0) return
+        dragRef.current = { startX: event.clientX, startY: event.clientY, active: false }
+
+        const onMove = (e: PointerEvent) => {
+            const drag = dragRef.current
+            if (!drag) return
+            if (!drag.active) {
+                const moved = Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY)
+                if (moved < DRAG_THRESHOLD) return
+                drag.active = true
+                // Drop any caret/text selection and the focused textarea so the
+                // root keyboard handlers (delete / move / escape) take over.
+                window.getSelection()?.removeAllRanges()
+                if (document.activeElement instanceof HTMLTextAreaElement) {
+                    document.activeElement.blur()
+                }
+            }
+            e.preventDefault()
+            window.getSelection()?.removeAllRanges()
+            const left = Math.min(drag.startX, e.clientX)
+            const right = Math.max(drag.startX, e.clientX)
+            const top = Math.min(drag.startY, e.clientY)
+            const bottom = Math.max(drag.startY, e.clientY)
+            const rootRect = rootRef.current?.getBoundingClientRect()
+            if (rootRect) {
+                setMarquee({
+                    left: left - rootRect.left,
+                    top: top - rootRect.top,
+                    width: right - left,
+                    height: bottom - top,
+                })
+            }
+            selectBlocksInRect(top, bottom)
+        }
+
+        const onUp = () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup', onUp)
+            const drag = dragRef.current
+            dragRef.current = null
+            setMarquee(null)
+            // A click with no drag on empty space clears the selection.
+            if (drag && !drag.active && !(event.target instanceof HTMLTextAreaElement)) {
+                clearSelection()
+            }
+        }
+
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+    }, [clearSelection, selectBlocksInRect])
+
     // ── Render ──────────────────────────────────────────────────────
 
     return (
@@ -216,15 +299,21 @@ export default function DocEditor({ initialBlocks, onChange }: DocEditorProps) {
             ref={rootRef}
             tabIndex={-1}
             onKeyDown={handleRootKeyDown}
-            className="w-full max-w-[680px] outline-none"
+            onPointerDown={handlePointerDown}
+            className={cn(
+                'relative min-h-full w-full px-6 py-5 outline-none',
+                marquee && 'select-none',
+                className,
+            )}
         >
-            <div className="space-y-0.5">
+            <div className="mx-auto w-full max-w-[680px] space-y-0.5">
                 {blocks.map((block, index) => (
                     <SortableBlock
                         index={index}
                         key={block.id}
                         block={block}
                         isSelected={selectedBlockIds.has(block.id)}
+                        rowRef={el => { rowRefs.current[block.id] = el }}
                         contentRef={el => { contentRefs.current[block.id] = el }}
                         onUpdate={content => updateBlock(block.id, content)}
                         onSplit={(before, after) => splitBlock(block.id, before, after)}
@@ -235,6 +324,17 @@ export default function DocEditor({ initialBlocks, onChange }: DocEditorProps) {
                     />
                 ))}
             </div>
+            {marquee && (
+                <div
+                    className="pointer-events-none absolute z-10 rounded-sm border border-brand_solid bg-brand_solid/10"
+                    style={{
+                        left: marquee.left,
+                        top: marquee.top,
+                        width: marquee.width,
+                        height: marquee.height,
+                    }}
+                />
+            )}
         </div>
     )
 }
