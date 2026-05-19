@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SlideElement, TextElementPayload } from '@core/types';
 import { measureInlineTextHeight, resolveInlineTextAlign } from './inline-text-editor-utils';
-import { textLineBleedPadding, textOverflowOffset } from './text-layout';
+import { resolveKonvaTextStyle } from './resolve-konva-text-style';
+import { computeAutoFitFontSize, textLineBleedPadding, textOverflowOffset } from './text-layout';
 
 interface InlineTextEditorProps {
   editingTextId: string;
@@ -54,8 +55,19 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
 
   if (!element || !payload) return null;
 
-  const fontSize = payload.fontSize * sceneScale;
   const lineHeight = payload.lineHeight ?? 1.25;
+  const baseFontSize = payload.autoFit
+    ? computeAutoFitFontSize({
+        text: draft,
+        width: element.width,
+        height: element.height,
+        fontFamily: payload.fontFamily || 'sans-serif',
+        fontStyle: resolveKonvaTextStyle(payload.weight, payload.italic),
+        lineHeight,
+        maxFontSize: payload.autoFitMaxFontSize ?? payload.fontSize,
+      })
+    : payload.fontSize;
+  const fontSize = baseFontSize * sceneScale;
   const bleedPadding = textLineBleedPadding(fontSize, lineHeight);
   const elementHeight = element.height * sceneScale;
   const left = sceneOffsetX + element.x * sceneScale;

@@ -5,6 +5,7 @@ import { Tabs } from '@renderer/components/display/tabs';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { DeckItemInspector } from '@renderer/features/inspector/presentation-inspector';
+import { SlideBackgroundInspector } from '@renderer/features/inspector/slide-background-inspector';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
 import { TextElementInspector } from '@renderer/features/inspector/text-element-inspector';
 import { VideoElementInspector } from '@renderer/features/inspector/video-element-inspector';
@@ -48,20 +49,25 @@ export function DeckEditorInspectorPanel() {
     <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
       <Tabs.Root value={inspectorTab} onValueChange={handleTabChange}>
         <section className="flex flex-1 flex-col">
-          <div className="border-b border-primary">
-            <Tabs.List label="Inspector">
-              {!hasSelection && <Tabs.Trigger value="presentation">Item</Tabs.Trigger>}
-              {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
-              {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
-              {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
-            </Tabs.List>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {inspectorTab === 'presentation' && <DeckItemInspector />}
-            {inspectorTab === 'shape' && <ShapeElementInspector />}
-            {inspectorTab === 'text' && <TextElementInspector />}
-            {inspectorTab === 'video' && <VideoElementInspector />}
-          </div>
+          <Tabs.List label="Inspector" className="border-b border-primary">
+            {!hasSelection && <Tabs.Trigger value="presentation">Item</Tabs.Trigger>}
+            {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
+            {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
+            {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
+          </Tabs.List>
+          <Tabs.Panel value="presentation">
+            <DeckItemInspector />
+            <SlideBackgroundInspector />
+          </Tabs.Panel>
+          <Tabs.Panel value="shape">
+            <ShapeElementInspector />
+          </Tabs.Panel>
+          <Tabs.Panel value="text">
+            <TextElementInspector />
+          </Tabs.Panel>
+          <Tabs.Panel value="video">
+            <VideoElementInspector />
+          </Tabs.Panel>
         </section>
       </Tabs.Root>
       {state.hasPendingChanges && (

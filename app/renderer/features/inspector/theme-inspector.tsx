@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
+import { useProjectContent } from '../../contexts/use-project-content';
+import { EntityBackgroundInspector } from './entity-background-inspector';
 import { Section } from './inspector-section';
 
 export function ThemeInspector() {
   const { setStatusText } = useCast();
   const { currentTheme, renameTheme, nameFocusRequest } = useThemeEditor();
+  const { themesById } = useProjectContent();
   const [nameDraft, setNameDraft] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,21 +44,21 @@ export function ThemeInspector() {
   }
 
   return (
-    <Section.Root>
-      <Section.Header>
-        <span>Theme</span>
-      </Section.Header>
-      <Section.Body>
-        <FieldInput
-          type="text"
-          value={nameDraft}
-          onChange={handleNameChange}
-          onBlur={handleNameBlur}
-          label="Name"
-          wide
-          inputRef={nameInputRef}
-        />
-      </Section.Body>
-    </Section.Root>
+    <>
+      <Section.Root>
+        <Section.Body>
+          <FieldInput
+            type="text"
+            value={nameDraft}
+            onChange={handleNameChange}
+            onBlur={handleNameBlur}
+            label="Name"
+            wide
+            inputRef={nameInputRef}
+          />
+        </Section.Body>
+      </Section.Root>
+      <EntityBackgroundInspector ownerId={currentTheme.id} background={themesById.get(currentTheme.id)?.background ?? null} />
+    </>
   );
 }

@@ -41,9 +41,15 @@ function buildFontDeclaration(fontStyle: string, fontSize: number, fontFamily: s
   return `${fontStyle} ${fontSize}px ${fontFamily}`;
 }
 
-function countWrappedLines(text: string, width: number, context: CanvasRenderingContext2D): number {
+interface WrapMetrics {
+  lineCount: number;
+  maxLineWidth: number;
+}
+
+function measureWrappedText(text: string, width: number, context: CanvasRenderingContext2D): WrapMetrics {
   const paragraphs = text.split('\n');
   let lineCount = 0;
+  let maxLineWidth = 0;
 
   for (const paragraph of paragraphs) {
     if (!paragraph.trim()) {
@@ -62,15 +68,58 @@ function countWrappedLines(text: string, width: number, context: CanvasRendering
       }
 
       lineCount += 1;
+      maxLineWidth = Math.max(maxLineWidth, context.measureText(currentLine).width);
       currentLine = word;
     }
 
     if (currentLine) {
       lineCount += 1;
+      maxLineWidth = Math.max(maxLineWidth, context.measureText(currentLine).width);
     }
   }
 
-  return Math.max(1, lineCount);
+  return { lineCount: Math.max(1, lineCount), maxLineWidth };
+}
+
+function countWrappedLines(text: string, width: number, context: CanvasRenderingContext2D): number {
+  return measureWrappedText(text, width, context).lineCount;
+}
+
+interface AutoFitInput {
+  text: string;
+  width: number;
+  height: number;
+  fontFamily: string;
+  fontStyle: string;
+  lineHeight: number;
+  maxFontSize: number;
+}
+
+// Largest font size (capped at maxFontSize) at which the wrapped text fits
+// entirely within the box's width and height. Short text stays at the cap;
+// long text shrinks until every line fits.
+export function computeAutoFitFontSize({ text, width, height, fontFamily, fontStyle, lineHeight, maxFontSize }: AutoFitInput): number {
+  const cap = Math.max(1, maxFontSize);
+  const context = getMeasurementContext();
+  if (!context || width <= 0 || height <= 0 || !text.trim()) return cap;
+
+  const fits = (fontSize: number): boolean => {
+    context.font = buildFontDeclaration(fontStyle, fontSize, fontFamily);
+    const { lineCount, maxLineWidth } = measureWrappedText(text, Math.max(1, width), context);
+    if (maxLineWidth > width) return false;
+    return measureTextLineLayoutHeight(lineCount, fontSize, lineHeight) <= height;
+  };
+
+  if (fits(cap)) return cap;
+
+  let lo = 1;
+  let hi = cap;
+  for (let i = 0; i < 20; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  return Math.max(1, Math.floor(lo * 100) / 100);
 }
 
 export function measureTextBlockHeight({ text, width, fontFamily, fontSize, fontStyle, lineHeight }: MeasureTextBlockInput): number {

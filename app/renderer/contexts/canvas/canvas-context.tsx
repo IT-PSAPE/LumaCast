@@ -209,6 +209,31 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     if (selection.primarySelectedElementId === id) inspector.setElementPayloadDraft(nextPayload);
   }, [effectiveElements, inspector, saveElementUpdate, selection.primarySelectedElementId]);
 
+  const renameElement = useCallback(async (id: Id, name: string) => {
+    const target = effectiveElements.find((el) => el.id === id);
+    if (!target) return;
+    const trimmed = name.trim();
+    const nextPayload = { ...target.payload, name: trimmed.length > 0 ? trimmed : undefined };
+    await saveElementUpdate({ id, payload: nextPayload });
+    if (selection.primarySelectedElementId === id) inspector.setElementPayloadDraft(nextPayload);
+  }, [effectiveElements, inspector, saveElementUpdate, selection.primarySelectedElementId]);
+
+  // Reorders the entire stack from the given back→front id list. Stacking is
+  // sorted by `layer` then `zIndex`, so we flatten every element onto a single
+  // layer and write an explicit sequential zIndex — this lets the user place
+  // any element anywhere, free of the background/media/content tiers.
+  const reorderElements = useCallback(async (idsBackToFront: Id[]) => {
+    const updates: ElementUpdateInput[] = [];
+    idsBackToFront.forEach((id, index) => {
+      const target = effectiveElements.find((el) => el.id === id);
+      if (!target) return;
+      if (target.zIndex === index && target.layer === 'content') return;
+      updates.push({ id, zIndex: index, layer: 'content' });
+    });
+    if (updates.length === 0) return;
+    await history.commitElementUpdates(updates, true);
+  }, [effectiveElements, history]);
+
   const { createText, createShape, createFromMedia, createOverlay, toggleOverlay, importMedia, deleteMedia, changeMediaSrc } = useElementCommands({
     activeEditorSource, currentDeckItem, mutatePatch, setStatusText, pushHistorySnapshot: history.pushHistorySnapshot,
   });
@@ -238,6 +263,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     setCanvasInteracting,
     commitElementUpdates: history.commitElementUpdates,
     deleteSelected, toggleElementVisibility, toggleElementLock,
+    renameElement, reorderElements,
     nudgeSelection: history.nudgeSelection,
     copySelection: history.copySelection,
     cutSelection,
@@ -251,7 +277,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   }), [
     baseElements, createFromMedia, createOverlay, createShape, createText, cutSelection, deleteMedia,
     deleteSelected, draftElements, effectiveElements, history, importMedia, inspector,
-    isCanvasInteracting, selection,
+    isCanvasInteracting, selection, renameElement, reorderElements,
     setDraftElements, toggleElementLock, toggleElementVisibility, toggleOverlay, changeMediaSrc,
   ]);
 

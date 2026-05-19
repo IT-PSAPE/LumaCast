@@ -20,7 +20,7 @@ function Header({ children }: { children: ReactNode }) {
 
 function Body({ children }: { children: ReactNode }) {
   return (
-    <div className="px-2 flex flex-col gap-2 pb-3">
+    <div className="px-2 py-3 flex flex-col gap-2">
       {children}
     </div>
   );

@@ -213,8 +213,20 @@ function Trigger({ children, className, disabled = false, value, ...rest }: Trig
   );
 }
 
+function Panel({ children, value, className }: { children?: ReactNode; className?: string, value: string }) {
+  const { state } = useTabs();
+
+  if (value !== state.value) return null;
+
+  return (
+    <div className={className}>
+      {children}
+    </div>
+  )
+}
+
 function Indicator() {
   return <span className='absolute inset-0 top-auto bg-brand_primary h-[1px]' />;
 }
 
-export const Tabs = { Root, List, Trigger, Indicator };
+export const Tabs = { Root, List, Trigger, Indicator, Panel };

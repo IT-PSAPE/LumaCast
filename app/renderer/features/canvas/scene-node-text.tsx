@@ -5,7 +5,7 @@ import type { Shape as KonvaShape } from 'konva/lib/Shape';
 import type { TextBinding, StrokePosition, TextCaseTransform, TextHorizontalAlign } from '@core/types';
 import type { RenderNode } from './scene-types';
 import { resolveKonvaTextStyle } from './resolve-konva-text-style';
-import { measureTextBlockHeight, measureTextLayoutHeight, measureTextLineStackHeight, textLineBleedPadding, textOverflowOffset } from './text-layout';
+import { computeAutoFitFontSize, measureTextBlockHeight, measureTextLayoutHeight, measureTextLineStackHeight, textLineBleedPadding, textOverflowOffset } from './text-layout';
 import { useResolvedText } from './use-resolved-text';
 
 function transformTextCase(text: string, mode: TextCaseTransform): string {
@@ -130,6 +130,8 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
     color: string;
     alignment: TextHorizontalAlign;
     verticalAlign?: 'top' | 'middle' | 'bottom';
+    autoFit?: boolean;
+    autoFitMaxFontSize?: number;
     caseTransform?: TextCaseTransform;
     italic?: boolean;
     underline?: boolean;
@@ -153,20 +155,37 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
   const lineHeight = payload.lineHeight ?? 1.25;
   const verticalAlign = payload.verticalAlign ?? 'middle';
   const text = transformTextCase(resolvedText, payload.caseTransform ?? 'none');
-  const textBleedPadding = textLineBleedPadding(payload.fontSize, lineHeight);
+  const fontFamily = payload.fontFamily || 'sans-serif';
+  const autoFitEnabled = payload.autoFit ?? false;
+  const autoFitMaxFontSize = payload.autoFitMaxFontSize ?? payload.fontSize;
+  const fontSize = useMemo(
+    () => (autoFitEnabled
+      ? computeAutoFitFontSize({
+          text,
+          width: element.width,
+          height: element.height,
+          fontFamily,
+          fontStyle,
+          lineHeight,
+          maxFontSize: autoFitMaxFontSize,
+        })
+      : payload.fontSize),
+    [autoFitEnabled, autoFitMaxFontSize, text, element.width, element.height, fontFamily, fontStyle, lineHeight, payload.fontSize],
+  );
+  const textBleedPadding = textLineBleedPadding(fontSize, lineHeight);
   const textContentHeight = measureTextBlockHeight({
     text,
     width: element.width,
-    fontFamily: payload.fontFamily || 'sans-serif',
-    fontSize: payload.fontSize,
+    fontFamily,
+    fontSize,
     fontStyle,
     lineHeight,
   });
   const textLayoutHeight = measureTextLayoutHeight({
     text,
     width: element.width,
-    fontFamily: payload.fontFamily || 'sans-serif',
-    fontSize: payload.fontSize,
+    fontFamily,
+    fontSize,
     fontStyle,
     lineHeight,
   });
@@ -199,8 +218,8 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
 
     const layoutParams: TextLayoutParams = {
       text,
-      fontFamily: payload.fontFamily || 'sans-serif',
-      fontSize: payload.fontSize,
+      fontFamily,
+      fontSize,
       fontStyle,
       lineHeight,
       width: element.width,
@@ -227,8 +246,8 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
     lineHeight,
     payload.alignment,
     payload.color,
-    payload.fontFamily,
-    payload.fontSize,
+    fontFamily,
+    fontSize,
     payload.textStrokeColor,
     text,
     textFrameHeight,
@@ -284,8 +303,8 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
           height={textFrameHeight}
           verticalAlign={verticalAlign}
           text={text}
-          fontFamily={payload.fontFamily || 'sans-serif'}
-          fontSize={payload.fontSize}
+          fontFamily={fontFamily}
+          fontSize={fontSize}
           fontStyle={fontStyle}
           align={textAlign(payload.alignment ?? 'left')}
           lineHeight={lineHeight}

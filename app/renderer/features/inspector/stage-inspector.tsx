@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useStageEditor } from '../../contexts/asset-editor/asset-editor-context';
+import { useProjectContent } from '../../contexts/use-project-content';
+import { EntityBackgroundInspector } from './entity-background-inspector';
 import { Section } from './inspector-section';
 
 export function StageInspector() {
   const { setStatusText } = useCast();
   const { currentStage, updateStageDraft, nameFocusRequest } = useStageEditor();
+  const { stagesById } = useProjectContent();
   const [nameDraft, setNameDraft] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -41,18 +44,21 @@ export function StageInspector() {
   }
 
   return (
-    <Section.Root>
-      <Section.Body>
-        <FieldInput
-          type="text"
-          value={nameDraft}
-          onChange={handleNameChange}
-          onBlur={handleNameBlur}
-          // label="Name"
-          wide
-          inputRef={nameInputRef}
-        />
-      </Section.Body>
-    </Section.Root>
+    <>
+      <Section.Root>
+        <Section.Body>
+          <FieldInput
+            type="text"
+            value={nameDraft}
+            onChange={handleNameChange}
+            onBlur={handleNameBlur}
+            // label="Name"
+            wide
+            inputRef={nameInputRef}
+          />
+        </Section.Body>
+      </Section.Root>
+      <EntityBackgroundInspector ownerId={currentStage.id} background={stagesById.get(currentStage.id)?.background ?? null} />
+    </>
   );
 }

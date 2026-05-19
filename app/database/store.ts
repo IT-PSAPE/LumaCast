@@ -69,6 +69,8 @@ import type {
   SlideElement,
   SlideElementPayload,
   SlideKind,
+  SlideBackground,
+  SlideBackgroundUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
@@ -108,7 +110,8 @@ const ACTIONS_SCHEMA_VERSION = 15;
 const CUES_MACROS_SCHEMA_VERSION = 16;
 const MACROS_SEQUENTIAL_SCHEMA_VERSION = 17;
 const TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION = 18;
-const LATEST_SCHEMA_VERSION = TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION;
+const SLIDE_BACKGROUND_SCHEMA_VERSION = 19;
+const LATEST_SCHEMA_VERSION = SLIDE_BACKGROUND_SCHEMA_VERSION;
 const GLOBAL_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 2;
 
@@ -515,6 +518,16 @@ export class CastRepository {
       this.rebuildTriggerBindingsForTargetColumns();
       this.setUserVersion(TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION);
     }
+
+    if (this.getUserVersion() < SLIDE_BACKGROUND_SCHEMA_VERSION) {
+      this.ensureSlideBackgroundColumn();
+      this.setUserVersion(SLIDE_BACKGROUND_SCHEMA_VERSION);
+    }
+  }
+
+  private ensureSlideBackgroundColumn(): void {
+    if (this.hasColumn('slides', 'background_json')) return;
+    this.db.exec('ALTER TABLE slides ADD COLUMN background_json TEXT');
   }
 
   // v18 — rebuild trigger_bindings to drop the legacy `action_id` column.
@@ -1127,6 +1140,7 @@ export class CastRepository {
         width INTEGER NOT NULL,
         height INTEGER NOT NULL,
         notes TEXT NOT NULL DEFAULT '',
+        background_json TEXT,
         order_index INTEGER NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -4855,6 +4869,34 @@ export class CastRepository {
     return this.buildPatch({ upsertSlideIds: [input.slideId] });
   }
 
+  updateSlideBackground(input: SlideBackgroundUpdateInput): SnapshotPatch {
+    const now = nowIso();
+    this.db
+      .prepare('UPDATE slides SET background_json = ?, updated_at = ? WHERE id = ?')
+      .run(input.background ? JSON.stringify(input.background) : null, now, input.slideId);
+    // Theme/overlay/stage slides don't flow through the snapshot's `slides`
+    // array — they surface via their owning container, so upsert that instead.
+    // Bump the container's own `updated_at` too: the renderer dedupes entity
+    // arrays by id+updatedAt, so without this the new background is persisted
+    // but the UI keeps the stale cached entity until a full reload.
+    const owner = this.db
+      .prepare('SELECT theme_id, overlay_id, stage_id FROM slides WHERE id = ?')
+      .get(input.slideId) as { theme_id: string | null; overlay_id: string | null; stage_id: string | null } | undefined;
+    if (owner?.theme_id) {
+      this.db.prepare('UPDATE themes SET updated_at = ? WHERE id = ?').run(now, owner.theme_id);
+      return this.buildPatch({ upsertThemeIds: [owner.theme_id] });
+    }
+    if (owner?.overlay_id) {
+      this.db.prepare('UPDATE overlays SET updated_at = ? WHERE id = ?').run(now, owner.overlay_id);
+      return this.buildPatch({ upsertOverlayIds: [owner.overlay_id] });
+    }
+    if (owner?.stage_id) {
+      this.db.prepare('UPDATE stages SET updated_at = ? WHERE id = ?').run(now, owner.stage_id);
+      return this.buildPatch({ upsertStageIds: [owner.stage_id] });
+    }
+    return this.buildPatch({ upsertSlideIds: [input.slideId] });
+  }
+
   createTalkScriptBlock(input: TalkScriptBlockCreateInput): SnapshotPatch {
     const slide = this.db
       .prepare('SELECT id, talk_id FROM slides WHERE id = ?')
@@ -4933,7 +4975,7 @@ export class CastRepository {
 
   duplicateSlide(slideId: Id): SnapshotPatch {
     const original = this.db
-      .prepare('SELECT id, presentation_id, lyric_id, talk_id, width, height, notes, order_index FROM slides WHERE id = ?')
+      .prepare('SELECT id, presentation_id, lyric_id, talk_id, width, height, notes, background_json, order_index FROM slides WHERE id = ?')
       .get(slideId) as {
         id: string;
         presentation_id: string | null;
@@ -4942,6 +4984,7 @@ export class CastRepository {
         width: number;
         height: number;
         notes: string | null;
+        background_json: string | null;
         order_index: number;
       } | undefined;
     if (!original) return this.buildPatch({});
@@ -4973,7 +5016,7 @@ export class CastRepository {
       `UPDATE slides SET order_index = order_index + 1, updated_at = ? WHERE ${ownerColumn} = ? AND order_index >= ?`
     );
     const insertSlide = this.db.prepare(
-      'INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, background_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insertScriptBlock = this.db.prepare(
       'INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
@@ -4996,6 +5039,7 @@ export class CastRepository {
         original.width,
         original.height,
         original.notes ?? '',
+        original.background_json,
         insertOrder,
         now,
         now,
@@ -6579,7 +6623,7 @@ export class CastRepository {
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
       .prepare(
-        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.theme_id, s.overlay_id, s.stage_id, s.kind, s.width, s.height, s.notes, s.order_index, s.created_at, s.updated_at,
+        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.theme_id, s.overlay_id, s.stage_id, s.kind, s.width, s.height, s.notes, s.background_json, s.order_index, s.created_at, s.updated_at,
                 COALESCE(d.order_index, l.order_index, t.order_index) AS content_order
          FROM slides s
          LEFT JOIN presentations d ON d.id = s.presentation_id
@@ -6600,6 +6644,7 @@ export class CastRepository {
         width: number;
         height: number;
         notes: string;
+        background_json: string | null;
         order_index: number;
         created_at: string;
         updated_at: string;
@@ -6616,6 +6661,7 @@ export class CastRepository {
       width: row.width,
       height: row.height,
       notes: row.notes,
+      background: row.background_json ? parseJson<SlideBackground>(row.background_json) : null,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -6683,6 +6729,7 @@ export class CastRepository {
         name: row.name,
         enabled: row.enabled === 1,
         elements: this.getSlideElementsBySlideId(slideId),
+        background: this.getSlideBackgroundBySlideId(slideId),
         animation: normalizeOverlayAnimation(parseJson(row.animation_json)),
         collectionId: row.collection_id,
         createdAt: row.created_at,
@@ -6723,6 +6770,7 @@ export class CastRepository {
         height: row.height,
         order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
+        background: this.getSlideBackgroundBySlideId(slideId),
         collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -6852,6 +6900,13 @@ export class CastRepository {
   private deleteContainerSlide(slideId: Id): void {
     this.db.prepare('DELETE FROM slide_elements WHERE slide_id = ?').run(slideId);
     this.db.prepare('DELETE FROM slides WHERE id = ?').run(slideId);
+  }
+
+  private getSlideBackgroundBySlideId(slideId: Id): SlideBackground | null {
+    const row = this.db
+      .prepare('SELECT background_json FROM slides WHERE id = ?')
+      .get(slideId) as { background_json: string | null } | undefined;
+    return row?.background_json ? parseJson<SlideBackground>(row.background_json) : null;
   }
 
   private getSlideElementsBySlideId(slideId: Id): SlideElement[] {
@@ -7302,7 +7357,7 @@ export class CastRepository {
     // `elements` field instead.
     const rows = this.db
       .prepare(
-        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.theme_id, s.overlay_id, s.stage_id, s.kind, s.width, s.height, s.notes, s.order_index, s.created_at, s.updated_at,
+        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.theme_id, s.overlay_id, s.stage_id, s.kind, s.width, s.height, s.notes, s.background_json, s.order_index, s.created_at, s.updated_at,
                 COALESCE(d.order_index, l.order_index, t.order_index) AS content_order
          FROM slides s
          LEFT JOIN presentations d ON d.id = s.presentation_id
@@ -7323,6 +7378,7 @@ export class CastRepository {
       width: number;
       height: number;
       notes: string;
+      background_json: string | null;
       order_index: number;
       created_at: string;
       updated_at: string;
@@ -7340,6 +7396,7 @@ export class CastRepository {
       width: row.width,
       height: row.height,
       notes: row.notes,
+      background: row.background_json ? parseJson<SlideBackground>(row.background_json) : null,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -7609,6 +7666,7 @@ export class CastRepository {
         name: row.name,
         enabled: row.enabled === 1,
         elements: this.getSlideElementsBySlideId(slideId),
+        background: this.getSlideBackgroundBySlideId(slideId),
         animation: normalizeOverlayAnimation(parseJson(row.animation_json)),
         collectionId: row.collection_id,
         createdAt: row.created_at,
@@ -7647,6 +7705,7 @@ export class CastRepository {
         height: row.height,
         order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
+        background: this.getSlideBackgroundBySlideId(slideId),
         collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -7682,6 +7741,7 @@ export class CastRepository {
         height: row.height,
         order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
+        background: this.getSlideBackgroundBySlideId(slideId),
         collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -7720,6 +7780,7 @@ export class CastRepository {
         height: row.height,
         order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
+        background: this.getSlideBackgroundBySlideId(slideId),
         collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -7756,6 +7817,7 @@ export class CastRepository {
       height: row.height,
       order: row.order_index,
       elements: this.getSlideElementsBySlideId(slideId),
+      background: this.getSlideBackgroundBySlideId(slideId),
       collectionId: row.collection_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

@@ -122,7 +122,7 @@ function StageListItemBody({
   const { actions } = useStageEditorScreen();
   const { duplicateStage, deleteStage, requestNameFocus } = useStageEditor();
   const confirm = useConfirm();
-  const scene = buildRenderScene(null, stage.elements);
+  const scene = buildRenderScene({ width: stage.width, height: stage.height, background: stage.background ?? null }, stage.elements);
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
 

@@ -10,6 +10,7 @@ import {
   Baseline, Bold, Italic,
   MoveHorizontal,
   MoveVertical,
+  Maximize2,
   RulerDimensionLine,
   Strikethrough, Sun, Type, Underline,
 } from 'lucide-react';
@@ -42,7 +43,8 @@ export function TextElementInspector() {
   const { textPayload, formatting, textVisual, activeFormattingStyles, fontOptions } = state;
   const {
     handleTextChange, handleFontFamilyChange, handleWeightChange,
-    handleFontSizeChange, handleLineHeightChange, handleTextColorChange,
+    handleFontSizeChange, handleAutoFitToggle, handleMaxFontSizeChange,
+    handleLineHeightChange, handleTextColorChange,
     handleCaseChange, handleTextStyleToggle, handleVerticalAlighmentChange,
     handleHorizontalAlighmentChange, updateTextVisual,
   } = actions;
@@ -61,6 +63,10 @@ export function TextElementInspector() {
       <Section.Root>
         <Section.Header>
           <Label.xs>Typography</Label.xs>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Label.xs>Auto-fit</Label.xs>
+            <Section.Checkbox checked={formatting.autoFit} onChange={handleAutoFitToggle} />
+          </div>
         </Section.Header>
         <Section.Body>
           <Section.Row>
@@ -68,9 +74,15 @@ export function TextElementInspector() {
             <FieldInput type="text" value={formatting.weight} onChange={handleWeightChange} />
           </Section.Row>
           <Section.Row>
-            <FieldInput type="number" value={formatting.fontSize} onChange={handleFontSizeChange}>
-              <FieldIcon><Type className="size-4" /></FieldIcon>
-            </FieldInput>
+            {formatting.autoFit ? (
+              <FieldInput type="number" value={formatting.autoFitMaxFontSize} onChange={handleMaxFontSizeChange}>
+                <FieldIcon><Maximize2 className="size-4" /></FieldIcon>
+              </FieldInput>
+            ) : (
+              <FieldInput type="number" value={formatting.fontSize} onChange={handleFontSizeChange}>
+                <FieldIcon><Type className="size-4" /></FieldIcon>
+              </FieldInput>
+            )}
             <FieldInput type="number" value={formatting.lineHeight} onChange={handleLineHeightChange}>
               <FieldIcon><Baseline className="size-4" /></FieldIcon>
             </FieldInput>

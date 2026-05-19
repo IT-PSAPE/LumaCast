@@ -31,6 +31,7 @@ import type {
   TriggerBindingCreateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
+  SlideBackgroundUpdateInput,
   SlideOrderUpdateInput,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
@@ -228,6 +229,7 @@ export const registerIpcHandlers = (
   safeHandle(IPC.duplicateSlide, (_event, slideId: Id) => repo.duplicateSlide(slideId));
   safeHandle(IPC.deleteSlide, (_event, slideId: Id) => repo.deleteSlide(slideId));
   safeHandle(IPC.updateSlideNotes, (_event, input: SlideNotesUpdateInput) => repo.updateSlideNotes(input));
+  safeHandle(IPC.updateSlideBackground, (_event, input: SlideBackgroundUpdateInput) => repo.updateSlideBackground(input));
   safeHandle(IPC.createTalkScriptBlock, (_event, input: TalkScriptBlockCreateInput) => repo.createTalkScriptBlock(input));
   safeHandle(IPC.updateTalkScriptBlock, (_event, input: TalkScriptBlockUpdateInput) => repo.updateTalkScriptBlock(input));
   safeHandle(IPC.deleteTalkScriptBlock, (_event, id: Id) => repo.deleteTalkScriptBlock(id));

@@ -1,6 +1,6 @@
 import { readVisualPayload } from '@core/element-payload';
 import { LAYER_PREVIEW_SLIDE, LAYER_VIDEO_NODE_ID, mediaAssetToLayerElement, overlayToLayerElements } from '@core/presentation-layers';
-import type { MediaAsset, Overlay, Slide, SlideElement } from '@core/types';
+import type { MediaAsset, Overlay, Slide, SlideBackground, SlideElement } from '@core/types';
 import { sortElements } from '../../utils/slides';
 import type { BindingOverride } from './binding-context';
 import type { RenderNode, RenderScene } from './scene-types';
@@ -20,7 +20,10 @@ function toRenderNode({ element, bindingOverride }: SceneElementInput): RenderNo
   };
 }
 
-type RenderSceneFrameInput = Pick<Slide, 'width' | 'height'> | Slide | null;
+type RenderSceneFrameInput =
+  | (Pick<Slide, 'width' | 'height'> & { background?: SlideBackground | null })
+  | Slide
+  | null;
 
 function resolveSceneSlide(frame: RenderSceneFrameInput): Slide {
   if (!frame) return LAYER_PREVIEW_SLIDE;
@@ -29,6 +32,7 @@ function resolveSceneSlide(frame: RenderSceneFrameInput): Slide {
     ...LAYER_PREVIEW_SLIDE,
     width: frame.width,
     height: frame.height,
+    background: 'background' in frame ? frame.background ?? null : null,
   };
 }
 

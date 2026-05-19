@@ -96,7 +96,7 @@ function StageCardImpl(props: StageCardProps) {
 
 function StageCardBody({ stage, index, isActive, onActivate, onEdit, collectionsApi }: StageCardProps) {
   const { updateStageDraft, deleteStage, duplicateStage } = useStageEditor();
-  const scene = useMemo(() => buildRenderScene(null, stage.elements), [stage.elements]);
+  const scene = useMemo(() => buildRenderScene({ width: stage.width, height: stage.height, background: stage.background ?? null }, stage.elements), [stage.background, stage.elements, stage.height, stage.width]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();

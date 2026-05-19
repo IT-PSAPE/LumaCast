@@ -67,8 +67,33 @@ export type DeckItem = Presentation | Lyric | Talk;
 
 export type SlideKind = 'presentation' | 'lyric' | 'talk' | 'theme' | 'overlay' | 'stage';
 
+export type SlideBackgroundFit = 'cover' | 'contain' | 'fill';
+
+export interface GradientStop {
+  color: string;
+  position: number; // 0–100
+}
+
+export interface SlideGradient {
+  kind: 'linear' | 'radial';
+  angle?: number; // degrees, linear only (measured from +x axis)
+  stops: GradientStop[]; // at least 2, ordered by position
+}
+
+export type SlideBackground =
+  | { type: 'color'; color: string }
+  | { type: 'gradient'; gradient: SlideGradient }
+  | { type: 'image'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit }
+  | { type: 'video'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit };
+
+export interface SlideBackgroundUpdateInput {
+  slideId: Id;
+  background: SlideBackground | null;
+}
+
 export interface Slide {
   id: Id;
+  background?: SlideBackground | null;
   // Exactly one of the parent FKs is set; the rest are null.
   presentationId: Id | null;
   lyricId: Id | null;
@@ -128,6 +153,7 @@ export interface TextBinding {
 }
 
 export interface ElementVisualPayload {
+  name?: string;
   visible?: boolean;
   locked?: boolean;
   flipX?: boolean;
@@ -153,6 +179,8 @@ export interface TextElementPayload extends ElementVisualPayload {
   color: string;
   alignment: TextHorizontalAlign;
   verticalAlign?: TextVerticalAlign;
+  autoFit?: boolean;
+  autoFitMaxFontSize?: number;
   caseTransform?: TextCaseTransform;
   italic?: boolean;
   underline?: boolean;
@@ -231,6 +259,7 @@ export interface Overlay {
   slideId: Id;
   name: string;
   enabled: boolean;
+  background?: SlideBackground | null;
   elements: SlideElement[];
   animation: OverlayAnimation;
   collectionId: Id;
@@ -245,6 +274,7 @@ export interface Theme {
   kind: ThemeKind;
   width: number;
   height: number;
+  background?: SlideBackground | null;
   elements: SlideElement[];
   collectionId: Id;
   order: number;
@@ -258,6 +288,7 @@ export interface Stage {
   name: string;
   width: number;
   height: number;
+  background?: SlideBackground | null;
   elements: SlideElement[];
   collectionId: Id;
   order: number;

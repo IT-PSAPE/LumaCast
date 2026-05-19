@@ -37,6 +37,7 @@ import type {
   TriggerBindingCreateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
+  SlideBackgroundUpdateInput,
   SlideOrderUpdateInput,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
@@ -90,6 +91,7 @@ export interface MainApi {
   duplicateSlide: (slideId: Id) => Promise<SnapshotPatch>;
   deleteSlide: (slideId: Id) => Promise<SnapshotPatch>;
   updateSlideNotes: (input: SlideNotesUpdateInput) => Promise<SnapshotPatch>;
+  updateSlideBackground: (input: SlideBackgroundUpdateInput) => Promise<SnapshotPatch>;
   createTalkScriptBlock: (input: TalkScriptBlockCreateInput) => Promise<SnapshotPatch>;
   updateTalkScriptBlock: (input: TalkScriptBlockUpdateInput) => Promise<SnapshotPatch>;
   deleteTalkScriptBlock: (id: Id) => Promise<SnapshotPatch>;
@@ -288,6 +290,7 @@ export const IPC = {
   duplicateSlide: 'cast:duplicateSlide',
   deleteSlide: 'cast:deleteSlide',
   updateSlideNotes: 'cast:updateSlideNotes',
+  updateSlideBackground: 'cast:updateSlideBackground',
   createTalkScriptBlock: 'cast:createTalkScriptBlock',
   updateTalkScriptBlock: 'cast:updateTalkScriptBlock',
   deleteTalkScriptBlock: 'cast:deleteTalkScriptBlock',

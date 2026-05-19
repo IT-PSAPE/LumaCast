@@ -7,14 +7,19 @@ import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { BindingInspector } from '@renderer/features/inspector/binding-inspector';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
 import { SlideInspector } from '@renderer/features/inspector/slide-inspector';
+import { EntityBackgroundInspector } from '@renderer/features/inspector/entity-background-inspector';
 import { TextElementInspector } from '@renderer/features/inspector/text-element-inspector';
 import { VideoElementInspector } from '@renderer/features/inspector/video-element-inspector';
+import { useOverlayEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
+import { useProjectContent } from '@renderer/contexts/use-project-content';
 import type { InspectorTab } from '@renderer/types/ui';
 import { useOverlayEditorScreen } from './screen-context';
 
 export function OverlayEditorInspectorPanel() {
   const { state, actions } = useOverlayEditorScreen();
   const { inspectorTab, setInspectorTab } = useInspector();
+  const { currentOverlay } = useOverlayEditor();
+  const { overlaysById } = useProjectContent();
   const { selectedElement } = useElements();
   const hasSelection = Boolean(selectedElement);
   const isTextSelected = selectedElement?.type === 'text';
@@ -47,22 +52,34 @@ export function OverlayEditorInspectorPanel() {
     <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
       <Tabs.Root value={inspectorTab} onValueChange={handleTabChange}>
         <section className="flex flex-1 flex-col">
-          <div className="border-b border-primary">
-            <Tabs.List label="Inspector">
-              {!hasSelection && <Tabs.Trigger value="slide">Overlay</Tabs.Trigger>}
-              {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
-              {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
-              {isTextSelected && <Tabs.Trigger value="binding">Binding</Tabs.Trigger>}
-              {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
-            </Tabs.List>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {inspectorTab === 'slide' && <SlideInspector />}
-            {inspectorTab === 'shape' && <ShapeElementInspector />}
-            {inspectorTab === 'text' && <TextElementInspector />}
-            {inspectorTab === 'binding' && <BindingInspector />}
-            {inspectorTab === 'video' && <VideoElementInspector />}
-          </div>
+          <Tabs.List label="Inspector" className="border-b border-primary">
+            {!hasSelection && <Tabs.Trigger value="slide">Overlay</Tabs.Trigger>}
+            {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
+            {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
+            {isTextSelected && <Tabs.Trigger value="binding">Binding</Tabs.Trigger>}
+            {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
+          </Tabs.List>
+          <Tabs.Panel value="slide">
+            <SlideInspector />
+            {currentOverlay ? (
+              <EntityBackgroundInspector
+                ownerId={currentOverlay.id}
+                background={overlaysById.get(currentOverlay.id)?.background ?? null}
+              />
+            ) : null}
+          </Tabs.Panel>
+          <Tabs.Panel value="shape" className="min-h-0 flex-1 overflow-auto">
+            <ShapeElementInspector />
+          </Tabs.Panel>
+          <Tabs.Panel value="text" className="min-h-0 flex-1 overflow-auto">
+            <TextElementInspector />
+          </Tabs.Panel>
+          <Tabs.Panel value="binding" className="min-h-0 flex-1 overflow-auto">
+            <BindingInspector />
+          </Tabs.Panel>
+          <Tabs.Panel value="video" className="min-h-0 flex-1 overflow-auto">
+            <VideoElementInspector />
+          </Tabs.Panel>
         </section>
       </Tabs.Root>
       {state.hasPendingChanges && (
