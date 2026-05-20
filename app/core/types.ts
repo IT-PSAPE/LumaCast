@@ -562,7 +562,7 @@ export type CueKind =
   | 'layer.clear'
   | 'layer.clearAll'
   | 'flow.wait';
-export type TriggerType = 'slide.take' | 'slide.activate';
+export type TriggerType = 'slide.take' | 'slide.activate' | 'app.startup';
 export type TriggerBindingTargetType = 'cue' | 'macro';
 
 export type CuePayload =

@@ -189,7 +189,12 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
     fontStyle,
     lineHeight,
   });
-  const textFrameContentHeight = Math.max(element.height, textContentHeight, textLayoutHeight);
+  // autoFit shrinks the font to fit within element.height; lock the frame to
+  // the element bounds so measurement overshoot at wrap boundaries doesn't
+  // briefly expand and snap back while typing.
+  const textFrameContentHeight = autoFitEnabled
+    ? element.height
+    : Math.max(element.height, textContentHeight, textLayoutHeight);
   const textFrameY = textOverflowOffset(verticalAlign, element.height, textFrameContentHeight) - textBleedPadding;
   const textFrameHeight = textFrameContentHeight + textBleedPadding * 2;
   const textStrokeWidth = payload.textStrokeWidth ?? 0;

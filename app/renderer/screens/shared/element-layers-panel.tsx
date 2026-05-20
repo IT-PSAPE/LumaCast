@@ -5,7 +5,7 @@ import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type D
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { EmptyState } from '@renderer/components/display/empty-state';
-import { SelectableRow } from '@renderer/components/display/selectable-row';
+import { SelectableRow, selectableRowStyles } from '@renderer/components/display/selectable-row';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { cn } from '@renderer/utils/cn';
@@ -118,14 +118,29 @@ function SortableLayerRow({
     opacity: isDragging ? 0.6 : undefined,
   };
 
+  // Rendered as a div with role=button (not a real <button>) so the trailing
+  // lock/hide controls — which are actual <button>s — aren't nested inside
+  // another <button>, which would be invalid HTML.
   return (
     <div ref={setNodeRef} style={style} className="group">
-      <SelectableRow.Root
-        selected={isSelected}
-        onClick={() => { if (!isEditing) onSelect(element); }}
-        className={cn('w-full', !isEditing && 'cursor-grab active:cursor-grabbing', isHidden && 'opacity-50')}
+      <div
         {...attributes}
         {...(isEditing ? {} : listeners)}
+        aria-pressed={isSelected}
+        onClick={() => { if (!isEditing) onSelect(element); }}
+        onKeyDown={(event) => {
+          if (isEditing) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onSelect(element);
+          }
+        }}
+        className={cn(
+          selectableRowStyles({ selected: isSelected }),
+          'w-full',
+          !isEditing && 'cursor-grab active:cursor-grabbing',
+          isHidden && 'opacity-50',
+        )}
       >
         <SelectableRow.Leading className="flex items-center gap-1.5">
           <ElementTypeIcon type={element.type} />
@@ -174,7 +189,7 @@ function SortableLayerRow({
             {isHidden ? <EyeOff size={13} strokeWidth={2} /> : <Eye size={13} strokeWidth={2} />}
           </button>
         </SelectableRow.Trailing>
-      </SelectableRow.Root>
+      </div>
     </div>
   );
 }

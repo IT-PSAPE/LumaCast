@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react';
-import { Play, Workflow } from 'lucide-react';
-import type { Id, Macro } from '@core/types';
+import { Check, Play, Workflow } from 'lucide-react';
+import type { Id, Macro, TriggerBinding } from '@core/types';
 import { useWorkbench } from '../../contexts/workbench-context';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
@@ -21,7 +21,10 @@ interface MacroBinPanelProps {
 
 export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBinPanelProps) {
   const { actions: { setWorkbenchMode } } = useWorkbench();
-  const { state: { macros, currentMacroId }, actions: { setCurrentMacroId, runMacro, deleteMacro, duplicateMacro, updateMacroFields } } = useAutomation();
+  const {
+    state: { macros, bindings, currentMacroId },
+    actions: { setCurrentMacroId, runMacro, deleteMacro, duplicateMacro, updateMacroFields, createBinding, deleteBinding },
+  } = useAutomation();
   const [searchValue, setSearchValue] = useState('');
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.macro-bin', 3, 2, 4);
@@ -39,6 +42,25 @@ export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBi
   function handleOpenMacro(id: Id) {
     setCurrentMacroId(id);
     setWorkbenchMode('macro-editor');
+  }
+
+  const startupBindingsByMacro = useMemo(() => {
+    const map = new Map<Id, TriggerBinding>();
+    for (const binding of bindings) {
+      if (binding.triggerType === 'app.startup' && binding.targetType === 'macro') {
+        map.set(binding.targetId, binding);
+      }
+    }
+    return map;
+  }, [bindings]);
+
+  async function toggleRunOnStartup(macroId: Id) {
+    const existing = startupBindingsByMacro.get(macroId);
+    if (existing) {
+      await deleteBinding(existing.id);
+    } else {
+      await createBinding({ triggerType: 'app.startup', sourceId: null, targetType: 'macro', targetId: macroId });
+    }
   }
 
   return (
@@ -62,11 +84,13 @@ export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBi
             macro={macro}
             index={index}
             isSelected={macro.id === currentMacroId}
+            runsOnStartup={startupBindingsByMacro.has(macro.id)}
             onSelect={setCurrentMacroId}
             onOpen={handleOpenMacro}
             onRunMacro={runMacro}
             onDeleteMacro={deleteMacro}
             onDuplicateMacro={duplicateMacro}
+            onToggleRunOnStartup={toggleRunOnStartup}
             onRename={(name) => { void updateMacroFields(macro.id, { name }); }}
             onMoveToCollection={async (collectionId) => {
               await collections.assignItem('macro', macro.id, collectionId);
@@ -83,11 +107,13 @@ interface MacroCardProps {
   macro: Macro;
   index: number;
   isSelected: boolean;
+  runsOnStartup: boolean;
   onSelect: (id: Id | null) => void;
   onOpen: (id: Id) => void;
   onRunMacro: (id: Id) => Promise<void>;
   onDeleteMacro: (id: Id) => Promise<void>;
   onDuplicateMacro: (id: Id) => Promise<Macro | null>;
+  onToggleRunOnStartup: (id: Id) => Promise<void>;
   onRename: (next: string) => void;
   onMoveToCollection: (collectionId: Id) => Promise<void>;
   collectionsApi: BinCollectionsApi;
@@ -101,7 +127,7 @@ function MacroCardImpl(props: MacroCardProps) {
   );
 }
 
-function MacroCardBody({ macro, index, isSelected, onSelect, onOpen, onRunMacro, onDeleteMacro, onDuplicateMacro, onRename, onMoveToCollection, collectionsApi }: MacroCardProps) {
+function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOpen, onRunMacro, onDeleteMacro, onDuplicateMacro, onToggleRunOnStartup, onRename, onMoveToCollection, collectionsApi }: MacroCardProps) {
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
@@ -144,6 +170,12 @@ function MacroCardBody({ macro, index, isSelected, onSelect, onOpen, onRunMacro,
           <ContextMenu.Item onSelect={() => { void onRunMacro(macro.id); }}>
             <span className="inline-flex items-center gap-1.5">
               <Play className="size-3.5" />Run now
+            </span>
+          </ContextMenu.Item>
+          <ContextMenu.Item onSelect={() => { void onToggleRunOnStartup(macro.id); }}>
+            <span className="inline-flex items-center gap-1.5">
+              {runsOnStartup ? <Check className="size-3.5" /> : <span className="inline-block size-3.5" />}
+              Run on startup
             </span>
           </ContextMenu.Item>
           <ContextMenu.Submenu label="Move to collection">

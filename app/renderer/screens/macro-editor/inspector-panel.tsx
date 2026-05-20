@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '@renderer/components/display/tabs';
@@ -288,7 +288,7 @@ function CueTargetField({
 
 function TriggersInspector() {
   const { state: { currentMacro } } = useMacroEditorScreen();
-  const { actions: { getBindingsForMacro } } = useAutomation();
+  const { actions: { getBindingsForMacro, deleteBinding } } = useAutomation();
   const slidesContext = useSlides();
   if (!currentMacro) return null;
   const triggerBindings = getBindingsForMacro(currentMacro.id);
@@ -298,7 +298,7 @@ function TriggersInspector() {
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState.Root>
           <EmptyState.Title>No triggers attached</EmptyState.Title>
-          <EmptyState.Description>Right-click a slide and choose Automation → Macros to bind this macro to a slide.</EmptyState.Description>
+          <EmptyState.Description>Right-click a slide and choose Automation → Macros to bind this macro to a slide, or right-click the macro in the bin and toggle Run on startup.</EmptyState.Description>
         </EmptyState.Root>
       </div>
     );
@@ -309,13 +309,30 @@ function TriggersInspector() {
       <Section.Header><Label.xs>Triggered by</Label.xs></Section.Header>
       <Section.Body>
         {triggerBindings.map((binding) => {
-          const sourceSlide = binding.sourceId ? slidesContext.slides.find((slide) => slide.id === binding.sourceId) ?? null : null;
-          const label = sourceSlide ? `Slide ${slidesContext.slides.indexOf(sourceSlide) + 1}` : 'Slide';
-          const triggerLabel = binding.triggerType === 'slide.take' ? 'on Take' : 'on Activate';
+          let label: string;
+          let triggerLabel: string;
+          if (binding.triggerType === 'app.startup') {
+            label = 'App';
+            triggerLabel = 'on Startup';
+          } else {
+            const sourceSlide = binding.sourceId ? slidesContext.slides.find((slide) => slide.id === binding.sourceId) ?? null : null;
+            label = sourceSlide ? `Slide ${slidesContext.slides.indexOf(sourceSlide) + 1}` : 'Slide';
+            triggerLabel = binding.triggerType === 'slide.take' ? 'on Take' : 'on Activate';
+          }
           return (
-            <div key={binding.id} className="rounded border border-primary bg-secondary/40 px-2 py-1.5 text-sm text-primary">
-              <div className="font-medium">{label}</div>
-              <div className="text-xs text-tertiary">{triggerLabel}</div>
+            <div key={binding.id} className="flex items-center justify-between gap-2 rounded border border-primary bg-secondary/40 px-2 py-1.5 text-sm text-primary">
+              <div className="min-w-0">
+                <div className="truncate font-medium">{label}</div>
+                <div className="text-xs text-tertiary">{triggerLabel}</div>
+              </div>
+              <button
+                type="button"
+                aria-label="Remove trigger"
+                onClick={() => { void deleteBinding(binding.id); }}
+                className="shrink-0 rounded p-1 text-tertiary hover:bg-tertiary hover:text-primary"
+              >
+                <X className="size-3.5" />
+              </button>
             </div>
           );
         })}

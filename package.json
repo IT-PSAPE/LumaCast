@@ -1,7 +1,7 @@
 {
   "name": "lumacast",
   "productName": "LumaCast",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": true,
   "description": "Cross-platform presentation tool with reusable content hierarchy, slide rendering, and NDI output",
   "author": "IT-PSAPE",

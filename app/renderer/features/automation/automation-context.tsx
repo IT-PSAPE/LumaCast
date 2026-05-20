@@ -277,6 +277,16 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(AUTOMATION_TRIGGER_EVENT, handleTrigger);
   }, [fireTrigger]);
 
+  // Fire startup triggers once after the snapshot has loaded. The ref guard
+  // makes this a one-shot per app session even if bindings change later.
+  const startupFiredRef = useRef(false);
+  useEffect(() => {
+    if (startupFiredRef.current) return;
+    if (isLoading) return;
+    startupFiredRef.current = true;
+    fireTrigger('app.startup', null);
+  }, [isLoading, fireTrigger]);
+
   const value = useMemo<AutomationContextValue>(() => ({
     state: { cues, macros, bindings: triggerBindings, isLoading, currentMacroId },
     actions: {

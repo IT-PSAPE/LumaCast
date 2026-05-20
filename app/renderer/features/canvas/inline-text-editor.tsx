@@ -85,7 +85,11 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     fontStyle,
     fontFamily: payload.fontFamily || 'sans-serif',
   });
-  const frameContentHeight = Math.max(elementHeight, contentHeight);
+  // When autoFit is on, the font is sized to fit within elementHeight, so the
+  // frame must stay locked to elementHeight. Otherwise transient measurement
+  // overshoot (e.g. crossing a wrap boundary) would let the frame grow and
+  // then snap back as the font recomputes — visible as a typing-time jitter.
+  const frameContentHeight = payload.autoFit ? elementHeight : Math.max(elementHeight, contentHeight);
   const top = sceneOffsetY + element.y * sceneScale + textOverflowOffset(verticalAlign, elementHeight, frameContentHeight) - bleedPadding;
   const height = frameContentHeight + bleedPadding * 2;
   const innerHeight = Math.max(height - 4, 0);
