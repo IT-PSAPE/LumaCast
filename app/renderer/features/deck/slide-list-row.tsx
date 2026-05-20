@@ -9,6 +9,9 @@ import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { useScrollAreaActiveItem } from '../../components/layout/scroll-area';
 import { useSlides } from '../../contexts/slide-context';
+import { SlideAutomationMenu } from '../automation/slide-automation-menu';
+import { SlideBindingsBadge } from '../automation/slide-bindings-badge';
+import { SlideBindingsMenu } from '../automation/slide-bindings-menu';
 import { Play } from 'lucide-react';
 import type { OutlineSlideRow } from './use-slide-list-view';
 import type { RenderScene } from '../canvas/scene-types';
@@ -79,7 +82,8 @@ function SlideOutlineRowBody({
   }
 
   function handleContextMenu(event: React.MouseEvent<HTMLElement>) {
-    if (slideOwned && !isFocused) onSelect(row.index);
+    // Right-click should open the menu only — never change which slide is
+    // focused or live (see matching note in slide-grid-tile.tsx).
     triggerContextMenu(event);
   }
 
@@ -156,6 +160,9 @@ function SlideOutlineRowBody({
             </span>
           </Thumbnail.Overlay>
         ) : null}
+        <Thumbnail.Overlay position="bottom-left" className="bottom-2 left-2">
+          <SlideBindingsBadge slideId={row.slide.id} />
+        </Thumbnail.Overlay>
       </Thumbnail.Row>
       {slideOwned && (
         <ContextMenu.Portal>
@@ -163,6 +170,9 @@ function SlideOutlineRowBody({
             <ContextMenu.Item onSelect={() => { void duplicateSlide(row.slide.id); }}>Duplicate</ContextMenu.Item>
             <ContextMenu.Item disabled={isFirst} onSelect={() => { void moveSlide(row.slide.id, 'up'); }}>Move up</ContextMenu.Item>
             <ContextMenu.Item disabled={isLast} onSelect={() => { void moveSlide(row.slide.id, 'down'); }}>Move down</ContextMenu.Item>
+            <ContextMenu.Separator />
+            <SlideAutomationMenu slideId={row.slide.id} />
+            <SlideBindingsMenu slideId={row.slide.id} />
             <ContextMenu.Separator />
             <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
           </ContextMenu.Menu>

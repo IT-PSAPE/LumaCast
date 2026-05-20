@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { getSlideDeckItemId, isTalkDeckItem } from '@core/deck-items';
-import type { AppSnapshot, Id, Slide, SlideElement, TalkScriptBlock } from '@core/types';
+import type { AppSnapshot, Id, Slide, SlideBackground, SlideElement, TalkScriptBlock } from '@core/types';
 import { clamp, sortSlides } from '../utils/slides';
 import { useIndexedSelection } from '../hooks/use-indexed-selection';
 import { useCast } from './app-context';
 import { useNavigation } from './navigation-context';
 import { useProjectContent } from './use-project-content';
+import { dispatchAutomationTriggerEvent } from '../features/automation/automation-events';
 
 interface SlideContextValue {
   slides: Slide[];
@@ -37,6 +38,7 @@ interface SlideContextValue {
   moveSlide: (slideId: Id, direction: 'up' | 'down') => Promise<void>;
   reorderSlide: (slideId: Id, newOrder: number) => Promise<void>;
   updateCurrentSlideNotes: (notes: string) => Promise<void>;
+  updateCurrentSlideBackground: (background: SlideBackground | null) => Promise<void>;
 }
 
 const SlideContext = createContext<SlideContextValue | null>(null);
@@ -203,6 +205,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     liveSelection.update(currentPlaylistEntryId, nextIndex);
     setLiveTalkScriptIndexForSlide(slides[nextIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
+    const activatedSlideId = slides[nextIndex]?.id;
+    if (activatedSlideId) {
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
+    }
     setStatusText(`Live slide ${nextIndex + 1}`);
   }, [
     armOutputPlaylistEntry,
@@ -223,6 +229,11 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     liveSelection.update(currentPlaylistEntryId, currentSlideIndex);
     setLiveTalkScriptIndexForSlide(slides[currentSlideIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
+    const takenSlideId = slides[currentSlideIndex]?.id;
+    if (takenSlideId) {
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: takenSlideId });
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.take', sourceId: takenSlideId });
+    }
     setStatusText(`Taken slide ${currentSlideIndex + 1}`);
   }, [
     armOutputPlaylistEntry,
@@ -243,6 +254,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     if (contentSlides.length > 0) {
       liveSelection.update(currentPlaylistEntryId, nextIndex);
       setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
+      const activatedSlideId = contentSlides[nextIndex]?.id;
+      if (activatedSlideId) {
+        dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
+      }
     }
     armOutputPlaylistEntry(currentPlaylistEntryId);
   }, [armOutputPlaylistEntry, currentPlaylistDeckItemId, currentPlaylistEntryId, playlistSelection.indices, setLiveTalkScriptIndexForSlide, slidesByDeckItemId, liveSelection.update]);
@@ -361,6 +376,12 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     setStatusText('Saved slide notes');
   }, [currentSlide, mutatePatch, setStatusText]);
 
+  const updateCurrentSlideBackground = useCallback(async (background: SlideBackground | null) => {
+    if (!currentSlide) return;
+    await mutatePatch(() => window.castApi.updateSlideBackground({ slideId: currentSlide.id, background }));
+    setStatusText('Updated slide background');
+  }, [currentSlide, mutatePatch, setStatusText]);
+
   const focusPlaylistEntrySlide = useCallback((entryId: Id, itemId: Id, index: number) => {
     const contentSlides = slidesByDeckItemId.get(itemId) ?? [];
     if (contentSlides.length === 0) return;
@@ -376,6 +397,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     playlistSelection.update(entryId, nextIndex);
     setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
     activatePlaylistEntry(entryId, itemId, nextIndex);
+    const activatedSlideId = contentSlides[nextIndex]?.id;
+    if (activatedSlideId) {
+      dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
+    }
     setStatusText(`Live slide ${nextIndex + 1}`);
   }, [activatePlaylistEntry, setLiveTalkScriptIndexForSlide, setStatusText, slidesByDeckItemId, playlistSelection.update]);
 
@@ -409,6 +434,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     moveSlide: moveSlideAction,
     reorderSlide: reorderSlideAction,
     updateCurrentSlideNotes,
+    updateCurrentSlideBackground,
   }), [
     activatePlaylistEntrySlide,
     activateSlide,
@@ -439,6 +465,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     slides,
     takeSlide,
     updateCurrentSlideNotes,
+    updateCurrentSlideBackground,
   ]);
 
   return <SlideContext.Provider value={value}>{children}</SlideContext.Provider>;

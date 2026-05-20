@@ -10,6 +10,7 @@ import type { RenderNode, RenderScene, SceneSurface } from './scene-types';
 import { SceneNodeMedia } from './scene-node-media';
 import { SceneNodeShape } from './scene-node-shape';
 import { SceneNodeText } from './scene-node-text';
+import { SceneSlideBackground } from './scene-slide-background';
 import { InlineTextEditor } from './inline-text-editor';
 import { useSceneStageEditor } from './use-scene-stage-editor';
 import type { SceneViewportTransform } from './use-scene-stage-viewport';
@@ -137,9 +138,32 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
   const viewport = useSceneStageViewport(scene.width, scene.height, fixedViewport);
   const snaps = useMemo(rotationSnaps, []);
   const {
-    selectedElementIds, selectElement,
+    selectedElementIds, selectElement, effectiveElements, reorderElements,
     copySelection, cutSelection, pasteSelection, duplicateSelection, deleteSelected,
   } = useElements();
+
+  // Element stacking is back→front in `effectiveElements`. Each op produces a
+  // new back→front id order and hands the whole list to `reorderElements`.
+  const applyOrder = useCallback((kind: 'front' | 'forward' | 'backward' | 'back') => {
+    const ids = effectiveElements.map((el) => el.id);
+    const selected = new Set(selectedElementIds.filter((id) => ids.includes(id)));
+    if (selected.size === 0) return;
+    let next = ids.slice();
+    if (kind === 'front') {
+      next = [...ids.filter((id) => !selected.has(id)), ...ids.filter((id) => selected.has(id))];
+    } else if (kind === 'back') {
+      next = [...ids.filter((id) => selected.has(id)), ...ids.filter((id) => !selected.has(id))];
+    } else if (kind === 'forward') {
+      for (let i = next.length - 2; i >= 0; i--) {
+        if (selected.has(next[i]) && !selected.has(next[i + 1])) [next[i], next[i + 1]] = [next[i + 1], next[i]];
+      }
+    } else {
+      for (let i = 1; i < next.length; i++) {
+        if (selected.has(next[i]) && !selected.has(next[i - 1])) [next[i], next[i - 1]] = [next[i - 1], next[i]];
+      }
+    }
+    void reorderElements(next);
+  }, [effectiveElements, reorderElements, selectedElementIds]);
   const [menuState, setMenuState] = useState<{ x: number; y: number; targetId: Id | null } | null>(null);
   const menuPosition = menuState ? { x: menuState.x, y: menuState.y } : null;
 
@@ -230,6 +254,7 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
       >
         <Layer listening={editable}>
           <Group name="scene-root" x={viewport.sceneOffsetX} y={viewport.sceneOffsetY} scaleX={viewport.sceneScale} scaleY={viewport.sceneScale}>
+            <SceneSlideBackground background={scene.slide.background} width={scene.width} height={scene.height} surface={surface} />
             {scene.nodes.map((node) => (
               <SceneNode
                 key={node.id}
@@ -317,6 +342,11 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
               <ContextMenu.Item disabled={!canPaste} onSelect={() => { void pasteSelection(); }}>Paste</ContextMenu.Item>
               {hasSelection ? (
                 <>
+                  <ContextMenu.Separator />
+                  <ContextMenu.Item onSelect={() => applyOrder('front')}>Bring to Front</ContextMenu.Item>
+                  <ContextMenu.Item onSelect={() => applyOrder('forward')}>Bring Forward</ContextMenu.Item>
+                  <ContextMenu.Item onSelect={() => applyOrder('backward')}>Send Backward</ContextMenu.Item>
+                  <ContextMenu.Item onSelect={() => applyOrder('back')}>Send to Back</ContextMenu.Item>
                   <ContextMenu.Separator />
                   <ContextMenu.Item variant="destructive" onSelect={() => { void deleteSelected(); }}>Delete</ContextMenu.Item>
                 </>

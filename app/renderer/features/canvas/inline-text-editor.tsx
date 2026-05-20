@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SlideElement, TextElementPayload } from '@core/types';
 import { measureInlineTextHeight, resolveInlineTextAlign } from './inline-text-editor-utils';
-import { textLineBleedPadding, textOverflowOffset } from './text-layout';
+import { resolveKonvaTextStyle } from './resolve-konva-text-style';
+import { computeAutoFitFontSize, textLineBleedPadding, textOverflowOffset } from './text-layout';
 
 interface InlineTextEditorProps {
   editingTextId: string;
@@ -54,8 +55,19 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
 
   if (!element || !payload) return null;
 
-  const fontSize = payload.fontSize * sceneScale;
   const lineHeight = payload.lineHeight ?? 1.25;
+  const baseFontSize = payload.autoFit
+    ? computeAutoFitFontSize({
+        text: draft,
+        width: element.width,
+        height: element.height,
+        fontFamily: payload.fontFamily || 'sans-serif',
+        fontStyle: resolveKonvaTextStyle(payload.weight, payload.italic),
+        lineHeight,
+        maxFontSize: payload.autoFitMaxFontSize ?? payload.fontSize,
+      })
+    : payload.fontSize;
+  const fontSize = baseFontSize * sceneScale;
   const bleedPadding = textLineBleedPadding(fontSize, lineHeight);
   const elementHeight = element.height * sceneScale;
   const left = sceneOffsetX + element.x * sceneScale;
@@ -73,7 +85,11 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     fontStyle,
     fontFamily: payload.fontFamily || 'sans-serif',
   });
-  const frameContentHeight = Math.max(elementHeight, contentHeight);
+  // When autoFit is on, the font is sized to fit within elementHeight, so the
+  // frame must stay locked to elementHeight. Otherwise transient measurement
+  // overshoot (e.g. crossing a wrap boundary) would let the frame grow and
+  // then snap back as the font recomputes — visible as a typing-time jitter.
+  const frameContentHeight = payload.autoFit ? elementHeight : Math.max(elementHeight, contentHeight);
   const top = sceneOffsetY + element.y * sceneScale + textOverflowOffset(verticalAlign, elementHeight, frameContentHeight) - bleedPadding;
   const height = frameContentHeight + bleedPadding * 2;
   const innerHeight = Math.max(height - 4, 0);

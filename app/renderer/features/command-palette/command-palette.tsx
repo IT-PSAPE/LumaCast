@@ -1,4 +1,4 @@
-import { Folder, Layers2, LayoutTemplate, ListMusic, Monitor, Search } from 'lucide-react';
+import { Folder, Layers2, LayoutTemplate, ListMusic, Monitor, Search, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getDeckItemLabel } from '@core/deck-items';
 import type { Id, Library, LibraryPlaylistBundle, MediaAsset, Overlay, Playlist, Stage, Theme } from '@core/types';
@@ -16,6 +16,7 @@ import {
 } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { cn } from '@renderer/utils/cn';
 import { useCommandPalette } from './command-palette-context';
+import { useAutomation } from '../automation/automation-context';
 
 type ResultKind =
   | 'library'
@@ -25,7 +26,8 @@ type ResultKind =
   | 'theme'
   | 'stage'
   | 'media'
-  | 'audio';
+  | 'audio'
+  | 'macro';
 
 interface ResultItem {
   id: string;
@@ -45,6 +47,7 @@ const SECTION_ORDER: Array<{ kind: ResultKind; title: string }> = [
   { kind: 'stage', title: 'Stages' },
   { kind: 'media', title: 'Media' },
   { kind: 'audio', title: 'Audio' },
+  { kind: 'macro', title: 'Macros' },
 ];
 
 const SECTION_BY_KIND = new Map(SECTION_ORDER.map((entry, index) => [entry.kind, { ...entry, order: index }]));
@@ -63,6 +66,7 @@ export function CommandPalette() {
   const { setMediaLayerAsset } = usePresentationMediaLayer();
   const video = useVideo();
   const audio = useAudio();
+  const { state: { macros }, actions: { runMacro } } = useAutomation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -192,6 +196,17 @@ export function CommandPalette() {
         },
       }));
 
+    const macroResults: ResultItem[] = macros.map((macro) => ({
+      id: `macro:${macro.id}`,
+      kind: 'macro',
+      label: macro.name,
+      subtitle: macro.description || `Macro · ${macro.cues.length} cues`,
+      icon: <Workflow size={16} />,
+      onSelect: () => {
+        void runMacro(macro.id);
+      },
+    }));
+
     const all: ResultItem[] = [
       ...libraryItems,
       ...playlistItems,
@@ -201,6 +216,7 @@ export function CommandPalette() {
       ...stageResults,
       ...mediaResults,
       ...audioResults,
+      ...macroResults,
     ];
 
     const trimmed = query.trim().toLowerCase();
@@ -214,7 +230,7 @@ export function CommandPalette() {
       .sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label))
       .map(({ item }) => item)
       .slice(0, RESULT_LIMIT);
-  }, [snapshot, deckItems, mediaAssets, overlayEditor, themeEditor, stageEditor, audio, setMediaLayerAsset, video, query, navigation, workbenchActions]);
+  }, [snapshot, deckItems, mediaAssets, overlayEditor, themeEditor, stageEditor, audio, macros, runMacro, setMediaLayerAsset, video, query, navigation, workbenchActions]);
 
   const sectionedResults = useMemo(() => groupBySection(results), [results]);
 

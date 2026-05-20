@@ -2,7 +2,7 @@ import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactN
 import { cn } from '@renderer/utils/cn';
 import { cv } from '@renderer/utils/cv';
 
-const selectableRowStyles = cv({
+export const selectableRowStyles = cv({
   base: 'flex h-7 w-full items-center gap-2 rounded px-1.5 text-left transition-colors',
   variants: {
     selected: {

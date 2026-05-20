@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from 'react';
-import { overlayToLayerElements } from '@core/presentation-layers';
+import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@core/presentation-layers';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Thumbnail } from '../../components/display/thumbnail';
@@ -123,7 +123,7 @@ function OverlayListItemBody({
   const { actions } = useOverlayEditorScreen();
   const { duplicateOverlay, deleteOverlay, requestNameFocus } = useOverlayEditor();
   const confirm = useConfirm();
-  const scene = buildRenderScene(null, overlayToLayerElements(overlay));
+  const scene = buildRenderScene({ width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null }, overlayToLayerElements(overlay));
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
 

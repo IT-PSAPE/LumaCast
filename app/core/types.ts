@@ -67,8 +67,33 @@ export type DeckItem = Presentation | Lyric | Talk;
 
 export type SlideKind = 'presentation' | 'lyric' | 'talk' | 'theme' | 'overlay' | 'stage';
 
+export type SlideBackgroundFit = 'cover' | 'contain' | 'fill';
+
+export interface GradientStop {
+  color: string;
+  position: number; // 0–100
+}
+
+export interface SlideGradient {
+  kind: 'linear' | 'radial';
+  angle?: number; // degrees, linear only (measured from +x axis)
+  stops: GradientStop[]; // at least 2, ordered by position
+}
+
+export type SlideBackground =
+  | { type: 'color'; color: string }
+  | { type: 'gradient'; gradient: SlideGradient }
+  | { type: 'image'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit }
+  | { type: 'video'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit };
+
+export interface SlideBackgroundUpdateInput {
+  slideId: Id;
+  background: SlideBackground | null;
+}
+
 export interface Slide {
   id: Id;
+  background?: SlideBackground | null;
   // Exactly one of the parent FKs is set; the rest are null.
   presentationId: Id | null;
   lyricId: Id | null;
@@ -128,6 +153,7 @@ export interface TextBinding {
 }
 
 export interface ElementVisualPayload {
+  name?: string;
   visible?: boolean;
   locked?: boolean;
   flipX?: boolean;
@@ -153,6 +179,8 @@ export interface TextElementPayload extends ElementVisualPayload {
   color: string;
   alignment: TextHorizontalAlign;
   verticalAlign?: TextVerticalAlign;
+  autoFit?: boolean;
+  autoFitMaxFontSize?: number;
   caseTransform?: TextCaseTransform;
   italic?: boolean;
   underline?: boolean;
@@ -231,6 +259,7 @@ export interface Overlay {
   slideId: Id;
   name: string;
   enabled: boolean;
+  background?: SlideBackground | null;
   elements: SlideElement[];
   animation: OverlayAnimation;
   collectionId: Id;
@@ -245,6 +274,7 @@ export interface Theme {
   kind: ThemeKind;
   width: number;
   height: number;
+  background?: SlideBackground | null;
   elements: SlideElement[];
   collectionId: Id;
   order: number;
@@ -258,6 +288,7 @@ export interface Stage {
   name: string;
   width: number;
   height: number;
+  background?: SlideBackground | null;
   elements: SlideElement[];
   collectionId: Id;
   order: number;
@@ -274,7 +305,7 @@ export interface TalkScriptBlock {
   updatedAt: string;
 }
 
-export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage';
+export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage' | 'macro';
 
 export interface Collection {
   id: Id;
@@ -314,7 +345,8 @@ export type CollectionItemType =
   | 'media_asset'
   | 'theme'
   | 'overlay'
-  | 'stage';
+  | 'stage'
+  | 'macro';
 
 export interface CollectionAssignmentInput {
   itemType: CollectionItemType;
@@ -514,6 +546,117 @@ export interface LibraryPlaylistBundle {
   playlists: PlaylistTree[];
 }
 
+export type CueFailurePolicy = 'continue' | 'abort';
+export type CueClearLayer = 'media' | 'video' | 'content' | 'overlay';
+export type CueKind =
+  | 'overlay.activate'
+  | 'overlay.clear'
+  | 'overlay.clearAll'
+  | 'mediaLayer.set'
+  | 'video.arm'
+  | 'video.clear'
+  | 'audio.arm'
+  | 'audio.clear'
+  | 'stage.set'
+  | 'stage.clear'
+  | 'layer.clear'
+  | 'layer.clearAll'
+  | 'flow.wait';
+export type TriggerType = 'slide.take' | 'slide.activate' | 'app.startup';
+export type TriggerBindingTargetType = 'cue' | 'macro';
+
+export type CuePayload =
+  | { overlayId: Id }
+  | { assetId: Id }
+  | { stageId: Id }
+  | { layer: CueClearLayer }
+  | { ms: number }
+  | Record<string, never>;
+
+export interface Cue {
+  id: Id;
+  kind: CueKind;
+  payload: CuePayload;
+  failurePolicy: CueFailurePolicy;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MacroCue {
+  id: Id;
+  macroId: Id;
+  cueId: Id;
+  cue: Cue;
+  orderIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Macro {
+  id: Id;
+  name: string;
+  description: string;
+  collectionId: Id;
+  cues: MacroCue[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TriggerBinding {
+  id: Id;
+  triggerType: TriggerType;
+  sourceId: Id | null;
+  targetType: TriggerBindingTargetType;
+  targetId: Id;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CueCreateInput {
+  kind: CueKind;
+  payload: CuePayload;
+  failurePolicy?: CueFailurePolicy;
+}
+
+export interface CueUpdateInput {
+  id: Id;
+  kind?: CueKind;
+  payload?: CuePayload;
+  failurePolicy?: CueFailurePolicy;
+}
+
+export interface MacroCreateInput {
+  name: string;
+  description?: string;
+  collectionId?: Id;
+  cues?: Array<{
+    cueId: Id;
+    orderIndex: number;
+  }>;
+}
+
+export interface MacroUpdateInput {
+  id: Id;
+  name?: string;
+  description?: string;
+  cues?: Array<{
+    id?: Id;
+    cueId: Id;
+    orderIndex: number;
+  }>;
+}
+
+export interface TriggerBindingCreateInput {
+  triggerType: TriggerType;
+  sourceId: Id | null;
+  targetType: TriggerBindingTargetType;
+  targetId: Id;
+  config?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
 export interface AppSnapshot {
   libraries: Library[];
   libraryBundles: LibraryPlaylistBundle[];
@@ -528,6 +671,9 @@ export interface AppSnapshot {
   themes: Theme[];
   stages: Stage[];
   collections: Collection[];
+  cues: Cue[];
+  macros: Macro[];
+  triggerBindings: TriggerBinding[];
 }
 
 export interface PlaybackState {

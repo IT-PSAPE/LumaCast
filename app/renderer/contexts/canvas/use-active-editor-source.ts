@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
-import { overlayToLayerElements } from '@core/presentation-layers';
+import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@core/presentation-layers';
 import type { SlideElement } from '@core/types';
 import { useNavigation } from '../navigation-context';
 import { useSlides } from '../slide-context';
 import { useOverlayEditor, useDeckEditor, useStageEditor, useThemeEditor } from '../asset-editor/asset-editor-context';
+import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
 import type { ActiveEditorSource, EditorCreateCapabilities } from './editor-source';
 
@@ -23,6 +24,7 @@ export function useActiveEditorSource(): ActiveEditorSource {
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
   const { currentTheme, replaceThemeElements } = useThemeEditor();
   const { currentStage, replaceStageElements } = useStageEditor();
+  const { themesById, overlaysById, stagesById } = useProjectContent();
   const { state: { workbenchMode } } = useWorkbench();
 
   return useMemo<ActiveEditorSource>(() => {
@@ -65,7 +67,9 @@ export function useActiveEditorSource(): ActiveEditorSource {
         // editor needs the full stage as its frame — using the overlay's own
         // width/height instead would shrink the canvas to the overlay's
         // bounding box and break the editing view.
-        frame: null,
+        frame: currentOverlay
+          ? { width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlaysById.get(currentOverlay.id)?.background ?? null }
+          : null,
         elements: currentOverlay ? overlayToLayerElements(currentOverlay) : [],
         replaceElements: (elements) => {
           if (!currentOverlay) return;
@@ -91,7 +95,9 @@ export function useActiveEditorSource(): ActiveEditorSource {
         mode: workbenchMode,
         entityId: currentTheme?.id ?? null,
         hasSource: Boolean(currentTheme),
-        frame: currentTheme ? { width: currentTheme.width, height: currentTheme.height } : null,
+        frame: currentTheme
+          ? { width: currentTheme.width, height: currentTheme.height, background: themesById.get(currentTheme.id)?.background ?? null }
+          : null,
         elements: currentTheme?.elements ?? [],
         replaceElements: (elements) => {
           replaceThemeElements(elements);
@@ -117,7 +123,9 @@ export function useActiveEditorSource(): ActiveEditorSource {
         mode: workbenchMode,
         entityId: currentStage?.id ?? null,
         hasSource: Boolean(currentStage),
-        frame: currentStage ? { width: currentStage.width, height: currentStage.height } : null,
+        frame: currentStage
+          ? { width: currentStage.width, height: currentStage.height, background: stagesById.get(currentStage.id)?.background ?? null }
+          : null,
         elements: currentStage?.elements ?? [],
         replaceElements: (elements) => {
           replaceStageElements(elements);
@@ -156,6 +164,9 @@ export function useActiveEditorSource(): ActiveEditorSource {
     currentSlide,
     currentStage,
     currentTheme,
+    themesById,
+    overlaysById,
+    stagesById,
     getSlideElements,
     replaceSlideElements,
     replaceStageElements,

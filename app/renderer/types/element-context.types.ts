@@ -26,6 +26,8 @@ export interface ElementContextValue {
   deleteSelected: () => Promise<void>;
   toggleElementVisibility: (id: Id, visible: boolean) => Promise<void>;
   toggleElementLock: (id: Id, locked: boolean) => Promise<void>;
+  renameElement: (id: Id, name: string) => Promise<void>;
+  reorderElements: (idsBackToFront: Id[]) => Promise<void>;
   nudgeSelection: (dx: number, dy: number) => Promise<void>;
   copySelection: () => void;
   cutSelection: () => Promise<void>;

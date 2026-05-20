@@ -184,7 +184,7 @@ jobs:
             dist/*.dmg
             dist/*.exe
             dist/*.zip
-            dist/beta*.yml
+            dist/latest*.yml
 
   release:
     name: Publish pre-release

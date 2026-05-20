@@ -127,7 +127,7 @@ function ThemeTileImpl(props: ThemeItemProps) {
 
 function ThemeTileBody({ theme, index, onApply, collectionsApi }: ThemeItemProps) {
   const { renameTheme } = useThemeEditor();
-  const scene = useMemo(() => buildRenderScene(null, theme.elements), [theme.elements]);
+  const scene = useMemo(() => buildRenderScene({ width: theme.width, height: theme.height, background: theme.background ?? null }, theme.elements), [theme.background, theme.elements, theme.height, theme.width]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
 

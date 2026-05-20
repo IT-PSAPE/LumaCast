@@ -1,5 +1,6 @@
 import {
   createContext,
+  forwardRef,
   useCallback,
   useContext,
   useEffect,
@@ -18,8 +19,13 @@ import {
 import { ChevronRight } from 'lucide-react';
 import { cn } from '@renderer/utils/cn';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
+import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { OverlayPortal } from './overlay-primitives';
 import { Popover } from './popover';
+
+// Hide the native scrollbar while keeping wheel/trackpad scrolling. Used on
+// the menu flyouts where we want overflow scrolling without a visible thumb.
+const HIDE_NATIVE_SCROLLBAR = '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden';
 
 const DEFAULT_LONG_PRESS_DELAY = 500;
 const DEFAULT_VIEWPORT_PADDING = 8;
@@ -444,7 +450,8 @@ function Menu({ children, className, ...props }: MenuProps) {
       role="menu"
       {...props}
       className={cn(
-        'min-w-30 max-h-60 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg',
+        'min-w-30 max-w-48 max-h-80 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg',
+        HIDE_NATIVE_SCROLLBAR,
         className,
       )}
     >
@@ -457,21 +464,32 @@ function Menu({ children, className, ...props }: MenuProps) {
 
 type ContextMenuItemVariant = 'default' | 'destructive';
 
-interface ItemProps {
+interface ItemProps extends Omit<HTMLAttributes<HTMLButtonElement>, 'onSelect'> {
   children: ReactNode;
   onSelect?: () => void;
   disabled?: boolean;
-  className?: string;
   variant?: ContextMenuItemVariant;
+  closeOnSelect?: boolean;
 }
 
-function Item({ children, onSelect, disabled = false, className, variant = 'default' }: ItemProps) {
+const Item = forwardRef<HTMLButtonElement, ItemProps>(function Item({
+  children,
+  className,
+  closeOnSelect = true,
+  disabled = false,
+  onClick,
+  onSelect,
+  variant = 'default',
+  ...rest
+}, ref) {
   const { actions } = useContextMenu();
 
-  function handleClick() {
+  function handleClick(event: ReactMouseEvent<HTMLButtonElement>) {
     if (disabled) return;
+    onClick?.(event);
+    if (event.defaultPrevented) return;
     onSelect?.();
-    actions.close();
+    if (closeOnSelect) actions.close();
   }
 
   const variantClasses = variant === 'destructive'
@@ -480,15 +498,17 @@ function Item({ children, onSelect, disabled = false, className, variant = 'defa
 
   return (
     <button
+      // Prevent the document pointerdown from closing the menu before the click fires.
+      onPointerDown={(event) => event.preventDefault()}
+      {...rest}
+      ref={ref}
       type="button"
       role="menuitem"
       data-context-menu-item=""
       data-disabled={disabled || undefined}
       onClick={handleClick}
-      // Prevent the document pointerdown from closing the menu before the click fires.
-      onPointerDown={(event) => event.preventDefault()}
       className={cn(
-        'flex w-full select-none gap-2 rounded px-2 py-1.5 text-left text-sm',
+        'flex w-full min-w-0 select-none items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm',
         variantClasses,
         disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
         className,
@@ -497,7 +517,7 @@ function Item({ children, onSelect, disabled = false, className, variant = 'defa
       {children}
     </button>
   );
-}
+});
 
 // ─── Separator ───────────────────────────────────────────
 
@@ -567,43 +587,44 @@ function Submenu({ label, children, disabled = false, className }: SubmenuProps)
 
   return (
     <>
-      <button
+      <Item
         ref={triggerRef}
-        type="button"
-        role="menuitem"
         aria-haspopup="menu"
         aria-expanded={open}
-        data-context-menu-item=""
-        data-disabled={disabled || undefined}
-        onPointerDown={(event) => event.preventDefault()}
+        disabled={disabled}
+        closeOnSelect={false}
         onMouseEnter={() => { cancelClose(); if (!disabled) setOpen(true); }}
         onMouseLeave={scheduleClose}
         onClick={handleTriggerClick}
         onKeyDown={handleTriggerKeyDown}
-        className={cn(
-          'flex w-full select-none items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-secondary hover:bg-tertiary',
-          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-          className,
-        )}
+        className={className}
       >
-        <span className="flex-1">{label}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
         <ChevronRight className="size-3.5 shrink-0 text-tertiary" />
-      </button>
+      </Item>
       <Popover
         anchor={triggerRef.current}
         open={open && !disabled}
         onClose={() => setOpen(false)}
         placement="right-start"
-        offset={4}
+        offset={6}
       >
         <div
           role="menu"
           data-context-menu-owned="true"
           onMouseEnter={cancelClose}
           onMouseLeave={scheduleClose}
-          className="min-w-30 max-h-60 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg"
+          className={cn(
+            'flex flex-col rounded-md border border-primary bg-primary shadow-lg p-1',
+          )}
         >
-          {children}
+          <ScrollArea.Root>
+            <ScrollArea.Viewport>
+              <div className="min-w-30 max-w-48 max-h-80">
+                {children}
+              </div>
+            </ScrollArea.Viewport>
+          </ScrollArea.Root>
         </div>
       </Popover>
     </>

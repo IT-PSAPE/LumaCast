@@ -3,7 +3,7 @@ import type { Id, Overlay } from '@core/types';
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useOverlayEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { usePresentationOverlayLayer } from '../../../contexts/playback/playback-context';
-import { overlayToLayerElements } from '@core/presentation-layers';
+import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@core/presentation-layers';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
@@ -93,7 +93,7 @@ function OverlayCardImpl(props: OverlayCardProps) {
 
 function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWorkbenchMode, collectionsApi }: OverlayCardProps) {
   const { updateOverlayDraft, deleteOverlay, duplicateOverlay } = useOverlayEditor();
-  const scene = useMemo(() => buildRenderScene(null, overlayToLayerElements(overlay)), [overlay]);
+  const scene = useMemo(() => buildRenderScene({ width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null }, overlayToLayerElements(overlay)), [overlay]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();

@@ -25,6 +25,8 @@ interface TextInspectorActions {
   handleFontFamilyChange: (value: string) => void;
   handleWeightChange: (value: string) => void;
   handleFontSizeChange: (value: string) => void;
+  handleAutoFitToggle: (enabled: boolean) => void;
+  handleMaxFontSizeChange: (value: string) => void;
   handleLineHeightChange: (value: string) => void;
   handleTextColorChange: (value: string) => void;
   handleCaseChange: (value: string) => void;
@@ -59,6 +61,11 @@ export function useTextInspector(): TextInspectorResult {
   function handleFontFamilyChange(value: string) { updateText({ fontFamily: value }); }
   function handleWeightChange(value: string) { updateText({ weight: value }); }
   function handleFontSizeChange(value: string) { updateText({ fontSize: Math.max(1, parseNumber(value, formatting.fontSize)) }); }
+  function handleAutoFitToggle(enabled: boolean) {
+    if (enabled) updateText({ autoFit: true, autoFitMaxFontSize: textPayload.autoFitMaxFontSize ?? formatting.fontSize });
+    else updateText({ autoFit: false });
+  }
+  function handleMaxFontSizeChange(value: string) { updateText({ autoFitMaxFontSize: Math.max(1, parseNumber(value, formatting.autoFitMaxFontSize)) }); }
   function handleLineHeightChange(value: string) { updateText({ lineHeight: Math.max(0.6, parseNumber(value, formatting.lineHeight)) }); }
   function handleTextColorChange(value: string) { updateTextVisual({ color: value }); }
   function handleCaseChange(value: string) { updateText({ caseTransform: value as TextCaseTransform }); }
@@ -110,6 +117,8 @@ export function useTextInspector(): TextInspectorResult {
       handleFontFamilyChange,
       handleWeightChange,
       handleFontSizeChange,
+      handleAutoFitToggle,
+      handleMaxFontSizeChange,
       handleLineHeightChange,
       handleTextColorChange,
       handleCaseChange,

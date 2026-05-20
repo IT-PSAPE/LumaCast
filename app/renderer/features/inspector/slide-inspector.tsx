@@ -99,9 +99,6 @@ export function SlideInspector() {
     isOverlayEdit && currentOverlay ? (
       <>
         <Section.Root>
-          <Section.Header>
-            <span>Overlay</span>
-          </Section.Header>
           <Section.Body>
             <FieldInput
               type="text"

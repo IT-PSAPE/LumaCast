@@ -81,6 +81,7 @@ export function AppToolbar() {
           <SegmentedControl.Label value="overlay-editor">Overlay</SegmentedControl.Label>
           <SegmentedControl.Label value="theme-editor">Themes</SegmentedControl.Label>
           <SegmentedControl.Label value="stage-editor">Stage</SegmentedControl.Label>
+          <SegmentedControl.Label value="macro-editor">Macros</SegmentedControl.Label>
         </SegmentedControl>
       </div>
 
@@ -153,7 +154,7 @@ function renderPanelToggleItem(toggle: PanelToggleButton) {
 }
 
 function isWorkbenchMode(value: string): value is WorkbenchMode {
-  return value === 'show' || value === 'deck-editor' || value === 'overlay-editor' || value === 'theme-editor' || value === 'stage-editor' || value === 'settings';
+  return value === 'show' || value === 'deck-editor' || value === 'overlay-editor' || value === 'theme-editor' || value === 'stage-editor' || value === 'macro-editor' || value === 'settings';
 }
 
 function panelToggleIcon(id: PanelToggleButton['id']) {

@@ -23,6 +23,19 @@ function execEditableCommand(command: 'undo' | 'redo' | 'cut' | 'copy' | 'paste'
   return document.execCommand(command);
 }
 
+// Copy is broader than the other edit commands: a plain DOM selection (e.g.
+// selecting label text in a panel) is copyable even when nothing editable has
+// focus. Run execCommand directly so that selection gets copied; if nothing is
+// selected at all, execCommand returns false and we fall through to the
+// app-level element copy.
+function execCopyForAnySelection(): boolean {
+  try {
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  }
+}
+
 export function useAppMenu(): void {
   const [editableVersion, setEditableVersion] = useState(0);
   const cast = useCast();
@@ -55,7 +68,11 @@ export function useAppMenu(): void {
     canUndo: cast.canUndo || (isEditWorkbench && hasElementSelection) || isEditableTargetFocused,
     canRedo: cast.canRedo || isEditableTargetFocused,
     canCut: isEditableTargetFocused || (isEditWorkbench && hasElementSelection),
-    canCopy: isEditableTargetFocused || (isEditWorkbench && hasElementSelection),
+    // Always allow Copy: Electron disables menu accelerators when this is
+    // false, so gating it on focus would suppress Cmd+C for plain DOM text
+    // selections (e.g. selecting text in a panel label). The handler decides
+    // what to copy at fire time.
+    canCopy: true,
     canPaste: isEditableTargetFocused || (isEditWorkbench && hasClipboardContent()),
     canDuplicate: isEditWorkbench && hasElementSelection,
     canDelete: isEditableTargetFocused || (isEditWorkbench && (hasElementSelection || slides.currentSlide !== null)),
@@ -179,7 +196,7 @@ export function useAppMenu(): void {
         await elements.cutSelection();
         return;
       case 'edit.copy':
-        if (execEditableCommand('copy')) return;
+        if (execCopyForAnySelection()) return;
         elements.copySelection();
         return;
       case 'edit.paste':

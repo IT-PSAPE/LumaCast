@@ -126,7 +126,7 @@ function ThemeListItemBody({
   const { actions } = useThemeEditorScreen();
   const { duplicateTheme, deleteTheme, requestNameFocus } = useThemeEditor();
   const confirm = useConfirm();
-  const scene = useMemo(() => buildRenderScene(null, theme.elements), [theme.elements]);
+  const scene = useMemo(() => buildRenderScene({ width: theme.width, height: theme.height, background: theme.background ?? null }, theme.elements), [theme.background, theme.elements, theme.height, theme.width]);
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
 

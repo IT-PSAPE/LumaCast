@@ -17,7 +17,10 @@ export function useStageScene(): RenderScene {
 
   return useMemo(() => {
     const stage = currentStageId ? stagesById.get(currentStageId) ?? null : null;
-    return buildRenderScene(null, stage?.elements ?? []);
+    return buildRenderScene(
+      stage ? { width: stage.width, height: stage.height, background: stage.background ?? null } : null,
+      stage?.elements ?? [],
+    );
   }, [currentStageId, stagesById]);
 }
 

@@ -39,6 +39,8 @@ export interface TextFormattingState {
   verticalAlign: TextVerticalAlign;
   caseTransform: TextCaseTransform;
   lineHeight: number;
+  autoFit: boolean;
+  autoFitMaxFontSize: number;
 }
 
 export interface TextVisualState {
@@ -147,6 +149,8 @@ export function readTextFormatting(payload: TextElementPayload): TextFormattingS
     verticalAlign: payload.verticalAlign ?? 'middle',
     caseTransform: payload.caseTransform ?? 'none',
     lineHeight: payload.lineHeight ?? 1.25,
+    autoFit: payload.autoFit ?? false,
+    autoFitMaxFontSize: payload.autoFitMaxFontSize ?? payload.fontSize,
   };
 }
 

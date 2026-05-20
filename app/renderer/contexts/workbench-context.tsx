@@ -90,7 +90,7 @@ const OVERLAY_DEFAULTS_STORAGE_KEY = 'lumacast.overlay-defaults.v1';
 const PROGRAM_MODE_STORAGE_KEY = 'lumacast.program-mode.v1';
 const PROGRAM_SINGLE_SURFACE_STORAGE_KEY = 'lumacast.program-single-surface.v1';
 const PROGRAM_GRID_DENSITY_STORAGE_KEY = 'lumacast.program-grid-density.v1';
-const VALID_MODES = new Set<WorkbenchMode>(['show', 'deck-editor', 'overlay-editor', 'theme-editor', 'stage-editor', 'settings']);
+const VALID_MODES = new Set<WorkbenchMode>(['show', 'deck-editor', 'overlay-editor', 'theme-editor', 'stage-editor', 'macro-editor', 'settings']);
 const DEFAULT_OVERLAY_DEFAULTS: OverlayDefaultsState = {
   animationKind: 'dissolve',
   durationMs: 400,

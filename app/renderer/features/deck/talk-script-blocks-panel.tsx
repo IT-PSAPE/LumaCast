@@ -116,10 +116,8 @@ export function TalkScriptBlocksPanel({ slideId }: TalkScriptBlocksPanelProps) {
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-primary px-3">
         <Label.xs className="mr-auto">Script blocks</Label.xs>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-        <div className="mx-auto flex w-full max-w-3xl justify-center">
-          <DocEditor key={slideId} initialBlocks={initialBlocks} onChange={handleChange} />
-        </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        <DocEditor key={slideId} initialBlocks={initialBlocks} onChange={handleChange} />
       </div>
     </div>
   );
