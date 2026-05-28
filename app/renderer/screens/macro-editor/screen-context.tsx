@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Cue, CueFailurePolicy, CueKind, CuePayload, Id, Macro, MacroCue } from '@core/types';
+import type { Cue, CueFailurePolicy, CueKind, CuePayload, Id, LifecycleAction, LifecycleTarget, Macro, MacroCue } from '@core/types';
 import { useAutomation } from '@renderer/features/automation/automation-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
@@ -16,6 +16,8 @@ export interface MacroEditorCueRow {
   draftKind: CueKind | null;
   draftPayload: CuePayload | null;
   draftFailurePolicy: CueFailurePolicy;
+  draftDelayBeforeMs: number;
+  draftDelayAfterMs: number;
 }
 
 // Local pending state for the macro currently open in the editor. While the
@@ -49,6 +51,7 @@ interface MacroEditorScreenContextValue {
     updateRowKind: (rowId: string, kind: CueKind) => void;
     updateRowPayload: (rowId: string, payload: CuePayload) => void;
     updateRowFailurePolicy: (rowId: string, policy: CueFailurePolicy) => void;
+    updateRowDelays: (rowId: string, delays: { before?: number; after?: number }) => void;
     updateMacroName: (name: string) => void;
     updateMacroDescription: (description: string) => void;
     saveChanges: () => Promise<void>;
@@ -68,16 +71,19 @@ function rowsFromMacro(macro: Macro): MacroEditorCueRow[] {
       draftKind: null,
       draftPayload: null,
       draftFailurePolicy: link.cue.failurePolicy,
+      draftDelayBeforeMs: link.delayBeforeMs,
+      draftDelayAfterMs: link.delayAfterMs,
     }));
 }
 
 // Serialize a row to a comparison key. We don't care about localId — only the
 // observable shape of the saved cue + its position.
 function rowSignature(row: MacroEditorCueRow, index: number): string {
+  const delays = `${row.draftDelayBeforeMs}|${row.draftDelayAfterMs}`;
   if (row.link) {
-    return `${index}|link|${row.link.cue.kind}|${JSON.stringify(row.link.cue.payload)}|${row.link.cue.failurePolicy}`;
+    return `${index}|link|${row.link.cue.kind}|${JSON.stringify(row.link.cue.payload)}|${row.link.cue.failurePolicy}|${delays}`;
   }
-  return `${index}|draft|${row.draftKind ?? ''}|${JSON.stringify(row.draftPayload ?? null)}|${row.draftFailurePolicy}`;
+  return `${index}|draft|${row.draftKind ?? ''}|${JSON.stringify(row.draftPayload ?? null)}|${row.draftFailurePolicy}|${delays}`;
 }
 
 function rowsSignature(rows: MacroEditorCueRow[]): string {
@@ -157,18 +163,21 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
         // 1. Resolve every row to a (cueId, orderIndex). Drafts that aren't
         //    complete yet are skipped — they stay in-memory and remain
         //    "pending" until the user fills them in.
-        const cuePayloads: Array<{ id?: Id; cueId: Id; orderIndex: number }> = [];
+        // Delays are stored on the macro step (per-occurrence), so they travel
+        // with the cue link straight into setMacroCues — no separate write, and
+        // no risk of mutating a cue shared by another macro.
+        const cuePayloads: Array<{ id?: Id; cueId: Id; orderIndex: number; delayBeforeMs: number; delayAfterMs: number }> = [];
         for (let i = 0; i < draftToSave.rows.length; i++) {
           const row = draftToSave.rows[i];
           if (row.link) {
-            cuePayloads.push({ id: row.link.id, cueId: row.link.cueId, orderIndex: i });
+            cuePayloads.push({ id: row.link.id, cueId: row.link.cueId, orderIndex: i, delayBeforeMs: row.draftDelayBeforeMs, delayAfterMs: row.draftDelayAfterMs });
             continue;
           }
           const draftKind = row.draftKind;
           const draftPayload = row.draftPayload;
           if (!draftKind || !draftPayload || !hasCompletePayload(draftKind, draftPayload)) continue;
           const cue = await ensureCue({ kind: draftKind, payload: draftPayload, failurePolicy: row.draftFailurePolicy });
-          cuePayloads.push({ cueId: cue.id, orderIndex: cuePayloads.length });
+          cuePayloads.push({ cueId: cue.id, orderIndex: cuePayloads.length, delayBeforeMs: row.draftDelayBeforeMs, delayAfterMs: row.draftDelayAfterMs });
         }
 
         // 2. Push name/description first (cheap), then cues. updateMacro
@@ -242,6 +251,8 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
         draftKind: null,
         draftPayload: null,
         draftFailurePolicy: 'continue',
+        draftDelayBeforeMs: 0,
+        draftDelayAfterMs: 0,
       }],
     }));
     setSelectedRowId(localId);
@@ -328,6 +339,18 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
     }));
   }, [mutateDraft]);
 
+  const updateRowDelays = useCallback((rowId: string, delays: { before?: number; after?: number }) => {
+    mutateDraft((current) => ({
+      ...current,
+      rows: current.rows.map((row) => {
+        if (row.localId !== rowId) return row;
+        const before = delays.before !== undefined ? Math.max(0, Math.round(delays.before)) : row.draftDelayBeforeMs;
+        const after = delays.after !== undefined ? Math.max(0, Math.round(delays.after)) : row.draftDelayAfterMs;
+        return { ...row, draftDelayBeforeMs: before, draftDelayAfterMs: after };
+      }),
+    }));
+  }, [mutateDraft]);
+
   const updateMacroName = useCallback((name: string) => {
     mutateDraft((current) => ({ ...current, name }));
   }, [mutateDraft]);
@@ -369,6 +392,7 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
       updateRowKind,
       updateRowPayload,
       updateRowFailurePolicy,
+      updateRowDelays,
       updateMacroName,
       updateMacroDescription,
       saveChanges,
@@ -377,7 +401,7 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
   }), [
     addCueDraft, currentMacro, deleteCurrentMacro, deleteRow, hasPendingChanges, isPushingChanges,
     macros, pendingDescription, pendingName, reorderRows, rows, saveChanges, selectMacro, selectRow,
-    selectedRowId, updateMacroDescription, updateMacroName, updateRowFailurePolicy, updateRowKind,
+    selectedRowId, updateMacroDescription, updateMacroName, updateRowDelays, updateRowFailurePolicy, updateRowKind,
     updateRowPayload,
   ]);
 
@@ -403,8 +427,12 @@ export function hasCompletePayload(kind: CueKind, payload: CuePayload | null): p
       return typeof (payload as { stageId?: Id }).stageId === 'string' && (payload as { stageId: string }).stageId.length > 0;
     case 'layer.clear':
       return typeof (payload as { layer?: string }).layer === 'string';
-    case 'flow.wait':
-      return typeof (payload as { ms?: number }).ms === 'number';
+    case 'flow.lifecycle': {
+      const lifecycle = payload as { action?: LifecycleAction; target?: LifecycleTarget };
+      return (lifecycle.action === 'cancel' || lifecycle.action === 'revert')
+        && typeof lifecycle.target === 'string'
+        && lifecycle.target.length > 0;
+    }
     default:
       return true;
   }
@@ -424,7 +452,7 @@ export function defaultPayloadForKind(
   if (kind === 'audio.arm') return { assetId: context.mediaAssets.find((asset) => asset.type === 'audio')?.id ?? '' };
   if (kind === 'stage.set') return { stageId: context.stages[0]?.id ?? '' };
   if (kind === 'layer.clear') return { layer: 'media' };
-  if (kind === 'flow.wait') return { ms: 500 };
+  if (kind === 'flow.lifecycle') return { action: 'cancel', target: '*' };
   return {} as CuePayload;
 }
 
