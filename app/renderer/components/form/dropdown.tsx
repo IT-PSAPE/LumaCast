@@ -8,6 +8,8 @@ interface DropdownContextValue {
   open: boolean;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   panelRef: React.RefObject<HTMLDivElement | null>;
+  // Trigger width captured when the menu opens, so the panel can match it.
+  triggerWidth: number | undefined;
   onOpen: () => void;
   onClose: () => void;
   handleKeyDown: (event: React.KeyboardEvent) => void;
@@ -31,6 +33,7 @@ interface RootProps {
 function Root({ className, children }: RootProps) {
   const [open, setOpen] = useState(false);
   const [typeAhead, setTypeAhead] = useState('');
+  const [triggerWidth, setTriggerWidth] = useState<number | undefined>(undefined);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const highlightedRef = useRef(-1);
@@ -54,6 +57,8 @@ function Root({ className, children }: RootProps) {
   }
 
   const handleOpen = useCallback(() => {
+    // Snapshot the trigger's width so the panel can size to match it.
+    setTriggerWidth(triggerRef.current?.offsetWidth);
     setOpen(true);
     highlightedRef.current = -1;
   }, []);
@@ -143,10 +148,11 @@ function Root({ className, children }: RootProps) {
     open,
     triggerRef,
     panelRef,
+    triggerWidth,
     onOpen: handleOpen,
     onClose: handleClose,
     handleKeyDown,
-  }), [open, handleOpen, handleClose, handleKeyDown]);
+  }), [open, triggerWidth, handleOpen, handleClose, handleKeyDown]);
 
   return (
     <DropdownContext.Provider value={ctx}>
@@ -211,8 +217,10 @@ function Panel({ children, className, placement }: PanelProps) {
         ref={ctx.panelRef}
         role="menu"
         onKeyDown={ctx.handleKeyDown}
+        // Match the trigger's width. The `min-w-30` floor means a narrow trigger
+        // still gets a usable panel: the used width is max(triggerWidth, 7.5rem).
+        style={{ width: ctx.triggerWidth }}
         className={cn('min-w-30 rounded-md border border-primary bg-primary shadow-lg max-h-60 overflow-y-auto p-1', className)}
-      // style={{ minWidth: ctx.triggerRef.current?.offsetWidth }}
       >
         {children}
       </div>
