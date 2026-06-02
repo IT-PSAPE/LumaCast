@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { Film, Image, Layers2, RectangleHorizontal, Volume2, Workflow, XCircle } from 'lucide-react';
+import { Ban, Film, Image, Layers2, RectangleHorizontal, Volume2, Workflow, XCircle } from 'lucide-react';
 import type { Cue, Id, MediaAsset } from '@core/types';
 
 export const MACRO_ICON: LucideIcon = Workflow;
@@ -19,6 +19,8 @@ export function getCueIcon(cue: Cue, mediaAssets: Pick<MediaAsset, 'id' | 'type'
       const asset = mediaAssets.find((entry) => entry.id === id);
       return asset?.type === 'video' ? Film : Image;
     }
+    case 'flow.lifecycle':
+      return Ban;
     case 'overlay.clear':
     case 'overlay.clearAll':
     case 'stage.clear':
@@ -26,7 +28,6 @@ export function getCueIcon(cue: Cue, mediaAssets: Pick<MediaAsset, 'id' | 'type'
     case 'audio.clear':
     case 'layer.clear':
     case 'layer.clearAll':
-    case 'flow.wait':
     default:
       return XCircle;
   }

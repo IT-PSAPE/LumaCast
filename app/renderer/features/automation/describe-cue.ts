@@ -1,4 +1,4 @@
-import type { Cue, CueClearLayer, CueKind, Id, MediaAsset, Overlay, Stage } from '@core/types';
+import type { Cue, CueClearLayer, CueKind, Id, LifecycleAction, LifecycleTarget, MediaAsset, Overlay, Stage } from '@core/types';
 
 export const CUE_KIND_LABELS: Record<CueKind, string> = {
   'overlay.activate': 'Activate overlay',
@@ -13,13 +13,19 @@ export const CUE_KIND_LABELS: Record<CueKind, string> = {
   'stage.clear': 'Clear stage',
   'layer.clear': 'Clear layer',
   'layer.clearAll': 'Clear all layers',
-  'flow.wait': 'Wait',
+  'flow.lifecycle': 'Lifecycle control',
+};
+
+const LIFECYCLE_ACTION_LABELS: Record<LifecycleAction, string> = {
+  cancel: 'Cancel',
+  revert: 'Revert',
 };
 
 export interface DescribeCueContext {
   overlays: Pick<Overlay, 'id' | 'name'>[];
   stages: Pick<Stage, 'id' | 'name'>[];
   mediaAssets: Pick<MediaAsset, 'id' | 'name' | 'type'>[];
+  macros?: Array<{ id: Id; name: string }>;
 }
 
 // Build a human-readable label for a cue. Cues have no stored name — the
@@ -53,9 +59,13 @@ function describeTarget(cue: Cue, context: DescribeCueContext): string | null {
       const layer = (cue.payload as { layer?: CueClearLayer }).layer;
       return layer ?? null;
     }
-    case 'flow.wait': {
-      const ms = (cue.payload as { ms?: number }).ms;
-      return typeof ms === 'number' ? `${ms} ms` : null;
+    case 'flow.lifecycle': {
+      const { action, target } = cue.payload as { action?: LifecycleAction; target?: LifecycleTarget };
+      if (!action) return null;
+      const actionLabel = LIFECYCLE_ACTION_LABELS[action];
+      if (target === '*') return `${actionLabel} all active`;
+      const macroName = target ? findName(context.macros ?? [], target) : null;
+      return `${actionLabel} ${macroName ?? 'macro'}`;
     }
     default:
       return null;

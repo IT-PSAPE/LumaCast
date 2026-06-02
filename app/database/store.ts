@@ -55,6 +55,8 @@ import type {
   MacroCreateInput,
   MacroCue,
   MacroUpdateInput,
+  OnScopeExit,
+  ScopeLevel,
   MediaAsset,
   MediaAssetCreateInput,
   MediaAssetType,
@@ -111,7 +113,8 @@ const CUES_MACROS_SCHEMA_VERSION = 16;
 const MACROS_SEQUENTIAL_SCHEMA_VERSION = 17;
 const TRIGGER_BINDINGS_TARGET_REBUILD_SCHEMA_VERSION = 18;
 const SLIDE_BACKGROUND_SCHEMA_VERSION = 19;
-const LATEST_SCHEMA_VERSION = SLIDE_BACKGROUND_SCHEMA_VERSION;
+const MACRO_SCOPE_LIFECYCLE_SCHEMA_VERSION = 20;
+const LATEST_SCHEMA_VERSION = MACRO_SCOPE_LIFECYCLE_SCHEMA_VERSION;
 const GLOBAL_SCHEMA_VERSION = 3;
 const LEGACY_SCHEMA_VERSION = 2;
 
@@ -218,6 +221,18 @@ const parseJson = <T>(value: string): T => {
     console.error('[DB] Failed to parse JSON:', error, value.slice(0, 200));
     throw new Error(`Corrupted JSON data in database: ${(error as Error).message}`);
   }
+};
+
+const normalizeDelayMs = (value: number | undefined): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0;
+};
+
+const normalizeLoopCount = (value: number | null | undefined): number | null => {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.round(parsed);
 };
 
 // One-shot rename of a pre-rename Recast database (and its WAL/SHM/backups)
@@ -523,11 +538,121 @@ export class CastRepository {
       this.ensureSlideBackgroundColumn();
       this.setUserVersion(SLIDE_BACKGROUND_SCHEMA_VERSION);
     }
+
+    if (this.getUserVersion() < MACRO_SCOPE_LIFECYCLE_SCHEMA_VERSION) {
+      this.migrateMacroScopeLifecycle();
+      this.setUserVersion(MACRO_SCOPE_LIFECYCLE_SCHEMA_VERSION);
+    }
   }
 
   private ensureSlideBackgroundColumn(): void {
     if (this.hasColumn('slides', 'background_json')) return;
     this.db.exec('ALTER TABLE slides ADD COLUMN background_json TEXT');
+  }
+
+  // v20 — fold scope/loop/lifecycle into macros and per-step delays into
+  // action_steps. Adds scope_level/on_scope_exit/loop_enabled/loop_count to
+  // `actions`, delay_before_ms/delay_after_ms to `action_steps`, then retires
+  // the standalone `flow.wait` cue kind by folding each wait into an adjacent
+  // step's delay and deleting the wait cues/steps plus bare-cue bindings to them.
+  //
+  // Delays live on the step (per-occurrence), not the cue, because cues are
+  // content-deduped and shared across macros — a delay belongs to where a cue
+  // is used, not to the cue's shared identity.
+  private migrateMacroScopeLifecycle(): void {
+    const tx = this.db.transaction(() => {
+      if (this.hasTable('actions')) {
+        if (!this.hasColumn('actions', 'scope_level')) {
+          this.db.exec("ALTER TABLE actions ADD COLUMN scope_level TEXT NOT NULL DEFAULT 'global'");
+        }
+        if (!this.hasColumn('actions', 'on_scope_exit')) {
+          this.db.exec("ALTER TABLE actions ADD COLUMN on_scope_exit TEXT NOT NULL DEFAULT 'cancel'");
+        }
+        if (!this.hasColumn('actions', 'loop_enabled')) {
+          this.db.exec('ALTER TABLE actions ADD COLUMN loop_enabled INTEGER NOT NULL DEFAULT 0');
+        }
+        if (!this.hasColumn('actions', 'loop_count')) {
+          this.db.exec('ALTER TABLE actions ADD COLUMN loop_count INTEGER');
+        }
+      }
+
+      if (this.hasTable('action_steps')) {
+        if (!this.hasColumn('action_steps', 'delay_before_ms')) {
+          this.db.exec('ALTER TABLE action_steps ADD COLUMN delay_before_ms INTEGER NOT NULL DEFAULT 0');
+        }
+        if (!this.hasColumn('action_steps', 'delay_after_ms')) {
+          this.db.exec('ALTER TABLE action_steps ADD COLUMN delay_after_ms INTEGER NOT NULL DEFAULT 0');
+        }
+        this.foldFlowWaitStepsIntoDelays();
+      }
+    });
+    tx();
+  }
+
+  // Convert every `flow.wait` step into delay milliseconds on a neighbouring
+  // step, then delete the wait cues and steps. Within each macro, ordered by
+  // order_index: a wait folds into the following non-wait step's delay_before_ms;
+  // if there is no following step, it folds into the preceding non-wait step's
+  // delay_after_ms; consecutive waits accumulate. Waits with no neighbour (a
+  // macro made only of waits) are discarded. Because delays are written to the
+  // step (not the shared cue), there is no cross-macro contamination.
+  private foldFlowWaitStepsIntoDelays(): void {
+    interface StepRow {
+      stepId: string;
+      orderIndex: number;
+      kind: string;
+      ms: number;
+    }
+    const steps = this.db
+      .prepare(
+        `SELECT s.id AS stepId, s.action_id AS macroId, s.order_index AS orderIndex,
+                c.kind AS kind, c.payload_json AS payloadJson
+         FROM action_steps s
+         JOIN cues c ON c.id = s.cue_id
+         ORDER BY s.action_id, s.order_index`,
+      )
+      .all() as Array<{ stepId: string; macroId: string; orderIndex: number; kind: string; payloadJson: string }>;
+
+    const byMacro = new Map<string, StepRow[]>();
+    for (const row of steps) {
+      let ms = 0;
+      if (row.kind === 'flow.wait') {
+        try {
+          const parsed = JSON.parse(row.payloadJson ?? '{}') as { ms?: number };
+          ms = Number.isFinite(parsed.ms) ? Math.max(0, Math.round(Number(parsed.ms))) : 0;
+        } catch { ms = 0; }
+      }
+      const list = byMacro.get(row.macroId) ?? [];
+      list.push({ stepId: row.stepId, orderIndex: row.orderIndex, kind: row.kind, ms });
+      byMacro.set(row.macroId, list);
+    }
+
+    const addBefore = this.db.prepare('UPDATE action_steps SET delay_before_ms = delay_before_ms + ? WHERE id = ?');
+    const addAfter = this.db.prepare('UPDATE action_steps SET delay_after_ms = delay_after_ms + ? WHERE id = ?');
+
+    for (const list of byMacro.values()) {
+      list.sort((a, b) => a.orderIndex - b.orderIndex);
+      for (let i = 0; i < list.length; i += 1) {
+        const step = list[i];
+        if (step.kind !== 'flow.wait' || step.ms <= 0) continue;
+        const next = list.slice(i + 1).find((s) => s.kind !== 'flow.wait');
+        if (next) {
+          addBefore.run(step.ms, next.stepId);
+        } else {
+          const prev = list.slice(0, i).reverse().find((s) => s.kind !== 'flow.wait');
+          if (prev) addAfter.run(step.ms, prev.stepId);
+        }
+      }
+    }
+
+    // Retire the kind entirely: drop every flow.wait cue along with its macro
+    // steps and any bare-cue trigger bindings that pointed at it.
+    const leftoverWaitCues = this.db.prepare("SELECT id FROM cues WHERE kind = 'flow.wait'").all() as Array<{ id: string }>;
+    for (const { id } of leftoverWaitCues) {
+      this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?").run(id);
+      this.db.prepare('DELETE FROM action_steps WHERE cue_id = ?').run(id);
+      this.db.prepare('DELETE FROM cues WHERE id = ?').run(id);
+    }
   }
 
   // v18 — rebuild trigger_bindings to drop the legacy `action_id` column.
@@ -1370,6 +1495,10 @@ export class CastRepository {
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         collection_id TEXT NOT NULL,
+        scope_level TEXT NOT NULL DEFAULT 'global',
+        on_scope_exit TEXT NOT NULL DEFAULT 'cancel',
+        loop_enabled INTEGER NOT NULL DEFAULT 0,
+        loop_count INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY(collection_id) REFERENCES macro_collections(id)
@@ -1392,6 +1521,8 @@ export class CastRepository {
         order_index INTEGER NOT NULL,
         payload_json TEXT NOT NULL,
         failure_policy TEXT NOT NULL DEFAULT 'continue',
+        delay_before_ms INTEGER NOT NULL DEFAULT 0,
+        delay_after_ms INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY(action_id) REFERENCES actions(id) ON DELETE CASCADE,
@@ -3100,12 +3231,17 @@ export class CastRepository {
 
   listMacros(): Macro[] {
     const rows = this.db.prepare(
-      'SELECT id, name, description, collection_id, created_at, updated_at FROM actions ORDER BY updated_at DESC, created_at DESC, id ASC'
+      `SELECT id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at
+       FROM actions ORDER BY updated_at DESC, created_at DESC, id ASC`
     ).all() as Array<{
       id: string;
       name: string;
       description: string;
       collection_id: string;
+      scope_level: string;
+      on_scope_exit: string;
+      loop_enabled: number;
+      loop_count: number | null;
       created_at: string;
       updated_at: string;
     }>;
@@ -3118,6 +3254,10 @@ export class CastRepository {
       description: row.description,
       collectionId: row.collection_id,
       cues: cuesByMacroId.get(row.id) ?? [],
+      scopeLevel: row.scope_level as ScopeLevel,
+      onScopeExit: row.on_scope_exit as OnScopeExit,
+      loopEnabled: row.loop_enabled === 1,
+      loopCount: row.loop_count,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -3130,18 +3270,24 @@ export class CastRepository {
     const description = input.description?.trim() ?? '';
     const cues = input.cues ?? [];
     const collectionId = input.collectionId ?? this.getDefaultCollectionId('macro');
+    const scopeLevel: ScopeLevel = input.scopeLevel ?? 'global';
+    const onScopeExit: OnScopeExit = input.onScopeExit ?? 'cancel';
+    const loopEnabled = input.loopEnabled ? 1 : 0;
+    const loopCount = normalizeLoopCount(input.loopCount);
 
     const insertMacro = this.db.prepare(
-      'INSERT INTO actions (id, name, description, collection_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      `INSERT INTO actions
+       (id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const insertMacroCue = this.db.prepare(
       `INSERT INTO action_steps
-       (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, delay_before_ms, delay_after_ms, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const tx = this.db.transaction(() => {
-      insertMacro.run(macroId, name, description, collectionId, now, now);
+      insertMacro.run(macroId, name, description, collectionId, scopeLevel, onScopeExit, loopEnabled, loopCount, now, now);
       for (const macroCue of cues) {
         const cue = this.getCue(macroCue.cueId);
         insertMacroCue.run(
@@ -3152,6 +3298,8 @@ export class CastRepository {
           macroCue.orderIndex,
           JSON.stringify(cue.payload),
           cue.failurePolicy,
+          normalizeDelayMs(macroCue.delayBeforeMs),
+          normalizeDelayMs(macroCue.delayAfterMs),
           now,
           now,
         );
@@ -3164,18 +3312,28 @@ export class CastRepository {
 
   updateMacro(input: MacroUpdateInput): SnapshotPatch {
     const existing = this.db.prepare(
-      'SELECT id, name, description FROM actions WHERE id = ?'
-    ).get(input.id) as { id: string; name: string; description: string } | undefined;
+      'SELECT id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count FROM actions WHERE id = ?'
+    ).get(input.id) as {
+      id: string;
+      name: string;
+      description: string;
+      scope_level: string;
+      on_scope_exit: string;
+      loop_enabled: number;
+      loop_count: number | null;
+    } | undefined;
     if (!existing) return this.buildPatch({});
 
     const updateMacro = this.db.prepare(
-      'UPDATE actions SET name = ?, description = ?, updated_at = ? WHERE id = ?'
+      `UPDATE actions
+       SET name = ?, description = ?, scope_level = ?, on_scope_exit = ?, loop_enabled = ?, loop_count = ?, updated_at = ?
+       WHERE id = ?`
     );
     const deleteMacroCues = this.db.prepare('DELETE FROM action_steps WHERE action_id = ?');
     const insertMacroCue = this.db.prepare(
       `INSERT INTO action_steps
-       (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, delay_before_ms, delay_after_ms, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const now = nowIso();
 
@@ -3183,6 +3341,10 @@ export class CastRepository {
       updateMacro.run(
         input.name?.trim() || existing.name,
         input.description?.trim() ?? existing.description,
+        input.scopeLevel ?? existing.scope_level,
+        input.onScopeExit ?? existing.on_scope_exit,
+        input.loopEnabled !== undefined ? (input.loopEnabled ? 1 : 0) : existing.loop_enabled,
+        input.loopCount !== undefined ? normalizeLoopCount(input.loopCount) : existing.loop_count,
         now,
         input.id,
       );
@@ -3199,6 +3361,8 @@ export class CastRepository {
             macroCue.orderIndex,
             JSON.stringify(cue.payload),
             cue.failurePolicy,
+            normalizeDelayMs(macroCue.delayBeforeMs),
+            normalizeDelayMs(macroCue.delayAfterMs),
             now,
             now,
           );
@@ -5998,9 +6162,12 @@ export class CastRepository {
 
     const placeholders = macroIds.map(() => '?').join(', ');
     const rows = this.db.prepare(
-      `SELECT step.id, step.action_id, step.cue_id, step.order_index, step.created_at, step.updated_at,
+      `SELECT step.id, step.action_id, step.cue_id, step.order_index,
+              step.delay_before_ms AS step_delay_before_ms, step.delay_after_ms AS step_delay_after_ms,
+              step.created_at, step.updated_at,
               cue.kind AS cue_kind, cue.payload_json AS cue_payload_json,
-              cue.failure_policy AS cue_failure_policy, cue.created_at AS cue_created_at, cue.updated_at AS cue_updated_at
+              cue.failure_policy AS cue_failure_policy,
+              cue.created_at AS cue_created_at, cue.updated_at AS cue_updated_at
        FROM action_steps step
        JOIN cues cue ON cue.id = step.cue_id
        WHERE step.action_id IN (${placeholders})
@@ -6010,6 +6177,8 @@ export class CastRepository {
       action_id: string;
       cue_id: string;
       order_index: number;
+      step_delay_before_ms: number;
+      step_delay_after_ms: number;
       created_at: string;
       updated_at: string;
       cue_kind: string;
@@ -6034,6 +6203,8 @@ export class CastRepository {
           updatedAt: row.cue_updated_at,
         },
         orderIndex: row.order_index,
+        delayBeforeMs: row.step_delay_before_ms,
+        delayAfterMs: row.step_delay_after_ms,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       });
@@ -6075,7 +6246,7 @@ export class CastRepository {
       case 'stage.clear': return 'Clear stage';
       case 'layer.clear': return 'Clear layer';
       case 'layer.clearAll': return 'Clear all layers';
-      case 'flow.wait': return 'Wait';
+      case 'flow.lifecycle': return 'Lifecycle control';
     }
   }
 

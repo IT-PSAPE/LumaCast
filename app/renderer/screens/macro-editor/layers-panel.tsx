@@ -78,7 +78,7 @@ function SortableLayerRow({
   isSelected: boolean;
   onSelect: (rowId: string) => void;
 }) {
-  const { overlays, stages, mediaAssets } = useProjectContent();
+  const { overlays, stages, mediaAssets, macros } = useProjectContent();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: row.localId });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -87,7 +87,7 @@ function SortableLayerRow({
   };
 
   const label = row.link
-    ? describeCue(row.link.cue, { overlays, stages, mediaAssets })
+    ? describeCue(row.link.cue, { overlays, stages, mediaAssets, macros })
     : row.draftKind
     ? CUE_KIND_LABELS[row.draftKind]
     : 'Unconfigured cue';
@@ -96,15 +96,17 @@ function SortableLayerRow({
     <div ref={setNodeRef} style={style}>
       <SelectableRow.Root selected={isSelected} onClick={() => onSelect(row.localId)} className="w-full">
         <SelectableRow.Leading>
-          <button
-            type="button"
+          {/* A span, not a button: the row itself is a <button>, and nesting a
+              real button inside is invalid DOM. dnd-kit's attributes supply
+              role="button"/tabIndex/aria, so the handle stays keyboard-operable. */}
+          <span
             aria-label="Drag to reorder"
-            className="cursor-grab text-tertiary hover:text-secondary"
+            className="inline-flex cursor-grab text-tertiary hover:text-secondary"
             {...attributes}
             {...listeners}
           >
             <GripVertical size={14} strokeWidth={1.5} />
-          </button>
+          </span>
         </SelectableRow.Leading>
         <SelectableRow.Label>{label}</SelectableRow.Label>
       </SelectableRow.Root>

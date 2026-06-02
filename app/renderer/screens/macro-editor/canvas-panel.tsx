@@ -77,9 +77,9 @@ function CanvasCueCard({
   isSelected: boolean;
   onClick: () => void;
 }) {
-  const { overlays, stages, mediaAssets } = useProjectContent();
+  const { overlays, stages, mediaAssets, macros } = useProjectContent();
   const label = row.link
-    ? describeCue(row.link.cue, { overlays, stages, mediaAssets })
+    ? describeCue(row.link.cue, { overlays, stages, mediaAssets, macros })
     : row.draftKind
     ? CUE_KIND_LABELS[row.draftKind]
     : null;

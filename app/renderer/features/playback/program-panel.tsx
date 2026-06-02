@@ -22,6 +22,7 @@ import { OverlayBinPanel } from '../assets/overlays/overlay-bin-panel';
 import { StageBinPanel } from '../assets/stages/stage-bin-panel';
 import { MacroBinPanel } from '../automation/macro-bin-panel';
 import { useAutomation } from '../automation/automation-context';
+import { dispatchAutomationTriggerEvent } from '../automation/automation-events';
 import { CollectionPicker } from '../workbench/collection-picker';
 import { useBinCollections } from '../workbench/use-bin-collections';
 import { useProgramOutput } from './use-program-output';
@@ -62,12 +63,20 @@ export function ProgramPanel() {
 
   function handleClearMedia() { clearLayer('media'); }
   function handleClearVideo() { clearLayer('video'); }
-  function handleClearContent() { clearLayer('content'); }
+  // Clearing content blanks the live slide. Signal "no slide live" so slide-/
+  // deck-item-scoped macro runs are swept (same path as advancing off a slide).
+  // Only the operator clear buttons do this — the layer.clear/clearAll *cues*
+  // call clearLayer directly and must not sweep, or a macro would cancel itself.
+  function handleClearContent() {
+    clearLayer('content');
+    dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: null });
+  }
   function handleClearOverlay() { clearLayer('overlay'); }
   function handleClearAudio() { audio.clearAudio(); }
   function handleClearAll() {
     audio.clearAudio();
     clearAllLayers();
+    dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: null });
   }
 
   function handleOverlayModeToggle() {

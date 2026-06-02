@@ -10,7 +10,7 @@ import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useSlides } from '@renderer/contexts/slide-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { useAutomation } from '@renderer/features/automation/automation-context';
-import type { CueClearLayer, CueFailurePolicy, CueKind, CuePayload, Id } from '@core/types';
+import type { CueClearLayer, CueFailurePolicy, CueKind, CuePayload, Id, LifecycleAction, LifecycleTarget, OnScopeExit, ScopeLevel } from '@core/types';
 import { CUE_KIND_LABELS } from '@renderer/features/automation/describe-cue';
 import { parseNumber } from '@renderer/utils/slides';
 import { useMacroEditorScreen, type MacroEditorCueRow } from './screen-context';
@@ -26,6 +26,20 @@ const CLEAR_LAYER_OPTIONS: Array<{ value: CueClearLayer; label: string }> = [
   { value: 'video', label: 'Video' },
   { value: 'content', label: 'Content' },
   { value: 'overlay', label: 'Overlay' },
+];
+const LIFECYCLE_ACTION_OPTIONS: Array<{ value: LifecycleAction; label: string }> = [
+  { value: 'cancel', label: 'Cancel (stop future work)' },
+  { value: 'revert', label: 'Revert (stop + undo effects)' },
+];
+const SCOPE_LEVEL_OPTIONS: Array<{ value: ScopeLevel; label: string }> = [
+  { value: 'global', label: 'Global (runs until cancelled)' },
+  { value: 'deckItem', label: 'Deck item (stops when leaving the deck item)' },
+  { value: 'slide', label: 'Slide (stops when leaving the slide)' },
+];
+const ON_SCOPE_EXIT_OPTIONS: Array<{ value: OnScopeExit; label: string }> = [
+  { value: 'cancel', label: 'Cancel pending work' },
+  { value: 'revert', label: 'Revert (undo effects)' },
+  { value: 'none', label: 'Keep running' },
 ];
 
 export function MacroEditorInspectorPanel() {
@@ -92,7 +106,11 @@ function MacroInspector() {
     state: { currentMacro, rows, pendingName, pendingDescription },
     actions: { updateMacroName, updateMacroDescription, deleteCurrentMacro },
   } = useMacroEditorScreen();
+  const { actions: { updateMacroFields } } = useAutomation();
   if (!currentMacro) return null;
+
+  const macroId = currentMacro.id;
+  const loopEnabled = currentMacro.loopEnabled;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -117,6 +135,54 @@ function MacroInspector() {
           </div>
         </Section.Body>
       </Section.Root>
+      <Section.Root>
+        <Section.Header><Label.xs>Scope & lifecycle</Label.xs></Section.Header>
+        <Section.Body>
+          <FieldSelect
+            label="Scope"
+            value={currentMacro.scopeLevel}
+            options={SCOPE_LEVEL_OPTIONS}
+            onChange={(value) => { void updateMacroFields(macroId, { scopeLevel: value as ScopeLevel }); }}
+            wide
+          />
+          {currentMacro.scopeLevel !== 'global' && (
+            <FieldSelect
+              label="On scope exit"
+              value={currentMacro.onScopeExit}
+              options={ON_SCOPE_EXIT_OPTIONS}
+              onChange={(value) => { void updateMacroFields(macroId, { onScopeExit: value as OnScopeExit }); }}
+              wide
+            />
+          )}
+        </Section.Body>
+      </Section.Root>
+      <Section.Root>
+        <Section.Header><Label.xs>Looping</Label.xs></Section.Header>
+        <Section.Body>
+          <FieldSelect
+            label="Loop"
+            value={loopEnabled ? 'on' : 'off'}
+            options={[{ value: 'off', label: 'Run once' }, { value: 'on', label: 'Repeat' }]}
+            onChange={(value) => { void updateMacroFields(macroId, { loopEnabled: value === 'on' }); }}
+            wide
+          />
+          {loopEnabled && (
+            <FieldInput
+              label="Max iterations (blank = until scope exit / cancel)"
+              type="number"
+              min={1}
+              value={currentMacro.loopCount ?? ''}
+              onChange={(value) => {
+                const trimmed = value.trim();
+                if (trimmed === '') { void updateMacroFields(macroId, { loopCount: null }); return; }
+                const parsed = parseNumber(value, currentMacro.loopCount ?? 1);
+                void updateMacroFields(macroId, { loopCount: Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : null });
+              }}
+              wide
+            />
+          )}
+        </Section.Body>
+      </Section.Root>
       <div className="mt-auto p-2">
         <ReacstButton variant="danger" onClick={() => { void deleteCurrentMacro(); }} className="w-full">
           <span className="inline-flex items-center gap-1.5"><Trash2 className="size-4" />Delete macro</span>
@@ -127,13 +193,19 @@ function MacroInspector() {
 }
 
 function CueInspector({ row }: { row: MacroEditorCueRow }) {
-  const { actions: { updateRowKind, updateRowPayload, updateRowFailurePolicy, deleteRow, selectRow } } = useMacroEditorScreen();
-  const { overlays, mediaAssets, stages } = useProjectContent();
+  const { state: { currentMacro }, actions: { updateRowKind, updateRowPayload, updateRowFailurePolicy, updateRowDelays, deleteRow, selectRow } } = useMacroEditorScreen();
+  const { overlays, mediaAssets, stages, macros } = useProjectContent();
   const overlayOptions = overlays.map((overlay) => ({ value: overlay.id, label: overlay.name }));
   const stageOptions = stages.map((s) => ({ value: s.id, label: s.name }));
   const mediaLayerOptions = mediaAssets.filter((asset) => asset.type === 'image' || asset.type === 'video').map((asset) => ({ value: asset.id, label: `${asset.name} (${asset.type})` }));
   const videoOptions = mediaAssets.filter((asset) => asset.type === 'video').map((asset) => ({ value: asset.id, label: asset.name }));
   const audioOptions = mediaAssets.filter((asset) => asset.type === 'audio').map((asset) => ({ value: asset.id, label: asset.name }));
+  // A lifecycle cue can target any macro except the one being edited (a macro
+  // can't cancel itself this way), plus the "all active" wildcard.
+  const macroOptions = [
+    { value: '*', label: 'All active macros' },
+    ...macros.filter((macro) => macro.id !== currentMacro?.id).map((macro) => ({ value: macro.id, label: macro.name })),
+  ];
 
   const kind = row.link?.cue.kind ?? row.draftKind ?? null;
   const payload: CuePayload = row.link?.cue.payload ?? row.draftPayload ?? ({} as CuePayload);
@@ -160,7 +232,7 @@ function CueInspector({ row }: { row: MacroEditorCueRow }) {
             <CueTargetField
               kind={kind}
               payload={payload}
-              options={{ overlayOptions, stageOptions, mediaLayerOptions, videoOptions, audioOptions }}
+              options={{ overlayOptions, stageOptions, mediaLayerOptions, videoOptions, audioOptions, macroOptions }}
               onChange={(next) => updateRowPayload(row.localId, next)}
             />
           ) : null}
@@ -169,6 +241,27 @@ function CueInspector({ row }: { row: MacroEditorCueRow }) {
             value={failurePolicy}
             options={FAILURE_POLICY_OPTIONS}
             onChange={(value) => updateRowFailurePolicy(row.localId, value as CueFailurePolicy)}
+            wide
+          />
+        </Section.Body>
+      </Section.Root>
+      <Section.Root>
+        <Section.Header><Label.xs>Timing</Label.xs></Section.Header>
+        <Section.Body>
+          <FieldInput
+            label="Delay before (ms)"
+            type="number"
+            min={0}
+            value={row.draftDelayBeforeMs}
+            onChange={(value) => { if (value.trim() !== '') updateRowDelays(row.localId, { before: parseNumber(value, row.draftDelayBeforeMs) }); }}
+            wide
+          />
+          <FieldInput
+            label="Delay after (ms)"
+            type="number"
+            min={0}
+            value={row.draftDelayAfterMs}
+            onChange={(value) => { if (value.trim() !== '') updateRowDelays(row.localId, { after: parseNumber(value, row.draftDelayAfterMs) }); }}
             wide
           />
         </Section.Body>
@@ -188,6 +281,7 @@ interface CueTargetOptions {
   mediaLayerOptions: Array<{ value: Id; label: string }>;
   videoOptions: Array<{ value: Id; label: string }>;
   audioOptions: Array<{ value: Id; label: string }>;
+  macroOptions: Array<{ value: string; label: string }>;
 }
 
 function CueTargetField({
@@ -267,20 +361,27 @@ function CueTargetField({
       />
     );
   }
-  if (kind === 'flow.wait') {
-    const currentMs = Number((payload as { ms?: number }).ms ?? 0);
+  if (kind === 'flow.lifecycle') {
+    const lifecycle = payload as { action?: LifecycleAction; target?: LifecycleTarget };
+    const action = lifecycle.action ?? 'cancel';
+    const target = lifecycle.target ?? '*';
     return (
-      <FieldInput
-        label="Delay (ms)"
-        type="number"
-        min={0}
-        value={Number.isFinite(currentMs) ? currentMs : 0}
-        onChange={(value) => {
-          const parsed = parseNumber(value, currentMs);
-          onChange({ ms: Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : 0 });
-        }}
-        wide
-      />
+      <>
+        <FieldSelect
+          label="Action"
+          value={action}
+          options={LIFECYCLE_ACTION_OPTIONS}
+          onChange={(value) => onChange({ action: value as LifecycleAction, target })}
+          wide
+        />
+        <FieldSelect
+          label="Target"
+          value={String(target)}
+          options={options.macroOptions}
+          onChange={(value) => onChange({ action, target: value as LifecycleTarget })}
+          wide
+        />
+      </>
     );
   }
   return <div className="text-xs text-tertiary">No target needed for this cue.</div>;

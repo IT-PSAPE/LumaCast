@@ -57,7 +57,7 @@ export function SlideBindingsMenu({ slideId }: { slideId: Id }) {
           : cue ? getCueIcon(cue, mediaAssets) : null;
         const label = binding.targetType === 'macro'
           ? (macro?.name ?? 'Unknown macro')
-          : describeCue(cue, { overlays, stages, mediaAssets });
+          : describeCue(cue, { overlays, stages, mediaAssets, macros });
         const canEdit = binding.targetType === 'macro'
           ? Boolean(macro)
           : cue?.kind === 'stage.set'
