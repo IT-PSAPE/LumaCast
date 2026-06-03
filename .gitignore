@@ -11,3 +11,4 @@ packages/ndi-native/build
 
 bun.lock
 test-results/
+.playwright-mcp/
