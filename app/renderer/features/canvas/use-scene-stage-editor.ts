@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
 import type { ElementUpdateInput, Id, TextElementPayload } from '@core/types';
+import type { RichBody } from '@core/rich-text/types';
+import { richBodyToText } from '@core/rich-text/serialize';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { resolveSnap, resolveTransformSnap } from './snap-guides';
 import type { GuideLine, RenderScene } from './scene-types';
@@ -14,6 +16,24 @@ import { bindFixedClientRect } from './scene-node-bounds';
 interface UseSceneStageEditorParams {
   scene: RenderScene;
   editable: boolean;
+}
+
+// A body is "rich" once any run carries an override or any block is a list.
+// Multiple plain blocks (hard line breaks) are still plain — they round-trip
+// through the `text` string.
+function bodyIsRich(body: RichBody): boolean {
+  return body.some(
+    (block) =>
+      block.listType !== undefined ||
+      block.runs.some(
+        (run) =>
+          run.color !== undefined ||
+          run.weight !== undefined ||
+          run.italic !== undefined ||
+          run.underline !== undefined ||
+          run.strikethrough !== undefined,
+      ),
+  );
 }
 
 export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorParams) {
@@ -109,7 +129,7 @@ export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorPara
     setEditingTextId(id);
   }, [editable, effectiveElements, selectElement]);
 
-  const commitTextEdit = useCallback(async (nextText: string) => {
+  const commitTextEdit = useCallback(async (body: RichBody) => {
     if (!editingTextId) return;
     const element = effectiveElements.find((el) => el.id === editingTextId);
     if (!element || element.type !== 'text') {
@@ -117,8 +137,19 @@ export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorPara
       return;
     }
     const payload = element.payload as TextElementPayload;
-    if (nextText !== payload.text) {
-      await commitElementUpdates([{ id: editingTextId, payload: { ...payload, text: nextText } }]);
+    const text = richBodyToText(body);
+    // Write-on-first-rich-edit: only persist a rich body when the user actually
+    // applied a run override or a list; otherwise keep the element plain (text
+    // only) so it stays byte-identical to before and lazy read-tolerance handles it.
+    const rich = bodyIsRich(body);
+    const nextPayload: TextElementPayload = rich
+      ? { ...payload, format: 'rich', richBody: body, text }
+      : { ...payload, format: 'plain', richBody: undefined, text };
+    const changed = text !== payload.text
+      || payload.format !== nextPayload.format
+      || JSON.stringify(payload.richBody) !== JSON.stringify(nextPayload.richBody);
+    if (changed) {
+      await commitElementUpdates([{ id: editingTextId, payload: nextPayload }]);
     }
     setEditingTextId(null);
   }, [editingTextId, effectiveElements, commitElementUpdates]);

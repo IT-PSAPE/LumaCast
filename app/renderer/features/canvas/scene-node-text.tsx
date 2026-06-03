@@ -1,11 +1,15 @@
 import { useMemo } from 'react';
-import { Rect, Text, Shape } from 'react-konva';
+import { Rect, Shape } from 'react-konva';
 import type { Context } from 'konva/lib/Context';
 import type { Shape as KonvaShape } from 'konva/lib/Shape';
-import type { TextBinding, StrokePosition, TextCaseTransform, TextHorizontalAlign } from '@core/types';
+import type { TextCaseTransform, TextElementPayload, TextHorizontalAlign } from '@core/types';
+import type { RichBody } from '@core/rich-text/types';
+import type { RichBoxStyle } from '@core/rich-text/resolve';
+import { boxStyleFromPayload, coerceWeight, synthesizePlain } from '@core/rich-text/resolve';
+import { textToRichBody } from '@core/rich-text/serialize';
+import { createCanvasMeasurer, runFontString, wrapRuns } from '@core/rich-text/measure';
 import type { RenderNode } from './scene-types';
-import { resolveKonvaTextStyle } from './resolve-konva-text-style';
-import { computeAutoFitFontSize, measureTextBlockHeight, measureTextLayoutHeight, measureTextLineStackHeight, textLineBleedPadding, textOverflowOffset } from './text-layout';
+import { computeAutoFitFontSize, measureTextBlockHeight, measureTextLayoutHeight, textLineBleedPadding, textOverflowOffset } from './text-layout';
 import { useResolvedText } from './use-resolved-text';
 
 function transformTextCase(text: string, mode: TextCaseTransform): string {
@@ -21,96 +25,188 @@ function textAlign(alignment: TextHorizontalAlign): 'left' | 'center' | 'right' 
   return 'left';
 }
 
-// ── Offscreen text layout for inside stroke ──────────────────
+function applyCaseToBody(body: RichBody, mode: TextCaseTransform): RichBody {
+  if (mode === 'none') return body;
+  return body.map((block) => ({
+    ...block,
+    runs: block.runs.map((run) => ({ ...run, text: transformTextCase(run.text, mode) })),
+  }));
+}
 
-interface TextLayoutParams {
-  text: string;
-  fontFamily: string;
-  fontSize: number;
-  fontStyle: string;
-  lineHeight: number;
+// ── Run-aware text draw (replaces the Konva <Text> render path) ──────────────
+//
+// Draws a laid-out RichBody directly into the scene context, mirroring Konva
+// Text's own `_sceneFunc` so plain text stays pixel-identical: alphabetic
+// baseline with translateY = (ascent - descent)/2 + lineHeightPx/2, vertical
+// align over the frame height, per-line horizontal align (incl. justify), and
+// underline/line-through drawn at Konva's offsets. All text — plain, bound, and
+// rich — flows through here so there is exactly one Konva node per element.
+
+const sharedMeasurer = createCanvasMeasurer();
+
+interface RichStrokeSpec {
+  color: string;
   width: number;
-  height: number;
+  fillAfter: boolean; // outside stroke draws stroke-then-fill; center draws fill-then-stroke
+}
+
+interface RichDrawParams {
+  body: RichBody;
+  box: RichBoxStyle; // box.fontSize is the effective (auto-fit) size every run draws with
+  width: number;
+  frameHeight: number;
+  lineHeight: number;
   align: 'left' | 'center' | 'right' | 'justify';
   verticalAlign: 'top' | 'middle' | 'bottom';
+  fill: boolean;
+  stroke?: RichStrokeSpec;
 }
 
-interface WrappedLine {
+interface DrawPiece {
   text: string;
-  width: number;
+  color: string;
+  font: string;
+  underline: boolean;
+  strike: boolean;
 }
 
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): WrappedLine[] {
-  const paragraphs = text.split('\n');
-  const lines: WrappedLine[] = [];
+interface DrawLine {
+  pieces: DrawPiece[];
+  width: number;
+  indentX: number;
+  marker?: string;
+  lastInParagraph: boolean;
+}
 
-  for (const paragraph of paragraphs) {
-    if (!paragraph.trim()) {
-      lines.push({ text: '', width: 0 });
-      continue;
-    }
+function drawRichBody(ctx: CanvasRenderingContext2D, params: RichDrawParams): void {
+  const { body, box, width, frameHeight, lineHeight, align, verticalAlign, fill, stroke } = params;
+  const fontSize = box.fontSize;
+  const lineHeightPx = fontSize * lineHeight;
+  const boxFont = runFontString(box);
 
-    const words = paragraph.split(/\s+/);
-    let currentLine = '';
+  // Konva's non-legacy baseline math: measure the box font's bounding box.
+  ctx.save();
+  ctx.font = boxFont;
+  const metrics = ctx.measureText('M');
+  const scale = fontSize / 100;
+  const ascent = metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent ?? 91 * scale;
+  const descent = metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 21 * scale;
+  ctx.restore();
+  const translateY = (ascent - descent) / 2 + lineHeightPx / 2;
 
-    for (const word of words) {
-      const candidate = currentLine ? `${currentLine} ${word}` : word;
-      const measured = ctx.measureText(candidate).width;
-      if (!currentLine || measured <= maxWidth) {
-        currentLine = candidate;
-        continue;
-      }
-      const lineWidth = ctx.measureText(currentLine).width;
-      lines.push({ text: currentLine, width: lineWidth });
-      currentLine = word;
-    }
-
-    if (currentLine) {
-      const lineWidth = ctx.measureText(currentLine).width;
-      lines.push({ text: currentLine, width: lineWidth });
-    }
+  // Lay out every block to lines, reserving a marker column for list blocks.
+  const lines: DrawLine[] = [];
+  let numberCounter = 0;
+  for (const block of body) {
+    const isNumber = block.listType === 'number';
+    const isBullet = block.listType === 'bullet';
+    numberCounter = isNumber ? numberCounter + 1 : 0;
+    const marker = isBullet ? '• ' : isNumber ? `${numberCounter}. ` : undefined;
+    const markerWidth = marker ? sharedMeasurer(marker, boxFont) : 0;
+    const wrapped = wrapRuns(block.runs, box, { width: Math.max(1, width - markerWidth), measure: sharedMeasurer });
+    wrapped.forEach((line, index) => {
+      lines.push({
+        pieces: line.pieces.map((piece) => ({
+          text: piece.text,
+          color: piece.style.color,
+          font: runFontString(piece.style),
+          underline: piece.style.underline,
+          strike: piece.style.strikethrough,
+        })),
+        width: line.width,
+        indentX: markerWidth,
+        marker: index === 0 ? marker : undefined,
+        lastInParagraph: line.lastInParagraph,
+      });
+    });
   }
 
-  return lines.length > 0 ? lines : [{ text: '', width: 0 }];
-}
+  const totalLines = lines.length;
+  let alignY = 0;
+  if (verticalAlign === 'middle') alignY = (frameHeight - totalLines * lineHeightPx) / 2;
+  else if (verticalAlign === 'bottom') alignY = frameHeight - totalLines * lineHeightPx;
 
-function drawTextOnCanvas(
-  ctx: CanvasRenderingContext2D,
-  params: TextLayoutParams,
-  mode: 'fill' | 'stroke',
-  strokeWidth: number,
-  strokeColor: string,
-  fillColor: string,
-) {
-  const { text, fontFamily, fontSize, fontStyle, lineHeight, width, height, align, verticalAlign } = params;
-  const lineHeightPx = fontSize * lineHeight;
+  ctx.textBaseline = 'alphabetic';
+  const decorationThickness = fontSize / 15;
+  const decorationOffset = Math.round(fontSize / 4);
 
-  ctx.font = `${fontStyle} ${fontSize}px ${fontFamily}`;
-  ctx.textBaseline = 'top';
+  const applyStrokeStyle = (): void => {
+    if (!stroke) return;
+    ctx.lineWidth = stroke.width;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = stroke.color;
+  };
 
-  const lines = wrapText(ctx, text, width);
-  const totalTextHeight = measureTextLineStackHeight(lines.length, fontSize, lineHeight);
+  const paint = (text: string, x: number, baselineY: number, color: string): void => {
+    if (stroke && stroke.fillAfter) {
+      applyStrokeStyle();
+      ctx.strokeText(text, x, baselineY);
+    }
+    if (fill) {
+      ctx.fillStyle = color;
+      ctx.fillText(text, x, baselineY);
+    }
+    if (stroke && !stroke.fillAfter) {
+      applyStrokeStyle();
+      ctx.strokeText(text, x, baselineY);
+    }
+  };
 
-  let startY = 0;
-  if (verticalAlign === 'middle') startY = Math.max(0, (height - totalTextHeight) / 2);
-  else if (verticalAlign === 'bottom') startY = Math.max(0, height - totalTextHeight);
+  const decorate = (from: number, to: number, y: number, color: string): void => {
+    if (!fill) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.lineWidth = decorationThickness;
+    ctx.strokeStyle = color;
+    ctx.moveTo(from, y);
+    ctx.lineTo(from + Math.round(to - from), y);
+    ctx.stroke();
+    ctx.restore();
+  };
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    let x = 0;
-    if (align === 'center') x = (width - line.width) / 2;
-    else if (align === 'right') x = width - line.width;
+  for (let lineIndex = 0; lineIndex < totalLines; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const baselineY = alignY + translateY + lineIndex * lineHeightPx;
+    const isJustify = align === 'justify' && !line.lastInParagraph;
+    const lineText = line.pieces.map((piece) => piece.text).join('');
+    const spaces = isJustify ? (lineText.match(/ /g) ?? []).length : 0;
+    const extraPerSpace = isJustify && spaces > 0 ? (width - line.indentX - line.width) / spaces : 0;
 
-    const y = startY + i * lineHeightPx;
+    // Align the marker + text as one group so a list marker hugs the (possibly
+    // centered or right-aligned) text instead of sitting at the box's edge.
+    const contentWidth = line.indentX + line.width;
+    let groupX = 0;
+    if (!isJustify) {
+      if (align === 'right') groupX = width - contentWidth;
+      else if (align === 'center') groupX = (width - contentWidth) / 2;
+    }
+    const startX = groupX + line.indentX;
 
-    if (mode === 'fill') {
-      ctx.fillStyle = fillColor;
-      ctx.fillText(line.text, x, y);
-    } else {
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineJoin = 'round';
-      ctx.strokeText(line.text, x, y);
+    if (line.marker) {
+      ctx.font = boxFont;
+      paint(line.marker, groupX, baselineY, box.color);
+    }
+
+    let x = startX;
+    for (const piece of line.pieces) {
+      ctx.font = piece.font;
+      const pieceStartX = x;
+      if (!isJustify) {
+        paint(piece.text, x, baselineY, piece.color);
+        x += sharedMeasurer(piece.text, piece.font);
+      } else {
+        for (const token of piece.text.split(/( )/)) {
+          if (token === ' ') {
+            paint(' ', x, baselineY, piece.color);
+            x += sharedMeasurer(' ', piece.font) + extraPerSpace;
+          } else if (token) {
+            paint(token, x, baselineY, piece.color);
+            x += sharedMeasurer(token, piece.font);
+          }
+        }
+      }
+      if (piece.underline) decorate(pieceStartX, x, baselineY + decorationOffset, piece.color);
+      if (piece.strike) decorate(pieceStartX, x, baselineY - decorationOffset, piece.color);
     }
   }
 }
@@ -123,38 +219,17 @@ interface SceneNodeTextProps {
 
 export function SceneNodeText({ node }: SceneNodeTextProps) {
   const element = node.element;
-  const payload = element.payload as {
-    text: string;
-    fontFamily: string;
-    fontSize: number;
-    color: string;
-    alignment: TextHorizontalAlign;
-    verticalAlign?: 'top' | 'middle' | 'bottom';
-    autoFit?: boolean;
-    autoFitMaxFontSize?: number;
-    caseTransform?: TextCaseTransform;
-    italic?: boolean;
-    underline?: boolean;
-    strikethrough?: boolean;
-    lineHeight?: number;
-    weight?: string;
-    textStrokeEnabled?: boolean;
-    textStrokeColor?: string;
-    textStrokeWidth?: number;
-    textStrokePosition?: StrokePosition;
-    textShadowEnabled?: boolean;
-    textShadowColor?: string;
-    textShadowBlur?: number;
-    textShadowOffsetX?: number;
-    textShadowOffsetY?: number;
-    binding?: TextBinding;
-  };
+  const payload = element.payload as TextElementPayload;
 
   const resolvedText = useResolvedText({ text: payload.text, binding: payload.binding }, node.bindingOverride);
-  const fontStyle = resolveKonvaTextStyle(payload.weight, payload.italic);
+  const caseMode = payload.caseTransform ?? 'none';
+  // Measurement font string carries the true numeric weight (retiring the ≥600
+  // collapse) so auto-fit and frame-height measure the same font the draw uses.
+  const numericWeight = coerceWeight(payload.weight);
+  const fontStyleMeasure = `${payload.italic ? 'italic ' : ''}${numericWeight}`;
   const lineHeight = payload.lineHeight ?? 1.25;
   const verticalAlign = payload.verticalAlign ?? 'middle';
-  const text = transformTextCase(resolvedText, payload.caseTransform ?? 'none');
+  const text = transformTextCase(resolvedText, caseMode);
   const fontFamily = payload.fontFamily || 'sans-serif';
   const autoFitEnabled = payload.autoFit ?? false;
   const autoFitMaxFontSize = payload.autoFitMaxFontSize ?? payload.fontSize;
@@ -165,20 +240,37 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
           width: element.width,
           height: element.height,
           fontFamily,
-          fontStyle,
+          fontStyle: fontStyleMeasure,
           lineHeight,
           maxFontSize: autoFitMaxFontSize,
         })
       : payload.fontSize),
-    [autoFitEnabled, autoFitMaxFontSize, text, element.width, element.height, fontFamily, fontStyle, lineHeight, payload.fontSize],
+    [autoFitEnabled, autoFitMaxFontSize, text, element.width, element.height, fontFamily, fontStyleMeasure, lineHeight, payload.fontSize],
   );
+
+  const box = useMemo<RichBoxStyle>(() => {
+    const resolved = boxStyleFromPayload(payload);
+    resolved.fontFamily = fontFamily;
+    resolved.fontSize = fontSize;
+    return resolved;
+  }, [payload, fontFamily, fontSize]);
+
+  const body = useMemo<RichBody>(() => {
+    const base = payload.binding
+      ? textToRichBody(resolvedText)
+      : payload.format === 'rich' && payload.richBody && payload.richBody.length > 0
+        ? payload.richBody
+        : synthesizePlain({ ...payload, text: resolvedText });
+    return applyCaseToBody(base, caseMode);
+  }, [payload, resolvedText, caseMode]);
+
   const textBleedPadding = textLineBleedPadding(fontSize, lineHeight);
   const textContentHeight = measureTextBlockHeight({
     text,
     width: element.width,
     fontFamily,
     fontSize,
-    fontStyle,
+    fontStyle: fontStyleMeasure,
     lineHeight,
   });
   const textLayoutHeight = measureTextLayoutHeight({
@@ -186,7 +278,7 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
     width: element.width,
     fontFamily,
     fontSize,
-    fontStyle,
+    fontStyle: fontStyleMeasure,
     lineHeight,
   });
   // autoFit shrinks the font to fit within element.height; lock the frame to
@@ -210,6 +302,8 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
   const fillAfterStrokeEnabled = textStrokeEnabled && textStrokePosition === 'outside';
   const useInsideStroke = textStrokeEnabled && textStrokePosition === 'inside';
 
+  const align = textAlign(payload.alignment ?? 'left');
+
   const insideStrokeCanvas = useMemo(() => {
     if (!useInsideStroke) return null;
 
@@ -221,49 +315,46 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
     const offCtx = offscreen.getContext('2d');
     if (!offCtx) return null;
 
-    const layoutParams: TextLayoutParams = {
-      text,
-      fontFamily,
-      fontSize,
-      fontStyle,
-      lineHeight,
-      width: element.width,
-      height: textFrameHeight,
-      align: textAlign(payload.alignment ?? 'left'),
-      verticalAlign,
-    };
-
-    drawTextOnCanvas(offCtx, layoutParams, 'fill', 0, '', payload.color);
+    const common = { body, box, width: element.width, frameHeight: textFrameHeight, lineHeight, align, verticalAlign };
+    drawRichBody(offCtx, { ...common, fill: true });
     offCtx.globalCompositeOperation = 'source-atop';
-    drawTextOnCanvas(
-      offCtx,
-      layoutParams,
-      'stroke',
-      textStrokeWidth * 2,
-      payload.textStrokeColor ?? '#111111',
-      '',
-    );
+    drawRichBody(offCtx, {
+      ...common,
+      fill: false,
+      stroke: { color: payload.textStrokeColor ?? '#111111', width: textStrokeWidth * 2, fillAfter: false },
+    });
     offCtx.globalCompositeOperation = 'source-over';
     return offscreen;
-  }, [
-    element.width,
-    fontStyle,
-    lineHeight,
-    payload.alignment,
-    payload.color,
-    fontFamily,
-    fontSize,
-    payload.textStrokeColor,
-    text,
-    textFrameHeight,
-    textStrokeWidth,
-    useInsideStroke,
-    verticalAlign,
-  ]);
+  }, [useInsideStroke, element.width, textFrameHeight, body, box, lineHeight, align, verticalAlign, payload.textStrokeColor, textStrokeWidth]);
 
-  function insideStrokeSceneFunc(ctx: Context, shape: KonvaShape) {
-    if (!insideStrokeCanvas) return;
-    ctx._context.drawImage(insideStrokeCanvas, 0, 0);
+  // Match Konva Text's _hitFunc: the whole frame is the hit region, so clicking
+  // anywhere on the text box (not just on a glyph) selects it.
+  function richTextHitFunc(ctx: Context, shape: KonvaShape) {
+    ctx.beginPath();
+    ctx.rect(0, 0, element.width, textFrameHeight);
+    ctx.closePath();
+    ctx.fillStrokeShape(shape);
+  }
+
+  function richTextSceneFunc(ctx: Context, shape: KonvaShape) {
+    const target = ctx._context;
+    if (useInsideStroke) {
+      if (insideStrokeCanvas) target.drawImage(insideStrokeCanvas, 0, 0);
+    } else {
+      drawRichBody(target, {
+        body,
+        box,
+        width: element.width,
+        frameHeight: textFrameHeight,
+        lineHeight,
+        align,
+        verticalAlign,
+        fill: true,
+        stroke: textStrokeEnabled
+          ? { color: payload.textStrokeColor ?? '#111111', width: resolvedStrokeWidth, fillAfter: fillAfterStrokeEnabled }
+          : undefined,
+      });
+    }
     ctx.fillStrokeShape(shape);
   }
 
@@ -286,45 +377,19 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
         shadowOffsetY={node.visual.shadowOffsetY}
         listening={false}
       />
-      {useInsideStroke ? (
-        <Shape
-          x={0}
-          y={textFrameY}
-          width={element.width}
-          height={textFrameHeight}
-          sceneFunc={insideStrokeSceneFunc}
-          shadowEnabled={payload.textShadowEnabled}
-          shadowColor={payload.textShadowColor}
-          shadowBlur={payload.textShadowBlur}
-          shadowOffsetX={payload.textShadowOffsetX}
-          shadowOffsetY={payload.textShadowOffsetY}
-          listening={false}
-        />
-      ) : (
-        <Text
-          x={0}
-          y={textFrameY}
-          width={element.width}
-          height={textFrameHeight}
-          verticalAlign={verticalAlign}
-          text={text}
-          fontFamily={fontFamily}
-          fontSize={fontSize}
-          fontStyle={fontStyle}
-          align={textAlign(payload.alignment ?? 'left')}
-          lineHeight={lineHeight}
-          fill={payload.color}
-          textDecoration={`${payload.underline ? 'underline' : ''} ${payload.strikethrough ? 'line-through' : ''}`.trim()}
-          stroke={textStrokeEnabled ? payload.textStrokeColor : undefined}
-          strokeWidth={textStrokeEnabled ? resolvedStrokeWidth : 0}
-          fillAfterStrokeEnabled={fillAfterStrokeEnabled}
-          shadowEnabled={payload.textShadowEnabled}
-          shadowColor={payload.textShadowColor}
-          shadowBlur={payload.textShadowBlur}
-          shadowOffsetX={payload.textShadowOffsetX}
-          shadowOffsetY={payload.textShadowOffsetY}
-        />
-      )}
+      <Shape
+        x={0}
+        y={textFrameY}
+        width={element.width}
+        height={textFrameHeight}
+        sceneFunc={richTextSceneFunc}
+        hitFunc={richTextHitFunc}
+        shadowEnabled={payload.textShadowEnabled}
+        shadowColor={payload.textShadowColor}
+        shadowBlur={payload.textShadowBlur}
+        shadowOffsetX={payload.textShadowOffsetX}
+        shadowOffsetY={payload.textShadowOffsetY}
+      />
     </>
   );
 }
