@@ -21,6 +21,56 @@ export function newTextPayload(text: string, fontSize: number, alignment: Canvas
   };
 }
 
+// The single text-element initializer (spec §9). Every surface — deck/overlay/
+// theme/stage — creates text through here with one set of defaults; per-site
+// differences (label, geometry, dynamic z-index, font defaults) are overrides.
+export interface TextElementOverrides {
+  text?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  zIndex?: number;
+  layer?: 'background' | 'content' | 'media';
+  fontSize?: number;
+  alignment?: CanvasTextAlign | 'justify';
+  weight?: string;
+}
+
+const TEXT_ELEMENT_DEFAULTS = {
+  text: 'New Text Element',
+  x: 210,
+  y: 460,
+  width: 1500,
+  height: 120,
+  zIndex: 20,
+  layer: 'content' as const,
+  fontSize: 72,
+  alignment: 'center' as CanvasTextAlign | 'justify',
+  weight: '700',
+};
+
+export function createTextElement(containerId: Id, overrides: TextElementOverrides = {}) {
+  const config = { ...TEXT_ELEMENT_DEFAULTS, ...overrides };
+  const timestamp = new Date().toISOString();
+  return {
+    id: createId(),
+    slideId: containerId,
+    type: 'text' as const,
+    x: config.x,
+    y: config.y,
+    width: config.width,
+    height: config.height,
+    rotation: 0,
+    opacity: 1,
+    zIndex: config.zIndex,
+    layer: config.layer,
+    payload: newTextPayload(config.text, config.fontSize, config.alignment, config.weight),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 export function newShapePayload() {
   return {
     fillColor: '#172026C8',
@@ -41,23 +91,7 @@ export function nextOverlayZIndex(elements: { zIndex: number }[], fallback: numb
 }
 
 export function newSlideTextElement(slideId: Id) {
-  const timestamp = new Date().toISOString();
-  return {
-    id: createId(),
-    slideId,
-    type: 'text' as const,
-    x: 210,
-    y: 460,
-    width: 1500,
-    height: 120,
-    rotation: 0,
-    opacity: 1,
-    zIndex: 20,
-    layer: 'content' as const,
-    payload: newTextPayload('New Text Element', 72, 'center', '700'),
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
+  return createTextElement(slideId);
 }
 
 export function newSlideShapeElement(slideId: Id) {
@@ -118,22 +152,17 @@ export function newSlideMediaElement(slideId: Id, asset: MediaAsset, x: number, 
       updatedAt: timestamp,
     };
   }
-  return {
-    id: createId(),
-    slideId,
-    type: 'text' as const,
+  return createTextElement(slideId, {
+    text: `[AUDIO] ${asset.name}`,
     x,
     y,
     width: 800,
     height: 90,
-    rotation: 0,
-    opacity: 1,
     zIndex: 12,
-    layer: 'content' as const,
-    payload: newTextPayload(`[AUDIO] ${asset.name}`, 42, 'left', '600'),
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  };
+    fontSize: 42,
+    alignment: 'left',
+    weight: '600',
+  });
 }
 
 export function newOverlayElement(

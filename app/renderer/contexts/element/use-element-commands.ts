@@ -7,12 +7,11 @@ import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
 import type { ActiveEditorSource } from '../canvas/editor-source';
 import {
+  createTextElement,
   newOverlayElement,
   newShapePayload,
   newSlideMediaElement,
   newSlideShapeElement,
-  newSlideTextElement,
-  newTextPayload,
   nextOverlayZIndex,
 } from './element-factory';
 
@@ -54,7 +53,10 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     if (activeEditorSource.mode === 'overlay-editor') {
       const currentOverlay = activeEditorSource.meta.overlay;
       if (!currentOverlay) return;
-      addToSource(newOverlayElement(currentOverlay.id, 'text', 210, 460, 1500, 120, nextOverlayZIndex(currentOverlay.elements, 20), newTextPayload('New Overlay Text', 72, 'center', '700')));
+      addToSource(createTextElement(currentOverlay.id, {
+        text: 'New Overlay Text',
+        zIndex: nextOverlayZIndex(currentOverlay.elements, 20),
+      }));
       setStatusText('Added overlay text');
       return;
     }
@@ -66,7 +68,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
         setStatusText('Lyric themes only support the existing lyric text element.');
         return;
       }
-      addToSource(newSlideTextElement(currentTheme.id));
+      addToSource(createTextElement(currentTheme.id));
       setStatusText('Added theme text');
       return;
     }
@@ -74,7 +76,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     if (activeEditorSource.mode === 'stage-editor') {
       const currentStage = activeEditorSource.meta.stage;
       if (!currentStage) return;
-      addToSource(newSlideTextElement(currentStage.id));
+      addToSource(createTextElement(currentStage.id));
       setStatusText('Added stage text');
       return;
     }
@@ -92,21 +94,22 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     }
 
     if (activeEditorSource.mode === 'deck-editor') {
-      addToSource(newSlideTextElement(currentSlideId));
+      addToSource(createTextElement(currentSlideId));
       setStatusText('Added text element');
       return;
     }
 
+    const fallbackText = createTextElement(currentSlideId);
     await mutatePatch(() => window.castApi.createElement({
       slideId: currentSlideId,
       type: 'text',
-      x: 210,
-      y: 460,
-      width: 1500,
-      height: 120,
-      zIndex: 20,
-      layer: 'content',
-      payload: newTextPayload('New Text Element', 72, 'center', '700'),
+      x: fallbackText.x,
+      y: fallbackText.y,
+      width: fallbackText.width,
+      height: fallbackText.height,
+      zIndex: fallbackText.zIndex,
+      layer: fallbackText.layer,
+      payload: fallbackText.payload,
     }));
     setStatusText('Added text element');
   }, [activeEditorSource, isLyricItem, mutatePatch, setStatusText, slideElementsBySlideId]);
@@ -205,16 +208,27 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     } else if (asset.type === 'video') {
       input = { slideId: currentSlideId, type: 'video', x, y, width: 960, height: 540, zIndex: 10, layer: 'media', payload: { src: asset.src, autoplay: true, loop: true, muted: false, playbackRate: 1 } };
     } else {
-      input = {
-        slideId: currentSlideId,
-        type: 'text',
+      const audioText = createTextElement(currentSlideId, {
+        text: `[AUDIO] ${asset.name}`,
         x,
         y,
         width: 800,
         height: 90,
         zIndex: 12,
-        layer: 'content',
-        payload: newTextPayload(`[AUDIO] ${asset.name}`, 42, 'left', '600'),
+        fontSize: 42,
+        alignment: 'left',
+        weight: '600',
+      });
+      input = {
+        slideId: currentSlideId,
+        type: 'text',
+        x: audioText.x,
+        y: audioText.y,
+        width: audioText.width,
+        height: audioText.height,
+        zIndex: audioText.zIndex,
+        layer: audioText.layer,
+        payload: audioText.payload,
       };
     }
     await mutatePatch(() => window.castApi.createElement(input));
