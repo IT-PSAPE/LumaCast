@@ -1,3 +1,5 @@
+import type { RichBody } from './rich-text/types';
+
 export type Id = string;
 
 export interface Library {
@@ -197,6 +199,11 @@ export interface TextElementPayload extends ElementVisualPayload {
   textShadowOffsetX?: number;
   textShadowOffsetY?: number;
   binding?: TextBinding;
+  // Rich Text (see app/core/rich-text). Additive & optional: absent ⇒ 'plain'.
+  // When format === 'rich', richBody is the authored content; `text` stays the
+  // newline-joined plain-text projection (fallback + the resolved value for bindings).
+  format?: 'plain' | 'rich';
+  richBody?: RichBody;
 }
 
 export interface ImageElementPayload extends ElementVisualPayload {
