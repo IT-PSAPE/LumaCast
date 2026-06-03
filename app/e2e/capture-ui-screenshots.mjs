@@ -311,7 +311,7 @@ async function seedScenario(page) {
       { notes: 'Intentional empty slide for warning-state coverage.', elements: [] },
     ]);
 
-    await ensurePresentation(ids, 'Announcements', [
+    await ensureDeck(ids, 'Announcements', [
       {
         notes: 'Announcements presentation overview.',
         elements: [
