@@ -9,8 +9,8 @@ import type { RichPosition, RichRange } from '@core/rich-text/edit';
 import { Bold, Italic, List, ListOrdered, Strikethrough, Underline } from 'lucide-react';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { ColorPicker } from '@renderer/components/form/color-picker';
-import { measureInlineTextHeight, resolveInlineTextAlign } from './inline-text-editor-utils';
-import { computeAutoFitFontSize, textLineBleedPadding, textOverflowOffset } from './text-layout';
+import { resolveInlineTextAlign } from './inline-text-editor-utils';
+import { computeAutoFitFontSize } from './text-layout';
 
 interface InlineTextEditorProps {
   editingTextId: string;
@@ -20,6 +20,7 @@ interface InlineTextEditorProps {
   sceneScale: number;
   onCommit: (body: RichBody) => void;
   onCancel: () => void;
+  onLiveChange?: (body: RichBody) => void;
 }
 
 // ── Model ⇄ contentEditable DOM ──────────────────────────────
@@ -39,6 +40,12 @@ function ensureListStyle(): void {
     '.rt-bullet::before{content:"• ";margin-left:-1.2em;display:inline-block;width:1.2em;}',
     '.rt-number{padding-left:1.6em;counter-increment:rt-counter;}',
     '.rt-number::before{content:counter(rt-counter) ". ";margin-left:-1.6em;display:inline-block;width:1.6em;}',
+    // The editor's text is transparent (the canvas is the single render path), so a
+    // solid native selection band would hide the canvas text it sits over. A
+    // translucent highlight lets the real text show through, giving a natural
+    // drag-to-select look across one or many blocks.
+    '.rt-editor::selection{background:rgba(77,163,255,0.35);}',
+    '.rt-editor ::selection{background:rgba(77,163,255,0.35);}',
   ].join('');
   document.head.appendChild(style);
 }
@@ -49,12 +56,12 @@ function escapeHtml(value: string): string {
 
 function runSpanHtml(run: RichRun, box: RichBoxStyle): string {
   const resolved = resolveRun(run, box);
-  const decoration = [resolved.underline ? 'underline' : '', resolved.strikethrough ? 'line-through' : ''].filter(Boolean).join(' ');
+  // Only weight/style affect layout (and thus caret/selection geometry). Color and
+  // decorations are intentionally omitted: the canvas draws the visible text, and
+  // the editor's own text is transparent — this is the single render path.
   const style = [
     `font-weight:${resolved.weight}`,
     `font-style:${resolved.italic ? 'italic' : 'normal'}`,
-    `color:${resolved.color}`,
-    `text-decoration:${decoration || 'none'}`,
   ].join(';');
   const data: string[] = [];
   if (run.color !== undefined) data.push(`data-c="${escapeHtml(run.color)}"`);
@@ -237,7 +244,7 @@ function splitBlockAt(body: RichBody, position: RichPosition): RichBody {
   return result;
 }
 
-export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffsetX, sceneOffsetY, sceneScale, onCommit, onCancel }: InlineTextEditorProps) {
+export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffsetX, sceneOffsetY, sceneScale, onCommit, onCancel, onLiveChange }: InlineTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<RichBody>([]);
@@ -264,8 +271,9 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     setBody(next);
     root.innerHTML = bodyToHtml(next, box);
     if (caret) placeRange(root, caret);
+    onLiveChange?.(next);
     setVersion((value) => value + 1);
-  }, [box, setBody]);
+  }, [box, setBody, onLiveChange]);
 
   // Mount: seed the draft from the model and focus.
   useEffect(() => {
@@ -296,9 +304,11 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     if (composingRef.current) return;
     const root = editorRef.current;
     if (!root) return;
-    setBody(domToBody(root));
+    const next = domToBody(root);
+    setBody(next);
+    onLiveChange?.(next);
     syncRange();
-  }, [setBody, syncRange]);
+  }, [setBody, onLiveChange, syncRange]);
 
   const commit = useCallback(() => {
     if (committedRef.current) return;
@@ -396,24 +406,15 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
       })
     : payload.fontSize;
   const fontSize = baseFontSize * sceneScale;
-  const bleedPadding = textLineBleedPadding(fontSize, lineHeight);
-  const elementHeight = element.height * sceneScale;
+  // The input overlay sits exactly on the element bounds (the same box the
+  // transformer shows), so the box never grows-then-snaps between edit and view.
+  // The canvas renders the (possibly overflowing) text; the overlay only captures input.
   const left = sceneOffsetX + element.x * sceneScale;
+  const top = sceneOffsetY + element.y * sceneScale;
   const width = element.width * sceneScale;
+  const height = element.height * sceneScale;
   const textAlign = resolveInlineTextAlign(payload.alignment);
   const verticalAlign = payload.verticalAlign ?? 'middle';
-  const contentHeight = measureInlineTextHeight({
-    text: richBodyToText(bodyRef.current),
-    width: Math.max(width - 4, 1),
-    fontSize,
-    lineHeight,
-    fontWeight: payload.weight ?? '400',
-    fontStyle: payload.italic ? 'italic' : 'normal',
-    fontFamily: payload.fontFamily || 'sans-serif',
-  });
-  const frameContentHeight = payload.autoFit ? elementHeight : Math.max(elementHeight, contentHeight);
-  const top = sceneOffsetY + element.y * sceneScale + textOverflowOffset(verticalAlign, elementHeight, frameContentHeight) - bleedPadding;
-  const height = frameContentHeight + bleedPadding * 2;
 
   const activeFormatting: string[] = [];
   if (rangeStyle?.bold.value && !rangeStyle.bold.mixed) activeFormatting.push('bold');
@@ -480,7 +481,7 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
         onCompositionStart={() => { composingRef.current = true; }}
         onCompositionEnd={() => { composingRef.current = false; handleInput(); }}
         onBlur={handleBlur}
-        className="absolute z-10 overflow-hidden border-2 border-[#4DA3FF] bg-transparent outline-none"
+        className="rt-editor absolute z-10 overflow-visible border-2 border-[#4DA3FF] bg-transparent outline-none"
         style={{
           left,
           top,
@@ -490,10 +491,15 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
           fontSize,
           lineHeight,
           fontFamily: payload.fontFamily || 'sans-serif',
-          color: payload.color,
+          // The editor's own text is transparent — the canvas is the single render
+          // path. Only the caret is visible (caretColor), and weight/style are kept
+          // so the transparent text lays out where the canvas draws it. Bound text is
+          // the exception: the canvas shows the resolved binding (not the editable
+          // fallback), so keep that text visible to edit.
+          color: isBound ? payload.color : 'transparent',
+          caretColor: payload.color,
           fontWeight: box.weight,
           fontStyle: box.italic ? 'italic' : 'normal',
-          textDecoration: `${box.underline ? 'underline ' : ''}${box.strikethrough ? 'line-through' : ''}`.trim() || 'none',
           textAlign,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',

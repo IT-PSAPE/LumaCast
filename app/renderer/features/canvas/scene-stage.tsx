@@ -107,7 +107,9 @@ const SceneNode = memo(function SceneNode({
         width={node.element.width}
         height={node.element.height}
         rotation={node.element.rotation}
-        opacity={isBeingEdited ? 0 : node.element.opacity}
+        // The text stays rendered on the canvas while editing — the inline editor
+        // is a transparent input overlay, so there is one render path (no swap).
+        opacity={node.element.opacity}
         scaleX={node.visual.flipX ? -1 : 1}
         scaleY={node.visual.flipY ? -1 : 1}
         offsetX={node.visual.flipX ? node.element.width : 0}
@@ -322,6 +324,7 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
           sceneScale={viewport.sceneScale}
           onCommit={editor.commitTextEdit}
           onCancel={editor.cancelTextEdit}
+          onLiveChange={editor.liveUpdateTextEdit}
         />
       ) : null}
       {editable ? (

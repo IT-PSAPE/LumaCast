@@ -242,6 +242,10 @@ export default function DocEditor({ initialBlocks, onChange, className }: DocEdi
 
     const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
         if (event.button !== 0) return
+        // A drag that starts inside a block's textarea is a native caret text
+        // selection — leave it to the browser. The marquee is for block selection
+        // and is only armed from the margins / empty space around the textareas.
+        if (event.target instanceof HTMLTextAreaElement) return
         dragRef.current = { startX: event.clientX, startY: event.clientY, active: false }
 
         const onMove = (e: PointerEvent) => {

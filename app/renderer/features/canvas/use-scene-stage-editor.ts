@@ -39,6 +39,7 @@ function bodyIsRich(body: RichBody): boolean {
 export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorParams) {
   const {
     effectiveElements,
+    baseElements,
     selectedElementIds,
     selectElements,
     toggleElementSelection,
@@ -129,10 +130,37 @@ export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorPara
     setEditingTextId(id);
   }, [editable, effectiveElements, selectElement]);
 
+  // Drop the live-edit draft for an element so the canvas falls back to its
+  // committed (base) payload.
+  const clearTextDraft = useCallback((id: Id) => {
+    setDraftElements((current) => {
+      if (!(id in current)) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }, [setDraftElements]);
+
+  // Live edit: push the in-progress body into the draft so the SAME canvas node
+  // re-renders it as the user types. The editor renders no visible text of its
+  // own — there is one render path (the canvas), so nothing shifts on enter/exit.
+  const liveUpdateTextEdit = useCallback((body: RichBody) => {
+    if (!editingTextId) return;
+    const element = baseElements.find((el) => el.id === editingTextId);
+    if (!element || element.type !== 'text') return;
+    const payload = element.payload as TextElementPayload;
+    const nextPayload: TextElementPayload = { ...payload, format: 'rich', richBody: body, text: richBodyToText(body) };
+    applyDraftPatch(editingTextId, { payload: nextPayload });
+  }, [editingTextId, baseElements, applyDraftPatch]);
+
   const commitTextEdit = useCallback(async (body: RichBody) => {
     if (!editingTextId) return;
-    const element = effectiveElements.find((el) => el.id === editingTextId);
+    const targetId = editingTextId;
+    // Compare against the BASE (persisted) payload, not the draft-merged one the
+    // live edit already pushed, so we don't mistake the live preview for "no change".
+    const element = baseElements.find((el) => el.id === targetId);
     if (!element || element.type !== 'text') {
+      clearTextDraft(targetId);
       setEditingTextId(null);
       return;
     }
@@ -149,14 +177,16 @@ export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorPara
       || payload.format !== nextPayload.format
       || JSON.stringify(payload.richBody) !== JSON.stringify(nextPayload.richBody);
     if (changed) {
-      await commitElementUpdates([{ id: editingTextId, payload: nextPayload }]);
+      await commitElementUpdates([{ id: targetId, payload: nextPayload }]);
     }
+    clearTextDraft(targetId);
     setEditingTextId(null);
-  }, [editingTextId, effectiveElements, commitElementUpdates]);
+  }, [editingTextId, baseElements, commitElementUpdates, clearTextDraft]);
 
   const cancelTextEdit = useCallback(() => {
+    if (editingTextId) clearTextDraft(editingTextId);
     setEditingTextId(null);
-  }, []);
+  }, [editingTextId, clearTextDraft]);
 
   const handleNodeDragStart = useCallback((id: Id) => {
     if (!editable) return;
@@ -297,6 +327,7 @@ export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorPara
     handleNodeDoubleClick,
     commitTextEdit,
     cancelTextEdit,
+    liveUpdateTextEdit,
     handleNodeDragStart,
     handleNodeDragMove,
     handleNodeDragEnd,
