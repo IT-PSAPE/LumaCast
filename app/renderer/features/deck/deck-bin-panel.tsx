@@ -82,20 +82,8 @@ interface DeckItemProps {
   collectionsApi: BinCollectionsApi;
 }
 
-function DeckItemContextMenuItems({ item, renameRef, collectionsApi }: { item: DeckItem; renameRef: React.RefObject<RenameFieldHandle | null>; collectionsApi: BinCollectionsApi }) {
-  const { deleteDeckItem } = useLibraryPanelManagement();
-  const confirm = useConfirm();
+function DeckItemContextMenuItems({ item, renameRef, collectionsApi, onDelete }: { item: DeckItem; renameRef: React.RefObject<RenameFieldHandle | null>; collectionsApi: BinCollectionsApi; onDelete: () => void }) {
   const otherCollections = collectionsApi.collections.filter((c) => c.id !== item.collectionId);
-
-  async function handleDelete() {
-    const ok = await confirm({
-      title: `Delete "${item.title}"?`,
-      description: 'This permanently removes the item and all its slides. This action cannot be undone.',
-      confirmLabel: 'Delete',
-      destructive: true,
-    });
-    if (ok) await deleteDeckItem(item.id);
-  }
 
   return (
     <ContextMenu.Portal>
@@ -114,10 +102,25 @@ function DeckItemContextMenuItems({ item, renameRef, collectionsApi }: { item: D
           </ContextMenu.Submenu>
         ) : null}
         <ContextMenu.Separator />
-        <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+        <ContextMenu.Item variant="destructive" onSelect={onDelete}>Delete</ContextMenu.Item>
       </ContextMenu.Menu>
     </ContextMenu.Portal>
   );
+}
+
+function useDeleteDeckItem(item: DeckItem) {
+  const { deleteDeckItem } = useLibraryPanelManagement();
+  const confirm = useConfirm();
+
+  return async function handleDelete() {
+    const ok = await confirm({
+      title: `Delete "${item.title}"?`,
+      description: 'This permanently removes the item and all its slides. This action cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (ok) await deleteDeckItem(item.id);
+  };
 }
 
 function DeckItemRow(props: DeckItemProps) {
@@ -130,7 +133,8 @@ function DeckItemRow(props: DeckItemProps) {
 
 function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename, collectionsApi }: DeckItemProps) {
   const renameRef = useRef<RenameFieldHandle>(null);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const handleDelete = useDeleteDeckItem(item);
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
 
   useEffect(() => {
     if (isEditing) renameRef.current?.startEditing();
@@ -155,7 +159,7 @@ function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename
         ref={triggerRef}
         selected={isSelected}
         onClick={handleOpen}
-        className="h-9 cursor-grab"
+        className="h-9 cursor-grab focus-visible:ring-2 focus-visible:ring-brand"
         draggable
         onDragStart={handleDragStart}
       >
@@ -169,7 +173,7 @@ function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename
           <span className="text-xs text-tertiary">{slides.length} {slides.length === 1 ? 'slide' : 'slides'}</span>
         </SelectableRow.Trailing>
       </SelectableRow.Root>
-      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} />
+      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
     </>
   );
 }
@@ -188,7 +192,8 @@ function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRenam
   const firstSlideElements = firstSlide ? slideElementsBySlideId.get(firstSlide.id) ?? [] : [];
   const scene = firstSlide ? buildThumbnailScene(firstSlide, firstSlideElements) : null;
   const renameRef = useRef<RenameFieldHandle>(null);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const handleDelete = useDeleteDeckItem(item);
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
 
   useEffect(() => {
     if (isEditing) renameRef.current?.startEditing();
@@ -211,7 +216,7 @@ function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRenam
       <div
         {...triggerHandlers}
         ref={triggerRef}
-        className="group cursor-grab"
+        className="group cursor-grab rounded-xs focus-visible:ring-2 focus-visible:ring-brand"
         draggable
         onDragStart={handleDragStart}
       >
@@ -231,7 +236,7 @@ function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRenam
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
-      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} />
+      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
     </>
   );
 }

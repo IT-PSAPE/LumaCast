@@ -202,7 +202,7 @@ function GroupEntryRowBody({
   const { selectPlaylistEntry } = useSlides();
   const confirm = useConfirm();
   const renameRef = useRef<RenameFieldHandle>(null);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleRemoveFromGroup(); } });
 
   const isSelected = entry.id === currentPlaylistEntryId;
   const isFirst = index === 0;
@@ -233,7 +233,7 @@ function GroupEntryRowBody({
         onClick={handleSelect}
         onDragOver={onDeckItemDragOver}
         onDrop={onDeckItemDrop}
-        className='my-0.5'
+        className='my-0.5 focus-visible:ring-2 focus-visible:ring-brand'
       >
         <DeckItemIcon entity={item} className="shrink-0" />
         <RenameField ref={renameRef} value={item.title} onValueChange={handleRename} className="label-xs" />

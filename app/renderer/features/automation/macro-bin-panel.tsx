@@ -130,7 +130,7 @@ function MacroCardImpl(props: MacroCardProps) {
 function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOpen, onRunMacro, onDeleteMacro, onDuplicateMacro, onToggleRunOnStartup, onRename, onMoveToCollection, collectionsApi }: MacroCardProps) {
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
   const otherCollections = collectionsApi.collections.filter((c) => c.id !== macro.collectionId);
   const cueCountLabel = `${macro.cues.length} ${macro.cues.length === 1 ? 'cue' : 'cues'}`;
 
@@ -146,7 +146,7 @@ function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOp
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef}>
+      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
         <Thumbnail.Tile onClick={() => onSelect(macro.id)} onDoubleClick={() => onOpen(macro.id)} selected={isSelected}>
           <Thumbnail.Body>
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-tertiary text-secondary">

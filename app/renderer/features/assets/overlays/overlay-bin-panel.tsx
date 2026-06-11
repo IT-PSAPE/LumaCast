@@ -96,7 +96,7 @@ function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWork
   const scene = useMemo(() => buildRenderScene({ width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null }, overlayToLayerElements(overlay)), [overlay]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
   const otherCollections = collectionsApi.collections.filter((c) => c.id !== overlay.collectionId);
 
   function handleActivate() {
@@ -125,7 +125,7 @@ function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWork
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef}>
+      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
         <Thumbnail.Tile onClick={handleActivate} onDoubleClick={handleEdit} selected={isActive}>
           <Thumbnail.Body>
             <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>

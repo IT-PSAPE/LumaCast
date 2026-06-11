@@ -4627,11 +4627,14 @@ export class CastRepository {
         (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
+    const setSlideBackground = this.db.prepare('UPDATE slides SET background_json = ?, updated_at = ? WHERE id = ?');
+    const themeBackgroundJson = theme.background ? JSON.stringify(theme.background) : null;
 
     const deletedElementIds: Id[] = [];
     const tx = this.db.transaction(() => {
       this.db.prepare(`UPDATE ${ownerTable} SET theme_id = ?, updated_at = ? WHERE id = ?`).run(themeId, nowIso(), itemId);
       for (const slide of slides) {
+        setSlideBackground.run(themeBackgroundJson, nowIso(), slide.id);
         const currentElements = (selectElements.all(slide.id) as Array<{
           id: string;
           slide_id: string;
@@ -4692,6 +4695,7 @@ export class CastRepository {
       upsertPresentationIds: owner.type === 'presentation' ? [itemId] : undefined,
       upsertLyricIds: owner.type === 'lyric' ? [itemId] : undefined,
       upsertTalkIds: owner.type === 'talk' ? [itemId] : undefined,
+      upsertSlideIds: slides.map((slide) => slide.id),
       upsertSlideElementIds: this.getSlideElementIdsBySlideIds(slides.map((slide) => slide.id)),
       deletedSlideElementIds: deletedElementIds,
       replaceLibraryBundles: true,
@@ -4732,6 +4736,8 @@ export class CastRepository {
         (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
+    const setSlideBackground = this.db.prepare('UPDATE slides SET background_json = ?, updated_at = ? WHERE id = ?');
+    const themeBackgroundJson = theme.background ? JSON.stringify(theme.background) : null;
 
     const touchedSlideIds: string[] = [];
     const deletedElementIds: Id[] = [];
@@ -4742,6 +4748,7 @@ export class CastRepository {
           .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
           .all(item.id) as Array<{ id: string }>;
         for (const slide of slides) {
+          setSlideBackground.run(themeBackgroundJson, nowIso(), slide.id);
           const currentElements = (selectElements.all(slide.id) as Array<{
             id: string;
             slide_id: string;
@@ -4809,6 +4816,7 @@ export class CastRepository {
       upsertPresentationIds: presentationIds.length > 0 ? presentationIds : undefined,
       upsertLyricIds: lyricIds.length > 0 ? lyricIds : undefined,
       upsertTalkIds: talkIds.length > 0 ? talkIds : undefined,
+      upsertSlideIds: touchedSlideIds,
       upsertSlideElementIds: this.getSlideElementIdsBySlideIds(touchedSlideIds),
       deletedSlideElementIds: deletedElementIds,
       replaceLibraryBundles: true,
@@ -4934,7 +4942,7 @@ export class CastRepository {
 
     this.db
       .prepare(
-        'INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, background_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       )
       .run(
         slideId,
@@ -4945,6 +4953,7 @@ export class CastRepository {
         input.width ?? DEFAULT_W,
         input.height ?? DEFAULT_H,
         '',
+        appliedTheme?.background ? JSON.stringify(appliedTheme.background) : null,
         currentOrder + 1,
         now,
         now

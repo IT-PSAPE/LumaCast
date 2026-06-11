@@ -99,7 +99,7 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit, collections
   const scene = useMemo(() => buildRenderScene({ width: stage.width, height: stage.height, background: stage.background ?? null }, stage.elements), [stage.background, stage.elements, stage.height, stage.width]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
   const otherCollections = collectionsApi.collections.filter((c) => c.id !== stage.collectionId);
 
   function handleActivate() {
@@ -126,7 +126,7 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit, collections
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef}>
+      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
         <Thumbnail.Tile onClick={handleActivate} onDoubleClick={handleEdit} selected={isActive}>
           <Thumbnail.Body>
             <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>

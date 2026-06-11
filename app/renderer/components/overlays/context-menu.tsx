@@ -636,11 +636,17 @@ function Submenu({ label, children, disabled = false, className }: SubmenuProps)
 interface UseContextMenuTriggerOptions {
   disabled?: boolean;
   longPressDelay?: number;
+  // When provided, the trigger becomes focusable and pressing Delete/Backspace
+  // while it (not a child input) holds focus invokes this — the keyboard twin of
+  // the context menu's destructive item. stopPropagation keeps the global
+  // slide/element delete shortcut from also firing for the same keystroke.
+  onDelete?: () => void;
 }
 
 export function useContextMenuTrigger({
   disabled = false,
   longPressDelay = DEFAULT_LONG_PRESS_DELAY,
+  onDelete,
 }: UseContextMenuTriggerOptions = {}) {
   const { actions, meta, state } = useContextMenu();
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -666,6 +672,7 @@ export function useContextMenuTrigger({
     () => ({
       ref,
       'data-state': state.open ? 'open' : 'closed',
+      tabIndex: onDelete ? 0 : undefined,
       onContextMenu(event: ReactMouseEvent<HTMLElement>) {
         if (disabled) return;
         event.preventDefault();
@@ -680,6 +687,14 @@ export function useContextMenuTrigger({
             x: Math.round(rect.left + rect.width / 2),
             y: Math.round(rect.top + Math.min(rect.height, 24) / 2),
           });
+          return;
+        }
+        // Only the focused trigger itself deletes — never a keystroke bubbling up
+        // from a child rename input, where Backspace must edit text.
+        if (onDelete && event.target === event.currentTarget && (event.key === 'Delete' || event.key === 'Backspace')) {
+          event.preventDefault();
+          event.stopPropagation();
+          onDelete();
         }
       },
       onTouchStart(event: ReactTouchEvent<HTMLElement>) {
@@ -713,7 +728,7 @@ export function useContextMenuTrigger({
         clearLongPress();
       },
     }),
-    [actions, clearLongPress, disabled, longPressDelay, ref, state.open],
+    [actions, clearLongPress, disabled, longPressDelay, onDelete, ref, state.open],
   );
 }
 

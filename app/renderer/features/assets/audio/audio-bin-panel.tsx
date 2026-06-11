@@ -82,7 +82,7 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
   const coverArt = useAudioCoverArt(asset.src);
   const { deleteMedia } = useElements();
   const confirm = useConfirm();
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
 
   function handleArm() {
     onArm(asset.id);
@@ -111,7 +111,7 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
         ref={triggerRef}
         selected={isActive}
         onClick={handleArm}
-        className="h-9"
+        className="h-9 focus-visible:ring-2 focus-visible:ring-brand"
       >
         <SelectableRow.Leading>
           {coverArt ? (

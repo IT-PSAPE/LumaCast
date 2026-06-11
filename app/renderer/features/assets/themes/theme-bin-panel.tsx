@@ -83,7 +83,8 @@ function ThemeRowImpl(props: ThemeItemProps) {
 function ThemeRowBody({ theme, index, onApply, collectionsApi }: ThemeItemProps) {
   const { renameTheme } = useThemeEditor();
   const renameRef = useRef<RenameFieldHandle>(null);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const handleDelete = useDeleteTheme(theme);
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
 
   function handleClick() {
     onApply(theme);
@@ -100,7 +101,7 @@ function ThemeRowBody({ theme, index, onApply, collectionsApi }: ThemeItemProps)
         ref={triggerRef}
         selected={false}
         onClick={handleClick}
-        className="h-9"
+        className="h-9 focus-visible:ring-2 focus-visible:ring-brand"
       >
         <SelectableRow.Leading>
           <span className="text-xs font-semibold tabular-nums text-tertiary">{index + 1}</span>
@@ -112,7 +113,7 @@ function ThemeRowBody({ theme, index, onApply, collectionsApi }: ThemeItemProps)
           <span className="text-xs uppercase tracking-wide text-tertiary">{theme.kind}</span>
         </SelectableRow.Trailing>
       </SelectableRow.Root>
-      <ThemeContextMenuItems theme={theme} renameRef={renameRef} collectionsApi={collectionsApi} />
+      <ThemeContextMenuItems theme={theme} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
     </>
   );
 }
@@ -129,7 +130,8 @@ function ThemeTileBody({ theme, index, onApply, collectionsApi }: ThemeItemProps
   const { renameTheme } = useThemeEditor();
   const scene = useMemo(() => buildRenderScene({ width: theme.width, height: theme.height, background: theme.background ?? null }, theme.elements), [theme.background, theme.elements, theme.height, theme.width]);
   const renameRef = useRef<RenameFieldHandle>(null);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const handleDelete = useDeleteTheme(theme);
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
 
   function handleClick() {
     onApply(theme);
@@ -141,7 +143,7 @@ function ThemeTileBody({ theme, index, onApply, collectionsApi }: ThemeItemProps
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef}>
+      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
         <Thumbnail.Tile onClick={handleClick}>
           <Thumbnail.Body>
             <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
@@ -156,23 +158,39 @@ function ThemeTileBody({ theme, index, onApply, collectionsApi }: ThemeItemProps
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
-      <ThemeContextMenuItems theme={theme} renameRef={renameRef} collectionsApi={collectionsApi} />
+      <ThemeContextMenuItems theme={theme} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
     </>
   );
+}
+
+function useDeleteTheme(theme: Theme) {
+  const { deleteTheme } = useThemeEditor();
+  const confirm = useConfirm();
+
+  return async function handleDelete() {
+    const ok = await confirm({
+      title: `Delete "${theme.name}"?`,
+      description: 'Slides linked to this theme will be detached.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (ok) deleteTheme(theme.id);
+  };
 }
 
 function ThemeContextMenuItems({
   theme,
   renameRef,
   collectionsApi,
+  onDelete,
 }: {
   theme: Theme;
   renameRef: React.RefObject<RenameFieldHandle | null>;
   collectionsApi: BinCollectionsApi;
+  onDelete: () => void;
 }) {
-  const { applyThemeToTarget, deleteTheme } = useThemeEditor();
+  const { applyThemeToTarget } = useThemeEditor();
   const { presentations, lyrics, overlays } = useProjectContent();
-  const confirm = useConfirm();
 
   const compatibleDeckItems = useMemo<DeckItem[]>(() => {
     if (theme.kind === 'overlays') return [];
@@ -188,16 +206,6 @@ function ThemeContextMenuItems({
 
   const hasTargets = compatibleDeckItems.length > 0 || compatibleOverlays.length > 0;
   const targetLabel = theme.kind === 'overlays' ? 'overlays' : theme.kind === 'lyrics' ? 'lyrics' : 'presentations';
-
-  async function handleDelete() {
-    const ok = await confirm({
-      title: `Delete "${theme.name}"?`,
-      description: 'Slides linked to this theme will be detached.',
-      confirmLabel: 'Delete',
-      destructive: true,
-    });
-    if (ok) deleteTheme(theme.id);
-  }
 
   return (
     <ContextMenu.Portal>
@@ -240,7 +248,7 @@ function ThemeContextMenuItems({
           </ContextMenu.Submenu>
         ) : null}
         <ContextMenu.Separator />
-        <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+        <ContextMenu.Item variant="destructive" onSelect={onDelete}>Delete</ContextMenu.Item>
       </ContextMenu.Menu>
     </ContextMenu.Portal>
   );

@@ -118,17 +118,20 @@ function MediaContextMenuItems({
   asset,
   collectionsApi,
   onMoveToCollection,
+  onReplaceSource,
+  onDelete,
 }: {
   asset: MediaAsset;
   collectionsApi: BinCollectionsApi;
   onMoveToCollection: (assetId: Id, collectionId: Id) => Promise<void>;
+  onReplaceSource: () => void;
+  onDelete: () => void;
 }) {
-  const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
   const otherCollections = collectionsApi.collections.filter((c) => c.id !== asset.collectionId);
   return (
     <ContextMenu.Portal>
       <ContextMenu.Menu>
-        <ContextMenu.Item onSelect={() => { void handleReplaceSource(); }}>Replace source…</ContextMenu.Item>
+        <ContextMenu.Item onSelect={onReplaceSource}>Replace source…</ContextMenu.Item>
         <ContextMenu.Separator />
         {otherCollections.length > 0 ? (
           <ContextMenu.Submenu label="Move to collection">
@@ -143,7 +146,7 @@ function MediaContextMenuItems({
           </ContextMenu.Submenu>
         ) : null}
         <ContextMenu.Separator />
-        <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+        <ContextMenu.Item variant="destructive" onSelect={onDelete}>Delete</ContextMenu.Item>
       </ContextMenu.Menu>
     </ContextMenu.Portal>
   );
@@ -158,7 +161,8 @@ function MediaRow(props: MediaItemProps) {
 }
 
 function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsApi, onMoveToCollection }: MediaItemProps) {
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
   const {
     state: { programMode, programSingleSurface },
     actions: { setProgramSingleSurface },
@@ -182,7 +186,7 @@ function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsA
         ref={triggerRef}
         selected={isActive}
         onClick={handleAssignLayer}
-        className="h-12"
+        className="h-12 focus-visible:ring-2 focus-visible:ring-brand"
       >
         <SelectableRow.Leading>
           <div className="relative h-10 w-10 overflow-hidden rounded bg-tertiary/40">
@@ -194,7 +198,13 @@ function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsA
           <span className="truncate text-xs uppercase tracking-wide text-tertiary">{asset.type}</span>
         </div>
       </SelectableRow.Root>
-      <MediaContextMenuItems asset={asset} collectionsApi={collectionsApi} onMoveToCollection={onMoveToCollection} />
+      <MediaContextMenuItems
+        asset={asset}
+        collectionsApi={collectionsApi}
+        onMoveToCollection={onMoveToCollection}
+        onReplaceSource={() => { void handleReplaceSource(); }}
+        onDelete={() => { void handleDelete(); }}
+      />
     </>
   );
 }
@@ -208,7 +218,8 @@ function MediaTile(props: MediaItemProps) {
 }
 
 function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsApi, onMoveToCollection }: MediaItemProps) {
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
   const {
     state: { programMode, programSingleSurface },
     actions: { setProgramSingleSurface },
@@ -227,7 +238,7 @@ function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collections
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef}>
+      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
         <Thumbnail.Tile
           onClick={handleAssignLayer}
           selected={isActive}
@@ -245,7 +256,13 @@ function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collections
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
-      <MediaContextMenuItems asset={asset} collectionsApi={collectionsApi} onMoveToCollection={onMoveToCollection} />
+      <MediaContextMenuItems
+        asset={asset}
+        collectionsApi={collectionsApi}
+        onMoveToCollection={onMoveToCollection}
+        onReplaceSource={() => { void handleReplaceSource(); }}
+        onDelete={() => { void handleDelete(); }}
+      />
     </>
   );
 }
