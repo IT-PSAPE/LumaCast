@@ -332,6 +332,7 @@ function ImageCacheSection() {
         <Stat label="Loaded" value={formatNumber(stats.loadedCount)} />
         <Stat label="Loading" value={formatNumber(stats.loadingCount)} />
         <Stat label="Errors" value={formatNumber(stats.errorCount)} highlight={stats.errorCount > 0} />
+        <Stat label="Retained" value={formatNumber(stats.retainedCount)} />
       </div>
     </SectionShell>
   );

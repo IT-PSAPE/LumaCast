@@ -128,7 +128,13 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
       return;
     }
 
-    if (!loadedMedia) return;
+    if (!loadedMedia) {
+      // The node's src changed and the incoming media has not resolved yet.
+      // Holding the outgoing element on screen would paint the previous
+      // slide's media here, so drop it and fall through to the placeholder.
+      setDisplayedMedia((current) => (current && current.key !== requestKey ? null : current));
+      return;
+    }
 
     setDisplayedMedia((current) => {
       if (current?.key === loadedMedia.key && current.resource === loadedMedia.resource) return current;
