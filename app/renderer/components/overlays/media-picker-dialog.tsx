@@ -4,6 +4,7 @@ import type { Id, MediaAsset } from '@core/types';
 import { Film, Image as ImageIcon, Upload } from 'lucide-react';
 import { cn } from '@renderer/utils/cn';
 import { ReacstButton } from '@renderer/components/controls/button';
+import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { FileTrigger } from '../form/file-trigger';
 import { castMediaSrc, typeFromFile } from '../../utils/slides';
 import { Dialog } from './dialog';
@@ -133,30 +134,37 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
         <Dialog.Portal>
           <Dialog.Backdrop />
           <Dialog.Positioner>
-            <Dialog.Content data-ui-region="media-picker-dialog" className="max-w-[560px] overflow-hidden">
+            <Dialog.Content data-ui-region="media-picker-dialog" className="max-h-[min(560px,calc(100vh-6rem))] max-w-[560px] overflow-hidden">
               <Dialog.Header>
                 <Dialog.Title>{kind === 'image' ? 'Add Image Element' : 'Add Video Element'}</Dialog.Title>
                 <Dialog.CloseButton />
               </Dialog.Header>
-              <Dialog.Body className="overflow-hidden">
-                <div className="min-h-0 overflow-auto p-4">
-                  {filteredAssets.length === 0 ? (
-                    <p className="m-0 text-center text-sm text-tertiary">
-                      {EMPTY_LABELS[kind]}
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
-                      {filteredAssets.map((asset) => (
-                        <MediaPickerAssetTile
-                          key={asset.id}
-                          asset={asset}
-                          isSelected={selectedIds.has(asset.id)}
-                          onToggle={toggleAsset}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+              {/* A single grid track gives the scroll area a definite height; a flex/block body
+                  sized by the dialog's max-height leaves `size-full` nothing to resolve against. */}
+              <Dialog.Body className="grid grid-rows-[minmax(0,1fr)] overflow-hidden">
+                <ScrollArea.Root scrollPadding={16}>
+                  <ScrollArea.Viewport className="p-4">
+                    {filteredAssets.length === 0 ? (
+                      <p className="m-0 text-center text-sm text-tertiary">
+                        {EMPTY_LABELS[kind]}
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
+                        {filteredAssets.map((asset) => (
+                          <MediaPickerAssetTile
+                            key={asset.id}
+                            asset={asset}
+                            isSelected={selectedIds.has(asset.id)}
+                            onToggle={toggleAsset}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </ScrollArea.Viewport>
+                  <ScrollArea.Scrollbar>
+                    <ScrollArea.Thumb />
+                  </ScrollArea.Scrollbar>
+                </ScrollArea.Root>
               </Dialog.Body>
               <Dialog.Footer>
                 <span className="text-sm text-tertiary">
