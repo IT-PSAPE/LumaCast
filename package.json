@@ -15,6 +15,9 @@
   "engines": {
     "node": ">=22.13.0"
   },
+  "overrides": {
+    "@electron/rebuild": "4.2.0"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "ensure:native-deps": "node scripts/ensure-rollup-native.cjs",
