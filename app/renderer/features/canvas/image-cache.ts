@@ -4,6 +4,12 @@ interface ImageCacheEntry {
   status: 'loading' | 'loaded' | 'error';
   estimatedBytes: number;
   lastAccessedAt: number;
+  // Number of mounted consumers currently holding `image`. Eviction destroys
+  // the element in place (`image.src = ''`), and Konva paints that exact
+  // object, so evicting a retained entry blanks live thumbnails and canvases.
+  // Only entries at zero are eligible.
+  refCount: number;
+  evicted: boolean;
 }
 
 const MAX_ENTRIES = 128;
@@ -19,6 +25,7 @@ interface ImageCacheStats {
   loadingCount: number;
   loadedCount: number;
   errorCount: number;
+  retainedCount: number;
 }
 
 // Cache the latest snapshot so `getImageCacheStats` returns a stable reference
@@ -44,6 +51,10 @@ function touchEntry(entry: ImageCacheEntry) {
 }
 
 function replaceEntrySize(entry: ImageCacheEntry, nextSize: number) {
+  // An evicted entry no longer contributes to the budget. Its in-flight
+  // decode still settles (aborted by `image.src = ''`) and would otherwise
+  // subtract its bytes a second time, drifting `totalEstimatedBytes` negative.
+  if (entry.evicted) return;
   totalEstimatedBytes += nextSize - entry.estimatedBytes;
   entry.estimatedBytes = nextSize;
   emitStatsChange();
@@ -59,6 +70,8 @@ function createEntry(src: string): ImageCacheEntry {
     status: 'loading',
     estimatedBytes: 0,
     lastAccessedAt: Date.now(),
+    refCount: 0,
+    evicted: false,
   };
 
   function notify(status: 'loaded' | 'error') {
@@ -100,7 +113,7 @@ function evictIfNeeded() {
   if (cache.size <= MAX_ENTRIES && totalEstimatedBytes <= MAX_ESTIMATED_BYTES) return;
 
   const candidates = [...cache.entries()]
-    .filter(([_key, entry]) => entry.listeners.size === 0)
+    .filter(([_key, entry]) => entry.refCount === 0)
     .sort((left, right) => {
       const [, leftEntry] = left;
       const [, rightEntry] = right;
@@ -114,14 +127,15 @@ function evictIfNeeded() {
 
   for (const [key, entry] of candidates) {
     if (cache.size <= MAX_ENTRIES && totalEstimatedBytes <= MAX_ESTIMATED_BYTES) break;
-    totalEstimatedBytes -= entry.estimatedBytes;
+    replaceEntrySize(entry, 0);
+    entry.evicted = true;
     entry.image.src = '';
     cache.delete(key);
     emitStatsChange();
   }
 }
 
-export function getImageCacheEntry(src: string): ImageCacheEntry {
+function acquireEntry(src: string): ImageCacheEntry {
   const existing = cache.get(src);
   if (existing) {
     touchEntry(existing);
@@ -133,8 +147,46 @@ export function getImageCacheEntry(src: string): ImageCacheEntry {
   const next = createEntry(src);
   cache.set(src, next);
   emitStatsChange();
-  evictIfNeeded();
   return next;
+}
+
+export interface ImageHandle {
+  entry: ImageCacheEntry;
+  release(): void;
+}
+
+// Read-only cache lookup, safe to call during render. Lets a consumer paint a
+// warm entry on its first frame instead of flashing empty while the retain
+// effect catches up. Deliberately does not touch LRU order or refcounts.
+export function peekImageEntry(src: string): ImageCacheEntry | null {
+  return cache.get(src) ?? null;
+}
+
+// Retains `src` for as long as a consumer is mounted. The entry — and the
+// shared HTMLImageElement inside it, which Konva paints by reference — stays
+// pinned against eviction until `release` runs, so a visible thumbnail or
+// canvas can never have its bitmap cleared out from under it.
+export function retainImage(src: string): ImageHandle {
+  const entry = acquireEntry(src);
+  // Retain before evicting: a freshly created entry is otherwise its own
+  // highest-priority eviction candidate (zero refs, `loading` status).
+  entry.refCount += 1;
+  emitStatsChange();
+  evictIfNeeded();
+
+  let released = false;
+  return {
+    entry,
+    release() {
+      if (released) return;
+      released = true;
+      entry.refCount -= 1;
+      touchEntry(entry);
+      emitStatsChange();
+      // Dropping to zero is the moment these bytes become reclaimable.
+      if (entry.refCount === 0) evictIfNeeded();
+    },
+  };
 }
 
 export function getImageCacheStats(): ImageCacheStats {
@@ -143,11 +195,13 @@ export function getImageCacheStats(): ImageCacheStats {
   let loadingCount = 0;
   let loadedCount = 0;
   let errorCount = 0;
+  let retainedCount = 0;
 
   for (const entry of cache.values()) {
     if (entry.status === 'loading') loadingCount += 1;
     else if (entry.status === 'loaded') loadedCount += 1;
     else errorCount += 1;
+    if (entry.refCount > 0) retainedCount += 1;
   }
 
   cachedStats = {
@@ -156,6 +210,7 @@ export function getImageCacheStats(): ImageCacheStats {
     loadingCount,
     loadedCount,
     errorCount,
+    retainedCount,
   };
   return cachedStats;
 }

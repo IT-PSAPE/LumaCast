@@ -170,7 +170,12 @@ export function useKVideo(
   { autoplay, loop, muted, playbackRate }: UseKVideoOptions,
   layerOwned: boolean = false,
 ): ResolvedMediaState {
-  const [state, setState] = useState<ResolvedMediaState>({ status: 'empty' });
+  // Tagged with the src it was resolved for. The effect below updates state a
+  // render behind the prop, and callers key their displayed media off the
+  // current src — reporting the outgoing element against the incoming src
+  // would paint one slide's video on another.
+  const [tracked, setTracked] = useState<{ src: string | null; media: ResolvedMediaState }>({ src: null, media: { status: 'empty' } });
+  const setState = (media: ResolvedMediaState) => { setTracked({ src, media }); };
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const optionsRef = useRef<UseKVideoOptions>({ autoplay, loop, muted, playbackRate });
   optionsRef.current = { autoplay, loop, muted, playbackRate };
@@ -235,5 +240,6 @@ export function useKVideo(
     applyVideoOptions(video, { autoplay, loop, muted, playbackRate });
   }, [layerOwned, autoplay, loop, muted, playbackRate]);
 
-  return state;
+  if (tracked.src === src) return tracked.media;
+  return src ? { status: 'loading' } : { status: 'empty' };
 }
