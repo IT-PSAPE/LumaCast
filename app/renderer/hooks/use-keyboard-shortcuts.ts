@@ -52,13 +52,13 @@ export function useKeyboardShortcuts(): void {
 
       const handlers: Record<ShortcutActionId, (event: KeyboardEvent, payload?: string) => void> = {
         copySelection: () => copySelection(),
-        cutSelection: () => { void cutSelection(); },
-        pasteSelection: () => { void pasteSelection(); },
-        duplicateSelection: () => { void duplicateSelection(); },
-        undo: () => { void undo(); },
-        redo: () => { void redo(); },
-        globalUndo: () => { void globalUndoAction(); },
-        globalRedo: () => { void globalRedoAction(); },
+        cutSelection: () => { void cutSelection().catch(() => undefined); },
+        pasteSelection: () => { void pasteSelection().catch(() => undefined); },
+        duplicateSelection: () => { void duplicateSelection().catch(() => undefined); },
+        undo: () => { void undo().catch(() => undefined); },
+        redo: () => { void redo().catch(() => undefined); },
+        globalUndo: () => { void globalUndoAction().catch(() => undefined); },
+        globalRedo: () => { void globalRedoAction().catch(() => undefined); },
         openCommandPalette: () => openCommandPalette(),
         setPlaylistBrowserMode: (_event, digit) => {
           const modes: PlaylistBrowserMode[] = ['current', 'tabs', 'continuous'];
@@ -74,8 +74,8 @@ export function useKeyboardShortcuts(): void {
         },
         takeSlide: () => takeSlide(),
         deleteSelected: () => {
-          if (selectedElementId) void deleteSelected();
-          else if (currentSlide) void deleteSlide(currentSlide.id);
+          if (selectedElementId) void deleteSelected().catch(() => undefined);
+          else if (currentSlide) void deleteSlide(currentSlide.id).catch(() => undefined);
         },
         clearSelection: () => clearSelection(),
         nudgeOrGoNext: (e) => {

@@ -299,6 +299,7 @@ export const useAppStore = create<AppStoreState>()((set, get) => ({
       .catch((error) => {
         console.error('[AppStore] Failed to update output state:', error);
         recordObsEvent('error', 'Failed to toggle NDI output', { name, enabled, error: String(error) }, 'error');
+        set({ statusText: `Failed to toggle ${name} output` });
       });
   },
 
@@ -318,6 +319,7 @@ export const useAppStore = create<AppStoreState>()((set, get) => ({
       .then((next) => set({ ndiOutputConfigs: next }))
       .catch((error) => {
         console.error('[AppStore] Failed to update output config:', error);
+        set({ statusText: `Failed to update ${name} config` });
       });
   },
 }));
