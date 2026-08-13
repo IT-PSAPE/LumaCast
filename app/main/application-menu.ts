@@ -180,6 +180,11 @@ function buildViewMenu(browserWindow: BrowserWindow | null, state: AppMenuState)
       type: 'radio',
       checked: state.workbenchMode === 'stage-editor',
     }),
+    createCommandItem(browserWindow, 'view.mode.macroEditor', {
+      label: 'Macros',
+      type: 'radio',
+      checked: state.workbenchMode === 'macro-editor',
+    }),
     createCommandItem(browserWindow, 'view.mode.settings', {
       label: 'Settings',
       type: 'radio',

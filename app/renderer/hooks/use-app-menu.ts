@@ -237,6 +237,9 @@ export function useAppMenu(): void {
       case 'view.mode.stageEditor':
         workbench.actions.setWorkbenchMode('stage-editor');
         return;
+      case 'view.mode.macroEditor':
+        workbench.actions.setWorkbenchMode('macro-editor');
+        return;
       case 'view.slideBrowser.grid':
         deckBrowser.setSlideBrowserMode('grid');
         return;
