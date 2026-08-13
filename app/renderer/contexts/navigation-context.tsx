@@ -23,7 +23,7 @@ const NavigationStateContext = createContext<NavigationStateValue | null>(null);
 const NavigationActionsContext = createContext<NavigationActionsValue | null>(null);
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
-  const { snapshot, mutate, mutatePatch, runOperation, setStatusText } = useCast();
+  const { snapshot, mutatePatch, runOperation, setStatusText } = useCast();
   const { deckItems, deckItemsById, slides } = useProjectContent();
 
   const [currentLibraryId, setCurrentLibraryId] = useState<Id | null>(null);
@@ -398,9 +398,9 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   }, [mutatePatch, setStatusText]);
 
   const movePlaylistEntryDirection = useCallback(async (entryId: Id, direction: 'up' | 'down') => {
-    await mutate(() => window.castApi.movePlaylistEntry(entryId, direction));
+    await mutatePatch(() => window.castApi.movePlaylistEntry(entryId, direction));
     setStatusText(direction === 'up' ? 'Moved item up' : 'Moved item down');
-  }, [mutate, setStatusText]);
+  }, [mutatePatch, setStatusText]);
 
   const removePlaylistEntry = useCallback(async (entryId: Id) => {
     await mutatePatch(() => window.castApi.movePlaylistEntryToGroup(entryId, null));
@@ -417,6 +417,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     if (!item) return;
     if (item.type === 'presentation') {
       await mutatePatch(() => window.castApi.renamePresentation(id, title));
+    } else if (item.type === 'talk') {
+      await mutatePatch(() => window.castApi.renameTalk(id, title));
     } else {
       await mutatePatch(() => window.castApi.renameLyric(id, title));
     }
