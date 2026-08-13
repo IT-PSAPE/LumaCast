@@ -22,7 +22,7 @@ function getGroupEntryIds(snapshot: AppSnapshot | null | undefined, groupId: Id)
 }
 
 export function useLibraryPanelManagement() {
-  const { snapshot, mutate, mutatePatch, setStatusText } = useCast();
+  const { snapshot, mutatePatch, setStatusText } = useCast();
 
   function getDeckItems(nextSnapshot: AppSnapshot | null | undefined) {
     return [...(nextSnapshot?.presentations ?? []), ...(nextSnapshot?.lyrics ?? []), ...(nextSnapshot?.talks ?? [])];
@@ -123,9 +123,9 @@ export function useLibraryPanelManagement() {
   }, [mutatePatch, setStatusText]);
 
   const movePlaylistEntry = useCallback(async (entryId: Id, direction: 'up' | 'down') => {
-    await mutate(() => window.castApi.movePlaylistEntry(entryId, direction));
+    await mutatePatch(() => window.castApi.movePlaylistEntry(entryId, direction));
     setStatusText(direction === 'up' ? 'Moved entry up' : 'Moved entry down');
-  }, [mutate, setStatusText]);
+  }, [mutatePatch, setStatusText]);
 
   const addDeckItemToGroup = useCallback(async (groupId: Id, itemId: Id) => {
     const previousEntryIds = new Set(getGroupEntryIds(snapshot, groupId));

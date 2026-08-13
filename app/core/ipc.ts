@@ -96,7 +96,7 @@ export interface MainApi {
   updateTalkScriptBlock: (input: TalkScriptBlockUpdateInput) => Promise<SnapshotPatch>;
   deleteTalkScriptBlock: (id: Id) => Promise<SnapshotPatch>;
   setTalkScriptBlockOrder: (input: TalkScriptBlockOrderUpdateInput) => Promise<SnapshotPatch>;
-  movePlaylistEntry: (entryId: Id, direction: 'up' | 'down') => Promise<AppSnapshot>;
+  movePlaylistEntry: (entryId: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
   setSlideOrder: (input: SlideOrderUpdateInput) => Promise<SnapshotPatch>;
   setLibraryOrder: (libraryId: Id, newOrder: number) => Promise<SnapshotPatch>;
   setPlaylistOrder: (playlistId: Id, newOrder: number) => Promise<SnapshotPatch>;
@@ -208,6 +208,7 @@ export type AppMenuCommandId =
   | 'view.mode.overlayEditor'
   | 'view.mode.themeEditor'
   | 'view.mode.stageEditor'
+  | 'view.mode.macroEditor'
   | 'view.mode.settings'
   | 'view.slideBrowser.grid'
   | 'view.slideBrowser.list'

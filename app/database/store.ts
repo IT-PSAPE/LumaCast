@@ -4374,12 +4374,12 @@ export class CastRepository {
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  movePlaylistEntry(entryId: Id, direction: 'up' | 'down'): AppSnapshot {
+  movePlaylistEntry(entryId: Id, direction: 'up' | 'down'): SnapshotPatch {
     const current = this.db
       .prepare('SELECT id, group_id, order_index FROM playlist_entries WHERE id = ?')
       .get(entryId) as { id: string; group_id: string; order_index: number } | undefined;
 
-    if (!current) return this.getSnapshot();
+    if (!current) return this.buildPatch({});
 
     const neighbor = direction === 'up'
       ? this.db
@@ -4393,7 +4393,7 @@ export class CastRepository {
         )
         .get(current.group_id, current.order_index);
 
-    if (!neighbor) return this.getSnapshot();
+    if (!neighbor) return this.buildPatch({});
 
     const now = nowIso();
     const tx = this.db.transaction(() => {
@@ -4406,7 +4406,7 @@ export class CastRepository {
     });
 
     tx();
-    return this.getSnapshot();
+    return this.buildPatch({ replaceLibraryBundles: true });
   }
 
   movePlaylistEntryToGroup(entryId: Id, groupId: Id | null): SnapshotPatch {
