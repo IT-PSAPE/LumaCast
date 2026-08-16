@@ -3,10 +3,17 @@ import type {
   DeckBundleManifest,
   DeckBundleMediaReference,
   DeckBundleOverlay,
+  DeckBundlePlaylist,
+  DeckBundlePlaylistEntry,
   DeckBundleStage,
   DeckBundleTheme,
+  Id,
   SlideElement,
 } from './types';
+import {
+  parsePlaylistItemReference,
+  type PlaylistItemReference,
+} from './playlist-item-reference';
 
 interface MediaReferenceAccumulator {
   elementTypes: Set<'image' | 'video'>;
@@ -85,4 +92,48 @@ export function normalizeDeckBundleManifest(manifest: DeckBundleManifest): DeckB
       manifest.stages ?? [],
     ),
   };
+}
+
+/**
+ * Parses a bundle playlist entry's legacy owner columns into the canonical
+ * reference, rejecting entries with zero or multiple populated owners. This
+ * is the single interpretation point for `DeckBundlePlaylistEntry` — callers
+ * must not re-derive the referenced item id with an inline `??` chain, which
+ * previously dropped Talk entries whenever the chain stopped short of
+ * `talkId`.
+ */
+export function getDeckBundlePlaylistEntryReference(entry: DeckBundlePlaylistEntry): PlaylistItemReference {
+  return parsePlaylistItemReference(
+    { presentationId: entry.presentationId, lyricId: entry.lyricId, talkId: entry.talkId ?? null },
+    `playlist entry ${entry.id}`,
+  );
+}
+
+/** Collects every distinct item id referenced by any entry across the given playlists. */
+export function collectDeckBundlePlaylistItemIds(playlists: DeckBundlePlaylist[]): Set<Id> {
+  const ids = new Set<Id>();
+  for (const playlist of playlists) {
+    for (const group of playlist.groups) {
+      for (const entry of group.entries) {
+        ids.add(getDeckBundlePlaylistEntryReference(entry).itemId);
+      }
+    }
+  }
+  return ids;
+}
+
+/** Filters each playlist's entries down to those referencing an included item id, preserving entry and group identity/order. */
+export function filterDeckBundlePlaylistsToIncludedItems(
+  playlists: DeckBundlePlaylist[],
+  includedItemIds: ReadonlySet<Id>,
+): DeckBundlePlaylist[] {
+  return playlists.map((playlist) => ({
+    ...playlist,
+    groups: playlist.groups.map((group) => ({
+      ...group,
+      entries: group.entries.filter((entry) =>
+        includedItemIds.has(getDeckBundlePlaylistEntryReference(entry).itemId),
+      ),
+    })),
+  }));
 }

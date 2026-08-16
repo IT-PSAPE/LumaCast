@@ -1,4 +1,5 @@
 import type { RichBody } from './rich-text/types';
+import type { PlaylistItemReference } from './playlist-item-reference';
 
 export type Id = string;
 
@@ -32,6 +33,13 @@ export interface PlaylistGroup {
 export interface PlaylistEntry {
   id: Id;
   groupId: Id;
+  // Canonical, exhaustively-validated pointer to the referenced item. `id`
+  // above is this entry's own identity; `reference.itemId` is the referenced
+  // item's identity — the two are independent (see @core/playlist-item-reference).
+  reference: PlaylistItemReference;
+  // Legacy nullable owner columns mirroring `reference`, retained because
+  // persistence stores them directly and app/core/deck-items.ts still reads
+  // them. Always kept in sync with `reference`; do not set independently.
   presentationId: Id | null;
   lyricId: Id | null;
   talkId: Id | null;
@@ -433,6 +441,10 @@ export interface DeckBundleOverlay {
   animation: OverlayAnimation;
 }
 
+// Wire format for the deck-bundle export/import file. Intentionally mirrors
+// the legacy owner-column shape (not `PlaylistItemReference`) so exported
+// bundles keep a stable, versioned on-disk schema; interpret and construct
+// these columns only via @core/playlist-item-reference and @core/deck-bundles.
 export interface DeckBundlePlaylistEntry {
   id: Id;
   presentationId: Id | null;

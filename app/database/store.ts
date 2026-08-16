@@ -3,9 +3,19 @@ import path from 'node:path';
 import {
   cloneDeckBundleManifest,
   collectDeckBundleMediaReferences,
+  collectDeckBundlePlaylistItemIds,
+  filterDeckBundlePlaylistsToIncludedItems,
+  getDeckBundlePlaylistEntryReference,
   readElementMediaReference,
 } from '@core/deck-bundles';
 import { buildDeckItem } from '@core/deck-items';
+import {
+  makePlaylistItemReference,
+  parsePlaylistItemReference,
+  toPlaylistItemOwnerColumns,
+  type PlaylistItemOwnerColumns,
+  type PlaylistItemReference,
+} from '@core/playlist-item-reference';
 import { applyThemeToElements, createDefaultThemeElements, isThemeCompatibleWithDeckItem, syncThemeToElements } from '@core/themes';
 import { createId, nowIso } from '@core/utils';
 import { SqliteDatabase } from './sqlite';
@@ -3175,11 +3185,12 @@ export class CastRepository {
         )
         .run(groupId, playlistId, 'Opening', 0, now, now);
 
+      const welcomeEntryOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference('presentation', presentationId));
       this.db
         .prepare(
-          'INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         )
-        .run(createId(), groupId, presentationId, null, 0, now, now);
+        .run(createId(), groupId, welcomeEntryOwner.presentationId, welcomeEntryOwner.lyricId, welcomeEntryOwner.talkId, 0, now, now);
 
       const overlayCollectionId = this.getDefaultCollectionId('overlay');
       const overlayId = createId();
@@ -3902,12 +3913,14 @@ export class CastRepository {
               group.updatedAt,
             );
             for (const { entry } of entries) {
+              const reference = this.resolvePlaylistEntryReference(entry);
+              const owner = toPlaylistItemOwnerColumns(reference);
               insertEntry.run(
                 entry.id,
                 entry.groupId,
-                entry.presentationId,
-                entry.lyricId,
-                entry.talkId,
+                owner.presentationId,
+                owner.lyricId,
+                owner.talkId,
                 entry.order,
                 entry.createdAt,
                 entry.updatedAt,
@@ -4057,15 +4070,7 @@ export class CastRepository {
       .filter((playlist): playlist is DeckBundlePlaylist => playlist !== null)
       .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
 
-    const playlistItemIds = new Set<Id>();
-    for (const playlist of playlists) {
-      for (const group of playlist.groups) {
-        for (const entry of group.entries) {
-          const itemId = entry.presentationId ?? entry.lyricId;
-          if (itemId) playlistItemIds.add(itemId);
-        }
-      }
-    }
+    const playlistItemIds = collectDeckBundlePlaylistItemIds(playlists);
 
     const uniqueIds = Array.from(new Set([...itemIds, ...playlistItemIds]));
     const items = uniqueIds
@@ -4074,16 +4079,7 @@ export class CastRepository {
       .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
 
     const includedItemIds = new Set(items.map((item) => item.id));
-    const filteredPlaylists: DeckBundlePlaylist[] = playlists.map((playlist) => ({
-      ...playlist,
-      groups: playlist.groups.map((group) => ({
-        ...group,
-        entries: group.entries.filter((entry) => {
-          const refId = entry.presentationId ?? entry.lyricId;
-          return refId !== null && includedItemIds.has(refId);
-        }),
-      })),
-    }));
+    const filteredPlaylists: DeckBundlePlaylist[] = filterDeckBundlePlaylistsToIncludedItems(playlists, includedItemIds);
 
     const themes = options.includeAllThemes
       ? this.getThemes().map(toDeckBundleTheme)
@@ -4480,16 +4476,20 @@ export class CastRepository {
                   .slice()
                   .sort((left, right) => left.order - right.order)
                   .forEach((entry, entryIndex) => {
-                    const sourceItemId = entry.presentationId ?? entry.lyricId ?? entry.talkId;
-                    if (!sourceItemId) return;
-                    const importedItemId = itemIdMap.get(sourceItemId);
+                    // Validated by assertValidDeckBundleManifest above, so this
+                    // is guaranteed to have exactly one populated owner.
+                    const sourceReference = getDeckBundlePlaylistEntryReference(entry);
+                    const importedItemId = itemIdMap.get(sourceReference.itemId);
                     if (!importedItemId) return;
+                    const owner = toPlaylistItemOwnerColumns(
+                      makePlaylistItemReference(sourceReference.type, importedItemId),
+                    );
                     insertPlaylistEntry.run(
                       createId(),
                       newGroupId,
-                      entry.presentationId ? importedItemId : null,
-                      entry.lyricId ? importedItemId : null,
-                      entry.talkId ? importedItemId : null,
+                      owner.presentationId,
+                      owner.lyricId,
+                      owner.talkId,
                       entryIndex,
                       now,
                       now,
@@ -4575,6 +4575,7 @@ export class CastRepository {
         maxOrder: number | null;
       }).maxOrder ?? -1;
 
+    const newEntryOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference(owner.type, itemId));
     this.db
       .prepare(
         `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
@@ -4583,9 +4584,9 @@ export class CastRepository {
       .run(
         createId(),
         groupId,
-        owner.type === 'presentation' ? itemId : null,
-        owner.type === 'lyric' ? itemId : null,
-        owner.type === 'talk' ? itemId : null,
+        newEntryOwner.presentationId,
+        newEntryOwner.lyricId,
+        newEntryOwner.talkId,
         currentOrder + 1,
         now,
         now,
@@ -4621,6 +4622,7 @@ export class CastRepository {
         maxOrder: number | null;
       }).maxOrder ?? -1;
 
+    const movedEntryOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference(owner.type, itemId));
     this.db
       .prepare(
         `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
@@ -4629,9 +4631,9 @@ export class CastRepository {
       .run(
         createId(),
         groupId,
-        owner.type === 'presentation' ? itemId : null,
-        owner.type === 'lyric' ? itemId : null,
-        owner.type === 'talk' ? itemId : null,
+        movedEntryOwner.presentationId,
+        movedEntryOwner.lyricId,
+        movedEntryOwner.talkId,
         currentOrder + 1,
         now,
         now,
@@ -5331,15 +5333,16 @@ export class CastRepository {
           `SELECT MAX(order_index) as maxOrder FROM playlist_entries WHERE group_id = ?`
         ).get(input.groupId) as { maxOrder: number | null } | undefined;
 
+        const newItemOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference(input.type, itemId));
         this.db.prepare(
           `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
           createId(),
           input.groupId,
-          input.type === 'presentation' ? itemId : null,
-          input.type === 'lyric' ? itemId : null,
-          input.type === 'talk' ? itemId : null,
+          newItemOwner.presentationId,
+          newItemOwner.lyricId,
+          newItemOwner.talkId,
           (maxOrder?.maxOrder ?? -1) + 1,
           now,
           now,
@@ -7223,13 +7226,16 @@ export class CastRepository {
       name: group.name,
       colorKey: group.colorKey,
       order: group.order,
-      entries: this.getPlaylistEntries(group.id).map((entry) => ({
-        id: entry.id,
-        presentationId: entry.presentationId,
-        lyricId: entry.lyricId,
-        talkId: entry.talkId,
-        order: entry.order,
-      })),
+      entries: this.getPlaylistEntries(group.id).map((entry) => {
+        const owner = toPlaylistItemOwnerColumns(entry.reference);
+        return {
+          id: entry.id,
+          presentationId: owner.presentationId,
+          lyricId: owner.lyricId,
+          talkId: owner.talkId,
+          order: entry.order,
+        };
+      }),
     }));
 
     return {
@@ -7983,10 +7989,10 @@ export class CastRepository {
           }
           for (const entry of group.entries) {
             if (!entry?.id) throw new Error(`Invalid entry in playlist ${playlist.name}.`);
-            const refId = entry.presentationId ?? entry.lyricId;
-            if (!refId) {
-              throw new Error(`Playlist entry ${entry.id} is missing an item reference.`);
-            }
+            // Rejects zero or multiple populated owner columns instead of the
+            // `presentationId ?? lyricId` chain that previously accepted
+            // (and then silently mis-imported) a Talk-only entry.
+            getDeckBundlePlaylistEntryReference(entry);
           }
         }
       }
@@ -8494,6 +8500,15 @@ private getSlides(): Slide[] {
     }));
   }
 
+  // Resolves the canonical reference for a full PlaylistEntry, falling back
+  // to parsing its legacy owner columns for snapshots restored from an
+  // older backup file that predates the `reference` field.
+  private resolvePlaylistEntryReference(entry: PlaylistEntry): PlaylistItemReference {
+    const provided = (entry as Partial<PlaylistEntry>).reference;
+    if (provided) return provided;
+    return parsePlaylistItemReference(entry, `playlist entry ${entry.id}`);
+  }
+
   private getPlaylistEntries(groupId: Id): PlaylistEntry[] {
     const rows = this.db
       .prepare(
@@ -8510,16 +8525,25 @@ private getSlides(): Slide[] {
       updated_at: string;
     }>;
 
-    return rows.map((row) => ({
-      id: row.id,
-      groupId: row.group_id,
-      presentationId: row.presentation_id,
-      lyricId: row.lyric_id,
-      talkId: row.talk_id,
-      order: row.order_index,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+    return rows.map((row) => {
+      const owner: PlaylistItemOwnerColumns = {
+        presentationId: row.presentation_id,
+        lyricId: row.lyric_id,
+        talkId: row.talk_id,
+      };
+      const reference = parsePlaylistItemReference(owner, `playlist entry ${row.id}`);
+      return {
+        id: row.id,
+        groupId: row.group_id,
+        reference,
+        presentationId: row.presentation_id,
+        lyricId: row.lyric_id,
+        talkId: row.talk_id,
+        order: row.order_index,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at
+      };
+    });
   }
 
   private getPlaylistTreesByLibrary(libraryId: Id, itemsById: ReadonlyMap<Id, DeckItem>): PlaylistTree[] {
@@ -8527,9 +8551,7 @@ private getSlides(): Slide[] {
       const groups = this.getPlaylistGroups(playlist.id).map((group) => {
         const entries = this.getPlaylistEntries(group.id)
           .map((entry) => {
-            const itemId = entry.presentationId ?? entry.lyricId ?? entry.talkId;
-            if (!itemId) return null;
-            const item = itemsById.get(itemId);
+            const item = itemsById.get(entry.reference.itemId);
             if (!item) return null;
             return { entry, item };
           })
