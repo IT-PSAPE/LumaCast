@@ -8,6 +8,7 @@ packages/ndi-native/build
 .electron-dev-dist
 .npm-cache
 .local
+logs
 
 bun.lock
 test-results/
