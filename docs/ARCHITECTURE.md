@@ -2,6 +2,46 @@
 
 This document describes the actual implemented architecture for theme lifecycle, deck creation, duplication, synchronization, and provenance tracking.
 
+## Dependency Boundaries
+
+Dependency direction across the Electron `app/` tree is enforced by
+`tool/check_electron_architecture.mjs` (`npm run check:architecture`), which
+parses static ES imports/exports and applies a frozen allow-list that can only
+shrink.
+
+- `app/core` is domain/core policy: no Electron, React, renderer, database,
+  main-process, native, or feature imports.
+- `app/database` persists and imports no renderer, feature, or React code.
+- `app/main` is the process composition root and imports no renderer or feature
+  code.
+- The renderer reaches main only through the typed `castApi` IPC contract in
+  `app/core`; it imports no Electron, main-process, or database code.
+- `app/renderer/components`, `utils`, and `types` are UI/rendering primitives
+  and import no feature implementations.
+- Features (`app/renderer/features/*`) have no cross-feature imports except
+  directed, documented public edges; bidirectional feature dependencies must be
+  removed, never allow-listed. Features import no screens or application shell
+  (`App.tsx`, `main.tsx`, `workbench-screen-router.tsx`), which are the
+  composition boundaries. When a feature exposes a public entry point
+  (`index.ts`), external imports must go through it.
+- Observability is consumed through a port; only screens, the shell, and the
+  observability feature itself may reference `app/renderer/features/observability`
+  directly.
+- The NDI engine-session boundary is `app/main/ndi`: only it touches
+  `@lumacast/ndi-native` and the raw NDI host command protocol. The rest of the
+  app reaches NDI through `NdiServiceLike`, and `ndi-service-proxy.ts` is the
+  sole writer of host commands.
+
+The checker runs its fixture graphs via `npm run test:architecture`. Adding an
+architecture exception means editing the checker's allow-list with a reason and
+removal owner; unused entries fail so the allow-list can only shrink.
+
+`feature-isolation` and `feature-cycle` are currently reported as warning-level
+refactor debt (exit 0): the feature web is mid-refactor, so these violations are
+reported and must not be allow-listed. They flip to hard errors once the feature
+web is refactored. All other rules are hard errors; every hard-error violation
+must be covered by the frozen allow-list.
+
 ## Renderer / Main / Repository Mutation Boundary
 
 - **Renderer**: React context providers (`AssetEditorProvider`, `NavigationProvider`, etc.) handle UI state and staging.

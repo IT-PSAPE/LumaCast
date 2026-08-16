@@ -34,6 +34,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Check Electron architecture boundaries
+        run: npm run check:architecture
+
+      - name: Test Electron architecture checker
+        run: npm run test:architecture
+
       - name: Run unit tests
         run: npm test
 

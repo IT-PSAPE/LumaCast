@@ -32,6 +32,8 @@
     "test": "vitest run --passWithNoTests",
     "pretest:watch": "npm run ensure:native-deps",
     "test:watch": "vitest --watch",
+    "check:architecture": "node tool/check_electron_architecture.mjs",
+    "test:architecture": "node tool/check_electron_architecture.mjs --test",
     "pretest:e2e": "npm run build && npm run e2e:install",
     "test:e2e": "playwright test --pass-with-no-tests",
     "e2e:install": "playwright install chromium",

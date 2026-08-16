@@ -45,24 +45,45 @@ Be concise. Be explicit. Do not leave ambiguous decisions hidden in implementati
 
 ## Layering Rules
 
-`dart run tool/check_layering.dart` is the authority for these boundaries:
+`node tool/check_electron_architecture.mjs` is the executable authority for the
+Electron `app/` tree boundaries. It parses static ES imports/exports only,
+rejects unsupported dynamic patterns, and runs the rules below against every
+committed file. `npm run check:architecture` checks the tree;
+`npm run test:architecture` runs its fixture graphs.
 
-- A feature may not import another feature, except `shared`, `composition`,
-  `dynamics`, and `transitions`.
-- `lib/core`, `lib/state`, and the data layer may not import features, and no
-  feature imports `lib/app` — that is the composition root, so it is the one
-  place allowed to name the concrete feature set (ADR-0038).
-- `lib/state` declares no widgets or custom painters.
-- Only `lib/core/engine` imports `luma_engine`.
-- The data package imports neither Flutter nor Riverpod.
-- Only `lib/core/engine/session/` issues transport, arming and voice commands.
-  Per-source voices used to be written from three unconnected regimes over one
-  flat id space, so "exactly one writer of the voice atomic" was unenforceable
-  by reading the code; routing those calls through `EngineSession` only helps if
-  nothing bypasses it.
+- Domain/core policy (`app/core`) imports no Electron, React, renderer,
+  database, main-process, native, or feature code.
+- The database layer (`app/database`) imports no renderer, feature, or React
+  code.
+- Main (`app/main`) is the process composition root and imports no renderer or
+  feature code.
+- The renderer imports no Electron, main-process modules, or database code; it
+  reaches main only through the typed `castApi` IPC contract in `app/core`.
+- UI/rendering primitives (`app/renderer/components`, `utils`, `types`) import
+  no feature implementations.
+- A feature may not import another feature; allowed feature dependencies are
+  directed, documented, public edges only. Bidirectional feature dependencies
+  (cycles) must be removed, never allow-listed. Until the feature web is
+  refactored, `feature-isolation` and `feature-cycle` violations are reported as
+  warning-level refactor debt (exit 0) and must not be allow-listed; they flip
+  to hard errors once the feature web is refactored.
+- Features import no screens or application shell (`App.tsx`, `main.tsx`,
+  `workbench-screen-router.tsx`); screens and the shell are the composition
+  boundaries. When a feature exposes a public entry point (`index.ts`), imports
+  of it must go through that entry point.
+- Observability is consumed through a port; only screens, the shell, and the
+  observability feature itself may reference it directly.
+- Only the NDI engine-session boundary (`app/main/ndi`) may touch the native
+  module (`@lumacast/ndi-native`) or reference raw NDI host commands
+  (`NdiHostCommand`, `NdiHostEvent`). `ndi-service-proxy.ts` is the sole host
+  command writer; everything else reaches NDI through `NdiServiceLike`.
 
-Adding an exception means editing the allow-list in the script *and* saying why,
-in the script.
+Current exceptions live in the checker's frozen allow-list. Adding an exception
+means editing the allow-list in the script *and* saying why and who removes it,
+in the script. Unused entries fail the check, so the allow-list can only
+shrink. `feature-isolation` and `feature-cycle` are warning-level (exit 0) until
+the feature web is refactored; they are reported as refactor debt and must not
+be allow-listed, and become hard errors once the refactor lands.
 
 ## Docs
 
