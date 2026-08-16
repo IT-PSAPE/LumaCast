@@ -1,9 +1,32 @@
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, shell } from 'electron';
+import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, shell } from 'electron';
 import { APP_MENU_EVENTS, type AppMenuCommandId, type AppMenuState, type InlineWindowMenuBounds } from '@core/ipc';
 
 export interface InlineWindowMenuItem {
   id: string;
   label: string;
+}
+
+export interface SerializableMenuItem {
+  id?: string;
+  commandId?: AppMenuCommandId;
+  label?: string;
+  accelerator?: string;
+  enabled?: boolean;
+  visible?: boolean;
+  checked?: boolean;
+  role?: MenuItemConstructorOptions['role'];
+  type?: MenuItemConstructorOptions['type'];
+  submenu?: SerializableMenuItem[];
+}
+
+export interface ApplicationMenuDescriptor {
+  webContentsId: number | null;
+  items: SerializableMenuItem[];
+}
+
+export interface ApplicationMenuDiagnostics {
+  requestedRebuilds: number;
+  actualRebuilds: number;
 }
 
 const DEFAULT_APP_MENU_STATE: AppMenuState = {
@@ -33,64 +56,67 @@ const DEFAULT_APP_MENU_STATE: AppMenuState = {
 };
 
 let currentAppMenuState: AppMenuState = DEFAULT_APP_MENU_STATE;
+let installedDescriptor: ApplicationMenuDescriptor | null = null;
+let requestedRebuildCount = 0;
+let actualRebuildCount = 0;
+
+function isDevelopment(): boolean {
+  return !app.isPackaged;
+}
 
 function sendMenuCommand(browserWindow: BrowserWindow | null, commandId: AppMenuCommandId) {
   if (!browserWindow || browserWindow.isDestroyed()) return;
   browserWindow.webContents.send(APP_MENU_EVENTS.command, commandId);
 }
 
-function createCommandItem(
-  browserWindow: BrowserWindow | null,
+function commandDescriptor(
   commandId: AppMenuCommandId,
-  options: Omit<MenuItemConstructorOptions, 'click'>,
-): MenuItemConstructorOptions {
-  return {
-    ...options,
-    click: () => { sendMenuCommand(browserWindow, commandId); },
-  };
+  options: Omit<SerializableMenuItem, 'commandId'>,
+): SerializableMenuItem {
+  return { commandId, ...options };
 }
 
-function buildFileMenu(browserWindow: BrowserWindow | null, state: AppMenuState): MenuItemConstructorOptions[] {
+function buildFileMenu(state: AppMenuState): SerializableMenuItem[] {
   return [
-    createCommandItem(browserWindow, 'file.newPresentation', {
+    commandDescriptor('file.newPresentation', {
       label: 'New Presentation',
       accelerator: 'CmdOrCtrl+N',
     }),
-    createCommandItem(browserWindow, 'file.newLyric', {
+    commandDescriptor('file.newLyric', {
       label: 'New Lyric',
     }),
     { type: 'separator' },
-    createCommandItem(browserWindow, 'file.newLibrary', {
+    commandDescriptor('file.newLibrary', {
       label: 'New Library',
     }),
-    createCommandItem(browserWindow, 'file.newPlaylist', {
+    commandDescriptor('file.newPlaylist', {
       label: 'New Playlist',
       enabled: state.hasCurrentLibrary,
     }),
-    createCommandItem(browserWindow, 'file.newGroup', {
+    commandDescriptor('file.newGroup', {
       label: 'New Group',
       enabled: state.hasCurrentPlaylist,
     }),
-    createCommandItem(browserWindow, 'file.newSlide', {
+    commandDescriptor('file.newSlide', {
       label: 'New Slide',
       accelerator: 'CmdOrCtrl+Shift+N',
       enabled: state.hasCurrentDeckItem,
     }),
     { type: 'separator' },
-    createCommandItem(browserWindow, 'file.exportCurrentItem', {
+    commandDescriptor('file.exportCurrentItem', {
       label: 'Export Current Item…',
       enabled: state.hasCurrentDeckItem,
     }),
-    createCommandItem(browserWindow, 'file.exportWorkspace', {
+    commandDescriptor('file.exportWorkspace', {
       label: 'Export Workspace…',
       enabled: state.canExportWorkspace,
     }),
     { type: 'separator' },
-    createCommandItem(browserWindow, 'app.openSettings', {
+    commandDescriptor('app.openSettings', {
       label: 'Settings',
       accelerator: 'CmdOrCtrl+,',
     }),
-    createCommandItem(browserWindow, 'app.checkForUpdates', {
+    commandDescriptor('app.checkForUpdates', {
       label: 'Check for Updates…',
     }),
     { type: 'separator' },
@@ -100,45 +126,45 @@ function buildFileMenu(browserWindow: BrowserWindow | null, state: AppMenuState)
   ];
 }
 
-function buildEditMenu(browserWindow: BrowserWindow | null, state: AppMenuState): MenuItemConstructorOptions[] {
+function buildEditMenu(state: AppMenuState): SerializableMenuItem[] {
   return [
-    createCommandItem(browserWindow, 'edit.undo', {
+    commandDescriptor('edit.undo', {
       label: 'Undo',
       accelerator: process.platform === 'darwin' ? 'Cmd+Z' : 'Ctrl+Z',
       enabled: state.canUndo,
     }),
-    createCommandItem(browserWindow, 'edit.redo', {
+    commandDescriptor('edit.redo', {
       label: 'Redo',
       accelerator: process.platform === 'darwin' ? 'Cmd+Shift+Z' : 'Ctrl+Shift+Z',
       enabled: state.canRedo,
     }),
     { type: 'separator' },
-    createCommandItem(browserWindow, 'edit.cut', {
+    commandDescriptor('edit.cut', {
       label: 'Cut',
       accelerator: 'CmdOrCtrl+X',
       enabled: state.canCut,
     }),
-    createCommandItem(browserWindow, 'edit.copy', {
+    commandDescriptor('edit.copy', {
       label: 'Copy',
       accelerator: 'CmdOrCtrl+C',
       enabled: state.canCopy,
     }),
-    createCommandItem(browserWindow, 'edit.paste', {
+    commandDescriptor('edit.paste', {
       label: 'Paste',
       accelerator: 'CmdOrCtrl+V',
       enabled: state.canPaste,
     }),
-    createCommandItem(browserWindow, 'edit.duplicate', {
+    commandDescriptor('edit.duplicate', {
       label: 'Duplicate',
       accelerator: 'CmdOrCtrl+D',
       enabled: state.canDuplicate,
     }),
-    createCommandItem(browserWindow, 'edit.delete', {
+    commandDescriptor('edit.delete', {
       label: 'Delete',
       accelerator: 'Delete',
       enabled: state.canDelete,
     }),
-    createCommandItem(browserWindow, 'edit.clearSelection', {
+    commandDescriptor('edit.clearSelection', {
       label: 'Select None',
       accelerator: 'Escape',
       enabled: state.canClearSelection,
@@ -146,46 +172,46 @@ function buildEditMenu(browserWindow: BrowserWindow | null, state: AppMenuState)
     { type: 'separator' },
     { role: 'selectAll' },
     { type: 'separator' },
-    createCommandItem(browserWindow, 'view.openCommandPalette', {
+    commandDescriptor('view.openCommandPalette', {
       label: 'Command Palette…',
       accelerator: 'CmdOrCtrl+K',
     }),
   ];
 }
 
-function buildViewMenu(browserWindow: BrowserWindow | null, state: AppMenuState): MenuItemConstructorOptions[] {
+function buildViewMenu(state: AppMenuState): SerializableMenuItem[] {
   return [
-    createCommandItem(browserWindow, 'view.mode.show', {
+    commandDescriptor('view.mode.show', {
       label: 'Show',
       type: 'radio',
       checked: state.workbenchMode === 'show',
     }),
-    createCommandItem(browserWindow, 'view.mode.deckEditor', {
+    commandDescriptor('view.mode.deckEditor', {
       label: 'Slides',
       type: 'radio',
       checked: state.workbenchMode === 'deck-editor',
     }),
-    createCommandItem(browserWindow, 'view.mode.overlayEditor', {
+    commandDescriptor('view.mode.overlayEditor', {
       label: 'Overlays',
       type: 'radio',
       checked: state.workbenchMode === 'overlay-editor',
     }),
-    createCommandItem(browserWindow, 'view.mode.themeEditor', {
+    commandDescriptor('view.mode.themeEditor', {
       label: 'Themes',
       type: 'radio',
       checked: state.workbenchMode === 'theme-editor',
     }),
-    createCommandItem(browserWindow, 'view.mode.stageEditor', {
+    commandDescriptor('view.mode.stageEditor', {
       label: 'Stage',
       type: 'radio',
       checked: state.workbenchMode === 'stage-editor',
     }),
-    createCommandItem(browserWindow, 'view.mode.macroEditor', {
+    commandDescriptor('view.mode.macroEditor', {
       label: 'Macros',
       type: 'radio',
       checked: state.workbenchMode === 'macro-editor',
     }),
-    createCommandItem(browserWindow, 'view.mode.settings', {
+    commandDescriptor('view.mode.settings', {
       label: 'Settings',
       type: 'radio',
       checked: state.workbenchMode === 'settings',
@@ -194,12 +220,12 @@ function buildViewMenu(browserWindow: BrowserWindow | null, state: AppMenuState)
     {
       label: 'Slide Browser Layout',
       submenu: [
-        createCommandItem(browserWindow, 'view.slideBrowser.grid', {
+        commandDescriptor('view.slideBrowser.grid', {
           label: 'Grid',
           type: 'radio',
           checked: state.slideBrowserMode === 'grid',
         }),
-        createCommandItem(browserWindow, 'view.slideBrowser.list', {
+        commandDescriptor('view.slideBrowser.list', {
           label: 'List',
           type: 'radio',
           checked: state.slideBrowserMode === 'list',
@@ -209,17 +235,17 @@ function buildViewMenu(browserWindow: BrowserWindow | null, state: AppMenuState)
     {
       label: 'Playlist Layout',
       submenu: [
-        createCommandItem(browserWindow, 'view.playlistBrowser.current', {
+        commandDescriptor('view.playlistBrowser.current', {
           label: 'Current',
           type: 'radio',
           checked: state.playlistBrowserMode === 'current',
         }),
-        createCommandItem(browserWindow, 'view.playlistBrowser.tabs', {
+        commandDescriptor('view.playlistBrowser.tabs', {
           label: 'Tabs',
           type: 'radio',
           checked: state.playlistBrowserMode === 'tabs',
         }),
-        createCommandItem(browserWindow, 'view.playlistBrowser.continuous', {
+        commandDescriptor('view.playlistBrowser.continuous', {
           label: 'Continuous',
           type: 'radio',
           checked: state.playlistBrowserMode === 'continuous',
@@ -239,30 +265,30 @@ function buildViewMenu(browserWindow: BrowserWindow | null, state: AppMenuState)
   ];
 }
 
-function buildPlaybackMenu(browserWindow: BrowserWindow | null, state: AppMenuState): MenuItemConstructorOptions[] {
+function buildPlaybackMenu(state: AppMenuState): SerializableMenuItem[] {
   return [
-    createCommandItem(browserWindow, 'playback.takeSlide', {
+    commandDescriptor('playback.takeSlide', {
       label: 'Take Slide',
       accelerator: 'Enter',
       enabled: state.canTakeSlide,
     }),
-    createCommandItem(browserWindow, 'playback.previousSlide', {
+    commandDescriptor('playback.previousSlide', {
       label: 'Previous Slide',
       accelerator: 'Left',
       enabled: state.canGoToPreviousSlide,
     }),
-    createCommandItem(browserWindow, 'playback.nextSlide', {
+    commandDescriptor('playback.nextSlide', {
       label: 'Next Slide',
       accelerator: 'Right',
       enabled: state.canGoToNextSlide,
     }),
     { type: 'separator' },
-    createCommandItem(browserWindow, 'playback.toggleAudienceOutput', {
+    commandDescriptor('playback.toggleAudienceOutput', {
       label: 'Audience Output',
       type: 'checkbox',
       checked: state.audienceOutputEnabled,
     }),
-    createCommandItem(browserWindow, 'playback.toggleStageOutput', {
+    commandDescriptor('playback.toggleStageOutput', {
       label: 'Stage Output',
       type: 'checkbox',
       checked: state.stageOutputEnabled,
@@ -270,7 +296,7 @@ function buildPlaybackMenu(browserWindow: BrowserWindow | null, state: AppMenuSt
   ];
 }
 
-function buildWindowMenu(): MenuItemConstructorOptions[] {
+function buildWindowMenu(): SerializableMenuItem[] {
   return process.platform === 'darwin'
     ? [
       { role: 'minimize' },
@@ -285,57 +311,41 @@ function buildWindowMenu(): MenuItemConstructorOptions[] {
     ];
 }
 
-function buildHelpMenu(): MenuItemConstructorOptions[] {
+function buildHelpMenu(): SerializableMenuItem[] {
   return [
-    {
-      label: 'Check for Updates…',
-      click: () => {
-        const browserWindow = BrowserWindow.getFocusedWindow();
-        if (!browserWindow || browserWindow.isDestroyed()) return;
-        browserWindow.webContents.send(APP_MENU_EVENTS.command, 'app.checkForUpdates');
-      },
-    },
+    { id: 'help.checkForUpdates', label: 'Check for Updates…' },
     { type: 'separator' },
-    {
-      id: 'learn-more',
-      label: 'LumaCast Website',
-      click: () => {
-        void shell.openExternal('https://openai.com');
-      },
-    },
+    { id: 'learn-more', label: 'LumaCast Website' },
   ];
 }
 
-export function createApplicationMenu(
-  browserWindow: BrowserWindow | null = null,
-  state: AppMenuState = currentAppMenuState,
-) {
-  const theme: MenuItemConstructorOptions[] = [];
+function buildMenuItems(state: AppMenuState): SerializableMenuItem[] {
+  const items: SerializableMenuItem[] = [];
 
   if (process.platform === 'darwin') {
-    theme.push({ role: 'appMenu' });
+    items.push({ role: 'appMenu' });
   }
 
-  theme.push(
+  items.push(
     {
       id: 'file',
       label: 'File',
-      submenu: buildFileMenu(browserWindow, state),
+      submenu: buildFileMenu(state),
     },
     {
       id: 'edit',
       label: 'Edit',
-      submenu: buildEditMenu(browserWindow, state),
+      submenu: buildEditMenu(state),
     },
     {
       id: 'view',
       label: 'View',
-      submenu: buildViewMenu(browserWindow, state),
+      submenu: buildViewMenu(state),
     },
     {
       id: 'playback',
       label: 'Playback',
-      submenu: buildPlaybackMenu(browserWindow, state),
+      submenu: buildPlaybackMenu(state),
     },
     {
       id: 'window',
@@ -350,12 +360,145 @@ export function createApplicationMenu(
     },
   );
 
-  return Menu.buildFromTemplate(theme);
+  return items;
+}
+
+function getWebContentsId(browserWindow: BrowserWindow | null): number | null {
+  if (!browserWindow || browserWindow.isDestroyed()) return null;
+  return browserWindow.webContents.id;
+}
+
+function buildApplicationMenuDescriptor(
+  browserWindow: BrowserWindow | null,
+  state: AppMenuState,
+): ApplicationMenuDescriptor {
+  return {
+    webContentsId: getWebContentsId(browserWindow),
+    items: buildMenuItems(state),
+  };
+}
+
+export function applicationMenuDescriptorsEqual(
+  a: ApplicationMenuDescriptor,
+  b: ApplicationMenuDescriptor,
+): boolean {
+  if (a.webContentsId !== b.webContentsId) return false;
+  return menuItemsArrayEqual(a.items, b.items);
+}
+
+function menuItemsArrayEqual(a: SerializableMenuItem[], b: SerializableMenuItem[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (!menuItemEqual(a[i], b[i])) return false;
+  }
+  return true;
+}
+
+function menuItemEqual(a: SerializableMenuItem, b: SerializableMenuItem): boolean {
+  if (a.id !== b.id) return false;
+  if (a.commandId !== b.commandId) return false;
+  if (a.label !== b.label) return false;
+  if (a.accelerator !== b.accelerator) return false;
+  if (a.enabled !== b.enabled) return false;
+  if (a.visible !== b.visible) return false;
+  if (a.checked !== b.checked) return false;
+  if (a.role !== b.role) return false;
+  if (a.type !== b.type) return false;
+  return menuItemsArrayEqual(a.submenu ?? [], b.submenu ?? []);
+}
+
+function toMenuTemplateItem(item: SerializableMenuItem, browserWindow: BrowserWindow | null): MenuItemConstructorOptions {
+  const base: MenuItemConstructorOptions = {
+    ...(item.id !== undefined ? { id: item.id } : {}),
+    ...(item.label !== undefined ? { label: item.label } : {}),
+    ...(item.accelerator !== undefined ? { accelerator: item.accelerator } : {}),
+    ...(item.enabled !== undefined ? { enabled: item.enabled } : {}),
+    ...(item.visible !== undefined ? { visible: item.visible } : {}),
+    ...(item.checked !== undefined ? { checked: item.checked } : {}),
+    ...(item.role !== undefined ? { role: item.role } : {}),
+    ...(item.type !== undefined ? { type: item.type } : {}),
+  };
+
+  if (item.commandId) {
+    return { ...base, click: () => { sendMenuCommand(browserWindow, item.commandId!); } };
+  }
+
+  if (item.id === 'help.checkForUpdates') {
+    return {
+      ...base,
+      click: () => {
+        sendMenuCommand(BrowserWindow.getFocusedWindow(), 'app.checkForUpdates');
+      },
+    };
+  }
+
+  if (item.id === 'learn-more') {
+    return { ...base, click: () => { void shell.openExternal('https://openai.com'); } };
+  }
+
+  if (item.submenu) {
+    return { ...base, submenu: item.submenu.map((child) => toMenuTemplateItem(child, browserWindow)) };
+  }
+
+  return base;
+}
+
+function toMenuTemplate(items: SerializableMenuItem[], browserWindow: BrowserWindow | null): MenuItemConstructorOptions[] {
+  return items.map((item) => toMenuTemplateItem(item, browserWindow));
+}
+
+function buildMenuFromDescriptor(browserWindow: BrowserWindow | null, descriptor: ApplicationMenuDescriptor) {
+  return Menu.buildFromTemplate(toMenuTemplate(descriptor.items, browserWindow));
+}
+
+function logMenuRebuild(descriptor: ApplicationMenuDescriptor): void {
+  console.debug('[application-menu] rebuilt native menu', {
+    webContentsId: descriptor.webContentsId,
+    topLevelItems: descriptor.items.map((item) => item.label ?? item.role ?? item.type ?? '(unnamed)'),
+    requestedRebuilds: requestedRebuildCount,
+    actualRebuilds: actualRebuildCount,
+  });
+}
+
+export function createApplicationMenu(
+  browserWindow: BrowserWindow | null = null,
+  state: AppMenuState = currentAppMenuState,
+) {
+  return buildMenuFromDescriptor(browserWindow, buildApplicationMenuDescriptor(browserWindow, state));
 }
 
 export function updateApplicationMenu(browserWindow: BrowserWindow | null, state: AppMenuState): void {
   currentAppMenuState = state;
-  Menu.setApplicationMenu(createApplicationMenu(browserWindow, state));
+  const nextDescriptor = buildApplicationMenuDescriptor(browserWindow, state);
+
+  if (isDevelopment()) {
+    requestedRebuildCount += 1;
+  }
+
+  if (installedDescriptor && applicationMenuDescriptorsEqual(installedDescriptor, nextDescriptor)) {
+    return;
+  }
+
+  Menu.setApplicationMenu(buildMenuFromDescriptor(browserWindow, nextDescriptor));
+  installedDescriptor = nextDescriptor;
+
+  if (isDevelopment()) {
+    actualRebuildCount += 1;
+    logMenuRebuild(nextDescriptor);
+  }
+}
+
+export function getApplicationMenuDiagnostics(): ApplicationMenuDiagnostics {
+  return {
+    requestedRebuilds: requestedRebuildCount,
+    actualRebuilds: actualRebuildCount,
+  };
+}
+
+export function resetApplicationMenuState(): void {
+  installedDescriptor = null;
+  requestedRebuildCount = 0;
+  actualRebuildCount = 0;
 }
 
 export function getInlineWindowMenuItems(): InlineWindowMenuItem[] {
