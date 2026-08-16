@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getSlideDeckItemId } from '@core/deck-items';
 import type { Id, LibraryPlaylistBundle } from '@core/types';
 import { useCast } from './app-context';
@@ -38,6 +38,9 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const [deckBrowseSource, setContentBrowseSource] = useState<ContentBrowseSource>('playlist');
   const [outputArmVersion, setOutputArmVersion] = useState(0);
   const [recentlyCreatedId, setRecentlyCreatedId] = useState<Id | null>(null);
+  // Holds in-flight create operations keyed by their resolved input so a
+  // repeated invocation awaits the same promise instead of creating twice.
+  const createDeckItemPromiseRef = useRef(new Map<string, Promise<void>>());
 
   useEffect(() => {
     if (!snapshot || snapshot.libraries.length === 0) return;
@@ -295,39 +298,52 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     themeId?: Id;
     groupId?: Id;
   }) => {
-    const trimmedName = input.name.trim() || (input.kind === 'lyric' ? 'New Lyric' : input.kind === 'talk' ? 'New Talk' : 'New Presentation');
-    const labelKind = input.kind === 'lyric' ? 'lyric' : input.kind === 'talk' ? 'talk' : 'deck';
+    const dedupeKey = JSON.stringify([input.kind, input.name, input.themeId ?? null, input.groupId ?? null]);
+    const inFlight = createDeckItemPromiseRef.current.get(dedupeKey);
+    if (inFlight) return inFlight;
 
-    await runOperation(`Creating ${labelKind}...`, async () => {
-      // Resolve the theme ID before creating the deck item to ensure
-      // any pending staged changes are persisted and temporary IDs are resolved.
-      let resolvedThemeId: Id | null = null;
-      if (input.themeId) {
-        resolvedThemeId = await resolveThemeIdForMutation(input.themeId);
-        if (!resolvedThemeId) {
-          throw new Error('Failed to resolve theme. Theme persistence may have failed.');
+    const run = (async () => {
+      const trimmedName = input.name.trim() || (input.kind === 'lyric' ? 'New Lyric' : input.kind === 'talk' ? 'New Talk' : 'New Presentation');
+      const labelKind = input.kind === 'lyric' ? 'lyric' : input.kind === 'talk' ? 'talk' : 'deck';
+
+      await runOperation(`Creating ${labelKind}...`, async () => {
+        // Resolve the theme ID before creating the deck item to ensure
+        // any pending staged changes are persisted and temporary IDs are resolved.
+        let resolvedThemeId: Id | null = null;
+        if (input.themeId) {
+          resolvedThemeId = await resolveThemeIdForMutation(input.themeId);
+          if (!resolvedThemeId) {
+            throw new Error('Failed to resolve theme. Theme persistence may have failed.');
+          }
         }
-      }
 
-      // Use the atomic createDeckItemWithTheme operation
-      const next = await mutatePatch(() => window.castApi.createDeckItemWithTheme({
-        type: input.kind,
-        title: trimmedName,
-        themeId: resolvedThemeId,
-        groupId: input.groupId,
-      }));
+        // Use the atomic createDeckItemWithTheme operation
+        const next = await mutatePatch(() => window.castApi.createDeckItemWithTheme({
+          type: input.kind,
+          title: trimmedName,
+          themeId: resolvedThemeId,
+          groupId: input.groupId,
+        }));
 
-      const createdId = findCreatedId(
-        new Set([]),
-        [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id),
-      );
-      if (!createdId) return;
+        const createdId = findCreatedId(
+          new Set([]),
+          [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id),
+        );
+        if (!createdId) return;
 
-      setCurrentDrawerDeckItemId(createdId);
-      setContentBrowseSource('project');
-      setRecentlyCreatedId(createdId);
-      setStatusText(`Created ${labelKind}`);
-    });
+        setCurrentDrawerDeckItemId(createdId);
+        setContentBrowseSource('project');
+        setRecentlyCreatedId(createdId);
+        setStatusText(`Created ${labelKind}`);
+      });
+    })();
+
+    createDeckItemPromiseRef.current.set(dedupeKey, run);
+    try {
+      await run;
+    } finally {
+      createDeckItemPromiseRef.current.delete(dedupeKey);
+    }
   }, [mutatePatch, resolveThemeIdForMutation, runOperation, setStatusText]);
 
   const createGroup = useCallback(async () => {

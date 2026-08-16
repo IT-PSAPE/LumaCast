@@ -43,7 +43,7 @@ interface OverlayEditorValue {
   pushChanges: () => Promise<void>;
 }
 
-interface ThemeEditorValue {
+export interface ThemeEditorValue {
   themes: Theme[];
   currentThemeId: Id | null;
   currentTheme: Theme | null;
@@ -299,6 +299,9 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   const tempToPersistedIdMapRef = useRef(new Map<Id, Id>());
   // Holds the current in-flight push promise so concurrent callers await the same one.
   const pushPromiseRef = useRef<Promise<Id | null> | null>(null);
+  // Holds in-flight apply operations keyed by target+theme so a duplicate
+  // invocation awaits the same promise instead of starting a second mutation.
+  const applyPromiseRef = useRef(new Map<string, Promise<void>>());
 
   const requestThemeNameFocus = useCallback((themeId: Id) => {
     themeStaged.setCurrentItemId(themeId);
@@ -484,24 +487,35 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     const isStaged = themeStaged.stagedItems?.some((t) => t.id === themeId) ?? false;
     if (isStaged || themeStaged.currentItemId === themeId || themeStaged.hasPendingChanges) {
       await pushThemeChanges();
-      const resolved = tempToPersistedIdMapRef.current.get(themeId) ?? (isStaged ? null : themeId);
-      if (!resolved) {
-        throw new Error('Failed to resolve theme ID after persistence. Theme may have failed to persist.');
-      }
-      return resolved;
+      // Newly created staged themes were recorded in the temp->persisted map;
+      // every other theme keeps its own id as the persisted id.
+      return tempToPersistedIdMapRef.current.get(themeId) ?? themeId;
     }
     return themeId;
   }, [themeStaged.stagedItems, themeStaged.currentItemId, themeStaged.hasPendingChanges, pushThemeChanges]);
 
   const applyThemeToTarget = useCallback(async (themeId: Id, target: ThemeApplyTarget) => {
-    const resolvedThemeId = await resolveThemeIdForMutation(themeId);
-    if (target.type === 'deck-item') {
-      await mutatePatch(() => window.castApi.applyThemeToDeckItem(resolvedThemeId, target.itemId));
-      setStatusText('Applied theme to item');
-      return;
+    const applyKey = target.type === 'deck-item'
+      ? `deck-item:${target.itemId}:${themeId}`
+      : `overlay:${target.overlayId}:${themeId}`;
+    const inFlight = applyPromiseRef.current.get(applyKey);
+    if (inFlight) return inFlight;
+    const run = (async () => {
+      const resolvedThemeId = await resolveThemeIdForMutation(themeId);
+      if (target.type === 'deck-item') {
+        await mutatePatch(() => window.castApi.applyThemeToDeckItem(resolvedThemeId, target.itemId));
+        setStatusText('Applied theme to item');
+        return;
+      }
+      await mutatePatch(() => window.castApi.applyThemeToOverlay(resolvedThemeId, target.overlayId));
+      setStatusText('Applied theme to overlay');
+    })();
+    applyPromiseRef.current.set(applyKey, run);
+    try {
+      return await run;
+    } finally {
+      applyPromiseRef.current.delete(applyKey);
     }
-    await mutatePatch(() => window.castApi.applyThemeToOverlay(resolvedThemeId, target.overlayId));
-    setStatusText('Applied theme to overlay');
   }, [mutatePatch, resolveThemeIdForMutation, setStatusText]);
 
   const detachThemeFromDeckItem = useCallback(async (itemId: Id) => {
