@@ -110,7 +110,12 @@ export function useBinCollections(binKind: CollectionBinKind): BinCollectionsApi
   }, [binKind, mutatePatch, setStatusText]);
 
   const deleteCollection = useCallback(async (id: Id) => {
-    await mutatePatch(() => window.castApi.deleteCollection({ binKind, id }));
+    try {
+      await mutatePatch(() => window.castApi.deleteCollection({ binKind, id }));
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : 'Failed to delete collection');
+      throw error;
+    }
     if (activeId === id) {
       const fallback = collections.find((c) => c.isDefault) ?? null;
       const fallbackId = fallback?.id ?? null;

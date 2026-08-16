@@ -212,6 +212,52 @@ function buildPatchSpecForItemType(itemType: CollectionItemType, itemId: Id): {
   }
 }
 
+/**
+ * Error codes for the authoritative `deleteCollection` operation (#112).
+ * `protected-default` — the target collection is the bin's default and can
+ * never be deleted. `default-collection-missing` — the bin has no default
+ * collection to reassign members onto; this must be checked, and thrown,
+ * before any write happens so a data-integrity gap never leaves a
+ * half-migrated collection.
+ */
+export type CollectionDeletionErrorCode = 'protected-default' | 'default-collection-missing';
+
+export class CollectionDeletionError extends Error {
+  readonly code: CollectionDeletionErrorCode;
+  readonly binKind: CollectionBinKind;
+  readonly collectionId: Id;
+
+  constructor(code: CollectionDeletionErrorCode, binKind: CollectionBinKind, collectionId: Id, message: string) {
+    super(message);
+    this.name = 'CollectionDeletionError';
+    this.code = code;
+    this.binKind = binKind;
+    this.collectionId = collectionId;
+  }
+}
+
+/**
+ * Compile-time exhaustiveness guard for `CollectionBinKind`. If a new bin
+ * kind is ever added to the union without adding a matching case to
+ * `reassignItemsForCollection`'s switch, `binKind` stops being `never` here
+ * and the file fails to compile — mirroring the `assertNeverPlaylistItemReferenceType`
+ * pattern in `@core/playlist-item-reference`.
+ */
+function assertNeverCollectionBinKind(binKind: never): never {
+  throw new Error(`Unsupported collection bin kind: ${String(binKind)}`);
+}
+
+interface CollectionMemberMoveResult {
+  presentations: Id[];
+  lyrics: Id[];
+  talks: Id[];
+  mediaAssets: Id[];
+  themes: Id[];
+  overlays: Id[];
+  stages: Id[];
+  macros: Id[];
+}
+
 interface DeckOwnerRow {
   type: DeckItemType;
   themeId: string | null;
@@ -2739,6 +2785,22 @@ export class CastRepository {
     return this.buildPatch({ upsertCollectionIds: [input.id] });
   }
 
+  /**
+   * The single authoritative operation for deleting a bin collection (#112).
+   * Exhaustive over every `CollectionBinKind` (including `macro`), validates
+   * existence/protected-status/fallback-availability before any write, then
+   * reassigns every member to the bin's default collection, deletes the now
+   * empty collection, and compacts ordering — all inside one transaction so
+   * a failure at any step restores the parent row, member ownership, and
+   * ordering exactly as they were.
+   *
+   * This schema has no separate collection-membership join table: each
+   * member row (`presentations`, `image_assets`, `actions`, …) carries its
+   * own `collection_id` foreign key directly, enforced by `PRAGMA
+   * foreign_keys = ON`. "Delete referencing membership rows" therefore means
+   * reassigning those FK columns off the doomed collection before deleting
+   * it, not deleting separate rows.
+   */
   deleteCollection(input: CollectionDeleteInput): SnapshotPatch {
     const table = COLLECTION_TABLE_BY_BIN[input.binKind];
     const existing = this.db.prepare(`SELECT id, is_default FROM ${table} WHERE id = ?`).get(input.id) as
@@ -2746,23 +2808,45 @@ export class CastRepository {
       | undefined;
     if (!existing) return this.buildPatch({});
     if (existing.is_default === 1) {
-      throw new Error('Default collection cannot be deleted');
+      throw new CollectionDeletionError(
+        'protected-default',
+        input.binKind,
+        input.id,
+        'Default collection cannot be deleted',
+      );
     }
 
-    const defaultId = this.getDefaultCollectionId(input.binKind);
-    const movedIds = this.reassignItemsForCollection(input.binKind, input.id, defaultId);
+    // Validate fallback availability before any write: a missing default
+    // must abort the whole operation, never self-heal mid-delete.
+    const defaultId = this.findDefaultCollectionId(input.binKind);
+    if (!defaultId) {
+      throw new CollectionDeletionError(
+        'default-collection-missing',
+        input.binKind,
+        input.id,
+        `No default collection exists for bin: ${input.binKind}`,
+      );
+    }
 
-    this.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(input.id);
+    const tx = this.db.transaction((): { moved: CollectionMemberMoveResult; reorderedCollectionIds: Id[] } => {
+      const moved = this.reassignItemsForCollection(input.binKind, input.id, defaultId);
+      this.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(input.id);
+      const reorderedCollectionIds = this.compactCollectionOrdering(input.binKind);
+      return { moved, reorderedCollectionIds };
+    });
+    const { moved, reorderedCollectionIds } = tx();
 
     return this.buildPatch({
       deletedCollectionIds: [input.id],
-      upsertPresentationIds: movedIds.presentations,
-      upsertLyricIds: movedIds.lyrics,
-      upsertTalkIds: movedIds.talks,
-      upsertMediaAssetIds: movedIds.mediaAssets,
-      upsertThemeIds: movedIds.themes,
-      upsertOverlayIds: movedIds.overlays,
-      upsertStageIds: movedIds.stages,
+      upsertPresentationIds: moved.presentations,
+      upsertLyricIds: moved.lyrics,
+      upsertTalkIds: moved.talks,
+      upsertMediaAssetIds: moved.mediaAssets,
+      upsertThemeIds: moved.themes,
+      upsertOverlayIds: moved.overlays,
+      upsertStageIds: moved.stages,
+      upsertMacroIds: moved.macros,
+      upsertCollectionIds: reorderedCollectionIds,
     });
   }
 
@@ -2823,23 +2907,16 @@ export class CastRepository {
     binKind: CollectionBinKind,
     fromCollectionId: Id,
     toCollectionId: Id,
-  ): {
-    presentations: Id[];
-    lyrics: Id[];
-    talks: Id[];
-    mediaAssets: Id[];
-    themes: Id[];
-    overlays: Id[];
-    stages: Id[];
-  } {
-    const moved = {
-      presentations: [] as Id[],
-      lyrics: [] as Id[],
-      talks: [] as Id[],
-      mediaAssets: [] as Id[],
-      themes: [] as Id[],
-      overlays: [] as Id[],
-      stages: [] as Id[],
+  ): CollectionMemberMoveResult {
+    const moved: CollectionMemberMoveResult = {
+      presentations: [],
+      lyrics: [],
+      talks: [],
+      mediaAssets: [],
+      themes: [],
+      overlays: [],
+      stages: [],
+      macros: [],
     };
     const now = nowIso();
 
@@ -2877,9 +2954,51 @@ export class CastRepository {
       case 'stage':
         reassign('stages', moved.stages);
         break;
+      case 'macro':
+        reassign('actions', moved.macros);
+        break;
+      default:
+        return assertNeverCollectionBinKind(binKind);
     }
 
     return moved;
+  }
+
+  /**
+   * Finds the bin's default collection id without ever creating one.
+   * Unlike `getDefaultCollectionId` (used by every content-creation path,
+   * which self-heals by reseeding a missing default so authoring never
+   * breaks), collection deletion must abort — before any write — if the
+   * default is missing rather than silently minting a fresh one mid-delete.
+   */
+  private findDefaultCollectionId(binKind: CollectionBinKind): Id | null {
+    const table = COLLECTION_TABLE_BY_BIN[binKind];
+    const row = this.db
+      .prepare(`SELECT id FROM ${table} WHERE is_default = 1 ORDER BY created_at ASC LIMIT 1`)
+      .get() as { id: string } | undefined;
+    return row ? row.id : null;
+  }
+
+  /**
+   * Re-sequences `order_index` for every remaining collection in a bin to a
+   * contiguous 0..n-1 range (preserving relative order), closing the gap
+   * left by a deleted collection. Returns only the ids whose order actually
+   * changed, so callers can report a precise patch.
+   */
+  private compactCollectionOrdering(binKind: CollectionBinKind): Id[] {
+    const table = COLLECTION_TABLE_BY_BIN[binKind];
+    const rows = this.db
+      .prepare(`SELECT id, order_index FROM ${table} ORDER BY order_index ASC, created_at ASC`)
+      .all() as Array<{ id: string; order_index: number }>;
+    const now = nowIso();
+    const changedIds: Id[] = [];
+    rows.forEach((row, index) => {
+      if (row.order_index !== index) {
+        this.db.prepare(`UPDATE ${table} SET order_index = ?, updated_at = ? WHERE id = ?`).run(index, now, row.id);
+        changedIds.push(row.id);
+      }
+    });
+    return changedIds;
   }
 
   private ensurePresentationThemeSchema(): void {
