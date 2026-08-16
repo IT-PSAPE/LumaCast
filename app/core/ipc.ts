@@ -122,6 +122,8 @@ export interface MainApi {
   detachThemeFromDeckItem: (itemId: Id) => Promise<SnapshotPatch>;
   syncThemeToLinkedDeckItems: (themeId: Id) => Promise<SnapshotPatch>;
   applyThemeToOverlay: (themeId: Id, overlayId: Id) => Promise<SnapshotPatch>;
+  createDeckItemWithTheme: (input: DeckItemCreateWithThemeInput) => Promise<SnapshotPatch>;
+  duplicateDeckItem: (itemId: Id) => Promise<SnapshotPatch>;
   createStage: (input: StageCreateInput) => Promise<SnapshotPatch>;
   updateStage: (input: StageUpdateInput) => Promise<SnapshotPatch>;
   deleteStage: (stageId: Id) => Promise<SnapshotPatch>;
@@ -171,6 +173,14 @@ export interface MainApi {
   deleteCollection: (input: CollectionDeleteInput) => Promise<SnapshotPatch>;
   reorderCollections: (input: CollectionReorderInput) => Promise<SnapshotPatch>;
   setItemCollection: (input: CollectionAssignmentInput) => Promise<SnapshotPatch>;
+}
+
+export interface DeckItemCreateWithThemeInput {
+  type: 'presentation' | 'lyric' | 'talk';
+  title: string;
+  collectionId?: Id | null;
+  themeId?: Id | null;
+  groupId?: Id | null;
 }
 
 export interface InlineWindowMenuItem {
@@ -321,6 +331,8 @@ export const IPC = {
   detachThemeFromDeckItem: 'cast:detachThemeFromDeckItem',
   syncThemeToLinkedDeckItems: 'cast:syncThemeToLinkedDeckItems',
   applyThemeToOverlay: 'cast:applyThemeToOverlay',
+  createDeckItemWithTheme: 'cast:createDeckItemWithTheme',
+  duplicateDeckItem: 'cast:duplicateDeckItem',
   createStage: 'cast:createStage',
   updateStage: 'cast:updateStage',
   deleteStage: 'cast:deleteStage',

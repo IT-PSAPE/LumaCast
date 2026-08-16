@@ -93,9 +93,12 @@ export interface SlideBackgroundUpdateInput {
   background: SlideBackground | null;
 }
 
+export type SlideBackgroundSource = 'theme' | 'local';
+
 export interface Slide {
   id: Id;
   background?: SlideBackground | null;
+  backgroundSource: SlideBackgroundSource;
   // Exactly one of the parent FKs is set; the rest are null.
   presentationId: Id | null;
   lyricId: Id | null;
@@ -238,6 +241,8 @@ export type SlideElementPayload =
 
 export interface SlideElement extends SlideElementBase {
   payload: SlideElementPayload;
+  /** ID of the theme element this was derived from, if any. Null for user-created elements. */
+  sourceThemeElementId?: Id | null;
 }
 
 export type MediaAssetType = 'image' | 'video' | 'audio';
@@ -377,6 +382,8 @@ export interface DeckBundleSlide {
   height: number;
   notes: string;
   order: number;
+  background?: SlideBackground | null;
+  backgroundSource?: SlideBackgroundSource;
   elements: SlideElement[];
   scriptBlocks?: DeckBundleTalkScriptBlock[];
 }
@@ -768,6 +775,7 @@ export interface ElementCreateInput {
   zIndex?: number;
   layer?: SlideElementBase['layer'];
   payload: SlideElementPayload;
+  sourceThemeElementId?: Id | null;
 }
 
 export interface ElementUpdateInput {
@@ -929,6 +937,7 @@ export interface ThemeCreateInput {
   kind: ThemeKind;
   width?: number;
   height?: number;
+  background?: SlideBackground | null;
   elements?: SlideElement[];
   collectionId?: Id;
 }
@@ -939,6 +948,7 @@ export interface ThemeUpdateInput {
   kind?: ThemeKind;
   width?: number;
   height?: number;
+  background?: SlideBackground | null;
   elements?: SlideElement[];
 }
 

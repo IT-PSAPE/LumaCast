@@ -7,6 +7,8 @@ import { DeckItemIcon } from '../../components/display/entity-icon';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { SelectableRow } from '../../components/display/selectable-row';
 import { Thumbnail } from '../../components/display/thumbnail';
+import { useCast } from '../../contexts/app-context';
+import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useLibraryPanelManagement } from '../library/use-library-panel-management';
 import { buildThumbnailScene } from '../canvas/build-render-scene';
@@ -82,13 +84,14 @@ interface DeckItemProps {
   collectionsApi: BinCollectionsApi;
 }
 
-function DeckItemContextMenuItems({ item, renameRef, collectionsApi, onDelete }: { item: DeckItem; renameRef: React.RefObject<RenameFieldHandle | null>; collectionsApi: BinCollectionsApi; onDelete: () => void }) {
+function DeckItemContextMenuItems({ item, renameRef, collectionsApi, onDelete, onDuplicate }: { item: DeckItem; renameRef: React.RefObject<RenameFieldHandle | null>; collectionsApi: BinCollectionsApi; onDelete: () => void; onDuplicate?: () => void }) {
   const otherCollections = collectionsApi.collections.filter((c) => c.id !== item.collectionId);
 
   return (
     <ContextMenu.Portal>
       <ContextMenu.Menu>
         <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
+        {onDuplicate && <ContextMenu.Item onSelect={onDuplicate}>Duplicate</ContextMenu.Item>}
         {otherCollections.length > 0 ? (
           <ContextMenu.Submenu label="Move to collection">
             {otherCollections.map((collection) => (
@@ -123,6 +126,33 @@ function useDeleteDeckItem(item: DeckItem) {
   };
 }
 
+function useDuplicateDeckItem(item: DeckItem) {
+  const { mutatePatch, setStatusText } = useCast();
+  const { browseDeckItem } = useNavigation();
+
+  // Talk items don't support duplication
+  if (item.type === 'talk') {
+    return null;
+  }
+
+  return async function handleDuplicate() {
+    try {
+      const next = await mutatePatch(() => window.castApi.duplicateDeckItem(item.id));
+      const allItems = [...next.presentations, ...next.lyrics, ...next.talks];
+      // Identify the new item by finding the one not present before duplication.
+      const previousIds = new Set([item.id]);
+      const newItem = allItems.find((i) => !previousIds.has(i.id)) ?? allItems[allItems.length - 1];
+      if (newItem) {
+        browseDeckItem(newItem.id);
+      }
+      setStatusText(`Duplicated "${item.title}"`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Failed to duplicate: ${message}`);
+    }
+  };
+}
+
 function DeckItemRow(props: DeckItemProps) {
   return (
     <ContextMenu.Root>
@@ -134,6 +164,7 @@ function DeckItemRow(props: DeckItemProps) {
 function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename, collectionsApi }: DeckItemProps) {
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteDeckItem(item);
+  const handleDuplicate = useDuplicateDeckItem(item);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
 
   useEffect(() => {
@@ -173,7 +204,7 @@ function DeckItemRowBody({ item, slides, isSelected, isEditing, onOpen, onRename
           <span className="text-xs text-tertiary">{slides.length} {slides.length === 1 ? 'slide' : 'slides'}</span>
         </SelectableRow.Trailing>
       </SelectableRow.Root>
-      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
+      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} onDuplicate={handleDuplicate ? () => { void handleDuplicate(); } : undefined} />
     </>
   );
 }
@@ -193,6 +224,7 @@ function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRenam
   const scene = firstSlide ? buildThumbnailScene(firstSlide, firstSlideElements) : null;
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteDeckItem(item);
+  const handleDuplicate = useDuplicateDeckItem(item);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
 
   useEffect(() => {
@@ -236,7 +268,7 @@ function DeckItemTileBody({ item, slides, isSelected, isEditing, onOpen, onRenam
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
-      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
+      <DeckItemContextMenuItems item={item} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} onDuplicate={handleDuplicate ? () => { void handleDuplicate(); } : undefined} />
     </>
   );
 }

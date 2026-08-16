@@ -22,6 +22,7 @@ export const LAYER_PREVIEW_SLIDE: Slide = {
   height: OUTPUT_FRAME_HEIGHT,
   notes: '',
   order: 0,
+  backgroundSource: 'local',
   createdAt: '',
   updatedAt: '',
 };

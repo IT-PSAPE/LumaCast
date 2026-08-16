@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createDefaultThemeElements } from '@core/themes';
-import type { Id, Overlay, OverlayCreateInput, OverlayUpdateInput, SlideElement, Stage, Theme, ThemeKind } from '@core/types';
+import type { Id, Overlay, OverlayCreateInput, OverlayUpdateInput, SlideBackground, SlideElement, Stage, Theme, ThemeKind, GroupElementPayload } from '@core/types';
 import { cloneElements, slideElementsSignature } from '../../utils/staged-editor-utils';
 import { getOverlayDefaults } from '../../utils/slides';
 import { createId } from '../../utils/create-id';
@@ -9,6 +9,16 @@ import { buildSnapshotDiff } from '../element/element-history-utils';
 import { useCast } from '../app-context';
 import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
+
+function generateDeterministicCopyName(baseName: string, existingNames: Set<string>): string {
+  let candidate = `${baseName} Copy`;
+  if (!existingNames.has(candidate.toLowerCase())) return candidate;
+  let counter = 2;
+  while (existingNames.has(`${baseName} Copy ${counter}`.toLowerCase())) {
+    counter += 1;
+  }
+  return `${baseName} Copy ${counter}`;
+}
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -42,10 +52,11 @@ interface ThemeEditorValue {
   nameFocusRequest: number;
   setCurrentThemeId: (themeId: Id | null) => void;
   openThemeEditor: (themeId: Id) => void;
-  updateThemeDraft: (input: { id: Id; name?: string; kind?: ThemeKind; elements?: SlideElement[] }) => void;
+  updateThemeDraft: (input: { id: Id; name?: string; kind?: ThemeKind; background?: SlideBackground | null; elements?: SlideElement[] }) => void;
   replaceThemeElements: (elements: SlideElement[]) => void;
   createTheme: (kind: ThemeKind) => void;
   applyThemeToTarget: (themeId: Id, target: ThemeApplyTarget) => Promise<void>;
+  resolveThemeIdForMutation: (themeId: Id) => Promise<Id>;
   detachThemeFromDeckItem: (itemId: Id) => Promise<void>;
   syncLinkedDeckItems: (themeId: Id) => Promise<void>;
   deleteTheme: (themeId: Id) => void;
@@ -284,12 +295,17 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   const themes = themeStaged.items;
   const [themeNameFocusRequest, setThemeNameFocusRequest] = useState(0);
 
+  // Maps temporary (client-generated) theme IDs to their persisted IDs after push.
+  const tempToPersistedIdMapRef = useRef(new Map<Id, Id>());
+  // Holds the current in-flight push promise so concurrent callers await the same one.
+  const pushPromiseRef = useRef<Promise<Id | null> | null>(null);
+
   const requestThemeNameFocus = useCallback((themeId: Id) => {
     themeStaged.setCurrentItemId(themeId);
     setThemeNameFocusRequest((v) => v + 1);
   }, [themeStaged]);
 
-  const updateThemeDraft = useCallback((input: { id: Id; name?: string; kind?: ThemeKind; elements?: SlideElement[] }) => {
+  const updateThemeDraft = useCallback((input: { id: Id; name?: string; kind?: ThemeKind; background?: SlideBackground | null; elements?: SlideElement[] }) => {
     themeStaged.setStagedItems((current) => {
       const source = current ?? persistedThemes;
       return source.map((theme) => (
@@ -298,6 +314,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
             ...theme,
             name: input.name ?? theme.name,
             kind: input.kind ?? theme.kind,
+            background: 'background' in input ? input.background : theme.background,
             elements: input.elements ? cloneElements(input.elements) : theme.elements,
             updatedAt: new Date().toISOString(),
           }
@@ -334,11 +351,42 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     const sourceTheme = themes.find((t) => t.id === themeId) ?? null;
     if (!sourceTheme) return;
     const now = new Date().toISOString();
+    const newId = createId();
+    const newSlideId = `${newId}:slide`;
+    const clonedTheme = cloneTheme(sourceTheme);
+    const existingNames = new Set(themes.map((t) => t.name.toLowerCase()));
+
+    // Recursively clone elements with new collision-free IDs
+    const cloneElementsRecursive = (elements: SlideElement[], parentSlideId: string): SlideElement[] => {
+      return elements.map((el) => {
+        const newElementId = createId();
+        const cloned: SlideElement = {
+          ...el,
+          id: newElementId,
+          slideId: parentSlideId,
+          // Note: we preserve sourceThemeElementId as it should point to the original theme element
+          // The original theme element IDs are the stable source IDs
+        };
+        if (cloned.type === 'group') {
+          const groupPayload = cloned.payload as GroupElementPayload;
+          cloned.payload = {
+            ...groupPayload,
+            children: cloneElementsRecursive(groupPayload.children ?? [], parentSlideId),
+          };
+        }
+        return cloned;
+      });
+    };
+
     const duplicate: Theme = {
-      ...cloneTheme(sourceTheme),
-      id: createId(),
-      name: `${sourceTheme.name} Copy`,
+      ...clonedTheme,
+      id: newId,
+      slideId: newSlideId,
+      name: generateDeterministicCopyName(sourceTheme.name, existingNames),
+      collectionId: sourceTheme.collectionId,
       order: (themes.at(-1)?.order ?? -1) + 1,
+      background: sourceTheme.background ? JSON.parse(JSON.stringify(sourceTheme.background)) : undefined,
+      elements: cloneElementsRecursive(clonedTheme.elements, newSlideId),
       createdAt: now, updatedAt: now,
     };
     themeStaged.setStagedItems((current) => [...(current ?? persistedThemes), duplicate]);
@@ -361,69 +409,92 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   }, [themeStaged]);
 
   const pushThemeChanges = useCallback(async (): Promise<Id | null> => {
+    if (pushPromiseRef.current) return pushPromiseRef.current;
     if (!themeStaged.stagedItems || themeStaged.isPushingChanges) return themeStaged.currentItemId;
-    const stagedThemes = themeStaged.stagedItems;
-    const stagedSig = stagedThemes.map(themeSignature).join();
-    const persistedSig = persistedThemes.map(themeSignature).join();
-    if (stagedSig === persistedSig) {
-      themeStaged.setStagedItems(null);
-      return themeStaged.currentItemId;
-    }
 
-    themeStaged.setIsPushingChanges(true);
-    try {
-      let resolvedCurrentThemeId = themeStaged.currentItemId;
-      let knownThemes = persistedThemes;
-        const persistedById = new Map(persistedThemes.map((t) => [t.id, t]));
-        const stagedById = new Map(stagedThemes.map((t) => [t.id, t]));
+    const doPush = async (): Promise<Id | null> => {
+      const stagedThemes = themeStaged.stagedItems;
+      if (!stagedThemes) return themeStaged.currentItemId;
+      const stagedSig = stagedThemes.map(themeSignature).join();
+      const persistedSig = persistedThemes.map(themeSignature).join();
+      if (stagedSig === persistedSig) {
+        themeStaged.setStagedItems(null);
+        return themeStaged.currentItemId;
+      }
 
-        for (const theme of persistedThemes) {
-          if (stagedById.has(theme.id)) continue;
-          const next = await mutatePatch(() => window.castApi.deleteTheme(theme.id));
-          knownThemes = next.themes;
-        }
-        for (const theme of stagedThemes) {
-          if (persistedById.has(theme.id)) continue;
-          const previousIds = new Set(knownThemes.map((item) => item.id));
-          const next = await mutatePatch(() => window.castApi.createTheme({
-            name: theme.name, kind: theme.kind, width: theme.width, height: theme.height,
-            elements: cloneElements(theme.elements),
-          }));
-          knownThemes = next.themes;
-          const createdTheme = knownThemes.find((item) => !previousIds.has(item.id)) ?? null;
-          if (createdTheme && resolvedCurrentThemeId === theme.id) resolvedCurrentThemeId = createdTheme.id;
-        }
-        for (const theme of stagedThemes) {
-          if (!persistedById.has(theme.id)) continue;
-          const persisted = persistedById.get(theme.id);
-          if (!persisted || themeSignature(theme) === themeSignature(persisted)) continue;
-          const next = await mutatePatch(() => window.castApi.updateTheme({
-            id: theme.id, name: theme.name, kind: theme.kind, width: theme.width, height: theme.height,
-            elements: cloneElements(theme.elements),
-          }));
-          knownThemes = next.themes;
-        }
+      themeStaged.setIsPushingChanges(true);
+      try {
+        let resolvedCurrentThemeId = themeStaged.currentItemId;
+        let knownThemes = persistedThemes;
+          const persistedById = new Map(persistedThemes.map((t) => [t.id, t]));
+          const stagedById = new Map(stagedThemes.map((t) => [t.id, t]));
 
-      themeStaged.setStagedItems(null);
-      const currentStillExists = resolvedCurrentThemeId ? knownThemes.some((t) => t.id === resolvedCurrentThemeId) : false;
-      if (!resolvedCurrentThemeId || !currentStillExists) resolvedCurrentThemeId = knownThemes[0]?.id ?? null;
-      themeStaged.setCurrentItemId(resolvedCurrentThemeId);
-      setStatusText('Theme changes pushed');
-      return resolvedCurrentThemeId;
-    } finally {
-      themeStaged.setIsPushingChanges(false);
-    }
+          for (const theme of persistedThemes) {
+            if (stagedById.has(theme.id)) continue;
+            const next = await mutatePatch(() => window.castApi.deleteTheme(theme.id));
+            knownThemes = next.themes;
+          }
+          for (const theme of stagedThemes) {
+            if (persistedById.has(theme.id)) continue;
+            const previousIds = new Set(knownThemes.map((item) => item.id));
+            const next = await mutatePatch(() => window.castApi.createTheme({
+              name: theme.name, kind: theme.kind, width: theme.width, height: theme.height,
+              background: theme.background,
+              collectionId: theme.collectionId || undefined,
+              elements: cloneElements(theme.elements),
+            }));
+            knownThemes = next.themes;
+            const createdTheme = knownThemes.find((item) => !previousIds.has(item.id)) ?? null;
+            if (createdTheme) {
+              tempToPersistedIdMapRef.current.set(theme.id, createdTheme.id);
+              if (resolvedCurrentThemeId === theme.id) resolvedCurrentThemeId = createdTheme.id;
+            }
+          }
+          for (const theme of stagedThemes) {
+            if (!persistedById.has(theme.id)) continue;
+            const persisted = persistedById.get(theme.id);
+            if (!persisted || themeSignature(theme) === themeSignature(persisted)) continue;
+            const next = await mutatePatch(() => window.castApi.updateTheme({
+              id: theme.id, name: theme.name, kind: theme.kind, width: theme.width, height: theme.height,
+              background: theme.background,
+              elements: cloneElements(theme.elements),
+            }));
+            knownThemes = next.themes;
+          }
+
+        themeStaged.setStagedItems(null);
+        const currentStillExists = resolvedCurrentThemeId ? knownThemes.some((t) => t.id === resolvedCurrentThemeId) : false;
+        if (!resolvedCurrentThemeId || !currentStillExists) resolvedCurrentThemeId = knownThemes[0]?.id ?? null;
+        themeStaged.setCurrentItemId(resolvedCurrentThemeId);
+        setStatusText('Theme changes pushed');
+        return resolvedCurrentThemeId;
+      } finally {
+        themeStaged.setIsPushingChanges(false);
+        pushPromiseRef.current = null;
+      }
+    };
+
+    pushPromiseRef.current = doPush();
+    return pushPromiseRef.current;
   }, [themeStaged, mutatePatch, persistedThemes, setStatusText]);
 
-  const resolveThemeIdForMutation = useCallback(async (themeId: Id): Promise<Id | null> => {
-    if (themeStaged.currentItemId === themeId) return await pushThemeChanges() ?? themeId;
-    if (themeStaged.hasPendingChanges) await pushThemeChanges();
+  const resolveThemeIdForMutation = useCallback(async (themeId: Id): Promise<Id> => {
+    const mapped = tempToPersistedIdMapRef.current.get(themeId);
+    if (mapped) return mapped;
+    const isStaged = themeStaged.stagedItems?.some((t) => t.id === themeId) ?? false;
+    if (isStaged || themeStaged.currentItemId === themeId || themeStaged.hasPendingChanges) {
+      await pushThemeChanges();
+      const resolved = tempToPersistedIdMapRef.current.get(themeId) ?? (isStaged ? null : themeId);
+      if (!resolved) {
+        throw new Error('Failed to resolve theme ID after persistence. Theme may have failed to persist.');
+      }
+      return resolved;
+    }
     return themeId;
-  }, [themeStaged.currentItemId, themeStaged.hasPendingChanges, pushThemeChanges]);
+  }, [themeStaged.stagedItems, themeStaged.currentItemId, themeStaged.hasPendingChanges, pushThemeChanges]);
 
   const applyThemeToTarget = useCallback(async (themeId: Id, target: ThemeApplyTarget) => {
     const resolvedThemeId = await resolveThemeIdForMutation(themeId);
-    if (!resolvedThemeId) return;
     if (target.type === 'deck-item') {
       await mutatePatch(() => window.castApi.applyThemeToDeckItem(resolvedThemeId, target.itemId));
       setStatusText('Applied theme to item');
@@ -439,9 +510,13 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   }, [mutatePatch, setStatusText]);
 
   const syncLinkedDeckItems = useCallback(async (themeId: Id) => {
-    await mutatePatch(() => window.castApi.syncThemeToLinkedDeckItems(themeId));
+    const resolvedId = await resolveThemeIdForMutation(themeId);
+    if (!resolvedId) {
+      throw new Error('Failed to resolve theme before sync. Theme persistence may have failed.');
+    }
+    await mutatePatch(() => window.castApi.syncThemeToLinkedDeckItems(resolvedId));
     setStatusText('Synced linked items to theme');
-  }, [mutatePatch, setStatusText]);
+  }, [resolveThemeIdForMutation, mutatePatch, setStatusText]);
 
   useEffect(() => {
     themeStaged.registerAutoPush(() => void pushThemeChanges());
@@ -460,6 +535,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     replaceThemeElements,
     createTheme,
     applyThemeToTarget,
+    resolveThemeIdForMutation,
     detachThemeFromDeckItem,
     syncLinkedDeckItems,
     deleteTheme,
@@ -468,7 +544,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     requestNameFocus: requestThemeNameFocus,
     pushChanges: pushThemeChanges,
   }), [
-    applyThemeToTarget, createTheme, themeStaged.currentItem, themeStaged.currentItemId,
+    applyThemeToTarget, resolveThemeIdForMutation, createTheme, themeStaged.currentItem, themeStaged.currentItemId,
     deleteTheme, detachThemeFromDeckItem, syncLinkedDeckItems, duplicateTheme, themeStaged.hasPendingChanges, themeStaged.isPushingChanges,
     openThemeEditor, pushThemeChanges, renameTheme, replaceThemeElements, requestThemeNameFocus,
     themeStaged.setCurrentItemId, themeNameFocusRequest, themes, updateThemeDraft,
@@ -820,7 +896,7 @@ function overlaySignature(overlay: Overlay): string {
 }
 
 function themeSignature(theme: Theme): string {
-  return JSON.stringify({ id: theme.id, name: theme.name, kind: theme.kind, width: theme.width, height: theme.height, elements: theme.elements });
+  return JSON.stringify({ id: theme.id, name: theme.name, kind: theme.kind, width: theme.width, height: theme.height, background: theme.background, elements: theme.elements });
 }
 
 function cloneTheme(theme: Theme): Theme {

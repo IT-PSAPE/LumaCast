@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Theme } from '@core/types';
 import { isThemeCompatibleWithDeckItem } from '@core/themes';
-import { useCast } from '../../../contexts/app-context';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useNavigation } from '../../../contexts/navigation-context';
 import { filterByText } from '../../../utils/filter-by-text';
@@ -10,9 +9,8 @@ import { useBinCollections } from '../../workbench/use-bin-collections';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 
 export function useThemeBin() {
-  const { themes } = useThemeEditor();
+  const { themes, applyThemeToTarget } = useThemeEditor();
   const { currentDeckItem } = useNavigation();
-  const { mutatePatch } = useCast();
   const { sort } = useThemeBinSort();
   const collections = useBinCollections('theme');
   const [searchValue, setSearchValue] = useState('');
@@ -29,11 +27,11 @@ export function useThemeBin() {
     return [...filtered].sort((a, b) => direction * compareByKey(a, b, sort.key, (item) => item.name));
   }, [filteredByCollection, searchValue, sort]);
 
-  const handleApplyTheme = useCallback((theme: Theme) => {
+  const handleApplyTheme = useCallback(async (theme: Theme) => {
     if (!currentDeckItem) return;
     if (!isThemeCompatibleWithDeckItem(theme, currentDeckItem.type)) return;
-    void mutatePatch(() => window.castApi.applyThemeToDeckItem(theme.id, currentDeckItem.id));
-  }, [currentDeckItem, mutatePatch]);
+    await applyThemeToTarget(theme.id, { type: 'deck-item', itemId: currentDeckItem.id });
+  }, [applyThemeToTarget, currentDeckItem]);
 
   return {
     filteredThemes,

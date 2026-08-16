@@ -137,6 +137,10 @@ const api = {
     ipcRenderer.invoke(IPC.syncThemeToLinkedDeckItems, themeId),
   applyThemeToOverlay: (themeId: Id, overlayId: Id) =>
     ipcRenderer.invoke(IPC.applyThemeToOverlay, themeId, overlayId),
+  createDeckItemWithTheme: (input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }) =>
+    ipcRenderer.invoke(IPC.createDeckItemWithTheme, input),
+  duplicateDeckItem: (itemId: Id) =>
+    ipcRenderer.invoke(IPC.duplicateDeckItem, itemId),
   createStage: (input: StageCreateInput) => ipcRenderer.invoke(IPC.createStage, input),
   updateStage: (input: StageUpdateInput) => ipcRenderer.invoke(IPC.updateStage, input),
   deleteStage: (stageId: Id) => ipcRenderer.invoke(IPC.deleteStage, stageId),

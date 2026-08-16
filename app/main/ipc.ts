@@ -283,6 +283,12 @@ export const registerIpcHandlers = (
   safeHandle(IPC.applyThemeToOverlay, (_event, themeId: Id, overlayId: Id) =>
     repo.applyThemeToOverlay(themeId, overlayId)
   );
+  safeHandle(IPC.createDeckItemWithTheme, (_event, input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }) =>
+    repo.createDeckItemWithTheme(input)
+  );
+  safeHandle(IPC.duplicateDeckItem, (_event, itemId: Id) =>
+    repo.duplicateDeckItem(itemId)
+  );
   safeHandle(IPC.createStage, (_event, input: StageCreateInput) => repo.createStage(input));
   safeHandle(IPC.updateStage, (_event, input: StageUpdateInput) => repo.updateStage(input));
   safeHandle(IPC.deleteStage, (_event, stageId: Id) => repo.deleteStage(stageId));

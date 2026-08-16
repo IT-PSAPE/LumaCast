@@ -28,11 +28,11 @@ export function App() {
       <WorkbenchProvider>
         <ConfirmProvider>
           <AppProvider>
-            <NavigationProvider>
-              <PlaybackProvider>
-                <SlideProvider>
-                  <AutomationProvider>
-                    <AssetEditorProvider>
+            <AssetEditorProvider>
+              <NavigationProvider>
+                <PlaybackProvider>
+                  <SlideProvider>
+                    <AutomationProvider>
                       <LyricEditorProvider>
                         <CreateDeckItemProvider>
                           <CanvasProvider>
@@ -47,11 +47,11 @@ export function App() {
                           </CanvasProvider>
                         </CreateDeckItemProvider>
                       </LyricEditorProvider>
-                    </AssetEditorProvider>
-                  </AutomationProvider>
-                </SlideProvider>
-              </PlaybackProvider>
-            </NavigationProvider>
+                    </AutomationProvider>
+                  </SlideProvider>
+                </PlaybackProvider>
+              </NavigationProvider>
+            </AssetEditorProvider>
           </AppProvider>
         </ConfirmProvider>
       </WorkbenchProvider>

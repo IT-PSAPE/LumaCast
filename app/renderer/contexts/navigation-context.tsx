@@ -3,6 +3,7 @@ import { getSlideDeckItemId } from '@core/deck-items';
 import type { Id, LibraryPlaylistBundle } from '@core/types';
 import { useCast } from './app-context';
 import { useProjectContent } from './use-project-content';
+import { useThemeEditor } from './asset-editor/asset-editor-context';
 import type { NavigationActionsValue, NavigationContextValue, NavigationStateValue } from '../types/navigation-context-types';
 import { findCreatedId, findFirstPlaylistEntryByDeckItemId, findPlaylistEntryById, resolveCurrentDeckItemId, resolveCurrentPlaylistEntryId, resolvePinnedLyricDeckItemId } from '../utils/navigation-context-utils';
 
@@ -25,6 +26,7 @@ const NavigationActionsContext = createContext<NavigationActionsValue | null>(nu
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const { snapshot, mutatePatch, runOperation, setStatusText } = useCast();
   const { deckItems, deckItemsById, slides } = useProjectContent();
+  const { resolveThemeIdForMutation } = useThemeEditor();
 
   const [currentLibraryId, setCurrentLibraryId] = useState<Id | null>(null);
   const [currentPlaylistId, setCurrentPlaylistIdState] = useState<Id | null>(null);
@@ -297,37 +299,36 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     const labelKind = input.kind === 'lyric' ? 'lyric' : input.kind === 'talk' ? 'talk' : 'deck';
 
     await runOperation(`Creating ${labelKind}...`, async () => {
-      const previousIds = new Set(deckItems.map((item) => item.id));
-      const next = input.kind === 'lyric'
-        ? await mutatePatch(() => window.castApi.createLyric(trimmedName))
-        : input.kind === 'talk'
-          ? await mutatePatch(() => window.castApi.createTalk(trimmedName))
-          : await mutatePatch(() => window.castApi.createPresentation(trimmedName));
-      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id));
-      if (!createdId) return;
-
-      await mutatePatch(() => (
-        input.kind === 'lyric'
-          ? window.castApi.createSlide({ lyricId: createdId })
-          : input.kind === 'talk'
-            ? window.castApi.createSlide({ talkId: createdId })
-            : window.castApi.createSlide({ presentationId: createdId })
-      ));
-
+      // Resolve the theme ID before creating the deck item to ensure
+      // any pending staged changes are persisted and temporary IDs are resolved.
+      let resolvedThemeId: Id | null = null;
       if (input.themeId) {
-        await mutatePatch(() => window.castApi.applyThemeToDeckItem(input.themeId!, createdId));
+        resolvedThemeId = await resolveThemeIdForMutation(input.themeId);
+        if (!resolvedThemeId) {
+          throw new Error('Failed to resolve theme. Theme persistence may have failed.');
+        }
       }
 
-      if (input.groupId) {
-        await mutatePatch(() => window.castApi.addDeckItemToGroup(input.groupId!, createdId));
-      }
+      // Use the atomic createDeckItemWithTheme operation
+      const next = await mutatePatch(() => window.castApi.createDeckItemWithTheme({
+        type: input.kind,
+        title: trimmedName,
+        themeId: resolvedThemeId,
+        groupId: input.groupId,
+      }));
+
+      const createdId = findCreatedId(
+        new Set([]),
+        [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id),
+      );
+      if (!createdId) return;
 
       setCurrentDrawerDeckItemId(createdId);
       setContentBrowseSource('project');
       setRecentlyCreatedId(createdId);
       setStatusText(`Created ${labelKind}`);
     });
-  }, [deckItems, mutatePatch, runOperation, setStatusText]);
+  }, [mutatePatch, resolveThemeIdForMutation, runOperation, setStatusText]);
 
   const createGroup = useCallback(async () => {
     if (!currentPlaylistId) return;
