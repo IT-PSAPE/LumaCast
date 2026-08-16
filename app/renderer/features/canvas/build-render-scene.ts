@@ -1,9 +1,33 @@
-import { readVisualPayload } from '@core/element-payload';
+import { readTextFormatting, readTextVisualPayload, readVisualPayload, type VisualPayloadState } from '@core/element-payload';
 import { LAYER_PREVIEW_SLIDE, LAYER_VIDEO_NODE_ID, mediaAssetToLayerElement, overlayToLayerElements } from '@core/presentation-layers';
-import type { MediaAsset, Overlay, Slide, SlideBackground, SlideElement } from '@core/types';
+import type {
+  GroupElementPayload,
+  MediaAsset,
+  Overlay,
+  Slide,
+  SlideBackground,
+  SlideElement,
+  TextCaseTransform,
+  TextElementPayload,
+  TextHorizontalAlign,
+} from '@core/types';
+import { coerceWeight } from '@core/rich-text/resolve';
 import { sortElements } from '../../utils/slides';
 import type { BindingOverride } from './binding-context';
-import type { RenderNode, RenderScene } from './scene-types';
+import type {
+  MediaHandleLookup,
+  RenderNode,
+  RenderScene,
+  ResolvedBackground,
+  ResolvedBoxVisual,
+  ResolvedMediaState,
+  ResolvedRenderNode,
+  ResolvedRenderNodeBase,
+  ResolvedRenderScene,
+  ResolvedTextVisual,
+  SceneSurface,
+  SelectionState,
+} from './scene-types';
 
 interface SceneElementInput {
   element: SlideElement;
@@ -118,4 +142,170 @@ export function buildLayeredRenderScene({
 
 export function buildThumbnailScene(slide: Slide, slideElements: SlideElement[]): RenderScene {
   return buildRenderScene(slide, slideElements);
+}
+
+// ── Resolved render-scene builder ──────────────────────────────────────
+//
+// Produces the provider-independent ResolvedRenderScene contract from
+// resolved inputs: scene data, dimensions, surface flags, selection and
+// interaction flags, and resolved media handles.
+
+export interface ResolvedRenderSceneOptions {
+  surface?: SceneSurface;
+  interactive?: boolean;
+  selection?: SelectionState | null;
+  media?: MediaHandleLookup | null;
+}
+
+function finiteNumber(value: number, fallback = 0): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function resolveMediaHandle(media: MediaHandleLookup | null, mediaKey: string | null): ResolvedMediaState {
+  if (!mediaKey) return { status: 'empty' };
+  if (!media) return { status: 'empty' };
+  if (typeof media === 'function') return media(mediaKey);
+  return media.get(mediaKey) ?? { status: 'empty' };
+}
+
+function toBoxVisual(visual: VisualPayloadState): ResolvedBoxVisual {
+  return {
+    fillEnabled: visual.fillEnabled,
+    fillColor: visual.fillColor,
+    strokeEnabled: visual.strokeEnabled,
+    strokeColor: visual.strokeColor,
+    strokeWidth: visual.strokeWidth,
+    borderRadius: visual.borderRadius,
+    shadowEnabled: visual.shadowEnabled,
+    shadowColor: visual.shadowColor,
+    shadowBlur: visual.shadowBlur,
+    shadowOffsetX: visual.shadowOffsetX,
+    shadowOffsetY: visual.shadowOffsetY,
+  };
+}
+
+function transformTextCase(text: string, mode: TextCaseTransform): string {
+  if (mode === 'uppercase') return text.toUpperCase();
+  if (mode === 'sentence') return text.replace(/(^\s*\w|[.!?]\s+\w)/g, (match) => match.toUpperCase());
+  return text;
+}
+
+function textHorizontalAlign(alignment: TextHorizontalAlign): 'left' | 'center' | 'right' | 'justify' {
+  if (alignment === 'center') return 'center';
+  if (alignment === 'right' || alignment === 'end') return 'right';
+  if (alignment === 'justify') return 'justify';
+  return 'left';
+}
+
+function toTextVisual(element: SlideElement): ResolvedTextVisual {
+  const payload = element.payload as TextElementPayload;
+  const formatting = readTextFormatting(payload);
+  const visual = readTextVisualPayload(payload);
+  return {
+    text: transformTextCase(payload.text ?? '', payload.caseTransform ?? 'none'),
+    fontFamily: payload.fontFamily || 'sans-serif',
+    fontSize: formatting.fontSize,
+    fontWeight: coerceWeight(payload.weight),
+    italic: formatting.italic,
+    color: visual.color,
+    alignment: textHorizontalAlign(payload.alignment ?? 'left'),
+    verticalAlign: formatting.verticalAlign,
+    lineHeight: formatting.lineHeight,
+    textStrokeEnabled: visual.strokeEnabled,
+    textStrokeColor: visual.strokeColor,
+    textStrokeWidth: visual.strokeWidth,
+    textStrokePosition: visual.strokePosition,
+  };
+}
+
+function toResolvedNode(
+  element: SlideElement | null | undefined,
+  selection: SelectionState,
+  media: MediaHandleLookup | null,
+): ResolvedRenderNode | null {
+  if (!element || !element.id) return null;
+  const visual = readVisualPayload(element.type, element.payload);
+  const base: ResolvedRenderNodeBase = {
+    id: element.id,
+    kind: element.type,
+    x: finiteNumber(element.x),
+    y: finiteNumber(element.y),
+    width: finiteNumber(element.width),
+    height: finiteNumber(element.height),
+    rotation: finiteNumber(element.rotation),
+    opacity: finiteNumber(element.opacity, 1),
+    zIndex: finiteNumber(element.zIndex),
+    visible: visual.visible,
+    locked: visual.locked,
+    flipX: visual.flipX,
+    flipY: visual.flipY,
+    selected: selection.selectedIds.includes(element.id),
+  };
+
+  switch (element.type) {
+    case 'shape':
+      return { ...base, kind: 'shape', box: toBoxVisual(visual) };
+    case 'text':
+      return { ...base, kind: 'text', box: toBoxVisual(visual), text: toTextVisual(element) };
+    case 'image':
+    case 'video': {
+      const src = (element.payload as { src?: string }).src ?? null;
+      return { ...base, kind: element.type, mediaKey: src, media: resolveMediaHandle(media, src) };
+    }
+    case 'group': {
+      const payload = element.payload as GroupElementPayload;
+      const children = (payload.children ?? [])
+        .map((child) => toResolvedNode(child, selection, media))
+        .filter((node): node is ResolvedRenderNode => node !== null);
+      return { ...base, kind: 'group', children };
+    }
+    default:
+      return null;
+  }
+}
+
+function toResolvedBackground(background: SlideBackground | null | undefined, media: MediaHandleLookup | null): ResolvedBackground | null {
+  if (!background) return null;
+  if (background.type === 'color') return { type: 'color', color: background.color };
+  if (background.type === 'gradient') {
+    return {
+      type: 'gradient',
+      kind: background.gradient.kind,
+      angle: background.gradient.angle ?? 0,
+      stops: background.gradient.stops.map((stop) => ({
+        position: Math.min(100, Math.max(0, finiteNumber(stop.position))),
+        color: stop.color,
+      })),
+    };
+  }
+  return {
+    type: background.type,
+    fit: background.fit,
+    mediaKey: background.src,
+    media: resolveMediaHandle(media, background.src),
+  };
+}
+
+export function buildResolvedRenderScene(
+  frame: RenderSceneFrameInput,
+  elements: SlideElement[] | SceneElementInput[],
+  options: ResolvedRenderSceneOptions = {},
+): ResolvedRenderScene {
+  const nextSlide = resolveSceneSlide(frame);
+  const size = sceneSize(nextSlide);
+  const selection = options.selection ?? { selectedIds: [], primarySelectedId: null };
+  const media = options.media ?? null;
+  const normalizedInputs = elements.map((entry) => ('element' in entry ? entry : { element: entry }));
+  const nodes = sortElements(normalizedInputs.map((entry) => entry.element))
+    .map((element) => toResolvedNode((normalizedInputs.find((entry) => entry.element === element) ?? { element }).element, selection, media))
+    .filter((node): node is ResolvedRenderNode => node !== null);
+  return {
+    surface: options.surface ?? 'show',
+    width: size.width,
+    height: size.height,
+    background: toResolvedBackground(nextSlide.background, media),
+    nodes,
+    interactive: options.interactive ?? false,
+    selection,
+  };
 }
