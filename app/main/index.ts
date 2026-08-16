@@ -45,7 +45,8 @@ try {
   console.error('[Main process documents dir mkdir failed]', error);
 }
 initializeLogger(documentsDataDir, { appVersion: app.getVersion() });
-console.log(`[main] userData=${app.getPath('userData')}`);
+const userDataPath = app.getPath('userData');
+console.log(`[main] userData=${userDataPath}`);
 console.log(`[main] documentsDataDir=${documentsDataDir}`);
 console.log(`[main] logFile=${getLogFilePath()}`);
 console.log(`[main] argv=${process.argv.slice(1).join(' ')}`);
@@ -53,7 +54,11 @@ console.log(`[main] argv=${process.argv.slice(1).join(' ')}`);
 let mainWindow: BrowserWindow | null = null;
 const WORKBENCH_MIN_WIDTH = 140 + 360 + 140;
 const WORKBENCH_MIN_HEIGHT = Math.max(360 + 96, 240 + 120) + 96;
-const repository = new CastRepository();
+const repository = new CastRepository({
+  dbPath: path.join(userDataPath, 'lumacast.sqlite'),
+  userDataPath,
+  documentsPath: documentsDataDir,
+});
 const ndiConfigStore = new NdiConfigStore();
 let ndiService: NdiServiceLike | null = null;
 let isShuttingDown = false;

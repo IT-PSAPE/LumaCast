@@ -1,15 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AppSnapshot, Id, SlideElement } from '@core/types';
 import { CastRepository } from './store';
-
-const mockApp = vi.hoisted(() => ({ userDataPath: '' }));
-
-vi.mock('electron', () => ({
-  app: { getPath: () => mockApp.userDataPath },
-}));
 
 let repo: CastRepository;
 let tmpDir: string;
@@ -40,8 +34,11 @@ function elementsForSlide(snapshot: AppSnapshot, slideId: Id): SlideElement[] {
 describe('CastRepository.applyThemeToDeckItem', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-test-'));
-    mockApp.userDataPath = tmpDir;
-    repo = new CastRepository();
+    repo = new CastRepository({
+      dbPath: path.join(tmpDir, 'lumacast.sqlite'),
+      userDataPath: tmpDir,
+      documentsPath: tmpDir,
+    });
   });
 
   afterEach(() => {

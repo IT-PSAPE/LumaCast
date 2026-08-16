@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app } from 'electron';
 import {
   cloneDeckBundleManifest,
   collectDeckBundleMediaReferences,
@@ -409,15 +408,20 @@ function legacyOverlayElement(row: {
   };
 }
 
+export interface RepositoryOptions {
+  dbPath: string;
+  userDataPath: string;
+  documentsPath: string;
+}
+
 export class CastRepository {
   private db: SqliteDatabase;
   private patchVersion = 0;
   private readonly dbPath: string;
 
-  constructor() {
-    const userData = app.getPath('userData');
-    this.dbPath = path.join(userData, 'lumacast.sqlite');
-    migrateLegacyRecastDatabase(userData, this.dbPath);
+  constructor(options: RepositoryOptions) {
+    this.dbPath = options.dbPath;
+    migrateLegacyRecastDatabase(options.userDataPath, this.dbPath);
     this.db = new SqliteDatabase(this.dbPath);
     this.applyConnectionTuning();
     this.initializeSchema();
