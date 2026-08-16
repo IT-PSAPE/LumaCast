@@ -29,13 +29,13 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run ensure:native-deps",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run",
     "pretest:watch": "npm run ensure:native-deps",
     "test:watch": "vitest --watch",
     "check:architecture": "node tool/check_electron_architecture.mjs",
     "test:architecture": "node tool/check_electron_architecture.mjs --test",
     "pretest:e2e": "npm run build && npm run e2e:install",
-    "test:e2e": "playwright test --pass-with-no-tests",
+    "test:e2e": "playwright test",
     "e2e:install": "playwright install chromium",
     "capture:ui-screenshots": "npm run build && node app/e2e/capture-ui-screenshots.mjs",
     "pack": "electron-vite build && electron-builder --dir",
@@ -63,7 +63,6 @@
     "react-konva": "^19.2.3",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
-    "vitest": "^4.0.18",
     "zustand": "^5.0.13"
   },
   "devDependencies": {
