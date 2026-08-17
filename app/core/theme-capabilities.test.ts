@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isThemeCompatibleWithDeckItem, isThemeCompatibleWithOwnerKind } from './themes';
+import { isThemeCompatibleWithDeckItem, isThemeCompatibleWithOwnerKind } from './theme-capabilities';
 import type { DeckItemType, Theme, ThemeKind, ThemeOwnerKind } from './types';
 
 const T0 = '2024-01-01T00:00:00.000Z';

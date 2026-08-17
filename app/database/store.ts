@@ -23,7 +23,8 @@ import {
   type PlaylistItemOwnerColumns,
   type PlaylistItemReference,
 } from '@core/playlist-item-reference';
-import { applyThemeToElements, createDefaultThemeElements, isThemeCompatibleWithDeckItem, isThemeCompatibleWithOwnerKind, syncThemeToElements } from '@core/themes';
+import { applyThemeToElements, createDefaultThemeElements, syncThemeToElements } from '@core/themes';
+import { isThemeCompatibleWithDeckItem, isThemeCompatibleWithOwnerKind } from '@core/theme-capabilities';
 import { createId, nowIso } from '@core/utils';
 import {
   decodeCuePayloadJson,

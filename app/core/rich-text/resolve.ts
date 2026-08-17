@@ -8,7 +8,7 @@
 // is the lazy read-tolerance entry point: a missing/'plain' element is read as a
 // Rich Body of override-free Runs, without rewriting stored data.
 
-import type { TextElementPayload } from '../types';
+import type { TextElementPayload } from '../domain/slide-elements';
 import { readTextFormatting } from '../element-payload';
 import type { RichBody, RichRun } from './types';
 import { textToRichBody } from './serialize';

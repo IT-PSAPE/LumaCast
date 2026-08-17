@@ -1,16 +1,13 @@
-// Domain primitive (#153, split from app/core/types.ts): the theme entity and
-// the set of owner kinds a theme can be applied to, synced to, reset against,
-// or detached from.
+// Domain primitive (#153, split from app/core/types.ts): the theme entity.
+// #219 decision 2: ThemeOwnerKind and the owner-kind capability matrix answer
+// a project rule (which DeckItemType accepts which theme), not a composition
+// concern, so they live in ./decks.ts and ./ (see app/core/theme-capabilities.ts)
+// instead of here. This module imports no project domain module.
 import type { Id } from './ids';
-import type { DeckItemType } from './decks';
 import type { SlideBackground } from './slides';
 import type { SlideElement } from './slide-elements';
 
 export type ThemeKind = 'slides' | 'lyrics' | 'overlays';
-
-// Deck items (presentation/lyric/talk) plus overlays, which own a theme
-// outside the deck-item model.
-export type ThemeOwnerKind = DeckItemType | 'overlay';
 
 export interface Theme {
   id: Id;

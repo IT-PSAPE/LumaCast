@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Unlink } from 'lucide-react';
-import { isThemeCompatibleWithOwnerKind } from '@core/themes';
+import { isThemeCompatibleWithOwnerKind } from '@core/theme-capabilities';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
 import { getDeckItemLabel } from '@core/deck-items';

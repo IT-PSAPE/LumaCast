@@ -23,7 +23,7 @@ export type {
   PlaylistTree,
   LibraryPlaylistBundle,
 } from './domain/library';
-export type { DeckItemType, Presentation, Lyric, Talk, DeckItem } from './domain/decks';
+export type { DeckItemType, ThemeOwnerKind, Presentation, Lyric, Talk, DeckItem } from './domain/decks';
 export type {
   SlideKind,
   SlideBackgroundFit,
@@ -56,7 +56,7 @@ export type {
 } from './domain/slide-elements';
 export type { MediaAssetType, MediaAsset } from './domain/media-assets';
 export type { OverlayType, OverlayAnimation, Overlay } from './domain/overlays';
-export type { ThemeKind, ThemeOwnerKind, Theme } from './domain/theme';
+export type { ThemeKind, Theme } from './domain/theme';
 export type { Stage } from './domain/stages';
 export type { CollectionBinKind, Collection, CollectionItemType } from './domain/collections';
 export type {

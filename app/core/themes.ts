@@ -1,14 +1,11 @@
+import type { Id } from './domain/ids';
+import type { Theme, ThemeKind } from './domain/theme';
 import type {
-  DeckItemType,
-  Id,
   SlideElement,
   SlideElementPayload,
-  Theme,
-  ThemeKind,
-  ThemeOwnerKind,
   TextElementPayload,
   GroupElementPayload,
-} from './types';
+} from './domain/slide-elements';
 import { cloneElement } from './clone';
 import { createId } from './utils';
 
@@ -16,29 +13,6 @@ function readTextValues(elements: SlideElement[]): string[] {
   return elements
     .filter((element) => element.type === 'text')
     .map((element) => (element.payload as TextElementPayload).text);
-}
-
-// Single source of truth for the theme capability matrix: which owner kinds
-// a given theme kind can be applied to, synced to, reset against, or
-// detached from. No surface may maintain its own type list — every apply,
-// sync, reset, detach, target-picker, menu, and command-availability check
-// must derive from this function instead.
-const OWNER_KINDS_BY_THEME_KIND: Readonly<Record<ThemeKind, readonly ThemeOwnerKind[]>> = {
-  slides: ['presentation', 'talk'],
-  lyrics: ['lyric'],
-  overlays: ['overlay'],
-};
-
-export function isThemeCompatibleWithOwnerKind(theme: Theme, ownerKind: ThemeOwnerKind): boolean {
-  return OWNER_KINDS_BY_THEME_KIND[theme.kind].includes(ownerKind);
-}
-
-// Thin, signature-stable convenience wrapper for the many existing
-// deck-item-only call sites. It has no compatibility logic of its own —
-// it delegates entirely to isThemeCompatibleWithOwnerKind so the capability
-// matrix has exactly one implementation.
-export function isThemeCompatibleWithDeckItem(theme: Theme, deckItemType: DeckItemType): boolean {
-  return isThemeCompatibleWithOwnerKind(theme, deckItemType);
 }
 
 /**

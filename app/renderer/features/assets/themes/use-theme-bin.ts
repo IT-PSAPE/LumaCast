@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Theme } from '@core/types';
-import { isThemeCompatibleWithOwnerKind } from '@core/themes';
+import { isThemeCompatibleWithOwnerKind } from '@core/theme-capabilities';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useNavigation } from '../../../contexts/navigation-context';
 import { filterByText } from '../../../utils/filter-by-text';

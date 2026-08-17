@@ -7,7 +7,7 @@ import type {
   TextHorizontalAlign,
   TextVerticalAlign,
   StrokePosition,
-} from './types';
+} from './domain/slide-elements';
 
 export interface VisualPayloadState {
   visible: boolean;
