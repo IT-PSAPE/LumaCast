@@ -1,6 +1,16 @@
 import type {
+  AppSnapshot,
+  CollectionAssignmentInput,
+  CollectionCreateInput,
+  CollectionDeleteInput,
+  CollectionReorderInput,
+  CollectionRenameInput,
   CueClearLayer,
+  CueCreateInput,
   CuePayload,
+  CueUpdateInput,
+  DeckBundleBrokenReferenceDecision,
+  DeckBundleExportOptions,
   DeckBundleItem,
   DeckBundleManifest,
   DeckBundleMediaReference,
@@ -9,13 +19,36 @@ import type {
   DeckBundleSlide,
   DeckBundleStage,
   DeckBundleTheme,
+  ElementCreateInput,
+  ElementUpdateInput,
   LifecycleAction,
+  MacroCreateInput,
+  MacroUpdateInput,
+  MediaAssetCreateInput,
+  NdiOutputConfig,
+  NdiOutputConfigMap,
+  NdiOutputName,
   OverlayAnimation,
+  OverlayCreateInput,
+  OverlayUpdateInput,
   SlideBackground,
+  SlideBackgroundUpdateInput,
+  SlideCreateInput,
   SlideElement,
   SlideElementPayload,
   SlideElementType,
+  SlideNotesUpdateInput,
+  SlideOrderUpdateInput,
+  StageCreateInput,
+  StageUpdateInput,
+  TalkScriptBlockCreateInput,
+  TalkScriptBlockOrderUpdateInput,
+  TalkScriptBlockUpdateInput,
+  ThemeCreateInput,
+  ThemeUpdateInput,
+  TriggerBindingCreateInput,
 } from '@core/types';
+import type { DeckItemCreateWithThemeInput, InlineWindowMenuBounds } from '@core/ipc';
 
 /**
  * Runtime codecs for values that cross a trust boundary (issue #149, parent
@@ -631,4 +664,594 @@ export function decodeDeckBundleManifest(value: unknown, context: CodecContext):
   }
 
   return value as unknown as DeckBundleManifest;
+}
+
+// ---------------------------------------------------------------------------
+// Renderer-originated RPC inputs (issue #150, parent #114): validated in main
+// (app/main/ipc.ts) before any repository call runs — a second trust
+// boundary alongside the persisted-column and bundle-archive codecs above.
+// Every codec here rejects unknown top-level keys: these are all either
+// security-sensitive (filesystem paths, media sources, capability toggles)
+// or structured payloads that would otherwise reach the repository
+// unchecked, so unlike the persisted/compatibility codecs, extra keys are
+// always treated as corruption, never silently ignored.
+// ---------------------------------------------------------------------------
+
+function rejectUnknownKeys(value: Record<string, unknown>, context: CodecContext, known: readonly string[]): void {
+  const allowed = new Set(known);
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) fail(child(context, key), 'unknown field');
+  }
+}
+
+/**
+ * The single shared guard for RPC operations whose entire input is a short
+ * list of primitive positional arguments (ids, names, flags, enum strings)
+ * rather than a structured object — the ~50 `(id: Id)`-shaped operations the
+ * type system already covers at compile time but not at runtime, once an
+ * untrusted renderer controls the `ipcMain.handle` call. This is the "one
+ * small shared primitive-argument guard" instead of a bespoke codec per
+ * operation; anything with an object/array payload gets its own decoder
+ * below instead of being forced through this generic shape.
+ */
+export type PrimitiveArgSpec =
+  | { name: string; kind: 'string' }
+  | { name: string; kind: 'nullableString' }
+  | { name: string; kind: 'number' }
+  | { name: string; kind: 'boolean' }
+  | { name: string; kind: 'optionalBoolean' }
+  | { name: string; kind: 'stringArray' }
+  | { name: string; kind: 'enum'; values: readonly string[] };
+
+function expectStringArray(value: unknown, context: CodecContext, field: string): string[] {
+  const array = expectArray(value, context, field);
+  const arrayContext = child(context, field);
+  array.forEach((item, index) => expectString(item, arrayContext, String(index)));
+  return array as string[];
+}
+
+export function expectRpcPrimitiveArgs(
+  args: readonly unknown[],
+  specs: readonly PrimitiveArgSpec[],
+  context: CodecContext,
+): void {
+  specs.forEach((spec, index) => {
+    const value = args[index];
+    switch (spec.kind) {
+      case 'string':
+        expectString(value, context, spec.name);
+        break;
+      case 'nullableString':
+        expectNullableString(value, context, spec.name);
+        break;
+      case 'number':
+        expectFiniteNumber(value, context, spec.name);
+        break;
+      case 'boolean':
+        expectBoolean(value, context, spec.name);
+        break;
+      case 'optionalBoolean':
+        if (value !== undefined) expectBoolean(value, context, spec.name);
+        break;
+      case 'stringArray':
+        expectStringArray(value, context, spec.name);
+        break;
+      case 'enum':
+        expectEnum(value, context, spec.name, spec.values);
+        break;
+    }
+  });
+}
+
+/** Shared 'up'/'down' direction argument used by several reorder operations. */
+export const RPC_MOVE_DIRECTIONS = ['up', 'down'] as const;
+
+/** Decodes the `{ x, y }` bounds argument of `popupInlineWindowMenu`. */
+export function decodeInlineWindowMenuBounds(value: unknown, context: CodecContext): InlineWindowMenuBounds {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['x', 'y']);
+  return {
+    x: expectFiniteNumber(value.x, context, 'x'),
+    y: expectFiniteNumber(value.y, context, 'y'),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Automation: cues, macros, trigger bindings. Cue payload decoding reuses
+// decodeCuePayload above rather than re-validating the discriminated union.
+// ---------------------------------------------------------------------------
+
+const RPC_CUE_KINDS = [
+  'overlay.activate',
+  'overlay.clear',
+  'overlay.clearAll',
+  'mediaLayer.set',
+  'video.arm',
+  'video.clear',
+  'audio.arm',
+  'audio.clear',
+  'stage.set',
+  'stage.clear',
+  'layer.clear',
+  'layer.clearAll',
+  'flow.lifecycle',
+] as const;
+const RPC_CUE_FAILURE_POLICIES = ['continue', 'abort'] as const;
+const RPC_SCOPE_LEVELS = ['global', 'deckItem', 'slide'] as const;
+const RPC_ON_SCOPE_EXITS = ['cancel', 'revert', 'none'] as const;
+const RPC_TRIGGER_TYPES = ['slide.take', 'slide.activate', 'app.startup'] as const;
+const RPC_TRIGGER_BINDING_TARGET_TYPES = ['cue', 'macro'] as const;
+
+export function decodeCueCreateInput(value: unknown, context: CodecContext): CueCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['kind', 'payload', 'failurePolicy']);
+  expectEnum(value.kind, context, 'kind', RPC_CUE_KINDS);
+  decodeCuePayload(value.payload, child(context, 'payload'));
+  if (value.failurePolicy !== undefined) expectEnum(value.failurePolicy, context, 'failurePolicy', RPC_CUE_FAILURE_POLICIES);
+  return value as unknown as CueCreateInput;
+}
+
+export function decodeCueUpdateInput(value: unknown, context: CodecContext): CueUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'kind', 'payload', 'failurePolicy']);
+  expectString(value.id, context, 'id');
+  if (value.kind !== undefined) expectEnum(value.kind, context, 'kind', RPC_CUE_KINDS);
+  if (value.payload !== undefined) decodeCuePayload(value.payload, child(context, 'payload'));
+  if (value.failurePolicy !== undefined) expectEnum(value.failurePolicy, context, 'failurePolicy', RPC_CUE_FAILURE_POLICIES);
+  return value as unknown as CueUpdateInput;
+}
+
+const MACRO_CUE_ENTRY_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | 'record'> = {
+  delayBeforeMs: 'number',
+  delayAfterMs: 'number',
+};
+
+function decodeMacroCueEntry(value: unknown, context: CodecContext, allowId: boolean): void {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, allowId ? ['id', 'cueId', 'orderIndex', 'delayBeforeMs', 'delayAfterMs'] : ['cueId', 'orderIndex', 'delayBeforeMs', 'delayAfterMs']);
+  if (allowId && value.id !== undefined) expectString(value.id, context, 'id');
+  expectString(value.cueId, context, 'cueId');
+  expectFiniteNumber(value.orderIndex, context, 'orderIndex');
+  checkOptionalFields(value, context, MACRO_CUE_ENTRY_OPTIONAL_FIELDS);
+}
+
+export function decodeMacroCreateInput(value: unknown, context: CodecContext): MacroCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['name', 'description', 'collectionId', 'scopeLevel', 'onScopeExit', 'loopEnabled', 'loopCount', 'cues']);
+  expectString(value.name, context, 'name');
+  checkOptionalFields(value, context, { description: 'string', collectionId: 'string', loopEnabled: 'boolean' });
+  if (value.scopeLevel !== undefined) expectEnum(value.scopeLevel, context, 'scopeLevel', RPC_SCOPE_LEVELS);
+  if (value.onScopeExit !== undefined) expectEnum(value.onScopeExit, context, 'onScopeExit', RPC_ON_SCOPE_EXITS);
+  if (value.loopCount !== undefined && value.loopCount !== null) expectFiniteNumber(value.loopCount, context, 'loopCount');
+  if (value.cues !== undefined) {
+    const cues = expectArray(value.cues, context, 'cues');
+    cues.forEach((cue, index) => decodeMacroCueEntry(cue, child(context, `cues[${index}]`), false));
+  }
+  return value as unknown as MacroCreateInput;
+}
+
+export function decodeMacroUpdateInput(value: unknown, context: CodecContext): MacroUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'name', 'description', 'scopeLevel', 'onScopeExit', 'loopEnabled', 'loopCount', 'cues']);
+  expectString(value.id, context, 'id');
+  checkOptionalFields(value, context, { name: 'string', description: 'string', loopEnabled: 'boolean' });
+  if (value.scopeLevel !== undefined) expectEnum(value.scopeLevel, context, 'scopeLevel', RPC_SCOPE_LEVELS);
+  if (value.onScopeExit !== undefined) expectEnum(value.onScopeExit, context, 'onScopeExit', RPC_ON_SCOPE_EXITS);
+  if (value.loopCount !== undefined && value.loopCount !== null) expectFiniteNumber(value.loopCount, context, 'loopCount');
+  if (value.cues !== undefined) {
+    const cues = expectArray(value.cues, context, 'cues');
+    cues.forEach((cue, index) => decodeMacroCueEntry(cue, child(context, `cues[${index}]`), true));
+  }
+  return value as unknown as MacroUpdateInput;
+}
+
+/**
+ * `config` is intentionally free-form (`Record<string, unknown>` in the
+ * domain type) — only its own type (an object) is checked, not its keys.
+ */
+export function decodeTriggerBindingCreateInput(value: unknown, context: CodecContext): TriggerBindingCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['triggerType', 'sourceId', 'targetType', 'targetId', 'config', 'enabled']);
+  expectEnum(value.triggerType, context, 'triggerType', RPC_TRIGGER_TYPES);
+  expectNullableString(value.sourceId, context, 'sourceId');
+  expectEnum(value.targetType, context, 'targetType', RPC_TRIGGER_BINDING_TARGET_TYPES);
+  expectString(value.targetId, context, 'targetId');
+  if (value.config !== undefined && !isRecord(value.config)) {
+    fail(child(context, 'config'), `must be an object, got ${describe(value.config)}`);
+  }
+  if (value.enabled !== undefined) expectBoolean(value.enabled, context, 'enabled');
+  return value as unknown as TriggerBindingCreateInput;
+}
+
+// ---------------------------------------------------------------------------
+// Slides and talk script blocks
+// ---------------------------------------------------------------------------
+
+export function decodeSlideCreateInput(value: unknown, context: CodecContext): SlideCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['presentationId', 'lyricId', 'talkId', 'width', 'height']);
+  if (value.presentationId !== undefined) expectNullableString(value.presentationId, context, 'presentationId');
+  if (value.lyricId !== undefined) expectNullableString(value.lyricId, context, 'lyricId');
+  if (value.talkId !== undefined) expectNullableString(value.talkId, context, 'talkId');
+  checkOptionalFields(value, context, { width: 'number', height: 'number' });
+  return value as unknown as SlideCreateInput;
+}
+
+export function decodeSlideNotesUpdateInput(value: unknown, context: CodecContext): SlideNotesUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['slideId', 'notes']);
+  expectString(value.slideId, context, 'slideId');
+  expectString(value.notes, context, 'notes');
+  return value as unknown as SlideNotesUpdateInput;
+}
+
+/** Reuses decodeSlideBackground for the nested `background` shape. */
+export function decodeSlideBackgroundUpdateInput(value: unknown, context: CodecContext): SlideBackgroundUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['slideId', 'background']);
+  expectString(value.slideId, context, 'slideId');
+  if (value.background === undefined) fail(child(context, 'background'), 'must be an object or null');
+  if (value.background !== null) decodeSlideBackground(value.background, child(context, 'background'));
+  return value as unknown as SlideBackgroundUpdateInput;
+}
+
+export function decodeSlideOrderUpdateInput(value: unknown, context: CodecContext): SlideOrderUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['slideId', 'newOrder']);
+  expectString(value.slideId, context, 'slideId');
+  expectFiniteNumber(value.newOrder, context, 'newOrder');
+  return value as unknown as SlideOrderUpdateInput;
+}
+
+export function decodeTalkScriptBlockCreateInput(value: unknown, context: CodecContext): TalkScriptBlockCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['slideId', 'text', 'order']);
+  expectString(value.slideId, context, 'slideId');
+  checkOptionalFields(value, context, { text: 'string', order: 'number' });
+  return value as unknown as TalkScriptBlockCreateInput;
+}
+
+export function decodeTalkScriptBlockUpdateInput(value: unknown, context: CodecContext): TalkScriptBlockUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'text']);
+  expectString(value.id, context, 'id');
+  expectString(value.text, context, 'text');
+  return value as unknown as TalkScriptBlockUpdateInput;
+}
+
+export function decodeTalkScriptBlockOrderUpdateInput(value: unknown, context: CodecContext): TalkScriptBlockOrderUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'newOrder']);
+  expectString(value.id, context, 'id');
+  expectFiniteNumber(value.newOrder, context, 'newOrder');
+  return value as unknown as TalkScriptBlockOrderUpdateInput;
+}
+
+// ---------------------------------------------------------------------------
+// Slide elements (create/update). Creation reuses decodeSlideElementPayload
+// for full per-type payload validation, since the element `type` is known.
+// ---------------------------------------------------------------------------
+
+const ELEMENT_CREATE_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | 'record'> = {
+  id: 'string',
+  rotation: 'number',
+  opacity: 'number',
+  zIndex: 'number',
+};
+
+export function decodeElementCreateInput(value: unknown, context: CodecContext): ElementCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'slideId', 'type', 'x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer', 'payload', 'sourceThemeElementId']);
+  expectString(value.slideId, context, 'slideId');
+  const type = expectEnum(value.type, context, 'type', SLIDE_ELEMENT_TYPES);
+  expectFiniteNumber(value.x, context, 'x');
+  expectFiniteNumber(value.y, context, 'y');
+  expectFiniteNumber(value.width, context, 'width');
+  expectFiniteNumber(value.height, context, 'height');
+  checkOptionalFields(value, context, ELEMENT_CREATE_OPTIONAL_FIELDS);
+  if (value.layer !== undefined) expectEnum(value.layer, context, 'layer', ELEMENT_LAYERS);
+  if (value.sourceThemeElementId !== undefined) expectNullableString(value.sourceThemeElementId, context, 'sourceThemeElementId');
+  decodeSlideElementPayload(value.payload, type, child(context, 'payload'));
+  return value as unknown as ElementCreateInput;
+}
+
+const ELEMENT_UPDATE_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | 'record'> = {
+  x: 'number',
+  y: 'number',
+  width: 'number',
+  height: 'number',
+  rotation: 'number',
+  opacity: 'number',
+  zIndex: 'number',
+};
+
+/**
+ * Validates the common update fields and, if `payload` is present, that it
+ * is at least an object. Full per-type payload validation is NOT possible
+ * here: unlike creation, an update does not carry the element's `type`, and
+ * that discriminant lives only on the existing persisted row — reading it
+ * here would mean querying the repository as part of "validation", which is
+ * exactly the side effect this boundary exists to run before. A malformed
+ * *replacement* payload shape mismatched to its variant is a known, accepted
+ * gap for this focused pass (see issue #150 report); `app/database/store.ts`
+ * still validates the *existing* payload when `payload` is omitted.
+ */
+export function decodeElementUpdateInput(value: unknown, context: CodecContext): ElementUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer', 'payload']);
+  expectString(value.id, context, 'id');
+  checkOptionalFields(value, context, ELEMENT_UPDATE_OPTIONAL_FIELDS);
+  if (value.layer !== undefined) expectEnum(value.layer, context, 'layer', ELEMENT_LAYERS);
+  if (value.payload !== undefined && !isRecord(value.payload)) {
+    fail(child(context, 'payload'), `must be an object, got ${describe(value.payload)}`);
+  }
+  return value as unknown as ElementUpdateInput;
+}
+
+// ---------------------------------------------------------------------------
+// Media assets, overlays, themes, stages: reuse decodeSlideElement,
+// decodeSlideBackground, and decodeOverlayAnimation for nested shapes.
+// ---------------------------------------------------------------------------
+
+const RPC_MEDIA_ASSET_TYPES = ['image', 'video', 'audio'] as const;
+
+export function decodeMediaAssetCreateInput(value: unknown, context: CodecContext): MediaAssetCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['name', 'type', 'src', 'collectionId']);
+  expectString(value.name, context, 'name');
+  expectEnum(value.type, context, 'type', RPC_MEDIA_ASSET_TYPES);
+  expectString(value.src, context, 'src');
+  if (value.collectionId !== undefined) expectString(value.collectionId, context, 'collectionId');
+  return value as unknown as MediaAssetCreateInput;
+}
+
+function decodeSlideElementArray(value: unknown, context: CodecContext, field: string): void {
+  const elements = expectArray(value, context, field);
+  elements.forEach((element, index) => decodeSlideElement(element, child(context, `${field}[${index}]`)));
+}
+
+export function decodeOverlayCreateInput(value: unknown, context: CodecContext): OverlayCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['name', 'elements', 'animation', 'collectionId']);
+  expectString(value.name, context, 'name');
+  if (value.elements !== undefined) decodeSlideElementArray(value.elements, context, 'elements');
+  if (value.animation !== undefined) decodeOverlayAnimation(value.animation, child(context, 'animation'));
+  if (value.collectionId !== undefined) expectString(value.collectionId, context, 'collectionId');
+  return value as unknown as OverlayCreateInput;
+}
+
+export function decodeOverlayUpdateInput(value: unknown, context: CodecContext): OverlayUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'name', 'elements', 'animation']);
+  expectString(value.id, context, 'id');
+  if (value.name !== undefined) expectString(value.name, context, 'name');
+  if (value.elements !== undefined) decodeSlideElementArray(value.elements, context, 'elements');
+  if (value.animation !== undefined) decodeOverlayAnimation(value.animation, child(context, 'animation'));
+  return value as unknown as OverlayUpdateInput;
+}
+
+export function decodeThemeCreateInput(value: unknown, context: CodecContext): ThemeCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['name', 'kind', 'width', 'height', 'background', 'elements', 'collectionId']);
+  expectString(value.name, context, 'name');
+  expectEnum(value.kind, context, 'kind', THEME_KINDS);
+  checkOptionalFields(value, context, { width: 'number', height: 'number', collectionId: 'string' });
+  if (value.background !== undefined && value.background !== null) decodeSlideBackground(value.background, child(context, 'background'));
+  if (value.elements !== undefined) decodeSlideElementArray(value.elements, context, 'elements');
+  return value as unknown as ThemeCreateInput;
+}
+
+export function decodeThemeUpdateInput(value: unknown, context: CodecContext): ThemeUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'name', 'kind', 'width', 'height', 'background', 'elements']);
+  expectString(value.id, context, 'id');
+  checkOptionalFields(value, context, { name: 'string', width: 'number', height: 'number' });
+  if (value.kind !== undefined) expectEnum(value.kind, context, 'kind', THEME_KINDS);
+  if (value.background !== undefined && value.background !== null) decodeSlideBackground(value.background, child(context, 'background'));
+  if (value.elements !== undefined) decodeSlideElementArray(value.elements, context, 'elements');
+  return value as unknown as ThemeUpdateInput;
+}
+
+export function decodeStageCreateInput(value: unknown, context: CodecContext): StageCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['name', 'width', 'height', 'elements', 'collectionId']);
+  expectString(value.name, context, 'name');
+  checkOptionalFields(value, context, { width: 'number', height: 'number', collectionId: 'string' });
+  if (value.elements !== undefined) decodeSlideElementArray(value.elements, context, 'elements');
+  return value as unknown as StageCreateInput;
+}
+
+export function decodeStageUpdateInput(value: unknown, context: CodecContext): StageUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'name', 'width', 'height', 'elements']);
+  expectString(value.id, context, 'id');
+  checkOptionalFields(value, context, { name: 'string', width: 'number', height: 'number' });
+  if (value.elements !== undefined) decodeSlideElementArray(value.elements, context, 'elements');
+  return value as unknown as StageUpdateInput;
+}
+
+const RPC_DECK_ITEM_CREATE_TYPES = ['presentation', 'lyric', 'talk'] as const;
+
+export function decodeDeckItemCreateWithThemeInput(value: unknown, context: CodecContext): DeckItemCreateWithThemeInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['type', 'title', 'collectionId', 'themeId', 'groupId']);
+  expectEnum(value.type, context, 'type', RPC_DECK_ITEM_CREATE_TYPES);
+  expectString(value.title, context, 'title');
+  if (value.collectionId !== undefined) expectNullableString(value.collectionId, context, 'collectionId');
+  if (value.themeId !== undefined) expectNullableString(value.themeId, context, 'themeId');
+  if (value.groupId !== undefined) expectNullableString(value.groupId, context, 'groupId');
+  return value as unknown as DeckItemCreateWithThemeInput;
+}
+
+// ---------------------------------------------------------------------------
+// Collections
+// ---------------------------------------------------------------------------
+
+const RPC_COLLECTION_BIN_KINDS = ['deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage', 'macro'] as const;
+const RPC_COLLECTION_ITEM_TYPES = ['presentation', 'lyric', 'talk', 'media_asset', 'theme', 'overlay', 'stage', 'macro'] as const;
+
+export function decodeCollectionCreateInput(value: unknown, context: CodecContext): CollectionCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['binKind', 'name']);
+  expectEnum(value.binKind, context, 'binKind', RPC_COLLECTION_BIN_KINDS);
+  expectString(value.name, context, 'name');
+  return value as unknown as CollectionCreateInput;
+}
+
+export function decodeCollectionRenameInput(value: unknown, context: CodecContext): CollectionRenameInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['binKind', 'id', 'name']);
+  expectEnum(value.binKind, context, 'binKind', RPC_COLLECTION_BIN_KINDS);
+  expectString(value.id, context, 'id');
+  expectString(value.name, context, 'name');
+  return value as unknown as CollectionRenameInput;
+}
+
+export function decodeCollectionDeleteInput(value: unknown, context: CodecContext): CollectionDeleteInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['binKind', 'id']);
+  expectEnum(value.binKind, context, 'binKind', RPC_COLLECTION_BIN_KINDS);
+  expectString(value.id, context, 'id');
+  return value as unknown as CollectionDeleteInput;
+}
+
+export function decodeCollectionReorderInput(value: unknown, context: CodecContext): CollectionReorderInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['binKind', 'ids']);
+  expectEnum(value.binKind, context, 'binKind', RPC_COLLECTION_BIN_KINDS);
+  expectStringArray(value.ids, context, 'ids');
+  return value as unknown as CollectionReorderInput;
+}
+
+export function decodeCollectionAssignmentInput(value: unknown, context: CodecContext): CollectionAssignmentInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['itemType', 'itemId', 'collectionId']);
+  expectEnum(value.itemType, context, 'itemType', RPC_COLLECTION_ITEM_TYPES);
+  expectString(value.itemId, context, 'itemId');
+  expectString(value.collectionId, context, 'collectionId');
+  return value as unknown as CollectionAssignmentInput;
+}
+
+// ---------------------------------------------------------------------------
+// Deck bundle export/import RPC arguments (the manifest content itself is
+// validated separately by decodeDeckBundleManifest via app/core/deck-bundles
+// once read off disk; these cover the surrounding renderer-supplied args).
+// ---------------------------------------------------------------------------
+
+export function decodeDeckBundleExportOptions(value: unknown, context: CodecContext): DeckBundleExportOptions {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['includeAllThemes', 'includeOverlays', 'includeStages', 'playlistIds']);
+  checkOptionalFields(value, context, { includeAllThemes: 'boolean', includeOverlays: 'boolean', includeStages: 'boolean' });
+  if (value.playlistIds !== undefined) expectStringArray(value.playlistIds, context, 'playlistIds');
+  return value as unknown as DeckBundleExportOptions;
+}
+
+const RPC_BROKEN_REFERENCE_ACTIONS = ['replace', 'remove', 'leave'] as const;
+
+/** `replacementPath` is a filesystem path the renderer chose via a native file dialog. */
+export function decodeDeckBundleBrokenReferenceDecision(value: unknown, context: CodecContext): DeckBundleBrokenReferenceDecision {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['source', 'action', 'replacementPath']);
+  expectString(value.source, context, 'source');
+  expectEnum(value.action, context, 'action', RPC_BROKEN_REFERENCE_ACTIONS);
+  if (value.replacementPath !== undefined) expectString(value.replacementPath, context, 'replacementPath');
+  return value as unknown as DeckBundleBrokenReferenceDecision;
+}
+
+// ---------------------------------------------------------------------------
+// NDI output name, RPC config input, and the persisted config file's map.
+// The RPC codec and the stored-file codec deliberately have different
+// unknown-field policies: `decodeNdiOutputConfigInput` is a capability
+// boundary (renderer-controlled) and rejects unknown fields; the persisted
+// file is written by the app itself across versions (not attacker-
+// controlled) and `decodeStoredNdiOutputConfigMap` ignores unrecognized keys
+// so a newer build's config still loads in an older one — the "compatibility-
+// tolerant stored preferences" case named in issue #150's fixed decisions.
+// ---------------------------------------------------------------------------
+
+const RPC_NDI_OUTPUT_NAMES: readonly NdiOutputName[] = ['audience', 'stage'];
+
+export function decodeNdiOutputName(value: unknown, context: CodecContext, field = 'name'): NdiOutputName {
+  return expectEnum(value, context, field, RPC_NDI_OUTPUT_NAMES);
+}
+
+export function decodeNdiOutputConfigInput(value: unknown, context: CodecContext): Partial<NdiOutputConfig> {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['senderName', 'withAlpha']);
+  checkOptionalFields(value, context, { senderName: 'string', withAlpha: 'boolean' });
+  return value as unknown as Partial<NdiOutputConfig>;
+}
+
+function decodeStoredNdiOutputConfigEntry(value: unknown, context: CodecContext): NdiOutputConfig {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  const senderName = expectString(value.senderName, context, 'senderName');
+  const withAlpha = expectBoolean(value.withAlpha, context, 'withAlpha');
+  // Extra keys beyond senderName/withAlpha are ignored, not rejected — see
+  // the section comment above.
+  return { senderName, withAlpha };
+}
+
+/**
+ * Decodes the persisted NDI output config file's `outputs` map. Both
+ * `audience` and `stage` must be present with a valid `senderName` and
+ * `withAlpha`; any other key, at any level of this shape, is tolerated and
+ * ignored rather than rejected (see the section comment above).
+ */
+export function decodeStoredNdiOutputConfigMap(value: unknown, context: CodecContext): NdiOutputConfigMap {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  return {
+    audience: decodeStoredNdiOutputConfigEntry(value.audience, child(context, 'audience')),
+    stage: decodeStoredNdiOutputConfigEntry(value.stage, child(context, 'stage')),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Full-state snapshot restore (restoreFromSnapshot)
+// ---------------------------------------------------------------------------
+
+const APP_SNAPSHOT_ARRAY_FIELDS = [
+  'libraries',
+  'libraryBundles',
+  'presentations',
+  'lyrics',
+  'talks',
+  'slides',
+  'talkScriptBlocks',
+  'slideElements',
+  'mediaAssets',
+  'overlays',
+  'themes',
+  'stages',
+  'collections',
+  'cues',
+  'macros',
+  'triggerBindings',
+] as const;
+
+/**
+ * Shallow structural check for a full-state snapshot restore: every entity
+ * array named in `AppSnapshot` must be present, and every element in it must
+ * be an object with a string `id`. This catches a garbled, truncated, or
+ * wrong-shaped snapshot before `restoreFromSnapshot` clears and repopulates
+ * every application table — the destructive side effect this boundary exists
+ * to run before.
+ *
+ * It deliberately does NOT validate each of the sixteen entity families'
+ * full field shape the way decodeDeckBundleManifest validates deck bundles:
+ * doing so would mean hand-writing and maintaining a second full decoder for
+ * every domain family in app/core/domain, which is out of scope for this
+ * focused pass (see issue #150's report for the explicit cut line). A field
+ * that is present on a row but has the wrong type is not caught here.
+ */
+export function decodeAppSnapshotShape(value: unknown, context: CodecContext): AppSnapshot {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  for (const field of APP_SNAPSHOT_ARRAY_FIELDS) {
+    const items = expectArray(value[field], context, field);
+    items.forEach((item, index) => {
+      const itemContext = child(context, `${field}[${index}]`);
+      if (!isRecord(item)) fail(itemContext, 'must be an object');
+      expectString(item.id, itemContext, 'id');
+    });
+  }
+  return value as unknown as AppSnapshot;
 }

@@ -7,6 +7,7 @@ import {
   migrateLegacyNdiOutputConfigs,
   normalizeNdiOutputConfigs,
 } from '@core/ndi';
+import { CodecError, decodeStoredNdiOutputConfigMap, type CodecContext } from '../../contracts/codecs';
 
 const CONFIG_FILE = 'ndi-output-config.json';
 const CURRENT_CONFIG_VERSION = 2;
@@ -20,6 +21,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function ndiConfigContext(operation: string, fieldPath = 'outputs'): CodecContext {
+  return { boundary: 'ndi-config', operation, path: fieldPath };
+}
+
 export class NdiConfigStore {
   private filePath: string;
 
@@ -27,17 +32,47 @@ export class NdiConfigStore {
     this.filePath = path.join(app.getPath('userData'), CONFIG_FILE);
   }
 
+  /**
+   * Loads and decodes the persisted config file (issue #150: a hand-edited
+   * or corrupted file is a real decode boundary, not just a JSON.parse
+   * check). A current-version file's `outputs` map is decoded per known field
+   * (`senderName`/`withAlpha`) via `decodeStoredNdiOutputConfigMap`;
+   * unrecognized keys are tolerated there, but a missing or wrong-typed known
+   * field is not.
+   *
+   * A failed decode does NOT discard the file: this is compatibility-tolerant
+   * stored preferences, not a security boundary, so it falls back to
+   * `normalizeNdiOutputConfigs`, which heals field by field. Discarding the
+   * whole map instead would reset BOTH outputs' sender names because one field
+   * of one output was wrong, and an operator's NDI sender names are
+   * configuration they chose for a live broadcast setup. The `CodecError` is
+   * logged first, with its exact field path, so a bad file is diagnosable
+   * rather than silently healed.
+   *
+   * Only an unreadable or unparseable file falls all the way back to defaults,
+   * since then there is nothing left to heal.
+   */
   load(): NdiOutputConfigMap {
+    let parsed: unknown;
     try {
-      const raw = fs.readFileSync(this.filePath, 'utf-8');
-      const parsed = JSON.parse(raw) as unknown;
-      if (isRecord(parsed) && parsed.version === CURRENT_CONFIG_VERSION && 'outputs' in parsed) {
-        return normalizeNdiOutputConfigs(isRecord(parsed.outputs) ? parsed.outputs as NdiOutputConfigMap : null);
-      }
-      return migrateLegacyNdiOutputConfigs(isRecord(parsed) ? parsed as NdiOutputConfigMap : null);
+      parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')) as unknown;
     } catch {
       return createDefaultNdiOutputConfigs();
     }
+
+    if (isRecord(parsed) && parsed.version === CURRENT_CONFIG_VERSION && 'outputs' in parsed) {
+      const storedOutputs = isRecord(parsed.outputs) ? (parsed.outputs as NdiOutputConfigMap) : null;
+      try {
+        return decodeStoredNdiOutputConfigMap(parsed.outputs, ndiConfigContext('load'));
+      } catch (error) {
+        if (error instanceof CodecError) {
+          console.error('[NdiConfigStore] Invalid config file, healing per field:', error.message);
+        }
+        return normalizeNdiOutputConfigs(storedOutputs);
+      }
+    }
+
+    return migrateLegacyNdiOutputConfigs(isRecord(parsed) ? (parsed as NdiOutputConfigMap) : null);
   }
 
   save(configs: NdiOutputConfigMap): void {

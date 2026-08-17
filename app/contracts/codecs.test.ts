@@ -3,15 +3,38 @@ import {
   CodecError,
   DECK_BUNDLE_FORMAT,
   DECK_BUNDLE_VERSION,
+  decodeAppSnapshotShape,
+  decodeCollectionCreateInput,
+  decodeCollectionReorderInput,
+  decodeCueCreateInput,
   decodeCuePayload,
   decodeCuePayloadJson,
+  decodeCueUpdateInput,
+  decodeDeckBundleBrokenReferenceDecision,
+  decodeDeckBundleExportOptions,
   decodeDeckBundleManifest,
+  decodeDeckItemCreateWithThemeInput,
+  decodeElementCreateInput,
+  decodeElementUpdateInput,
+  decodeInlineWindowMenuBounds,
+  decodeMacroCreateInput,
+  decodeMediaAssetCreateInput,
+  decodeNdiOutputConfigInput,
+  decodeNdiOutputName,
   decodeOverlayAnimation,
+  decodeOverlayCreateInput,
   decodePersisted,
   decodeSlideBackground,
+  decodeSlideBackgroundUpdateInput,
+  decodeSlideCreateInput,
   decodeSlideElement,
   decodeSlideElementPayload,
   decodeSlideElementPayloadJson,
+  decodeStageCreateInput,
+  decodeStoredNdiOutputConfigMap,
+  decodeThemeCreateInput,
+  decodeTriggerBindingCreateInput,
+  expectRpcPrimitiveArgs,
   type CodecContext,
 } from './codecs';
 import type { DeckBundleManifest, SlideElement } from '@core/types';
@@ -394,5 +417,423 @@ describe('decodeDeckBundleManifest', () => {
     const manifest = buildValidManifest();
     (manifest.mediaReferences as Record<string, unknown>[])[0].elementTypes = ['gif'];
     expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'mediaReferences[0].elementTypes[0]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Renderer-originated RPC input codecs (issue #150)
+// ---------------------------------------------------------------------------
+
+describe('expectRpcPrimitiveArgs', () => {
+  it('accepts a valid mix of primitive kinds', () => {
+    expect(() =>
+      expectRpcPrimitiveArgs(
+        ['id-1', null, 5, true, undefined, ['a', 'b'], 'up'],
+        [
+          { name: 'id', kind: 'string' },
+          { name: 'groupId', kind: 'nullableString' },
+          { name: 'count', kind: 'number' },
+          { name: 'flag', kind: 'boolean' },
+          { name: 'manual', kind: 'optionalBoolean' },
+          { name: 'ids', kind: 'stringArray' },
+          { name: 'direction', kind: 'enum', values: ['up', 'down'] },
+        ],
+        CONTEXT,
+      ),
+    ).not.toThrow();
+  });
+
+  it('rejects a wrong-typed primitive with the field name in the path', () => {
+    expectCodecError(
+      () => expectRpcPrimitiveArgs([42], [{ name: 'id', kind: 'string' }], CONTEXT),
+      'id',
+    );
+  });
+
+  it('rejects an out-of-range enum value', () => {
+    expectCodecError(
+      () => expectRpcPrimitiveArgs(['sideways'], [{ name: 'direction', kind: 'enum', values: ['up', 'down'] }], CONTEXT),
+      'direction',
+    );
+  });
+
+  it('rejects a non-string entry inside a stringArray argument', () => {
+    expectCodecError(
+      () => expectRpcPrimitiveArgs([['a', 7]], [{ name: 'ids', kind: 'stringArray' }], CONTEXT),
+      'ids.1',
+    );
+  });
+
+  it('allows an omitted optionalBoolean but rejects a wrong-typed one', () => {
+    expect(() =>
+      expectRpcPrimitiveArgs([undefined], [{ name: 'manual', kind: 'optionalBoolean' }], CONTEXT),
+    ).not.toThrow();
+    expectCodecError(
+      () => expectRpcPrimitiveArgs(['yes'], [{ name: 'manual', kind: 'optionalBoolean' }], CONTEXT),
+      'manual',
+    );
+  });
+});
+
+describe('decodeInlineWindowMenuBounds', () => {
+  it('decodes valid bounds', () => {
+    expect(decodeInlineWindowMenuBounds({ x: 1, y: 2 }, CONTEXT)).toEqual({ x: 1, y: 2 });
+  });
+
+  it('rejects an unknown field', () => {
+    expectCodecError(() => decodeInlineWindowMenuBounds({ x: 1, y: 2, z: 3 }, CONTEXT), 'z');
+  });
+
+  it('rejects a non-finite coordinate', () => {
+    expectCodecError(() => decodeInlineWindowMenuBounds({ x: Number.NaN, y: 2 }, CONTEXT), 'x');
+  });
+});
+
+describe('decodeCueCreateInput / decodeCueUpdateInput', () => {
+  it('decodes a valid create input, reusing decodeCuePayload', () => {
+    const input = decodeCueCreateInput({ kind: 'overlay.activate', payload: { overlayId: 'ov-1' } }, CONTEXT);
+    expect(input).toMatchObject({ kind: 'overlay.activate', payload: { overlayId: 'ov-1' } });
+  });
+
+  it('rejects an unknown top-level field', () => {
+    expectCodecError(
+      () => decodeCueCreateInput({ kind: 'overlay.activate', payload: {}, extra: true }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('rejects an invalid cue kind', () => {
+    expectCodecError(() => decodeCueCreateInput({ kind: 'bogus.kind', payload: {} }, CONTEXT), 'kind');
+  });
+
+  it('propagates a nested cue payload error with its field path', () => {
+    expectCodecError(
+      () => decodeCueCreateInput({ kind: 'overlay.activate', payload: { mystery: 'x' } }, CONTEXT),
+      'payload',
+    );
+  });
+
+  it('decodes an update input with only id required', () => {
+    const input = decodeCueUpdateInput({ id: 'cue-1' }, CONTEXT);
+    expect(input).toEqual({ id: 'cue-1' });
+  });
+
+  it('preserves operation and field path across the boundary', () => {
+    let error: unknown;
+    try {
+      decodeCueCreateInput({ kind: 'bogus' }, { boundary: 'rpc', operation: 'createCue', path: '' });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(CodecError);
+    expect(error).toMatchObject({ boundary: 'rpc', operation: 'createCue', fieldPath: 'kind' });
+    expect((error as Error).message).toBe('[rpc/createCue] kind: must be one of [overlay.activate, overlay.clear, overlay.clearAll, mediaLayer.set, video.arm, video.clear, audio.arm, audio.clear, stage.set, stage.clear, layer.clear, layer.clearAll, flow.lifecycle], got "bogus"');
+  });
+});
+
+describe('decodeMacroCreateInput', () => {
+  it('decodes a valid macro with nested cue entries', () => {
+    const macro = decodeMacroCreateInput(
+      { name: 'My Macro', loopEnabled: true, cues: [{ cueId: 'cue-1', orderIndex: 0, delayBeforeMs: 100 }] },
+      CONTEXT,
+    );
+    expect(macro).toMatchObject({ name: 'My Macro', loopEnabled: true });
+  });
+
+  it('rejects an unknown field on a nested cue entry', () => {
+    expectCodecError(
+      () => decodeMacroCreateInput({ name: 'M', cues: [{ cueId: 'cue-1', orderIndex: 0, bogus: 1 }] }, CONTEXT),
+      'cues[0]',
+    );
+  });
+
+  it('rejects an id on a create-input cue entry (create never carries one)', () => {
+    expectCodecError(
+      () => decodeMacroCreateInput({ name: 'M', cues: [{ id: 'x', cueId: 'cue-1', orderIndex: 0 }] }, CONTEXT),
+      'cues[0]',
+    );
+  });
+
+  it('allows loopCount to be explicitly null', () => {
+    expect(() => decodeMacroCreateInput({ name: 'M', loopCount: null }, CONTEXT)).not.toThrow();
+  });
+});
+
+describe('decodeTriggerBindingCreateInput', () => {
+  it('decodes a valid input with a nullable sourceId and free-form config', () => {
+    const input = decodeTriggerBindingCreateInput(
+      { triggerType: 'slide.take', sourceId: null, targetType: 'cue', targetId: 'cue-1', config: { anything: 'goes' } },
+      CONTEXT,
+    );
+    expect(input).toMatchObject({ triggerType: 'slide.take', targetType: 'cue' });
+  });
+
+  it('rejects a non-object config', () => {
+    expectCodecError(
+      () => decodeTriggerBindingCreateInput(
+        { triggerType: 'slide.take', sourceId: null, targetType: 'cue', targetId: 'cue-1', config: 'nope' },
+        CONTEXT,
+      ),
+      'config',
+    );
+  });
+});
+
+describe('decodeElementCreateInput / decodeElementUpdateInput', () => {
+  function baseElementCreate(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      slideId: 'slide-1',
+      type: 'text',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      payload: { text: 'Hi', fontFamily: 'Arial', fontSize: 12, color: '#fff', alignment: 'left' },
+      ...overrides,
+    };
+  }
+
+  it('decodes a valid create input, reusing full per-type payload validation', () => {
+    const input = decodeElementCreateInput(baseElementCreate(), CONTEXT);
+    expect(input).toMatchObject({ slideId: 'slide-1', type: 'text' });
+  });
+
+  it('rejects a malformed payload with the nested field path (regression: create must not bypass payload validation)', () => {
+    expectCodecError(
+      () => decodeElementCreateInput(baseElementCreate({ payload: { text: 'Hi' } }), CONTEXT),
+      'payload.fontFamily',
+    );
+  });
+
+  it('rejects an unknown top-level field', () => {
+    expectCodecError(() => decodeElementCreateInput(baseElementCreate({ bogus: 1 }), CONTEXT), 'unknown field');
+  });
+
+  it('decodes a valid update input with only id required', () => {
+    expect(decodeElementUpdateInput({ id: 'e-1' }, CONTEXT)).toEqual({ id: 'e-1' });
+  });
+
+  it('rejects a non-object replacement payload on update (regression: previously reached the repository unchecked)', () => {
+    expectCodecError(() => decodeElementUpdateInput({ id: 'e-1', payload: 'not-an-object' }, CONTEXT), 'payload');
+  });
+
+  it('accepts any object-shaped replacement payload on update (documented shallow-check gap: type-specific fields are not cross-checked)', () => {
+    expect(() => decodeElementUpdateInput({ id: 'e-1', payload: { anything: 'goes' } }, CONTEXT)).not.toThrow();
+  });
+});
+
+describe('decodeOverlayCreateInput / decodeThemeCreateInput / decodeStageCreateInput', () => {
+  it('decodes overlay elements and animation, reusing decodeSlideElement/decodeOverlayAnimation', () => {
+    const overlay = decodeOverlayCreateInput(
+      { name: 'Lower Third', elements: [], animation: { kind: 'fade', durationMs: 200 } },
+      CONTEXT,
+    );
+    expect(overlay).toMatchObject({ name: 'Lower Third' });
+  });
+
+  it('rejects an invalid nested element on an overlay', () => {
+    expectCodecError(
+      () => decodeOverlayCreateInput({ name: 'X', elements: [{ id: 'e', slideId: 's', type: 'bogus' }] }, CONTEXT),
+      'elements[0].type',
+    );
+  });
+
+  it('decodes theme background via decodeSlideBackground', () => {
+    const theme = decodeThemeCreateInput(
+      { name: 'Theme', kind: 'slides', background: { type: 'color', color: '#000' } },
+      CONTEXT,
+    );
+    expect(theme).toMatchObject({ kind: 'slides' });
+  });
+
+  it('rejects an invalid theme kind', () => {
+    expectCodecError(() => decodeThemeCreateInput({ name: 'Theme', kind: 'bogus' }, CONTEXT), 'kind');
+  });
+
+  it('decodes a minimal stage create input', () => {
+    expect(decodeStageCreateInput({ name: 'Stage A' }, CONTEXT)).toEqual({ name: 'Stage A' });
+  });
+});
+
+describe('decodeSlideCreateInput / decodeSlideBackgroundUpdateInput', () => {
+  it('decodes a minimal slide create input', () => {
+    expect(decodeSlideCreateInput({ presentationId: 'pres-1' }, CONTEXT)).toEqual({ presentationId: 'pres-1' });
+  });
+
+  it('rejects a wrong-typed nullable owner field', () => {
+    expectCodecError(() => decodeSlideCreateInput({ presentationId: 42 }, CONTEXT), 'presentationId');
+  });
+
+  it('decodes a background update, reusing decodeSlideBackground', () => {
+    const input = decodeSlideBackgroundUpdateInput({ slideId: 's-1', background: { type: 'color', color: '#000' } }, CONTEXT);
+    expect(input).toMatchObject({ slideId: 's-1' });
+  });
+
+  it('allows an explicit null background but rejects an omitted one', () => {
+    expect(decodeSlideBackgroundUpdateInput({ slideId: 's-1', background: null }, CONTEXT)).toEqual({
+      slideId: 's-1',
+      background: null,
+    });
+    expectCodecError(() => decodeSlideBackgroundUpdateInput({ slideId: 's-1' }, CONTEXT), 'background');
+  });
+});
+
+describe('decodeMediaAssetCreateInput / decodeDeckItemCreateWithThemeInput', () => {
+  it('decodes a valid media asset input', () => {
+    const asset = decodeMediaAssetCreateInput({ name: 'Logo', type: 'image', src: 'asset://logo.png' }, CONTEXT);
+    expect(asset).toMatchObject({ type: 'image' });
+  });
+
+  it('rejects an invalid media asset type', () => {
+    expectCodecError(() => decodeMediaAssetCreateInput({ name: 'Logo', type: 'pdf', src: 'x' }, CONTEXT), 'type');
+  });
+
+  it('rejects an unknown field (capability boundary)', () => {
+    expectCodecError(
+      () => decodeMediaAssetCreateInput({ name: 'Logo', type: 'image', src: 'x', path: '/etc/passwd' }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('decodes a valid deck-item-with-theme input', () => {
+    const input = decodeDeckItemCreateWithThemeInput({ type: 'presentation', title: 'New', themeId: null }, CONTEXT);
+    expect(input).toMatchObject({ type: 'presentation', title: 'New' });
+  });
+});
+
+describe('decodeCollectionCreateInput / decodeCollectionReorderInput', () => {
+  it('decodes a valid collection create input', () => {
+    expect(decodeCollectionCreateInput({ binKind: 'image', name: 'Backgrounds' }, CONTEXT)).toEqual({
+      binKind: 'image',
+      name: 'Backgrounds',
+    });
+  });
+
+  it('rejects an invalid bin kind', () => {
+    expectCodecError(() => decodeCollectionCreateInput({ binKind: 'bogus', name: 'X' }, CONTEXT), 'binKind');
+  });
+
+  it('decodes and validates a reorder input as a string array', () => {
+    expect(decodeCollectionReorderInput({ binKind: 'deck', ids: ['a', 'b'] }, CONTEXT)).toEqual({
+      binKind: 'deck',
+      ids: ['a', 'b'],
+    });
+  });
+
+  it('rejects a non-string entry in the reorder ids array', () => {
+    expectCodecError(() => decodeCollectionReorderInput({ binKind: 'deck', ids: ['a', 7] }, CONTEXT), 'ids.1');
+  });
+});
+
+describe('decodeDeckBundleExportOptions / decodeDeckBundleBrokenReferenceDecision', () => {
+  it('decodes valid export options', () => {
+    expect(decodeDeckBundleExportOptions({ includeAllThemes: true, playlistIds: ['p-1'] }, CONTEXT)).toEqual({
+      includeAllThemes: true,
+      playlistIds: ['p-1'],
+    });
+  });
+
+  it('rejects an unknown export option (filesystem export boundary)', () => {
+    expectCodecError(() => decodeDeckBundleExportOptions({ includeAllThemes: true, bogus: 1 }, CONTEXT), 'unknown field');
+  });
+
+  it('decodes a valid broken-reference decision', () => {
+    expect(
+      decodeDeckBundleBrokenReferenceDecision({ source: 'asset://x', action: 'replace', replacementPath: '/tmp/y.png' }, CONTEXT),
+    ).toMatchObject({ action: 'replace' });
+  });
+
+  it('rejects an invalid decision action', () => {
+    expectCodecError(
+      () => decodeDeckBundleBrokenReferenceDecision({ source: 'asset://x', action: 'ignore' }, CONTEXT),
+      'action',
+    );
+  });
+});
+
+describe('NDI RPC input vs. persisted config file: unknown-field policy contrast', () => {
+  it('decodeNdiOutputName accepts only the known output names', () => {
+    expect(decodeNdiOutputName('audience', CONTEXT)).toBe('audience');
+    expectCodecError(() => decodeNdiOutputName('program', CONTEXT), 'name');
+  });
+
+  it('decodeNdiOutputConfigInput (RPC, capability boundary) rejects an unknown field', () => {
+    expect(decodeNdiOutputConfigInput({ senderName: 'Cast' }, CONTEXT)).toEqual({ senderName: 'Cast' });
+    expectCodecError(
+      () => decodeNdiOutputConfigInput({ senderName: 'Cast', groupName: 'Studio' }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('decodeStoredNdiOutputConfigMap (persisted file) tolerates and ignores the same unknown field', () => {
+    const decoded = decodeStoredNdiOutputConfigMap(
+      {
+        audience: { senderName: 'Cast Audience', withAlpha: false, groupName: 'Studio' },
+        stage: { senderName: 'Cast Stage', withAlpha: true },
+      },
+      CONTEXT,
+    );
+    expect(decoded).toEqual({
+      audience: { senderName: 'Cast Audience', withAlpha: false },
+      stage: { senderName: 'Cast Stage', withAlpha: true },
+    });
+  });
+
+  it('decodeStoredNdiOutputConfigMap still rejects a wrong-typed known field', () => {
+    expectCodecError(
+      () =>
+        decodeStoredNdiOutputConfigMap(
+          { audience: { senderName: 42, withAlpha: false }, stage: { senderName: 'Cast Stage', withAlpha: true } },
+          CONTEXT,
+        ),
+      'audience.senderName',
+    );
+  });
+
+  it('decodeStoredNdiOutputConfigMap rejects a missing required output', () => {
+    expectCodecError(
+      () => decodeStoredNdiOutputConfigMap({ audience: { senderName: 'Cast', withAlpha: false } }, CONTEXT),
+      'stage',
+    );
+  });
+});
+
+describe('decodeAppSnapshotShape', () => {
+  const EMPTY_SNAPSHOT_FIELDS = [
+    'libraries', 'libraryBundles', 'presentations', 'lyrics', 'talks', 'slides',
+    'talkScriptBlocks', 'slideElements', 'mediaAssets', 'overlays', 'themes',
+    'stages', 'collections', 'cues', 'macros', 'triggerBindings',
+  ];
+
+  function emptySnapshot(): Record<string, unknown> {
+    return Object.fromEntries(EMPTY_SNAPSHOT_FIELDS.map((field) => [field, []]));
+  }
+
+  it('decodes a minimal snapshot with every array present but empty', () => {
+    expect(() => decodeAppSnapshotShape(emptySnapshot(), CONTEXT)).not.toThrow();
+  });
+
+  it('decodes a snapshot with well-formed entity rows', () => {
+    const snapshot = emptySnapshot();
+    snapshot.libraries = [{ id: 'lib-1', name: 'Main' }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a missing entity array before touching the repository', () => {
+    const snapshot = emptySnapshot();
+    delete snapshot.macros;
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'macros');
+  });
+
+  it('rejects a non-object row inside an entity array', () => {
+    const snapshot = emptySnapshot();
+    snapshot.cues = ['not-an-object'];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'cues[0]');
+  });
+
+  it('rejects a row missing a string id', () => {
+    const snapshot = emptySnapshot();
+    snapshot.themes = [{ name: 'Theme without id' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'themes[0].id');
   });
 });
