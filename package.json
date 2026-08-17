@@ -32,6 +32,7 @@
     "test": "vitest run",
     "pretest:watch": "npm run ensure:native-deps",
     "test:watch": "vitest --watch",
+    "fixtures:generate": "vitest run benchmarks/fixtures",
     "check:architecture": "node tool/check_electron_architecture.mjs",
     "test:architecture": "node tool/check_electron_architecture.mjs --test",
     "pretest:e2e": "npm run build && npm run e2e:install",
