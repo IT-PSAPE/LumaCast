@@ -60,6 +60,9 @@ committed file. `npm run check:architecture` checks the tree;
   allow-listed as an exception.
 - The database layer (`app/database`) imports no renderer, feature, or React
   code.
+- `app/application` is the composition root (issue #223): it may import any
+  zone and any workspace package, but nothing may import it except the
+  renderer shell and screens.
 - Main (`app/main`) is the process composition root and imports no renderer or
   feature code.
 - The renderer imports no Electron, main-process modules, or database code; it
@@ -89,6 +92,41 @@ in the script. Unused entries fail the check, so the allow-list can only
 shrink. `feature-isolation` and `feature-cycle` are warning-level (exit 0) until
 the feature web is refactored; they are reported as refactor debt and must not
 be allow-listed, and become hard errors once the refactor lands.
+
+## Workspaces and Package Layering (issue #223, parent #219)
+
+`package.json` declares an npm `workspaces` field covering `packages/*`; the
+application stays the root package and is not itself a workspace member.
+`package-lock.json` is the single authoritative lockfile — never hand-edit it
+and never introduce another package manager or lockfile. `packages/ndi-native`
+is the only package that exists today; its native build scripts
+(`build:ndi-native`, `clean:ndi-native`, `rebuild:ndi-native`) are unaffected.
+
+`tool/check_electron_architecture.mjs` also walks `packages/*` and enforces,
+as hard errors that are never allow-listable:
+
+- No package may import anything under `app/`.
+- A package must not import React, React DOM, Konva, React-Konva, or
+  Electron.
+- A persistence package (name starting with `persistence`) must not import
+  renderer code.
+- Package imports must go through the package's public entry point
+  (`src/index.ts` or `index.ts`); deep internal imports fail.
+- Package-to-package dependencies must follow the direction recorded in issue
+  #219 (a default-deny table in the checker, `PACKAGE_DEPENDENCY_DIRECTIONS`):
+  kernel depends on nothing and everything may depend on it; composition may
+  depend on kernel; project and canvas may depend on kernel and composition;
+  commands' core depends only on kernel; automation may depend on kernel,
+  commands, and project; playback may depend on kernel, project, composition,
+  and commands; protocol and persistence-sqlite depend only on kernel. An
+  unlisted package name starts with zero permitted dependencies.
+- Cycles between packages are forbidden and must be removed, never
+  allow-listed.
+
+No code has moved into `packages/*` yet — these rules exist ahead of the first
+package landing and are each proven by a committed fixture under
+`tool/fixtures/electron-architecture/scenarios/packages/` and
+`scenarios/application/`, not by live code.
 
 ## Docs
 

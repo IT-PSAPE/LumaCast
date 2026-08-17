@@ -32,6 +32,33 @@ const ALIASES = {
 
 const NDI_HOST_COMMAND_EXPORTS = new Set(['NdiHostCommand', 'NdiHostEvent']);
 
+// ---------------------------------------------------------------------------
+// Package graph (issue #223, parent #219). npm workspace packages live under
+// packages/*. No packages exist yet beyond packages/ndi-native (a native
+// addon, exempt from this table — it never imports anything these rules
+// govern). The table below is the dependency direction #219 recorded for the
+// packages planned in the sweep; it is deliberately a default-deny allow
+// list so a new package name with no entry starts with zero permitted
+// dependencies rather than silently inheriting access.
+// ---------------------------------------------------------------------------
+const PACKAGE_DEPENDENCY_DIRECTIONS = {
+  // Everything may depend on kernel; it depends on nothing.
+  kernel: [],
+  composition: ['kernel'],
+  project: ['kernel', 'composition'],
+  canvas: ['kernel', 'composition'],
+  // Commands stays platform-independent at its core.
+  commands: ['kernel'],
+  automation: ['kernel', 'commands', 'project'],
+  playback: ['kernel', 'project', 'composition', 'commands'],
+  // Protocol owns no domain behaviour.
+  protocol: ['kernel'],
+  // Persistence never depends on renderer packages (enforced separately by
+  // the persistence-purity rule below, which is not expressible as a
+  // package-name allow list).
+  'persistence-sqlite': ['kernel'],
+};
+
 // Rules reported as warning-level "refactor debt" (exit 0) until the feature
 // web is refactored, then flipped to hard errors. These are never allow-listed.
 const WARNING_RULES = new Set(['feature-isolation', 'feature-cycle']);
@@ -63,6 +90,20 @@ const RULE_TITLES = {
     'Feature imports must go through the feature public entry point when one exists; deep internal imports fail.',
   'allow-list':
     'The frozen architecture allow-list must not grow and every entry must be used.',
+  'application-boundary':
+    'app/application is the composition root: it may import any zone or package, but only the shell and screens may import app/application.',
+  'package-app-boundary':
+    'No package under packages/* may import application code under app/; packages may not depend on the application.',
+  'package-purity':
+    'A package must not import React, React DOM, Konva, React-Konva, or Electron; packages are headless domain/platform code.',
+  'persistence-purity':
+    'A persistence package must not import renderer code; persistence is process/storage logic and must not depend on the renderer.',
+  'package-public-entry':
+    'Package imports must go through the package public entry point (src/index.ts or index.ts); deep internal imports fail.',
+  'package-dependency-direction':
+    'Packages may only depend on other packages in the direction recorded in issue #219; this edge is not on that list.',
+  'package-cycle':
+    'Cycles between packages are forbidden and must be removed, never allow-listed.',
 };
 
 // ---------------------------------------------------------------------------
@@ -140,11 +181,13 @@ function isRendererZone(zone) {
 
 function zoneOf(rel) {
   const p = rel.split('/');
+  if (p[0] === 'packages' && p.length >= 2) return 'pkg:' + p[1];
   if (p[0] !== 'app' || p.length < 2) return null;
   const sec = p[1];
   if (sec === 'core') return 'core';
   if (sec === 'contracts') return 'contracts';
   if (sec === 'database') return 'data';
+  if (sec === 'application') return 'application';
   if (sec === 'main') return p[2] === 'ndi' ? 'mainNdi' : 'main';
   if (sec === 'renderer') {
     const third = p[2];
@@ -377,7 +420,7 @@ function parseImports(source) {
 function classifyExternal(spec) {
   if (spec.startsWith('node:')) return 'node';
   if (spec === 'electron') return 'electron';
-  if (spec === 'react' || spec === 'react-dom') return 'react';
+  if (spec === 'react' || spec === 'react-dom' || spec === 'konva' || spec === 'react-konva') return 'react';
   if (spec === '@lumacast/ndi-native') return 'native';
   return 'other';
 }
@@ -393,6 +436,31 @@ function findExisting(base) {
     if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return cand;
   }
   return null;
+}
+
+// Resolves a bare `@lumacast/<name>` specifier to a file inside
+// packages/<name>, mirroring the fixed ALIASES map above but keyed off
+// whatever package directories actually exist under packages/ (real or
+// fixture). `@lumacast/ndi-native` is excluded: it is the native module,
+// already governed by the engine-session rule via classifyExternal, and is
+// never resolved to a file.
+function resolvePackageAlias(specifier, root) {
+  if (!specifier.startsWith('@lumacast/')) return null;
+  const rest = specifier.slice('@lumacast/'.length);
+  const slashIdx = rest.indexOf('/');
+  const pkgName = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+  if (pkgName === 'ndi-native') return null;
+  const subpath = slashIdx === -1 ? '' : rest.slice(slashIdx + 1);
+  const pkgDir = path.join(root, 'packages', pkgName);
+  if (!fs.existsSync(pkgDir)) return null;
+  if (subpath === '') {
+    const hit = findExisting(path.join(pkgDir, 'src', 'index')) ?? findExisting(path.join(pkgDir, 'index'));
+    if (hit) return { type: /\.(ts|tsx|mjs)$/.test(hit) ? 'file' : 'asset', path: hit };
+    return { type: 'unresolved', specifier };
+  }
+  const hit = findExisting(path.join(pkgDir, subpath));
+  if (hit) return { type: /\.(ts|tsx|mjs)$/.test(hit) ? 'file' : 'asset', path: hit };
+  return { type: 'unresolved', specifier };
 }
 
 function resolveSpecifier(specifier, fromAbs, root) {
@@ -411,6 +479,8 @@ function resolveSpecifier(specifier, fromAbs, root) {
     if (hit) return { type: /\.(ts|tsx|mjs)$/.test(hit) ? 'file' : 'asset', path: hit };
     return { type: 'unresolved', specifier };
   }
+  const pkgResolved = resolvePackageAlias(specifier, root);
+  if (pkgResolved) return pkgResolved;
   return { type: 'external', externalKind: classifyExternal(specifier) };
 }
 
@@ -446,17 +516,23 @@ export function check(options = {}) {
   const rootDir = options.rootDir ?? REPO_ROOT;
   const allowList = options.allowList ?? DEFAULT_ALLOW_LIST;
   const appDir = path.join(rootDir, 'app');
+  const packagesDir = path.join(rootDir, 'packages');
   const errors = [];
   const stats = { files: 0, edges: 0, exceptionsUsed: 0 };
 
-  const files = walkFiles(appDir, rootDir)
-    .filter((rel) => rel.startsWith('app/') && !rel.startsWith('app/e2e/'))
+  const files = [...walkFiles(appDir, rootDir), ...walkFiles(packagesDir, rootDir)]
+    .filter((rel) => (rel.startsWith('app/') && !rel.startsWith('app/e2e/')) || rel.startsWith('packages/'))
     .filter((rel) => !isTestFile(rel));
 
   const publicIndexes = new Set();
+  const publicPackageIndexes = new Set();
   for (const rel of files) {
     if (/^app\/renderer\/features\/[^/]+\/index\.tsx?$/.test(rel)) {
       publicIndexes.add(rel.replace(/\/index\.tsx?$/, ''));
+    }
+    const pkgIndexMatch = rel.match(/^(packages\/[^/]+)\/(?:src\/)?index\.tsx?$/);
+    if (pkgIndexMatch) {
+      publicPackageIndexes.add(pkgIndexMatch[1]);
     }
   }
 
@@ -491,6 +567,17 @@ export function check(options = {}) {
   const uniqueFeaturePairs = [...new Set(featurePairs)];
   const hasPair = new Set(uniqueFeaturePairs);
 
+  const packagePairs = [];
+  for (const e of resolvedEdges) {
+    const fromZone = zoneOf(e.from);
+    const toZone = e.res.type === 'file' ? zoneOf(normRel(rootDir, e.res.path)) : null;
+    if (fromZone?.startsWith('pkg:') && toZone?.startsWith('pkg:') && fromZone !== toZone) {
+      packagePairs.push(`${fromZone.slice(4)}->${toZone.slice(4)}`);
+    }
+  }
+  const uniquePackagePairs = [...new Set(packagePairs)];
+  const hasPkgPair = new Set(uniquePackagePairs);
+
   const violations = [];
   for (const e of resolvedEdges) {
     const fromRel = e.from;
@@ -520,6 +607,9 @@ export function check(options = {}) {
       }
       if (k === 'native' && fromZone !== 'mainNdi') {
         add('engine-session', `imports native module ${e.specifier} outside app/main/ndi`);
+      }
+      if (fromZone?.startsWith('pkg:') && (k === 'react' || k === 'electron')) {
+        add('package-purity', `imports ${e.specifier}`);
       }
       continue;
     }
@@ -583,6 +673,51 @@ export function check(options = {}) {
         add('public-entry', `deep import into feature ${toRel} bypasses its public entry point ${featurePrefix}/index.ts`);
       }
     }
+
+    // app/application is the composition root (issue #223): it may import
+    // any zone or package freely (no purity check on its own imports below),
+    // but nothing may import it except the shell and screens.
+    if (toZone === 'application' && fromZone !== 'shell' && fromZone !== 'screens') {
+      add('application-boundary', `imports the composition root ${toRel}`);
+    }
+
+    // No package may depend on the application (issue #223 / #219).
+    if (fromZone?.startsWith('pkg:') && toZone && !toZone.startsWith('pkg:')) {
+      add('package-app-boundary', `imports application code ${toRel}`);
+    }
+
+    // A persistence package must never depend on the renderer.
+    if (fromZone?.startsWith('pkg:') && fromZone.slice(4).startsWith('persistence') && isRendererZone(toZone)) {
+      add('persistence-purity', `imports renderer code ${toRel}`);
+    }
+
+    // Package-to-package dependency direction (issue #219). Default-deny: an
+    // unlisted package name has zero permitted package dependencies.
+    if (fromZone?.startsWith('pkg:') && toZone?.startsWith('pkg:') && fromZone !== toZone) {
+      const fromPkg = fromZone.slice(4);
+      const toPkg = toZone.slice(4);
+      const allowed = PACKAGE_DEPENDENCY_DIRECTIONS[fromPkg] ?? [];
+      if (!allowed.includes(toPkg)) {
+        add('package-dependency-direction', `imports package ${toPkg}, which is not on ${fromPkg}'s allowed dependency list (see issue #219)`);
+      }
+    }
+
+    // Package imports must go through the package's public entry point.
+    if (toZone?.startsWith('pkg:')) {
+      const toPkg = toZone.slice(4);
+      const pkgPrefix = 'packages/' + toPkg;
+      const hasPkgIndex = publicPackageIndexes.has(pkgPrefix);
+      if (
+        hasPkgIndex &&
+        toRel !== pkgPrefix + '/index.ts' &&
+        toRel !== pkgPrefix + '/index.tsx' &&
+        toRel !== pkgPrefix + '/src/index.ts' &&
+        toRel !== pkgPrefix + '/src/index.tsx' &&
+        !fromRel.startsWith(pkgPrefix + '/')
+      ) {
+        add('package-public-entry', `deep import into package ${toRel} bypasses its public entry point`);
+      }
+    }
   }
 
   for (const key of uniqueFeaturePairs) {
@@ -594,6 +729,19 @@ export function check(options = {}) {
         line: 0,
         to: 'app/renderer/features/' + b,
         detail: `bidirectional feature dependency between features ${a} and ${b}`,
+      });
+    }
+  }
+
+  for (const key of uniquePackagePairs) {
+    const [a, b] = key.split('->');
+    if (hasPkgPair.has(`${b}->${a}`)) {
+      violations.push({
+        rule: 'package-cycle',
+        from: 'packages/' + a,
+        line: 0,
+        to: 'packages/' + b,
+        detail: `bidirectional package dependency between ${a} and ${b}`,
       });
     }
   }
@@ -718,6 +866,34 @@ function runSelfTests() {
         },
       ],
     }),
+    // app/application zone (issue #223): composition root may import any
+    // zone or package; only the shell and screens may import it back.
+    scenario('application/allowed', 'scenarios/application/allowed', 'pass'),
+    scenario('application/forbidden', 'scenarios/application/forbidden', 'fail', {
+      rules: ['application-boundary'],
+    }),
+    // npm workspace package rules (issue #223, parent #219).
+    scenario('packages/app-boundary', 'scenarios/packages/app-boundary', 'fail', {
+      rules: ['package-app-boundary'],
+    }),
+    scenario('packages/headless-purity', 'scenarios/packages/headless-purity', 'fail', {
+      rules: ['package-purity'],
+    }),
+    scenario('packages/persistence-renderer', 'scenarios/packages/persistence-renderer', 'fail', {
+      rules: ['persistence-purity'],
+    }),
+    scenario('packages/public-entry', 'scenarios/packages/public-entry', 'fail', {
+      rules: ['package-public-entry'],
+    }),
+    scenario('packages/direction', 'scenarios/packages/direction', 'fail', {
+      rules: ['package-dependency-direction'],
+    }),
+    scenario('packages/cycle', 'scenarios/packages/cycle', 'fail', {
+      rules: ['package-cycle'],
+    }),
+    // Proves the direction table permits the documented edges (kernel <-
+    // composition <- application) rather than rejecting everything.
+    scenario('packages/allowed', 'scenarios/packages/allowed', 'pass'),
   ];
 
   let failed = 0;

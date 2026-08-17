@@ -16,6 +16,9 @@ shrink.
   import `app/core`. Every other zone may import `app/contracts` — that is its
   purpose — and no allow-list entry may substitute for this rule.
 - `app/database` persists and imports no renderer, feature, or React code.
+- `app/application` is the composition root (issue #223): it may import any
+  zone and any workspace package, but nothing may import it except the
+  renderer shell and screens.
 - `app/main` is the process composition root and imports no renderer or feature
   code.
 - The renderer reaches main only through the typed `castApi` IPC contract in
@@ -45,6 +48,50 @@ refactor debt (exit 0): the feature web is mid-refactor, so these violations are
 reported and must not be allow-listed. They flip to hard errors once the feature
 web is refactored. All other rules are hard errors; every hard-error violation
 must be covered by the frozen allow-list.
+
+## Workspace Layout and Package Boundaries (issue #223, parent #219)
+
+`package.json` declares an npm `workspaces` field (`packages/*`); `npm ci`
+resolves the whole tree, including `packages/ndi-native`, from the single
+authoritative `package-lock.json`. The application itself is not a workspace
+member — it stays the root package, unmoved. `packages/ndi-native`'s native
+build scripts (`build:ndi-native`, `clean:ndi-native`, `rebuild:ndi-native`)
+are unaffected by workspace support.
+
+No code has moved into `packages/*` yet: only `packages/ndi-native` (the
+native NDI addon) exists today. `tool/check_electron_architecture.mjs` was
+extended to also walk `packages/*` and govern package boundaries ahead of the
+first package landing, so a bad edge is caught the day it appears rather than
+after the fact. These rules are hard errors and are not allow-listable — the
+frozen allow-list only governs `app/` exceptions and must not grow to cover
+packages:
+
+- No package may import anything under `app/` — packages may not depend on the
+  application.
+- A package must not import React, React DOM, Konva, React-Konva, or Electron
+  — packages are headless domain/platform code.
+- A persistence package (name starting with `persistence`) must not import
+  renderer code.
+- Package imports must go through the package's public entry point
+  (`packages/<name>/src/index.ts` or `packages/<name>/index.ts`); deep
+  internal imports fail.
+- Package-to-package dependency direction is a default-deny allow list keyed
+  by package name (`PACKAGE_DEPENDENCY_DIRECTIONS` in the checker), recording
+  the directions decided in issue #219: kernel depends on nothing and
+  everything may depend on it; composition may depend on kernel; project and
+  canvas may depend on kernel and composition; commands' core depends only on
+  kernel; automation may depend on kernel, commands, and project; playback may
+  depend on kernel, project, composition, and commands; protocol depends only
+  on kernel; persistence-sqlite depends only on kernel (and never on renderer
+  packages, enforced separately above). An unlisted package name starts with
+  zero permitted package dependencies.
+- Cycles between packages are forbidden and must be removed, never
+  allow-listed.
+
+Each rule is proven against a committed fixture scenario under
+`tool/fixtures/electron-architecture/scenarios/packages/` and
+`scenarios/application/`, run via `npm run test:architecture`, since no live
+code exercises them yet.
 
 ## Renderer / Main / Repository Mutation Boundary
 
