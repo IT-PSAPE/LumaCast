@@ -15,13 +15,15 @@
     "paths": {
       "@core/*": ["app/core/*"],
       "@database/*": ["app/database/*"],
-      "@renderer/*": ["app/renderer/*"]
+      "@renderer/*": ["app/renderer/*"],
+      "@lumacast/kernel": ["packages/kernel/src/index.ts"]
     }
   },
   "include": [
     "electron.vite.config.ts",
     "app/**/*.ts",
     "app/**/*.tsx",
-    "benchmarks/**/*.ts"
+    "benchmarks/**/*.ts",
+    "packages/**/*.ts"
   ]
 }

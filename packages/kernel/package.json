@@ -1,0 +1,8 @@
+{
+  "name": "@lumacast/kernel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dependency-free primitives (Id, createId, nowIso) that every LumaCast package may depend on (issue #219).",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

@@ -37,7 +37,8 @@ function buildNdiHostBundlePlugin(): Plugin {
           },
           resolve: {
             alias: {
-              '@core': path.resolve(__dirname, 'app/core')
+              '@core': path.resolve(__dirname, 'app/core'),
+              '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts')
             }
           }
         });
@@ -50,7 +51,12 @@ function buildNdiHostBundlePlugin(): Plugin {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin(), buildNdiHostBundlePlugin()],
+    // @lumacast/kernel has no build step (its package.json "main" points
+    // straight at src/index.ts); externalizing it would emit
+    // require("@lumacast/kernel") in out/main/index.js, and Node's CJS
+    // loader cannot parse that raw ESM TypeScript source. Exclude it so
+    // Rollup inlines it via the alias below instead.
+    plugins: [externalizeDepsPlugin({ exclude: ['@lumacast/kernel'] }), buildNdiHostBundlePlugin()],
     build: {
       outDir: 'out/main',
       lib: {
@@ -60,12 +66,15 @@ export default defineConfig({
     resolve: {
       alias: {
         '@core': path.resolve(__dirname, 'app/core'),
-        '@database': path.resolve(__dirname, 'app/database')
+        '@database': path.resolve(__dirname, 'app/database'),
+        '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts')
       }
     }
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    // Same reasoning as the main config above: keep @lumacast/kernel bundled
+    // rather than externalized.
+    plugins: [externalizeDepsPlugin({ exclude: ['@lumacast/kernel'] })],
     build: {
       outDir: 'out/preload',
       lib: {
@@ -74,7 +83,8 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@core': path.resolve(__dirname, 'app/core')
+        '@core': path.resolve(__dirname, 'app/core'),
+        '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts')
       }
     }
   },
@@ -89,7 +99,8 @@ export default defineConfig({
     resolve: {
       alias: {
         '@renderer': path.resolve(__dirname, 'app/renderer'),
-        '@core': path.resolve(__dirname, 'app/core')
+        '@core': path.resolve(__dirname, 'app/core'),
+        '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts')
       }
     },
     plugins: [tailwindcss(), react()]
