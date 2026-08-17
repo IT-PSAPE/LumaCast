@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult } from '@core/ipc';
+import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult, type ProjectRestoreResult } from '@core/ipc';
 import type { SnapshotPatch } from '@core/snapshot-patch';
 import type {
   AppSnapshot,
@@ -44,7 +44,8 @@ import type {
   SlideOrderUpdateInput,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput
+  TalkScriptBlockUpdateInput,
+  ProjectBackup
 } from '@core/types';
 
 const api = {
@@ -204,6 +205,8 @@ const api = {
   deleteCollection: (input: CollectionDeleteInput) => ipcRenderer.invoke(IPC.deleteCollection, input),
   reorderCollections: (input: CollectionReorderInput) => ipcRenderer.invoke(IPC.reorderCollections, input),
   setItemCollection: (input: CollectionAssignmentInput) => ipcRenderer.invoke(IPC.setItemCollection, input),
+  restoreProjectBackup: (backup: ProjectBackup) =>
+    ipcRenderer.invoke(IPC.restoreProjectBackup, backup) as Promise<ProjectRestoreResult>,
   onAppMenuCommand: (callback: (commandId: import('@core/ipc').AppMenuCommandId) => void) => {
     const handler = (_event: IpcRendererEvent, commandId: import('@core/ipc').AppMenuCommandId) => callback(commandId);
     ipcRenderer.on(APP_MENU_EVENTS.command, handler);

@@ -35,7 +35,8 @@ import type {
   SlideOrderUpdateInput,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput
+  TalkScriptBlockUpdateInput,
+  ProjectBackup
 } from '@core/types';
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
 import type { AppUpdater } from './app-updater';
@@ -309,6 +310,7 @@ export const registerIpcHandlers = (
   safeHandle(IPC.deleteCollection, (_event, input: CollectionDeleteInput) => repo.deleteCollection(input));
   safeHandle(IPC.reorderCollections, (_event, input: CollectionReorderInput) => repo.reorderCollections(input));
   safeHandle(IPC.setItemCollection, (_event, input: CollectionAssignmentInput) => repo.setItemCollection(input));
+  safeHandle(IPC.restoreProjectBackup, (_event, backup: ProjectBackup) => repo.restoreProjectBackup(backup));
   safeHandle(IPC.setNdiOutputEnabled, (_event, name: NdiOutputName, enabled: boolean) => {
     if (!NDI_OUTPUT_NAMES.has(name) || typeof enabled !== 'boolean') {
       throw new Error('Invalid NDI output toggle payload');
