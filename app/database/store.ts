@@ -23,7 +23,7 @@ import {
   type PlaylistItemOwnerColumns,
   type PlaylistItemReference,
 } from '@core/playlist-item-reference';
-import { applyThemeToElements, createDefaultThemeElements, isThemeCompatibleWithDeckItem, syncThemeToElements } from '@core/themes';
+import { applyThemeToElements, createDefaultThemeElements, isThemeCompatibleWithDeckItem, isThemeCompatibleWithOwnerKind, syncThemeToElements } from '@core/themes';
 import { createId, nowIso } from '@core/utils';
 import {
   decodeCuePayloadJson,
@@ -3565,7 +3565,9 @@ export class CastRepository {
 
   applyThemeToOverlay(themeId: Id, overlayId: Id): SnapshotPatch {
     const theme = this.getThemeById(themeId);
-    if (!theme || theme.kind !== 'overlays') return this.buildPatch({});
+    // Compatibility comes from the single capability matrix in @core/themes,
+    // never a local kind comparison. The silent no-op here is tracked in #214.
+    if (!theme || !isThemeCompatibleWithOwnerKind(theme, 'overlay')) return this.buildPatch({});
     const exists = this.db.prepare('SELECT id FROM overlays WHERE id = ?').get(overlayId) as { id: string } | undefined;
     if (!exists) return this.buildPatch({});
 
