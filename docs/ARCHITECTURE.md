@@ -102,6 +102,36 @@ code exercises them yet.
 
 **Rule**: Only persisted database IDs may enter repository operations. The renderer must resolve temporary staged IDs via `resolveThemeIdForMutation` before calling any IPC method that consumes a theme ID.
 
+## Renderer Navigation and Window-Open Trust Boundary (issue #158, ADR-0007)
+
+- `app/main/index.ts`'s `createMainWindow()` attaches `will-navigate` and
+  `setWindowOpenHandler` to the window's `webContents`; both are deny-by-default.
+  `will-navigate` allows only the application's own origin
+  (`isTrustedWebContentsUrl` in `app/main/security.ts`: the dev-server hosts in
+  `DEV_ALLOWED_HOSTS`, or the exact packaged `renderer/index.html` path) and
+  otherwise calls `event.preventDefault()`. The window-open handler always
+  returns `{ action: 'deny' }` — no new `BrowserWindow` is ever created from
+  renderer-requested navigation — and, only for a URL matching the explicit
+  `APPROVED_EXTERNAL_ORIGINS` allow-list in `security.ts` (currently
+  `https://openai.com`, the Help menu's "Learn more" item), calls
+  `shell.openExternal(url)` as a side effect before still returning deny.
+- Both allow-lists live in source (`app/main/security.ts`) and are extended
+  only by editing that file; neither is ever populated from renderer input,
+  IPC payloads, or configuration. `isTrustedWebContentsUrl` is also reused by
+  `assertTrustedIpcSender`, so its file-path and credentials handling harden
+  both call sites at once.
+- Denial never logs or surfaces the denied URL: both handlers log only
+  `describeUrlSchemeForLogging(url)` (the scheme, or `'unparseable'`), since a
+  `file:` URL can carry an absolute filesystem path.
+- The `cast-media:` privileged scheme (registered in `app/main/index.ts`,
+  gated by `resolveTrustedCastMediaRequest`) is a resource-fetch boundary for
+  `<audio>`/`<video>` elements, not a navigation/window-open target, and is
+  intentionally not part of either allow-list above.
+- Renderer process sandboxing (`webPreferences.sandbox`) stays `false`; see
+  ADR-0007 for the prerequisites (preload sandboxed-environment audit,
+  renderer dependency verification, packaging/signing checks) that would need
+  to be satisfied before enabling it.
+
 ## Staged Theme Resolution
 
 - `AssetEditorProvider` maintains `tempToPersistedIdMap` (Map<tempId, persistedId>).

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, protocol, type BrowserWindowConstructorOptions } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, protocol, shell, type BrowserWindowConstructorOptions } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { CastRepository } from '@database/store';
@@ -13,7 +13,10 @@ import type { NdiServiceLike } from './ndi/ndi-protocol';
 import {
   createForbiddenResponse,
   createNotFoundResponse,
+  describeUrlSchemeForLogging,
   fetchLocalFileResponse,
+  isApprovedExternalUrl,
+  isTrustedWebContentsUrl,
   resolveTrustedCastMediaRequest,
 } from './security';
 
@@ -241,6 +244,27 @@ function createMainWindow(): void {
   });
   window.on('unresponsive', () => {
     console.warn('[window] unresponsive');
+  });
+
+  // Deny-by-default renderer trust boundary (issue #158): navigation may
+  // only stay within the application's own origin, and new-window requests
+  // are never fulfilled — an approved https: destination is instead handed
+  // to the OS default browser via shell.openExternal, and window creation is
+  // still denied either way. Never log the denied URL itself: a file: URL
+  // can carry an absolute filesystem path.
+  window.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedWebContentsUrl(url)) return;
+    event.preventDefault();
+    console.warn('[security] denied navigation to untrusted origin', { scheme: describeUrlSchemeForLogging(url) });
+  });
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isApprovedExternalUrl(url)) {
+      void shell.openExternal(url);
+    } else {
+      console.warn('[security] denied window-open request', { scheme: describeUrlSchemeForLogging(url) });
+    }
+    return { action: 'deny' };
   });
 
   loadRendererView(window, cliOptions.rendererView);

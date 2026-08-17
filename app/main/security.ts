@@ -72,9 +72,22 @@ function parseSingleByteRange(rangeHeader: string, fileSize: number): { start: n
   return { start, end: Math.min(end, fileSize - 1) };
 }
 
+// The packaged renderer is always loaded from this process's own build
+// output (see loadRendererView in app/main/index.ts, which resolves the same
+// way from its own __dirname). Bundling packs every app/main module into one
+// out/main/index.js, so __dirname here is identical to index.ts's at
+// runtime. Comparing for exact equality (rather than a path suffix) is
+// required: a suffix check like `endsWith('/renderer/index.html')` would
+// wrongly match an attacker-controlled path such as
+// `/tmp/attacker/renderer/index.html`, which is a real local-file escape.
+const PACKAGED_RENDERER_INDEX_PATH = path.normalize(path.join(__dirname, '../renderer/index.html'));
+
 function matchesPackagedRendererPath(targetPath: string): boolean {
-  const normalizedPath = path.normalize(targetPath);
-  return normalizedPath.endsWith(path.normalize('/renderer/index.html'));
+  return path.normalize(targetPath) === PACKAGED_RENDERER_INDEX_PATH;
+}
+
+function hasUrlCredentials(parsed: URL): boolean {
+  return parsed.username !== '' || parsed.password !== '';
 }
 
 function isTrustedAppUrl(value: string): boolean {
@@ -87,6 +100,10 @@ function isTrustedAppUrl(value: string): boolean {
     }
 
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      // Reject credentials before trusting the host: `https://user:pass@
+      // localhost/` parses with hostname `localhost` and would otherwise
+      // pass the DEV_ALLOWED_HOSTS check unchanged.
+      if (hasUrlCredentials(parsed)) return false;
       return DEV_ALLOWED_HOSTS.has(parsed.hostname);
     }
   } catch {
@@ -98,6 +115,45 @@ function isTrustedAppUrl(value: string): boolean {
 
 export function isTrustedWebContentsUrl(value: string): boolean {
   return isTrustedAppUrl(value);
+}
+
+// Explicit allow-list of external HTTPS destinations the app may open via
+// shell.openExternal from the window-open handler (issue #158). This is the
+// one place the list may be extended: add an entry here, only for an https:
+// destination the app deliberately links to (e.g. a Help-menu "learn more"
+// item), and record the change in docs/adr/0007-renderer-navigation-trust.md.
+// Never populate this list from renderer input, IPC payloads, or anything
+// else outside this source file.
+const APPROVED_EXTERNAL_ORIGINS: ReadonlySet<string> = new Set([
+  // app/main/application-menu.ts Help menu "Learn more" item.
+  'https://openai.com',
+]);
+
+// Matched by origin (scheme + host + port), not by full URL: approving an
+// origin approves shell.openExternal for any path/query under that origin,
+// not just the exact URL the app currently opens.
+export function isApprovedExternalUrl(value: string): boolean {
+  if (!value) return false;
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') return false;
+    if (hasUrlCredentials(parsed)) return false;
+    return APPROVED_EXTERNAL_ORIGINS.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
+// Used only for denial logging: reports the URL's scheme (or 'unparseable')
+// without ever surfacing the rest of the URL, which for file: URLs can
+// contain absolute filesystem paths.
+export function describeUrlSchemeForLogging(value: string): string {
+  try {
+    return new URL(value).protocol;
+  } catch {
+    return 'unparseable';
+  }
 }
 
 export function assertTrustedIpcSender(event: IpcEvent): void {
