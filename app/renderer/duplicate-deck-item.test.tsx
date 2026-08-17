@@ -159,13 +159,13 @@ afterEach(() => {
 describe('useDuplicateDeckItem', () => {
   it('hides duplication entirely for Talk items', () => {
     const talk = makeTalk('TALK-1', 'My Talk');
-    const { current } = renderHarness(talk);
-    expect(current.duplicate).toBeNull();
+    const harness = renderHarness(talk);
+    expect(harness.current.duplicate).toBeNull();
   });
 
   it('duplicates a presentation with one IPC call and selects the returned itemId directly, never scanning the snapshot', async () => {
     const source = makePresentation('SRC-1', 'Deck');
-    const { current } = renderHarness(source, makeSnapshot({ presentations: [source] }));
+    const harness = renderHarness(source, makeSnapshot({ presentations: [source] }));
     const duplicateDeckItem = vi.fn().mockResolvedValue({
       itemId: 'DUP-1',
       // Deliberately an empty patch (no upserted presentation) to prove the
@@ -176,18 +176,18 @@ describe('useDuplicateDeckItem', () => {
     setCastApi({ duplicateDeckItem });
 
     await act(async () => {
-      await current.duplicate!();
+      await harness.current.duplicate!();
     });
 
     expect(duplicateDeckItem).toHaveBeenCalledTimes(1);
     expect(duplicateDeckItem).toHaveBeenCalledWith('SRC-1');
-    expect(current.nav.currentDrawerDeckItemId).toBe('DUP-1');
+    expect(harness.current.nav.currentDrawerDeckItemId).toBe('DUP-1');
     expect(mocks.cast.setStatusText).toHaveBeenCalledWith('Duplicated "Deck"');
   });
 
   it('duplicates a lyric with one IPC call and selects the returned itemId directly', async () => {
     const source = makeLyric('SRC-2', 'Song');
-    const { current } = renderHarness(source, makeSnapshot({ lyrics: [source] }));
+    const harness = renderHarness(source, makeSnapshot({ lyrics: [source] }));
     const duplicateDeckItem = vi.fn().mockResolvedValue({
       itemId: 'DUP-2',
       patch: createEmptyPatch(2),
@@ -195,16 +195,16 @@ describe('useDuplicateDeckItem', () => {
     setCastApi({ duplicateDeckItem });
 
     await act(async () => {
-      await current.duplicate!();
+      await harness.current.duplicate!();
     });
 
     expect(duplicateDeckItem).toHaveBeenCalledWith('SRC-2');
-    expect(current.nav.currentDrawerDeckItemId).toBe('DUP-2');
+    expect(harness.current.nav.currentDrawerDeckItemId).toBe('DUP-2');
   });
 
   it('applies the returned patch through mutatePatch before selecting the duplicate', async () => {
     const source = makePresentation('SRC-3', 'Deck');
-    const { current } = renderHarness(source, makeSnapshot({ presentations: [source] }));
+    const harness = renderHarness(source, makeSnapshot({ presentations: [source] }));
     const duplicatePresentation = makePresentation('DUP-3', 'Deck Copy');
     const duplicateDeckItem = vi.fn().mockResolvedValue({
       itemId: 'DUP-3',
@@ -213,29 +213,29 @@ describe('useDuplicateDeckItem', () => {
     setCastApi({ duplicateDeckItem });
 
     await act(async () => {
-      await current.duplicate!();
+      await harness.current.duplicate!();
     });
 
-    expect(current.nav.currentDrawerDeckItemId).toBe('DUP-3');
+    expect(harness.current.nav.currentDrawerDeckItemId).toBe('DUP-3');
   });
 
   it('retains the current selection and reports the failure without navigating on error', async () => {
     const source = makePresentation('SRC-4', 'Deck');
-    const { current } = renderHarness(source, makeSnapshot({ presentations: [source] }));
+    const harness = renderHarness(source, makeSnapshot({ presentations: [source] }));
     const duplicateDeckItem = vi.fn().mockRejectedValue(new Error('boom'));
     setCastApi({ duplicateDeckItem });
 
     await act(async () => {
-      current.nav.browseDeckItem('PRIOR-SELECTION');
+      harness.current.nav.browseDeckItem('PRIOR-SELECTION');
     });
-    expect(current.nav.currentDrawerDeckItemId).toBe('PRIOR-SELECTION');
+    expect(harness.current.nav.currentDrawerDeckItemId).toBe('PRIOR-SELECTION');
 
     await act(async () => {
-      await current.duplicate!();
+      await harness.current.duplicate!();
     });
 
     // Selection is untouched by the failed duplication.
-    expect(current.nav.currentDrawerDeckItemId).toBe('PRIOR-SELECTION');
+    expect(harness.current.nav.currentDrawerDeckItemId).toBe('PRIOR-SELECTION');
     expect(mocks.cast.setStatusText).toHaveBeenCalledWith('Failed to duplicate: boom');
   });
 });

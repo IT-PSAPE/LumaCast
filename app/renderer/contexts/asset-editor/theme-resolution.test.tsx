@@ -234,7 +234,7 @@ afterEach(() => {
 describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
   it('persists an edited existing theme before applying it', async () => {
     const t1 = makeTheme('T1', 'slides', 'Slide Theme');
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [t1] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [t1] }));
 
     const updateTheme = vi.fn().mockImplementation(async (input: { name: string; elements: SlideElement[] }) => ({
       version: 1,
@@ -246,10 +246,10 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
 
     const updated = [makeElement('E-a', 'First'), makeElement('E-b', 'Second')];
     await act(async () => {
-      current.theme.updateThemeDraft({ id: 'T1', elements: updated });
+      harness.current.theme.updateThemeDraft({ id: 'T1', elements: updated });
     });
     await act(async () => {
-      await current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
+      await harness.current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
     });
 
     expect(updateTheme).toHaveBeenCalledTimes(1);
@@ -258,7 +258,7 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
   });
 
   it('resolves a newly created staged theme to its persisted id before applying', async () => {
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [] }));
 
     const persistedId = 'persisted-theme-1';
     const createTheme = vi.fn().mockImplementation(async (input: { name: string; kind: ThemeKind; elements?: SlideElement[] }) => ({
@@ -272,13 +272,13 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
     setCastApi({ createTheme, applyThemeToDeckItem: apply });
 
     await act(async () => {
-      current.theme.createTheme('slides');
+      harness.current.theme.createTheme('slides');
     });
-    const tempId = current.theme.currentThemeId;
+    const tempId = harness.current.theme.currentThemeId;
     expect(tempId).toBeTruthy();
 
     await act(async () => {
-      await current.theme.applyThemeToTarget(tempId as Id, { type: 'deck-item', itemId: 'D1' });
+      await harness.current.theme.applyThemeToTarget(tempId as Id, { type: 'deck-item', itemId: 'D1' });
     });
 
     expect(createTheme).toHaveBeenCalledTimes(1);
@@ -289,7 +289,7 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
 
   it('resolves a duplicated staged theme to its persisted id before applying', async () => {
     const t1 = makeTheme('T1', 'slides', 'Slide Theme');
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [t1] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [t1] }));
 
     const persistedId = 'persisted-theme-2';
     const createTheme = vi.fn().mockImplementation(async (input: { name: string; kind: ThemeKind; elements?: SlideElement[] }) => ({
@@ -303,13 +303,13 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
     setCastApi({ createTheme, applyThemeToDeckItem: apply });
 
     await act(async () => {
-      current.theme.duplicateTheme('T1');
+      harness.current.theme.duplicateTheme('T1');
     });
-    const tempId = current.theme.currentThemeId;
+    const tempId = harness.current.theme.currentThemeId;
     expect(tempId).not.toBe('T1');
 
     await act(async () => {
-      await current.theme.applyThemeToTarget(tempId as Id, { type: 'deck-item', itemId: 'D1' });
+      await harness.current.theme.applyThemeToTarget(tempId as Id, { type: 'deck-item', itemId: 'D1' });
     });
 
     expect(createTheme).toHaveBeenCalledTimes(1);
@@ -318,20 +318,20 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
 
   it('does not run the apply when the theme push fails', async () => {
     const t1 = makeTheme('T1', 'slides', 'Slide Theme');
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [t1] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [t1] }));
 
     const updateTheme = vi.fn().mockRejectedValue(new Error('persist boom'));
     const apply = vi.fn().mockResolvedValue(createEmptyPatch(2));
     setCastApi({ updateTheme, applyThemeToDeckItem: apply });
 
     await act(async () => {
-      current.theme.updateThemeDraft({ id: 'T1', name: 'Renamed' });
+      harness.current.theme.updateThemeDraft({ id: 'T1', name: 'Renamed' });
     });
 
     let error: unknown = null;
     await act(async () => {
       try {
-        await current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
+        await harness.current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
       } catch (caught) {
         error = caught;
       }
@@ -343,17 +343,17 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
 
   it('serializes duplicate apply invocations while one is in flight', async () => {
     const t1 = makeTheme('T1', 'slides', 'Slide Theme');
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [t1] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [t1] }));
 
     let releaseApply: (() => void) | null = null;
     const apply = vi.fn().mockImplementation(
-      () => new Promise<void>((resolve) => { releaseApply = resolve; }),
+      () => new Promise<SnapshotPatch>((resolve) => { releaseApply = () => resolve(createEmptyPatch(2)); }),
     );
     setCastApi({ applyThemeToDeckItem: apply });
 
     await act(async () => {
-      const first = current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
-      const second = current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
+      const first = harness.current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
+      const second = harness.current.theme.applyThemeToTarget('T1', { type: 'deck-item', itemId: 'D1' });
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(apply).toHaveBeenCalledTimes(1);
       releaseApply?.();
@@ -369,7 +369,7 @@ describe('resolveThemeIdForMutation / applyThemeToTarget', () => {
 
 describe('createDeckItem theme resolution', () => {
   it('uses the persisted id of a staged theme when creating a deck item', async () => {
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [] }));
 
     const persistedId = 'persisted-theme-3';
     const createTheme = vi.fn().mockImplementation(async (input: { name: string; kind: ThemeKind; elements?: SlideElement[] }) => ({
@@ -390,13 +390,13 @@ describe('createDeckItem theme resolution', () => {
     setCastApi({ createTheme, createDeckItemWithTheme });
 
     await act(async () => {
-      current.theme.createTheme('lyrics');
+      harness.current.theme.createTheme('lyrics');
     });
-    const tempId = current.theme.currentThemeId;
+    const tempId = harness.current.theme.currentThemeId;
     expect(tempId).toBeTruthy();
 
     await act(async () => {
-      await current.navigation.createDeckItem({ kind: 'lyric', name: 'Song', themeId: tempId as Id });
+      await harness.current.navigation.createDeckItem({ kind: 'lyric', name: 'Song', themeId: tempId as Id });
     });
 
     expect(createTheme).toHaveBeenCalledTimes(1);
@@ -407,7 +407,7 @@ describe('createDeckItem theme resolution', () => {
 
   it('persists an edited existing theme before creating a deck item', async () => {
     const t1 = makeTheme('T1', 'slides', 'Slide Theme');
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [t1] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [t1] }));
 
     const updateTheme = vi.fn().mockImplementation(async (input: { name: string }) => ({
       version: 1,
@@ -425,11 +425,11 @@ describe('createDeckItem theme resolution', () => {
     setCastApi({ updateTheme, createDeckItemWithTheme });
 
     await act(async () => {
-      current.theme.updateThemeDraft({ id: 'T1', name: 'Renamed Theme' });
+      harness.current.theme.updateThemeDraft({ id: 'T1', name: 'Renamed Theme' });
     });
 
     await act(async () => {
-      await current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck', themeId: 'T1' });
+      await harness.current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck', themeId: 'T1' });
     });
 
     expect(updateTheme).toHaveBeenCalledTimes(1);
@@ -438,22 +438,22 @@ describe('createDeckItem theme resolution', () => {
   });
 
   it('does not create a deck item when the theme push fails', async () => {
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [] }));
 
     const createTheme = vi.fn().mockRejectedValue(new Error('persist boom'));
     const createDeckItemWithTheme = vi.fn().mockResolvedValue({ itemId: 'NEW-P-3', patch: createEmptyPatch(2) });
     setCastApi({ createTheme, createDeckItemWithTheme });
 
     await act(async () => {
-      current.theme.createTheme('slides');
+      harness.current.theme.createTheme('slides');
     });
-    const tempId = current.theme.currentThemeId;
+    const tempId = harness.current.theme.currentThemeId;
     expect(tempId).toBeTruthy();
 
     let error: unknown = null;
     await act(async () => {
       try {
-        await current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck', themeId: tempId as Id });
+        await harness.current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck', themeId: tempId as Id });
       } catch (caught) {
         error = caught;
       }
@@ -464,7 +464,7 @@ describe('createDeckItem theme resolution', () => {
   });
 
   it('serializes duplicate deck creations while one is in flight', async () => {
-    const { current } = renderThemeHarness(makeSnapshot({ themes: [] }));
+    const harness = renderThemeHarness(makeSnapshot({ themes: [] }));
 
     let releaseCreate: ((value: { itemId: Id; patch: SnapshotPatch }) => void) | null = null;
     const createDeckItemWithTheme = vi.fn().mockImplementation(
@@ -473,8 +473,8 @@ describe('createDeckItem theme resolution', () => {
     setCastApi({ createDeckItemWithTheme });
 
     await act(async () => {
-      const first = current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck' });
-      const second = current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck' });
+      const first = harness.current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck' });
+      const second = harness.current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck' });
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(createDeckItemWithTheme).toHaveBeenCalledTimes(1);
       releaseCreate?.({ itemId: 'NEW-P-4', patch: createEmptyPatch(2) });

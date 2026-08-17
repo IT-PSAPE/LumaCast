@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import type { AppSnapshot, Id, Lyric, Presentation, Talk, Theme, ThemeKind } from '@core/types';
-import { createEmptyPatch } from '@core/snapshot-patch';
+import type { SnapshotPatch } from '@core/snapshot-patch';
+import { applyPatch, createEmptyPatch } from '@core/snapshot-patch';
 import { AssetEditorProvider, useThemeEditor, type ThemeEditorValue } from './contexts/asset-editor/asset-editor-context';
 import { NavigationProvider, useNavigationActions, useNavigationState } from './contexts/navigation-context';
 import type { NavigationActionsValue, NavigationStateValue } from './types/navigation-context-types';
@@ -118,8 +119,17 @@ function makeProjectContent(snapshot: AppSnapshot): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function renderHarness(initial: AppSnapshot): { current: { actions: NavigationActionsValue; state: NavigationStateValue; theme: ThemeEditorValue } } {
+  // Mirrors the real mutatePatch contract (applies the patch to the current
+  // snapshot and returns the merged AppSnapshot) rather than just echoing
+  // the raw patch back — production code (e.g. theme push) reads entity
+  // arrays off the returned snapshot, not off the patch itself.
+  let snapshot = initial;
   mocks.cast.snapshot = initial;
-  mocks.cast.mutatePatch = async (action: () => Promise<unknown>) => action();
+  mocks.cast.mutatePatch = async (action: () => Promise<SnapshotPatch>): Promise<AppSnapshot> => {
+    const patch = await action();
+    snapshot = applyPatch(snapshot, patch);
+    return snapshot;
+  };
   mocks.cast.runOperation = async (_text: string, action: () => Promise<unknown>) => action();
   mocks.cast.setStatusText = vi.fn();
   mocks.project.value = makeProjectContent(initial);
@@ -168,7 +178,7 @@ afterEach(() => {
 
 describe('createDeckItem dialog flow', () => {
   it('creates an unthemed presentation with one IPC call, one mutation, and selects the returned itemId directly', async () => {
-    const { current } = renderHarness(makeSnapshot());
+    const harness = renderHarness(makeSnapshot());
     const createDeckItemWithTheme = vi.fn().mockResolvedValue({
       itemId: 'NEW-1',
       // Deliberately an empty patch (no upserted presentation) to prove the
@@ -179,7 +189,7 @@ describe('createDeckItem dialog flow', () => {
     setCastApi({ createDeckItemWithTheme });
 
     await act(async () => {
-      await current.actions.createDeckItem({ kind: 'presentation', name: 'Deck' });
+      await harness.current.actions.createDeckItem({ kind: 'presentation', name: 'Deck' });
     });
 
     expect(createDeckItemWithTheme).toHaveBeenCalledTimes(1);
@@ -190,12 +200,12 @@ describe('createDeckItem dialog flow', () => {
       themeId: null,
       groupId: null,
     });
-    expect(current.state.currentDrawerDeckItemId).toBe('NEW-1');
-    expect(current.state.recentlyCreatedId).toBe('NEW-1');
+    expect(harness.current.state.currentDrawerDeckItemId).toBe('NEW-1');
+    expect(harness.current.state.recentlyCreatedId).toBe('NEW-1');
   });
 
   it('creates a lyric via the dialog and selects the returned itemId', async () => {
-    const { current } = renderHarness(makeSnapshot());
+    const harness = renderHarness(makeSnapshot());
     const createDeckItemWithTheme = vi.fn().mockImplementation(async (input: { type: string; title: string }) => ({
       itemId: 'LYRIC-1',
       patch: { version: 2, upserts: { lyrics: [makeLyric('LYRIC-1', input.title)] }, deletes: {} },
@@ -203,7 +213,7 @@ describe('createDeckItem dialog flow', () => {
     setCastApi({ createDeckItemWithTheme });
 
     await act(async () => {
-      await current.actions.createDeckItem({ kind: 'lyric', name: 'My Song' });
+      await harness.current.actions.createDeckItem({ kind: 'lyric', name: 'My Song' });
     });
 
     expect(createDeckItemWithTheme).toHaveBeenCalledWith({
@@ -213,11 +223,11 @@ describe('createDeckItem dialog flow', () => {
       themeId: null,
       groupId: null,
     });
-    expect(current.state.currentDrawerDeckItemId).toBe('LYRIC-1');
+    expect(harness.current.state.currentDrawerDeckItemId).toBe('LYRIC-1');
   });
 
   it('creates a talk via the dialog and selects the returned itemId', async () => {
-    const { current } = renderHarness(makeSnapshot());
+    const harness = renderHarness(makeSnapshot());
     const createDeckItemWithTheme = vi.fn().mockImplementation(async (input: { type: string; title: string }) => ({
       itemId: 'TALK-1',
       patch: { version: 2, upserts: { talks: [makeTalk('TALK-1', input.title)] }, deletes: {} },
@@ -225,7 +235,7 @@ describe('createDeckItem dialog flow', () => {
     setCastApi({ createDeckItemWithTheme });
 
     await act(async () => {
-      await current.actions.createDeckItem({ kind: 'talk', name: 'My Talk' });
+      await harness.current.actions.createDeckItem({ kind: 'talk', name: 'My Talk' });
     });
 
     expect(createDeckItemWithTheme).toHaveBeenCalledWith({
@@ -235,11 +245,11 @@ describe('createDeckItem dialog flow', () => {
       themeId: null,
       groupId: null,
     });
-    expect(current.state.currentDrawerDeckItemId).toBe('TALK-1');
+    expect(harness.current.state.currentDrawerDeckItemId).toBe('TALK-1');
   });
 
   it('passes the persisted id of a staged theme, and selects the returned itemId directly', async () => {
-    const { current } = renderHarness(makeSnapshot({ themes: [] }));
+    const harness = renderHarness(makeSnapshot({ themes: [] }));
 
     const persistedThemeId = 'persisted-theme-1';
     const createTheme = vi.fn().mockImplementation(async (input: { name: string; kind: ThemeKind }) => ({
@@ -254,38 +264,38 @@ describe('createDeckItem dialog flow', () => {
     setCastApi({ createTheme, createDeckItemWithTheme });
 
     await act(async () => {
-      current.theme.createTheme('slides');
+      harness.current.theme.createTheme('slides');
     });
-    const tempId = current.theme.currentThemeId as Id;
+    const tempId = harness.current.theme.currentThemeId as Id;
     expect(tempId).toBeTruthy();
 
     await act(async () => {
-      await current.actions.createDeckItem({ kind: 'presentation', name: 'Themed Deck', themeId: tempId });
+      await harness.current.actions.createDeckItem({ kind: 'presentation', name: 'Themed Deck', themeId: tempId });
     });
 
     expect(createDeckItemWithTheme).toHaveBeenCalledTimes(1);
     expect(createDeckItemWithTheme.mock.calls[0][0].themeId).toBe(persistedThemeId);
     expect(createDeckItemWithTheme.mock.calls[0][0].themeId).not.toBe(tempId);
-    expect(current.state.currentDrawerDeckItemId).toBe('NEW-2');
+    expect(harness.current.state.currentDrawerDeckItemId).toBe('NEW-2');
   });
 
   it('does not select or navigate when creation fails', async () => {
-    const { current } = renderHarness(makeSnapshot());
+    const harness = renderHarness(makeSnapshot());
     const createDeckItemWithTheme = vi.fn().mockRejectedValue(new Error('boom'));
     setCastApi({ createDeckItemWithTheme });
 
     let error: unknown = null;
     await act(async () => {
       try {
-        await current.actions.createDeckItem({ kind: 'presentation', name: 'Deck' });
+        await harness.current.actions.createDeckItem({ kind: 'presentation', name: 'Deck' });
       } catch (caught) {
         error = caught;
       }
     });
 
     expect((error as Error)?.message).toBe('boom');
-    expect(current.state.currentDrawerDeckItemId).toBeNull();
-    expect(current.state.recentlyCreatedId).toBeNull();
+    expect(harness.current.state.currentDrawerDeckItemId).toBeNull();
+    expect(harness.current.state.recentlyCreatedId).toBeNull();
   });
 });
 
@@ -293,7 +303,7 @@ describe('createDeckItem dialog flow', () => {
 
 describe('legacy app-menu creation', () => {
   it('createPresentation routes through the atomic operation with explicit nulls, one IPC call, and one mutation', async () => {
-    const { current } = renderHarness(makeSnapshot());
+    const harness = renderHarness(makeSnapshot());
     const createDeckItemWithTheme = vi.fn().mockResolvedValue({
       itemId: 'P-1',
       patch: createEmptyPatch(2),
@@ -301,7 +311,7 @@ describe('legacy app-menu creation', () => {
     setCastApi({ createDeckItemWithTheme });
 
     await act(async () => {
-      await current.actions.createPresentation();
+      await harness.current.actions.createPresentation();
     });
 
     expect(createDeckItemWithTheme).toHaveBeenCalledTimes(1);
@@ -312,12 +322,12 @@ describe('legacy app-menu creation', () => {
       themeId: null,
       groupId: null,
     });
-    expect(current.state.currentDrawerDeckItemId).toBe('P-1');
-    expect(current.state.recentlyCreatedId).toBe('P-1');
+    expect(harness.current.state.currentDrawerDeckItemId).toBe('P-1');
+    expect(harness.current.state.recentlyCreatedId).toBe('P-1');
   });
 
   it('createEmptyLyric routes through the atomic operation with explicit nulls, one IPC call, and one mutation', async () => {
-    const { current } = renderHarness(makeSnapshot());
+    const harness = renderHarness(makeSnapshot());
     const createDeckItemWithTheme = vi.fn().mockResolvedValue({
       itemId: 'L-1',
       patch: createEmptyPatch(2),
@@ -325,7 +335,7 @@ describe('legacy app-menu creation', () => {
     setCastApi({ createDeckItemWithTheme });
 
     await act(async () => {
-      await current.actions.createEmptyLyric();
+      await harness.current.actions.createEmptyLyric();
     });
 
     expect(createDeckItemWithTheme).toHaveBeenCalledTimes(1);
@@ -336,18 +346,18 @@ describe('legacy app-menu creation', () => {
       themeId: null,
       groupId: null,
     });
-    expect(current.state.currentDrawerDeckItemId).toBe('L-1');
+    expect(harness.current.state.currentDrawerDeckItemId).toBe('L-1');
   });
 
   it('does not call the legacy two-step owner-then-slide sequence', async () => {
-    const { current } = renderHarness(makeSnapshot());
+    const harness = renderHarness(makeSnapshot());
     const createDeckItemWithTheme = vi.fn().mockResolvedValue({ itemId: 'P-2', patch: createEmptyPatch(2) });
     const createPresentation = vi.fn();
     const createSlide = vi.fn();
     setCastApi({ createDeckItemWithTheme, createPresentation, createSlide });
 
     await act(async () => {
-      await current.actions.createPresentation();
+      await harness.current.actions.createPresentation();
     });
 
     expect(createPresentation).not.toHaveBeenCalled();
