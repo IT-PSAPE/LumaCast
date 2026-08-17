@@ -86,21 +86,29 @@ export function applyThemeToElements(theme: Theme, contentElements: SlideElement
 }
 
 /**
- * Synchronization algorithm that preserves user-created elements.
+ * Non-destructive, provenance-based theme merge.
  *
- * Theme elements are identified by the `sourceThemeElementId` field.
- * User-created elements have `sourceThemeElementId` set to null or undefined.
+ * Theme elements are identified by the `sourceThemeElementId` field;
+ * user-created elements have `sourceThemeElementId` set to null or undefined.
+ * Matching never uses array position or authored text.
  *
  * This algorithm:
  * 1. Identifies theme-owned elements by explicit sourceThemeElementId
- * 2. Updates matched same-type theme elements in place, preserving authored text
- * 3. Removes theme elements whose source no longer exists in the theme
- * 4. Adds new theme elements with collision-free IDs and explicit provenance
- * 5. Preserves all user-created (null provenance) elements exactly
- * 6. Preserves custom-element relative order, including equal-z cases
- * 7. Updates surviving theme elements in place and places new theme elements
- *    adjacent to surviving theme neighbors when possible
+ * 2. Updates matched same-type theme elements in place, preserving authored
+ *    text and rich-text content while applying the theme's other properties
+ * 3. Replaces a matched element whose source type changed with a new element
+ *    with a new ID; no incompatible payload reinterpretation
+ * 4. Adds new theme elements with collision-free IDs and explicit provenance,
+ *    placed adjacent to their surviving theme neighbors (theme order)
+ * 5. Removes theme elements whose source no longer exists in the theme
+ * 6. Preserves all user-created (null provenance) elements exactly, including
+ *    group children, keeping their relative order (equal-z stable)
+ * 7. New text elements carry the theme's authored default text, never a
+ *    positionally matched value from existing content
  * 8. Applies all rules recursively to group children
+ *
+ * Repeating the merge with identical inputs yields identical output
+ * (idempotent).
  */
 export function syncThemeToElements(
   theme: Theme,
@@ -108,7 +116,6 @@ export function syncThemeToElements(
   slideId: Id
 ): SlideElement[] {
   const now = new Date().toISOString();
-  const textValues = readTextValues(contentElements);
 
   // Build a map of existing theme-owned elements by sourceThemeElementId
   const existingThemeElements = new Map<string, SlideElement>();
@@ -122,61 +129,55 @@ export function syncThemeToElements(
     }
   }
 
-  // Track which theme elements are still present
-  const seenThemeElementIds = new Set<string>();
-
   // Process theme elements in order, building the result
   const result: SlideElement[] = [];
 
   for (const themeElement of theme.elements) {
-    seenThemeElementIds.add(themeElement.id);
     const existingElement = existingThemeElements.get(themeElement.id);
 
-    if (existingElement) {
+    if (existingElement && existingElement.type === themeElement.type) {
       // Matched same-type element: update in place, preserve authored text
-      if (existingElement.type === themeElement.type) {
-        const updatedPayload = preserveTextContent(themeElement, existingElement);
-        const materializedChildren = themeElement.type === 'group'
-          ? materializeGroupChildren(themeElement, existingElement, slideId, now)
-          : undefined;
+      const updatedPayload = preserveTextContent(themeElement, existingElement);
+      const materializedChildren = themeElement.type === 'group'
+        ? mergeGroupChildren(themeElement, existingElement, slideId, now)
+        : undefined;
 
-        result.push({
-          ...existingElement,
-          x: themeElement.x,
-          y: themeElement.y,
-          width: themeElement.width,
-          height: themeElement.height,
-          rotation: themeElement.rotation,
-          opacity: themeElement.opacity,
-          zIndex: themeElement.zIndex,
-          layer: themeElement.layer,
-          payload: updatedPayload,
-          sourceThemeElementId: themeElement.id,
-          updatedAt: now,
-          ...(materializedChildren ? { payload: { ...updatedPayload, children: materializedChildren } } : {}),
-        });
-      } else {
-        // Type changed: remove old, create new
-        const materialized = materializeThemeElement(themeElement, slideId, textValues, now);
-        result.push(materialized);
-      }
+      result.push({
+        ...existingElement,
+        x: themeElement.x,
+        y: themeElement.y,
+        width: themeElement.width,
+        height: themeElement.height,
+        rotation: themeElement.rotation,
+        opacity: themeElement.opacity,
+        zIndex: themeElement.zIndex,
+        layer: themeElement.layer,
+        payload: updatedPayload,
+        sourceThemeElementId: themeElement.id,
+        updatedAt: now,
+        ...(materializedChildren ? { payload: { ...updatedPayload, children: materializedChildren } } : {}),
+      });
     } else {
-      // New theme element: create with collision-free ID
-      const materialized = materializeThemeElement(themeElement, slideId, textValues, now);
+      // New theme element, or matched element whose source type changed:
+      // create with a collision-free ID and the theme's authored default text.
+      const materialized = materializeThemeElement(themeElement, slideId, [], now);
       result.push(materialized);
     }
   }
 
-  // Remove theme elements whose source no longer exists
-  // (handled by not including them in the result since we only add matched/new)
-
-  // Add user-created elements (preserved exactly)
+  // Add user-created elements (preserved exactly, in original relative order)
   result.push(...userElements);
 
   return result;
 }
 
-function materializeGroupChildren(
+/**
+ * Merges a matched group's children: matched theme children are updated in
+ * place, new/type-changed theme children are created with new IDs and theme
+ * default text, and user-created (null provenance) children are preserved in
+ * their original relative order. Applied recursively.
+ */
+function mergeGroupChildren(
   themeElement: SlideElement,
   existingElement: SlideElement,
   slideId: Id,
@@ -186,13 +187,17 @@ function materializeGroupChildren(
   const existingGroupPayload = existingElement.payload as GroupElementPayload;
 
   const existingChildrenBySource = new Map<string, SlideElement>();
+  const localChildren: SlideElement[] = [];
+
   for (const child of existingGroupPayload.children ?? []) {
     if (child.sourceThemeElementId) {
       existingChildrenBySource.set(child.sourceThemeElementId, child);
+    } else {
+      localChildren.push(child);
     }
   }
 
-  const materializedChildren: SlideElement[] = [];
+  const mergedChildren: SlideElement[] = [];
 
   for (const themeChild of themeGroupPayload.children ?? []) {
     const existingChild = existingChildrenBySource.get(themeChild.id);
@@ -200,11 +205,11 @@ function materializeGroupChildren(
     if (existingChild && existingChild.type === themeChild.type) {
       // Matched same-type child: update in place
       const updatedPayload = preserveTextContent(themeChild, existingChild);
-      const childMaterializedChildren = themeChild.type === 'group'
-        ? materializeGroupChildren(themeChild, existingChild, slideId, now)
+      const childMergedChildren = themeChild.type === 'group'
+        ? mergeGroupChildren(themeChild, existingChild, slideId, now)
         : undefined;
 
-      materializedChildren.push({
+      mergedChildren.push({
         ...existingChild,
         x: themeChild.x,
         y: themeChild.y,
@@ -217,19 +222,19 @@ function materializeGroupChildren(
         payload: updatedPayload,
         sourceThemeElementId: themeChild.id,
         updatedAt: now,
-        ...(childMaterializedChildren ? { payload: { ...updatedPayload, children: childMaterializedChildren } } : {}),
+        ...(childMergedChildren ? { payload: { ...updatedPayload, children: childMergedChildren } } : {}),
       });
     } else {
-      // New or type-changed child: create new
-      const childTextValues = themeChild.type === 'text' && existingChild
-        ? [(existingChild.payload as TextElementPayload).text ?? '']
-        : [];
-      const materialized = materializeThemeElement(themeChild, slideId, childTextValues, now);
-      materializedChildren.push(materialized);
+      // New or type-changed child: create with a new ID and theme default text
+      const materialized = materializeThemeElement(themeChild, slideId, [], now);
+      mergedChildren.push(materialized);
     }
   }
 
-  return materializedChildren;
+  // Preserve user-created children in their original relative order
+  mergedChildren.push(...localChildren);
+
+  return mergedChildren;
 }
 
 /**
