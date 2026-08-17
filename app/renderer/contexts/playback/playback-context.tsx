@@ -139,6 +139,20 @@ interface StageValue {
   setCurrentStageId: (id: Id | null) => void;
 }
 
+export interface PlaybackCommandPort {
+  activateOverlay: (overlayId: Id) => void;
+  clearOverlay: (overlayId: Id) => void;
+  clearAllOverlays: () => void;
+  setMediaLayerAsset: (assetId: Id) => void;
+  armVideo: (assetId: Id) => void;
+  clearVideo: () => void;
+  armAudio: (assetId: Id) => void;
+  clearAudio: () => void;
+  setCurrentStageId: (id: Id | null) => void;
+  clearLayer: (layer: PresentationLayerKey) => void;
+  clearAllLayers: () => void;
+}
+
 interface PlaybackContextValue {
   layers: LayersValue;
   audio: AudioValue;
@@ -149,6 +163,7 @@ interface PlaybackContextValue {
 // ─── Constants ──────────────────────────────────────────────────────
 
 const PlaybackContext = createContext<PlaybackContextValue | null>(null);
+const PlaybackCommandsContext = createContext<PlaybackCommandPort | null>(null);
 const PresentationLayersContext = createContext<LayersValue | null>(null);
 const PresentationMediaLayerContext = createContext<PresentationMediaLayerValue | null>(null);
 const PresentationOverlayLayerContext = createContext<PresentationOverlayLayerValue | null>(null);
@@ -844,6 +859,34 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     activeOverlays,
   }), [activeOverlays, contentLayerVisible, mediaLayerAsset, videoLayerAsset, videoLayerPlayback]);
 
+  // ── Authoritative command port ──
+
+  const playbackCommands = useMemo<PlaybackCommandPort>(() => ({
+    activateOverlay: overlayLayer.activateOverlay,
+    clearOverlay: overlayLayer.clearOverlay,
+    clearAllOverlays: overlayLayer.clearAllOverlays,
+    setMediaLayerAsset: mediaLayer.setMediaLayerAsset,
+    armVideo: video.armVideo,
+    clearVideo: video.clearVideo,
+    armAudio: audio.armAudio,
+    clearAudio: audio.clearAudio,
+    setCurrentStageId: stage.setCurrentStageId,
+    clearLayer: layerActions.clearLayer,
+    clearAllLayers: layerActions.clearAllLayers,
+  }), [
+    audio.armAudio,
+    audio.clearAudio,
+    layerActions.clearAllLayers,
+    layerActions.clearLayer,
+    mediaLayer.setMediaLayerAsset,
+    overlayLayer.activateOverlay,
+    overlayLayer.clearAllOverlays,
+    overlayLayer.clearOverlay,
+    stage.setCurrentStageId,
+    video.armVideo,
+    video.clearVideo,
+  ]);
+
   // ── Combined value ──
 
   const value = useMemo<PlaybackContextValue>(() => ({ layers, audio, video, stage }), [layers, audio, video, stage]);
@@ -857,7 +900,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
               <AudioPlaybackContext.Provider value={audio}>
                 <VideoPlaybackContext.Provider value={video}>
                   <StagePlaybackContext.Provider value={stage}>
-                    <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>
+                    <PlaybackCommandsContext.Provider value={playbackCommands}>
+                      <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>
+                    </PlaybackCommandsContext.Provider>
                   </StagePlaybackContext.Provider>
                 </VideoPlaybackContext.Provider>
               </AudioPlaybackContext.Provider>
@@ -874,6 +919,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
 export function usePlayback(): PlaybackContextValue {
   const ctx = useContext(PlaybackContext);
   if (!ctx) throw new Error('usePlayback must be used within PlaybackProvider');
+  return ctx;
+}
+
+export function usePlaybackCommands(): PlaybackCommandPort {
+  const ctx = useContext(PlaybackCommandsContext);
+  if (!ctx) throw new Error('usePlaybackCommands must be used within PlaybackProvider');
   return ctx;
 }
 

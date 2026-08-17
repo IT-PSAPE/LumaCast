@@ -18,7 +18,7 @@ import type {
 import { getSlideDeckItemId } from '@core/deck-items';
 import { useCast } from '@renderer/contexts/app-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
-import { useAudio, usePresentationLayerActions, usePresentationMediaLayer, usePresentationOverlayLayer, useStagePlayback, useVideo } from '@renderer/contexts/playback/playback-context';
+import { usePlaybackCommands } from '@renderer/contexts/playback/playback-context';
 import { recordObsEvent } from '@renderer/features/observability/metrics-store';
 import { AUTOMATION_TRIGGER_EVENT, type AutomationTriggerEventDetail } from './automation-events';
 
@@ -105,12 +105,7 @@ const AutomationContext = createContext<AutomationContextValue | null>(null);
 export function AutomationProvider({ children }: { children: ReactNode }) {
   const { snapshot, mutatePatch, runOperation, setStatusText } = useCast();
   const { cues, macros, triggerBindings, cuesById, macrosById, slides } = useProjectContent();
-  const overlayLayer = usePresentationOverlayLayer();
-  const mediaLayer = usePresentationMediaLayer();
-  const layerActions = usePresentationLayerActions();
-  const audio = useAudio();
-  const video = useVideo();
-  const stage = useStagePlayback();
+  const playback = usePlaybackCommands();
   const [currentMacroId, setCurrentMacroId] = useState<Id | null>(null);
   const cuesRef = useRef<Cue[]>(cues);
   cuesRef.current = cues;
@@ -132,78 +127,80 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     return map;
   }, [slides]);
 
-  // Apply a cue's side-effect. `flow.lifecycle` is handled by the caller since
-  // it acts on the run registry rather than a presentation layer.
+  // Apply a cue's side-effect through the playback command port (#222).
+  // `flow.lifecycle` is handled by the caller since it acts on the run registry
+  // rather than a presentation layer.
   const applyCueAction = useCallback((cue: Cue) => {
     switch (cue.kind) {
       case 'overlay.activate':
-        overlayLayer.activateOverlay((cue.payload as { overlayId: Id }).overlayId);
+        playback.activateOverlay((cue.payload as { overlayId: Id }).overlayId);
         break;
       case 'overlay.clear':
-        overlayLayer.clearOverlay((cue.payload as { overlayId: Id }).overlayId);
+        playback.clearOverlay((cue.payload as { overlayId: Id }).overlayId);
         break;
       case 'overlay.clearAll':
-        overlayLayer.clearAllOverlays();
+        playback.clearAllOverlays();
         break;
       case 'mediaLayer.set':
-        mediaLayer.setMediaLayerAsset((cue.payload as { assetId: Id }).assetId);
+        playback.setMediaLayerAsset((cue.payload as { assetId: Id }).assetId);
         break;
       case 'video.arm':
-        video.armVideo((cue.payload as { assetId: Id }).assetId);
+        playback.armVideo((cue.payload as { assetId: Id }).assetId);
         break;
       case 'video.clear':
-        video.clearVideo();
+        playback.clearVideo();
         break;
       case 'audio.arm':
-        audio.armAudio((cue.payload as { assetId: Id }).assetId);
+        playback.armAudio((cue.payload as { assetId: Id }).assetId);
         break;
       case 'audio.clear':
-        audio.clearAudio();
+        playback.clearAudio();
         break;
       case 'stage.set':
-        stage.setCurrentStageId((cue.payload as { stageId: Id }).stageId);
+        playback.setCurrentStageId((cue.payload as { stageId: Id }).stageId);
         break;
       case 'stage.clear':
-        stage.setCurrentStageId(null);
+        playback.setCurrentStageId(null);
         break;
       case 'layer.clear':
-        layerActions.clearLayer((cue.payload as { layer: CueClearLayer }).layer);
+        playback.clearLayer((cue.payload as { layer: CueClearLayer }).layer);
         break;
       case 'layer.clearAll':
-        layerActions.clearAllLayers();
+        playback.clearAllLayers();
         break;
       case 'flow.lifecycle':
         break;
     }
-  }, [audio, layerActions, mediaLayer, overlayLayer, stage, video]);
+  }, [playback]);
 
   // Stop a run and undo the effects it applied, in reverse order, via each
-  // cue's static inverse. Cues with no inverse (clears, lifecycle) are skipped.
+  // cue's static inverse through the playback command port (#222).
+  // Cues with no inverse (clears, lifecycle) are skipped.
   const revertRun = useCallback((run: MacroRun) => {
     cancelRun(run);
     for (let i = run.appliedCues.length - 1; i >= 0; i -= 1) {
       const cue = run.appliedCues[i];
       switch (cue.kind) {
         case 'overlay.activate':
-          overlayLayer.clearOverlay((cue.payload as { overlayId: Id }).overlayId);
+          playback.clearOverlay((cue.payload as { overlayId: Id }).overlayId);
           break;
         case 'mediaLayer.set':
-          layerActions.clearLayer('media');
+          playback.clearLayer('media');
           break;
         case 'video.arm':
-          video.clearVideo();
+          playback.clearVideo();
           break;
         case 'audio.arm':
-          audio.clearAudio();
+          playback.clearAudio();
           break;
         case 'stage.set':
-          stage.setCurrentStageId(null);
+          playback.setCurrentStageId(null);
           break;
         default:
           break;
       }
     }
-  }, [audio, layerActions, overlayLayer, stage, video]);
+  }, [playback]);
 
   // Cancel or revert targeted runs. `'*'` hits every active run; an id hits
   // every running instance of that macro. The invoking run is spared so a
