@@ -51,6 +51,11 @@ export interface PlaylistEntry {
 export type DeckItemType = 'presentation' | 'lyric' | 'talk';
 export type ThemeKind = 'slides' | 'lyrics' | 'overlays';
 
+// Every kind of theme owner a theme can be applied to, synced to, reset
+// against, or detached from. Deck items (presentation/lyric/talk) plus
+// overlays, which own a theme outside the deck-item model.
+export type ThemeOwnerKind = DeckItemType | 'overlay';
+
 interface DeckItemBase {
   id: Id;
   title: string;

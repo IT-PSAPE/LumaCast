@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Unlink } from 'lucide-react';
-import { isThemeCompatibleWithDeckItem } from '@core/themes';
+import { isThemeCompatibleWithOwnerKind } from '@core/themes';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
 import { getDeckItemLabel } from '@core/deck-items';
@@ -26,7 +26,7 @@ export function DeckItemInspector() {
 
   const compatibleThemes = useMemo(() => {
     if (!currentDeckItem) return [];
-    return themes.filter((theme) => isThemeCompatibleWithDeckItem(theme, currentDeckItem.type));
+    return themes.filter((theme) => isThemeCompatibleWithOwnerKind(theme, currentDeckItem.type));
   }, [currentDeckItem, themes]);
 
   const themeOptions = useMemo(() => [

@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef } from 'react';
 import type { DeckItem, Overlay, Theme } from '@core/types';
-import { isThemeCompatibleWithDeckItem } from '@core/themes';
+import { isThemeCompatibleWithOwnerKind } from '@core/themes';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
@@ -17,6 +17,22 @@ import type { ResourceDrawerViewMode } from '../../../types/ui';
 import { BinShell } from '../../workbench/bin-shell';
 import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import { useThemeBin } from './use-theme-bin';
+
+// Pure, testable derivation of a theme's compatible apply targets from the
+// full pool of deck items and overlays. Uses the single capability function
+// from @core/themes instead of building its own type-specific arrays, so a
+// theme's compatible owner kinds (including talk) never drift out of sync
+// with app/core/themes.ts's capability matrix.
+export function resolveThemeApplyTargets(
+  theme: Theme,
+  deckItems: readonly DeckItem[],
+  overlays: readonly Overlay[],
+): { deckItems: DeckItem[]; overlays: Overlay[] } {
+  return {
+    deckItems: deckItems.filter((item) => isThemeCompatibleWithOwnerKind(theme, item.type)),
+    overlays: isThemeCompatibleWithOwnerKind(theme, 'overlay') ? [...overlays] : [],
+  };
+}
 
 export function ThemeBinPanel() {
   const {
@@ -190,22 +206,15 @@ function ThemeContextMenuItems({
   onDelete: () => void;
 }) {
   const { applyThemeToTarget } = useThemeEditor();
-  const { presentations, lyrics, overlays } = useProjectContent();
+  const { deckItems, overlays } = useProjectContent();
 
-  const compatibleDeckItems = useMemo<DeckItem[]>(() => {
-    if (theme.kind === 'overlays') return [];
-    return [...presentations, ...lyrics].filter((item) =>
-      isThemeCompatibleWithDeckItem(theme, item.type),
-    );
-  }, [lyrics, presentations, theme]);
-
-  const compatibleOverlays = useMemo<Overlay[]>(() => {
-    if (theme.kind !== 'overlays') return [];
-    return overlays;
-  }, [overlays, theme.kind]);
+  const { deckItems: compatibleDeckItems, overlays: compatibleOverlays } = useMemo(
+    () => resolveThemeApplyTargets(theme, deckItems, overlays),
+    [deckItems, overlays, theme],
+  );
 
   const hasTargets = compatibleDeckItems.length > 0 || compatibleOverlays.length > 0;
-  const targetLabel = theme.kind === 'overlays' ? 'overlays' : theme.kind === 'lyrics' ? 'lyrics' : 'presentations';
+  const targetLabel = theme.kind === 'overlays' ? 'overlays' : theme.kind === 'lyrics' ? 'lyrics' : 'deck items';
 
   return (
     <ContextMenu.Portal>

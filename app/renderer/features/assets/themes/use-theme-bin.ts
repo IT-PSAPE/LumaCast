@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Theme } from '@core/types';
-import { isThemeCompatibleWithDeckItem } from '@core/themes';
+import { isThemeCompatibleWithOwnerKind } from '@core/themes';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useNavigation } from '../../../contexts/navigation-context';
 import { filterByText } from '../../../utils/filter-by-text';
@@ -29,7 +29,7 @@ export function useThemeBin() {
 
   const handleApplyTheme = useCallback(async (theme: Theme) => {
     if (!currentDeckItem) return;
-    if (!isThemeCompatibleWithDeckItem(theme, currentDeckItem.type)) return;
+    if (!isThemeCompatibleWithOwnerKind(theme, currentDeckItem.type)) return;
     await applyThemeToTarget(theme.id, { type: 'deck-item', itemId: currentDeckItem.id });
   }, [applyThemeToTarget, currentDeckItem]);
 
