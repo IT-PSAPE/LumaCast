@@ -6,7 +6,10 @@ import {
   collectDeckBundlePlaylistItemIds,
   filterDeckBundlePlaylistsToIncludedItems,
   getDeckBundlePlaylistEntryReference,
+  PROJECT_BACKUP_FORMAT,
+  PROJECT_BACKUP_VERSION,
   readElementMediaReference,
+  validateProjectBackup as validateProjectBackupDocument,
 } from '@core/deck-bundles';
 import { buildDeckItem } from '@core/deck-items';
 import {
@@ -19,7 +22,7 @@ import {
 import { applyThemeToElements, createDefaultThemeElements, isThemeCompatibleWithDeckItem, syncThemeToElements } from '@core/themes';
 import { createId, nowIso } from '@core/utils';
 import { SqliteDatabase } from './sqlite';
-import { runMigrations } from './migrations';
+import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations';
 import type {
   AppSnapshot,
   Cue,
@@ -77,6 +80,24 @@ import type {
   PlaylistEntry,
   PlaylistGroup,
   PlaylistTree,
+  ProjectBackup,
+  ProjectBackupCollectionRow,
+  ProjectBackupCueRow,
+  ProjectBackupDeckItemRow,
+  ProjectBackupLibraryRow,
+  ProjectBackupMacroRow,
+  ProjectBackupMacroStepRow,
+  ProjectBackupMediaAssetRow,
+  ProjectBackupOverlayRow,
+  ProjectBackupPlaylistEntryRow,
+  ProjectBackupPlaylistGroupRow,
+  ProjectBackupPlaylistRow,
+  ProjectBackupSlideElementRow,
+  ProjectBackupSlideRow,
+  ProjectBackupStageRow,
+  ProjectBackupTalkScriptBlockRow,
+  ProjectBackupThemeRow,
+  ProjectBackupTriggerBindingRow,
   Slide,
   SlideElement,
   SlideElementPayload,
@@ -115,6 +136,18 @@ const COLLECTION_BIN_KINDS: readonly CollectionBinKind[] = ['deck', 'image', 'vi
 
 const MEDIA_ASSET_TABLES = ['image_assets', 'video_assets', 'audio_assets'] as const;
 type MediaAssetTableName = typeof MEDIA_ASSET_TABLES[number];
+
+const PROJECT_BACKUP_COLLECTION_TABLES = [
+  'deck_collections',
+  'image_collections',
+  'video_collections',
+  'audio_collections',
+  'theme_collections',
+  'overlay_collections',
+  'stage_collections',
+  'macro_collections',
+] as const;
+type ProjectBackupCollectionTableName = typeof PROJECT_BACKUP_COLLECTION_TABLES[number];
 
 const MEDIA_TYPE_BY_TABLE: Record<MediaAssetTableName, MediaAssetType> = {
   image_assets: 'image',
@@ -6497,6 +6530,595 @@ private getSlides(): Slide[] {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Project backup (#145): complete, deterministic serialization of every
+  // application-owned v22 table. All readers are pure — they never mutate the
+  // database — and every row field is constructed explicitly (no object
+  // spread) so the column mapping is the visible contract. Rows are ordered
+  // by (created_at, id) — deterministic for any database state; the ordering
+  // metadata the app cares about (order_index etc.) is itself serialized.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Produces the complete project-backup document for the active database.
+   * Read-only: mutates nothing. Refuses to export unless the database schema
+   * version is exactly the supported version, so the produced document can
+   * never be a future-version backup, and gates every produced document
+   * through `validateProjectBackupDocument` before returning.
+   */
+  exportProjectBackup(): ProjectBackup {
+    const schemaVersion = this.db.pragma('user_version', { simple: true }) as number;
+    if (schemaVersion !== LATEST_SCHEMA_VERSION) {
+      throw new Error(
+        `Cannot export a project backup: database schema version ${schemaVersion} does not match the supported version ${LATEST_SCHEMA_VERSION}.`,
+      );
+    }
+
+    const backup: ProjectBackup = {
+      format: PROJECT_BACKUP_FORMAT,
+      version: PROJECT_BACKUP_VERSION,
+      schemaVersion,
+      tables: {
+        libraries: this.readProjectBackupLibraries(),
+        presentations: this.readProjectBackupDeckItems('presentations'),
+        lyrics: this.readProjectBackupDeckItems('lyrics'),
+        talks: this.readProjectBackupDeckItems('talks'),
+        slides: this.readProjectBackupSlides(),
+        slide_elements: this.readProjectBackupSlideElements(),
+        talk_script_blocks: this.readProjectBackupTalkScriptBlocks(),
+        playlists: this.readProjectBackupPlaylists(),
+        playlist_groups: this.readProjectBackupPlaylistGroups(),
+        playlist_entries: this.readProjectBackupPlaylistEntries(),
+        image_assets: this.readProjectBackupMediaAssets('image_assets'),
+        video_assets: this.readProjectBackupMediaAssets('video_assets'),
+        audio_assets: this.readProjectBackupMediaAssets('audio_assets'),
+        overlays: this.readProjectBackupOverlays(),
+        themes: this.readProjectBackupThemes(),
+        stages: this.readProjectBackupStages(),
+        cues: this.readProjectBackupCues(),
+        actions: this.readProjectBackupActions(),
+        action_steps: this.readProjectBackupActionSteps(),
+        trigger_bindings: this.readProjectBackupTriggerBindings(),
+        deck_collections: this.readProjectBackupCollections('deck_collections'),
+        image_collections: this.readProjectBackupCollections('image_collections'),
+        video_collections: this.readProjectBackupCollections('video_collections'),
+        audio_collections: this.readProjectBackupCollections('audio_collections'),
+        theme_collections: this.readProjectBackupCollections('theme_collections'),
+        overlay_collections: this.readProjectBackupCollections('overlay_collections'),
+        stage_collections: this.readProjectBackupCollections('stage_collections'),
+        macro_collections: this.readProjectBackupCollections('macro_collections'),
+      },
+    };
+    return validateProjectBackupDocument(backup);
+  }
+
+  /** Validates a project-backup document against the contract without touching the database. */
+  validateProjectBackup(backup: unknown): ProjectBackup {
+    return validateProjectBackupDocument(backup);
+  }
+
+  private readProjectBackupLibraries(): ProjectBackupLibraryRow[] {
+    const rows = this.db
+      .prepare('SELECT id, name, order_index, created_at, updated_at FROM libraries ORDER BY created_at ASC, id ASC')
+      .all() as Array<{
+      id: string;
+      name: string;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupDeckItems(table: 'presentations' | 'lyrics' | 'talks'): ProjectBackupDeckItemRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at
+         FROM ${table}
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      title: string;
+      theme_id: string | null;
+      collection_id: string;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      theme_id: row.theme_id,
+      collection_id: row.collection_id,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupSlides(): ProjectBackupSlideRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height,
+                notes, background_json, background_source, order_index, created_at, updated_at
+         FROM slides
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      presentation_id: string | null;
+      lyric_id: string | null;
+      talk_id: string | null;
+      theme_id: string | null;
+      overlay_id: string | null;
+      stage_id: string | null;
+      kind: SlideKind;
+      width: number;
+      height: number;
+      notes: string;
+      background_json: string | null;
+      background_source: string | null;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      presentation_id: row.presentation_id,
+      lyric_id: row.lyric_id,
+      talk_id: row.talk_id,
+      theme_id: row.theme_id,
+      overlay_id: row.overlay_id,
+      stage_id: row.stage_id,
+      kind: row.kind,
+      width: row.width,
+      height: row.height,
+      notes: row.notes,
+      background_json: row.background_json,
+      background_source: row.background_source as SlideBackgroundSource | null,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupSlideElements(): ProjectBackupSlideElementRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer,
+                payload_json, source_theme_element_id, created_at, updated_at
+         FROM slide_elements
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      slide_id: string;
+      type: SlideElement['type'];
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+      opacity: number;
+      z_index: number;
+      layer: SlideElement['layer'];
+      payload_json: string;
+      source_theme_element_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      slide_id: row.slide_id,
+      type: row.type,
+      x: row.x,
+      y: row.y,
+      width: row.width,
+      height: row.height,
+      rotation: row.rotation,
+      opacity: row.opacity,
+      z_index: row.z_index,
+      layer: row.layer,
+      payload_json: row.payload_json,
+      source_theme_element_id: row.source_theme_element_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupTalkScriptBlocks(): ProjectBackupTalkScriptBlockRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, slide_id, text, order_index, created_at, updated_at
+         FROM talk_script_blocks
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      slide_id: string;
+      text: string;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      slide_id: row.slide_id,
+      text: row.text,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupPlaylists(): ProjectBackupPlaylistRow[] {
+    const rows = this.db
+      .prepare(
+        'SELECT id, library_id, name, order_index, created_at, updated_at FROM playlists ORDER BY created_at ASC, id ASC',
+      )
+      .all() as Array<{
+      id: string;
+      library_id: string;
+      name: string;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      library_id: row.library_id,
+      name: row.name,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupPlaylistGroups(): ProjectBackupPlaylistGroupRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, playlist_id, name, color_key, order_index, created_at, updated_at
+         FROM playlist_groups
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      playlist_id: string;
+      name: string;
+      color_key: string | null;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      playlist_id: row.playlist_id,
+      name: row.name,
+      color_key: row.color_key,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupPlaylistEntries(): ProjectBackupPlaylistEntryRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at
+         FROM playlist_entries
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      group_id: string;
+      presentation_id: string | null;
+      lyric_id: string | null;
+      talk_id: string | null;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      group_id: row.group_id,
+      presentation_id: row.presentation_id,
+      lyric_id: row.lyric_id,
+      talk_id: row.talk_id,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupMediaAssets(table: MediaAssetTableName): ProjectBackupMediaAssetRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, src, collection_id, order_index, created_at, updated_at
+         FROM ${table}
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      name: string;
+      src: string;
+      collection_id: string;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      src: row.src,
+      collection_id: row.collection_id,
+      order_index: row.order_index,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupOverlays(): ProjectBackupOverlayRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, enabled, animation_json, collection_id, created_at, updated_at
+         FROM overlays
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      name: string;
+      enabled: number;
+      animation_json: string;
+      collection_id: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      enabled: row.enabled,
+      animation_json: row.animation_json,
+      collection_id: row.collection_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupThemes(): ProjectBackupThemeRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, kind, width, height, order_index, collection_id, created_at, updated_at
+         FROM themes
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      name: string;
+      kind: string;
+      width: number;
+      height: number;
+      order_index: number;
+      collection_id: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      kind: row.kind as ThemeKind,
+      width: row.width,
+      height: row.height,
+      order_index: row.order_index,
+      collection_id: row.collection_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupStages(): ProjectBackupStageRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, width, height, order_index, collection_id, created_at, updated_at
+         FROM stages
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      name: string;
+      width: number;
+      height: number;
+      order_index: number;
+      collection_id: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      width: row.width,
+      height: row.height,
+      order_index: row.order_index,
+      collection_id: row.collection_id,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupCues(): ProjectBackupCueRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, kind, payload_json, failure_policy, created_at, updated_at
+         FROM cues
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      kind: string;
+      payload_json: string;
+      failure_policy: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      kind: row.kind as CueKind,
+      payload_json: row.payload_json,
+      failure_policy: row.failure_policy as CueFailurePolicy,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupActions(): ProjectBackupMacroRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count,
+                created_at, updated_at
+         FROM actions
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      name: string;
+      description: string;
+      collection_id: string;
+      scope_level: string;
+      on_scope_exit: string;
+      loop_enabled: number;
+      loop_count: number | null;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      collection_id: row.collection_id,
+      scope_level: row.scope_level as ScopeLevel,
+      on_scope_exit: row.on_scope_exit as OnScopeExit,
+      loop_enabled: row.loop_enabled,
+      loop_count: row.loop_count,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupActionSteps(): ProjectBackupMacroStepRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, action_id, kind, payload_json, failure_policy, cue_id, order_index,
+                delay_before_ms, delay_after_ms, created_at, updated_at
+         FROM action_steps
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      action_id: string;
+      kind: string;
+      payload_json: string;
+      failure_policy: string;
+      cue_id: string | null;
+      order_index: number;
+      delay_before_ms: number;
+      delay_after_ms: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      action_id: row.action_id,
+      kind: row.kind as CueKind,
+      payload_json: row.payload_json,
+      failure_policy: row.failure_policy as CueFailurePolicy,
+      cue_id: row.cue_id,
+      order_index: row.order_index,
+      delay_before_ms: row.delay_before_ms,
+      delay_after_ms: row.delay_after_ms,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupTriggerBindings(): ProjectBackupTriggerBindingRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
+         FROM trigger_bindings
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      trigger_type: string;
+      source_id: string | null;
+      target_type: string;
+      target_id: string;
+      config_json: string;
+      enabled: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      trigger_type: row.trigger_type as TriggerType,
+      source_id: row.source_id,
+      target_type: row.target_type as TriggerBindingTargetType,
+      target_id: row.target_id,
+      config_json: row.config_json,
+      enabled: row.enabled,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
+  private readProjectBackupCollections(table: ProjectBackupCollectionTableName): ProjectBackupCollectionRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, order_index, is_default, created_at, updated_at
+         FROM ${table}
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Array<{
+      id: string;
+      name: string;
+      order_index: number;
+      is_default: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      order_index: row.order_index,
+      is_default: row.is_default,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
   }
 
   private normalizePlaylistOrder(libraryId: Id): void {

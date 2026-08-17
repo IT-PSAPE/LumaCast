@@ -1,0 +1,94 @@
+# ADR-0006: Project Backup Format
+
+## Status
+
+Accepted
+
+## Context
+
+Issue #145 calls for a complete, versioned backup of all application state as
+the recovery boundary. Deck bundles only capture a selection of deck items,
+and snapshots are an in-app undo mechanism rather than a durable export
+artifact. Without an explicit contract, a backup is only as trustworthy as the
+code that happened to write it: fields could be dropped silently, order could
+be nondeterministic, and a backup written by a newer app version could be
+silently misread by an older one. The schema was also missing explicit
+treatment of which tables are application-owned (issue #110) and there was no
+named validation gate at the backup boundary.
+
+## Decision
+
+- A project backup is a distinct artifact from deck bundles: a single JSON
+  document with envelope `{ format: 'cast-project-backup', version: 1,
+  schemaVersion, tables }`, where `format` is a literal string, `version` is
+  the backup-format version, and `schemaVersion` is the source database's
+  `PRAGMA user_version` (currently 22). The envelope deliberately carries no
+  timestamp or other export-time state, so two exports of unchanged data
+  serialize byte-for-byte identically.
+- The `tables` object enumerates all 28 application-owned v22 tables —
+  `libraries`, `presentations`, `lyrics`, `talks`, `slides`,
+  `slide_elements`, `talk_script_blocks`, `playlists`, `playlist_groups`,
+  `playlist_entries`, `image_assets`, `video_assets`, `audio_assets`,
+  `overlays`, `themes`, `stages`, `cues`, `actions`, `action_steps`,
+  `trigger_bindings`, and the eight `*_collections` families — with every
+  column serialized explicitly under its SQL snake_case name. No object
+  spread is used at the backup boundary, so a column added later cannot leak
+  into a backup by accident. Column nullability mirrors the SQL schema
+  verbatim (`action_steps.cue_id` is nullable because the v22 physical column
+  carries no `NOT NULL` constraint, so direct, legacy, or externally
+  maintained database state may legally contain null there).
+- Rows are serialized in deterministic order (`created_at ASC, id ASC`),
+  JSON-valued columns as raw JSON strings. Managed media files are never
+  copied; only `src` references are recorded. There are no settings tables in
+  v22, so migration/schema metadata is carried solely by `schemaVersion`.
+- `validateProjectBackup` in `app/core/deck-bundles.ts` is the named
+  validation function and the core-policy owner of the contract. It rejects
+  backups with a future format version (> 1), a `schemaVersion` other than
+  the exact supported version, the wrong format string, an envelope that is
+  not exactly the four keys `format`/`version`/`schemaVersion`/`tables`,
+  missing or extra tables or columns, malformed types/enums/flags, and slide
+  rows that violate the single-owner invariant the schema CHECK enforces. It
+  throws `ProjectBackupValidationError`. Playlist-entry ownership and other
+  cross-table referential integrity are restore-side checks deferred to
+  issue #146; validation never rejects a document the exporter can produce.
+- The repository exposes `exportProjectBackup()` and
+  `validateProjectBackup(backup)` without mutating the active database;
+  export requires the `user_version` to equal `LATEST_SCHEMA_VERSION`
+  exactly and passes every produced document through
+  `validateProjectBackup` before returning.
+- Archive read/write lives in `app/main/deck-bundle-archive.ts`
+  (`writeProjectBackupArchive`/`readProjectBackupArchive`), sharing zip
+  helpers with the deck-bundle archive; both write and read validate the
+  document through core policy. The single-entry zip reader verifies archive
+  bounds, the exact single-entry count, central/local offsets and lengths,
+  and central/local name agreement, and additionally requires CRC/size
+  agreement for the stored entry: the local and central compressed and
+  uncompressed sizes must equal the extracted data length, the local and
+  central CRCs must agree with each other, and the payload's computed CRC
+  must match — failing with the shared `Invalid bundle archive` error rather
+  than raw range errors.
+- Restore is deferred to issue #146, including cross-table referential
+  integrity checks. The export side, its deterministic serialization, and its
+  validation contract ship now.
+
+## Consequences
+
+- A backup is self-describing and versioned: a future-format backup is
+  rejected instead of silently misread, and a backup's meaning is pinned by
+  its `format`/`version`/`schemaVersion` triple, with `schemaVersion`
+  matched exactly so a backup written from a future schema is never
+  interpreted as a v22 document.
+- The per-table/per-column enumeration is explicit and tested against a
+  maximally populated fixture, so adding or renaming a column surfaces as a
+  contract change rather than a silent drift.
+- Deterministic ordering, JSON-raw-string columns, and a timestamp-free
+  envelope keep the format byte-stable for a given database, which makes
+  exports deeply and byte-for-byte equal and therefore comparable and
+  diffable.
+- The contract lives in core policy, so renderer, main, and future restore
+  code all validate through one gate.
+- Future schema migrations must either extend the backup format
+  deliberately (bumping `PROJECT_BACKUP_VERSION` or `schemaVersion`) or keep
+  the v22 mapping intact; `action_steps` legacy columns (`kind`,
+  `payload_json`, `failure_policy`) remain part of the contract until a
+  migration removes them.
