@@ -72,6 +72,10 @@ describe('CastRepository.duplicateDeckItem', () => {
       dbPath: path.join(tmpDir, 'lumacast.sqlite'),
       userDataPath: tmpDir,
       documentsPath: tmpDir,
+      // These tests assert absolute counts and order indices of the items
+      // they create — an unseeded database keeps those assertions accurate
+      // without hand-filtering starter content out of every one of them.
+      seed: false,
     });
   });
 

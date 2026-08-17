@@ -72,6 +72,10 @@ describe('CastRepository.createDeckItemWithFirstSlide', () => {
       dbPath: path.join(tmpDir, 'lumacast.sqlite'),
       userDataPath: tmpDir,
       documentsPath: tmpDir,
+      // These tests assert absolute counts of the items they create — an
+      // unseeded database keeps those counts meaningful without hand-filtering
+      // starter content out of every assertion.
+      seed: false,
     });
   });
 
@@ -242,6 +246,12 @@ describe('CastRepository.createDeckItemWithFirstSlide', () => {
 
   it('rolls back everything when a later element insert fails mid-materialization', () => {
     const theme = createTheme('slides', [makeElement('e-1', 'First', 1), makeElement('e-2', 'Second', 2)]);
+    // Baseline captured after theme creation: the theme's own container slide
+    // already owns 2 slide_elements rows, which legitimately show up in the
+    // unscoped snapshot.slideElements collection. Assert on the delta rather
+    // than an absolute total so this test doesn't depend on how many elements
+    // theme setup happens to create.
+    const baselineElementCount = repo.getSnapshot().slideElements.length;
     const restore = failOnPrepare(repo, 'INSERT INTO slide_elements', 2);
     try {
       expect(() => repo.createDeckItemWithFirstSlide({ type: 'presentation', title: 'Rollback C', themeId: theme.id })).toThrow();
@@ -251,7 +261,7 @@ describe('CastRepository.createDeckItemWithFirstSlide', () => {
     const snapshot = repo.getSnapshot();
     expect(snapshot.presentations.some((p) => p.title === 'Rollback C')).toBe(false);
     expect(snapshot.slides).toHaveLength(0);
-    expect(snapshot.slideElements).toHaveLength(0);
+    expect(snapshot.slideElements).toHaveLength(baselineElementCount);
   });
 
   it('publishes one patch reflecting the committed owner, slide, and elements together', () => {

@@ -1044,6 +1044,13 @@ export interface RepositoryOptions {
   dbPath: string;
   userDataPath: string;
   documentsPath: string;
+  /**
+   * Whether to insert starter onboarding content into an empty database.
+   * Defaults to true so real users always get seeded content; tests that
+   * don't want to hand-filter starter rows out of every assertion can pass
+   * `seed: false` to open a genuinely empty database instead.
+   */
+  seed?: boolean;
 }
 
 export class CastRepository {
@@ -1057,7 +1064,9 @@ export class CastRepository {
     this.db = new SqliteDatabase(this.dbPath);
     this.applyConnectionTuning();
     runMigrations(this.db, this.dbPath);
-    this.seedIfEmpty();
+    if (options.seed !== false) {
+      this.seedIfEmpty();
+    }
   }
 
   private applyConnectionTuning(db: SqliteDatabase = this.db): void {

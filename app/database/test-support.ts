@@ -49,31 +49,37 @@ function isSafeCleanupTarget(target: string): boolean {
   return true;
 }
 
-export function createTestRepository(): TestRepositoryHandle {
+export interface CreateTestRepositoryOptions {
+  /** Pass `false` to open a database with no starter onboarding content seeded. Defaults to true. */
+  seed?: boolean;
+}
+
+export function createTestRepository(options: CreateTestRepositoryOptions = {}): TestRepositoryHandle {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), TEMP_PREFIX));
-  const options: RepositoryOptions = {
+  const repositoryOptions: RepositoryOptions = {
     dbPath: path.join(root, 'lumacast.sqlite'),
     userDataPath: root,
     documentsPath: path.join(root, 'documents'),
+    seed: options.seed,
   };
 
-  let repository = new CastRepository(options);
+  let repository = new CastRepository(repositoryOptions);
   let closed = false;
 
   const handle: TestRepositoryHandle = {
     repository,
     paths: {
       root,
-      dbPath: options.dbPath,
-      userDataPath: options.userDataPath,
-      documentsPath: options.documentsPath,
+      dbPath: repositoryOptions.dbPath,
+      userDataPath: repositoryOptions.userDataPath,
+      documentsPath: repositoryOptions.documentsPath,
     },
     close: () => {
       closeRepository(handle.repository);
       closed = true;
     },
     reopen: () => {
-      repository = new CastRepository(options);
+      repository = new CastRepository(repositoryOptions);
       handle.repository = repository;
       closed = false;
       return repository;

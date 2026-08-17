@@ -1,3 +1,12 @@
+// @vitest-environment node
+//
+// The global vitest.config.ts sets `environment: 'jsdom'`, but jsdom's
+// polyfilled global `URL` is incompatible with the Node-only
+// `fileURLToPath(new URL('..', import.meta.url))` pattern used below to
+// locate the fixtures directory, throwing `TypeError: The URL must be of
+// scheme file`. This suite is pure Node/SQLite migration testing with no DOM
+// dependency, so it opts back into the Node environment per-file rather than
+// weakening the global jsdom default that the rest of the suite relies on.
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';

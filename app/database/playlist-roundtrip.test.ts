@@ -13,7 +13,11 @@ function closeRepo(target: CastRepository): void {
 }
 
 function makeRepo(dir: string): CastRepository {
-  return new CastRepository({ dbPath: path.join(dir, 'lumacast.sqlite'), userDataPath: dir, documentsPath: dir });
+  // These tests exercise playlists and libraries they create themselves, and
+  // two of them assert an absolute libraryBundles count after a rejected
+  // import — seeding is disabled so that count stays meaningful without
+  // hand-filtering starter content out of every assertion.
+  return new CastRepository({ dbPath: path.join(dir, 'lumacast.sqlite'), userDataPath: dir, documentsPath: dir, seed: false });
 }
 
 function createLibrary(target: CastRepository, name: string): Id {
