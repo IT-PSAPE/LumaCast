@@ -3383,7 +3383,9 @@ export class CastRepository {
 
   syncThemeToLinkedDeckItems(themeId: Id): SnapshotPatch {
     const theme = this.getThemeById(themeId);
-    if (!theme) return this.buildPatch({});
+    if (!theme) {
+      throw new Error(`Theme not found: ${themeId}`);
+    }
 
     const presentations = this.db
       .prepare('SELECT id FROM presentations WHERE theme_id = ?')

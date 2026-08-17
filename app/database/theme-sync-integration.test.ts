@@ -239,6 +239,36 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
     });
   });
 
+  describe('Sync distinguishes a failed lookup from a genuine no-op (#212)', () => {
+    it('throws the same explicit error as Apply when the theme id does not resolve', () => {
+      const themeId = createTheme('slides', 'Slide Theme');
+      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const unresolvableId = 'does-not-exist';
+
+      expect(() => repo.syncThemeToLinkedDeckItems(unresolvableId))
+        .toThrow(`Theme not found: ${unresolvableId}`);
+      expect(() => repo.applyThemeToDeckItem(unresolvableId, itemId))
+        .toThrow(`Theme not found: ${unresolvableId}`);
+    });
+
+    it('returns an empty, no-op patch without throwing when the theme resolves but has no linked deck items', () => {
+      const themeId = createTheme('slides', 'Unlinked Theme');
+
+      let patch: ReturnType<typeof repo.syncThemeToLinkedDeckItems> | undefined;
+      expect(() => {
+        patch = repo.syncThemeToLinkedDeckItems(themeId);
+      }).not.toThrow();
+
+      expect(patch).toBeDefined();
+      expect(patch!.upserts.presentations ?? []).toHaveLength(0);
+      expect(patch!.upserts.lyrics ?? []).toHaveLength(0);
+      expect(patch!.upserts.talks ?? []).toHaveLength(0);
+      expect(patch!.upserts.slides ?? []).toHaveLength(0);
+      expect(patch!.upserts.slideElements ?? []).toHaveLength(0);
+      expect(patch!.deletes.slideElements ?? []).toHaveLength(0);
+    });
+  });
+
   describe('Multi-owner Sync is one transaction and fails all-or-nothing', () => {
     it('leaves every owner unchanged and reports the error when one owner is corrupt', () => {
       const themeId = createTheme('slides', 'Slide Theme');
