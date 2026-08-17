@@ -7,15 +7,14 @@ import { ContextMenu } from '../../components/overlays/context-menu';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { hasClipboardContent } from '../../contexts/element/use-element-history';
 import type { RenderNode, RenderScene, SceneSurface } from './scene-types';
-import { SceneNodeMedia } from './scene-node-media';
-import { SceneNodeShape } from './scene-node-shape';
-import { SceneNodeText } from './scene-node-text';
+import { renderSceneNodeContent } from '../../rendering/scene-node-content';
+import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from '../../rendering/scene-traversal';
 import { SceneSlideBackground } from './scene-slide-background';
 import { InlineTextEditor } from './inline-text-editor';
 import { useSceneStageEditor } from './use-scene-stage-editor';
 import type { SceneViewportTransform } from './use-scene-stage-viewport';
 import { useSceneStageViewport } from './use-scene-stage-viewport';
-import { setNdiCaptureSource } from '../playback/ndi-capture-source';
+import { setCaptureSurface } from '../../rendering/capture-surface-registry';
 
 interface SceneStageProps {
   scene: RenderScene;
@@ -31,13 +30,6 @@ interface SceneStageProps {
 
 function rotationSnaps(): number[] {
   return Array.from({ length: 24 }, (_value, index) => index * 15);
-}
-
-function renderNodeContent(node: RenderNode, surface: SceneSurface) {
-  if (node.element.type === 'shape') return <SceneNodeShape node={node} />;
-  if (node.element.type === 'text') return <SceneNodeText node={node} />;
-  if (node.element.type === 'image' || node.element.type === 'video') return <SceneNodeMedia node={node} surface={surface} />;
-  return null;
 }
 
 // ─── SceneNode ──────────────────────────────────────────────────────
@@ -63,7 +55,8 @@ const SceneNode = memo(function SceneNode({
   onSelect, onDoubleClick, onDragStart, onDragMove, onDragEnd,
   onTransform, onTransformEnd, onContextMenu, setNodeRef,
 }: SceneNodeProps) {
-  if (node.visual.visible === false) return null;
+  if (!isSceneNodeVisible(node)) return null;
+  const frame = sceneNodeFrame(node);
 
   function handleClick(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
     event.cancelBubble = true;
@@ -102,18 +95,18 @@ const SceneNode = memo(function SceneNode({
     <Fragment>
       <Group
         ref={handleRef}
-        x={node.element.x}
-        y={node.element.y}
-        width={node.element.width}
-        height={node.element.height}
-        rotation={node.element.rotation}
+        x={frame.x}
+        y={frame.y}
+        width={frame.width}
+        height={frame.height}
+        rotation={frame.rotation}
         // The text stays rendered on the canvas while editing — the inline editor
         // is a transparent input overlay, so there is one render path (no swap).
-        opacity={node.element.opacity}
-        scaleX={node.visual.flipX ? -1 : 1}
-        scaleY={node.visual.flipY ? -1 : 1}
-        offsetX={node.visual.flipX ? node.element.width : 0}
-        offsetY={node.visual.flipY ? node.element.height : 0}
+        opacity={frame.opacity}
+        scaleX={frame.scaleX}
+        scaleY={frame.scaleY}
+        offsetX={frame.offsetX}
+        offsetY={frame.offsetY}
         listening={listening}
         draggable={editable && !node.visual.locked && !isBeingEdited}
         onMouseDown={editable ? handleClick : undefined}
@@ -127,7 +120,7 @@ const SceneNode = memo(function SceneNode({
         onTransformEnd={editable ? onTransformEnd : undefined}
         onContextMenu={editable ? handleContextMenu : undefined}
       >
-        {renderNodeContent(node, surface)}
+        {renderSceneNodeContent(node, surface)}
       </Group>
     </Fragment>
   );
@@ -139,6 +132,9 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
   const editor = useSceneStageEditor({ scene, editable });
   const viewport = useSceneStageViewport(scene.width, scene.height, fixedViewport);
   const snaps = useMemo(rotationSnaps, []);
+  // Shared back→front traversal: visibility filtering and node frame transforms
+  // come from the shared scene layer so every surface walks the scene identically.
+  const sceneNodes = useMemo(() => traverseSceneNodes(scene.nodes), [scene.nodes]);
   const {
     selectedElementIds, selectElement, effectiveElements, reorderElements,
     copySelection, cutSelection, pasteSelection, duplicateSelection, deleteSelected,
@@ -204,7 +200,7 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
 
     const syncCaptureSource = () => {
       const layer = editor.stageRef.current?.getLayers()[0];
-      setNdiCaptureSource(ndiCaptureSource, layer?.getNativeCanvasElement() ?? null);
+      setCaptureSurface(ndiCaptureSource, layer?.getNativeCanvasElement() ?? null);
     };
 
     syncCaptureSource();
@@ -212,7 +208,7 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
 
     return () => {
       cancelAnimationFrame(frameId);
-      setNdiCaptureSource(ndiCaptureSource, null);
+      setCaptureSurface(ndiCaptureSource, null);
     };
   }, [editor.stageRef, ndiCaptureSource, scene.height, scene.width, viewport.viewportHeight, viewport.viewportWidth]);
 
@@ -257,7 +253,7 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
         <Layer listening={editable}>
           <Group name="scene-root" x={viewport.sceneOffsetX} y={viewport.sceneOffsetY} scaleX={viewport.sceneScale} scaleY={viewport.sceneScale}>
             <SceneSlideBackground background={scene.slide.background} width={scene.width} height={scene.height} surface={surface} />
-            {scene.nodes.map((node) => (
+            {sceneNodes.map(({ node }) => (
               <SceneNode
                 key={node.id}
                 node={node}

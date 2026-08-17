@@ -4,10 +4,10 @@ import type Konva from 'konva';
 import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
 import type { NdiOutputName, TextBinding } from '@core/types';
 import { useNdi } from '../../contexts/app-context';
-import { SceneNodeMedia } from '../canvas/scene-node-media';
-import { SceneNodeShape } from '../canvas/scene-node-shape';
-import { SceneNodeText } from '../canvas/scene-node-text';
+import { renderSceneNodeContent } from '../../rendering/scene-node-content';
+import { traverseSceneNodes } from '../../rendering/scene-traversal';
 import { useBinding, type BindingValue } from '../canvas/binding-context';
+import { SceneNodeShape } from '../canvas/scene-node-shape';
 import type { RenderNode, RenderScene, SceneSurface } from '../canvas/scene-types';
 import { useNdiCaptureSource } from './ndi-capture-source';
 import NdiReadbackWorker from './ndi-readback-worker?worker';
@@ -17,13 +17,6 @@ const FRAME_INTERVAL_MS = 1000 / 30;
 // If we've been waiting on an ack longer than this, assume it was lost
 // and free up the back-pressure slot so capture can resume.
 const ACK_WATCHDOG_MS = 250;
-
-function renderNodeContent(node: RenderNode, surface: SceneSurface, onImageLoad?: () => void) {
-  if (node.element.type === 'shape') return <SceneNodeShape node={node} />;
-  if (node.element.type === 'text') return <SceneNodeText node={node} />;
-  if (node.element.type === 'image' || node.element.type === 'video') return <SceneNodeMedia node={node} surface={surface} onLoad={onImageLoad} />;
-  return null;
-}
 
 // Cheap signature used to decide whether the output has visibly changed
 // since the last capture. Video nodes are excluded because their contents
@@ -352,26 +345,23 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
             </Group>
           ) : null}
           <Group>
-            {scene.nodes.map((node) => {
-              if (node.visual.visible === false) return null;
-              return (
-                <Group
-                  key={node.id}
-                  x={node.element.x}
-                  y={node.element.y}
-                  width={node.element.width}
-                  height={node.element.height}
-                  rotation={node.element.rotation}
-                  opacity={node.element.opacity}
-                  scaleX={node.visual.flipX ? -1 : 1}
-                  scaleY={node.visual.flipY ? -1 : 1}
-                  offsetX={node.visual.flipX ? node.element.width : 0}
-                  offsetY={node.visual.flipY ? node.element.height : 0}
-                >
-                  {renderNodeContent(node, surface, handleImageLoad)}
-                </Group>
-              );
-            })}
+            {traverseSceneNodes(scene.nodes).map(({ node, frame }) => (
+              <Group
+                key={node.id}
+                x={frame.x}
+                y={frame.y}
+                width={frame.width}
+                height={frame.height}
+                rotation={frame.rotation}
+                opacity={frame.opacity}
+                scaleX={frame.scaleX}
+                scaleY={frame.scaleY}
+                offsetX={frame.offsetX}
+                offsetY={frame.offsetY}
+              >
+                {renderSceneNodeContent(node, surface, { onMediaLoad: handleImageLoad })}
+              </Group>
+            ))}
           </Group>
         </Layer>
       </Stage>
