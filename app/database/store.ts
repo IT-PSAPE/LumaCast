@@ -1413,7 +1413,10 @@ export class CastRepository {
 
   setItemCollection(input: CollectionAssignmentInput): SnapshotPatch {
     const itemTable = this.resolveItemTable(input.itemType, input.itemId);
-    if (!itemTable) return this.buildPatch({});
+    // Unlike the target-collection guard below (already throwing), this guard
+    // masked a failed item lookup across the polymorphic item tables: the id
+    // was given and did not resolve, so reporting success was a lie (#214).
+    if (!itemTable) throw new Error(`Item not found: ${input.itemId}`);
 
     const targetBin = this.getCollectionBinKindByCollectionId(input.collectionId);
     if (!targetBin) {
@@ -1430,11 +1433,11 @@ export class CastRepository {
     return this.buildPatch(buildPatchSpecForItemType(input.itemType, input.itemId));
   }
 
-  // Resolves the SQL table that holds a given collection item. Returns null
-  // when the item is missing, matching the previous "missing item → empty
-  // patch" behaviour. Media assets are spread across image/video/audio
+  // Resolves the SQL table that holds a given collection item, or null when
+  // the item is missing. Media assets are spread across image/video/audio
   // tables since the v11 schema split, so we probe each one until we find
-  // it; everything else maps statically.
+  // it; everything else maps statically. A null result is a failed lookup,
+  // surfaced by the caller as `Item not found` (#214).
   private resolveItemTable(itemType: CollectionItemType, itemId: Id): string | null {
     if (itemType === 'media_asset') {
       for (const table of MEDIA_ASSET_TABLES) {
@@ -1799,6 +1802,8 @@ export class CastRepository {
   }
 
   deleteCue(id: Id): SnapshotPatch {
+    const exists = this.db.prepare('SELECT id FROM cues WHERE id = ?').get(id);
+    if (!exists) throw new Error(`Cue not found: ${id}`);
     // Capture cascade victims before deleting so the patch reflects them.
     const affectedMacroIds = (this.db.prepare(
       'SELECT DISTINCT action_id FROM action_steps WHERE cue_id = ?'
@@ -1963,6 +1968,8 @@ export class CastRepository {
   }
 
   deleteMacro(id: Id): SnapshotPatch {
+    const exists = this.db.prepare('SELECT id FROM actions WHERE id = ?').get(id);
+    if (!exists) throw new Error(`Macro not found: ${id}`);
     const orphanedBindingIds = (this.db.prepare(
       "SELECT id FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?"
     ).all(id) as Array<{ id: string }>).map((row) => row.id);
@@ -2948,9 +2955,10 @@ export class CastRepository {
   }
 
   renamePlaylistGroup(id: Id, name: string): SnapshotPatch {
-    this.db
+    const result = this.db
       .prepare('UPDATE playlist_groups SET name = ?, updated_at = ? WHERE id = ?')
       .run(name, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Group not found: ${id}`);
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
@@ -3065,7 +3073,7 @@ export class CastRepository {
       .prepare('SELECT id, group_id, order_index FROM playlist_entries WHERE id = ?')
       .get(entryId) as { id: string; group_id: string; order_index: number } | undefined;
 
-    if (!current) return this.buildPatch({});
+    if (!current) throw new Error(`Playlist entry not found: ${entryId}`);
 
     const neighbor = direction === 'up'
       ? this.db
@@ -3105,7 +3113,7 @@ export class CastRepository {
       )
       .get(entryId) as { id: string; group_id: string; playlist_id: string } | undefined;
 
-    if (!entry) return this.buildPatch({});
+    if (!entry) throw new Error(`Playlist entry not found: ${entryId}`);
 
     if (!groupId) {
       this.db
@@ -3118,7 +3126,7 @@ export class CastRepository {
       .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
       .get(groupId, entry.playlist_id) as { id: string } | undefined;
 
-    if (!targetGroup) return this.buildPatch({});
+    if (!targetGroup) throw new Error(`Group not found: ${groupId}`);
 
     const now = nowIso();
     const currentOrder =
@@ -4056,7 +4064,7 @@ export class CastRepository {
       .prepare('SELECT id, library_id, order_index FROM playlists WHERE id = ?')
       .get(id) as { id: string; library_id: string; order_index: number } | undefined;
 
-    if (!current) return this.buildPatch({});
+    if (!current) throw new Error(`Playlist not found: ${id}`);
 
     const neighbor = direction === 'up'
       ? this.db
@@ -4089,7 +4097,7 @@ export class CastRepository {
   moveDeckItem(id: Id, direction: 'up' | 'down'): SnapshotPatch {
     const orderedItems = this.getOrderedContentReferences();
     const currentIndex = orderedItems.findIndex((item) => item.id === id);
-    if (currentIndex === -1) return this.buildPatch({});
+    if (currentIndex === -1) throw new Error(`Deck item not found: ${id}`);
 
     const neighborIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     const neighbor = orderedItems[neighborIndex] ?? null;
@@ -4506,7 +4514,7 @@ export class CastRepository {
       .all() as { id: string; order_index: number }[];
 
     const currentIndex = siblings.findIndex((s) => s.id === libraryId);
-    if (currentIndex === -1) return this.buildPatch({});
+    if (currentIndex === -1) throw new Error(`Library not found: ${libraryId}`);
 
     const maxOrder = siblings.length - 1;
     const targetOrder = Math.max(0, Math.min(newOrder, maxOrder));
@@ -4536,7 +4544,7 @@ export class CastRepository {
       .prepare('SELECT id, library_id, order_index FROM playlists WHERE id = ?')
       .get(playlistId) as { id: string; library_id: string; order_index: number } | undefined;
 
-    if (!current) return this.buildPatch({});
+    if (!current) throw new Error(`Playlist not found: ${playlistId}`);
 
     const siblings = this.db
       .prepare('SELECT id, order_index FROM playlists WHERE library_id = ? ORDER BY order_index ASC')
@@ -4573,12 +4581,12 @@ export class CastRepository {
          WHERE pe.id = ?`
       )
       .get(entryId) as { id: string; group_id: string; playlist_id: string } | undefined;
-    if (!entry) return this.buildPatch({});
+    if (!entry) throw new Error(`Playlist entry not found: ${entryId}`);
 
     const targetGroup = this.db
       .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
       .get(groupId, entry.playlist_id) as { id: string } | undefined;
-    if (!targetGroup) return this.buildPatch({});
+    if (!targetGroup) throw new Error(`Group not found: ${groupId}`);
 
     const now = nowIso();
     const isSameGroup = entry.group_id === groupId;
@@ -4641,7 +4649,7 @@ export class CastRepository {
       .prepare('SELECT id, playlist_id, order_index FROM playlist_groups WHERE id = ?')
       .get(groupId) as { id: string; playlist_id: string; order_index: number } | undefined;
 
-    if (!current) return this.buildPatch({});
+    if (!current) throw new Error(`Group not found: ${groupId}`);
 
     const siblings = this.db
       .prepare('SELECT id, order_index FROM playlist_groups WHERE playlist_id = ? ORDER BY order_index ASC')
@@ -4805,7 +4813,7 @@ export class CastRepository {
               payload_json: string;
             }
           | undefined;
-        if (!existing) continue;
+        if (!existing) throw new Error(`Slide element not found: ${input.id}`);
         update.run(
           input.x ?? existing.x,
           input.y ?? existing.y,
@@ -4953,41 +4961,48 @@ export class CastRepository {
   }
 
   renameLibrary(id: Id, name: string): SnapshotPatch {
-    this.db
+    const result = this.db
       .prepare('UPDATE libraries SET name = ?, updated_at = ? WHERE id = ?')
       .run(name, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Library not found: ${id}`);
     return this.buildPatch({ upsertLibraryIds: [id], replaceLibraryBundles: true });
   }
 
   renamePlaylist(id: Id, name: string): SnapshotPatch {
-    this.db
+    const result = this.db
       .prepare('UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?')
       .run(name, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Playlist not found: ${id}`);
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
   renamePresentation(id: Id, title: string): SnapshotPatch {
-    this.db
+    const result = this.db
       .prepare('UPDATE presentations SET title = ?, updated_at = ? WHERE id = ?')
       .run(title, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Deck item not found: ${id}`);
     return this.buildPatch({ upsertPresentationIds: [id], replaceLibraryBundles: true });
   }
 
   renameLyric(id: Id, title: string): SnapshotPatch {
-    this.db
+    const result = this.db
       .prepare('UPDATE lyrics SET title = ?, updated_at = ? WHERE id = ?')
       .run(title, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Deck item not found: ${id}`);
     return this.buildPatch({ upsertLyricIds: [id], replaceLibraryBundles: true });
   }
 
   renameTalk(id: Id, title: string): SnapshotPatch {
-    this.db
+    const result = this.db
       .prepare('UPDATE talks SET title = ?, updated_at = ? WHERE id = ?')
       .run(title, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Deck item not found: ${id}`);
     return this.buildPatch({ upsertTalkIds: [id], replaceLibraryBundles: true });
   }
 
   deleteLibrary(id: Id): SnapshotPatch {
+    const exists = this.db.prepare('SELECT id FROM libraries WHERE id = ?').get(id);
+    if (!exists) throw new Error(`Library not found: ${id}`);
     const tx = this.db.transaction((libraryId: Id) => {
       this.db
         .prepare(
@@ -5290,6 +5305,8 @@ export class CastRepository {
   }
 
   deleteStage(stageId: Id): SnapshotPatch {
+    const exists = this.db.prepare('SELECT id FROM stages WHERE id = ?').get(stageId);
+    if (!exists) throw new Error(`Stage not found: ${stageId}`);
     const slideId = `${stageId}:slide`;
     const tx = this.db.transaction(() => {
       // Drop the owning slide first (its stage_id FK references the stage).

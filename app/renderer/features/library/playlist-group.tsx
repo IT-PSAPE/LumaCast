@@ -143,8 +143,17 @@ function PlaylistGroupBody({ group, index, totalGroups }: PlaylistGroupProps) {
       </Accordion.Item>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item disabled={isFirst} onSelect={() => { void movePlaylistGroup(group.group.id, index, 'up'); }}>Move up</ContextMenu.Item>
-          <ContextMenu.Item disabled={isLast} onSelect={() => { void movePlaylistGroup(group.group.id, index, 'down'); }}>Move down</ContextMenu.Item>
+          <ContextMenu.Item disabled={isFirst} onSelect={() => {
+            // movePlaylistGroup → setPlaylistGroupOrder rejects when the group
+            // no longer exists (#214), which a context-menu action can race with
+            // a concurrent delete. mutatePatch has already reported the failure,
+            // so absorb the rethrow here.
+            void movePlaylistGroup(group.group.id, index, 'up').catch(() => undefined);
+          }}>Move up</ContextMenu.Item>
+          <ContextMenu.Item disabled={isLast} onSelect={() => {
+            // See the "Move up" item above: same race, same absorption.
+            void movePlaylistGroup(group.group.id, index, 'down').catch(() => undefined);
+          }}>Move down</ContextMenu.Item>
           <ContextMenu.Separator />
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Submenu label="Color">
@@ -224,7 +233,11 @@ function GroupEntryRowBody({
       confirmLabel: 'Remove',
       destructive: true,
     });
-    if (ok) await removePlaylistEntry(entry.id);
+    // removePlaylistEntry → movePlaylistEntryToGroup rejects when the entry no
+    // longer exists (#214), which this context-menu action can race with a
+    // concurrent delete. mutatePatch has already reported the failure, so
+    // absorb the rethrow here.
+    if (ok) await removePlaylistEntry(entry.id).catch(() => undefined);
   }
 
   return (
@@ -243,8 +256,17 @@ function GroupEntryRowBody({
       </LumaCastPanel.MenuItem>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item disabled={isFirst} onSelect={() => { void movePlaylistEntryDirection(entry.id, 'up'); }}>Move up</ContextMenu.Item>
-          <ContextMenu.Item disabled={isLast} onSelect={() => { void movePlaylistEntryDirection(entry.id, 'down'); }}>Move down</ContextMenu.Item>
+          <ContextMenu.Item disabled={isFirst} onSelect={() => {
+            // movePlaylistEntryDirection → movePlaylistEntry rejects when the
+            // entry no longer exists (#214), which a context-menu action can race
+            // with a concurrent delete. mutatePatch has already reported the
+            // failure, so absorb the rethrow here.
+            void movePlaylistEntryDirection(entry.id, 'up').catch(() => undefined);
+          }}>Move up</ContextMenu.Item>
+          <ContextMenu.Item disabled={isLast} onSelect={() => {
+            // See the "Move up" item above: same race, same absorption.
+            void movePlaylistEntryDirection(entry.id, 'down').catch(() => undefined);
+          }}>Move down</ContextMenu.Item>
           <ContextMenu.Separator />
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleRemoveFromGroup(); }}>Remove from group</ContextMenu.Item>
