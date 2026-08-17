@@ -2544,6 +2544,14 @@ export class CastRepository {
       const themeIdMap = new Map<Id, Id>();
       const itemIdMap = new Map<Id, Id>();
       const replacementAssetKeys = new Set<string>();
+      // Maps each original (pre-import) theme element id to the newly
+      // materialized theme element id, plus the original theme id it belongs
+      // to. Deck-item elements translate their `sourceThemeElementId`
+      // through this map at insert time; an id that fails to resolve here
+      // (dangling, unknown, or pointing at a theme not present in the
+      // bundle) is written as NULL rather than an unproven/broken id -
+      // mirrors the conservative provenance repair in migration v22.
+      const themeElementIdMap = new Map<Id, { newId: Id; originalThemeId: Id }>();
 
       workingManifest.themes
         .slice()
@@ -2552,9 +2560,13 @@ export class CastRepository {
           const newThemeId = createId();
           const newThemeSlideId = `${newThemeId}:slide`;
           themeIdMap.set(theme.id, newThemeId);
-          const nextElements = theme.elements.map((element, elementIndex) =>
-            this.createImportedThemeElement(element, newThemeSlideId, now, elementIndex)
-          );
+          const nextElements = theme.elements.map((element, elementIndex) => {
+            const importedElement = this.createImportedThemeElement(element, newThemeSlideId, now, elementIndex);
+            if (element.id) {
+              themeElementIdMap.set(element.id, { newId: importedElement.id, originalThemeId: theme.id });
+            }
+            return importedElement;
+          });
           insertTheme.run(
             newThemeId,
             theme.name,
@@ -2640,6 +2652,17 @@ export class CastRepository {
 
               slide.elements.forEach((element, elementIndex) => {
                 const nextElement = this.createImportedSlideElement(element, newSlideId, now, elementIndex);
+                // Only trust provenance that resolves to a theme element
+                // materialized in *this* import and belongs to the theme
+                // actually assigned to this deck item; every other case
+                // (dangling id, theme absent from the bundle, mismatched
+                // theme) is written as NULL rather than a guess.
+                const mappedProvenance = element.sourceThemeElementId
+                  ? themeElementIdMap.get(element.sourceThemeElementId)
+                  : undefined;
+                const resolvedSourceThemeElementId = mappedProvenance && item.themeId && mappedProvenance.originalThemeId === item.themeId
+                  ? mappedProvenance.newId
+                  : null;
                 insertElement.run(
                   nextElement.id,
                   newSlideId,
@@ -2653,7 +2676,7 @@ export class CastRepository {
                   nextElement.zIndex,
                   nextElement.layer,
                   JSON.stringify(nextElement.payload),
-                  null,
+                  resolvedSourceThemeElementId,
                   now,
                   now,
                 );
@@ -3305,6 +3328,7 @@ export class CastRepository {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const setSlideBackground = this.db.prepare('UPDATE slides SET background_json = ?, background_source = ?, updated_at = ? WHERE id = ?');
+    const slideBackgroundSource = this.db.prepare('SELECT background_source FROM slides WHERE id = ?');
     const themeBackgroundJson = theme.background ? JSON.stringify(theme.background) : null;
 
     const touchedSlideIds: string[] = [];
@@ -3316,7 +3340,12 @@ export class CastRepository {
           .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
           .all(item.id) as Array<{ id: string }>;
         for (const slide of slides) {
-          setSlideBackground.run(themeBackgroundJson, 'theme', nowIso(), slide.id);
+          // Sync is non-destructive: only theme-owned backgrounds are
+          // refreshed; a local override survives.
+          const sourceRow = slideBackgroundSource.get(slide.id) as { background_source: string | null } | undefined;
+          if (!sourceRow || sourceRow.background_source !== 'local') {
+            setSlideBackground.run(themeBackgroundJson, 'theme', nowIso(), slide.id);
+          }
           const currentElements = (selectElements.all(slide.id) as Array<{
             id: string;
             slide_id: string;

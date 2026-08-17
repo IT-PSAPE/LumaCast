@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppSnapshot, Id, SlideElement } from '@core/types';
+import type { AppSnapshot, Id, SlideBackground, SlideElement } from '@core/types';
 import { CastRepository } from './store';
 
 let repo: CastRepository;
@@ -113,5 +113,37 @@ describe('CastRepository.applyThemeToDeckItem', () => {
     const remaining = elementsForSlide(snapshot, slideId);
     expect(remaining.length).toBe(materializedCount);
     expect(remaining.every((element) => element.sourceThemeElementId == null)).toBe(true);
+  });
+
+  it('sync refreshes theme-owned backgrounds but preserves a local override', () => {
+    const themeId = createTheme('slides', 'Slide Theme');
+    const themeBackground: SlideBackground = { type: 'color', color: '#AAAAAA' };
+    repo.updateTheme({ id: themeId, background: themeBackground });
+
+    const themedItemId = createDeckItem('presentation', 'Themed Deck');
+    const localOverrideItemId = createDeckItem('presentation', 'Local Override Deck');
+    repo.applyThemeToDeckItem(themeId, themedItemId);
+    repo.applyThemeToDeckItem(themeId, localOverrideItemId);
+
+    const snapshot = repo.getSnapshot();
+    const localOverrideSlide = snapshot.slides.find((slide) => slide.presentationId === localOverrideItemId);
+    const themedSlide = snapshot.slides.find((slide) => slide.presentationId === themedItemId);
+    if (!localOverrideSlide || !themedSlide) throw new Error('expected slides on both presentations');
+    repo.updateSlideBackground({
+      slideId: localOverrideSlide.id,
+      background: { type: 'color', color: '#B0B0B0' },
+    });
+
+    const replacedBackground: SlideBackground = { type: 'color', color: '#CCCCCC' };
+    repo.updateTheme({ id: themeId, background: replacedBackground });
+    repo.syncThemeToLinkedDeckItems(themeId);
+
+    const after = repo.getSnapshot();
+    const localOverrideAfter = after.slides.find((slide) => slide.id === localOverrideSlide.id);
+    const themedAfter = after.slides.find((slide) => slide.id === themedSlide.id);
+    expect(localOverrideAfter?.backgroundSource).toBe('local');
+    expect(localOverrideAfter?.background).toEqual({ type: 'color', color: '#B0B0B0' });
+    expect(themedAfter?.backgroundSource).toBe('theme');
+    expect(themedAfter?.background).toEqual(replacedBackground);
   });
 });

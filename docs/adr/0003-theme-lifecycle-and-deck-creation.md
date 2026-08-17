@@ -118,6 +118,7 @@ The `slide_elements` table includes a `source_theme_element_id` column that expl
 - `syncThemeToElements` uses `sourceThemeElementId` for matching (no runtime ID-parsing fallback).
 - `duplicateDeckItem` and `duplicateSlide` preserve `sourceThemeElementId` with new materialized IDs.
 - User-created elements have `sourceThemeElementId: null`.
+- `finalizeImportBundle` preserves `sourceThemeElementId` across bundle import even though every imported theme is materialized with brand-new element IDs: while importing themes it builds a map from each theme's pre-import element IDs to their freshly materialized IDs, then translates each deck-item element's provenance through that map at insert time. An ID that does not resolve through the map — dangling, unknown, or naming a theme other than the one actually assigned to that deck item in the bundle — is written as `null`, never passed through unchanged; an unresolved but passed-through ID would otherwise read as "source removed from the theme" to `syncThemeToElements` and be deleted on the next sync.
 
 **Future operations enabled by provenance:**
 - `resetThemeOnSlide` — re-apply theme while preserving user elements (identify theme elements by provenance, not ID convention).

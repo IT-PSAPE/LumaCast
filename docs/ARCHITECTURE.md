@@ -164,7 +164,7 @@ must be covered by the frozen allow-list.
 - `Slide` includes `backgroundSource` (required, not optional).
 - `DeckBundleSlide` includes optional `background` and `backgroundSource`.
 - Snapshot creation/restore, bundle export/import all persist `backgroundSource`.
-- Round-trip tests verify background and recursive element provenance survive restart, snapshot restore, and bundle import/export.
+- Round-trip tests verify background and recursive element provenance survive restart and snapshot restore. Bundle export/import specifically is covered by `app/database/theme-provenance.test.ts`: `finalizeImportBundle` re-materializes every imported theme with new element IDs, so it translates each deck-item element's `sourceThemeElementId` through a map from pre-import to newly materialized theme element IDs built during the theme-import pass; an ID that does not resolve through that map (dangling, unknown, or naming a theme not assigned to that item) is written as `null` rather than passed through, since an unresolved ID would otherwise read as "source removed from the theme" and be deleted on the next sync (see ADR-0003).
 
 ## Project Backup (format v1)
 
