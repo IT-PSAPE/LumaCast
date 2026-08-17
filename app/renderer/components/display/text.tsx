@@ -1,5 +1,5 @@
 import { cn } from "@renderer/utils/cn"
-import type { ComponentPropsWithoutRef, HTMLAttributes, ReactNode } from "react"
+import type { ComponentPropsWithoutRef, ReactNode } from "react"
 
 type ParagraphProps = { children?: ReactNode; className?: string }
 type HeadingTag = "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
@@ -18,13 +18,13 @@ function createParagraph(baseClass: string) {
 }
 
 function createLabel(baseClass: string) {
-    return ({ children, className, ...props }: HTMLAttributes<HTMLSpanElement>) => (
+    return ({ children, className, ...props }: ComponentPropsWithoutRef<'span'>) => (
         <span className={cn(baseClass, className)} {...props}>{children}</span>
     )
 }
 
-export function TextBlock({ children, className }: HTMLAttributes<HTMLSpanElement>) {
-    return <span className={cn(className)}>{children}</span>
+export function TextBlock({ children, className, ...props }: ComponentPropsWithoutRef<'span'>) {
+    return <span className={cn(className)} {...props}>{children}</span>
 }
 
 export const Title = {
