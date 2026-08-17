@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { TextElementPayload } from '@core/types';
 import { useSlides } from '../../contexts/slide-context';
 import { buildRenderScene } from '../canvas/build-render-scene';
-import type { BindingValue } from '../canvas/binding-context';
+import type { BindingValue } from '@core/binding-values';
 import type { RenderScene } from '../canvas/scene-types';
 import { useStagePlayback } from '../../contexts/playback/playback-context';
 import { useProjectContent } from '../../contexts/use-project-content';

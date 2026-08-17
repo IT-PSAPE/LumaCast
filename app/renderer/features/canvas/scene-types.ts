@@ -1,6 +1,6 @@
 import type { Id, Slide, SlideBackgroundFit, SlideElement, StrokePosition } from '@core/types';
 import type { VisualPayloadState } from '@core/element-payload';
-import type { BindingOverride } from './binding-context';
+import type { BindingOverride } from '@core/binding-values';
 
 export type SceneSurface = 'deck-editor' | 'show' | 'list' | 'monitor' | 'stage' | 'ndi-show' | 'ndi-stage';
 export type SceneSourcePolicy = 'draft' | 'persisted' | 'live';

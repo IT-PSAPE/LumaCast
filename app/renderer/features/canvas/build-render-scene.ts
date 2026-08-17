@@ -13,7 +13,7 @@ import type {
 } from '@core/types';
 import { coerceWeight } from '@core/rich-text/resolve';
 import { sortElements } from '../../utils/slides';
-import type { BindingOverride } from './binding-context';
+import type { BindingOverride } from '@core/binding-values';
 import type {
   MediaHandleLookup,
   RenderNode,

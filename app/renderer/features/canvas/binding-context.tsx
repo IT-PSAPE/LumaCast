@@ -1,15 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import type { BindingValue } from '@core/binding-values';
 
-export interface BindingValue {
-  currentSlideText: string | null;
-  nextSlideText: string | null;
-  slideNotes: string | null;
-  talkScriptCurrent: string | null;
-  talkScriptProgress: string | null;
-  armedAtMs: number | null;
-}
-
-export type BindingOverride = Partial<BindingValue>;
+export type { BindingValue, BindingOverride } from '@core/binding-values';
 
 const EMPTY_VALUE: BindingValue = {
   currentSlideText: null,
