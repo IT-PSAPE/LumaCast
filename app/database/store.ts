@@ -647,6 +647,26 @@ function assertProjectBackupDefaultCollections(backup: ProjectBackup): void {
   }
 }
 
+/**
+ * Every bin must carry exactly one default collection after a snapshot
+ * restore, mirroring the invariant `assertProjectBackupDefaultCollections`
+ * enforces for project backups (#146). `AppSnapshot.collections` is normally
+ * produced by `getCollections()` off a database that already holds this
+ * invariant, but restore is the one seam where a corrupted or hand-built
+ * snapshot could otherwise silently leave a live database with two defaults
+ * or none, so it is checked before any table is touched.
+ */
+function assertSnapshotCollectionDefaults(collections: readonly Collection[]): void {
+  for (const bin of COLLECTION_BIN_KINDS) {
+    const defaults = collections.filter((collection) => collection.binKind === bin && collection.isDefault);
+    if (defaults.length !== 1) {
+      throw new Error(
+        `Invalid snapshot: bin "${bin}" must contain exactly one default collection, found ${defaults.length}.`,
+      );
+    }
+  }
+}
+
 function moveSqliteSidecars(sourceBase: string, targetBase: string): void {
   for (const suffix of ['-wal', '-shm']) {
     const source = `${sourceBase}${suffix}`;
@@ -1998,8 +2018,25 @@ export class CastRepository {
    * Used by global undo/redo: the renderer holds the pre-mutation snapshot
    * and asks the repo to swap the on-disk state to match. Wrapped in a
    * single transaction so a partial failure rolls back to the prior state.
+   *
+   * Collection identity is snapshot-authoritative (#208): the eight
+   * `*_collections` tables are cleared and re-seeded from `snapshot.collections`
+   * exactly like every other table, rather than left holding whatever the
+   * destination database had self-seeded. This matters even on the database
+   * that produced the snapshot — `deleteCollection` performs a real `DELETE`
+   * on the collection row, so undoing across a collection deletion needs the
+   * deleted collection's row back, not just its default-bin siblings. Every
+   * table whose rows carry a `collection_id` (themes, presentations, lyrics,
+   * talks, media assets, overlays, stages, actions) is deleted before the
+   * collection tables and re-inserted after them, so a collection row always
+   * exists before anything can reference it — the same parent-before-child /
+   * child-before-parent discipline `clearProjectBackupTables` and
+   * `insertProjectBackupRows` use for the project-backup restore path.
+   * `assertSnapshotCollectionDefaults` fails fast, before any table is
+   * touched, if the snapshot doesn't carry exactly one default per bin.
    */
   restoreFromSnapshot(snapshot: AppSnapshot): AppSnapshot {
+    assertSnapshotCollectionDefaults(snapshot.collections);
     const tx = this.db.transaction(() => {
       this.db.exec(`
         DELETE FROM trigger_bindings;
@@ -2022,7 +2059,36 @@ export class CastRepository {
         DELETE FROM video_assets;
         DELETE FROM audio_assets;
         DELETE FROM libraries;
+        DELETE FROM deck_collections;
+        DELETE FROM image_collections;
+        DELETE FROM video_collections;
+        DELETE FROM audio_collections;
+        DELETE FROM theme_collections;
+        DELETE FROM overlay_collections;
+        DELETE FROM stage_collections;
+        DELETE FROM macro_collections;
       `);
+
+      // Collections must exist before anything below can reference them via
+      // `collection_id` (themes, presentations/lyrics/talks, media assets,
+      // overlays, stages, actions all insert after this loop).
+      for (const bin of COLLECTION_BIN_KINDS) {
+        const table = COLLECTION_TABLE_BY_BIN[bin];
+        const insertCollection = this.db.prepare(
+          `INSERT INTO ${table} (id, name, order_index, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+        );
+        for (const collection of snapshot.collections) {
+          if (collection.binKind !== bin) continue;
+          insertCollection.run(
+            collection.id,
+            collection.name,
+            collection.order,
+            collection.isDefault ? 1 : 0,
+            collection.createdAt,
+            collection.updatedAt,
+          );
+        }
+      }
 
       const insertLibrary = this.db.prepare(
         'INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
@@ -2099,7 +2165,7 @@ export class CastRepository {
 
       const insertSlide = this.db.prepare(
         `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const slide of snapshot.slides) {
         const backgroundJson = slide.background ? JSON.stringify(slide.background) : null;
@@ -2144,7 +2210,20 @@ export class CastRepository {
           (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
+      // `snapshot.slideElements` (from `getSlideElements()`) is not filtered
+      // to deck content slides the way `snapshot.slides` (from `getSlides()`)
+      // is: it also carries every theme/overlay/stage container's elements.
+      // Those are restored separately below via `replaceContainerElements`
+      // (theme/overlay/stage loops, keyed off each container's own
+      // `elements` field), which both recreates their container slide first
+      // and reuses the same element ids — inserting them again here would
+      // either violate the `slide_id` foreign key (their container slide
+      // hasn't been created yet at this point in the transaction) or
+      // duplicate a primary key (once it has). Restrict this loop to
+      // elements that belong to one of the deck content slides just inserted.
+      const contentSlideIds = new Set(snapshot.slides.map((slide) => slide.id));
       for (const element of snapshot.slideElements) {
+        if (!contentSlideIds.has(element.slideId)) continue;
         insertSlideElement.run(
           element.id,
           element.slideId,
