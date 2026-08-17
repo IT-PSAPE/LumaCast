@@ -14,14 +14,14 @@ import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from './scene-
 //
 //  - The Konva pipeline (buildRenderScene → traverseSceneNodes → renderSceneNodeContent)
 //    that both the editor (scene-stage.tsx) and NDI (ndi-frame-capture.tsx) now share.
-//  - The provider-independent resolved contract (buildResolvedRenderScene → SceneLayer)
+//  - The provider-independent resolved contract (buildResolvedRenderScene)
 //    that landed in #147.
 //
 // Both are driven by the same `sortElements` back→front ordering and the same
 // SlideElement inputs, so a fixture fed through both should agree on node
-// identity, order, visibility, and frame geometry. This file does not mount
-// either Konva or the DOM SceneLayer — it asserts on the shared, renderer-agnostic
-// data each pipeline produces, which is what "structural" parity means here.
+// identity, order, visibility, and frame geometry. This file mounts neither
+// pipeline — it asserts on the shared, renderer-agnostic data each produces,
+// which is what "structural" parity means here.
 
 const NOW = '2026-01-01T00:00:00.000Z';
 
@@ -170,8 +170,8 @@ describe('scene traversal parity: Konva pipeline vs. resolved contract', () => {
     expect(konvaVisibleIds).toEqual(['visible-1', 'visible-2']);
     expect(konvaVisibleIds).toEqual(resolvedVisibleIds);
 
-    // The resolved contract keeps hidden nodes in its array (SceneLayer skips
-    // them at render time); the Konva traversal drops them from its entries
+    // The resolved contract keeps hidden nodes in its array, leaving them for a
+    // consumer to skip at render time; the Konva traversal drops them from its entries
     // outright but records their original back→front slot via `order` so a
     // caller can tell a filtered list from a reordered one.
     expect(resolvedScene.nodes.map((node) => node.id)).toEqual(['hidden-1', 'visible-1', 'hidden-2', 'visible-2']);
@@ -246,10 +246,9 @@ describe('frame geometry parity', () => {
     const resolvedScene = buildResolvedRenderScene(slide(), [el], {});
     const resolvedNode = resolvedScene.nodes[0];
 
-    // Konva anchors the flip with a scale + offset pair; the resolved DOM
-    // layer anchors it with a CSS transform + transform-origin pair
-    // (see nodeFrameStyle in scene-layer.tsx). Both encode the same fact —
-    // "mirror around this edge" — just for different renderers.
+    // Konva anchors the flip with a scale + offset pair; the resolved contract
+    // records it as plain flipX/flipY booleans for a consumer to apply. Both
+    // encode the same fact — "mirror around this edge".
     expect(resolvedNode.flipX).toBe(flipX);
     expect(resolvedNode.flipY).toBe(flipY);
     expect(frame.scaleX).toBe(flipX ? -1 : 1);
