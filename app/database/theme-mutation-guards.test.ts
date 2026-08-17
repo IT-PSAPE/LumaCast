@@ -3,16 +3,19 @@ import type { Id } from '@core/types';
 import type { CastRepository } from './store';
 import { createTestRepository } from './test-support';
 
-// Covers the theme/overlay slice of #214's group 1: `updateTheme`,
+// Covers the theme/overlay slice of #214: `updateTheme`,
 // `detachThemeFromDeckItem`, and `applyThemeToOverlay` each had a branch
 // that silently returned an empty patch when an id failed to resolve, even
 // though a sibling method in this file (`applyThemeToDeckItem`,
 // `syncThemeToLinkedDeckItems`) already throws `Theme not found`/`Deck item
-// not found` for the identical lookup failure. These tests pin the fixed
-// contract for the not-found branch, and separately pin that every genuine
-// no-op this issue leaves alone (already-untethered theme, incompatible
-// theme, unresolvable overlay) still returns an empty patch without
-// throwing.
+// not found` for the identical lookup failure. Group 1 (2bcdedf) converted
+// the missing-theme branch of `applyThemeToOverlay`; group 2 converts its
+// two remaining silent branches: an incompatible theme — a validity failure
+// mirroring `applyThemeToDeckItem`'s compatibility throw, not a missing
+// lookup — and an unresolvable overlay. These tests pin the fixed contract
+// for all three branches, and separately pin that the one genuine no-op
+// this issue leaves alone (already-untethered theme) still returns an empty
+// patch without throwing.
 
 function createDeckItem(repo: CastRepository, type: 'presentation' | 'lyric' | 'talk', title: string): Id {
   const patch = repo.createDeckItemWithTheme({ type, title });
@@ -101,28 +104,28 @@ describe('CastRepository.applyThemeToOverlay (#214)', () => {
     }
   });
 
-  it('stays a silent no-op for a theme incompatible with overlays (left for a later #214 group)', () => {
+  it('throws for a theme incompatible with overlays (validity failure, not a no-op)', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      // 'slides' themes are not compatible with overlays; unlike the
-      // not-found branch above, this has no existing throwing sibling in
-      // the file to mirror, so #214 group 1 leaves it a no-op.
+      // 'slides' themes are not compatible with overlays; both ids resolve
+      // but the apply can never succeed, mirroring `applyThemeToDeckItem`'s
+      // compatibility throw.
       const themeId = createTheme(repo, 'slides');
       const overlayId = createOverlay(repo);
-      const patch = repo.applyThemeToOverlay(themeId, overlayId);
-      expect(patch.upserts).toEqual({});
+      expect(() => repo.applyThemeToOverlay(themeId, overlayId))
+        .toThrow(/Theme kind 'slides' is not compatible with overlay/);
     } finally {
       close();
       cleanup();
     }
   });
 
-  it('stays a silent no-op for an unresolvable overlay id (left for a later #214 group)', () => {
+  it('throws for an unresolvable overlay id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const themeId = createTheme(repo, 'overlays');
-      const patch = repo.applyThemeToOverlay(themeId, 'no-such-overlay');
-      expect(patch.upserts).toEqual({});
+      expect(() => repo.applyThemeToOverlay(themeId, 'no-such-overlay'))
+        .toThrow(/Overlay not found: no-such-overlay/);
     } finally {
       close();
       cleanup();

@@ -122,9 +122,9 @@ export function useLibraryPanelManagement() {
     setStatusText(direction === 'up' ? 'Moved entry up' : 'Moved entry down');
   }, [mutatePatch, setStatusText]);
 
-  const addDeckItemToGroup = useCallback(async (groupId: Id, itemId: Id) => {
+  const addDeckItemToGroup = useCallback(async (playlistId: Id, groupId: Id, itemId: Id) => {
     const previousEntryIds = new Set(getGroupEntryIds(snapshot, groupId));
-    const nextSnapshot = await mutatePatch(() => window.castApi.addDeckItemToGroup(groupId, itemId));
+    const nextSnapshot = await mutatePatch(() => window.castApi.addDeckItemToGroup(playlistId, groupId, itemId));
     setStatusText('Added item to group');
     return findCreatedId(previousEntryIds, getGroupEntryIds(nextSnapshot, groupId));
   }, [mutatePatch, setStatusText, snapshot]);

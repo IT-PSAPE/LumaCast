@@ -91,7 +91,7 @@ interface RpcMethodSignatures {
   renamePlaylistGroup: (id: Id, name: string) => Promise<SnapshotPatch>;
   setPlaylistGroupColor: (id: Id, colorKey: string | null) => Promise<SnapshotPatch>;
   movePlaylist: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
-  addDeckItemToGroup: (groupId: Id, itemId: Id) => Promise<SnapshotPatch>;
+  addDeckItemToGroup: (playlistId: Id, groupId: Id, itemId: Id) => Promise<SnapshotPatch>;
   moveDeckItemToGroup: (playlistId: Id, itemId: Id, groupId: Id | null) => Promise<SnapshotPatch>;
   movePlaylistEntryToGroup: (entryId: Id, groupId: Id | null) => Promise<SnapshotPatch>;
   moveDeckItem: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;

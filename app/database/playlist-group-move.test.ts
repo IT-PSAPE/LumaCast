@@ -77,7 +77,7 @@ describe('CastRepository.moveDeckItemToGroup (#213)', () => {
       const libraryId = createLibrary(repo, 'Library');
       const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
-      repo.addDeckItemToGroup(groupId, talkId);
+      repo.addDeckItemToGroup(playlistId, groupId, talkId);
 
       expect(() => repo.moveDeckItemToGroup(playlistId, talkId, 'no-such-group')).toThrow(/Group not found: no-such-group/);
 
@@ -98,7 +98,7 @@ describe('CastRepository.moveDeckItemToGroup (#213)', () => {
       const { playlistId: playlistAId, groupId: groupA } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
       const { groupId: groupInOtherPlaylist } = createPlaylistWithGroup(repo, libraryId, 'Other Playlist', 'Closing');
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
-      repo.addDeckItemToGroup(groupA, talkId);
+      repo.addDeckItemToGroup(playlistAId, groupA, talkId);
 
       expect(() => repo.moveDeckItemToGroup(playlistAId, talkId, groupInOtherPlaylist))
         .toThrow(new RegExp(`Group not found: ${groupInOtherPlaylist}`));
@@ -141,11 +141,11 @@ describe('CastRepository.moveDeckItemToGroup (#213)', () => {
       // Seed groupB with two existing entries so its current max order index is 1.
       const existingA = createDeckItem(repo, 'presentation', 'Existing A');
       const existingB = createDeckItem(repo, 'lyric', 'Existing B');
-      repo.addDeckItemToGroup(groupB, existingA);
-      repo.addDeckItemToGroup(groupB, existingB);
+      repo.addDeckItemToGroup(playlistId, groupB, existingA);
+      repo.addDeckItemToGroup(playlistId, groupB, existingB);
 
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
-      repo.addDeckItemToGroup(groupA, talkId);
+      repo.addDeckItemToGroup(playlistId, groupA, talkId);
 
       repo.moveDeckItemToGroup(playlistId, talkId, groupB);
 
@@ -170,7 +170,7 @@ describe('CastRepository.moveDeckItemToGroup (#213)', () => {
       const libraryId = createLibrary(repo, 'Library');
       const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
-      repo.addDeckItemToGroup(groupId, talkId);
+      repo.addDeckItemToGroup(playlistId, groupId, talkId);
       expect(entriesFor(repo, 'Service')).toHaveLength(1);
 
       expect(() => repo.moveDeckItemToGroup(playlistId, talkId, null)).not.toThrow();
@@ -191,7 +191,7 @@ describe('CastRepository.moveDeckItemToGroup (#213)', () => {
       const groupB = findPlaylistTree(repo, 'Service').groups.find((g) => g.group.name === 'Closing')!.group.id;
 
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
-      repo.addDeckItemToGroup(groupA, talkId);
+      repo.addDeckItemToGroup(playlistId, groupA, talkId);
 
       const restore = failOnPrepare(repo, 'INSERT INTO playlist_entries');
       try {

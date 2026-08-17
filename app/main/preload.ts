@@ -87,8 +87,8 @@ const api = {
   renamePlaylistGroup: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylistGroup, id, name),
   setPlaylistGroupColor: (id: Id, colorKey: string | null) => ipcRenderer.invoke(IPC.setPlaylistGroupColor, id, colorKey),
   movePlaylist: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.movePlaylist, id, direction),
-  addDeckItemToGroup: (groupId: Id, itemId: Id) =>
-    ipcRenderer.invoke(IPC.addDeckItemToGroup, groupId, itemId),
+  addDeckItemToGroup: (playlistId: Id, groupId: Id, itemId: Id) =>
+    ipcRenderer.invoke(IPC.addDeckItemToGroup, playlistId, groupId, itemId),
   moveDeckItemToGroup: (playlistId: Id, itemId: Id, groupId: Id | null) =>
     ipcRenderer.invoke(IPC.moveDeckItemToGroup, playlistId, itemId, groupId),
   movePlaylistEntryToGroup: (entryId: Id, groupId: Id | null) =>

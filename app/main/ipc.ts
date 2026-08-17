@@ -206,8 +206,8 @@ export const registerIpcHandlers = (
   safeHandle(IPC.movePlaylist, (_event, id: Id, direction: 'up' | 'down') =>
     repo.movePlaylist(id, direction)
   );
-  safeHandle(IPC.addDeckItemToGroup, (_event, groupId: Id, itemId: Id) =>
-    repo.addDeckItemToGroup(groupId, itemId)
+  safeHandle(IPC.addDeckItemToGroup, (_event, playlistId: Id, groupId: Id, itemId: Id) =>
+    repo.addDeckItemToGroup(playlistId, groupId, itemId)
   );
   safeHandle(IPC.moveDeckItemToGroup, (_event, playlistId: Id, itemId: Id, groupId: Id | null) =>
     repo.moveDeckItemToGroup(playlistId, itemId, groupId)

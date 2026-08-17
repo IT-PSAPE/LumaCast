@@ -10,20 +10,12 @@ import { createTestRepository } from './test-support';
 // `createDeckItemWithFirstSlide`.
 //
 // The #214 audit additionally flagged that this method's destination lookup
-// (`SELECT id FROM playlist_groups WHERE id = ?`) has no `playlist_id`
-// scoping, unlike every sibling that validates a group. That part is *not*
-// fixed here: `addDeckItemToGroup(groupId, itemId)` has no playlistId
-// parameter to scope against — every live caller
-// (`app/renderer/contexts/navigation-context.tsx`,
-// `app/renderer/features/library/use-library-panel-management.ts`) has a
-// `currentPlaylistId` in scope but never passes it through. Closing that gap
-// needs a signature change (an explicit playlistId, mirroring
-// `moveDeckItemToGroup`) threading through `app/core/ipc.ts`,
-// `app/main/ipc.ts`, `app/main/preload.ts`, and those renderer callers — all
-// outside this change's write boundary (and two of those files are owned by
-// a concurrent #151 change). The last test below pins today's actual
-// behavior — a group from a different playlist is still accepted — as a
-// documented, tracked limitation rather than silently asserting it's fixed.
+// (`SELECT id FROM playlist_groups WHERE id = ?`) had no `playlist_id`
+// scoping, unlike every sibling that validates a group. That gap is fixed
+// here (#220): `addDeckItemToGroup(playlistId, groupId, itemId)` now scopes
+// the group lookup on both columns, so a group belonging to a different
+// playlist is rejected with `Group not found` and nothing is inserted — the
+// same contract `moveDeckItemToGroup` already had.
 
 function createLibrary(repo: CastRepository, name: string): Id {
   const patch = repo.createLibrary(name);
@@ -72,9 +64,9 @@ describe('CastRepository.addDeckItemToGroup (#214)', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const libraryId = createLibrary(repo, 'Library');
-      const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+      const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
 
-      expect(() => repo.addDeckItemToGroup(groupId, 'no-such-item'))
+      expect(() => repo.addDeckItemToGroup(playlistId, groupId, 'no-such-item'))
         .toThrow(/Deck item not found: no-such-item/);
       expect(entriesFor(repo, 'Service')).toHaveLength(0);
     } finally {
@@ -83,13 +75,19 @@ describe('CastRepository.addDeckItemToGroup (#214)', () => {
     }
   });
 
-  it('throws for an unresolvable destination group id', () => {
+  // Uses a REAL owning playlist with a bogus group id, so the assertion
+  // isolates the group-missing branch. Passing two bogus ids would also pass
+  // against an implementation that scoped on `playlist_id` alone.
+  it('throws for an unresolvable destination group id within a real playlist', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
+      const libraryId = createLibrary(repo, 'Library');
+      const { playlistId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
 
-      expect(() => repo.addDeckItemToGroup('no-such-group', talkId))
+      expect(() => repo.addDeckItemToGroup(playlistId, 'no-such-group', talkId))
         .toThrow(/Group not found: no-such-group/);
+      expect(entriesFor(repo, 'Service')).toHaveLength(0);
     } finally {
       close();
       cleanup();
@@ -100,10 +98,10 @@ describe('CastRepository.addDeckItemToGroup (#214)', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const libraryId = createLibrary(repo, 'Library');
-      const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+      const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
 
-      repo.addDeckItemToGroup(groupId, talkId);
+      repo.addDeckItemToGroup(playlistId, groupId, talkId);
 
       const entries = entriesFor(repo, 'Service');
       expect(entries).toHaveLength(1);
@@ -114,23 +112,47 @@ describe('CastRepository.addDeckItemToGroup (#214)', () => {
     }
   });
 
-  // Documents a known, tracked limitation rather than asserting it's fixed:
-  // see the file-level comment above. This is NOT the fixed contract — it
-  // pins the current (still-accepting) behavior so a future fix that adds
-  // playlist scoping changes this test deliberately, not by surprise.
-  it('KNOWN LIMITATION (#214): still accepts a destination group belonging to a different playlist', () => {
+  it('appends a valid add at max order_index + 1', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const libraryId = createLibrary(repo, 'Library');
-      createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+      const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+      const existingA = createDeckItem(repo, 'presentation', 'Existing A');
+      const existingB = createDeckItem(repo, 'lyric', 'Existing B');
+      repo.addDeckItemToGroup(playlistId, groupId, existingA);
+      repo.addDeckItemToGroup(playlistId, groupId, existingB);
+
+      const talkId = createDeckItem(repo, 'talk', 'Sermon');
+      repo.addDeckItemToGroup(playlistId, groupId, talkId);
+
+      const groupEntries = findPlaylistTree(repo, 'Service').groups.find((g) => g.group.id === groupId)!.entries;
+      // Ordered by order_index ASC — the added item lands after the two seeded entries.
+      expect(groupEntries.map((e) => e.item.id)).toEqual([existingA, existingB, talkId]);
+      // Assert the indices themselves, not just the sequence: the tree builder
+      // sorts by order_index ASC with no secondary key, so a regression that
+      // inserted every entry at a constant index would still yield the order
+      // above via insertion-order tie-breaking.
+      expect(groupEntries.map((e) => e.entry.order)).toEqual([0, 1, 2]);
+    } finally {
+      close();
+      cleanup();
+    }
+  });
+
+  it('rejects a destination group belonging to a different playlist and inserts nothing', () => {
+    const { repository: repo, close, cleanup } = createTestRepository();
+    try {
+      const libraryId = createLibrary(repo, 'Library');
+      const { playlistId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
       const { groupId: groupInOtherPlaylist } = createPlaylistWithGroup(repo, libraryId, 'Other Playlist', 'Closing');
       const talkId = createDeckItem(repo, 'talk', 'Sermon');
 
-      expect(() => repo.addDeckItemToGroup(groupInOtherPlaylist, talkId)).not.toThrow();
+      expect(() => repo.addDeckItemToGroup(playlistId, groupInOtherPlaylist, talkId))
+        .toThrow(new RegExp(`Group not found: ${groupInOtherPlaylist}`));
 
-      const otherEntries = entriesFor(repo, 'Other Playlist');
-      expect(otherEntries).toHaveLength(1);
-      expect(otherEntries[0].item.id).toBe(talkId);
+      // Neither the intended playlist nor the other playlist was touched.
+      expect(entriesFor(repo, 'Service')).toHaveLength(0);
+      expect(entriesFor(repo, 'Other Playlist')).toHaveLength(0);
     } finally {
       close();
       cleanup();

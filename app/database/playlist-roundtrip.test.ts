@@ -107,15 +107,15 @@ describe('playlist item reference round trips', () => {
 
   it('adds Presentation, Lyric, and Talk entries each with a correct canonical reference', () => {
     const libraryId = createLibrary(repo, 'Library');
-    const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+    const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
 
     const presentationId = createDeckItem(repo, 'presentation', 'Slides');
     const lyricId = createDeckItem(repo, 'lyric', 'Song');
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
 
-    repo.addDeckItemToGroup(groupId, presentationId);
-    repo.addDeckItemToGroup(groupId, lyricId);
-    repo.addDeckItemToGroup(groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, presentationId);
+    repo.addDeckItemToGroup(playlistId, groupId, lyricId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
 
     const entries = entriesFor(repo, 'Service');
     expect(entries).toHaveLength(3);
@@ -135,11 +135,11 @@ describe('playlist item reference round trips', () => {
 
   it('preserves entry identity and referenced item identity across reordering', () => {
     const libraryId = createLibrary(repo, 'Library');
-    const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+    const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
     const presentationId = createDeckItem(repo, 'presentation', 'Slides');
-    repo.addDeckItemToGroup(groupId, talkId);
-    repo.addDeckItemToGroup(groupId, presentationId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, presentationId);
 
     const before = entriesFor(repo, 'Service');
     const talkEntryId = before.find((e) => e.item.id === talkId)!.entry.id;
@@ -156,11 +156,11 @@ describe('playlist item reference round trips', () => {
 
   it('is a no-op at reorder boundaries (moving the last entry down, or the first entry up)', () => {
     const libraryId = createLibrary(repo, 'Library');
-    const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+    const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
     const presentationId = createDeckItem(repo, 'presentation', 'Slides');
-    repo.addDeckItemToGroup(groupId, talkId);
-    repo.addDeckItemToGroup(groupId, presentationId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, presentationId);
 
     const before = entriesFor(repo, 'Service');
     const firstEntryId = before[0].entry.id;
@@ -182,7 +182,7 @@ describe('playlist item reference round trips', () => {
     const groupB = tree.groups.find((g) => g.group.name === 'Closing')!.group.id;
 
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
-    repo.addDeckItemToGroup(groupA, talkId);
+    repo.addDeckItemToGroup(playlistId, groupA, talkId);
 
     repo.moveDeckItemToGroup(playlistId, talkId, groupB);
 
@@ -194,9 +194,9 @@ describe('playlist item reference round trips', () => {
 
   it('survives closing and reopening the database ("restart")', () => {
     const libraryId = createLibrary(repo, 'Library');
-    const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+    const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
-    repo.addDeckItemToGroup(groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
 
     closeRepo(repo);
     repo = makeRepo(tmpDir);
@@ -208,9 +208,9 @@ describe('playlist item reference round trips', () => {
 
   it('exports and re-imports a Talk-only playlist without losing the entry (regression: export used to drop Talk entries)', () => {
     const libraryId = createLibrary(repo, 'Library');
-    const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+    const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
-    repo.addDeckItemToGroup(groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
 
     const tree = findPlaylistTree(repo, 'Service');
     const manifest = repo.exportDeckBundle([], { playlistIds: [tree.playlist.id] });
@@ -279,11 +279,11 @@ describe('playlist item reference round trips', () => {
 
   it('allows duplicate entries referencing the same item, each keeping its own entry identity', () => {
     const libraryId = createLibrary(repo, 'Library');
-    const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+    const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
 
-    repo.addDeckItemToGroup(groupId, talkId);
-    repo.addDeckItemToGroup(groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
 
     const entries: Array<{ entry: PlaylistEntry }> = entriesFor(repo, 'Service');
     expect(entries).toHaveLength(2);
@@ -293,9 +293,9 @@ describe('playlist item reference round trips', () => {
 
   it('round-trips a full snapshot restore, preserving the Talk entry reference', () => {
     const libraryId = createLibrary(repo, 'Library');
-    const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
+    const { playlistId, groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
     const talkId = createDeckItem(repo, 'talk', 'Sermon');
-    repo.addDeckItemToGroup(groupId, talkId);
+    repo.addDeckItemToGroup(playlistId, groupId, talkId);
 
     const snapshot = repo.getSnapshot();
 

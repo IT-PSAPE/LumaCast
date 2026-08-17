@@ -1910,7 +1910,7 @@ export class CastRepository {
       loop_enabled: number;
       loop_count: number | null;
     } | undefined;
-    if (!existing) return this.buildPatch({});
+    if (!existing) throw new Error(`Macro not found: ${input.id}`);
 
     const updateMacro = this.db.prepare(
       `UPDATE actions
@@ -2961,24 +2961,15 @@ export class CastRepository {
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
-  addDeckItemToGroup(groupId: Id, itemId: Id): SnapshotPatch {
+  addDeckItemToGroup(playlistId: Id, groupId: Id, itemId: Id): SnapshotPatch {
     const owner = this.resolveDeckOwnerRow(itemId);
     if (!owner) {
       throw new Error(`Deck item not found: ${itemId}`);
     }
 
-    // NOTE (#214): this only confirms the group exists, not that it belongs
-    // to any particular playlist — unlike moveDeckItemToGroup/
-    // movePlaylistEntryToGroup, this method has no playlistId parameter to
-    // scope against, so a group belonging to a different playlist than the
-    // caller intended is still accepted. Closing that gap needs a signature
-    // change (an explicit playlistId, mirroring moveDeckItemToGroup) that
-    // cascades through app/core/ipc.ts, app/main/ipc.ts, app/main/preload.ts,
-    // and the renderer callers — outside this change's write boundary. See
-    // the #214 audit comment; tracked for a dedicated follow-up.
     const exists = this.db
-      .prepare('SELECT id FROM playlist_groups WHERE id = ?')
-      .get(groupId) as { id: string } | undefined;
+      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
+      .get(groupId, playlistId) as { id: string } | undefined;
 
     if (!exists) {
       throw new Error(`Group not found: ${groupId}`);
@@ -3611,12 +3602,15 @@ export class CastRepository {
       throw new Error(`Theme not found: ${themeId}`);
     }
     // Compatibility comes from the single capability matrix in @core/themes,
-    // never a local kind comparison. Incompatible-theme and unresolvable-
-    // overlay stay silent no-ops for now: neither has an existing throwing
-    // sibling to mirror in this file, so #214 defers them to a later group.
-    if (!isThemeCompatibleWithOwnerKind(theme, 'overlay')) return this.buildPatch({});
+    // never a local kind comparison. An incompatible theme is a validity
+    // failure (both ids resolve, the apply can never succeed), mirroring the
+    // `applyThemeToDeckItem` throw below; an unresolvable overlay is the
+    // missing-lookup case. Neither is a genuine no-op (#214).
+    if (!isThemeCompatibleWithOwnerKind(theme, 'overlay')) {
+      throw new Error(`Theme kind '${theme.kind}' is not compatible with overlay`);
+    }
     const exists = this.db.prepare('SELECT id FROM overlays WHERE id = ?').get(overlayId) as { id: string } | undefined;
-    if (!exists) return this.buildPatch({});
+    if (!exists) throw new Error(`Overlay not found: ${overlayId}`);
 
     const slideId = `${overlayId}:slide`;
     const now = nowIso();
@@ -4870,7 +4864,7 @@ export class CastRepository {
         return this.buildPatch({ deletedMediaAssetIds: [id] });
       }
     }
-    return this.buildPatch({});
+    throw new Error(`Media asset not found: ${id}`);
   }
 
   updateMediaAssetSrc(id: Id, src: string): SnapshotPatch {
@@ -4881,7 +4875,7 @@ export class CastRepository {
         return this.buildPatch({ upsertMediaAssetIds: [id] });
       }
     }
-    return this.buildPatch({});
+    throw new Error(`Media asset not found: ${id}`);
   }
 
   private mediaAssetTable(type: MediaAssetType): 'image_assets' | 'video_assets' | 'audio_assets' {
@@ -4932,7 +4926,7 @@ export class CastRepository {
       }
       | undefined;
 
-    if (!existing) return this.buildPatch({});
+    if (!existing) throw new Error(`Overlay not found: ${input.id}`);
 
     const slideId = `${input.id}:slide`;
     const now = nowIso();
@@ -5263,7 +5257,7 @@ export class CastRepository {
       }
       | undefined;
 
-    if (!existing) return this.buildPatch({});
+    if (!existing) throw new Error(`Stage not found: ${input.id}`);
 
     const slideId = `${input.id}:slide`;
     const now = nowIso();
@@ -5313,7 +5307,7 @@ export class CastRepository {
       | { id: string; name: string; width: number; height: number; collection_id: string }
       | undefined;
 
-    if (!existing) return this.buildPatch({});
+    if (!existing) throw new Error(`Stage not found: ${stageId}`);
 
     const now = nowIso();
     const newId = createId();

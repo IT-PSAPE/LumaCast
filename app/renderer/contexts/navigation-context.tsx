@@ -368,7 +368,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
 
   const addDeckItemToGroup = useCallback(async (groupId: Id) => {
     if (!currentDeckItemId || !currentPlaylistId) return;
-    await mutatePatch(() => window.castApi.addDeckItemToGroup(groupId, currentDeckItemId));
+    await mutatePatch(() => window.castApi.addDeckItemToGroup(currentPlaylistId, groupId, currentDeckItemId));
     setStatusText('Added item to group');
   }, [currentDeckItemId, currentPlaylistId, mutatePatch, setStatusText]);
 
@@ -376,7 +376,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     if (!currentPlaylistId || !deckItemsById.has(itemId)) return null;
 
     const previousEntryIds = new Set(getGroupEntryIds(snapshot, groupId));
-    const afterAdd = await mutatePatch(() => window.castApi.addDeckItemToGroup(groupId, itemId));
+    const afterAdd = await mutatePatch(() => window.castApi.addDeckItemToGroup(currentPlaylistId, groupId, itemId));
     const createdEntryId = findCreatedId(previousEntryIds, getGroupEntryIds(afterAdd, groupId));
     if (!createdEntryId) {
       setStatusText('Added item to group');
