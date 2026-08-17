@@ -53,6 +53,11 @@ committed file. `npm run check:architecture` checks the tree;
 
 - Domain/core policy (`app/core`) imports no Electron, React, renderer,
   database, main-process, native, or feature code.
+- `app/contracts` is the runtime decode boundary (issue #149): it imports no
+  Electron, React, renderer, database, main-process, or native code. It may
+  import `app/core`, where domain primitives live (issue #153). Every other
+  zone may import `app/contracts`; that is its purpose, and it must not be
+  allow-listed as an exception.
 - The database layer (`app/database`) imports no renderer, feature, or React
   code.
 - Main (`app/main`) is the process composition root and imports no renderer or

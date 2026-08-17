@@ -39,6 +39,8 @@ const WARNING_RULES = new Set(['feature-isolation', 'feature-cycle']);
 const RULE_TITLES = {
   'core-purity':
     'Domain/core policy must not import Electron, React, the renderer, the database, main-process code, native modules, or feature code.',
+  'contracts-purity':
+    'app/contracts is the runtime decode boundary every zone may depend on; it must not import app/database, app/main, app/renderer, React, Electron, or the native module. It may import app/core.',
   'data-purity':
     'The database layer must not import renderer, feature, or React code.',
   'main-boundary':
@@ -141,6 +143,7 @@ function zoneOf(rel) {
   if (p[0] !== 'app' || p.length < 2) return null;
   const sec = p[1];
   if (sec === 'core') return 'core';
+  if (sec === 'contracts') return 'contracts';
   if (sec === 'database') return 'data';
   if (sec === 'main') return p[2] === 'ndi' ? 'mainNdi' : 'main';
   if (sec === 'renderer') {
@@ -506,6 +509,9 @@ export function check(options = {}) {
       if (fromZone === 'core' && (k === 'electron' || k === 'react' || k === 'native')) {
         add('core-purity', `imports ${e.specifier}`);
       }
+      if (fromZone === 'contracts' && (k === 'electron' || k === 'react' || k === 'native')) {
+        add('contracts-purity', `imports ${e.specifier}`);
+      }
       if (fromZone === 'data' && k === 'react') {
         add('data-purity', `imports ${e.specifier}`);
       }
@@ -523,6 +529,12 @@ export function check(options = {}) {
       if (isRendererZone(toZone)) add('core-purity', `imports renderer code ${toRel}`);
       else if (toZone === 'data' || toZone === 'main' || toZone === 'mainNdi') {
         add('core-purity', `imports ${toZone} code ${toRel}`);
+      }
+    }
+    if (fromZone === 'contracts') {
+      if (isRendererZone(toZone)) add('contracts-purity', `imports renderer code ${toRel}`);
+      else if (toZone === 'data' || toZone === 'main' || toZone === 'mainNdi') {
+        add('contracts-purity', `imports ${toZone} code ${toRel}`);
       }
     }
     if (fromZone === 'data' && isRendererZone(toZone)) {
@@ -673,6 +685,9 @@ function runSelfTests() {
       warnRules: ['feature-cycle'],
     }),
     scenario('public-entry', 'scenarios/public-entry', 'fail', { rules: ['public-entry'] }),
+    // Proves a permitted core -> contracts edge stays clean while a forbidden
+    // contracts -> database edge is caught by contracts-purity.
+    scenario('contracts', 'scenarios/contracts', 'fail', { rules: ['contracts-purity'] }),
     scenario('allowlist/covered', 'scenarios/allowlist/covered', 'pass', {
       allowList: [
         {

@@ -11,6 +11,10 @@ shrink.
 
 - `app/core` is domain/core policy: no Electron, React, renderer, database,
   main-process, native, or feature imports.
+- `app/contracts` is the runtime decode boundary (issue #149, `codecs.ts`): no
+  Electron, React, renderer, database, main-process, or native imports; it may
+  import `app/core`. Every other zone may import `app/contracts` — that is its
+  purpose — and no allow-list entry may substitute for this rule.
 - `app/database` persists and imports no renderer, feature, or React code.
 - `app/main` is the process composition root and imports no renderer or feature
   code.
