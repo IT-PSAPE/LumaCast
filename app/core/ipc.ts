@@ -28,7 +28,6 @@ import type {
   NdiOutputState,
   OverlayCreateInput,
   OverlayUpdateInput,
-  ProjectBackup,
   StageCreateInput,
   StageUpdateInput,
   SystemMetricsSnapshot,
@@ -45,6 +44,7 @@ import type {
   TalkScriptBlockUpdateInput
 } from './types';
 import type { SnapshotPatch } from './snapshot-patch';
+import type { ProjectBackup } from '../contracts/project-backup';
 
 export interface MainApi {
   platform: NodeJS.Platform;

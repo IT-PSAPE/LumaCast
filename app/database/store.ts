@@ -65,11 +65,34 @@ import type {
   TriggerBindingTargetType,
   TriggerType,
 } from '@core/domain/automation';
+// The ProjectBackup family moved to app/contracts/project-backup.ts under
+// #215 (parent #116/#153): it is a serialization contract, not a persistence
+// DTO, so it lives in the neutral app/contracts/ boundary core, database and
+// main all import — see docs/ARCHITECTURE.md for the recorded rationale.
+import type {
+  ProjectBackup,
+  ProjectBackupCollectionRow,
+  ProjectBackupCueRow,
+  ProjectBackupDeckItemRow,
+  ProjectBackupLibraryRow,
+  ProjectBackupMacroRow,
+  ProjectBackupMacroStepRow,
+  ProjectBackupMediaAssetRow,
+  ProjectBackupOverlayRow,
+  ProjectBackupPlaylistEntryRow,
+  ProjectBackupPlaylistGroupRow,
+  ProjectBackupPlaylistRow,
+  ProjectBackupSlideElementRow,
+  ProjectBackupSlideRow,
+  ProjectBackupStageRow,
+  ProjectBackupTables,
+  ProjectBackupTalkScriptBlockRow,
+  ProjectBackupThemeRow,
+  ProjectBackupTriggerBindingRow,
+} from '../contracts/project-backup';
 // Everything below has not moved under #153 and remains on the
-// app/core/types.ts facade: IPC/application contracts (#154), the
-// deck-bundle wire format, and the ProjectBackup family (see the "NOT split
-// out" note on ProjectBackup in app/core/types.ts for why the persistence-DTO
-// row shapes could not be relocated in this slice).
+// app/core/types.ts facade: IPC/application contracts (#154) and the
+// deck-bundle wire format.
 import type {
   AppSnapshot,
   CueCreateInput,
@@ -102,25 +125,6 @@ import type {
   MediaAssetCreateInput,
   OverlayCreateInput,
   OverlayUpdateInput,
-  ProjectBackup,
-  ProjectBackupCollectionRow,
-  ProjectBackupCueRow,
-  ProjectBackupDeckItemRow,
-  ProjectBackupLibraryRow,
-  ProjectBackupMacroRow,
-  ProjectBackupMacroStepRow,
-  ProjectBackupMediaAssetRow,
-  ProjectBackupOverlayRow,
-  ProjectBackupPlaylistEntryRow,
-  ProjectBackupPlaylistGroupRow,
-  ProjectBackupPlaylistRow,
-  ProjectBackupSlideElementRow,
-  ProjectBackupSlideRow,
-  ProjectBackupStageRow,
-  ProjectBackupTables,
-  ProjectBackupTalkScriptBlockRow,
-  ProjectBackupThemeRow,
-  ProjectBackupTriggerBindingRow,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,

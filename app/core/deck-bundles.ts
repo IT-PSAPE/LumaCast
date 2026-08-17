@@ -11,8 +11,6 @@ import type {
   DeckBundleTheme,
   Id,
   OnScopeExit,
-  ProjectBackup,
-  ProjectBackupTables,
   ScopeLevel,
   SlideBackgroundSource,
   SlideElement,
@@ -27,6 +25,7 @@ import {
   type PlaylistItemReference,
 } from './playlist-item-reference';
 import { decodeDeckBundleManifest, type CodecContext } from '../contracts/codecs';
+import type { ProjectBackup, ProjectBackupTables } from '../contracts/project-backup';
 
 interface MediaReferenceAccumulator {
   elementTypes: Set<'image' | 'video'>;
@@ -175,9 +174,11 @@ export function filterDeckBundlePlaylistsToIncludedItems(
 
 // ---------------------------------------------------------------------------
 // Project backup (#145): document constants and the named validation function.
-// The wire contract itself lives in @core/types (`ProjectBackup`); this module
-// is the single interpretation point for it — callers must not re-derive the
-// supported format/version/schemaVersion inline. See ADR-0006.
+// The wire contract itself lives in app/contracts/project-backup.ts
+// (`ProjectBackup`, a serialization contract, not a persistence DTO — see
+// #215); this module is the single interpretation point for it — callers must
+// not re-derive the supported format/version/schemaVersion inline. See
+// ADR-0006.
 // ---------------------------------------------------------------------------
 
 export const PROJECT_BACKUP_FORMAT = 'cast-project-backup' as const;

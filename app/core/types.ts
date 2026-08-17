@@ -84,7 +84,7 @@ export type {
 import type { Id } from './domain/ids';
 import type { Library, LibraryPlaylistBundle } from './domain/library';
 import type { DeckItemType, Presentation, Lyric, Talk } from './domain/decks';
-import type { SlideKind, SlideBackground, SlideBackgroundSource, Slide, TalkScriptBlock } from './domain/slides';
+import type { SlideBackground, SlideBackgroundSource, Slide, TalkScriptBlock } from './domain/slides';
 import type { SlideElementType, SlideElementBase, SlideElementPayload, SlideElement } from './domain/slide-elements';
 import type { MediaAssetType, MediaAsset } from './domain/media-assets';
 import type { OverlayType, OverlayAnimation, Overlay } from './domain/overlays';
@@ -320,269 +320,42 @@ export interface DeckBundleBrokenReferenceDecision {
 
 // ---------------------------------------------------------------------------
 // Project backup (#145): a complete, versioned serialization of every
-// application-owned v22 table. This is a separate contract from the narrow
-// deck-bundle manifest: every table and every column is enumerated explicitly
-// in deterministic table/row order, and the document carries references and
-// metadata only — never copies of managed media files.
+// application-owned v22 table. See app/contracts/project-backup.ts for the
+// full description of the envelope and column conventions.
 //
-// Column names mirror the SQL schema verbatim (`order_index`, `payload_json`,
-// …) so the mapping is unambiguous; JSON-valued columns are stored as their
-// raw serialized strings, exactly as persisted. `format`/`version` identify
-// the backup document contract; `schemaVersion` records the database
-// `PRAGMA user_version` at export time (see ADR-0006). The envelope carries no
-// timestamp, so two exports of unchanged data serialize byte-for-byte
-// identically.
-//
-// NOT split out to app/database/dto/ under #153: despite the SQL-mirroring
-// row shape, `ProjectBackup`/`ProjectBackupTables` are consumed as type-level
-// dependencies outside database mapping/repository code — by
-// app/core/deck-bundles.ts (validateProjectBackup, ProjectBackupTableKey) and
-// by the IPC contract (app/core/ipc.ts, app/main/ipc.ts, app/main/preload.ts,
-// app/main/deck-bundle-archive.ts). Moving this family to app/database/dto/
-// would require those core/main files to import database code, which
-// app/core is architecturally forbidden from doing (core-purity). This
-// contradicts the #153 fixed decision "persistence DTOs may be imported only
-// by database mapping/repository code" — see the #153 handoff report for the
-// full conflict. Left in place pending a decision in #154/#116 about whether
-// this is really a persistence DTO or an application/IPC contract.
+// Moved to app/contracts/ under #215 (parent #116/#153): despite the
+// SQL-mirroring row shape, this family is a serialization contract, not a
+// persistence DTO — it is consumed as a type-level dependency by
+// app/core/deck-bundles.ts, app/core/ipc.ts, and app/main (deck-bundle
+// archive, ipc, preload), in addition to the database layer. core-purity
+// forbids core from importing app/database, so app/database/dto/ was
+// architecturally unreachable for it. See docs/ARCHITECTURE.md for the
+// recorded category decision. The re-exports below are kept for consumers
+// that still import this family from `@core/types`; #155 is the exit
+// condition that removes this facade entirely.
 // ---------------------------------------------------------------------------
 
-export interface ProjectBackupLibraryRow {
-  id: Id;
-  name: string;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Shared row shape for presentations / lyrics / talks. */
-export interface ProjectBackupDeckItemRow {
-  id: Id;
-  title: string;
-  theme_id: Id | null;
-  collection_id: Id;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupSlideRow {
-  id: Id;
-  presentation_id: Id | null;
-  lyric_id: Id | null;
-  talk_id: Id | null;
-  theme_id: Id | null;
-  overlay_id: Id | null;
-  stage_id: Id | null;
-  kind: SlideKind;
-  width: number;
-  height: number;
-  notes: string;
-  background_json: string | null;
-  background_source: SlideBackgroundSource | null;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupSlideElementRow {
-  id: Id;
-  slide_id: Id;
-  type: SlideElementType;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  opacity: number;
-  z_index: number;
-  layer: SlideElementBase['layer'];
-  payload_json: string;
-  source_theme_element_id: Id | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupTalkScriptBlockRow {
-  id: Id;
-  slide_id: Id;
-  text: string;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupPlaylistRow {
-  id: Id;
-  library_id: Id;
-  name: string;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupPlaylistGroupRow {
-  id: Id;
-  playlist_id: Id;
-  name: string;
-  color_key: string | null;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Legacy nullable owner columns exactly as persisted by playlist_entries. */
-export interface ProjectBackupPlaylistEntryRow {
-  id: Id;
-  group_id: Id;
-  presentation_id: Id | null;
-  lyric_id: Id | null;
-  talk_id: Id | null;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Shared row shape for image_assets / video_assets / audio_assets. */
-export interface ProjectBackupMediaAssetRow {
-  id: Id;
-  name: string;
-  src: string;
-  collection_id: Id;
-  order_index: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupOverlayRow {
-  id: Id;
-  name: string;
-  enabled: number;
-  animation_json: string;
-  collection_id: Id;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupThemeRow {
-  id: Id;
-  name: string;
-  kind: ThemeKind;
-  width: number;
-  height: number;
-  order_index: number;
-  collection_id: Id;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupStageRow {
-  id: Id;
-  name: string;
-  width: number;
-  height: number;
-  order_index: number;
-  collection_id: Id;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupCueRow {
-  id: Id;
-  kind: CueKind;
-  payload_json: string;
-  failure_policy: CueFailurePolicy;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupMacroRow {
-  id: Id;
-  name: string;
-  description: string;
-  collection_id: Id;
-  scope_level: ScopeLevel;
-  on_scope_exit: OnScopeExit;
-  loop_enabled: number;
-  loop_count: number | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupMacroStepRow {
-  id: Id;
-  action_id: Id;
-  kind: CueKind;
-  payload_json: string;
-  failure_policy: CueFailurePolicy;
-  /** Nullable in v22: the physical column has no NOT NULL constraint, so direct or externally maintained database state may contain null. */
-  cue_id: Id | null;
-  order_index: number;
-  delay_before_ms: number;
-  delay_after_ms: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupTriggerBindingRow {
-  id: Id;
-  trigger_type: TriggerType;
-  source_id: Id | null;
-  target_type: TriggerBindingTargetType;
-  target_id: Id;
-  config_json: string;
-  enabled: number;
-  created_at: string;
-  updated_at: string;
-}
-
-/** Shared row shape for the eight per-bin collection tables. */
-export interface ProjectBackupCollectionRow {
-  id: Id;
-  name: string;
-  order_index: number;
-  is_default: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupTables {
-  libraries: ProjectBackupLibraryRow[];
-  presentations: ProjectBackupDeckItemRow[];
-  lyrics: ProjectBackupDeckItemRow[];
-  talks: ProjectBackupDeckItemRow[];
-  slides: ProjectBackupSlideRow[];
-  slide_elements: ProjectBackupSlideElementRow[];
-  talk_script_blocks: ProjectBackupTalkScriptBlockRow[];
-  playlists: ProjectBackupPlaylistRow[];
-  playlist_groups: ProjectBackupPlaylistGroupRow[];
-  playlist_entries: ProjectBackupPlaylistEntryRow[];
-  image_assets: ProjectBackupMediaAssetRow[];
-  video_assets: ProjectBackupMediaAssetRow[];
-  audio_assets: ProjectBackupMediaAssetRow[];
-  overlays: ProjectBackupOverlayRow[];
-  themes: ProjectBackupThemeRow[];
-  stages: ProjectBackupStageRow[];
-  cues: ProjectBackupCueRow[];
-  actions: ProjectBackupMacroRow[];
-  action_steps: ProjectBackupMacroStepRow[];
-  trigger_bindings: ProjectBackupTriggerBindingRow[];
-  deck_collections: ProjectBackupCollectionRow[];
-  image_collections: ProjectBackupCollectionRow[];
-  video_collections: ProjectBackupCollectionRow[];
-  audio_collections: ProjectBackupCollectionRow[];
-  theme_collections: ProjectBackupCollectionRow[];
-  overlay_collections: ProjectBackupCollectionRow[];
-  stage_collections: ProjectBackupCollectionRow[];
-  macro_collections: ProjectBackupCollectionRow[];
-}
-
-export interface ProjectBackup {
-  format: 'cast-project-backup';
-  version: 1;
-  schemaVersion: number;
-  tables: ProjectBackupTables;
-}
+export type {
+  ProjectBackup,
+  ProjectBackupTables,
+  ProjectBackupLibraryRow,
+  ProjectBackupDeckItemRow,
+  ProjectBackupSlideRow,
+  ProjectBackupSlideElementRow,
+  ProjectBackupTalkScriptBlockRow,
+  ProjectBackupPlaylistRow,
+  ProjectBackupPlaylistGroupRow,
+  ProjectBackupPlaylistEntryRow,
+  ProjectBackupMediaAssetRow,
+  ProjectBackupOverlayRow,
+  ProjectBackupThemeRow,
+  ProjectBackupStageRow,
+  ProjectBackupCueRow,
+  ProjectBackupMacroRow,
+  ProjectBackupMacroStepRow,
+  ProjectBackupTriggerBindingRow,
+  ProjectBackupCollectionRow,
+} from '../contracts/project-backup';
 
 export interface CueCreateInput {
   kind: CueKind;

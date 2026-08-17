@@ -44,9 +44,9 @@ import type {
   SlideOrderUpdateInput,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput,
-  ProjectBackup
+  TalkScriptBlockUpdateInput
 } from '@core/types';
+import type { ProjectBackup } from '../contracts/project-backup';
 
 const api = {
   platform: process.platform,

@@ -35,9 +35,9 @@ import type {
   SlideOrderUpdateInput,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput,
-  ProjectBackup
+  TalkScriptBlockUpdateInput
 } from '@core/types';
+import type { ProjectBackup } from '../contracts/project-backup';
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
 import type { AppUpdater } from './app-updater';
 import { readDeckBundleArchive, writeDeckBundleArchive } from './deck-bundle-archive';
