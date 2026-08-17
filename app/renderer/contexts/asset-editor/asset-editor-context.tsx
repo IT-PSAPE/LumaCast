@@ -263,7 +263,9 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   }, [overlayStaged, mutatePatch, persistedOverlays, setStatusText]);
 
   useEffect(() => {
-    overlayStaged.registerAutoPush(() => void pushOverlayChanges());
+    // Auto-push runs when leaving the editor; mutatePatch already sets
+    // 'Operation failed' on rejection (#221), so absorb the rethrow here.
+    overlayStaged.registerAutoPush(() => { void pushOverlayChanges().catch(() => undefined); });
   }, [overlayStaged, pushOverlayChanges]);
 
   const overlayValue = useMemo<OverlayEditorValue>(() => ({
@@ -533,7 +535,9 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   }, [resolveThemeIdForMutation, mutatePatch, setStatusText]);
 
   useEffect(() => {
-    themeStaged.registerAutoPush(() => void pushThemeChanges());
+    // Auto-push runs when leaving the editor; mutatePatch already sets
+    // 'Operation failed' on rejection (#221), so absorb the rethrow here.
+    themeStaged.registerAutoPush(() => { void pushThemeChanges().catch(() => undefined); });
   }, [themeStaged, pushThemeChanges]);
 
   const themeValue = useMemo<ThemeEditorValue>(() => ({
@@ -720,7 +724,9 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   }, [stageStaged, mutatePatch, persistedStages, setStatusText]);
 
   useEffect(() => {
-    stageStaged.registerAutoPush(() => void pushStageChanges());
+    // Auto-push runs when leaving the editor; mutatePatch already sets
+    // 'Operation failed' on rejection (#221), so absorb the rethrow here.
+    stageStaged.registerAutoPush(() => { void pushStageChanges().catch(() => undefined); });
   }, [stageStaged, pushStageChanges]);
 
   const stageValue = useMemo<StageEditorValue>(() => ({
@@ -835,7 +841,8 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     previousDeckModeRef.current = workbenchMode;
     if (previousMode !== 'deck-editor' || workbenchMode === 'deck-editor') return;
     if (!deckHasPendingChanges || isDeckPushingChanges) return;
-    void pushDeckChanges();
+    // Mode-exit auto-push; mutatePatch already sets 'Operation failed' on rejection (#221).
+    void pushDeckChanges().catch(() => undefined);
   }, [deckHasPendingChanges, isDeckPushingChanges, pushDeckChanges, workbenchMode]);
 
   const deckValue = useMemo<DeckEditorValue>(() => ({

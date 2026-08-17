@@ -92,7 +92,10 @@ export function MacroEditorInspectorPanel() {
       </Tabs.Root>
       {hasPendingChanges && (
         <LumaCastPanel.Footer className="p-2">
-          <ReacstButton onClick={() => { void saveChanges(); }} disabled={isPushingChanges} className="w-full">
+          {/* saveChanges → updateMacroFields/setMacroCues → updateMacro rejects when
+              the macro no longer exists (#214); mutatePatch has already reported the
+              failure (#221), so absorb the rethrow here. */}
+          <ReacstButton onClick={() => { void saveChanges().catch(() => undefined); }} disabled={isPushingChanges} className="w-full">
             {isPushingChanges ? 'Pushing…' : 'Save Changes'}
           </ReacstButton>
         </LumaCastPanel.Footer>
@@ -142,7 +145,10 @@ function MacroInspector() {
             label="Scope"
             value={currentMacro.scopeLevel}
             options={SCOPE_LEVEL_OPTIONS}
-            onChange={(value) => { void updateMacroFields(macroId, { scopeLevel: value as ScopeLevel }); }}
+            // updateMacroFields → updateMacro rejects when the macro no longer
+            // exists (#214); mutatePatch has already reported the failure (#221),
+            // so absorb the rethrow here.
+            onChange={(value) => { void updateMacroFields(macroId, { scopeLevel: value as ScopeLevel }).catch(() => undefined); }}
             wide
           />
           {currentMacro.scopeLevel !== 'global' && (
@@ -150,7 +156,7 @@ function MacroInspector() {
               label="On scope exit"
               value={currentMacro.onScopeExit}
               options={ON_SCOPE_EXIT_OPTIONS}
-              onChange={(value) => { void updateMacroFields(macroId, { onScopeExit: value as OnScopeExit }); }}
+              onChange={(value) => { void updateMacroFields(macroId, { onScopeExit: value as OnScopeExit }).catch(() => undefined); }}
               wide
             />
           )}
@@ -163,7 +169,10 @@ function MacroInspector() {
             label="Loop"
             value={loopEnabled ? 'on' : 'off'}
             options={[{ value: 'off', label: 'Run once' }, { value: 'on', label: 'Repeat' }]}
-            onChange={(value) => { void updateMacroFields(macroId, { loopEnabled: value === 'on' }); }}
+            // updateMacroFields → updateMacro rejects when the macro no longer
+            // exists (#214); mutatePatch has already reported the failure (#221),
+            // so absorb the rethrow here.
+            onChange={(value) => { void updateMacroFields(macroId, { loopEnabled: value === 'on' }).catch(() => undefined); }}
             wide
           />
           {loopEnabled && (
@@ -174,9 +183,9 @@ function MacroInspector() {
               value={currentMacro.loopCount ?? ''}
               onChange={(value) => {
                 const trimmed = value.trim();
-                if (trimmed === '') { void updateMacroFields(macroId, { loopCount: null }); return; }
+                if (trimmed === '') { void updateMacroFields(macroId, { loopCount: null }).catch(() => undefined); return; }
                 const parsed = parseNumber(value, currentMacro.loopCount ?? 1);
-                void updateMacroFields(macroId, { loopCount: Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : null });
+                void updateMacroFields(macroId, { loopCount: Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : null }).catch(() => undefined);
               }}
               wide
             />

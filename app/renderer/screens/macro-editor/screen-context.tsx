@@ -222,7 +222,10 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
     previousWorkbenchModeRef.current = workbenchMode;
     if (previous !== 'macro-editor' || workbenchMode === 'macro-editor') return;
     if (!hasPendingChangesRef.current || !draftRef.current) return;
-    void saveDraft(draftRef.current);
+    // saveDraft → updateMacroFields/setMacroCues → updateMacro rejects when
+    // the macro no longer exists (#214); mutatePatch has already reported
+    // the failure (#221), so absorb the rethrow here.
+    void saveDraft(draftRef.current).catch(() => undefined);
   }, [workbenchMode, saveDraft]);
 
   const selectMacro = useCallback((id: Id | null) => {
@@ -231,7 +234,10 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
     // currentMacroId.
     const pending = draftRef.current;
     if (pending && hasPendingChangesRef.current) {
-      void saveDraft(pending);
+      // saveDraft rejects when the outgoing macro no longer exists (#214);
+      // mutatePatch has already reported the failure (#221), so absorb the
+      // rethrow here.
+      void saveDraft(pending).catch(() => undefined);
     }
     setCurrentMacroId(id);
     setSelectedRowId(null);

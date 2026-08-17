@@ -84,7 +84,10 @@ export function OverlayEditorInspectorPanel() {
       </Tabs.Root>
       {state.hasPendingChanges && (
         <LumaCastPanel.Footer className="p-3">
-          <ReacstButton onClick={() => { void actions.saveChanges(); }} disabled={state.isPushingChanges} className="w-full">
+          {/* saveChanges → pushChanges → updateOverlay rejects when the overlay no
+              longer exists (#214); mutatePatch has already reported the failure
+              (#221), so absorb the rethrow here. */}
+          <ReacstButton onClick={() => { void actions.saveChanges().catch(() => undefined); }} disabled={state.isPushingChanges} className="w-full">
             {state.isPushingChanges ? 'Pushing…' : 'Save Changes'}
           </ReacstButton>
         </LumaCastPanel.Footer>

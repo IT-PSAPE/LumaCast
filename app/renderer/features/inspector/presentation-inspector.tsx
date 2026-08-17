@@ -5,6 +5,7 @@ import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
 import { getDeckItemLabel } from '@core/deck-items';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
+import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
@@ -17,6 +18,7 @@ export function DeckItemInspector() {
   const { currentDeckItem, renameDeckItem } = useNavigation();
   const { themes, themesById } = useProjectContent();
   const { applyThemeToTarget, detachThemeFromDeckItem } = useThemeEditor();
+  const { setStatusText } = useCast();
   const confirm = useConfirm();
   const [titleDraft, setTitleDraft] = useState('');
 
@@ -62,17 +64,32 @@ export function DeckItemInspector() {
       destructive: true,
     });
     if (!ok) return;
-    void applyThemeToTarget(currentDeckItem.themeId, { type: 'deck-item', itemId: currentDeckItem.id });
+    try {
+      await applyThemeToTarget(currentDeckItem.themeId, { type: 'deck-item', itemId: currentDeckItem.id });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Failed to reset to theme: ${message}`);
+    }
   }
 
-  function handleApplyTheme(themeId: string) {
+  async function handleApplyTheme(themeId: string) {
     if (!currentDeckItem || themeId === NO_TEMPLATE_VALUE) return;
-    void applyThemeToTarget(themeId, { type: 'deck-item', itemId: currentDeckItem.id });
+    try {
+      await applyThemeToTarget(themeId, { type: 'deck-item', itemId: currentDeckItem.id });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Failed to apply theme: ${message}`);
+    }
   }
 
-  function handleDetachTheme() {
+  async function handleDetachTheme() {
     if (!currentDeckItem) return;
-    void detachThemeFromDeckItem(currentDeckItem.id);
+    try {
+      await detachThemeFromDeckItem(currentDeckItem.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Failed to detach theme: ${message}`);
+    }
   }
 
   if (!currentDeckItem) {

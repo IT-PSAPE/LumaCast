@@ -82,12 +82,15 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
   const coverArt = useAudioCoverArt(asset.src);
   const { deleteMedia } = useElements();
   const confirm = useConfirm();
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
 
   function handleArm() {
     onArm(asset.id);
   }
 
+  // deleteMedia → deleteMediaAsset rejects when the asset no longer exists
+  // (#214); mutatePatch has already reported the failure (#221), so the
+  // rethrow is absorbed at the call sites below.
   async function handleDelete() {
     const ok = await confirm({
       title: `Delete "${asset.name}"?`,
@@ -99,7 +102,10 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
   }
 
   function handleMoveToCollection(collectionId: Id) {
-    void collectionsApi.assignItem('media_asset', asset.id, collectionId);
+    // setItemCollection rejects when the collection was deleted under the
+    // open menu (#221); mutatePatch has already reported the failure, so
+    // absorb the rethrow here.
+    void collectionsApi.assignItem('media_asset', asset.id, collectionId).catch(() => undefined);
   }
 
   const otherCollections = collectionsApi.collections.filter((c) => c.id !== asset.collectionId);
@@ -136,7 +142,7 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
             )}
           </ContextMenu.Submenu>
           <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete().catch(() => undefined); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>

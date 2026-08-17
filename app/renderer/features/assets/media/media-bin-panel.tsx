@@ -91,6 +91,10 @@ function useMediaContextActions(asset: MediaAsset) {
   const { mutatePatch, setStatusText } = useCast();
   const confirm = useConfirm();
 
+  // All callers invoke these via `void …().catch(() => undefined)`: the
+  // repo methods reject when the asset no longer exists (#214), and
+  // mutatePatch has already reported the failure (#221), so the rethrow
+  // is absorbed at the call site.
   async function handleReplaceSource() {
     const filePath = await window.castApi.chooseImportReplacementMediaPath();
     if (!filePath) return;
@@ -99,6 +103,9 @@ function useMediaContextActions(asset: MediaAsset) {
     setStatusText(`Replaced source for ${asset.name}`);
   }
 
+  // deleteMedia → deleteMediaAsset rejects when the asset no longer exists
+  // (#214); mutatePatch has already reported the failure (#221), so the
+  // rethrow is absorbed at the call site.
   async function handleDelete() {
     const ok = await confirm({
       title: `Delete "${asset.name}"?`,
@@ -138,7 +145,10 @@ function MediaContextMenuItems({
             {otherCollections.map((collection) => (
               <ContextMenu.Item
                 key={collection.id}
-                onSelect={() => { void onMoveToCollection(asset.id, collection.id); }}
+                // onMoveToCollection → setItemCollection rejects when the collection was
+                // deleted under the open menu (#221); mutatePatch has already
+                // reported the failure, so absorb the rethrow here.
+                onSelect={() => { void onMoveToCollection(asset.id, collection.id).catch(() => undefined); }}
               >
                 {collection.name}
               </ContextMenu.Item>
@@ -162,7 +172,7 @@ function MediaRow(props: MediaItemProps) {
 
 function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsApi, onMoveToCollection }: MediaItemProps) {
   const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
   const {
     state: { programMode, programSingleSurface },
     actions: { setProgramSingleSurface },
@@ -202,8 +212,8 @@ function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsA
         asset={asset}
         collectionsApi={collectionsApi}
         onMoveToCollection={onMoveToCollection}
-        onReplaceSource={() => { void handleReplaceSource(); }}
-        onDelete={() => { void handleDelete(); }}
+        onReplaceSource={() => { void handleReplaceSource().catch(() => undefined); }}
+        onDelete={() => { void handleDelete().catch(() => undefined); }}
       />
     </>
   );
@@ -219,7 +229,7 @@ function MediaTile(props: MediaItemProps) {
 
 function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsApi, onMoveToCollection }: MediaItemProps) {
   const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
   const {
     state: { programMode, programSingleSurface },
     actions: { setProgramSingleSurface },
@@ -260,8 +270,8 @@ function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collections
         asset={asset}
         collectionsApi={collectionsApi}
         onMoveToCollection={onMoveToCollection}
-        onReplaceSource={() => { void handleReplaceSource(); }}
-        onDelete={() => { void handleDelete(); }}
+        onReplaceSource={() => { void handleReplaceSource().catch(() => undefined); }}
+        onDelete={() => { void handleDelete().catch(() => undefined); }}
       />
     </>
   );

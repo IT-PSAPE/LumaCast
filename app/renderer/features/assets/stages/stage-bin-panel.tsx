@@ -151,7 +151,10 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit, collections
               otherCollections.map((collection) => (
                 <ContextMenu.Item
                   key={collection.id}
-                  onSelect={() => { void collectionsApi.assignItem('stage', stage.id, collection.id); }}
+                  // setItemCollection rejects when the collection was deleted under the
+                  // open menu (#221); mutatePatch has already reported the failure,
+                  // so absorb the rethrow here.
+                  onSelect={() => { void collectionsApi.assignItem('stage', stage.id, collection.id).catch(() => undefined); }}
                 >
                   {collection.name}
                 </ContextMenu.Item>

@@ -179,7 +179,9 @@ describe('DeckItemInspector for talk deck items', () => {
     const applyThemeToTarget = options.applyThemeToTarget ?? vi.fn().mockResolvedValue(undefined);
     const detachThemeFromDeckItem = options.detachThemeFromDeckItem ?? vi.fn().mockResolvedValue(undefined);
     const confirmMock = vi.fn().mockResolvedValue(options.confirmResult ?? true);
+    const setStatusText = vi.fn();
 
+    mocks.cast.value = { setStatusText };
     mocks.navigation.value = { currentDeckItem: options.currentDeckItem, renameDeckItem: vi.fn() };
     mocks.project.value = {
       themes: options.themes,
@@ -194,7 +196,7 @@ describe('DeckItemInspector for talk deck items', () => {
       </WorkbenchProvider>,
     );
 
-    return { applyThemeToTarget, detachThemeFromDeckItem, confirmMock };
+    return { applyThemeToTarget, detachThemeFromDeckItem, confirmMock, setStatusText };
   }
 
   it('offers a compatible slide theme as a target for a talk, hiding an incompatible lyric theme', () => {
@@ -251,5 +253,27 @@ describe('DeckItemInspector for talk deck items', () => {
 
     expect(confirmMock).toHaveBeenCalled();
     expect(applyThemeToTarget).not.toHaveBeenCalled();
+  });
+
+  // Covers #221: bare `void detachThemeFromDeckItem(...)` let rejections escape
+  // as unhandled promise rejections instead of reporting a specific failure.
+  it('reports a specific failure when detach rejects instead of escaping an unhandled rejection', async () => {
+    const theme = makeTheme('theme-1', 'slides', 'Slide Theme');
+    const talk = makeTalk('t1', 'My Talk', 'theme-1');
+    const detachThemeFromDeckItem = vi.fn().mockRejectedValue(new Error('Deck item not found: t1'));
+    const { setStatusText } = renderInspector({
+      currentDeckItem: talk,
+      themes: [theme],
+      detachThemeFromDeckItem,
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Remove theme' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(detachThemeFromDeckItem).toHaveBeenCalledWith('t1');
+    expect(setStatusText).toHaveBeenCalledWith('Failed to detach theme: Deck item not found: t1');
   });
 });

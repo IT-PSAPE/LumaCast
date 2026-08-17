@@ -9,6 +9,7 @@ import { SelectableRow } from '../../../components/display/selectable-row';
 import { Thumbnail } from '../../../components/display/thumbnail';
 import { SceneFrame } from '../../../components/display/scene-frame';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
+import { useCast } from '../../../contexts/app-context';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
@@ -206,7 +207,26 @@ function ThemeContextMenuItems({
   onDelete: () => void;
 }) {
   const { applyThemeToTarget } = useThemeEditor();
+  const { setStatusText } = useCast();
   const { deckItems, overlays } = useProjectContent();
+
+  async function handleApplyToDeckItem(itemId: string) {
+    try {
+      await applyThemeToTarget(theme.id, { type: 'deck-item', itemId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Failed to apply theme: ${message}`);
+    }
+  }
+
+  async function handleApplyToOverlay(overlayId: string) {
+    try {
+      await applyThemeToTarget(theme.id, { type: 'overlay', overlayId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Failed to apply theme: ${message}`);
+    }
+  }
 
   const { deckItems: compatibleDeckItems, overlays: compatibleOverlays } = useMemo(
     () => resolveThemeApplyTargets(theme, deckItems, overlays),
@@ -228,7 +248,7 @@ function ThemeContextMenuItems({
               {compatibleDeckItems.map((item) => (
                 <ContextMenu.Item
                   key={item.id}
-                  onSelect={() => { void applyThemeToTarget(theme.id, { type: 'deck-item', itemId: item.id }); }}
+                  onSelect={() => { void handleApplyToDeckItem(item.id); }}
                 >
                   {item.title}
                 </ContextMenu.Item>
@@ -236,7 +256,7 @@ function ThemeContextMenuItems({
               {compatibleOverlays.map((overlay) => (
                 <ContextMenu.Item
                   key={overlay.id}
-                  onSelect={() => { void applyThemeToTarget(theme.id, { type: 'overlay', overlayId: overlay.id }); }}
+                  onSelect={() => { void handleApplyToOverlay(overlay.id); }}
                 >
                   {overlay.name}
                 </ContextMenu.Item>
@@ -249,7 +269,10 @@ function ThemeContextMenuItems({
             {collectionsApi.collections.filter((c) => c.id !== theme.collectionId).map((collection) => (
               <ContextMenu.Item
                 key={collection.id}
-                onSelect={() => { void collectionsApi.assignItem('theme', theme.id, collection.id); }}
+                // setItemCollection rejects when the collection was deleted under the
+                // open menu (#221); mutatePatch has already reported the failure,
+                // so absorb the rethrow here.
+                onSelect={() => { void collectionsApi.assignItem('theme', theme.id, collection.id).catch(() => undefined); }}
               >
                 {collection.name}
               </ContextMenu.Item>

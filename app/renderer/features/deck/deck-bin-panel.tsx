@@ -97,7 +97,10 @@ function DeckItemContextMenuItems({ item, renameRef, collectionsApi, onDelete, o
             {otherCollections.map((collection) => (
               <ContextMenu.Item
                 key={collection.id}
-                onSelect={() => { void collectionsApi.assignItem(item.type, item.id, collection.id); }}
+                // setItemCollection rejects when the collection was deleted under the
+                // open menu (#221); mutatePatch has already reported the failure,
+                // so absorb the rethrow here.
+                onSelect={() => { void collectionsApi.assignItem(item.type, item.id, collection.id).catch(() => undefined); }}
               >
                 {collection.name}
               </ContextMenu.Item>

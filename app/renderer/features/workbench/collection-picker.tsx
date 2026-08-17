@@ -122,7 +122,10 @@ function CollectionPickerPopover({ api, onClose }: PopoverContentProps) {
     if (event.key === 'Enter') {
       event.preventDefault();
       if (showCreateOption) {
-        void handleCreate();
+        // use-bin-collections.createCollection already reported the specific
+        // failure via setStatusText before rethrowing (#221), so absorb the
+        // rethrow here rather than leaking an unhandled rejection.
+        void handleCreate().catch(() => undefined);
       } else if (filtered.length === 1) {
         handleSelect(filtered[0]);
       }
@@ -183,9 +186,11 @@ function CollectionPickerPopover({ api, onClose }: PopoverContentProps) {
                   autoFocus
                   value={renameDraft}
                   onChange={(event) => setRenameDraft(event.target.value)}
-                  onBlur={() => { void commitRename(collection); }}
+                  // use-bin-collections.renameCollection already reported the
+                  // specific failure via setStatusText before rethrowing (#221).
+                  onBlur={() => { void commitRename(collection).catch(() => undefined); }}
                   onKeyDown={(event) => {
-                    if (event.key === 'Enter') { event.preventDefault(); void commitRename(collection); }
+                    if (event.key === 'Enter') { event.preventDefault(); void commitRename(collection).catch(() => undefined); }
                     else if (event.key === 'Escape') { event.preventDefault(); setRenamingId(null); }
                   }}
                   className="min-w-0 flex-1 rounded bg-tertiary px-1 text-sm text-primary outline-none"
@@ -213,7 +218,9 @@ function CollectionPickerPopover({ api, onClose }: PopoverContentProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { void handleDelete(collection); }}
+                    // use-bin-collections.deleteCollection already reported the
+                    // specific failure via setStatusText before rethrowing (#221).
+                    onClick={() => { void handleDelete(collection).catch(() => undefined); }}
                     className="rounded-sm p-0.5 text-tertiary hover:bg-quaternary hover:text-destructive"
                     title="Delete"
                   >
@@ -227,7 +234,10 @@ function CollectionPickerPopover({ api, onClose }: PopoverContentProps) {
         {showCreateOption ? (
           <button
             type="button"
-            onClick={() => { void handleCreate(); }}
+            // use-bin-collections.createCollection already reported the specific
+            // failure via setStatusText before rethrowing (#221), so absorb the
+            // rethrow here rather than leaking an unhandled rejection.
+            onClick={() => { void handleCreate().catch(() => undefined); }}
             className="flex h-7 items-center gap-1.5 rounded px-1.5 text-left text-sm text-secondary transition-colors hover:bg-tertiary/55 hover:text-primary"
           >
             <Plus size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />

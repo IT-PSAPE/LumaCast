@@ -150,7 +150,10 @@ function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWork
               otherCollections.map((collection) => (
                 <ContextMenu.Item
                   key={collection.id}
-                  onSelect={() => { void collectionsApi.assignItem('overlay', overlay.id, collection.id); }}
+                  // setItemCollection rejects when the collection was deleted under the
+                  // open menu (#221); mutatePatch has already reported the failure,
+                  // so absorb the rethrow here.
+                  onSelect={() => { void collectionsApi.assignItem('overlay', overlay.id, collection.id).catch(() => undefined); }}
                 >
                   {collection.name}
                 </ContextMenu.Item>

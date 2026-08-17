@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '@renderer/components/display/tabs';
+import { useCast } from '@renderer/contexts/app-context';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
@@ -13,6 +14,7 @@ import { useThemeEditorScreen } from './screen-context';
 
 export function ThemeEditorInspectorPanel() {
   const { state, actions } = useThemeEditorScreen();
+  const { setStatusText } = useCast();
   const { inspectorTab, setInspectorTab } = useInspector();
   const { selectedElement } = useElements();
   const hasSelection = Boolean(selectedElement);
@@ -45,6 +47,17 @@ export function ThemeEditorInspectorPanel() {
     setInspectorTab(value as InspectorTab);
   }
 
+  async function handleSyncLinkedItems() {
+    // Sync updates visible deck items; a stale theme id rejects with 'Theme
+    // not found', which the generic 'Operation failed' would hide (#221).
+    try {
+      await actions.syncLinkedItems();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStatusText(`Failed to sync: ${message}`);
+    }
+  }
+
   return (
     <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
       <Tabs.Root value={inspectorTab} onValueChange={handleTabChange}>
@@ -69,13 +82,16 @@ export function ThemeEditorInspectorPanel() {
         <LumaCastPanel.Footer className="p-3">
           <div className="flex flex-col gap-2">
             {state.hasPendingChanges && (
-              <ReacstButton onClick={() => { void actions.saveChanges(); }} disabled={state.isPushingChanges} className="w-full">
+              // saveChanges → pushChanges → updateTheme rejects when the theme no
+              // longer exists (#214); mutatePatch has already reported the
+              // failure (#221), so absorb the rethrow here.
+              <ReacstButton onClick={() => { void actions.saveChanges().catch(() => undefined); }} disabled={state.isPushingChanges} className="w-full">
                 {state.isPushingChanges ? 'Pushing…' : 'Save Changes'}
               </ReacstButton>
             )}
             <ReacstButton
               variant="ghost"
-              onClick={() => { void actions.syncLinkedItems(); }}
+              onClick={() => { void handleSyncLinkedItems(); }}
               disabled={state.linkedItemCount === 0 || state.isSyncing || state.hasPendingChanges}
               title={state.hasPendingChanges ? 'Push theme changes first' : state.linkedItemCount === 0 ? 'No deck items use this theme' : undefined}
               className="w-full"

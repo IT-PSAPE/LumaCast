@@ -91,7 +91,10 @@ export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBi
             onDeleteMacro={deleteMacro}
             onDuplicateMacro={duplicateMacro}
             onToggleRunOnStartup={toggleRunOnStartup}
-            onRename={(name) => { void updateMacroFields(macro.id, { name }); }}
+            // updateMacroFields → updateMacro rejects when the macro no longer
+            // exists (#214); mutatePatch has already reported the failure (#221),
+            // so absorb the rethrow here.
+            onRename={(name) => { void updateMacroFields(macro.id, { name }).catch(() => undefined); }}
             onMoveToCollection={async (collectionId) => {
               await collections.assignItem('macro', macro.id, collectionId);
             }}
@@ -183,7 +186,10 @@ function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOp
               otherCollections.map((collection) => (
                 <ContextMenu.Item
                   key={collection.id}
-                  onSelect={() => { void onMoveToCollection(collection.id); }}
+                  // onMoveToCollection → setItemCollection rejects when the collection was
+                  // deleted under the open menu (#221); mutatePatch has already
+                  // reported the failure, so absorb the rethrow here.
+                  onSelect={() => { void onMoveToCollection(collection.id).catch(() => undefined); }}
                 >
                   {collection.name}
                 </ContextMenu.Item>
