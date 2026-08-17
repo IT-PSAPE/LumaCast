@@ -2989,48 +2989,60 @@ export class CastRepository {
 
   moveDeckItemToGroup(playlistId: Id, itemId: Id, groupId: Id | null): SnapshotPatch {
     const owner = this.resolveDeckOwnerRow(itemId);
-    if (!owner) return this.buildPatch({});
+    if (!owner) {
+      throw new Error(`Deck item not found: ${itemId}`);
+    }
     const ownerColumn = this.getDeckOwnerColumn(owner.type);
 
-    this.db
-      .prepare(
-        `DELETE FROM playlist_entries
-         WHERE (${ownerColumn} = ?)
-         AND group_id IN (SELECT id FROM playlist_groups WHERE playlist_id = ?)`
-      )
-      .run(itemId, playlistId);
-
-    if (!groupId) return this.buildPatch({ replaceLibraryBundles: true });
-
-    const exists = this.db
-      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
-      .get(groupId, playlistId) as { id: string } | undefined;
-
-    if (!exists) return this.buildPatch({ replaceLibraryBundles: true });
+    // Validate the destination before any destructive work: an unresolvable
+    // group (missing, or belonging to a different playlist) must fail loudly
+    // rather than deleting the item's current entries and reporting success.
+    if (groupId) {
+      const exists = this.db
+        .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
+        .get(groupId, playlistId) as { id: string } | undefined;
+      if (!exists) {
+        throw new Error(`Group not found: ${groupId}`);
+      }
+    }
 
     const now = nowIso();
-    const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
-        maxOrder: number | null;
-      }).maxOrder ?? -1;
-
     const movedEntryOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference(owner.type, itemId));
-    this.db
-      .prepare(
-        `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(
-        createId(),
-        groupId,
-        movedEntryOwner.presentationId,
-        movedEntryOwner.lyricId,
-        movedEntryOwner.talkId,
-        currentOrder + 1,
-        now,
-        now,
-      );
 
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `DELETE FROM playlist_entries
+           WHERE (${ownerColumn} = ?)
+           AND group_id IN (SELECT id FROM playlist_groups WHERE playlist_id = ?)`
+        )
+        .run(itemId, playlistId);
+
+      if (!groupId) return;
+
+      const currentOrder =
+        (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
+          maxOrder: number | null;
+        }).maxOrder ?? -1;
+
+      this.db
+        .prepare(
+          `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          createId(),
+          groupId,
+          movedEntryOwner.presentationId,
+          movedEntryOwner.lyricId,
+          movedEntryOwner.talkId,
+          currentOrder + 1,
+          now,
+          now,
+        );
+    });
+
+    tx();
     return this.buildPatch({ replaceLibraryBundles: true });
   }
 
