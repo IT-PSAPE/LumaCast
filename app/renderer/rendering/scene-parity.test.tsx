@@ -1,10 +1,13 @@
+import type { ReactElement } from 'react';
+import { Rect } from 'react-konva';
 import { describe, expect, it } from 'vitest';
-import type { Id, Slide, SlideElement } from '@core/types';
+import type { Id, Slide, SlideBackground, SlideElement } from '@core/types';
 import { buildRenderScene, buildResolvedRenderScene } from '../features/canvas/build-render-scene';
 import { SceneNodeMedia } from '../features/canvas/scene-node-media';
 import { SceneNodeShape } from '../features/canvas/scene-node-shape';
 import { SceneNodeText } from '../features/canvas/scene-node-text';
 import { renderSceneNodeContent } from './scene-node-content';
+import { needsOpaqueBackdrop, SceneSlideBackground } from './scene-slide-background';
 import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from './scene-traversal';
 
 // Structural parity between the two scene traversals that exist post-#147/#148:
@@ -96,6 +99,35 @@ function slide(partial: Partial<Slide> = {}): Slide {
     updatedAt: NOW,
     ...partial,
   };
+}
+
+function colorBackground(color = '#112233'): SlideBackground {
+  return { type: 'color', color };
+}
+
+function linearGradientBackground(): SlideBackground {
+  return {
+    type: 'gradient',
+    gradient: {
+      kind: 'linear',
+      angle: 45,
+      stops: [{ position: 0, color: '#000000' }, { position: 100, color: '#ffffff' }],
+    },
+  };
+}
+
+function radialGradientBackground(): SlideBackground {
+  return {
+    type: 'gradient',
+    gradient: {
+      kind: 'radial',
+      stops: [{ position: 0, color: '#ff0000' }, { position: 100, color: '#0000ff' }],
+    },
+  };
+}
+
+function imageBackground(src = 'cast-media://bg.png'): SlideBackground {
+  return { type: 'image', mediaAssetId: null, src, fit: 'cover' };
 }
 
 // ─── Traversal / ordering parity ───────────────────────────────────────
@@ -249,5 +281,108 @@ describe('known scope-bounded divergence: invalid numeric fields', () => {
     expect(resolvedNode.width).toBe(0);
     expect(resolvedNode.height).toBe(0);
     expect(resolvedNode.rotation).toBe(0);
+  });
+});
+
+// ─── Slide/stage background parity (#206) ──────────────────────────────
+//
+// SceneSlideBackground is the one shared implementation the editor stage
+// (scene-stage.tsx) and the NDI capture path (ndi-frame-capture.tsx) both
+// render through. Both call sites pass the same `scene.slide.background`,
+// `scene.width`/`scene.height`, and their own SceneSurface tag; calling the
+// component directly here (JSX creation does not execute the function body,
+// exactly like `renderSceneNodeContent` above) reproduces each call site's
+// output without mounting Konva or a real DOM canvas.
+
+const BG_WIDTH = 1920;
+const BG_HEIGHT = 1080;
+
+function renderBackground(background: SlideBackground | null | undefined, surface: 'show' | 'ndi-show' | 'ndi-stage' = 'show') {
+  return SceneSlideBackground({ background, width: BG_WIDTH, height: BG_HEIGHT, surface }) as ReactElement | null;
+}
+
+describe('slide/stage background parity: editor and NDI share one implementation', () => {
+  it('renders a colour background as an identical opaque Rect fill for both surfaces', () => {
+    const background = colorBackground('#123456');
+    const editorEl = renderBackground(background, 'show')!;
+    const ndiEl = renderBackground(background, 'ndi-show')!;
+
+    expect(editorEl.type).toBe(Rect);
+    expect(ndiEl.type).toBe(Rect);
+    expect(editorEl.props).toEqual(ndiEl.props);
+    expect(editorEl.props).toMatchObject({ x: 0, y: 0, width: BG_WIDTH, height: BG_HEIGHT, fill: '#123456', listening: false });
+  });
+
+  it('renders linear and radial gradients as identical gradient-fill Rects for both surfaces', () => {
+    for (const background of [linearGradientBackground(), radialGradientBackground()]) {
+      const editorEl = renderBackground(background, 'show')!;
+      const ndiEl = renderBackground(background, 'ndi-stage')!;
+
+      expect(editorEl.type).toBe(Rect);
+      expect(editorEl.props).toEqual(ndiEl.props);
+    }
+  });
+
+  it('routes image backgrounds through the same media renderer for both surfaces, differing only in the surface tag', () => {
+    const background = imageBackground();
+    const editorEl = renderBackground(background, 'show')!;
+    const ndiEl = renderBackground(background, 'ndi-show')!;
+
+    // Both resolve to the same private media component — the shared module's
+    // only branch for image/video kinds — proving image backgrounds are no
+    // longer silently dropped from the NDI path (the defect #206 reports).
+    expect(editorEl.type).toBe(ndiEl.type);
+    expect(editorEl.type).not.toBe(Rect);
+
+    const { surface: editorSurface, ...editorRest } = editorEl.props as Record<string, unknown>;
+    const { surface: ndiSurface, ...ndiRest } = ndiEl.props as Record<string, unknown>;
+    expect(editorRest).toEqual(ndiRest);
+    expect(editorRest).toMatchObject({ kind: 'image', src: background.type === 'image' ? background.src : undefined, fit: 'cover', width: BG_WIDTH, height: BG_HEIGHT });
+    // 'show' and 'ndi-show' are both members of the existing live-surface set
+    // (see resolveVideoOptions in scene-node-media.tsx for the same split),
+    // so this is an intentional, pre-established surface-tag difference, not
+    // a parity gap.
+    expect(editorSurface).toBe('show');
+    expect(ndiSurface).toBe('ndi-show');
+  });
+
+  it('degrades a missing background identically (renders nothing) on both surfaces', () => {
+    for (const surface of ['show', 'ndi-show'] as const) {
+      expect(renderBackground(null, surface)).toBeNull();
+      expect(renderBackground(undefined, surface)).toBeNull();
+    }
+  });
+
+  it('degrades an invalid/unknown background kind identically on both surfaces instead of throwing', () => {
+    const invalid = { type: 'not-a-real-kind' } as unknown as SlideBackground;
+
+    const editorEl = renderBackground(invalid, 'show');
+    const ndiEl = renderBackground(invalid, 'ndi-show');
+
+    expect(editorEl).not.toBeNull();
+    expect(ndiEl).not.toBeNull();
+    expect(editorEl!.type).toBe(ndiEl!.type);
+    expect(editorEl!.type).not.toBe(Rect);
+  });
+});
+
+describe('NDI opaque-backdrop decision preserves withAlpha semantics (#206)', () => {
+  it('needs an opaque backdrop only when the frame carries no alpha channel', () => {
+    expect(needsOpaqueBackdrop(false)).toBe(true);
+    expect(needsOpaqueBackdrop(true)).toBe(false);
+  });
+
+  it('renders the identical shared background element regardless of withAlpha — only the NDI-only synthetic backdrop (outside this module) varies with it', () => {
+    const background = colorBackground('#abcdef');
+    for (const withAlpha of [true, false]) {
+      const bg = renderBackground(background, 'ndi-show')!;
+      expect(bg.type).toBe(Rect);
+      expect(bg.props).toMatchObject({ fill: '#abcdef' });
+      // The decision of whether to layer an extra opaque backdrop beneath
+      // this element is made in the NDI adapter, not here — this component
+      // takes no withAlpha input at all, so a keyed frame can never have one
+      // forced onto it by the shared background renderer itself.
+      expect(needsOpaqueBackdrop(withAlpha)).toBe(!withAlpha);
+    }
   });
 });

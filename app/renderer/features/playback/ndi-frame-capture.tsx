@@ -5,6 +5,7 @@ import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
 import type { NdiOutputName, TextBinding } from '@core/types';
 import { useNdi } from '../../contexts/app-context';
 import { renderSceneNodeContent } from '../../rendering/scene-node-content';
+import { needsOpaqueBackdrop, SceneSlideBackground } from '../../rendering/scene-slide-background';
 import { traverseSceneNodes } from '../../rendering/scene-traversal';
 import { useBinding, type BindingValue } from '../canvas/binding-context';
 import { SceneNodeShape } from '../canvas/scene-node-shape';
@@ -302,7 +303,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     >
       <Stage ref={stageRef} width={NDI_OUTPUT_WIDTH} height={NDI_OUTPUT_HEIGHT} listening={false}>
         <Layer listening={false}>
-          {!withAlpha ? (
+          {needsOpaqueBackdrop(withAlpha) ? (
             <Group>
               <SceneNodeShape node={{
                 id: '__ndi-bg',
@@ -344,6 +345,9 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
               }} />
             </Group>
           ) : null}
+          <Group>
+            <SceneSlideBackground background={scene.slide.background} width={scene.width} height={scene.height} surface={surface} />
+          </Group>
           <Group>
             {traverseSceneNodes(scene.nodes).map(({ node, frame }) => (
               <Group

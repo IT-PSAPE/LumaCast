@@ -2,16 +2,36 @@ import { useEffect, useMemo, useRef } from 'react';
 import type Konva from 'konva';
 import { Group, Image as KonvaImage, Rect } from 'react-konva';
 import type { SlideBackground, SlideBackgroundFit, SlideGradient } from '@core/types';
-import type { SceneSurface } from './scene-types';
-import { resolveMediaFit } from './resolve-media-cover';
-import { useKImage } from './use-k-image';
-import { useKVideo } from './use-k-video';
+import type { SceneSurface } from '../features/canvas/scene-types';
+import { resolveMediaFit } from '../features/canvas/resolve-media-cover';
+import { useKImage } from '../features/canvas/use-k-image';
+import { useKVideo } from '../features/canvas/use-k-video';
+
+// Shared slide/stage background renderer for the Konva surfaces. The editor
+// preview (scene-stage.tsx) and the NDI capture path (ndi-frame-capture.tsx)
+// both render through this single component so a configured colour,
+// gradient, or image/video background looks identical everywhere — see
+// scene-traversal.ts and scene-node-content.tsx for the sibling shared
+// modules this follows the same prop-driven style as. Editor-only selection
+// state stays out of this component entirely; it is pure background paint
+// driven by resolved SlideBackground data passed in as props.
 
 interface SceneSlideBackgroundProps {
   background: SlideBackground | null | undefined;
   width: number;
   height: number;
   surface: SceneSurface;
+}
+
+// NDI-only alpha-compositing helper: an output frame with no alpha channel
+// needs an explicit opaque backdrop wherever the slide's own background (or
+// its absence) would otherwise leave uncovered/transparent pixels. A keyed
+// (withAlpha) frame must never get one forced on top of it. Kept alongside
+// the background renderer (rather than inside the NDI adapter) purely so it
+// stays a small, dependency-free, independently testable predicate; the NDI
+// adapter owns deciding *what* to paint as that backdrop.
+export function needsOpaqueBackdrop(withAlpha: boolean): boolean {
+  return !withAlpha;
 }
 
 function gradientColorStops(gradient: SlideGradient): Array<number | string> {

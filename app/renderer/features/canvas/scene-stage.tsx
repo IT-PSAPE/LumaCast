@@ -9,7 +9,7 @@ import { hasClipboardContent } from '../../contexts/element/use-element-history'
 import type { RenderNode, RenderScene, SceneSurface } from './scene-types';
 import { renderSceneNodeContent } from '../../rendering/scene-node-content';
 import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from '../../rendering/scene-traversal';
-import { SceneSlideBackground } from './scene-slide-background';
+import { SceneSlideBackground } from '../../rendering/scene-slide-background';
 import { InlineTextEditor } from './inline-text-editor';
 import { useSceneStageEditor } from './use-scene-stage-editor';
 import type { SceneViewportTransform } from './use-scene-stage-viewport';
