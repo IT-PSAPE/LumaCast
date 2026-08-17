@@ -12,14 +12,22 @@ Cross-platform Electron prototype for a ProPresenter-style presentation workflow
 
 ## Requirements
 
-- Node.js `22.13.0` or newer
-- npm `11.6.2` or newer
+- Node.js `22.13.0` or newer (CI pins exactly `22.13.0`)
+- npm `11.6.2` or newer (`package.json#packageManager`)
 
-For Windows native NDI addon builds, also install:
+For the native NDI addon build, also install the toolchain for your
+platform. Only the Windows path below is currently exercised by CI; the
+`packages/ndi-native` build configuration also contains macOS and Linux
+paths, but they are unverified — see `docs/release-setup.md` for the full
+platform/architecture matrix.
 
-- Visual Studio Build Tools with the C++ workload
-- Python `3.12` or newer
-- NDI Runtime/Tools providing `Processing.NDI.Lib.x64.dll`
+- **Windows** (CI-verified): Visual Studio Build Tools with the C++
+  workload, Python `3.12` or newer, and an NDI Runtime/Tools install
+  providing `Processing.NDI.Lib.x64.dll`.
+- **macOS** (unverified by CI): Xcode Command Line Tools, and an NDI SDK/
+  runtime install providing `libndi.dylib`.
+- **Linux** (unverified by CI): a C++17 toolchain, and an NDI SDK/runtime
+  install providing `libndi.so`.
 
 ## Install
 
@@ -95,11 +103,11 @@ If the addon is missing or the runtime library cannot be found, the app falls ba
 
 ## CI and releases
 
-- Pull requests and branch pushes run the validation workflow in [.github/workflows/ci.yml](.github/workflows/ci.yml).
-- Published GitHub Releases run the packaging job in [.github/workflows/release.yml](.github/workflows/release.yml).
+- Pull requests and every branch push run the validation workflow in [.github/workflows/ci.yml](.github/workflows/ci.yml) (typecheck, architecture check, unit tests, Playwright e2e).
+- A version bump pushed to `main` triggers [.github/workflows/release.yml](.github/workflows/release.yml); the same pushed to `testing` triggers [.github/workflows/prerelease.yml](.github/workflows/prerelease.yml) (`vX.Y.Z-beta.N`). Both currently build and release **Windows only** — see [docs/release-setup.md](docs/release-setup.md) for the full platform/architecture matrix and why macOS/Linux are unverified.
 - Release note grouping is configured in [.github/release.yml](.github/release.yml).
 
-See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release conventions, and [docs/release-setup.md](docs/release-setup.md) for signing and packaging setup.
+See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release conventions, and [docs/release-setup.md](docs/release-setup.md) for signing, packaging, and platform-support detail.
 
 ## Updater status
 

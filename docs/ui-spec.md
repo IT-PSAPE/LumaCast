@@ -1,142 +1,94 @@
 # LumaCast UI Specification
 
-Updated on 2026-03-08.
+Updated on 2026-08-16. This document describes the current renderer shell and
+screen layout as implemented. It replaces an earlier version describing a
+`show` / `slide-editor` / `overlay-editor` workbench with a fixed
+`LibraryPanel` + `SlideBrowser` + `ResourceDrawer` + `PreviewPanel` layout;
+that structure predates the current screen set. For naming/boundary detail
+behind this document, see [renderer-taxonomy.md](./renderer-taxonomy.md).
 
-## 1. Layout Structure
+## 1. Shell Structure
 
-The renderer is organized around a `workbench` shell with three primary modes:
+`app/renderer/App.tsx` renders a persistent shell:
 
-1. `show`
-2. `slide-editor`
-3. `overlay-editor`
+1. `WindowsInlineMenuBar` wrapping `AppToolbar` (`data-ui-region="app-toolbar"`)
+2. The active screen, chosen by `WorkbenchScreenRouter` from `workbenchMode`
+3. `StatusBar` (`data-ui-region="status-bar"`)
 
-Persistent shell surfaces:
+## 2. Canonical Workbench Modes
 
-1. `AppToolbar`
-2. active workbench layout
-3. `StatusBar`
+`WorkbenchMode` (`app/renderer/types/ui.ts`): `show | deck-editor |
+overlay-editor | theme-editor | stage-editor | macro-editor | settings`.
 
-Toolbar labels map to internal modes like this:
+Toolbar segmented-control labels map to modes as:
 
 - `Show` -> `show`
-- `Slides` -> `slide-editor`
+- `Edit` -> `deck-editor`
 - `Overlay` -> `overlay-editor`
+- `Themes` -> `theme-editor`
+- `Stage` -> `stage-editor`
+- `Macros` -> `macro-editor`
 
-Show mode layout:
+`settings` is reached from the toolbar's gear button, not the segmented
+control.
 
-- `LibraryPanel`
-- `SlideBrowser`
-- `ResourceDrawer`
-- `PreviewPanel`
+## 3. Screen Layouts
 
-Slide editor layout:
+### Show (`data-ui-region` values live on `show-*` split panels)
 
-- `SlideListPanel`
-- `StagePanel`
-- `SlideNotesPanel`
-- `InspectorPanel`
+- Left: `LibrariesPanel` + `PlaylistPanels` (library/playlist/group tree)
+- Center: `DeckBrowserToolbar`, `SlideBrowserContent` / `ContinuousSlideBrowser`, `ResourceDrawer`
+- Right: `ProgramPanel`
 
-Overlay editor layout:
+### Deck Editor (`data-ui-region="deck-editor-layout"`)
 
-- `OverlayListPanel`
-- `StagePanel`
-- `InspectorPanel`
+- Left: deck-item picker + slide/lyric list, and a Layers panel
+  (`DeckEditorLayersPanel`)
+- Center: `StagePanel`, and either `TalkScriptBlocksPanel` (for Talk items) or
+  a notes textarea (`data-ui-region="slide-notes-panel"`)
+- Right: `DeckEditorInspectorPanel` (`data-ui-region="inspector-panel"`)
 
-## 2. Canonical Modes
+### Overlay Editor, Theme Editor, Stage Editor (`data-ui-region="editor-layout"`)
 
-Workbench mode:
+Same three-pane shape as Deck Editor (list/layers, stage, inspector). The
+layers panel for these three screens is the shared
+`screens/shared/element-layers-panel.tsx` (`data-ui-region="object-list-panel"`).
 
-- `show`
-- `slide-editor`
-- `overlay-editor`
+### Macro Editor (`data-ui-region="editor-layout"`)
 
-Slide browser mode:
+Own layers panel for cues (`data-ui-region="cue-list-panel"`), its own
+`canvas-panel.tsx`, and its own inspector
+(`data-ui-region="macro-inspector-panel"`) rather than reusing the shared
+element inspector.
 
-- `focus`
-- `grid`
-- `list`
+### Settings (`data-ui-region="settings-layout"`)
 
-Playlist browser mode:
+Tab list: Appearance, Output, Overlays, Observability, Import & Export.
 
-- `current`
-- `tabs`
-- `continuous`
+## 4. Keyboard Shortcuts
 
-Library panel view:
+See [keyboard-shortcuts.md](./keyboard-shortcuts.md) for the full, generated
+map of native menu accelerators and in-app shortcuts. That document is the
+single source of truth; do not duplicate the shortcut table here.
 
-- `libraries`
-- `playlist`
+## 5. Screenshot Generation — currently non-functional
 
-Resource drawer tab:
+`npm run capture:ui-screenshots` runs `app/e2e/capture-ui-screenshots.mjs`.
+That script was written against an earlier renderer (`data-ui-region` values
+such as `library-panel`, `slide-browser`, `slide-list-panel`, and IPC calls
+such as `castApi.createPlaylistSegment` / `castApi.addDeckItemToSegment`)
+that no longer exist in this codebase (current equivalents are
+`createPlaylistGroup` / `addDeckItemToGroup`, and the region names in
+Section 3 above). It currently exits immediately with an explanatory error
+instead of silently failing partway through a capture. No screenshot assets
+are checked into `docs/ui-spec-assets/` (the directory does not exist), so
+none are referenced from this document. Regenerating a real screenshot set
+in a future implementation requires rewriting the capture script's selectors
+and seed-data calls against the current screens.
 
-- `media`
-- `overlays`
-- `presentations`
+## 6. Implementation Guarantees
 
-## 3. User-Facing Vocabulary
-
-Use these product-surface labels in the renderer:
-
-- `Library`
-- `Playlist`
-- `Segments`
-- `Presentations`
-- `Continuous Playlist`
-- `Slide Browser`
-- `Preview`
-- `Slide Editor`
-- `Overlay Editor`
-- `Media`
-- `Overlays`
-- `Inspector`
-
-Use these structural/container labels for layout and implementation:
-
-- `Workbench`
-- `Panel`
-- `Drawer`
-- `Sidebar`
-- `Stage`
-
-## 4. Interaction Rules
-
-- Show mode is optimized for browsing and output preview.
-- Slide editor and overlay editor keep changes local until the user pushes them.
-- `StageViewport` is shared across show, slide editing, overlay editing, preview, and NDI output flows through the shared stage/rendering feature.
-- `LibraryPanelView` is UI state owned by the library browser, not navigation/domain state.
-- The `Presentations` drawer tab shows the global presentation inventory; the component implementing it is `PresentationBinPanel`.
-
-## 5. Keyboard Map
-
-Global shortcuts, disabled while typing in editable fields:
-
-- `ArrowRight`: next slide
-- `ArrowLeft`: previous slide
-- `1-9`: jump to slide index
-- `Enter` or `Space`: take current slide
-- `Delete` or `Backspace`: delete selected element
-- `Alt + 1`: `focus` slide browser mode
-- `Alt + 2`: `grid` slide browser mode
-- `Alt + 3`: `list` slide browser mode
-- `Alt + Shift + 1`: `current` playlist browser mode
-- `Alt + Shift + 2`: `tabs` playlist browser mode
-- `Alt + Shift + 3`: `continuous` playlist browser mode
-
-## 6. Visual Reference
-
-Detailed component-level captures live in [ui-code-design-spec.md](/Users/Craig/Developer/Projects/recast/docs/ui-code-design-spec.md) and [ui-spec-assets/manifest.md](/Users/Craig/Developer/Projects/recast/docs/ui-spec-assets/manifest.md).
-
-Current workbench layout references:
-
-![Show mode layout](./ui-spec-assets/app/show-mode-layout.png)
-![Slide editor layout](./ui-spec-assets/app/slide-editor-layout.png)
-![Overlay editor layout](./ui-spec-assets/app/overlay-editor-layout.png)
-
-## 7. Implementation Guarantees
-
-- Library references and playlist references remain reusable.
-- Media drag/drop to the stage remains intact.
-- Overlay assignment remains available from the Overlays drawer tab.
-- Presentation browsing remains available from the Presentations drawer tab.
-- NDI output remains driven by the shared render scene provider.
-- Persisted presentation kinds remain `canvas` or `lyrics`.
+- Library, playlist, and group references remain reusable across deck items.
+- Media drag/drop onto the stage remains intact.
+- Persisted `Presentation.kind` remains `canvas | lyrics` in storage.
+- NDI output remains driven by the shared canvas/stage rendering feature.

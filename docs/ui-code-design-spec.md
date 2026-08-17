@@ -1,377 +1,160 @@
 # LumaCast UI Code Design Spec
 
-Updated on 2026-03-08.
-Scope: `app/renderer` runtime structure, terminology, and screenshot coverage after the workbench, library-browser, slide-browser, and stage refactor.
+Updated on 2026-08-16. Scope: `app/renderer` runtime structure and
+terminology, verified directly against the current source tree. This
+replaces an earlier version written for a `workbench` / `library-browser` /
+`resource-drawer` / `slide-browser` / `stage` / `slide-editor` /
+`overlay-editor` / `inspector` / `outputs` feature set and a `show-mode` /
+`slide-editor` / `overlay-editor` screenshot set, none of which match the
+current tree. See [renderer-taxonomy.md](./renderer-taxonomy.md) for the
+canonical naming reference this document defers to.
 
 ## 1. Renderer UI Structure
 
 ```text
 app/renderer
 ├── components
-│   └── resizable-split
+│   ├── controls
+│   ├── display
+│   ├── feedback
+│   ├── form
+│   ├── icon-group
+│   ├── layout
+│   └── overlays
 ├── contexts
+│   ├── asset-editor
+│   ├── canvas
+│   ├── element
+│   └── playback
 ├── features
+│   ├── assets
+│   ├── automation
+│   ├── canvas
+│   ├── command-palette
+│   ├── deck
 │   ├── inspector
-│   ├── library-browser
-│   ├── outputs
-│   ├── overlay-editor
+│   ├── library
+│   ├── observability
 │   ├── playback
-│   ├── resource-drawer
-│   ├── slide-browser
-│   ├── slide-editor
-│   ├── stage
 │   └── workbench
 ├── hooks
-├── spec
+├── rendering
+├── screens
+│   ├── deck-editor
+│   ├── macro-editor
+│   ├── overlay-editor
+│   ├── settings
+│   ├── shared
+│   ├── show
+│   ├── stage-editor
+│   └── theme-editor
 ├── types
 └── utils
 ```
 
-Legacy renderer surface names such as `workspace`, `command bar`, `sidebar rail`, and `preview rail` are no longer canonical.
+`app/renderer/rendering` holds the scene-graph traversal/render helpers
+factored out of `features/canvas`; that split is under active development
+(tracked separately from this documentation issue) — treat internals of
+`features/canvas` and `rendering` as subject to change without notice here.
 
 ## 2. Provider Composition
 
 `app/renderer/App.tsx` composes providers in this order:
 
-1. `ThemeProvider`
-2. `CastProvider`
-3. `NdiProvider`
-4. `NavigationProvider`
-5. `PresentationLayerProvider`
-6. `SlideProvider`
-7. `WorkbenchProvider`
-8. `SlideBrowserProvider`
-9. `ResourceDrawerProvider`
-10. `InspectorProvider`
-11. `LibraryPanelProvider`
-12. `OverlayEditorProvider`
-13. `SlideEditorProvider`
-14. `ElementProvider`
-15. `RenderSceneProvider`
+1. `ErrorBoundary`
+2. `WorkbenchProvider`
+3. `ConfirmProvider`
+4. `AppProvider`
+5. `AssetEditorProvider`
+6. `NavigationProvider`
+7. `PlaybackProvider`
+8. `SlideProvider`
+9. `AutomationProvider`
+10. `LyricEditorProvider`
+11. `CreateDeckItemProvider`
+12. `CanvasProvider`
+13. `CommandPaletteProvider`
 
 Primary state ownership:
 
-- `NavigationContext`: selected library, playlist, presentation, playlist presentation, and related CRUD.
-- `PresentationLayerContext`: assigned media layer, assigned overlay layer, and content-layer visibility.
-- `SlideContext`: current slide index, live slide index, slide activation, notes persistence.
-- `WorkbenchContext`: `workbenchMode`.
-- `SlideBrowserContext`: `slideBrowserMode`, `playlistBrowserMode`.
-- `ResourceDrawerContext`: `drawerTab`.
-- `InspectorContext`: `inspectorTab`.
-- `LibraryPanelContext`: `libraryPanelView`.
-- `OverlayEditorContext`: overlay draft collection, current overlay, push state.
-- `SlideEditorContext`: slide draft buffer, per-slide effective elements, push state.
+- `AppProvider` (`app-context.tsx`): snapshot loading/mutation, global
+  undo/redo, status text.
+- `NavigationProvider`: selected library, playlist, group, and deck item.
+- `WorkbenchProvider`: `workbenchMode`, drawer tab/view mode, inspector tab,
+  library panel view, program mode/surface/density, overlay (modal) stack.
+- `SlideProvider`: current/live slide index, slide activation.
+- `CanvasProvider` (`contexts/canvas/canvas-context.tsx`): active editor
+  source shared across editor screens.
+- `AssetEditorProvider`: staged theme/asset drafts and persisted-ID
+  resolution (see `docs/ARCHITECTURE.md`, "Staged Theme Resolution").
+- `PlaybackProvider`: program/monitor/stage output state.
+- `AutomationProvider`: cue/macro/trigger-binding state.
 
 ## 3. Feature Ownership
 
-- `workbench`: app shell, toolbar, mode switching, split-layout orchestration, panel visibility.
-- `library-browser`: library selector, playlist list, segment/presentation tree, library panel view state, context menus.
-- `slide-browser`: show-mode center surface, focus/grid/list browsing, current/tabs/continuous playlist browsing, slide thumbnails and outline rows.
-- `resource-drawer`: drawer shell, Media tab, Overlays tab, Presentations tab, drawer filtering and creation affordances.
-- `stage`: stage viewport, stage toolbar, stage panel shell, live and thumbnail scene rendering.
-- `slide-editor`: slide list, object list, notes draft workflow, slide push workflow.
-- `overlay-editor`: overlay list, object list reuse, overlay draft workflow, overlay push workflow.
-- `inspector`: presentation, slide, shape, text, and overlay inspector states.
-- `outputs`: live preview, layer clearing, output toggle, NDI output emitter.
+See [renderer-taxonomy.md](./renderer-taxonomy.md) (section 4, "Features")
+for the authoritative feature-to-directory table
+(`workbench`, `library`, `deck`, `canvas`, `inspector`, `assets`,
+`automation`, `playback`, `command-palette`, `observability`).
 
 ## 4. Canonical Terminology
 
-User-facing surface terms:
+See [renderer-taxonomy.md](./renderer-taxonomy.md#1-canonical-modes) for the
+canonical `WorkbenchMode`, `SlideBrowserMode`, `PlaylistBrowserMode`,
+`DrawerTab`, `InspectorTab`, `LibraryPanelView`, and program-surface types.
 
-- `Library`
-- `Playlist`
-- `Segments`
-- `Presentations`
-- `Continuous Playlist`
-- `Slide Browser`
-- `Preview`
-- `Slide Editor`
-- `Overlay Editor`
-- `Media`
-- `Overlays`
-- `Inspector`
-
-Internal shell/container terms:
-
-- `Workbench`
-- `Panel`
-- `Drawer`
-- `Sidebar`
-- `Stage`
-
-Toolbar label to mode mapping:
-
-- `Show` -> `workbenchMode = 'show'`
-- `Slides` -> `workbenchMode = 'slide-editor'`
-- `Overlay` -> `workbenchMode = 'overlay-editor'`
-
-Mode and state terms from `app/renderer/types/ui.ts`:
-
-- `workbenchMode`: `show | slide-editor | overlay-editor`
-- `slideBrowserMode`: `focus | grid | list`
-- `playlistBrowserMode`: `current | tabs | continuous`
-- `drawerTab`: `media | overlays | presentations`
-- `inspectorTab`: `presentation | slide | shape | text`
-- `libraryPanelView`: `libraries | playlist`
-
-Persisted `Presentation.kind` values remain `canvas | lyrics`; storage naming was not migrated during this refactor.
+Persisted `Presentation.kind` values remain `canvas | lyrics`; storage naming
+was not migrated when the UI's "canvas" terminology moved to "stage".
 
 ## 5. Shared Base Components
 
-Shared primitives live in `app/renderer/components`.
-
-Current shared component set:
-
-- `Badge`
-- `Button`
-- `CheckboxField`
-- `CheckboxSection`
-- `ContextMenu`
-- `EditableText`
-- `EmptyStatePanel`
-- `ErrorBoundary`
-- `FieldInput`
-- `FieldSelect`
-- `FieldTextarea`
-- `IconButton`
-- `MediaPickerDialog`
-- `Panel`
-- `PanelSection`
-- `SceneFrame`
-- `SearchField`
-- `SegmentedControl`
-- `SelectableRow`
-- `SettingsDialog`
-- `TabBar`
-- `ThumbnailTile`
-- `ResizableSplitRoot`
-- `ResizableSplitPane`
-- `ResizableSplitHandle`
-- `TwoPaneVerticalSplit`
-
-Feature-owned controls remain feature-local when the behavior is domain-coupled. `OutputToggle` stays in `features/outputs` for that reason.
-
-## 6. Layout Summary
-
-Show mode:
-
-- Left: `LibraryPanel`
-- Center: `SlideBrowser`
-- Bottom: `ResourceDrawer`
-- Right: `PreviewPanel`
-
-Slide editor:
-
-- Left: `SlideListPanel`
-- Center: `StagePanel`
-- Bottom center: `SlideNotesPanel`
-- Right: `InspectorPanel`
-
-Overlay editor:
-
-- Left: `OverlayListPanel`
-- Center: `StagePanel`
-- Right: `InspectorPanel`
-
-## 7. Screenshot Generation
-
-The screenshot set is generated by:
-
-```bash
-npm run capture:ui-screenshots
-```
-
-Artifacts are written to `docs/ui-spec-assets/` and indexed in `docs/ui-spec-assets/manifest.md`.
-
-## 8. Shared Micro Components
-
-### Shared Actions
-
-States covered:
-
-- `Button`: `default`, `take`, `danger`, `ghost`, `disabled`
-- `IconButton`: primary action, menu action, disabled
-- `Badge`: `live`, `queued`, `selected`, `warning`
-
-![Shared actions](./ui-spec-assets/shared/shared-actions.png)
-
-### Shared Fields
-
-States covered:
-
-- `SearchField`: populated filter state
-- `CheckboxField`: checked and unchecked
-- `CheckboxSection`: enabled with child content, disabled collapsed
-- `FieldInput`, `FieldSelect`, `FieldTextarea`: self-labeling field controls with optional icons
-
-![Shared fields](./ui-spec-assets/shared/shared-fields.png)
-
-### Shared Navigation
-
-States covered:
-
-- `SegmentedControl`: single-selection workbench switcher
-- `SegmentedControl`: multi-selection panel toggles
-- `TabBar`: resource tabs and inspector tabs
-- `SelectableRow`: default and selected
-
-![Shared navigation](./ui-spec-assets/shared/shared-navigation.png)
-
-### Shared Display
-
-States covered:
-
-- `Panel`
-- `PanelSection`
-- `EditableText`: resting and editing
-- `ThumbnailTile`: default and selected
-- `SceneFrame`: plain and checkerboard-backed
-- `EmptyStatePanel`
-
-![Shared display](./ui-spec-assets/shared/shared-display.png)
-
-### Shared Dialogs
-
-States covered:
-
-- `SettingsDialog`: open
-- `MediaPickerDialog`: open with available assets
-
-![Shared dialogs](./ui-spec-assets/shared/shared-dialogs.png)
-
-## 9. App-Level Components
-
-### AppToolbar
-
-States covered:
-
-- `show`
-- `slide-editor`
-- `overlay-editor`
-
-![App toolbar show](./ui-spec-assets/app/app-toolbar-show.png)
-![App toolbar slide editor](./ui-spec-assets/app/app-toolbar-slide-editor.png)
-![App toolbar overlay editor](./ui-spec-assets/app/app-toolbar-overlay-editor.png)
-
-### Workbench Layouts
-
-States covered:
-
-- `ShowModeLayout`
-- `SlideEditorLayout`
-- `OverlayEditorLayout`
-
-![Show mode layout](./ui-spec-assets/app/show-mode-layout.png)
-![Slide editor layout](./ui-spec-assets/app/slide-editor-layout.png)
-![Overlay editor layout](./ui-spec-assets/app/overlay-editor-layout.png)
-
-### SettingsDialog and StatusBar
-
-States covered:
-
-- settings dialog open from the app toolbar
-- settings sidebar on `Appearance`, `Outputs`, and `Overlays`
-- status bar with current cast status and audience indicator
-
-![Settings dialog](./ui-spec-assets/app/settings-dialog.png)
-![Settings dialog appearance](./ui-spec-assets/app/settings-dialog-appearance.png)
-![Settings dialog outputs](./ui-spec-assets/app/settings-dialog-outputs.png)
-![Settings dialog overlays](./ui-spec-assets/app/settings-dialog-overlays.png)
-![Status bar](./ui-spec-assets/app/status-bar.png)
-
-## 10. Feature-Level Components
-
-### Library Browser
-
-States covered:
-
-- `LibraryPanel` with `libraryPanelView = 'libraries'`
-- `LibraryPanel` with `libraryPanelView = 'playlist'`
-
-![Library panel libraries](./ui-spec-assets/features/library-panel-libraries.png)
-![Library panel playlist](./ui-spec-assets/features/library-panel-playlist.png)
-
-### Slide Browser
-
-States covered:
-
-- `focus`
-- `grid + current`
-- `list + current`
-- `grid + tabs`
-- `grid + continuous`
-- `list + continuous`
-
-![Slide browser focus](./ui-spec-assets/features/slide-browser-focus.png)
-![Slide browser grid current](./ui-spec-assets/features/slide-browser-grid-current.png)
-![Slide browser list current](./ui-spec-assets/features/slide-browser-list-current.png)
-![Slide browser tabs](./ui-spec-assets/features/slide-browser-tabs.png)
-![Slide browser continuous grid](./ui-spec-assets/features/slide-browser-continuous-grid.png)
-![Slide browser continuous list](./ui-spec-assets/features/slide-browser-continuous-list.png)
-
-### Resource Drawer
-
-States covered:
-
-- `media`
-- `presentations`
-- `themes`
-
-![Resource drawer media](./ui-spec-assets/features/resource-drawer-media.png)
-![Resource drawer presentations](./ui-spec-assets/features/resource-drawer-presentations.png)
-![Resource drawer themes](./ui-spec-assets/features/resource-drawer-themes.png)
-
-### Outputs
-
-States covered:
-
-- `PreviewPanel` with content and media assigned
-- `PreviewPanel` overlays tab with active overlay controls
-- `PreviewPanel` audio tab empty state
-
-![Preview panel](./ui-spec-assets/features/preview-panel.png)
-![Preview panel overlays](./ui-spec-assets/features/preview-panel-overlays.png)
-![Preview panel audio](./ui-spec-assets/features/preview-panel-audio.png)
-
-### Slide Editor
-
-States covered:
-
-- `SlideListPanel`
-- `SlideNotesPanel`
-- `ObjectListPanel`
-- `StagePanel` in `slide-editor`
-
-![Slide list panel](./ui-spec-assets/features/slide-list-panel.png)
-![Slide notes panel](./ui-spec-assets/features/slide-notes-panel.png)
-![Object list panel](./ui-spec-assets/features/object-list-panel.png)
-![Stage panel slide editor](./ui-spec-assets/features/stage-panel-slide-editor.png)
-
-### Overlay Editor
-
-States covered:
-
-- `OverlayListPanel`
-- `StagePanel` in `overlay-editor`
-
-![Overlay list panel](./ui-spec-assets/features/overlay-list-panel.png)
-![Stage panel overlay editor](./ui-spec-assets/features/stage-panel-overlay-editor.png)
-
-### Inspector
-
-States covered:
-
-- `presentation`
-- `shape`
-- `text`
-- overlay editing with the `Overlay` inspector branch
-
-![Inspector presentation](./ui-spec-assets/features/inspector-presentation.png)
-![Inspector shape](./ui-spec-assets/features/inspector-shape.png)
-![Inspector text](./ui-spec-assets/features/inspector-text.png)
-![Inspector overlay](./ui-spec-assets/features/inspector-overlay.png)
-
-## 11. Reference
-
-- Canonical naming and rename history: [renderer-taxonomy.md](/Users/Craig/Developer/Projects/recast/docs/renderer-taxonomy.md)
-- Screenshot inventory: [ui-spec-assets/manifest.md](/Users/Craig/Developer/Projects/recast/docs/ui-spec-assets/manifest.md)
+Shared primitives live in `app/renderer/components`, grouped by directory:
+`controls` (`Button`, `ButtonGroup`, `SegmentedControl`), `display`
+(`Accordion`, `EmptyState`, `EntityIcon`, `LazySceneStage`, `SceneFrame`,
+`SelectableRow`, `Tabs`, `Text`, `Thumbnail`), `feedback` (`ErrorBoundary`),
+`form` (`Checkbox`, `ColorPicker`, doc editor blocks, `Dropdown`, `Field`
+variants, `FileTrigger`, `GridSizeSlider`, `RenameField`), `layout`
+(`CollectionLayout`, `Panel`, split/resizable-split panels, `ScrollArea`,
+`ThumbnailGrid`), and `overlays` (`ConfirmDialog`, `ContextMenu`, `Dialog`,
+`MediaPickerDialog`, overlay primitives, `Popover`).
+
+Feature-owned controls remain feature-local when the behavior is
+domain-coupled — for example, `OutputSettingsPanel` stays in
+`features/playback`.
+
+## 6. Screens
+
+| Screen | `data-ui-region` on its root/major panels |
+| --- | --- |
+| `show` | `app-toolbar`, `resource-drawer`, `status-bar` |
+| `deck-editor` | `deck-editor-layout`, `slide-notes-panel`, `inspector-panel` |
+| `overlay-editor` | `editor-layout`, `inspector-panel` |
+| `theme-editor` | `editor-layout`, `inspector-panel` |
+| `stage-editor` | `editor-layout`, `inspector-panel` |
+| `macro-editor` | `editor-layout`, `cue-list-panel`, `macro-inspector-panel` |
+| `settings` | `settings-layout` |
+| `shared` (`element-layers-panel.tsx`) | `object-list-panel` (used by deck-editor, overlay-editor, theme-editor, stage-editor) |
+
+Full layout composition (panel-by-panel) for each screen lives in
+[ui-spec.md](./ui-spec.md); this table exists so automation (screenshot
+capture, Playwright locators) has one authoritative region-name list.
+
+## 7. Screenshot Generation — currently non-functional
+
+`npm run capture:ui-screenshots` (`app/e2e/capture-ui-screenshots.mjs`) is
+not currently maintained against this renderer: its Playwright selectors and
+seed-data IPC calls target a prior screen/region layout and IPC method set
+that no longer exist (for example `castApi.createPlaylistSegment` /
+`castApi.addDeckItemToSegment`, superseded by `createPlaylistGroup` /
+`addDeckItemToGroup`). No screenshots are committed under
+`docs/ui-spec-assets/` (the directory does not exist) and none are embedded
+in this document. The script now fails fast with an explanatory error
+instead of silently producing broken or partial output. A future screenshot
+capture implementation must rewrite its selectors and seed-data calls against
+the region names in Section 6.
+
+## 8. Reference
+
+- Canonical naming: [renderer-taxonomy.md](./renderer-taxonomy.md)
+- Layout detail: [ui-spec.md](./ui-spec.md)
+- Keyboard shortcuts: [keyboard-shortcuts.md](./keyboard-shortcuts.md)
