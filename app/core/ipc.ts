@@ -28,6 +28,7 @@ import type {
   NdiOutputState,
   OverlayCreateInput,
   OverlayUpdateInput,
+  ProjectBackup,
   StageCreateInput,
   StageUpdateInput,
   SystemMetricsSnapshot,
@@ -173,6 +174,14 @@ export interface MainApi {
   deleteCollection: (input: CollectionDeleteInput) => Promise<SnapshotPatch>;
   reorderCollections: (input: CollectionReorderInput) => Promise<SnapshotPatch>;
   setItemCollection: (input: CollectionAssignmentInput) => Promise<SnapshotPatch>;
+  /**
+   * Restores a validated project backup (#146). The pre-recovery database is
+   * never deleted: the active database is retained as a timestamped
+   * `*.prerecovery-*.sqlite` sibling and the result carries its path. This is
+   * deliberately NOT routine Undo — it is a distinct channel that returns a
+   * full snapshot instead of a `SnapshotPatch`.
+   */
+  restoreProjectBackup: (backup: ProjectBackup) => Promise<ProjectRestoreResult>;
 }
 
 export interface DeckItemCreateWithThemeInput {
@@ -197,6 +206,13 @@ export interface DeckItemCreateResult {
 export interface DeckItemDuplicateResult {
   itemId: Id;
   patch: SnapshotPatch;
+}
+
+// Result of restoring a project backup (#146): the promoted snapshot plus the
+// path of the retained pre-recovery database file (never deleted).
+export interface ProjectRestoreResult {
+  snapshot: AppSnapshot;
+  retainedDatabasePath: string;
 }
 
 export interface InlineWindowMenuItem {
@@ -377,6 +393,7 @@ export const IPC = {
   deleteCollection: 'cast:deleteCollection',
   reorderCollections: 'cast:reorderCollections',
   setItemCollection: 'cast:setItemCollection',
+  restoreProjectBackup: 'cast:restoreProjectBackup',
   obsListLogSessions: 'obs:listLogSessions',
   obsReadLogSession: 'obs:readLogSession',
   obsGetCurrentLogPath: 'obs:getCurrentLogPath',

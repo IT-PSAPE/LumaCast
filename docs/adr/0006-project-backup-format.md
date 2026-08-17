@@ -67,9 +67,25 @@ named validation gate at the backup boundary.
   central CRCs must agree with each other, and the payload's computed CRC
   must match — failing with the shared `Invalid bundle archive` error rather
   than raw range errors.
-- Restore is deferred to issue #146, including cross-table referential
-  integrity checks. The export side, its deterministic serialization, and its
-  validation contract ship now.
+- Restore (#146) is a distinct, recoverable promotion, never routine Undo:
+  `CastRepository.restoreProjectBackup` validates the document through core
+  policy and restore-side checks (cross-table reference closure including the
+  schema-soft references `actions.collection_id` and
+  `trigger_bindings.target_id`; exactly one default collection per bin),
+  inserts every row into a throwaway same-directory temporary database in
+  one atomic clear-then-insert transaction, and requires exact row counts and
+  a clean `PRAGMA foreign_key_check` on the temporary database before
+  promoting it. Promotion checkpoints and closes both connections, renames
+  the active database to a retained `*.prerecovery-*.sqlite` sibling (never
+  deleted by the app), renames the temporary database into place, and rolls
+  the swap back on any failure after the retain step so the previous project
+  stays active. It is exposed over a typed IPC channel
+  (`cast:restoreProjectBackup`) returning a full snapshot plus the retained
+  database path, not a `SnapshotPatch`.
+- `trigger_bindings.source_id` is deliberately not part of the document
+  reference closure: deleting slides legitimately leaves dangling sources,
+  so a validator rejecting them would reject exports the exporter can
+  produce.
 
 ## Consequences
 
@@ -85,8 +101,11 @@ named validation gate at the backup boundary.
   envelope keep the format byte-stable for a given database, which makes
   exports deeply and byte-for-byte equal and therefore comparable and
   diffable.
-- The contract lives in core policy, so renderer, main, and future restore
-  code all validate through one gate.
+- The contract lives in core policy, so renderer, main, and restore code all
+  validate through one gate.
+- Restore is recoverable: the active database is never overwritten or deleted
+  in place, the pre-recovery database is retained as a same-directory
+  sibling, and a failed promotion leaves the previous project active.
 - Future schema migrations must either extend the backup format
   deliberately (bumping `PROJECT_BACKUP_VERSION` or `schemaVersion`) or keep
   the v22 mapping intact; `action_steps` legacy columns (`kind`,

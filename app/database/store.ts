@@ -8,9 +8,12 @@ import {
   getDeckBundlePlaylistEntryReference,
   PROJECT_BACKUP_FORMAT,
   PROJECT_BACKUP_VERSION,
+  ProjectBackupValidationError,
   readElementMediaReference,
   validateProjectBackup as validateProjectBackupDocument,
+  type ProjectBackupTableKey,
 } from '@core/deck-bundles';
+import type { ProjectRestoreResult } from '@core/ipc';
 import { buildDeckItem } from '@core/deck-items';
 import {
   makePlaylistItemReference,
@@ -95,6 +98,7 @@ import type {
   ProjectBackupSlideElementRow,
   ProjectBackupSlideRow,
   ProjectBackupStageRow,
+  ProjectBackupTables,
   ProjectBackupTalkScriptBlockRow,
   ProjectBackupThemeRow,
   ProjectBackupTriggerBindingRow,
@@ -167,6 +171,540 @@ const COLLECTION_TABLE_BY_BIN: Record<CollectionBinKind, string> = {
 };
 
 const DEFAULT_COLLECTION_NAME = 'Default Collection';
+
+// ---------------------------------------------------------------------------
+// Project recovery (#146): restore + promotion.
+//
+// `restoreProjectBackup` restores a validated `ProjectBackup` into a
+// throwaway same-directory database, validates the restored state, and only
+// then promotes it over the active database via a recoverable file swap. The
+// active database is never deleted or overwritten in place: it is first
+// renamed to a timestamped `*.prerecovery-*.sqlite` sibling that is retained
+// forever (never deleted by the app), and the swap is rolled back if any step
+// after the retain fails. The hooks below are the test-only failure-injection
+// seams for this API; production callers pass no hooks, so there is no
+// production-global state involved.
+// ---------------------------------------------------------------------------
+
+export interface ProjectRecoveryHooks {
+  /** Called on the temporary database immediately before rows are inserted. Throwing aborts the restore before any insert. */
+  beforeInsert?: (db: SqliteDatabase) => void;
+  /** Called on the temporary database after inserts, before row-count/FK validation. Throwing aborts the restore before validation. */
+  afterInsert?: (db: SqliteDatabase) => void;
+  /** Called after validation passes, before any file operation. Throwing aborts the restore before the swap. */
+  beforePromotion?: () => void;
+  /**
+   * Called after the active database has been renamed to the retained
+   * pre-recovery file but before the temporary database is renamed into
+   * place. Throwing forces the promotion to roll the swap back so the
+   * previous project stays active.
+   */
+  afterRetainActive?: () => void;
+}
+
+export interface RestoreProjectBackupOptions {
+  /** Test-only failure-injection hooks; omitted in production. */
+  hooks?: ProjectRecoveryHooks;
+}
+
+const PROJECT_BACKUP_DECK_ITEM_TABLES = ['presentations', 'lyrics', 'talks'] as const;
+
+const PROJECT_BACKUP_MEDIA_ASSET_TABLES = MEDIA_ASSET_TABLES;
+
+const PROJECT_BACKUP_TABLE_KEYS = [
+  'libraries',
+  'presentations',
+  'lyrics',
+  'talks',
+  'slides',
+  'slide_elements',
+  'talk_script_blocks',
+  'playlists',
+  'playlist_groups',
+  'playlist_entries',
+  'image_assets',
+  'video_assets',
+  'audio_assets',
+  'overlays',
+  'themes',
+  'stages',
+  'cues',
+  'actions',
+  'action_steps',
+  'trigger_bindings',
+  'deck_collections',
+  'image_collections',
+  'video_collections',
+  'audio_collections',
+  'theme_collections',
+  'overlay_collections',
+  'stage_collections',
+  'macro_collections',
+] as const satisfies readonly ProjectBackupTableKey[];
+
+function collectProjectBackupIds(rows: readonly { id: Id }[]): Set<Id> {
+  return new Set(rows.map((row) => row.id));
+}
+
+function assertProjectBackupReference(
+  ids: Set<Id>,
+  tableName: string,
+  columnName: string,
+  rowId: Id,
+  value: Id | null,
+): void {
+  if (value !== null && !ids.has(value)) {
+    throw new ProjectBackupValidationError(
+      `Invalid project backup: ${tableName}.${columnName} on row ${rowId} references missing id ${value}.`,
+    );
+  }
+}
+
+/**
+ * Validates every cross-table reference the v22 schema (or the application's
+ * invariants) requires, entirely over the backup document before any
+ * database work: each non-null FK column must name an id present in the
+ * backup's parent table, and the schema-soft references
+ * (`actions.collection_id`, `trigger_bindings` targets) are required too,
+ * because the exporter's own operations can never produce a dangling one.
+ * Throws `ProjectBackupValidationError` on the first broken reference.
+ */
+function assertProjectBackupReferences(backup: ProjectBackup): void {
+  const t = backup.tables;
+  const ids = {
+    libraries: collectProjectBackupIds(t.libraries),
+    presentations: collectProjectBackupIds(t.presentations),
+    lyrics: collectProjectBackupIds(t.lyrics),
+    talks: collectProjectBackupIds(t.talks),
+    slides: collectProjectBackupIds(t.slides),
+    slide_elements: collectProjectBackupIds(t.slide_elements),
+    playlists: collectProjectBackupIds(t.playlists),
+    playlist_groups: collectProjectBackupIds(t.playlist_groups),
+    themes: collectProjectBackupIds(t.themes),
+    overlays: collectProjectBackupIds(t.overlays),
+    stages: collectProjectBackupIds(t.stages),
+    cues: collectProjectBackupIds(t.cues),
+    actions: collectProjectBackupIds(t.actions),
+    deck_collections: collectProjectBackupIds(t.deck_collections),
+    image_collections: collectProjectBackupIds(t.image_collections),
+    video_collections: collectProjectBackupIds(t.video_collections),
+    audio_collections: collectProjectBackupIds(t.audio_collections),
+    theme_collections: collectProjectBackupIds(t.theme_collections),
+    overlay_collections: collectProjectBackupIds(t.overlay_collections),
+    stage_collections: collectProjectBackupIds(t.stage_collections),
+    macro_collections: collectProjectBackupIds(t.macro_collections),
+  };
+
+  for (const row of t.presentations) {
+    assertProjectBackupReference(ids.themes, 'presentations', 'theme_id', row.id, row.theme_id);
+    assertProjectBackupReference(ids.deck_collections, 'presentations', 'collection_id', row.id, row.collection_id);
+  }
+  for (const row of t.lyrics) {
+    assertProjectBackupReference(ids.themes, 'lyrics', 'theme_id', row.id, row.theme_id);
+    assertProjectBackupReference(ids.deck_collections, 'lyrics', 'collection_id', row.id, row.collection_id);
+  }
+  for (const row of t.talks) {
+    assertProjectBackupReference(ids.themes, 'talks', 'theme_id', row.id, row.theme_id);
+    assertProjectBackupReference(ids.deck_collections, 'talks', 'collection_id', row.id, row.collection_id);
+  }
+  for (const row of t.slides) {
+    assertProjectBackupReference(ids.presentations, 'slides', 'presentation_id', row.id, row.presentation_id);
+    assertProjectBackupReference(ids.lyrics, 'slides', 'lyric_id', row.id, row.lyric_id);
+    assertProjectBackupReference(ids.talks, 'slides', 'talk_id', row.id, row.talk_id);
+    assertProjectBackupReference(ids.themes, 'slides', 'theme_id', row.id, row.theme_id);
+    assertProjectBackupReference(ids.overlays, 'slides', 'overlay_id', row.id, row.overlay_id);
+    assertProjectBackupReference(ids.stages, 'slides', 'stage_id', row.id, row.stage_id);
+  }
+  for (const row of t.slide_elements) {
+    assertProjectBackupReference(ids.slides, 'slide_elements', 'slide_id', row.id, row.slide_id);
+    assertProjectBackupReference(ids.slide_elements, 'slide_elements', 'source_theme_element_id', row.id, row.source_theme_element_id);
+  }
+  for (const row of t.talk_script_blocks) {
+    assertProjectBackupReference(ids.slides, 'talk_script_blocks', 'slide_id', row.id, row.slide_id);
+  }
+  for (const row of t.playlists) {
+    assertProjectBackupReference(ids.libraries, 'playlists', 'library_id', row.id, row.library_id);
+  }
+  for (const row of t.playlist_groups) {
+    assertProjectBackupReference(ids.playlists, 'playlist_groups', 'playlist_id', row.id, row.playlist_id);
+  }
+  for (const row of t.playlist_entries) {
+    assertProjectBackupReference(ids.playlist_groups, 'playlist_entries', 'group_id', row.id, row.group_id);
+    assertProjectBackupReference(ids.presentations, 'playlist_entries', 'presentation_id', row.id, row.presentation_id);
+    assertProjectBackupReference(ids.lyrics, 'playlist_entries', 'lyric_id', row.id, row.lyric_id);
+    assertProjectBackupReference(ids.talks, 'playlist_entries', 'talk_id', row.id, row.talk_id);
+  }
+  for (const table of PROJECT_BACKUP_MEDIA_ASSET_TABLES) {
+    for (const row of t[table]) {
+      assertProjectBackupReference(ids[`${table.split('_')[0]}_collections` as keyof typeof ids], table, 'collection_id', row.id, row.collection_id);
+    }
+  }
+  for (const row of t.themes) {
+    assertProjectBackupReference(ids.theme_collections, 'themes', 'collection_id', row.id, row.collection_id);
+  }
+  for (const row of t.overlays) {
+    assertProjectBackupReference(ids.overlay_collections, 'overlays', 'collection_id', row.id, row.collection_id);
+  }
+  for (const row of t.stages) {
+    assertProjectBackupReference(ids.stage_collections, 'stages', 'collection_id', row.id, row.collection_id);
+  }
+  for (const row of t.actions) {
+    assertProjectBackupReference(ids.macro_collections, 'actions', 'collection_id', row.id, row.collection_id);
+  }
+  for (const row of t.action_steps) {
+    assertProjectBackupReference(ids.actions, 'action_steps', 'action_id', row.id, row.action_id);
+    assertProjectBackupReference(ids.cues, 'action_steps', 'cue_id', row.id, row.cue_id);
+  }
+  for (const row of t.trigger_bindings) {
+    const targetIds = row.target_type === 'cue' ? ids.cues : ids.actions;
+    assertProjectBackupReference(targetIds, 'trigger_bindings', 'target_id', row.id, row.target_id);
+  }
+}
+
+/**
+ * Inserts every row of the backup into `db` in FK-safe parent-before-child
+ * order, with every column mapped explicitly (no object spread at the
+ * restore boundary). Runs in one transaction so a mid-insert failure leaves
+ * the temporary database empty. The transaction starts by emptying every
+ * application-owned table, because migrations seed default collection rows
+ * when they run against a fresh file; the backup is the complete truth, so
+ * the temporary database must end with exactly the backup's rows. The clear
+ * and the insert are one atomic unit: a failure in either leaves the
+ * temporary database empty.
+ */
+function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): void {
+  const t = backup.tables;
+
+  const tx = db.transaction(() => {
+    clearProjectBackupTables(db);
+    const insertCollection = (tableName: string): void => {
+      const insert = db.prepare(
+        `INSERT INTO ${tableName} (id, name, order_index, is_default, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const row of t[tableName as keyof ProjectBackupTables]) {
+        const collectionRow = row as unknown as ProjectBackupCollectionRow;
+        insert.run(collectionRow.id, collectionRow.name, collectionRow.order_index, collectionRow.is_default, collectionRow.created_at, collectionRow.updated_at);
+      }
+    };
+    for (const tableName of PROJECT_BACKUP_COLLECTION_TABLES) insertCollection(tableName);
+
+    const insertLibrary = db.prepare(
+      'INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+    );
+    for (const row of t.libraries) {
+      insertLibrary.run(row.id, row.name, row.order_index, row.created_at, row.updated_at);
+    }
+
+    const insertTheme = db.prepare(
+      `INSERT INTO themes (id, name, kind, width, height, order_index, collection_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.themes) {
+      insertTheme.run(row.id, row.name, row.kind, row.width, row.height, row.order_index, row.collection_id, row.created_at, row.updated_at);
+    }
+
+    const insertOverlay = db.prepare(
+      `INSERT INTO overlays (id, name, enabled, animation_json, collection_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.overlays) {
+      insertOverlay.run(row.id, row.name, row.enabled, row.animation_json, row.collection_id, row.created_at, row.updated_at);
+    }
+
+    const insertStage = db.prepare(
+      `INSERT INTO stages (id, name, width, height, order_index, collection_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.stages) {
+      insertStage.run(row.id, row.name, row.width, row.height, row.order_index, row.collection_id, row.created_at, row.updated_at);
+    }
+
+    for (const tableName of PROJECT_BACKUP_DECK_ITEM_TABLES) {
+      const insertDeckItem = db.prepare(
+        `INSERT INTO ${tableName} (id, title, theme_id, collection_id, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const row of t[tableName]) {
+        insertDeckItem.run(row.id, row.title, row.theme_id, row.collection_id, row.order_index, row.created_at, row.updated_at);
+      }
+    }
+
+    const insertCue = db.prepare(
+      `INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.cues) {
+      insertCue.run(row.id, row.kind, row.payload_json, row.failure_policy, row.created_at, row.updated_at);
+    }
+
+    const insertMacro = db.prepare(
+      `INSERT INTO actions (id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.actions) {
+      insertMacro.run(row.id, row.name, row.description, row.collection_id, row.scope_level, row.on_scope_exit, row.loop_enabled, row.loop_count, row.created_at, row.updated_at);
+    }
+
+    const insertSlide = db.prepare(
+      `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.slides) {
+      insertSlide.run(
+        row.id,
+        row.presentation_id,
+        row.lyric_id,
+        row.talk_id,
+        row.theme_id,
+        row.overlay_id,
+        row.stage_id,
+        row.kind,
+        row.width,
+        row.height,
+        row.notes,
+        row.background_json,
+        row.background_source,
+        row.order_index,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+
+    const insertSlideElement = db.prepare(
+      `INSERT INTO slide_elements (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.slide_elements) {
+      insertSlideElement.run(
+        row.id,
+        row.slide_id,
+        row.type,
+        row.x,
+        row.y,
+        row.width,
+        row.height,
+        row.rotation,
+        row.opacity,
+        row.z_index,
+        row.layer,
+        row.payload_json,
+        row.source_theme_element_id,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+
+    const insertTalkScriptBlock = db.prepare(
+      'INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    for (const row of t.talk_script_blocks) {
+      insertTalkScriptBlock.run(row.id, row.slide_id, row.text, row.order_index, row.created_at, row.updated_at);
+    }
+
+    for (const tableName of PROJECT_BACKUP_MEDIA_ASSET_TABLES) {
+      const insertMediaAsset = db.prepare(
+        `INSERT INTO ${tableName} (id, name, src, collection_id, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const row of t[tableName]) {
+        insertMediaAsset.run(row.id, row.name, row.src, row.collection_id, row.order_index, row.created_at, row.updated_at);
+      }
+    }
+
+    const insertPlaylist = db.prepare(
+      'INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    for (const row of t.playlists) {
+      insertPlaylist.run(row.id, row.library_id, row.name, row.order_index, row.created_at, row.updated_at);
+    }
+
+    const insertPlaylistGroup = db.prepare(
+      'INSERT INTO playlist_groups (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const row of t.playlist_groups) {
+      insertPlaylistGroup.run(row.id, row.playlist_id, row.name, row.color_key, row.order_index, row.created_at, row.updated_at);
+    }
+
+    const insertPlaylistEntry = db.prepare(
+      `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.playlist_entries) {
+      insertPlaylistEntry.run(
+        row.id,
+        row.group_id,
+        row.presentation_id,
+        row.lyric_id,
+        row.talk_id,
+        row.order_index,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+
+    const insertMacroStep = db.prepare(
+      `INSERT INTO action_steps (id, action_id, kind, payload_json, failure_policy, cue_id, order_index, delay_before_ms, delay_after_ms, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.action_steps) {
+      insertMacroStep.run(
+        row.id,
+        row.action_id,
+        row.kind,
+        row.payload_json,
+        row.failure_policy,
+        row.cue_id,
+        row.order_index,
+        row.delay_before_ms,
+        row.delay_after_ms,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+
+    const insertTriggerBinding = db.prepare(
+      `INSERT INTO trigger_bindings (id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.trigger_bindings) {
+      insertTriggerBinding.run(
+        row.id,
+        row.trigger_type,
+        row.source_id,
+        row.target_type,
+        row.target_id,
+        row.config_json,
+        row.enabled,
+        row.created_at,
+        row.updated_at,
+      );
+    }
+  });
+  tx();
+}
+
+/**
+ * Completeness gate before promotion: every application-owned table in the
+ * temporary database must hold exactly the number of rows the backup
+ * declares. A silent partial insert can never slip past this check.
+ */
+function assertProjectBackupRowCounts(db: SqliteDatabase, backup: ProjectBackup): void {
+  for (const tableName of PROJECT_BACKUP_TABLE_KEYS) {
+    const row = db.prepare(`SELECT COUNT(*) AS count FROM ${tableName}`).get() as { count: number };
+    const expected = backup.tables[tableName].length;
+    if (row.count !== expected) {
+      throw new ProjectBackupValidationError(
+        `Invalid project backup: ${tableName} holds ${row.count} rows after restore, expected ${expected}.`,
+      );
+    }
+  }
+}
+
+/**
+ * Referential gate before promotion: `PRAGMA foreign_key_check` must report
+ * zero violations on the temporary database. Every FK column was already
+ * validated over the document, so this is defense in depth against insertion
+ * drift (and is independently exercised by the recovery tests).
+ */
+function assertProjectBackupForeignKeys(db: SqliteDatabase): void {
+  const violations = db.prepare('PRAGMA foreign_key_check').all() as Array<{
+    table: string;
+    rowid: number;
+    parent: string;
+    fkid: number;
+  }>;
+  if (violations.length > 0) {
+    const first = violations[0];
+    throw new ProjectBackupValidationError(
+      `Invalid project backup: PRAGMA foreign_key_check failed with ${violations.length} violation(s); first: ${first.table} references missing ${first.parent} row.`,
+    );
+  }
+}
+
+/**
+ * Every bin must carry exactly one default collection, matching the invariant
+ * migrations and the repository enforce (defaults can never be deleted and
+ * the app's create flows depend on them). A backup that lacks or duplicates
+ * them cannot be the basis of a functioning project, so it is rejected
+ * before any database work.
+ */
+function assertProjectBackupDefaultCollections(backup: ProjectBackup): void {
+  for (const tableName of PROJECT_BACKUP_COLLECTION_TABLES) {
+    const defaults = (backup.tables[tableName] as ProjectBackupCollectionRow[]).filter((row) => row.is_default === 1);
+    if (defaults.length !== 1) {
+      throw new ProjectBackupValidationError(
+        `Invalid project backup: ${tableName} must contain exactly one default collection, found ${defaults.length}.`,
+      );
+    }
+  }
+}
+
+function moveSqliteSidecars(sourceBase: string, targetBase: string): void {
+  for (const suffix of ['-wal', '-shm']) {
+    const source = `${sourceBase}${suffix}`;
+    if (fs.existsSync(source)) fs.renameSync(source, `${targetBase}${suffix}`);
+  }
+}
+
+function removeSqliteSidecars(base: string): void {
+  for (const suffix of ['-wal', '-shm']) {
+    fs.rmSync(`${base}${suffix}`, { force: true });
+  }
+}
+
+/**
+ * Empties every application-owned table of the (throwaway) temporary
+ * database. Needed because migrations seed default collection rows when they
+ * run against a fresh file; the backup is the complete truth, so the
+ * temporary database must start with zero application rows and end with
+ * exactly the backup's rows. Deletes run in child-before-parent order. Called
+ * as the first statement of `insertProjectBackupRows`' transaction, so the
+ * clear and the inserts are one atomic unit.
+ */
+function clearProjectBackupTables(db: SqliteDatabase): void {
+  db.exec(`
+    DELETE FROM trigger_bindings;
+    DELETE FROM action_steps;
+    DELETE FROM actions;
+    DELETE FROM cues;
+    DELETE FROM slide_elements;
+    DELETE FROM talk_script_blocks;
+    DELETE FROM playlist_entries;
+    DELETE FROM playlist_groups;
+    DELETE FROM playlists;
+    DELETE FROM slides;
+    DELETE FROM overlays;
+    DELETE FROM stages;
+    DELETE FROM themes;
+    DELETE FROM presentations;
+    DELETE FROM lyrics;
+    DELETE FROM talks;
+    DELETE FROM image_assets;
+    DELETE FROM video_assets;
+    DELETE FROM audio_assets;
+    DELETE FROM libraries;
+    DELETE FROM deck_collections;
+    DELETE FROM image_collections;
+    DELETE FROM video_collections;
+    DELETE FROM audio_collections;
+    DELETE FROM theme_collections;
+    DELETE FROM overlay_collections;
+    DELETE FROM stage_collections;
+    DELETE FROM macro_collections;
+  `);
+}
+
+function nextUniqueSiblingPath(base: string, marker: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  let candidate = `${base}.${marker}-${stamp}.sqlite`;
+  let counter = 1;
+  while (fs.existsSync(candidate)) {
+    candidate = `${base}.${marker}-${stamp}-${counter}.sqlite`;
+    counter += 1;
+  }
+  return candidate;
+}
 
 // Media assets live in three split tables (image_assets/video_assets/audio_assets),
 // so they're resolved dynamically per id — see resolveItemTable below. Every
@@ -488,20 +1026,20 @@ export class CastRepository {
     this.seedIfEmpty();
   }
 
-  private applyConnectionTuning(): void {
+  private applyConnectionTuning(db: SqliteDatabase = this.db): void {
     // WAL allows concurrent reads/writes; NORMAL is safe with WAL and
     // significantly faster than the default FULL fsync on commit.
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('synchronous = NORMAL');
-    this.db.pragma('foreign_keys = ON');
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('foreign_keys = ON');
     // 64 MB page cache (negative = KB). Cuts page misses on large snapshot reads.
-    this.db.pragma('cache_size = -65536');
+    db.pragma('cache_size = -65536');
     // 256 MB mmap window — fewer read syscalls; OS pages cached implicitly.
-    this.db.pragma('mmap_size = 268435456');
+    db.pragma('mmap_size = 268435456');
     // Keep temp tables in RAM (sorts, joins) instead of spilling to disk.
-    this.db.pragma('temp_store = MEMORY');
+    db.pragma('temp_store = MEMORY');
     // Checkpoint the WAL every ~1000 pages so it doesn't grow unboundedly.
-    this.db.pragma('wal_autocheckpoint = 1000');
+    db.pragma('wal_autocheckpoint = 1000');
   }
 
 
@@ -6597,6 +7135,142 @@ private getSlides(): Slide[] {
   /** Validates a project-backup document against the contract without touching the database. */
   validateProjectBackup(backup: unknown): ProjectBackup {
     return validateProjectBackupDocument(backup);
+  }
+
+  /**
+   * Restores a validated project backup (#146). The active database is never
+   * deleted or overwritten in place:
+   *
+   * 1. The document is validated through the #145 codec, then every required
+   *    cross-table reference is checked over the document itself.
+   * 2. The rows are inserted into a throwaway same-directory temporary
+   *    database (fresh schema at `LATEST_SCHEMA_VERSION`, FK-safe
+   *    parent-before-child order, every column mapped explicitly).
+   * 3. Before promotion the temporary database must hold exactly the backup's
+   *    declared row counts and pass `PRAGMA foreign_key_check`.
+   * 4. Promotion checkpoints and closes both connections, renames the active
+   *    database to a retained `*.prerecovery-*.sqlite` sibling (never
+   *    deleted), renames the temporary database into place, and reopens the
+   *    repository on the promoted file. Any failure after the retain step
+   *    rolls the swap back so the previous project stays active.
+   *
+   * `options.hooks` are test-only failure-injection seams; production callers
+   * pass no options, so no production-global state is involved. Recovery is
+   * not exposed as routine Undo: it is a distinct operation from
+   * `restoreFromSnapshot` and returns a full snapshot (plus the retained
+   * database path) rather than a `SnapshotPatch`.
+   */
+  restoreProjectBackup(backup: ProjectBackup, options: RestoreProjectBackupOptions = {}): ProjectRestoreResult {
+    const document = validateProjectBackupDocument(backup);
+    assertProjectBackupReferences(document);
+    assertProjectBackupDefaultCollections(document);
+
+    const tempPath = nextUniqueSiblingPath(this.dbPath, 'restore');
+    let tempDb: SqliteDatabase | undefined;
+    try {
+      tempDb = new SqliteDatabase(tempPath);
+      this.applyConnectionTuning(tempDb);
+      runMigrations(tempDb, tempPath);
+      const tempSchemaVersion = tempDb.pragma('user_version', { simple: true }) as number;
+      if (tempSchemaVersion !== LATEST_SCHEMA_VERSION) {
+        throw new ProjectBackupValidationError(
+          `Invalid project backup: temporary database schema version ${tempSchemaVersion} does not match the supported version ${LATEST_SCHEMA_VERSION}.`,
+        );
+      }
+      if (tempSchemaVersion !== document.schemaVersion) {
+        throw new ProjectBackupValidationError(
+          `Invalid project backup: document schema version ${document.schemaVersion} does not match the restored database schema version ${tempSchemaVersion}.`,
+        );
+      }
+
+      options.hooks?.beforeInsert?.(tempDb);
+      insertProjectBackupRows(tempDb, document);
+      options.hooks?.afterInsert?.(tempDb);
+      assertProjectBackupRowCounts(tempDb, document);
+      assertProjectBackupForeignKeys(tempDb);
+      options.hooks?.beforePromotion?.();
+
+      return this.promoteRestoredDatabase(tempDb, tempPath, options.hooks?.afterRetainActive);
+    } catch (error) {
+      if (tempDb) {
+        try {
+          tempDb.close();
+        } catch {
+          // Already closed by a failed promotion; the temporary file is
+          // removed below regardless.
+        }
+      }
+      removeSqliteSidecars(tempPath);
+      fs.rmSync(tempPath, { force: true });
+      throw error;
+    }
+  }
+
+  /**
+   * The recoverable same-filesystem swap: retain the active database under a
+   * unique `*.prerecovery-*.sqlite` sibling and move the validated temporary
+   * database into the active path. Both connections are checkpointed and
+   * closed first so each main file is coherent on its own; SQLite sidecars
+   * (`-wal`/`-shm`) are moved alongside their main files. If the swap fails
+   * after the retain, it is rolled back so the previous project remains the
+   * active one (and, if even the rollback fails, the retained file still
+   * holds the full previous project).
+   */
+  private promoteRestoredDatabase(
+    tempDb: SqliteDatabase,
+    tempPath: string,
+    afterRetainActive?: () => void,
+  ): ProjectRestoreResult {
+    tempDb.pragma('wal_checkpoint(TRUNCATE)');
+    tempDb.close();
+    this.db.pragma('wal_checkpoint(TRUNCATE)');
+    this.db.close();
+
+    const retainedPath = nextUniqueSiblingPath(this.dbPath, 'prerecovery');
+    try {
+      fs.renameSync(this.dbPath, retainedPath);
+      moveSqliteSidecars(this.dbPath, retainedPath);
+    } catch (error) {
+      this.reopenRepositoryConnection();
+      throw error;
+    }
+
+    try {
+      afterRetainActive?.();
+      fs.renameSync(tempPath, this.dbPath);
+      moveSqliteSidecars(tempPath, this.dbPath);
+    } catch (error) {
+      let rollbackError: unknown = null;
+      try {
+        fs.renameSync(retainedPath, this.dbPath);
+        moveSqliteSidecars(retainedPath, this.dbPath);
+      } catch (rollbackFailure) {
+        rollbackError = rollbackFailure;
+      }
+      removeSqliteSidecars(tempPath);
+      fs.rmSync(tempPath, { force: true });
+      this.reopenRepositoryConnection();
+      if (rollbackError !== null) {
+        throw new Error(
+          `Project recovery promotion failed and the previous database could not be moved back; it is retained at ${retainedPath}: ${String(rollbackError)}`,
+        );
+      }
+      throw error;
+    }
+
+    removeSqliteSidecars(tempPath);
+    this.reopenRepositoryConnection();
+    return { snapshot: this.getSnapshot(), retainedDatabasePath: retainedPath };
+  }
+
+  private reopenRepositoryConnection(): void {
+    this.db = new SqliteDatabase(this.dbPath);
+    this.applyConnectionTuning();
+    // The promoted database is already at LATEST_SCHEMA_VERSION; running the
+    // migrations again is a no-op. Seeding is deliberately skipped so the
+    // restored state is reproduced faithfully even if the backup legitimately
+    // contains no library rows.
+    runMigrations(this.db, this.dbPath);
   }
 
   private readProjectBackupLibraries(): ProjectBackupLibraryRow[] {
