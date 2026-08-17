@@ -147,6 +147,15 @@ must be covered by the frozen allow-list.
   - Does not guess group-child provenance.
 - Idempotent and runs in one transaction.
 
+## Migration System (one ordered transactional runner)
+
+- `app/database/migrations/definitions.ts` is the canonical dense ordered migration list, currently v1..v22; v1 is the bootstrap. Both a fresh v0 database and any historical database advance through the same `runMigrations` path (`app/database/migrations/runner.ts`); there is no separate fresh-install schema.
+- `PRAGMA user_version` is the sole schema cursor. A database whose `user_version` is newer than the highest supported version is refused (`FutureSchemaVersionError`) before any backup or write.
+- An existing database (any table, or a nonzero `user_version`) receives exactly one `VACUUM INTO` backup, `lumacast.bak-v<source>.sqlite`, before its first pending migration. The backup is opened read-only and verified with `integrity_check` and a matching source `user_version`; a failed or unverified backup aborts the migration (`MigrationBackupError`).
+- Each migration's `up` and its `user_version` bump commit in one SQLite transaction, so a crash rolls both back and the next start retries from the prior version. FK-off table rebuilds toggle `PRAGMA foreign_keys` around that transaction and restore its prior state afterward.
+- Fixtures `schema-v0`..`schema-v22` pin frozen structural fingerprints and convergence coverage for every historical version; they are regression evidence, not a second schema definition.
+- See ADR-0005 for the full contract and rationale.
+
 ## Snapshot / Bundle Persistence
 
 - `Slide` includes `backgroundSource` (required, not optional).
