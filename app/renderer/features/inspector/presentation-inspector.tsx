@@ -4,6 +4,7 @@ import { isThemeCompatibleWithDeckItem } from '@core/themes';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
 import { getDeckItemLabel } from '@core/deck-items';
+import { useConfirm } from '../../components/overlays/confirm-dialog';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
@@ -16,6 +17,7 @@ export function DeckItemInspector() {
   const { currentDeckItem, renameDeckItem } = useNavigation();
   const { themes, themesById } = useProjectContent();
   const { applyThemeToTarget, detachThemeFromDeckItem } = useThemeEditor();
+  const confirm = useConfirm();
   const [titleDraft, setTitleDraft] = useState('');
 
   const assignedTheme = currentDeckItem?.themeId
@@ -51,8 +53,15 @@ export function DeckItemInspector() {
     void renameDeckItem(currentDeckItem.id, trimmed);
   }
 
-  function handleResetToTheme() {
+  async function handleResetToTheme() {
     if (!currentDeckItem?.themeId) return;
+    const ok = await confirm({
+      title: `Reset "${currentDeckItem.title}" to theme?`,
+      description: 'This replaces every slide’s content with the theme’s elements. Elements you added yourself will be removed.',
+      confirmLabel: 'Reset',
+      destructive: true,
+    });
+    if (!ok) return;
     void applyThemeToTarget(currentDeckItem.themeId, { type: 'deck-item', itemId: currentDeckItem.id });
   }
 
@@ -96,7 +105,7 @@ export function DeckItemInspector() {
                 <p className="m-0 text-sm text-secondary">{assignedTheme.name}</p>
               </div>
               <div className="flex gap-2">
-                <ReacstButton onClick={handleResetToTheme} className="flex-1">Reset To Theme</ReacstButton>
+                <ReacstButton onClick={() => { void handleResetToTheme(); }} className="flex-1">Reset To Theme</ReacstButton>
                 <ReacstButton.Icon label="Remove theme" onClick={handleDetachTheme}>
                   <Unlink size={14} />
                 </ReacstButton.Icon>
