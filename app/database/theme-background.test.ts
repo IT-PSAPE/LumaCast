@@ -164,8 +164,12 @@ describe('CastRepository theme background persistence (#105)', () => {
     const patch = repo.createTheme({ name: 'Combined', kind: 'slides', background, elements });
     const theme = patch.upserts.themes?.[0]!;
     const snapshot = repo.getSnapshot();
-    expect(snapshot.themes.find((t) => t.id === theme.id)?.background).toEqual(background);
-    expect(snapshot.slideElements.filter((e) => e.slideId === `${theme.id}:slide`)).toHaveLength(2);
+    const persistedTheme = snapshot.themes.find((t) => t.id === theme.id);
+    expect(persistedTheme?.background).toEqual(background);
+    // Theme elements are a container's own `elements` field, not
+    // `snapshot.slideElements` -- that collection is scoped to deck content
+    // slides only (#211) and never carries container elements.
+    expect(persistedTheme?.elements).toHaveLength(2);
   });
 
   it('normalizes nested group ownership when persisting a duplicated-theme draft', () => {
@@ -233,7 +237,7 @@ describe('CastRepository theme background persistence (#105)', () => {
     expect(theme.name).toBe('Untouched');
     expect(theme.width).toBe(1280);
     expect(theme.height).toBe(720);
-    expect(snapshot.slideElements.filter((e) => e.slideId === `${created.id}:slide`)).toHaveLength(1);
+    expect(theme.elements).toHaveLength(1);
     expect(theme.background).toEqual({ type: 'color', color: '#00ff00' });
   });
 
@@ -258,8 +262,7 @@ describe('CastRepository theme background persistence (#105)', () => {
     const snapshot = repo.getSnapshot();
     const theme = snapshot.themes.find((t) => t.id === created.id)!;
     expect(theme.background).toEqual(background);
-    const elements = snapshot.slideElements.filter((e) => e.slideId === `${created.id}:slide`);
-    expect(elements.map((e) => e.id).sort()).toEqual(['e-2', 'e-3']);
+    expect(theme.elements.map((e) => e.id).sort()).toEqual(['e-2', 'e-3']);
   });
 
   // ─── Save and restart persistence ────────────────────────────────────
@@ -329,6 +332,6 @@ describe('CastRepository theme background persistence (#105)', () => {
     expect(snapshot.themes.some((t) => t.name === 'Source Copy')).toBe(false);
     const persistedSource = snapshot.themes.find((t) => t.id === source.id)!;
     expect(persistedSource.background).toEqual(background);
-    expect(snapshot.slideElements.filter((e) => e.slideId === `${source.id}:slide`)).toHaveLength(1);
+    expect(persistedSource.elements).toHaveLength(1);
   });
 });

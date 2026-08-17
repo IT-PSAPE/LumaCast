@@ -2219,20 +2219,19 @@ export class CastRepository {
           (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      // `snapshot.slideElements` (from `getSlideElements()`) is not filtered
-      // to deck content slides the way `snapshot.slides` (from `getSlides()`)
-      // is: it also carries every theme/overlay/stage container's elements.
-      // Those are restored separately below via `replaceContainerElements`
-      // (theme/overlay/stage loops, keyed off each container's own
-      // `elements` field), which both recreates their container slide first
-      // and reuses the same element ids — inserting them again here would
-      // either violate the `slide_id` foreign key (their container slide
-      // hasn't been created yet at this point in the transaction) or
-      // duplicate a primary key (once it has). Restrict this loop to
-      // elements that belong to one of the deck content slides just inserted.
-      const contentSlideIds = new Set(snapshot.slides.map((slide) => slide.id));
+      // `snapshot.slideElements` (from `getSlideElements()`) is scoped to
+      // deck content slides, matching `snapshot.slides` (from `getSlides()`)
+      // exactly (#211) -- it no longer carries theme/overlay/stage container
+      // elements. Those are restored separately below via
+      // `replaceContainerElements` (theme/overlay/stage loops, keyed off
+      // each container's own `elements` field), which both recreates their
+      // container slide first and reuses the same element ids; inserting
+      // them again here would either violate the `slide_id` foreign key
+      // (their container slide hasn't been created yet at this point in the
+      // transaction) or duplicate a primary key (once it has). No extra
+      // filtering is needed here any more -- the getter's own scope keeps
+      // this loop to deck content elements (previously #208).
       for (const element of snapshot.slideElements) {
-        if (!contentSlideIds.has(element.slideId)) continue;
         insertSlideElement.run(
           element.id,
           element.slideId,
@@ -6728,6 +6727,16 @@ private getSlides(): Slide[] {
   }
 
   private getSlideElements(): SlideElement[] {
+    // Scoped to deck-owned slides (presentation/lyric/talk), matching
+    // `getSlides()` exactly (see #211). Theme/overlay/stage container
+    // elements are surfaced via their owning container's `elements` field
+    // instead (`getSlideElementsBySlideId`, used when building Theme/
+    // Overlay/Stage records) -- not through this collection. Before #211,
+    // this query was unfiltered and returned every `slide_elements` row
+    // regardless of owner, which silently disagreed with `getSlides()` and
+    // caused #208 (restoreFromSnapshot inserting container elements into
+    // deck slides) and #209 (a rollback test whose count included container
+    // elements it never created).
     const rows = this.db
       .prepare(
         `SELECT se.*
@@ -6736,6 +6745,7 @@ private getSlides(): Slide[] {
          LEFT JOIN presentations d ON d.id = s.presentation_id
          LEFT JOIN lyrics l ON l.id = s.lyric_id
          LEFT JOIN talks t ON t.id = s.talk_id
+         WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL
          ORDER BY COALESCE(d.order_index, l.order_index, t.order_index) ASC, s.order_index ASC, se.layer ASC, se.z_index ASC`
       )
       .all() as Array<{
