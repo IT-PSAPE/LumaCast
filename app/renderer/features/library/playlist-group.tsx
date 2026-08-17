@@ -107,7 +107,10 @@ function PlaylistGroupBody({ group, index, totalGroups }: PlaylistGroupProps) {
     setDropIndex(null);
     if (!itemId) return;
 
-    void addDeckItemToGroupAt(group.group.id, itemId, nextDropIndex);
+    // addDeckItemToGroup rejects when the item or group no longer exists (#214),
+    // which a drop can race. mutatePatch has already reported the failure, so
+    // absorb it here rather than leaving an unhandled rejection.
+    void addDeckItemToGroupAt(group.group.id, itemId, nextDropIndex).catch(() => undefined);
   }
 
   return (

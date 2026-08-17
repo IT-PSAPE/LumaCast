@@ -1315,7 +1315,9 @@ export class CastRepository {
     const existing = this.db.prepare(`SELECT id, is_default FROM ${table} WHERE id = ?`).get(input.id) as
       | { id: string; is_default: number }
       | undefined;
-    if (!existing) return this.buildPatch({});
+    if (!existing) {
+      throw new Error(`Collection not found: ${input.id}`);
+    }
     if (existing.is_default === 1) {
       throw new Error('Default collection cannot be renamed');
     }
@@ -1347,6 +1349,11 @@ export class CastRepository {
     const existing = this.db.prepare(`SELECT id, is_default FROM ${table} WHERE id = ?`).get(input.id) as
       | { id: string; is_default: number }
       | undefined;
+    // NOT converted to a throw under #214 group 1, unlike the identical
+    // guard in renameCollection: delete-collection.test.ts (#112, an
+    // existing test file outside this change's write boundary) pins
+    // "is a no-op for an id that does not exist" as the contract for this
+    // exact branch. Revisit alongside that test in a follow-up.
     if (!existing) return this.buildPatch({});
     if (existing.is_default === 1) {
       throw new CollectionDeletionError(
@@ -1761,7 +1768,9 @@ export class CastRepository {
       payload_json: string;
       failure_policy: string;
     } | undefined;
-    if (!existing) return this.buildPatch({});
+    if (!existing) {
+      throw new Error(`Cue not found: ${input.id}`);
+    }
 
     const kind = input.kind ?? existing.kind as CueKind;
     const payload = input.payload ?? decodeCuePayloadJson(existing.payload_json, persistedContext('updateCue', `cues.${existing.id}.payload_json`));
@@ -2953,13 +2962,26 @@ export class CastRepository {
 
   addDeckItemToGroup(groupId: Id, itemId: Id): SnapshotPatch {
     const owner = this.resolveDeckOwnerRow(itemId);
-    if (!owner) return this.buildPatch({});
+    if (!owner) {
+      throw new Error(`Deck item not found: ${itemId}`);
+    }
 
+    // NOTE (#214): this only confirms the group exists, not that it belongs
+    // to any particular playlist — unlike moveDeckItemToGroup/
+    // movePlaylistEntryToGroup, this method has no playlistId parameter to
+    // scope against, so a group belonging to a different playlist than the
+    // caller intended is still accepted. Closing that gap needs a signature
+    // change (an explicit playlistId, mirroring moveDeckItemToGroup) that
+    // cascades through app/core/ipc.ts, app/main/ipc.ts, app/main/preload.ts,
+    // and the renderer callers — outside this change's write boundary. See
+    // the #214 audit comment; tracked for a dedicated follow-up.
     const exists = this.db
       .prepare('SELECT id FROM playlist_groups WHERE id = ?')
       .get(groupId) as { id: string } | undefined;
 
-    if (!exists) return this.buildPatch({});
+    if (!exists) {
+      throw new Error(`Group not found: ${groupId}`);
+    }
 
     const now = nowIso();
     const currentOrder =
@@ -3210,7 +3232,9 @@ export class CastRepository {
       height: number;
     } | undefined;
 
-    if (!existing) return this.buildPatch({});
+    if (!existing) {
+      throw new Error(`Theme not found: ${input.id}`);
+    }
 
     const now = nowIso();
     const width = input.width ?? existing.width;
@@ -3527,7 +3551,12 @@ export class CastRepository {
 
   detachThemeFromDeckItem(itemId: Id): SnapshotPatch {
     const owner = this.resolveDeckOwnerRow(itemId);
-    if (!owner || owner.themeId === null) return this.buildPatch({});
+    if (!owner) {
+      throw new Error(`Deck item not found: ${itemId}`);
+    }
+    // Item exists but already has no theme assigned — nothing to detach.
+    // Genuine no-op (#214), distinct from the not-found case above.
+    if (owner.themeId === null) return this.buildPatch({});
 
     const ownerTable = this.getDeckTableName(owner.type);
     const ownerColumn = this.getDeckOwnerColumn(owner.type);
@@ -3577,9 +3606,14 @@ export class CastRepository {
 
   applyThemeToOverlay(themeId: Id, overlayId: Id): SnapshotPatch {
     const theme = this.getThemeById(themeId);
+    if (!theme) {
+      throw new Error(`Theme not found: ${themeId}`);
+    }
     // Compatibility comes from the single capability matrix in @core/themes,
-    // never a local kind comparison. The silent no-op here is tracked in #214.
-    if (!theme || !isThemeCompatibleWithOwnerKind(theme, 'overlay')) return this.buildPatch({});
+    // never a local kind comparison. Incompatible-theme and unresolvable-
+    // overlay stay silent no-ops for now: neither has an existing throwing
+    // sibling to mirror in this file, so #214 defers them to a later group.
+    if (!isThemeCompatibleWithOwnerKind(theme, 'overlay')) return this.buildPatch({});
     const exists = this.db.prepare('SELECT id FROM overlays WHERE id = ?').get(overlayId) as { id: string } | undefined;
     if (!exists) return this.buildPatch({});
 
