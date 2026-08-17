@@ -80,6 +80,7 @@ import type {
   Slide,
   SlideElement,
   SlideElementPayload,
+  GroupElementPayload,
   SlideKind,
   SlideBackground,
   SlideBackgroundSource,
@@ -2454,7 +2455,8 @@ export class CastRepository {
       : createDefaultThemeElements(input.kind, slideId, now);
     // New container — regenerate element IDs so cloned input can't collide
     // with the source theme's existing slide_elements rows.
-    const elements = sourceElements.map((el) => ({ ...el, id: createId(), slideId }));
+    const elements = this.normalizeContainerElementOwnership(sourceElements, slideId)
+      .map((el) => ({ ...el, id: createId() }));
     const collectionId = input.collectionId ?? this.getDefaultCollectionId('theme');
     const width = input.width ?? DEFAULT_W;
     const height = input.height ?? DEFAULT_H;
@@ -5522,6 +5524,26 @@ export class CastRepository {
         element.updatedAt ?? now,
       );
     }
+  }
+
+  /**
+   * Container rows own every element in their tree. Group children are stored
+   * inside their parent's payload rather than in `slide_elements`, so they
+   * need the same persisted slide-id rewrite as the top-level rows.
+   */
+  private normalizeContainerElementOwnership(elements: SlideElement[], slideId: Id): SlideElement[] {
+    return elements.map((element) => {
+      const normalized = { ...element, slideId };
+      if (normalized.type !== 'group') return normalized;
+      const payload = normalized.payload as GroupElementPayload;
+      return {
+        ...normalized,
+        payload: {
+          ...payload,
+          children: this.normalizeContainerElementOwnership(payload.children ?? [], slideId),
+        },
+      };
+    });
   }
 
   /**
