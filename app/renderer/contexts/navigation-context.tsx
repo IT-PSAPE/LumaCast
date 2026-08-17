@@ -261,33 +261,43 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     }
   }, [currentLibraryBundle, currentLibraryId, mutatePatch, setCurrentPlaylistId, setStatusText]);
 
+  // Legacy app-menu creation (File > New Presentation/Lyric) routes through
+  // the same atomic createDeckItemWithTheme operation as the create dialog,
+  // with explicit nulls for collection/theme/group — no separate
+  // owner-then-slide sequence.
   const createPresentation = useCallback(async () => {
     await runOperation('Creating deck...', async () => {
-      const previousIds = new Set(deckItems.map((item) => item.id));
-      const next = await mutatePatch(() => window.castApi.createPresentation('New Presentation'));
-      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id));
-      if (!createdId) return;
-      await mutatePatch(() => window.castApi.createSlide({ presentationId: createdId }));
-      setCurrentDrawerDeckItemId(createdId);
+      const result = await window.castApi.createDeckItemWithTheme({
+        type: 'presentation',
+        title: 'New Presentation',
+        collectionId: null,
+        themeId: null,
+        groupId: null,
+      });
+      await mutatePatch(async () => result.patch);
+      setCurrentDrawerDeckItemId(result.itemId);
       setContentBrowseSource('project');
-      setRecentlyCreatedId(createdId);
+      setRecentlyCreatedId(result.itemId);
       setStatusText('Created deck');
     });
-  }, [deckItems, mutatePatch, runOperation, setStatusText]);
+  }, [mutatePatch, runOperation, setStatusText]);
 
   const createEmptyLyric = useCallback(async () => {
     await runOperation('Creating lyric...', async () => {
-      const previousIds = new Set(deckItems.map((item) => item.id));
-      const next = await mutatePatch(() => window.castApi.createLyric('New Lyric'));
-      const createdId = findCreatedId(previousIds, [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id));
-      if (!createdId) return;
-      await mutatePatch(() => window.castApi.createSlide({ lyricId: createdId }));
-      setCurrentDrawerDeckItemId(createdId);
+      const result = await window.castApi.createDeckItemWithTheme({
+        type: 'lyric',
+        title: 'New Lyric',
+        collectionId: null,
+        themeId: null,
+        groupId: null,
+      });
+      await mutatePatch(async () => result.patch);
+      setCurrentDrawerDeckItemId(result.itemId);
       setContentBrowseSource('project');
-      setRecentlyCreatedId(createdId);
+      setRecentlyCreatedId(result.itemId);
       setStatusText('Created lyric');
     });
-  }, [deckItems, mutatePatch, runOperation, setStatusText]);
+  }, [mutatePatch, runOperation, setStatusText]);
 
   // Granular create flow used by the create-deck-item dialog. Creates the deck item
   // with a chosen name, then optionally applies a theme and adds it to a group
@@ -317,23 +327,21 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // Use the atomic createDeckItemWithTheme operation
-        const next = await mutatePatch(() => window.castApi.createDeckItemWithTheme({
+        // Use the atomic createDeckItemWithTheme operation. It returns the
+        // created owner's id directly, so it never needs to be inferred by
+        // diffing entity arrays before/after the mutation.
+        const result = await window.castApi.createDeckItemWithTheme({
           type: input.kind,
           title: trimmedName,
+          collectionId: null,
           themeId: resolvedThemeId,
-          groupId: input.groupId,
-        }));
+          groupId: input.groupId ?? null,
+        });
+        await mutatePatch(async () => result.patch);
 
-        const createdId = findCreatedId(
-          new Set([]),
-          [...next.presentations, ...next.lyrics, ...next.talks].map((item) => item.id),
-        );
-        if (!createdId) return;
-
-        setCurrentDrawerDeckItemId(createdId);
+        setCurrentDrawerDeckItemId(result.itemId);
         setContentBrowseSource('project');
-        setRecentlyCreatedId(createdId);
+        setRecentlyCreatedId(result.itemId);
         setStatusText(`Created ${labelKind}`);
       });
     })();

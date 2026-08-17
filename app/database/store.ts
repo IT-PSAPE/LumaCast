@@ -217,6 +217,26 @@ export class CollectionDeletionError extends Error {
 }
 
 /**
+ * Thrown by `duplicateDeckItem` (#103) before any write when the source
+ * owner's type does not support whole-deck duplication. Talk duplication is
+ * an explicit non-goal: this is a typed, checked-before-writes error rather
+ * than a partial copy or a generic `Error`, mirroring `CollectionDeletionError`.
+ */
+export type DeckItemDuplicationErrorCode = 'unsupported-owner-type';
+
+export class DeckItemDuplicationError extends Error {
+  readonly code: DeckItemDuplicationErrorCode;
+  readonly itemId: Id;
+
+  constructor(code: DeckItemDuplicationErrorCode, itemId: Id, message: string) {
+    super(message);
+    this.name = 'DeckItemDuplicationError';
+    this.code = code;
+    this.itemId = itemId;
+  }
+}
+
+/**
  * Compile-time exhaustiveness guard for `CollectionBinKind`. If a new bin
  * kind is ever added to the union without adding a matching case to
  * `reassignItemsForCollection`'s switch, `binKind` stops being `never` here
@@ -2855,7 +2875,15 @@ export class CastRepository {
     return this.buildPatch({ upsertOverlayIds: [overlayId] });
   }
 
+  // Preserved for existing direct-repository callers/tests that expect the
+  // raw patch. The IPC boundary (app/main/ipc.ts) calls
+  // createDeckItemWithFirstSlide below instead, which also returns the
+  // created owner's id so the renderer never has to infer it.
   createDeckItemWithTheme(input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }): SnapshotPatch {
+    return this.createDeckItemWithFirstSlide(input).patch;
+  }
+
+  createDeckItemWithFirstSlide(input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }): { itemId: Id; patch: SnapshotPatch } {
     // Validate input before first write
     if (!input || typeof input !== 'object') {
       throw new Error('Invalid input: expected object');
@@ -3049,10 +3077,10 @@ export class CastRepository {
     patchSpec.upsertSlideElementIds = this.getSlideElementIdsBySlideIds([slideId]);
     patchSpec.replaceLibraryBundles = true;
 
-    return this.buildPatch(patchSpec);
+    return { itemId, patch: this.buildPatch(patchSpec) };
   }
 
-  duplicateDeckItem(itemId: Id): SnapshotPatch {
+  duplicateDeckItem(itemId: Id): { itemId: Id; patch: SnapshotPatch } {
     const now = nowIso();
 
     // 1. Find the source item (only presentation and lyric supported)
@@ -3067,7 +3095,11 @@ export class CastRepository {
       .get(itemId) as { id: string; title: string; theme_id: string | null; collection_id: string; order_index: number } | undefined;
 
     if (sourceTalk) {
-      throw new Error('Deck item duplication is not supported for Talk items');
+      throw new DeckItemDuplicationError(
+        'unsupported-owner-type',
+        itemId,
+        'Deck item duplication is not supported for Talk items',
+      );
     }
 
     const sourceType: 'presentation' | 'lyric' | null = sourcePresentation ? 'presentation' : sourceLyric ? 'lyric' : null;
@@ -3165,10 +3197,14 @@ export class CastRepository {
       sourceElementsMap.set(slide.id, elements);
     }
 
-    // 6. Get sibling IDs that will be shifted (for patch)
+    // 6. Get sibling IDs that will be shifted (for patch). Order is scoped to
+    // the source's own collection — order_index is a per-(type, collection)
+    // sequence (see createDeckItemWithFirstSlide's collection-scoped MAX
+    // query), so an unscoped shift would corrupt ordering in unrelated
+    // collections that happen to share order_index values.
     const shiftedSiblings = this.db
-      .prepare(`SELECT id FROM ${sourceTable} WHERE order_index >= ? AND id != ? ORDER BY order_index ASC`)
-      .all(sourceOrder + 1, itemId) as Array<{ id: string }>;
+      .prepare(`SELECT id FROM ${sourceTable} WHERE collection_id = ? AND order_index >= ? AND id != ? ORDER BY order_index ASC`)
+      .all(source.collection_id, sourceOrder + 1, itemId) as Array<{ id: string }>;
     const shiftedSiblingIds = shiftedSiblings.map((s) => s.id);
 
     // 7. Perform the duplication in a transaction
@@ -3176,12 +3212,12 @@ export class CastRepository {
     const slideIdMap = new Map<string, string>();
 
     const tx = this.db.transaction(() => {
-      // 8. Shift later siblings to make room
+      // 8. Shift later siblings within the same collection to make room
       this.db.prepare(
         `UPDATE ${sourceTable}
          SET order_index = order_index + 1, updated_at = ?
-         WHERE order_index >= ?`
-      ).run(now, sourceOrder + 1);
+         WHERE collection_id = ? AND order_index >= ?`
+      ).run(now, source.collection_id, sourceOrder + 1);
 
       // 9. Create the new owner at sourceOrder + 1
       this.db.prepare(
@@ -3263,7 +3299,7 @@ export class CastRepository {
     patchSpec.upsertSlideElementIds = this.getSlideElementIdsBySlideIds(newSlideIds);
     patchSpec.replaceLibraryBundles = true;
 
-    return this.buildPatch(patchSpec);
+    return { itemId: newOwnerId, patch: this.buildPatch(patchSpec) };
   }
 
   movePlaylist(id: Id, direction: 'up' | 'down'): SnapshotPatch {

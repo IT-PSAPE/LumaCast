@@ -379,9 +379,12 @@ describe('createDeckItem theme resolution', () => {
       deletes: {},
     }));
     const createDeckItemWithTheme = vi.fn().mockImplementation(async (input: { type: string; title: string; themeId: Id | null }) => ({
-      version: 2,
-      upserts: { presentations: [makePresentation('NEW-P-1', input.title, input.themeId)] },
-      deletes: {},
+      itemId: 'NEW-P-1',
+      patch: {
+        version: 2,
+        upserts: { presentations: [makePresentation('NEW-P-1', input.title, input.themeId)] },
+        deletes: {},
+      },
     }));
     setCastApi({ createTheme, createDeckItemWithTheme });
 
@@ -411,9 +414,12 @@ describe('createDeckItem theme resolution', () => {
       deletes: {},
     }));
     const createDeckItemWithTheme = vi.fn().mockImplementation(async (input: { type: string; title: string; themeId: Id | null }) => ({
-      version: 2,
-      upserts: { presentations: [makePresentation('NEW-P-2', input.title, input.themeId)] },
-      deletes: {},
+      itemId: 'NEW-P-2',
+      patch: {
+        version: 2,
+        upserts: { presentations: [makePresentation('NEW-P-2', input.title, input.themeId)] },
+        deletes: {},
+      },
     }));
     setCastApi({ updateTheme, createDeckItemWithTheme });
 
@@ -434,7 +440,7 @@ describe('createDeckItem theme resolution', () => {
     const { current } = renderThemeHarness(makeSnapshot({ themes: [] }));
 
     const createTheme = vi.fn().mockRejectedValue(new Error('persist boom'));
-    const createDeckItemWithTheme = vi.fn().mockResolvedValue(createEmptyPatch(2));
+    const createDeckItemWithTheme = vi.fn().mockResolvedValue({ itemId: 'NEW-P-3', patch: createEmptyPatch(2) });
     setCastApi({ createTheme, createDeckItemWithTheme });
 
     await act(async () => {
@@ -459,9 +465,9 @@ describe('createDeckItem theme resolution', () => {
   it('serializes duplicate deck creations while one is in flight', async () => {
     const { current } = renderThemeHarness(makeSnapshot({ themes: [] }));
 
-    let releaseCreate: ((value: SnapshotPatch) => void) | null = null;
+    let releaseCreate: ((value: { itemId: Id; patch: SnapshotPatch }) => void) | null = null;
     const createDeckItemWithTheme = vi.fn().mockImplementation(
-      () => new Promise<SnapshotPatch>((resolve) => { releaseCreate = resolve; }),
+      () => new Promise<{ itemId: Id; patch: SnapshotPatch }>((resolve) => { releaseCreate = resolve; }),
     );
     setCastApi({ createDeckItemWithTheme });
 
@@ -470,7 +476,7 @@ describe('createDeckItem theme resolution', () => {
       const second = current.navigation.createDeckItem({ kind: 'presentation', name: 'Deck' });
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(createDeckItemWithTheme).toHaveBeenCalledTimes(1);
-      releaseCreate?.(createEmptyPatch(2));
+      releaseCreate?.({ itemId: 'NEW-P-4', patch: createEmptyPatch(2) });
       await first;
       await second;
     });

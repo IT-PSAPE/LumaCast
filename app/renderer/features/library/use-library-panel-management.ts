@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import type { AppSnapshot, DeckItemType, Id } from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
 import { useCast } from '../../contexts/app-context';
 
 function findCreatedId(previousIds: Set<Id>, currentIds: Id[]): Id | null {
@@ -23,10 +22,6 @@ function getGroupEntryIds(snapshot: AppSnapshot | null | undefined, groupId: Id)
 
 export function useLibraryPanelManagement() {
   const { snapshot, mutatePatch, setStatusText } = useCast();
-
-  function getDeckItems(nextSnapshot: AppSnapshot | null | undefined) {
-    return [...(nextSnapshot?.presentations ?? []), ...(nextSnapshot?.lyrics ?? []), ...(nextSnapshot?.talks ?? [])];
-  }
 
   function resolveDeckItemType(itemId: Id): DeckItemType | null {
     if (snapshot?.presentations.some((item) => item.id === itemId)) return 'presentation';
@@ -134,52 +129,40 @@ export function useLibraryPanelManagement() {
     return findCreatedId(previousEntryIds, getGroupEntryIds(nextSnapshot, groupId));
   }, [mutatePatch, setStatusText, snapshot]);
 
-  const createDeckItemEntryInGroup = useCallback(async (
+  // Library/group creation routes through the same atomic
+  // createDeckItemWithTheme operation as the create dialog and app menu, with
+  // explicit nulls for collection/theme and the target group id passed
+  // directly so owner, first slide, and playlist-entry membership commit in
+  // one transaction — no separate create-then-slide-then-add sequence.
+  const createDeckItemInGroup = useCallback(async (
+    type: DeckItemType,
     groupId: Id,
-    createEntry: () => Promise<SnapshotPatch>,
-    createSlide: (itemId: Id) => Promise<SnapshotPatch>,
+    title: string,
     statusText: string,
   ) => {
-    const previousItemIds = new Set(getDeckItems(snapshot).map((item) => item.id));
-    const next = await mutatePatch(createEntry);
-    const nextItems = getDeckItems(next);
-    const createdItemId = findCreatedId(previousItemIds, nextItems.map((item) => item.id))
-      ?? nextItems.at(-1)?.id
-      ?? null;
-    if (!createdItemId) return null;
-
-    await mutatePatch(() => createSlide(createdItemId));
-    await addDeckItemToGroup(groupId, createdItemId);
+    const result = await window.castApi.createDeckItemWithTheme({
+      type,
+      title,
+      collectionId: null,
+      themeId: null,
+      groupId,
+    });
+    await mutatePatch(async () => result.patch);
     setStatusText(statusText);
-    return createdItemId;
-  }, [addDeckItemToGroup, snapshot, mutatePatch, setStatusText]);
+    return result.itemId;
+  }, [mutatePatch, setStatusText]);
 
-  const createPresentationInGroup = useCallback(async (_libraryId: Id, groupId: Id) => {
-    return createDeckItemEntryInGroup(
-      groupId,
-      () => window.castApi.createPresentation('New Presentation'),
-      (itemId) => window.castApi.createSlide({ presentationId: itemId }),
-      'Created deck and added to group'
-    );
-  }, [createDeckItemEntryInGroup]);
+  const createPresentationInGroup = useCallback(async (_libraryId: Id, groupId: Id) => (
+    createDeckItemInGroup('presentation', groupId, 'New Presentation', 'Created deck and added to group')
+  ), [createDeckItemInGroup]);
 
-  const createLyricInGroup = useCallback(async (_libraryId: Id, groupId: Id) => {
-    return createDeckItemEntryInGroup(
-      groupId,
-      () => window.castApi.createLyric('New Lyric'),
-      (itemId) => window.castApi.createSlide({ lyricId: itemId }),
-      'Created lyric and added to group'
-    );
-  }, [createDeckItemEntryInGroup]);
+  const createLyricInGroup = useCallback(async (_libraryId: Id, groupId: Id) => (
+    createDeckItemInGroup('lyric', groupId, 'New Lyric', 'Created lyric and added to group')
+  ), [createDeckItemInGroup]);
 
-  const createTalkInGroup = useCallback(async (_libraryId: Id, groupId: Id) => {
-    return createDeckItemEntryInGroup(
-      groupId,
-      () => window.castApi.createTalk('New Talk'),
-      (itemId) => window.castApi.createSlide({ talkId: itemId }),
-      'Created talk and added to group'
-    );
-  }, [createDeckItemEntryInGroup]);
+  const createTalkInGroup = useCallback(async (_libraryId: Id, groupId: Id) => (
+    createDeckItemInGroup('talk', groupId, 'New Talk', 'Created talk and added to group')
+  ), [createDeckItemInGroup]);
 
   return {
     renameLibrary,

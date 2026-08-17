@@ -122,8 +122,8 @@ export interface MainApi {
   detachThemeFromDeckItem: (itemId: Id) => Promise<SnapshotPatch>;
   syncThemeToLinkedDeckItems: (themeId: Id) => Promise<SnapshotPatch>;
   applyThemeToOverlay: (themeId: Id, overlayId: Id) => Promise<SnapshotPatch>;
-  createDeckItemWithTheme: (input: DeckItemCreateWithThemeInput) => Promise<SnapshotPatch>;
-  duplicateDeckItem: (itemId: Id) => Promise<SnapshotPatch>;
+  createDeckItemWithTheme: (input: DeckItemCreateWithThemeInput) => Promise<DeckItemCreateResult>;
+  duplicateDeckItem: (itemId: Id) => Promise<DeckItemDuplicateResult>;
   createStage: (input: StageCreateInput) => Promise<SnapshotPatch>;
   updateStage: (input: StageUpdateInput) => Promise<SnapshotPatch>;
   deleteStage: (stageId: Id) => Promise<SnapshotPatch>;
@@ -181,6 +181,22 @@ export interface DeckItemCreateWithThemeInput {
   collectionId?: Id | null;
   themeId?: Id | null;
   groupId?: Id | null;
+}
+
+// Atomic deck-item creation returns the created owner's id explicitly so the
+// renderer never has to infer it by diffing entity arrays before/after the
+// mutation (see docs/adr for the atomic-deck-creation ADR).
+export interface DeckItemCreateResult {
+  itemId: Id;
+  patch: SnapshotPatch;
+}
+
+// Mirrors DeckItemCreateResult: whole-deck duplication (#103) returns the
+// duplicate's owner id explicitly so the renderer never has to infer it by
+// diffing entity arrays before/after the mutation.
+export interface DeckItemDuplicateResult {
+  itemId: Id;
+  patch: SnapshotPatch;
 }
 
 export interface InlineWindowMenuItem {

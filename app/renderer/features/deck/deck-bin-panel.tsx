@@ -126,7 +126,7 @@ function useDeleteDeckItem(item: DeckItem) {
   };
 }
 
-function useDuplicateDeckItem(item: DeckItem) {
+export function useDuplicateDeckItem(item: DeckItem) {
   const { mutatePatch, setStatusText } = useCast();
   const { browseDeckItem } = useNavigation();
 
@@ -137,14 +137,12 @@ function useDuplicateDeckItem(item: DeckItem) {
 
   return async function handleDuplicate() {
     try {
-      const next = await mutatePatch(() => window.castApi.duplicateDeckItem(item.id));
-      const allItems = [...next.presentations, ...next.lyrics, ...next.talks];
-      // Identify the new item by finding the one not present before duplication.
-      const previousIds = new Set([item.id]);
-      const newItem = allItems.find((i) => !previousIds.has(i.id)) ?? allItems[allItems.length - 1];
-      if (newItem) {
-        browseDeckItem(newItem.id);
-      }
+      // duplicateDeckItem returns the duplicate's owner id directly, so it
+      // never needs to be inferred by diffing entity arrays before/after
+      // the mutation (see DeckItemDuplicateResult in @core/ipc).
+      const result = await window.castApi.duplicateDeckItem(item.id);
+      await mutatePatch(async () => result.patch);
+      browseDeckItem(result.itemId);
       setStatusText(`Duplicated "${item.title}"`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

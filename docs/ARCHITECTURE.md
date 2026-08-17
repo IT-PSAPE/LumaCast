@@ -63,14 +63,17 @@ must be covered by the frozen allow-list.
 
 ## Atomic Deck Creation
 
-- `createDeckItemWithTheme(input)` validates all inputs before the first write.
+- `createDeckItemWithFirstSlide(input)` is the one repository operation for creating a themed or unthemed deck item together with its first slide. It validates all inputs before the first write: title and owner type, collection existence, theme existence, and theme/owner-type compatibility.
 - Runs in one SQLite transaction:
-  1. Creates owner (presentation/lyric/talk) with explicit `order_index`.
-  2. Creates first slide with `background_source` = 'theme' if themed, 'local' otherwise.
-  3. Applies theme elements via `applyThemeToElements` (with provenance) or default elements via `createDefaultThemeElements`.
-  4. Optionally adds to playlist group.
-- Returns one `SnapshotPatch` with owner, slide, elements, and library updates.
-- Renderer calls exactly one `mutatePatch` and selects/navigates only after success.
+  1. Creates the owner (presentation/lyric/talk) with explicit `order_index` and its final `theme_id`.
+  2. Creates the first slide once, with `background_source` = 'theme' if themed, 'local' otherwise.
+  3. Applies theme elements via `applyThemeToElements` (with provenance) when themed; otherwise falls back to the owner type's current default first-slide content (the lyric branch keeps its initial editable lyric text).
+  4. Optionally inserts a `playlist_entries` row when a group id is supplied.
+  5. Rolls back the owner, slide, elements, and playlist entry together if any validation or write fails — no partially created item is left behind, and nothing is selected or navigated to.
+- The IPC result is `DeckItemCreateResult = { itemId, patch }`: the created owner's id is returned explicitly alongside the single `SnapshotPatch`, so the renderer never infers it by diffing entity arrays before/after the mutation.
+- `createDeckItemWithTheme(input)` remains on `CastRepository` as a thin wrapper returning the raw `SnapshotPatch`, preserved for existing direct-repository callers; the IPC boundary (`app/main/ipc.ts`) calls `createDeckItemWithFirstSlide` directly so it can return `itemId`.
+- Renderer callers — the create-item dialog (`navigation-context.tsx::createDeckItem`), legacy app-menu creation (`createPresentation`, `createEmptyLyric`), and library/group creation (`use-library-panel-management.ts`) — call the IPC method once, apply the returned `patch` via `mutatePatch`, and select/navigate using the returned `itemId` directly. Legacy app-menu and library/group creation pass explicit `collectionId: null` and `themeId: null`; the old create-owner-then-create-slide(-then-add-to-group) sequences have been removed.
+- `createSlide` remains the sole operation for adding a later slide to an existing owner; it is never overloaded with owner creation.
 - On failure, selection and navigation state are retained.
 
 ## Exact-Copy Duplication
@@ -78,8 +81,8 @@ must be covered by the frozen allow-list.
 ### Whole-Deck Duplication (`duplicateDeckItem`)
 - Supports only Presentation and Lyric; throws for Talk.
 - Generates copy names case-insensitively within the same owner type.
-- Inserts duplicate at `sourceOrder + 1`; shifts only later siblings.
-- Returns patch including shifted sibling order updates.
+- Inserts duplicate at `sourceOrder + 1`; shifts only later siblings within the source's own collection (`order_index` is a per-`(type, collection)` sequence).
+- Returns `DeckItemDuplicateResult = { itemId, patch }`; the patch includes shifted sibling order updates. Callers select `itemId` directly and never scan the snapshot (see ADR-0004).
 - Deep-copies slides, elements (new collision-free IDs, preserved `sourceThemeElementId`), and `background_source`.
 - Does not reapply or sync the assigned theme.
 

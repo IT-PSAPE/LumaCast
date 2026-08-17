@@ -1,6 +1,6 @@
 import { BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { CastRepository } from '@database/store';
-import { IPC, NDI_EVENTS, type AppMenuState, type InlineWindowMenuBounds, type InlineWindowMenuItem } from '@core/ipc';
+import { IPC, NDI_EVENTS, type AppMenuState, type DeckItemCreateWithThemeInput, type InlineWindowMenuBounds, type InlineWindowMenuItem } from '@core/ipc';
 import type {
   AppSnapshot,
   CueCreateInput,
@@ -283,8 +283,8 @@ export const registerIpcHandlers = (
   safeHandle(IPC.applyThemeToOverlay, (_event, themeId: Id, overlayId: Id) =>
     repo.applyThemeToOverlay(themeId, overlayId)
   );
-  safeHandle(IPC.createDeckItemWithTheme, (_event, input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }) =>
-    repo.createDeckItemWithTheme(input)
+  safeHandle(IPC.createDeckItemWithTheme, (_event, input: DeckItemCreateWithThemeInput) =>
+    repo.createDeckItemWithFirstSlide(input)
   );
   safeHandle(IPC.duplicateDeckItem, (_event, itemId: Id) =>
     repo.duplicateDeckItem(itemId)

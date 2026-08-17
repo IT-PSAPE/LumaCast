@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { APP_MENU_EVENTS, IPC, NDI_EVENTS } from '@core/ipc';
+import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult } from '@core/ipc';
 import type { SnapshotPatch } from '@core/snapshot-patch';
 import type {
   AppSnapshot,
@@ -137,10 +137,10 @@ const api = {
     ipcRenderer.invoke(IPC.syncThemeToLinkedDeckItems, themeId),
   applyThemeToOverlay: (themeId: Id, overlayId: Id) =>
     ipcRenderer.invoke(IPC.applyThemeToOverlay, themeId, overlayId),
-  createDeckItemWithTheme: (input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }) =>
-    ipcRenderer.invoke(IPC.createDeckItemWithTheme, input),
+  createDeckItemWithTheme: (input: DeckItemCreateWithThemeInput) =>
+    ipcRenderer.invoke(IPC.createDeckItemWithTheme, input) as Promise<DeckItemCreateResult>,
   duplicateDeckItem: (itemId: Id) =>
-    ipcRenderer.invoke(IPC.duplicateDeckItem, itemId),
+    ipcRenderer.invoke(IPC.duplicateDeckItem, itemId) as Promise<DeckItemDuplicateResult>,
   createStage: (input: StageCreateInput) => ipcRenderer.invoke(IPC.createStage, input),
   updateStage: (input: StageUpdateInput) => ipcRenderer.invoke(IPC.updateStage, input),
   deleteStage: (stageId: Id) => ipcRenderer.invoke(IPC.deleteStage, stageId),
