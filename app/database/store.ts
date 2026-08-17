@@ -34,20 +34,50 @@ import {
 } from '../contracts/codecs';
 import { SqliteDatabase } from './sqlite';
 import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations';
+// Domain primitives (#153): owned by app/core/domain/, imported directly
+// rather than through the app/core/types.ts facade.
+import type { Id } from '@core/domain/ids';
 import type {
-  AppSnapshot,
+  Library,
+  LibraryPlaylistBundle,
+  Playlist,
+  PlaylistEntry,
+  PlaylistGroup,
+  PlaylistTree,
+} from '@core/domain/library';
+import type { DeckItem, DeckItemType, Presentation, Lyric, Talk } from '@core/domain/decks';
+import type { Slide, SlideKind, SlideBackground, SlideBackgroundSource, TalkScriptBlock } from '@core/domain/slides';
+import type { SlideElement, SlideElementPayload, GroupElementPayload } from '@core/domain/slide-elements';
+import type { MediaAsset, MediaAssetType } from '@core/domain/media-assets';
+import type { Overlay } from '@core/domain/overlays';
+import type { Theme, ThemeKind } from '@core/domain/theme';
+import type { Stage } from '@core/domain/stages';
+import type { Collection, CollectionBinKind, CollectionItemType } from '@core/domain/collections';
+import type {
   Cue,
-  CueCreateInput,
   CueFailurePolicy,
   CueKind,
+  Macro,
+  MacroCue,
+  OnScopeExit,
+  ScopeLevel,
+  TriggerBinding,
+  TriggerBindingTargetType,
+  TriggerType,
+} from '@core/domain/automation';
+// Everything below has not moved under #153 and remains on the
+// app/core/types.ts facade: IPC/application contracts (#154), the
+// deck-bundle wire format, and the ProjectBackup family (see the "NOT split
+// out" note on ProjectBackup in app/core/types.ts for why the persistence-DTO
+// row shapes could not be relocated in this slice).
+import type {
+  AppSnapshot,
+  CueCreateInput,
   CueUpdateInput,
   BrokenDeckBundleReference,
-  Collection,
   CollectionAssignmentInput,
-  CollectionBinKind,
   CollectionCreateInput,
   CollectionDeleteInput,
-  CollectionItemType,
   CollectionRenameInput,
   CollectionReorderInput,
   DeckBundleBrokenReferenceDecision,
@@ -65,31 +95,13 @@ import type {
   DeckBundleSlide,
   DeckBundleStage,
   DeckBundleTheme,
-  DeckItem,
-  DeckItemType,
-  Presentation,
   ElementCreateInput,
   ElementUpdateInput,
-  Id,
-  Library,
-  LibraryPlaylistBundle,
-  Lyric,
-  Macro,
   MacroCreateInput,
-  MacroCue,
   MacroUpdateInput,
-  OnScopeExit,
-  ScopeLevel,
-  MediaAsset,
   MediaAssetCreateInput,
-  MediaAssetType,
-  Overlay,
   OverlayCreateInput,
   OverlayUpdateInput,
-  Playlist,
-  PlaylistEntry,
-  PlaylistGroup,
-  PlaylistTree,
   ProjectBackup,
   ProjectBackupCollectionRow,
   ProjectBackupCueRow,
@@ -109,32 +121,17 @@ import type {
   ProjectBackupTalkScriptBlockRow,
   ProjectBackupThemeRow,
   ProjectBackupTriggerBindingRow,
-  Slide,
-  SlideElement,
-  SlideElementPayload,
-  GroupElementPayload,
-  SlideKind,
-  SlideBackground,
-  SlideBackgroundSource,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
-  Stage,
   StageCreateInput,
   StageUpdateInput,
-  Talk,
-  TalkScriptBlock,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
   TalkScriptBlockUpdateInput,
-  Theme,
   ThemeCreateInput,
-  ThemeKind,
   ThemeUpdateInput,
-  TriggerBindingTargetType,
-  TriggerType,
-  TriggerBinding,
   TriggerBindingCreateInput,
 } from '@core/types';
 import { isBrokenMediaSource, toCastMediaSource } from './media-source-utils';

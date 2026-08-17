@@ -1,345 +1,112 @@
-import type { RichBody } from './rich-text/types';
-import type { PlaylistItemReference } from './playlist-item-reference';
+// ---------------------------------------------------------------------------
+// TEMPORARY COMPATIBILITY FACADE (#116 / #153)
+//
+// This module used to define every shared shape directly. Domain primitives
+// and persistence-only DTOs have been split out to their explicit owners
+// (app/core/domain/ and app/database/dto/ respectively — see #153); the
+// exports below are re-exports only, kept so the ~150 existing importers of
+// `@core/types` do not all need to change in the same slice as the move.
+//
+// Per the #116 fixed decisions this file gains no new declarations and no
+// logic for migrated families — it is exports-only for them. IPC/application
+// contracts (#154) and renderer view models (#155) have not moved yet; #155
+// is the exit condition that removes this facade entirely once every
+// consumer imports from the owning module directly.
+// ---------------------------------------------------------------------------
 
-export type Id = string;
+export type { Id } from './domain/ids';
+export type {
+  Library,
+  Playlist,
+  PlaylistGroup,
+  PlaylistEntry,
+  PlaylistTree,
+  LibraryPlaylistBundle,
+} from './domain/library';
+export type { DeckItemType, Presentation, Lyric, Talk, DeckItem } from './domain/decks';
+export type {
+  SlideKind,
+  SlideBackgroundFit,
+  GradientStop,
+  SlideGradient,
+  SlideBackground,
+  SlideBackgroundSource,
+  Slide,
+  TalkScriptBlock,
+} from './domain/slides';
+export type {
+  SlideElementType,
+  SlideElementBase,
+  TextHorizontalAlign,
+  TextVerticalAlign,
+  TextCaseTransform,
+  StrokePosition,
+  TextBindingKind,
+  ClockFormat,
+  TimerFormat,
+  TextBinding,
+  ElementVisualPayload,
+  TextElementPayload,
+  ImageElementPayload,
+  VideoElementPayload,
+  ShapeElementPayload,
+  GroupElementPayload,
+  SlideElementPayload,
+  SlideElement,
+} from './domain/slide-elements';
+export type { MediaAssetType, MediaAsset } from './domain/media-assets';
+export type { OverlayType, OverlayAnimation, Overlay } from './domain/overlays';
+export type { ThemeKind, ThemeOwnerKind, Theme } from './domain/theme';
+export type { Stage } from './domain/stages';
+export type { CollectionBinKind, Collection, CollectionItemType } from './domain/collections';
+export type {
+  CueFailurePolicy,
+  CueClearLayer,
+  CueKind,
+  TriggerType,
+  TriggerBindingTargetType,
+  ScopeLevel,
+  OnScopeExit,
+  LifecycleAction,
+  LifecycleTarget,
+  CuePayload,
+  Cue,
+  MacroCue,
+  Macro,
+  TriggerBinding,
+} from './domain/automation';
 
-export interface Library {
-  id: Id;
-  name: string;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Playlist {
-  id: Id;
-  libraryId: Id;
-  name: string;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PlaylistGroup {
-  id: Id;
-  playlistId: Id;
-  name: string;
-  colorKey: string | null;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface PlaylistEntry {
-  id: Id;
-  groupId: Id;
-  // Canonical, exhaustively-validated pointer to the referenced item. `id`
-  // above is this entry's own identity; `reference.itemId` is the referenced
-  // item's identity — the two are independent (see @core/playlist-item-reference).
-  reference: PlaylistItemReference;
-  // Legacy nullable owner columns mirroring `reference`, retained because
-  // persistence stores them directly and app/core/deck-items.ts still reads
-  // them. Always kept in sync with `reference`; do not set independently.
-  presentationId: Id | null;
-  lyricId: Id | null;
-  talkId: Id | null;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type DeckItemType = 'presentation' | 'lyric' | 'talk';
-export type ThemeKind = 'slides' | 'lyrics' | 'overlays';
-
-// Every kind of theme owner a theme can be applied to, synced to, reset
-// against, or detached from. Deck items (presentation/lyric/talk) plus
-// overlays, which own a theme outside the deck-item model.
-export type ThemeOwnerKind = DeckItemType | 'overlay';
-
-interface DeckItemBase {
-  id: Id;
-  title: string;
-  themeId?: Id | null;
-  collectionId: Id;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Presentation extends DeckItemBase {
-  type: 'presentation';
-}
-
-export interface Lyric extends DeckItemBase {
-  type: 'lyric';
-}
-
-export interface Talk extends DeckItemBase {
-  type: 'talk';
-}
-
-export type DeckItem = Presentation | Lyric | Talk;
-
-export type SlideKind = 'presentation' | 'lyric' | 'talk' | 'theme' | 'overlay' | 'stage';
-
-export type SlideBackgroundFit = 'cover' | 'contain' | 'fill';
-
-export interface GradientStop {
-  color: string;
-  position: number; // 0–100
-}
-
-export interface SlideGradient {
-  kind: 'linear' | 'radial';
-  angle?: number; // degrees, linear only (measured from +x axis)
-  stops: GradientStop[]; // at least 2, ordered by position
-}
-
-export type SlideBackground =
-  | { type: 'color'; color: string }
-  | { type: 'gradient'; gradient: SlideGradient }
-  | { type: 'image'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit }
-  | { type: 'video'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit };
+// ---------------------------------------------------------------------------
+// Imports of migrated declarations needed by the application-contract shapes
+// that remain defined below (they have not moved — see #154). These are
+// ordinary type-only imports, not part of the facade above.
+// ---------------------------------------------------------------------------
+import type { Id } from './domain/ids';
+import type { Library, LibraryPlaylistBundle } from './domain/library';
+import type { DeckItemType, Presentation, Lyric, Talk } from './domain/decks';
+import type { SlideKind, SlideBackground, SlideBackgroundSource, Slide, TalkScriptBlock } from './domain/slides';
+import type { SlideElementType, SlideElementBase, SlideElementPayload, SlideElement } from './domain/slide-elements';
+import type { MediaAssetType, MediaAsset } from './domain/media-assets';
+import type { OverlayType, OverlayAnimation, Overlay } from './domain/overlays';
+import type { ThemeKind, Theme } from './domain/theme';
+import type { Stage } from './domain/stages';
+import type { CollectionBinKind, Collection, CollectionItemType } from './domain/collections';
+import type {
+  CueFailurePolicy,
+  CueKind,
+  TriggerType,
+  TriggerBindingTargetType,
+  ScopeLevel,
+  OnScopeExit,
+  CuePayload,
+  Cue,
+  Macro,
+  TriggerBinding,
+} from './domain/automation';
 
 export interface SlideBackgroundUpdateInput {
   slideId: Id;
   background: SlideBackground | null;
-}
-
-export type SlideBackgroundSource = 'theme' | 'local';
-
-export interface Slide {
-  id: Id;
-  background?: SlideBackground | null;
-  backgroundSource: SlideBackgroundSource;
-  // Exactly one of the parent FKs is set; the rest are null.
-  presentationId: Id | null;
-  lyricId: Id | null;
-  talkId: Id | null;
-  themeId: Id | null;
-  overlayId: Id | null;
-  stageId: Id | null;
-  kind: SlideKind;
-  width: number;
-  height: number;
-  notes: string;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type SlideElementType = 'text' | 'image' | 'video' | 'shape' | 'group';
-
-export interface SlideElementBase {
-  id: Id;
-  slideId: Id;
-  type: SlideElementType;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  opacity: number;
-  zIndex: number;
-  layer: 'background' | 'media' | 'content';
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type TextHorizontalAlign = CanvasTextAlign | 'justify';
-export type TextVerticalAlign = 'top' | 'middle' | 'bottom';
-export type TextCaseTransform = 'none' | 'uppercase' | 'sentence';
-export type StrokePosition = 'inside' | 'center' | 'outside';
-
-export type TextBindingKind =
-  | 'timer'
-  | 'clock'
-  | 'current-slide-text'
-  | 'next-slide-text'
-  | 'slide-notes'
-  | 'talk-script-current'
-  | 'talk-script-progress';
-
-export type ClockFormat = '12h' | '12h-seconds' | '24h' | '24h-seconds';
-export type TimerFormat = 'mm:ss' | 'hh:mm:ss';
-
-export interface TextBinding {
-  kind: TextBindingKind;
-  timerDurationSeconds?: number;
-  timerFormat?: TimerFormat;
-  clockFormat?: ClockFormat;
-}
-
-export interface ElementVisualPayload {
-  name?: string;
-  visible?: boolean;
-  locked?: boolean;
-  flipX?: boolean;
-  flipY?: boolean;
-  fillEnabled?: boolean;
-  fillColor?: string;
-  strokeEnabled?: boolean;
-  strokeColor?: string;
-  strokeWidth?: number;
-  strokePosition?: StrokePosition;
-  shadowEnabled?: boolean;
-  shadowColor?: string;
-  shadowBlur?: number;
-  shadowOffsetX?: number;
-  shadowOffsetY?: number;
-}
-
-export interface TextElementPayload extends ElementVisualPayload {
-  text: string;
-  borderRadius?: number;
-  fontFamily: string;
-  fontSize: number;
-  color: string;
-  alignment: TextHorizontalAlign;
-  verticalAlign?: TextVerticalAlign;
-  autoFit?: boolean;
-  autoFitMaxFontSize?: number;
-  caseTransform?: TextCaseTransform;
-  italic?: boolean;
-  underline?: boolean;
-  strikethrough?: boolean;
-  lineHeight?: number;
-  weight?: string;
-  textStrokeEnabled?: boolean;
-  textStrokeColor?: string;
-  textStrokeWidth?: number;
-  textStrokePosition?: StrokePosition;
-  textShadowEnabled?: boolean;
-  textShadowColor?: string;
-  textShadowBlur?: number;
-  textShadowOffsetX?: number;
-  textShadowOffsetY?: number;
-  binding?: TextBinding;
-  // Rich Text (see app/core/rich-text). Additive & optional: absent ⇒ 'plain'.
-  // When format === 'rich', richBody is the authored content; `text` stays the
-  // newline-joined plain-text projection (fallback + the resolved value for bindings).
-  format?: 'plain' | 'rich';
-  richBody?: RichBody;
-}
-
-export interface ImageElementPayload extends ElementVisualPayload {
-  src: string;
-}
-
-export interface VideoElementPayload extends ElementVisualPayload {
-  src: string;
-  autoplay: boolean;
-  loop: boolean;
-  muted?: boolean;
-  playbackRate?: number;
-}
-
-export interface ShapeElementPayload extends ElementVisualPayload {
-  fillColor: string;
-  borderColor: string;
-  borderWidth: number;
-  borderRadius: number;
-}
-
-export interface GroupElementPayload extends ElementVisualPayload {
-  children: SlideElement[];
-}
-
-export type SlideElementPayload =
-  | TextElementPayload
-  | ImageElementPayload
-  | VideoElementPayload
-  | ShapeElementPayload
-  | GroupElementPayload;
-
-export interface SlideElement extends SlideElementBase {
-  payload: SlideElementPayload;
-  /** ID of the theme element this was derived from, if any. Null for user-created elements. */
-  sourceThemeElementId?: Id | null;
-}
-
-export type MediaAssetType = 'image' | 'video' | 'audio';
-
-export interface MediaAsset {
-  id: Id;
-  name: string;
-  type: MediaAssetType;
-  src: string;
-  collectionId: Id;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type OverlayType = 'image' | 'shape' | 'text' | 'video';
-
-export interface OverlayAnimation {
-  kind: 'none' | 'dissolve' | 'fade' | 'pulse';
-  durationMs: number;
-  autoClearDurationMs?: number | null;
-}
-
-export interface Overlay {
-  id: Id;
-  slideId: Id;
-  name: string;
-  enabled: boolean;
-  background?: SlideBackground | null;
-  elements: SlideElement[];
-  animation: OverlayAnimation;
-  collectionId: Id;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Theme {
-  id: Id;
-  slideId: Id;
-  name: string;
-  kind: ThemeKind;
-  width: number;
-  height: number;
-  background?: SlideBackground | null;
-  elements: SlideElement[];
-  collectionId: Id;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Stage {
-  id: Id;
-  slideId: Id;
-  name: string;
-  width: number;
-  height: number;
-  background?: SlideBackground | null;
-  elements: SlideElement[];
-  collectionId: Id;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TalkScriptBlock {
-  id: Id;
-  slideId: Id;
-  text: string;
-  order: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage' | 'macro';
-
-export interface Collection {
-  id: Id;
-  binKind: CollectionBinKind;
-  name: string;
-  order: number;
-  isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface CollectionCreateInput {
@@ -362,16 +129,6 @@ export interface CollectionReorderInput {
   binKind: CollectionBinKind;
   ids: Id[];
 }
-
-export type CollectionItemType =
-  | 'presentation'
-  | 'lyric'
-  | 'talk'
-  | 'media_asset'
-  | 'theme'
-  | 'overlay'
-  | 'stage'
-  | 'macro';
 
 export interface CollectionAssignmentInput {
   itemType: CollectionItemType;
@@ -575,6 +332,19 @@ export interface DeckBundleBrokenReferenceDecision {
 // `PRAGMA user_version` at export time (see ADR-0006). The envelope carries no
 // timestamp, so two exports of unchanged data serialize byte-for-byte
 // identically.
+//
+// NOT split out to app/database/dto/ under #153: despite the SQL-mirroring
+// row shape, `ProjectBackup`/`ProjectBackupTables` are consumed as type-level
+// dependencies outside database mapping/repository code — by
+// app/core/deck-bundles.ts (validateProjectBackup, ProjectBackupTableKey) and
+// by the IPC contract (app/core/ipc.ts, app/main/ipc.ts, app/main/preload.ts,
+// app/main/deck-bundle-archive.ts). Moving this family to app/database/dto/
+// would require those core/main files to import database code, which
+// app/core is architecturally forbidden from doing (core-purity). This
+// contradicts the #153 fixed decision "persistence DTOs may be imported only
+// by database mapping/repository code" — see the #153 handoff report for the
+// full conflict. Left in place pending a decision in #154/#116 about whether
+// this is really a persistence DTO or an application/IPC contract.
 // ---------------------------------------------------------------------------
 
 export interface ProjectBackupLibraryRow {
@@ -812,108 +582,6 @@ export interface ProjectBackup {
   version: 1;
   schemaVersion: number;
   tables: ProjectBackupTables;
-}
-
-export interface PlaylistTree {
-  playlist: Playlist;
-  groups: Array<{
-    group: PlaylistGroup;
-    entries: Array<{
-      entry: PlaylistEntry;
-      item: DeckItem;
-    }>;
-  }>;
-}
-
-export interface LibraryPlaylistBundle {
-  library: Library;
-  playlists: PlaylistTree[];
-}
-
-export type CueFailurePolicy = 'continue' | 'abort';
-export type CueClearLayer = 'media' | 'video' | 'content' | 'overlay';
-export type CueKind =
-  | 'overlay.activate'
-  | 'overlay.clear'
-  | 'overlay.clearAll'
-  | 'mediaLayer.set'
-  | 'video.arm'
-  | 'video.clear'
-  | 'audio.arm'
-  | 'audio.clear'
-  | 'stage.set'
-  | 'stage.clear'
-  | 'layer.clear'
-  | 'layer.clearAll'
-  | 'flow.lifecycle';
-export type TriggerType = 'slide.take' | 'slide.activate' | 'app.startup';
-export type TriggerBindingTargetType = 'cue' | 'macro';
-
-/** Level a macro's lifetime is bound to. The concrete context is captured from the trigger. */
-export type ScopeLevel = 'global' | 'deckItem' | 'slide';
-/** What happens to a macro run when its bound scope context stops being live. */
-export type OnScopeExit = 'cancel' | 'revert' | 'none';
-/** Lifecycle action a `flow.lifecycle` cue performs against targeted runs. */
-export type LifecycleAction = 'cancel' | 'revert';
-/** `'*'` targets all active runs; an Id targets every running instance of that macro. */
-export type LifecycleTarget = Id | '*';
-
-export type CuePayload =
-  | { overlayId: Id }
-  | { assetId: Id }
-  | { stageId: Id }
-  | { layer: CueClearLayer }
-  | { action: LifecycleAction; target: LifecycleTarget }
-  | Record<string, never>;
-
-export interface Cue {
-  id: Id;
-  kind: CueKind;
-  payload: CuePayload;
-  failurePolicy: CueFailurePolicy;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface MacroCue {
-  id: Id;
-  macroId: Id;
-  cueId: Id;
-  cue: Cue;
-  orderIndex: number;
-  // Delays are per-occurrence (per macro step), not part of the shared cue
-  // identity — the same cue can appear with different delays in different macros.
-  delayBeforeMs: number;
-  delayAfterMs: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface Macro {
-  id: Id;
-  name: string;
-  description: string;
-  collectionId: Id;
-  cues: MacroCue[];
-  scopeLevel: ScopeLevel;
-  onScopeExit: OnScopeExit;
-  loopEnabled: boolean;
-  /** null = loop until scope exit / cancel; a number caps the iterations. */
-  loopCount: number | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface TriggerBinding {
-  id: Id;
-  triggerType: TriggerType;
-  sourceId: Id | null;
-  targetType: TriggerBindingTargetType;
-  targetId: Id;
-  config: Record<string, unknown>;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export interface CueCreateInput {
