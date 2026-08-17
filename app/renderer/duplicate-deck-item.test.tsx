@@ -132,14 +132,16 @@ function renderHarness(item: DeckItem, initial: AppSnapshot = makeSnapshot()): {
     </AssetEditorProvider>
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return renderHook(
+  // renderHook returns { result, rerender, unmount }; the hook value lives on
+  // result.current, so the harness hands back `result` itself.
+  const { result } = renderHook(
     () => ({
       duplicate: useDuplicateDeckItem(item),
       nav: useNavigation(),
     }),
     { wrapper },
-  ) as unknown as { current: { duplicate: (() => Promise<void>) | null; nav: NavigationContextValue } };
+  );
+  return result as { current: { duplicate: (() => Promise<void>) | null; nav: NavigationContextValue } };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

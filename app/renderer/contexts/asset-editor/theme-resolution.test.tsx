@@ -200,15 +200,16 @@ function renderThemeHarness(initial: AppSnapshot): { current: { theme: ThemeEdit
     </AssetEditorProvider>
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rendered = renderHook(
+  // renderHook returns { result, rerender, unmount }; the hook value lives on
+  // result.current, so the harness hands back `result` itself.
+  const { result } = renderHook(
     () => ({
       theme: useThemeEditor(),
       navigation: useNavigationActions(),
     }),
     { wrapper },
-  ) as unknown as { current: { theme: ThemeEditorValue; navigation: NavigationActionsValue } };
-  return rendered;
+  );
+  return result as { current: { theme: ThemeEditorValue; navigation: NavigationActionsValue } };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

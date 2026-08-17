@@ -182,10 +182,10 @@ function renderThemeHarness(initial: AppSnapshot): { current: { theme: ThemeEdit
 
   const wrapper = ({ children }: { children: ReactNode }) => <AssetEditorProvider>{children}</AssetEditorProvider>;
 
-  const rendered = renderHook(() => ({ theme: useThemeEditor() }), { wrapper }) as unknown as {
-    current: { theme: ThemeEditorValue };
-  };
-  return rendered;
+  // renderHook returns { result, rerender, unmount }; the hook value lives on
+  // result.current, so the harness hands back `result` itself.
+  const { result } = renderHook(() => ({ theme: useThemeEditor() }), { wrapper });
+  return result as { current: { theme: ThemeEditorValue } };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

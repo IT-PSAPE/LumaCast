@@ -136,15 +136,17 @@ function renderHarness(initial: AppSnapshot): { current: { actions: NavigationAc
     </AssetEditorProvider>
   );
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return renderHook(
+  // renderHook returns { result, rerender, unmount }; the hook value lives on
+  // result.current, so the harness hands back `result` itself.
+  const { result } = renderHook(
     () => ({
       actions: useNavigationActions(),
       state: useNavigationState(),
       theme: useThemeEditor(),
     }),
     { wrapper },
-  ) as unknown as { current: { actions: NavigationActionsValue; state: NavigationStateValue; theme: ThemeEditorValue } };
+  );
+  return result as { current: { actions: NavigationActionsValue; state: NavigationStateValue; theme: ThemeEditorValue } };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
