@@ -26,6 +26,7 @@ import {
   parsePlaylistItemReference,
   type PlaylistItemReference,
 } from './playlist-item-reference';
+import { decodeDeckBundleManifest, type CodecContext } from '../contracts/codecs';
 
 interface MediaReferenceAccumulator {
   elementTypes: Set<'image' | 'video'>;
@@ -104,6 +105,28 @@ export function normalizeDeckBundleManifest(manifest: DeckBundleManifest): DeckB
       manifest.stages ?? [],
     ),
   };
+}
+
+/**
+ * The single named validation entry point for the deck-bundle wire contract.
+ * Delegates to the structural codec in app/contracts (the authoritative
+ * boundary), then applies the domain referential rules this module owns:
+ * playlist entries must reference exactly one owner. Pure: never mutates.
+ */
+export function validateDeckBundleManifest(input: unknown, context?: CodecContext): DeckBundleManifest {
+  const ctx: CodecContext = context ?? { boundary: 'bundle-import', operation: 'validateDeckBundleManifest', path: 'manifest' };
+  const manifest = decodeDeckBundleManifest(input, ctx);
+  for (const playlist of manifest.playlists ?? []) {
+    for (const group of playlist.groups) {
+      for (const entry of group.entries) {
+        // Rejects zero or multiple populated owner columns instead of the
+        // `presentationId ?? lyricId` chain that previously accepted (and
+        // then silently mis-imported) a Talk-only entry.
+        getDeckBundlePlaylistEntryReference(entry);
+      }
+    }
+  }
+  return manifest;
 }
 
 /**

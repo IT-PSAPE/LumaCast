@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { crc32 } from 'node:zlib';
-import { validateProjectBackup } from '@core/deck-bundles';
+import { validateDeckBundleManifest, validateProjectBackup } from '@core/deck-bundles';
+import type { CodecContext } from '../contracts/codecs';
 import type { DeckBundleManifest, ProjectBackup } from '@core/types';
 
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
@@ -143,6 +144,7 @@ async function readSingleEntryZip(filePath: string): Promise<{ entryName: string
 }
 
 export async function writeDeckBundleArchive(filePath: string, manifest: DeckBundleManifest): Promise<void> {
+  validateDeckBundleManifest(manifest, archiveContext('writeDeckBundleArchive'));
   const data = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
   await writeSingleEntryZip(filePath, MANIFEST_ENTRY_NAME, data);
 }
@@ -153,11 +155,17 @@ export async function readDeckBundleArchive(filePath: string): Promise<DeckBundl
     throw new Error('Invalid bundle entry.');
   }
 
+  let parsed: unknown;
   try {
-    return JSON.parse(data.toString('utf8')) as DeckBundleManifest;
+    parsed = JSON.parse(data.toString('utf8'));
   } catch (error) {
     throw new Error(`Invalid bundle manifest: ${(error as Error).message}`);
   }
+  return validateDeckBundleManifest(parsed, archiveContext('readDeckBundleArchive'));
+}
+
+function archiveContext(operation: string): CodecContext {
+  return { boundary: 'bundle-archive', operation, path: 'manifest' };
 }
 
 export async function writeProjectBackupArchive(filePath: string, backup: ProjectBackup): Promise<void> {

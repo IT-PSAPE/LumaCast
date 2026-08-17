@@ -10,6 +10,7 @@ import {
   PROJECT_BACKUP_VERSION,
   ProjectBackupValidationError,
   readElementMediaReference,
+  validateDeckBundleManifest,
   validateProjectBackup as validateProjectBackupDocument,
   type ProjectBackupTableKey,
 } from '@core/deck-bundles';
@@ -24,6 +25,13 @@ import {
 } from '@core/playlist-item-reference';
 import { applyThemeToElements, createDefaultThemeElements, isThemeCompatibleWithDeckItem, syncThemeToElements } from '@core/themes';
 import { createId, nowIso } from '@core/utils';
+import {
+  decodeCuePayloadJson,
+  decodeOverlayAnimationJson,
+  decodeSlideBackgroundJson,
+  decodeSlideElementPayloadJson,
+  type CodecContext,
+} from '../contracts/codecs';
 import { SqliteDatabase } from './sqlite';
 import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations';
 import type {
@@ -32,7 +40,6 @@ import type {
   CueCreateInput,
   CueFailurePolicy,
   CueKind,
-  CuePayload,
   CueUpdateInput,
   BrokenDeckBundleReference,
   Collection,
@@ -852,6 +859,13 @@ const parseJson = <T>(value: string): T => {
     throw new Error(`Corrupted JSON data in database: ${(error as Error).message}`);
   }
 };
+
+/** Builds the codec context for a persisted JSON column read. */
+const persistedContext = (operation: string, path: string): CodecContext => ({
+  boundary: 'persisted',
+  operation,
+  path,
+});
 
 const normalizeDelayMs = (value: number | undefined): number => {
   const parsed = Number(value);
@@ -1684,7 +1698,7 @@ export class CastRepository {
     return rows.map((row) => ({
       id: row.id,
       kind: row.kind as CueKind,
-      payload: parseJson<CuePayload>(row.payload_json),
+      payload: decodeCuePayloadJson(row.payload_json, persistedContext('listCues', `cues.${row.id}.payload_json`)),
       failurePolicy: row.failure_policy as CueFailurePolicy,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -1720,7 +1734,7 @@ export class CastRepository {
     if (!existing) return this.buildPatch({});
 
     const kind = input.kind ?? existing.kind as CueKind;
-    const payload = input.payload ?? parseJson<CuePayload>(existing.payload_json);
+    const payload = input.payload ?? decodeCuePayloadJson(existing.payload_json, persistedContext('updateCue', `cues.${existing.id}.payload_json`));
     const failurePolicy = input.failurePolicy ?? existing.failure_policy as CueFailurePolicy;
     this.db.prepare(
       `UPDATE cues
@@ -2377,7 +2391,7 @@ export class CastRepository {
   }
 
   inspectImportBundle(manifest: DeckBundleManifest): DeckBundleInspection {
-    this.assertValidDeckBundleManifest(manifest);
+    this.assertValidDeckBundleManifest(manifest, 'inspectImportBundle');
     const normalizedManifest = cloneDeckBundleManifest(manifest);
     const overlays = normalizedManifest.overlays ?? [];
     const stages = normalizedManifest.stages ?? [];
@@ -2435,7 +2449,7 @@ export class CastRepository {
   }
 
   finalizeImportBundle(manifest: DeckBundleManifest, decisions: DeckBundleBrokenReferenceDecision[]): AppSnapshot {
-    this.assertValidDeckBundleManifest(manifest);
+    this.assertValidDeckBundleManifest(manifest, 'finalizeImportBundle');
     const workingManifest = cloneDeckBundleManifest(manifest);
     const brokenReferences = this.collectBrokenBundleReferences(workingManifest);
     const decisionMap = new Map(decisions.map((decision) => [decision.source, decision]));
@@ -3214,7 +3228,7 @@ export class CastRepository {
           opacity: row.opacity,
           zIndex: row.z_index,
           layer: row.layer,
-          payload: parseJson<SlideElementPayload>(row.payload_json),
+          payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('applyThemeToDeckItem', `slide_elements.${row.id}.payload_json`)),
           sourceThemeElementId: row.source_theme_element_id,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -3331,7 +3345,7 @@ export class CastRepository {
             opacity: row.opacity,
             zIndex: row.z_index,
             layer: row.layer,
-            payload: parseJson<SlideElementPayload>(row.payload_json),
+            payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('syncThemeToLinkedDeckItems', `slide_elements.${row.id}.payload_json`)),
             sourceThemeElementId: row.source_theme_element_id,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
@@ -4565,6 +4579,7 @@ export class CastRepository {
       .get(input.id) as
       | {
           id: string;
+          type: SlideElement['type'];
           x: number;
           y: number;
           width: number;
@@ -4594,7 +4609,7 @@ export class CastRepository {
         input.opacity ?? existing.opacity,
         input.zIndex ?? existing.z_index,
         input.layer ?? existing.layer,
-        JSON.stringify(input.payload ?? parseJson<SlideElementPayload>(existing.payload_json)),
+        JSON.stringify(input.payload ?? decodeSlideElementPayloadJson(existing.payload_json, existing.type, persistedContext('updateElement', `slide_elements.${existing.id}.payload_json`))),
         now,
         input.id
       );
@@ -4616,6 +4631,7 @@ export class CastRepository {
         const existing = selectExisting.get(input.id) as
           | {
               id: string;
+              type: SlideElement['type'];
               x: number;
               y: number;
               width: number;
@@ -4637,7 +4653,7 @@ export class CastRepository {
           input.opacity ?? existing.opacity,
           input.zIndex ?? existing.z_index,
           input.layer ?? existing.layer,
-          JSON.stringify(input.payload ?? parseJson<SlideElementPayload>(existing.payload_json)),
+          JSON.stringify(input.payload ?? decodeSlideElementPayloadJson(existing.payload_json, existing.type, persistedContext('updateElementsBatch', `slide_elements.${existing.id}.payload_json`))),
           nowIso(),
           input.id
         );
@@ -4764,7 +4780,7 @@ export class CastRepository {
         )
         .run(
           input.name ?? existing.name,
-          JSON.stringify(normalizeOverlayAnimation(input.animation ?? parseJson(existing.animation_json))),
+          JSON.stringify(normalizeOverlayAnimation(input.animation ?? decodeOverlayAnimationJson(existing.animation_json, persistedContext('updateOverlay', `overlays.${existing.id}.animation_json`)))),
           now,
           input.id,
         );
@@ -5189,7 +5205,7 @@ export class CastRepository {
     return {
       id: row.id,
       kind: row.kind as CueKind,
-      payload: parseJson<CuePayload>(row.payload_json),
+      payload: decodeCuePayloadJson(row.payload_json, persistedContext('getCueById', `cues.${row.id}.payload_json`)),
       failurePolicy: row.failure_policy as CueFailurePolicy,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -5238,7 +5254,7 @@ export class CastRepository {
         cue: {
           id: row.cue_id,
           kind: row.cue_kind as CueKind,
-          payload: parseJson<CuePayload>(row.cue_payload_json),
+          payload: decodeCuePayloadJson(row.cue_payload_json, persistedContext('getMacroCuesByMacroIds', `cues.${row.cue_id}.payload_json`)),
           failurePolicy: row.cue_failure_policy as CueFailurePolicy,
           createdAt: row.cue_created_at,
           updatedAt: row.cue_updated_at,
@@ -5451,7 +5467,7 @@ export class CastRepository {
       height: slide.height,
       notes: slide.notes,
       order: slide.order_index,
-      background: slide.background_json ? parseJson<SlideBackground>(slide.background_json) : null,
+      background: slide.background_json ? decodeSlideBackgroundJson(slide.background_json, persistedContext('exportDeckBundle', `slides.${slide.id}.background_json`)) : null,
       backgroundSource: (slide.background_source ?? 'local') as SlideBackgroundSource,
       elements: this.getSlideElementsBySlideId(slide.id),
       scriptBlocks: owner.type === 'talk'
@@ -5861,7 +5877,7 @@ export class CastRepository {
       width: row.width,
       height: row.height,
       notes: row.notes,
-      background: row.background_json ? parseJson<SlideBackground>(row.background_json) : null,
+      background: row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSnapshot', `slides.${row.id}.background_json`)) : null,
       backgroundSource: (row.background_source ?? 'local') as SlideBackgroundSource,
       order: row.order_index,
       createdAt: row.created_at,
@@ -5931,7 +5947,7 @@ export class CastRepository {
         enabled: row.enabled === 1,
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
-        animation: normalizeOverlayAnimation(parseJson(row.animation_json)),
+        animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlaysByIds', `overlays.${row.id}.animation_json`))),
         collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -6017,7 +6033,7 @@ export class CastRepository {
       opacity: row.opacity,
       zIndex: row.z_index,
       layer: row.layer,
-      payload: parseJson<SlideElementPayload>(row.payload_json),
+      payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('getSlideElementsByIds', `slide_elements.${row.id}.payload_json`)),
       sourceThemeElementId: row.source_theme_element_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -6130,7 +6146,7 @@ export class CastRepository {
     const row = this.db
       .prepare('SELECT background_json FROM slides WHERE id = ?')
       .get(slideId) as { background_json: string | null } | undefined;
-    return row?.background_json ? parseJson<SlideBackground>(row.background_json) : null;
+    return row?.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSlideBackgroundBySlideId', `slides.${slideId}.background_json`)) : null;
   }
 
   private getSlideElementsBySlideId(slideId: Id): SlideElement[] {
@@ -6171,7 +6187,7 @@ export class CastRepository {
       opacity: row.opacity,
       zIndex: row.z_index,
       layer: row.layer,
-      payload: parseJson<SlideElementPayload>(row.payload_json),
+      payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('getSlideElementsBySlideId', `slide_elements.${row.id}.payload_json`)),
       sourceThemeElementId: row.source_theme_element_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -6203,29 +6219,23 @@ export class CastRepository {
       .map((row) => row.id);
   }
 
-  private assertValidDeckBundleManifest(manifest: DeckBundleManifest): void {
-    if (!manifest || manifest.format !== 'cast-deck-bundle' || manifest.version !== 1) {
-      throw new Error('Unsupported bundle format.');
-    }
+  private assertValidDeckBundleManifest(manifest: DeckBundleManifest, operation: string): void {
+    // Structural validation plus playlist-entry owner-column checking is
+    // @core/deck-bundles's single named validation entry point for the
+    // bundle wire contract; it is the authoritative boundary for bundle
+    // shape, field types, enums, and owner-column referential rules. The
+    // `operation` reflects the caller (inspect vs finalize) so a failure's
+    // error carries the boundary/operation/path that actually produced it.
+    validateDeckBundleManifest(manifest, { boundary: 'bundle-import', operation, path: 'manifest' });
 
-    if (!Array.isArray(manifest.items) || !Array.isArray(manifest.themes)) {
-      throw new Error('Invalid bundle manifest.');
-    }
-
+    // Referential domain rules that validateDeckBundleManifest intentionally
+    // does not mirror: theme existence/compatibility within this manifest.
     const themeIds = new Set<Id>();
     for (const theme of manifest.themes) {
-      if (!theme?.id || !theme.name) throw new Error('Invalid bundle theme.');
-      if (theme.kind !== 'slides' && theme.kind !== 'lyrics' && theme.kind !== 'overlays') {
-        throw new Error(`Unknown theme kind: ${theme.kind}`);
-      }
       themeIds.add(theme.id);
     }
 
     for (const item of manifest.items) {
-      if (!item?.id || !item.title) throw new Error('Invalid bundle item.');
-      if (item.type !== 'presentation' && item.type !== 'lyric' && item.type !== 'talk') {
-        throw new Error(`Unknown content item type: ${item.type}`);
-      }
       if (item.themeId && !themeIds.has(item.themeId)) {
         throw new Error(`Bundle item ${item.title} references a missing theme.`);
       }
@@ -6233,53 +6243,6 @@ export class CastRepository {
         const theme = manifest.themes.find((entry) => entry.id === item.themeId) ?? null;
         if (!theme || !isThemeCompatibleWithDeckItem(theme as Theme, item.type)) {
           throw new Error(`Bundle item ${item.title} has an incompatible theme.`);
-        }
-      }
-      for (const slide of item.slides) {
-        if (!slide?.id || !Array.isArray(slide.elements)) {
-          throw new Error(`Invalid slide in ${item.title}.`);
-        }
-        if (slide.scriptBlocks !== undefined && !Array.isArray(slide.scriptBlocks)) {
-          throw new Error(`Invalid script blocks in ${item.title}.`);
-        }
-      }
-    }
-
-    if (manifest.overlays !== undefined) {
-      if (!Array.isArray(manifest.overlays)) throw new Error('Invalid bundle overlays.');
-      for (const overlay of manifest.overlays) {
-        if (!overlay?.id || !overlay.name || !Array.isArray(overlay.elements)) {
-          throw new Error('Invalid bundle overlay.');
-        }
-      }
-    }
-
-    if (manifest.stages !== undefined) {
-      if (!Array.isArray(manifest.stages)) throw new Error('Invalid bundle stages.');
-      for (const stage of manifest.stages) {
-        if (!stage?.id || !stage.name || !Array.isArray(stage.elements)) {
-          throw new Error('Invalid bundle stage.');
-        }
-      }
-    }
-
-    if (manifest.playlists !== undefined) {
-      if (!Array.isArray(manifest.playlists)) throw new Error('Invalid bundle playlists.');
-      for (const playlist of manifest.playlists) {
-        if (!playlist?.id || !playlist.name || !Array.isArray(playlist.groups)) {
-          throw new Error('Invalid bundle playlist.');
-        }
-        for (const group of playlist.groups) {
-          if (!group?.id || !Array.isArray(group.entries)) {
-            throw new Error(`Invalid group in playlist ${playlist.name}.`);
-          }
-          for (const entry of group.entries) {
-            if (!entry?.id) throw new Error(`Invalid entry in playlist ${playlist.name}.`);
-            // Rejects zero or multiple populated owner columns instead of the
-            // `presentationId ?? lyricId` chain that previously accepted
-            // (and then silently mis-imported) a Talk-only entry.
-            getDeckBundlePlaylistEntryReference(entry);
-          }
         }
       }
     }
@@ -6623,7 +6586,7 @@ private getSlides(): Slide[] {
       width: row.width,
       height: row.height,
       notes: row.notes,
-      background: row.background_json ? parseJson<SlideBackground>(row.background_json) : null,
+      background: row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSlides', `slides.${row.id}.background_json`)) : null,
       backgroundSource: (row.background_source ?? 'local') as SlideBackgroundSource,
       order: row.order_index,
       createdAt: row.created_at,
@@ -6672,7 +6635,7 @@ private getSlides(): Slide[] {
       opacity: row.opacity,
       zIndex: row.z_index,
       layer: row.layer,
-      payload: parseJson<SlideElementPayload>(row.payload_json),
+      payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('getSlideElements', `slide_elements.${row.id}.payload_json`)),
       sourceThemeElementId: row.source_theme_element_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -6913,7 +6876,7 @@ private getSlides(): Slide[] {
         enabled: row.enabled === 1,
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
-        animation: normalizeOverlayAnimation(parseJson(row.animation_json)),
+        animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlays', `overlays.${row.id}.animation_json`))),
         collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
