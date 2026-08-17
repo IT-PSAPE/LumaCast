@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult, type ProjectRestoreResult } from '@core/ipc';
+import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@core/ipc';
 import type { SnapshotPatch } from '@core/snapshot-patch';
 import type {
   AppSnapshot,
@@ -218,6 +218,6 @@ const api = {
   obsGetCurrentLogPath: () => ipcRenderer.invoke(IPC.obsGetCurrentLogPath) as Promise<string | null>,
   obsOpenLogFolder: () => ipcRenderer.invoke(IPC.obsOpenLogFolder) as Promise<void>,
   obsGetSystemMetrics: () => ipcRenderer.invoke(IPC.obsGetSystemMetrics) as Promise<SystemMetricsSnapshot>,
-};
+} satisfies MainApi;
 
 contextBridge.exposeInMainWorld('castApi', api);

@@ -46,16 +46,26 @@ import type {
 import type { SnapshotPatch } from './snapshot-patch';
 import type { ProjectBackup } from '../contracts/project-backup';
 
-export interface MainApi {
-  platform: NodeJS.Platform;
-  getPathForFile: (file: File) => string;
+export interface RpcError {
+  message: string;
+}
+
+// Canonical request/response contract (issue #151): one typed map keyed by
+// operation name, each entry carrying its input tuple, output type, and
+// serialized error category. Every operation here corresponds to exactly one
+// non-frame channel in `IPC` below (see the completeness assertion near the
+// bottom of this file, next to `NDI_FRAME_CHANNEL_NAMES`). This is the single
+// source of truth main, preload, and the renderer round-trip against. It
+// deliberately excludes events/subscriptions (`NdiEventPayloads`,
+// `AppMenuEventPayloads`) and frame/message channels (`NdiFrameChannels`)
+// below — those are separate maps and must never be folded into this one.
+interface RpcMethodSignatures {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;
   getInlineWindowMenuItems: () => Promise<InlineWindowMenuItem[]>;
   popupInlineWindowMenu: (menuId: string, bounds: InlineWindowMenuBounds) => Promise<void>;
   updateAppMenuState: (state: AppMenuState) => Promise<void>;
   checkForAppUpdates: (manual?: boolean) => Promise<void>;
-  onAppMenuCommand: (callback: (commandId: AppMenuCommandId) => void) => () => void;
   getSnapshot: () => Promise<AppSnapshot>;
   restoreFromSnapshot: (snapshot: AppSnapshot) => Promise<AppSnapshot>;
   chooseDeckBundleExportPath: (suggestedName: string) => Promise<string | null>;
@@ -145,24 +155,7 @@ export interface MainApi {
   getNdiOutputConfigs: () => Promise<NdiOutputConfigMap>;
   updateNdiOutputConfig: (name: NdiOutputName, config: Partial<NdiOutputConfig>) => Promise<NdiOutputConfigMap>;
   getNdiDiagnostics: () => Promise<NdiDiagnostics>;
-  sendNdiFrame: (
-    name: NdiOutputName,
-    buffer: ArrayBuffer,
-    width: number,
-    height: number,
-    telemetry?: NdiFrameTelemetry,
-  ) => void;
-  sendNdiAudio: (
-    name: NdiOutputName,
-    samples: Float32Array,
-    sampleRate: number,
-    channels: number,
-    samplesPerChannel: number,
-  ) => void;
-  onNdiOutputStateChanged: (callback: (state: NdiOutputState) => void) => () => void;
   getAudioCoverArt: (src: string) => Promise<string | null>;
-  onNdiDiagnosticsChanged: (callback: (diagnostics: NdiDiagnostics) => void) => () => void;
-  onNdiFrameAck: (callback: (name: NdiOutputName) => void) => () => void;
   // Observability
   obsListLogSessions: () => Promise<LogSessionSummary[]>;
   obsReadLogSession: (filePath: string, offset: number, limit: number) => Promise<LogReadResult>;
@@ -183,6 +176,95 @@ export interface MainApi {
    */
   restoreProjectBackup: (backup: ProjectBackup) => Promise<ProjectRestoreResult>;
 }
+
+// The canonical operation map: derived mechanically from
+// `RpcMethodSignatures` (not hand-transcribed) so it can never drift from the
+// signatures above. `input` is the positional argument tuple, `output` is the
+// resolved (unwrapped) promise value, and `error` is the serialized error
+// category every main-process handler currently produces (see
+// `app/main/ipc.ts`'s `safeHandle`, which always rejects with a plain
+// `Error(message)`). A future operation needing a distinguished error union
+// can override `error` without touching any other entry's shape.
+export type RpcOperations = {
+  [K in keyof RpcMethodSignatures]: {
+    input: Parameters<RpcMethodSignatures[K]>;
+    output: Awaited<ReturnType<RpcMethodSignatures[K]>>;
+    error: RpcError;
+  };
+};
+
+type RpcSurface = {
+  [K in keyof RpcOperations]: (...args: RpcOperations[K]['input']) => Promise<RpcOperations[K]['output']>;
+};
+
+// Event/subscription contracts (main -> renderer, one-way). Kept as maps
+// separate from `RpcOperations`: these are not request/response operations
+// and must never be folded into the RPC surface above.
+export interface NdiEventPayloads {
+  outputStateChanged: NdiOutputState;
+  diagnosticsChanged: NdiDiagnostics;
+  frameAck: NdiOutputName;
+}
+
+export interface AppMenuEventPayloads {
+  command: AppMenuCommandId;
+}
+
+type NdiEventSurface = {
+  onNdiOutputStateChanged: (callback: (state: NdiEventPayloads['outputStateChanged']) => void) => () => void;
+  onNdiDiagnosticsChanged: (callback: (diagnostics: NdiEventPayloads['diagnosticsChanged']) => void) => () => void;
+  onNdiFrameAck: (callback: (name: NdiEventPayloads['frameAck']) => void) => () => void;
+};
+
+type AppMenuEventSurface = {
+  onAppMenuCommand: (callback: (commandId: AppMenuEventPayloads['command']) => void) => () => void;
+};
+
+// High-frequency frame/message channel contracts (renderer -> main, one-way,
+// fire-and-forget via `ipcRenderer.send`/`ipcMain.on` rather than
+// invoke/handle). Kept separate from both `RpcOperations` and the event
+// payloads above: these intentionally skip the request/response round trip
+// for latency, and their direction is the opposite of the event maps.
+export interface NdiFrameChannels {
+  sendNdiFrame: { name: NdiOutputName; buffer: ArrayBuffer; width: number; height: number; telemetry?: NdiFrameTelemetry };
+  sendNdiAudio: { name: NdiOutputName; buffer: ArrayBuffer; sampleRate: number; channels: number; samplesPerChannel: number };
+}
+
+type NdiFrameSurface = {
+  sendNdiFrame: (
+    name: NdiOutputName,
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+    telemetry?: NdiFrameTelemetry,
+  ) => void;
+  sendNdiAudio: (
+    name: NdiOutputName,
+    samples: Float32Array,
+    sampleRate: number,
+    channels: number,
+    samplesPerChannel: number,
+  ) => void;
+};
+
+// Bridge-local utilities that never cross a channel at all (no main round
+// trip): `platform` is a value snapshotted at preload load, and
+// `getPathForFile` is a synchronous `webUtils` call. Neither belongs in
+// `RpcOperations` or either channel map above.
+interface MainUtilApi {
+  platform: NodeJS.Platform;
+  getPathForFile: (file: File) => string;
+}
+
+// MainApi is the canonical shape of the whole `castApi` bridge exposed by
+// preload (issue #151): the RPC surface derived from `RpcOperations`,
+// intersected with the event subscriptions, frame-channel senders, and the
+// two non-channel utilities above. `app/main/preload.ts` asserts its
+// implementation object `satisfies MainApi`, so an extra, missing, or
+// mistyped member fails compilation there. `app/renderer/env.d.ts` types
+// `window.castApi` as `MainApi`, so existing renderer call sites stay typed
+// against exactly this shape.
+export type MainApi = RpcSurface & NdiEventSurface & AppMenuEventSurface & NdiFrameSurface & MainUtilApi;
 
 export interface DeckItemCreateWithThemeInput {
   type: 'presentation' | 'lyric' | 'talk';
@@ -410,3 +492,29 @@ export const NDI_EVENTS = {
 export const APP_MENU_EVENTS = {
   command: 'app-menu:command',
 } as const;
+
+// ---------------------------------------------------------------------------
+// Channel classification completeness (issue #151 acceptance criterion:
+// "every current channel is classified exactly once").
+//
+// `IPC` above holds every request/response AND frame channel string. The two
+// frame channels are the only entries that are not request/response
+// operations; every other `IPC` key must have exactly one matching
+// `RpcOperations` entry, checked at compile time below. `app/core/ipc-
+// contract.test.ts` extends this with a runtime check that also folds in
+// `NDI_EVENTS`/`APP_MENU_EVENTS`, so the classification covers every channel
+// this module exports, not just the RPC/frame split.
+// ---------------------------------------------------------------------------
+
+export const NDI_FRAME_CHANNEL_NAMES = ['sendNdiFrame', 'sendNdiAudio'] as const satisfies readonly (keyof typeof IPC)[];
+
+type FrameChannelName = (typeof NDI_FRAME_CHANNEL_NAMES)[number];
+type RpcChannelName = Exclude<keyof typeof IPC, FrameChannelName>;
+
+type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type AssertTrue<T extends true> = T;
+
+// Fails to compile the moment an `IPC` channel (other than a frame channel)
+// is added, removed, or renamed without a matching change to
+// `RpcOperations`, or vice versa.
+export type RpcOperationsMatchIpcChannels = AssertTrue<Equal<keyof RpcOperations, RpcChannelName>>;
