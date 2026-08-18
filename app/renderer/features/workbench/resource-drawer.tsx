@@ -10,10 +10,13 @@ import { useWorkbench } from '../../contexts/workbench-context';
 import { useCreateItem } from '../items/create-item';
 import { useResourceDrawer } from './resource-drawer-context';
 import type { DrawerTab } from '../../types/ui';
+import { AudioBinPanel } from '../assets/audio/audio-bin-panel';
 import { MediaBinPanel } from '../assets/media/media-bin-panel';
 import { ThemeBinPanel } from '../assets/themes/theme-bin-panel';
 import { DeckBinPanel } from '../items/deck-bin-panel';
+import { AudioTransportControls, VideoTransportControls } from '../playback/media-transport-controls';
 import {
+  useAudioBinSort,
   useDeckBinSort,
   useMediaBinSort,
   useThemeBinSort,
@@ -38,10 +41,14 @@ const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transp
 
 const IMPORT_ACCEPT_BY_TAB = {
   image: 'image/*',
+  video: 'video/*',
+  audio: 'audio/*',
 } as const;
 
 const IMPORT_TYPE_PREFIXES_BY_TAB = {
   image: ['image/'],
+  video: ['video/'],
+  audio: ['audio/'],
 } as const;
 
 interface ResourceDrawerContextValue {
@@ -64,7 +71,7 @@ function useDrawer() {
 }
 
 function isImportTab(tab: DrawerTab): tab is keyof typeof IMPORT_ACCEPT_BY_TAB {
-  return tab === 'image';
+  return tab === 'image' || tab === 'video' || tab === 'audio';
 }
 
 function hasImportableFiles(transfer: DataTransfer, tab: DrawerTab): boolean {
@@ -116,7 +123,7 @@ function Root({ children }: { children: ReactNode }) {
   const value: ResourceDrawerContextValue = {
     state: { drawerTab },
     meta: {
-      showImportAction: drawerTab === 'image',
+      showImportAction: isImportTab(drawerTab),
     },
     actions: { setDrawerTab, handleImport },
   };
@@ -150,6 +157,8 @@ function Header() {
       <Tabs.List label="Resource tabs" className="min-w-0 flex-1" tabsClassName="gap-0.5">
         <Tabs.Trigger value="deck">Deck</Tabs.Trigger>
         <Tabs.Trigger value="image">Images</Tabs.Trigger>
+        <Tabs.Trigger value="video">Videos</Tabs.Trigger>
+        <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
         <Tabs.Trigger value="themes">Themes</Tabs.Trigger>
       </Tabs.List>
       <Toolbar />
@@ -197,6 +206,7 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const deckSort = useDeckBinSort();
   const mediaSort = useMediaBinSort();
+  const audioSort = useAudioBinSort();
   const themeSort = useThemeBinSort();
 
   function handleCreateTheme(themeType: ThemeOwnerType) {
@@ -226,6 +236,20 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
             <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={mediaSort.sort} onChange={mediaSort.setSort} />
           </>
         )}
+        {state.drawerTab === 'video' && (
+          <>
+            <Dropdown.Item onClick={onImportClick}>Import videos</Dropdown.Item>
+            <Dropdown.Separator />
+            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={mediaSort.sort} onChange={mediaSort.setSort} />
+          </>
+        )}
+        {state.drawerTab === 'audio' && (
+          <>
+            <Dropdown.Item onClick={onImportClick}>Import audio</Dropdown.Item>
+            <Dropdown.Separator />
+            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={audioSort.sort} onChange={audioSort.setSort} />
+          </>
+        )}
         {state.drawerTab === 'themes' && (
           <>
             <Dropdown.Item onClick={() => handleCreateTheme('presentation')}>New presentation theme</Dropdown.Item>
@@ -247,6 +271,21 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
 function Body() {
   const { state } = useDrawer();
   const { drawerTab } = state;
+
+  // Video and audio arm a clip on the program output, so their bins keep the
+  // transport that drives the armed asset directly above them.
+  if (drawerTab === 'video' || drawerTab === 'audio') {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="w-full shrink-0 border-b border-secondary bg-primary px-1">
+          {drawerTab === 'video' ? <VideoTransportControls /> : <AudioTransportControls />}
+        </div>
+        <div className="flex min-h-0 flex-1">
+          {drawerTab === 'video' ? <MediaBinPanel binKind="video" /> : <AudioBinPanel />}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1">

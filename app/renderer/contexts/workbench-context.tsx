@@ -79,7 +79,7 @@ const WorkbenchOverlayStackContext = createContext<WorkbenchContextValue['overla
 const WORKBENCH_MODE_STORAGE_KEY = 'lumacast.workbench-mode.v1';
 const DECK_BROWSER_STORAGE_KEY = 'lumacast.deck-browser-preferences.v1';
 const DRAWER_VIEW_MODES_STORAGE_KEY = 'lumacast.drawer-view-modes.v1';
-const DEFAULT_DRAWER_VIEW_MODES: DrawerViewModeMap = { deck: 'grid', image: 'grid', themes: 'grid' };
+const DEFAULT_DRAWER_VIEW_MODES: DrawerViewModeMap = { deck: 'grid', image: 'grid', video: 'grid', audio: 'list', themes: 'grid' };
 const OVERLAY_DEFAULTS_STORAGE_KEY = 'lumacast.overlay-defaults.v1';
 const PROGRAM_MODE_STORAGE_KEY = 'lumacast.program-mode.v1';
 const PROGRAM_SINGLE_SURFACE_STORAGE_KEY = 'lumacast.program-single-surface.v1';
@@ -284,9 +284,11 @@ function parseDrawerViewModes(raw: string): DrawerViewModeMap | null {
     if (typeof parsed !== 'object' || parsed === null) return null;
     const deck = parsed.deck;
     const image = parsed.image;
+    const video = parsed.video;
+    const audio = parsed.audio;
     const themes = parsed.themes;
-    if (!isValidViewMode(deck) || !isValidViewMode(image) || !isValidViewMode(themes)) return null;
-    return { deck, image, themes };
+    if (!isValidViewMode(deck) || !isValidViewMode(image) || !isValidViewMode(video) || !isValidViewMode(audio) || !isValidViewMode(themes)) return null;
+    return { deck, image, video, audio, themes };
   } catch {
     return null;
   }
