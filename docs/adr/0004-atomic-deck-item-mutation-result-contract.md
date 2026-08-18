@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Accepted — the `{ id, patch }` result-shape contract this ADR establishes is
+still current, but issue #219 (the item-model refactor) renamed every method
+and type in it and removed the collection/group inputs. See the **Amendment
+(2026-08-18, issue #219)** section before Consequences.
 
 ## Context
 
@@ -62,25 +65,59 @@ enter repository creation. It did not fully close two things (issue #102):
   `code: 'unsupported-owner-type'` for Talk input, mirroring the existing
   `CollectionDeletionError`), thrown before any write.
 
+## Amendment (2026-08-18, issue #219 item-model refactor)
+
+The unified deck-item concept and collections/libraries were destroyed. The
+`{ itemId, patch }` result shape this ADR establishes is unchanged; the names
+around it are not:
+
+- `DeckItemCreateResult`/`DeckItemDuplicateResult` → `ItemCreateResult`/
+  `ItemDuplicateResult` (still `{ itemId: Id; patch: SnapshotPatch }`).
+- `createDeckItemWithFirstSlide`/`createDeckItemWithTheme` → `createItem`.
+  There is now exactly one method (no thin-wrapper pair): `createItem(input:
+  ItemCreateInput)` returns `{ itemId, patch }` directly, since collections
+  died along with the pre-#102 code paths this ADR was retiring, and no
+  caller needing a bare `SnapshotPatch` remained to justify keeping a second
+  entry point. `ItemCreateInput` carries no `collectionId`/`groupId` — a
+  playlist attachment is expressed as `playlistId`/`position` alone.
+- `duplicateDeckItem` → `duplicateItem`, taking `ItemDuplicateInput = { type:
+  'presentation' | 'lyric'; id }` (typed, not a bare id) so the decoder
+  rejects `'talk'` explicitly at the trust boundary.
+- **`DeckItemDuplicationError` no longer exists**, and neither does
+  `CollectionDeletionError`. Talk's "unsupported owner type" rejection for
+  duplication is no longer a thrown, `code`-carrying error raised by the
+  repository — it is structural: `ItemDuplicateInput`'s wire type only
+  admits `'presentation' | 'lyric'`, so a `'talk'` input is rejected by the
+  codec before any repository method runs. Any future repository-level
+  error taxonomy should not assume this error class still exists.
+- Playlist-panel item creation lost its extra "add to group" IPC call along
+  with the group concept: `use-playlist-panel-management.ts` (renamed from
+  `use-library-panel-management.ts`) passes `playlistId`/`position` on the
+  same `createItem` call instead of a follow-up mutation.
+
 ## Consequences
 
-- Every successful UI-driven deck-item creation now performs exactly one IPC
+- Every successful UI-driven item creation now performs exactly one IPC
   call and one `mutatePatch`/snapshot mutation, whether triggered from the
-  create dialog, the app menu, or a playlist group's "add new item" action.
+  create dialog, the app menu, or a playlist's "add new item" action.
 - Renderer code can no longer accidentally select the wrong id after
   creation: there is no `findCreatedId`/set-difference call left on any
   deck-item creation path.
-- `CastRepository` intentionally exposes two methods for the same
+- `CastRepository` intentionally exposed two methods for the same
   transaction (`createDeckItemWithFirstSlide` returning `{ itemId, patch }`,
   and `createDeckItemWithTheme` returning `patch` alone) so that pre-existing
   repository-level tests did not need to change their assertions on this
-  change. Any new repository-level test should use
-  `createDeckItemWithFirstSlide` and assert on `itemId` directly rather than
-  re-deriving it from the patch.
+  change.
+  **Superseded (issue #219).** The two-method pair is gone: there is one
+  `createItem(input)` returning `{ itemId, patch }`. The wrapper existed only
+  to spare pre-existing tests a rewrite; the item-model refactor rewrote the
+  whole persistence layer's tests anyway, so the wrapper's reason to exist
+  went with it.
 - `app/renderer/contexts/asset-editor/theme-resolution.test.tsx` (owned by
   issue #101) mocked `window.castApi.createDeckItemWithTheme` to resolve with
   a raw `SnapshotPatch`. Those mocks predated this ADR's IPC result contract
-  and have been updated to resolve `{ itemId, patch }`.
+  and have been updated to resolve `{ itemId, patch }`; the mocked method name
+  is now `createItem` (issue #219).
 - No deck-item mutation path infers an id from patch contents any more:
   `findCreatedId` is gone from creation, and the snapshot scan is gone from
   duplication. Reviewers should treat a reintroduced set-difference over

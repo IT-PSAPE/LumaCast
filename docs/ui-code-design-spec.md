@@ -1,6 +1,6 @@
 # LumaCast UI Code Design Spec
 
-Updated on 2026-08-16. Scope: `app/renderer` runtime structure and
+Updated on 2026-08-18. Scope: `app/renderer` runtime structure and
 terminology, verified directly against the current source tree. This
 replaces an earlier version written for a `workbench` / `library-browser` /
 `resource-drawer` / `slide-browser` / `stage` / `slide-editor` /
@@ -31,16 +31,16 @@ app/renderer
 │   ├── automation
 │   ├── canvas
 │   ├── command-palette
-│   ├── deck
 │   ├── inspector
-│   ├── library
+│   ├── items
 │   ├── observability
 │   ├── playback
+│   ├── playlists
 │   └── workbench
 ├── hooks
 ├── rendering
 ├── screens
-│   ├── deck-editor
+│   ├── item-editor
 │   ├── macro-editor
 │   ├── overlay-editor
 │   ├── settings
@@ -71,7 +71,7 @@ factored out of `features/canvas`; that split is under active development
 8. `SlideProvider`
 9. `AutomationProvider`
 10. `LyricEditorProvider`
-11. `CreateDeckItemProvider`
+11. `CreateItemProvider`
 12. `CanvasProvider`
 13. `CommandPaletteProvider`
 
@@ -79,9 +79,11 @@ Primary state ownership:
 
 - `AppProvider` (`app-context.tsx`): snapshot loading/mutation, global
   undo/redo, status text.
-- `NavigationProvider`: selected library, playlist, group, and deck item.
+- `NavigationProvider`: selected playlist, playlist row (item/separator), and
+  item (`currentItemRef: ItemRef | null`). There is no library or group
+  level.
 - `WorkbenchProvider`: `workbenchMode`, drawer tab/view mode, inspector tab,
-  library panel view, program mode/surface/density, overlay (modal) stack.
+  program mode/surface/density, overlay (modal) stack.
 - `SlideProvider`: current/live slide index, slide activation.
 - `CanvasProvider` (`contexts/canvas/canvas-context.tsx`): active editor
   source shared across editor screens.
@@ -94,14 +96,18 @@ Primary state ownership:
 
 See [renderer-taxonomy.md](./renderer-taxonomy.md) (section 4, "Features")
 for the authoritative feature-to-directory table
-(`workbench`, `library`, `deck`, `canvas`, `inspector`, `assets`,
+(`workbench`, `playlists`, `items`, `canvas`, `inspector`, `assets`,
 `automation`, `playback`, `command-palette`, `observability`).
 
 ## 4. Canonical Terminology
 
 See [renderer-taxonomy.md](./renderer-taxonomy.md#1-canonical-modes) for the
 canonical `WorkbenchMode`, `SlideBrowserMode`, `PlaylistBrowserMode`,
-`DrawerTab`, `InspectorTab`, `LibraryPanelView`, and program-surface types.
+`DrawerTab`, `InspectorTab`, and program-surface types, and
+[section 7, "Terminology Notes"](./renderer-taxonomy.md#7-terminology-notes)
+for `Item`/`ItemType`/`ItemRef` and the flat-playlist/`Separator` vocabulary.
+There is no `LibraryPanelView` — the library/collection concept was
+destroyed (issue #219).
 
 Persisted `Presentation.kind` values remain `canvas | lyrics`; storage naming
 was not migrated when the UI's "canvas" terminology moved to "stage".
@@ -127,13 +133,13 @@ domain-coupled — for example, `OutputSettingsPanel` stays in
 | Screen | `data-ui-region` on its root/major panels |
 | --- | --- |
 | `show` | `app-toolbar`, `resource-drawer`, `status-bar` |
-| `deck-editor` | `deck-editor-layout`, `slide-notes-panel`, `inspector-panel` |
+| `item-editor` | `item-editor-layout`, `slide-notes-panel`, `inspector-panel` |
 | `overlay-editor` | `editor-layout`, `inspector-panel` |
 | `theme-editor` | `editor-layout`, `inspector-panel` |
 | `stage-editor` | `editor-layout`, `inspector-panel` |
 | `macro-editor` | `editor-layout`, `cue-list-panel`, `macro-inspector-panel` |
 | `settings` | `settings-layout` |
-| `shared` (`element-layers-panel.tsx`) | `object-list-panel` (used by deck-editor, overlay-editor, theme-editor, stage-editor) |
+| `shared` (`element-layers-panel.tsx`) | `object-list-panel` (used by item-editor, overlay-editor, theme-editor, stage-editor) |
 
 Full layout composition (panel-by-panel) for each screen lives in
 [ui-spec.md](./ui-spec.md); this table exists so automation (screenshot
@@ -145,8 +151,10 @@ capture, Playwright locators) has one authoritative region-name list.
 not currently maintained against this renderer: its Playwright selectors and
 seed-data IPC calls target a prior screen/region layout and IPC method set
 that no longer exist (for example `castApi.createPlaylistSegment` /
-`castApi.addDeckItemToSegment`, superseded by `createPlaylistGroup` /
-`addDeckItemToGroup`). No screenshots are committed under
+`castApi.addDeckItemToSegment`, superseded first by `createPlaylistGroup` /
+`addDeckItemToGroup` and then, once playlist groups were destroyed in favor
+of flat separator rows (issue #219), by `createSeparator` /
+`addItemToPlaylist`). No screenshots are committed under
 `docs/ui-spec-assets/` (the directory does not exist) and none are embedded
 in this document. The script now fails fast with an explanatory error
 instead of silently producing broken or partial output. A future screenshot

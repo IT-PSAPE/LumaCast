@@ -19,7 +19,7 @@ being opened by an older one.
 ## Decision
 
 - `app/database/migrations/definitions.ts` is the single canonical, dense,
-  ordered migration list, currently v1..v22 with v1 as the bootstrap. There
+  ordered migration list, currently v1..v27 with v1 as the bootstrap. There
   is no separately maintained fresh-install schema: a brand-new empty
   database (user_version 0, no tables) and an existing database at any
   supported version both advance through the same `runMigrations` path
@@ -44,7 +44,7 @@ being opened by an older one.
   Because the `up` and the version bump are atomic, a crash or thrown error
   rolls back both, and restarting the app retries the same migration from
   the prior version instead of silently skipping it.
-- Fixtures `schema-v0`..`schema-v22` in `app/database/fixtures` pin frozen
+- Fixtures `schema-v0`..`schema-v27` in `app/database/fixtures` pin frozen
   structural fingerprints (sha256 of the full schema snapshot) and verify
   that every historical version converges to the canonical fresh-install
   schema after `runMigrations`. They are regression evidence, not a second

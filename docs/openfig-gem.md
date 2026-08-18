@@ -1,6 +1,22 @@
 # OpenFIG Gem: Storage Model And Entity Relationships
 
-This file documents the current persistence model used by LumaCast, based on the domain types in `@lumacast/composition`/`@lumacast/automation` and the SQLite schema and repository behavior in `packages/persistence-sqlite/src/store.ts`.
+> **Historical — superseded, do not treat as current.** This file describes a
+> legacy schema snapshot (a `library` owning `playlists`, a single global
+> `themes` table, `presentations.kind`, no Talk/Stage/Macro tables) that
+> predates Talks, Stages, Macros, theme provenance, and every table this
+> document doesn't mention. Issue #219 (the item-model refactor) has since
+> destroyed the `library`/`playlist_segment`/collection concepts this
+> document describes as current fact, split `themes` into four per-owner
+> tables, and made playlist entries flat rows with an item/separator
+> discriminant. For the current model, see [ARCHITECTURE.md](./ARCHITECTURE.md)
+> and `schema-final.md`-style source-of-truth reading (the migrations in
+> `packages/persistence-sqlite/src/migrations/definitions.ts`, currently
+> v1..v27). The rest of this file is kept as-is for historical reference —
+> do not update its prose to match the current schema; if a current
+> description is needed, write it in ARCHITECTURE.md instead.
+
+This file documented the persistence model used by LumaCast at an earlier
+point in its history, based on the domain types in `@lumacast/composition`/`@lumacast/automation` and the SQLite schema and repository behavior in `packages/persistence-sqlite/src/store.ts`.
 
 ## Domain Relationship Summary
 

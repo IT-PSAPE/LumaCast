@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted
+Accepted — the contract's shape (versioned envelope, explicit per-table/
+per-column enumeration, deterministic ordering, restore-side validation
+before promotion) is still current, but issue #219 (the item-model refactor)
+bumped the format to version 2 and changed the table set. See the
+**Amendment (2026-08-18, issue #219)** section before Consequences.
 
 ## Context
 
@@ -87,13 +91,55 @@ named validation gate at the backup boundary.
   so a validator rejecting them would reject exports the exporter can
   produce.
 
+## Amendment (2026-08-18, issue #219 item-model refactor)
+
+- **Format version 2, `schemaVersion` 27** (`PROJECT_BACKUP_VERSION = 2`).
+  `tables` now enumerates 21 application-owned tables instead of 28:
+  `presentations`, `lyrics`, `talks`, `slides`, `slide_elements`,
+  `talk_script_blocks`, `playlists`, `playlist_entries`, `image_assets`,
+  `video_assets`, `audio_assets`, `overlays`, `presentation_themes`,
+  `lyric_themes`, `talk_themes`, `overlay_themes`, `stages`, `cues`,
+  `actions`, `action_steps`, `trigger_bindings`. There is no `libraries`, no
+  `playlist_groups`, no `collection_id` anywhere, and no single `themes`
+  table — the four per-owner theme tables each get their own key, sharing
+  one structural `ProjectBackupThemeRow` shape (decision D2's note that a
+  shared structural shape across the four owner types is fine without a
+  discriminant field).
+- **`playlist_entries` is flat and `kind`-discriminated** (`'item' |
+  'separator'`) instead of routed through `playlist_groups`: `kind='item'`
+  populates exactly one of `presentation_id`/`lyric_id`/`talk_id` and leaves
+  `label`/`color_key` null; `kind='separator'` leaves all three owner
+  columns null and carries `label`/`color_key` instead.
+- **The schema-soft `actions.collection_id` reference is gone**, along with
+  `assertProjectBackupDefaultCollections` (exactly one default per
+  `*_collections` bin) — collections do not exist, so there is nothing left
+  for either check to validate. `trigger_bindings.target_id` remains the
+  other schema-soft reference, checked exactly as before.
+- **Version 1 backups (schemaVersion exactly 22) are imported via migration
+  replay.** `restoreProjectBackup` classifies a document with
+  `isLegacyProjectBackup` before v2 validation, validates it against the
+  frozen v1 contract (`validateLegacyProjectBackup`), materializes the rows
+  into a throwaway SQLite database at schema 22 and replays the real
+  migrations v23–v27 over it (`migrateLegacyProjectBackup`) — the same
+  tested transform a live upgrade uses — then restores through the ordinary
+  v2 path. `validateProjectBackup` itself stays v2-only: it still rejects
+  version 1 with an "older app version" message (tested), and a version-1
+  document with any `schemaVersion` other than 22 is rejected rather than
+  guessed at.
+- The restore-side reference check (`assertProjectBackupReferences`) grew
+  three new FK columns to check (the three `playlist_entries` item-owner
+  columns) and the four theme-owner slide columns replacing the single
+  `theme_id` reference; it lost the `actions.collection_id` check described
+  above.
+
 ## Consequences
 
 - A backup is self-describing and versioned: a future-format backup is
   rejected instead of silently misread, and a backup's meaning is pinned by
   its `format`/`version`/`schemaVersion` triple, with `schemaVersion`
   matched exactly so a backup written from a future schema is never
-  interpreted as a v22 document.
+  interpreted as a document from an earlier one (v22 at the time this was
+  written; v27 per the Amendment above).
 - The per-table/per-column enumeration is explicit and tested against a
   maximally populated fixture, so adding or renaming a column surfaces as a
   contract change rather than a silent drift.
@@ -107,7 +153,8 @@ named validation gate at the backup boundary.
   in place, the pre-recovery database is retained as a same-directory
   sibling, and a failed promotion leaves the previous project active.
 - Future schema migrations must either extend the backup format
-  deliberately (bumping `PROJECT_BACKUP_VERSION` or `schemaVersion`) or keep
-  the v22 mapping intact; `action_steps` legacy columns (`kind`,
-  `payload_json`, `failure_policy`) remain part of the contract until a
+  deliberately (bumping `PROJECT_BACKUP_VERSION` or `schemaVersion`, as the
+  item-model refactor's Amendment above did) or keep the existing mapping
+  intact; `action_steps` legacy columns (`kind`, `payload_json`,
+  `failure_policy`) remain part of the contract until a
   migration removes them.

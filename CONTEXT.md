@@ -1,7 +1,7 @@
 # Automation (Macros & Cues)
 
 The automation context drives presentation side-effects (overlays, media, stages, layers) from
-triggers fired by slides, deck items, or app startup. This glossary fixes the language around
+triggers fired by slides, items, or app startup. This glossary fixes the language around
 macros, cues, scope, and lifecycle so that code, UI, and discussion stay aligned.
 
 ## Language
@@ -22,10 +22,11 @@ are per-step (per occurrence), not part of the shared Cue identity — the same 
 different delays in different Macros.
 
 **Scope**:
-The context a Macro's lifetime is bound to. Levels: **global**, **deck item**, **slide**. The
-*level* is authored on the Macro; the *concrete context* (which slide / deck item) is captured
+The context a Macro's lifetime is bound to. Levels: **global**, **item**, **slide**. The
+*level* is authored on the Macro; the *concrete context* (which slide / item) is captured
 from the trigger at run time.
-_Avoid_: Context (overloaded), Boundary.
+_Avoid_: Context (overloaded), Boundary, "deck item" (there is no unified deck-item concept —
+an item is a Presentation, Lyric, or Talk, referenced by its `ItemRef`).
 
 **Macro Run** (instance):
 One triggered execution of a Macro, bound to a concrete Scope context, with its own run id.
@@ -34,7 +35,7 @@ _Avoid_: Execution, Invocation (use Run consistently).
 
 **Scope exit**:
 The moment a Run's bound context stops being live — advancing off the bound slide, or switching
-to a different deck item. Global Runs never exit (until app close).
+to a different item. Global Runs never exit (until app close).
 
 **Cancel**:
 Stop a Run's pending delays and future loop iterations. Already-applied effects stay on screen.

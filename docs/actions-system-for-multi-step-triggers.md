@@ -20,7 +20,7 @@ A **cue** is the smallest automation atom. It is a `(kind, payload, failurePolic
 
 A **macro** is a user-authored, named sequence of cues. It lives in the Macros bin alongside the other ProgramPanel bins (Overlays / Stage / Video / Audio).
 
-- Macros have `name`, `description`, `collectionId`, and an ordered list of `MacroCue` join rows.
+- Macros have `name`, `description`, and an ordered list of `MacroCue` join rows. Macros are global — there is no collection/bin scoping (issue #219 destroyed the collection concept, including `macro_collections`).
 - Each `MacroCue` carries a single `orderIndex` — there is no concept of parallel groups. Cues in a macro run strictly sequentially.
 - Macros are CRUD'd via dedicated IPC (`listMacros` / `createMacro` / `updateMacro` / `deleteMacro`), not via `AppSnapshot`. They are not currently part of undo/redo.
 
@@ -58,9 +58,9 @@ Action execution is renderer-bound, so a renderer reload during a `flow.wait` wi
 
 ### Macros bin (Show page)
 
-A 5th tab in the right-hand ProgramPanel, next to Overlays / Stage / Video / Audio. Reuses the `BinShell` pattern (collection picker, search, view toggle). The bin's create button (`+ Add macro`) creates a draft macro and immediately opens the macro editor.
+A 5th tab in the right-hand ProgramPanel, next to Overlays / Stage / Video / Audio. Reuses the `BinShell` pattern (search, view toggle). There is no collection picker in any bin any more (issue #219). The bin's create button (`+ Add macro`) creates a draft macro and immediately opens the macro editor.
 
-Each macro tile shows the Workflow icon, cue count, and the macro's editable name. Right-click offers Edit, Rename, Duplicate, Run now, Move to collection, and Delete.
+Each macro tile shows the Workflow icon, cue count, and the macro's editable name. Right-click offers Edit, Rename, Duplicate, Run now, and Delete.
 
 ### Macro editor
 
@@ -81,19 +81,21 @@ cues
   id, kind, payload_json, failure_policy, created_at, updated_at
 
 actions  (legacy table name; holds macros)
-  id, name, description, collection_id, created_at, updated_at
+  id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at
 
 action_steps  (legacy table name; the MacroCue join)
-  id, action_id, cue_id, kind, order_index, payload_json, failure_policy, created_at, updated_at
+  id, action_id, cue_id, kind, order_index, payload_json, failure_policy, delay_before_ms, delay_after_ms, created_at, updated_at
 
 trigger_bindings
-  id, action_id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
-
-macro_collections
-  id, name, order_index, is_default, created_at, updated_at
+  id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
 ```
 
 Table names retain the original `actions` / `action_steps` to avoid a risky rename in already-shipped databases. The product surface refers to them as Macros / MacroCues exclusively.
+
+`actions.collection_id` and the `macro_collections` table (once the scoping
+bin for macros) were dropped by migration v23 (`drop-collections`, issue
+#219) along with every other collection table — macros have been global ever
+since.
 
 ## Out of scope
 

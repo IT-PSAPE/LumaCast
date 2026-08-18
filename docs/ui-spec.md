@@ -1,6 +1,6 @@
 # LumaCast UI Specification
 
-Updated on 2026-08-16. This document describes the current renderer shell and
+Updated on 2026-08-18. This document describes the current renderer shell and
 screen layout as implemented. It replaces an earlier version describing a
 `show` / `slide-editor` / `overlay-editor` workbench with a fixed
 `LibraryPanel` + `SlideBrowser` + `ResourceDrawer` + `PreviewPanel` layout;
@@ -17,13 +17,13 @@ behind this document, see [renderer-taxonomy.md](./renderer-taxonomy.md).
 
 ## 2. Canonical Workbench Modes
 
-`WorkbenchMode` (`app/renderer/types/ui.ts`): `show | deck-editor |
+`WorkbenchMode` (`app/renderer/types/ui.ts`): `show | item-editor |
 overlay-editor | theme-editor | stage-editor | macro-editor | settings`.
 
 Toolbar segmented-control labels map to modes as:
 
 - `Show` -> `show`
-- `Edit` -> `deck-editor`
+- `Edit` -> `item-editor`
 - `Overlay` -> `overlay-editor`
 - `Themes` -> `theme-editor`
 - `Stage` -> `stage-editor`
@@ -34,23 +34,24 @@ control.
 
 ## 3. Screen Layouts
 
-### Show (`data-ui-region` values live on `show-*` split panels)
+### Show (`show-*` split-panel ids)
 
-- Left: `LibrariesPanel` + `PlaylistPanels` (library/playlist/group tree)
+- Left: `PlaylistPanels` (flat playlist tree: item rows and separator rows,
+  no library or group level)
 - Center: `DeckBrowserToolbar`, `SlideBrowserContent` / `ContinuousSlideBrowser`, `ResourceDrawer`
 - Right: `ProgramPanel`
 
-### Deck Editor (`data-ui-region="deck-editor-layout"`)
+### Item Editor (`data-ui-region="item-editor-layout"`)
 
-- Left: deck-item picker + slide/lyric list, and a Layers panel
-  (`DeckEditorLayersPanel`)
+- Left: item picker (searchable, across presentations/lyrics/talks) + slide
+  list, and a Layers panel (`ItemEditorLayersPanel`)
 - Center: `StagePanel`, and either `TalkScriptBlocksPanel` (for Talk items) or
   a notes textarea (`data-ui-region="slide-notes-panel"`)
-- Right: `DeckEditorInspectorPanel` (`data-ui-region="inspector-panel"`)
+- Right: `ItemEditorInspectorPanel` (`data-ui-region="inspector-panel"`)
 
 ### Overlay Editor, Theme Editor, Stage Editor (`data-ui-region="editor-layout"`)
 
-Same three-pane shape as Deck Editor (list/layers, stage, inspector). The
+Same three-pane shape as Item Editor (list/layers, stage, inspector). The
 layers panel for these three screens is the shared
 `screens/shared/element-layers-panel.tsx` (`data-ui-region="object-list-panel"`).
 
@@ -77,9 +78,11 @@ single source of truth; do not duplicate the shortcut table here.
 That script was written against an earlier renderer (`data-ui-region` values
 such as `library-panel`, `slide-browser`, `slide-list-panel`, and IPC calls
 such as `castApi.createPlaylistSegment` / `castApi.addDeckItemToSegment`)
-that no longer exist in this codebase (current equivalents are
-`createPlaylistGroup` / `addDeckItemToGroup`, and the region names in
-Section 3 above). It currently exits immediately with an explanatory error
+that no longer exist in this codebase. The region names in Section 3 above
+are current; the IPC surface has moved on twice since — first to
+`createPlaylistGroup` / `addDeckItemToGroup`, then (issue #219: playlist
+groups destroyed in favor of flat separator rows) to `createSeparator` /
+`addItemToPlaylist`. It currently exits immediately with an explanatory error
 instead of silently failing partway through a capture. No screenshot assets
 are checked into `docs/ui-spec-assets/` (the directory does not exist), so
 none are referenced from this document. Regenerating a real screenshot set
@@ -88,7 +91,9 @@ and seed-data calls against the current screens.
 
 ## 6. Implementation Guarantees
 
-- Library, playlist, and group references remain reusable across deck items.
+- Playlist and separator references remain reusable across items — a
+  Presentation, Lyric, or Talk can appear in more than one playlist. There is
+  no library or group level any more (issue #219).
 - Media drag/drop onto the stage remains intact.
 - Persisted `Presentation.kind` remains `canvas | lyrics` in storage.
 - NDI output remains driven by the shared canvas/stage rendering feature.

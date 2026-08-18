@@ -2,7 +2,13 @@
 
 ## Status
 
-Accepted
+Accepted — the theme-lifecycle and deck/item-creation *mechanisms* below are
+still current, but the *entities* they operate on changed under issue #219 (the
+item-model refactor): a single `themes` table with a `kind` column became four
+per-owner tables, and the unified deck-item concept was destroyed in favor of
+independent Presentation/Lyric/Talk entities. See the **Amendment (2026-08-18,
+issue #219)** section before Consequences for what changed and what did not;
+this section's history is left as originally written.
 
 ## Context
 
@@ -160,6 +166,58 @@ This ensures that after detach, no future sync can modify the detached owner's c
 ### Rich Text Preservation
 
 `preserveTextContent` in `syncThemeToElements` preserves both `format` and `richBody` from existing text elements when syncing theme changes, in addition to the plain `text` field.
+
+## Amendment (2026-08-18, issue #219 item-model refactor)
+
+The unified deck-item concept, the single `themes` table with a `kind`
+column, and collections/libraries were all destroyed. This section records
+what changed in the mechanisms this ADR decided; everything not listed here
+(provider tree order, single-flight push guard, `resolveThemeIdForMutation`,
+provenance tracking, rich-text preservation) is unaffected.
+
+- **Per-owner theme tables replace `kind`.** `presentation_themes`,
+  `lyric_themes`, `talk_themes`, `overlay_themes` each have their own id
+  space and their own `order_index` sequence; there is no `kind` column and
+  no shared `themes` table. Compatibility between a theme and an owner is now
+  **structural**, not a runtime check: an id from `lyric_themes` cannot even
+  be looked up against a Presentation, because `applyThemeToItem`,
+  `syncThemeToLinkedItems`, and `detachThemeFromItem` all resolve the theme
+  table from the item's own type. The "Incompatible theme/deck-item type"
+  error this ADR originally specified for `applyThemeToDeckItem` no longer
+  exists — there is nothing left for it to catch. `theme-capabilities.ts`
+  (the compatibility matrix) was deleted for the same reason.
+- **Sync is strictly per-family.** `syncThemeToLinkedItems(themeId,
+  itemType: ItemType)` only ever queries `itemType`'s own owner table for
+  linked items — a presentation theme's sync can never fan out to talks, by
+  construction rather than by a `kind` filter.
+- **`createDeckItemWithTheme` → `createItem`.** `ItemCreateInput = { type:
+  ItemType; title?; themeId?; playlistId?; position? }` — no
+  `collectionId`/`groupId` (collections and libraries do not exist). A new
+  item attaches to a playlist through `playlistId`/`position` alone (an
+  ordinary `playlist_entries` row insert, run as a second transaction, since
+  the lightweight SQLite wrapper's transactions do not nest). "Existing
+  deck collection" validation is gone with collections. Returns
+  `ItemCreateResult = { itemId, patch }` (see ADR-0004).
+- **`duplicateDeckItem` → `duplicateItem`.** `ItemDuplicateInput = { type:
+  'presentation' | 'lyric'; id }` — Talk is rejected at the wire/codec
+  boundary, not by a thrown repository error; there is no runtime
+  duplicate-talk guard or error object any more (the absence is structural).
+  Order-index shifting is scoped to the source's own table only — there is
+  no collection dimension left to scope by.
+- **Theme duplication** preserves dimensions and managed-media references;
+  which of the four tables a duplicate belongs to is fixed by which table
+  the source came from, not by a `kind` field, and there is no `collectionId`
+  to preserve.
+- **`applyThemeToDeckItem`/`detachThemeFromDeckItem`/
+  `syncThemeToLinkedDeckItems` → `applyThemeToItem`/`detachThemeFromItem`/
+  `syncThemeToLinkedItems`.** `applyThemeToItem`/`detachThemeFromItem` take
+  an `ItemRef` instead of a bare id (the item's own type already picks the
+  right theme table, so no separate `themeType` parameter is needed there);
+  `syncThemeToLinkedItems` takes an explicit `itemType: ItemType`.
+- The `playlist_entries` insert consequence below (linking it to
+  `addDeckItemToGroup`/`moveDeckItemToGroup`) is obsolete: those two IPC
+  methods and the group concept they served no longer exist (see ADR-0006's
+  amendment and `docs/renderer-taxonomy.md`'s "Separator" terminology note).
 
 ## Consequences
 

@@ -22,11 +22,10 @@ Windows/Linux.
 | --- | --- | --- |
 | New Presentation | CmdOrCtrl+N | |
 | New Lyric | — | |
-| New Library | — | |
-| New Playlist | — | enabled only with a current library |
-| New Group | — | enabled only with a current playlist |
-| New Slide | CmdOrCtrl+Shift+N | enabled only with a current deck item |
-| Export Current Item… | — | enabled only with a current deck item |
+| New Playlist | — | always enabled (playlists are global; no library scoping) |
+| New Separator | — | enabled only with a current playlist |
+| New Slide | CmdOrCtrl+Shift+N | enabled only with a current item |
+| Export Current Item… | — | enabled only with a current item |
 | Export Workspace… | — | enabled only when export is available |
 | Settings | CmdOrCtrl+, | |
 | Check for Updates… | — | |
@@ -86,7 +85,7 @@ element is an `<input>`, `<textarea>`, a `contenteditable` region, or is
 inside an element marked `data-shortcuts-scope="ignore"`.
 
 `context` column: `always` fires in every workbench mode; `editSlideBrowser`
-fires only in `deck-editor`, `overlay-editor`, `theme-editor`, or
+fires only in `item-editor`, `overlay-editor`, `theme-editor`, or
 `stage-editor` mode; `editWithSelection` additionally requires an active
 element selection.
 
