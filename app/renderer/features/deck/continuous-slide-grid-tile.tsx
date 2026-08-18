@@ -5,7 +5,7 @@ import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '@renderer/components/display/scene-frame';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
-import type { RenderScene } from '../canvas/scene-types';
+import type { RenderScene } from '@lumacast/composition';
 
 interface ContinuousSlideGridTileProps {
   entryId: Id;

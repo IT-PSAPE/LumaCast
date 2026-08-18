@@ -1,7 +1,5 @@
 import type { CueClearLayer, CuePayload, LifecycleAction } from '@core/domain/automation';
-import type { SlideBackground } from '@core/domain/slides';
-import type { SlideElement, SlideElementPayload, SlideElementType } from '@core/domain/slide-elements';
-import type { OverlayAnimation } from '@core/domain/overlays';
+import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, OverlayAnimation } from '@lumacast/composition';
 import type {
   CollectionAssignmentInput,
   CollectionCreateInput,

@@ -1,7 +1,7 @@
 import type { SlideElement } from '@core/types';
 import type { ElementInspectorDraft } from '../types/ui';
 
-export { cloneElement, cloneElements } from '@core/clone';
+export { cloneElement, cloneElements } from '@lumacast/composition';
 
 export function payloadSignature(payload: SlideElement['payload'] | null): string {
   return JSON.stringify(payload ?? null);

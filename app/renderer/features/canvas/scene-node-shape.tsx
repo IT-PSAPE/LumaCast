@@ -1,5 +1,5 @@
 import { Rect } from 'react-konva';
-import type { RenderNode } from './scene-types';
+import type { RenderNode } from '@lumacast/composition';
 
 interface SceneNodeShapeProps {
   node: RenderNode;

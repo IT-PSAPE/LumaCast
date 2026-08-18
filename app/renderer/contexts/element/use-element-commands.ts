@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { isLyricDeckItem } from '@core/deck-items';
+import { isLyricDeckItem } from '@lumacast/composition';
 import type { DeckItem, ElementCreateInput, Id, MediaAsset, SlideElement } from '@core/types';
 import type { SnapshotPatch } from '@core/snapshot-patch';
 import { castMediaSrc, getOverlayDefaults, typeFromFile } from '../../utils/slides';

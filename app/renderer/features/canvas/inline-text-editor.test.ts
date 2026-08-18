@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RichBoxStyle } from '@core/rich-text/resolve';
-import type { RichBody } from '@core/rich-text/types';
+import type { RichBoxStyle, RichBody } from '@lumacast/composition';
 import { bodyToHtml, domToBody } from './inline-text-editor';
 
 const BOX: RichBoxStyle = {

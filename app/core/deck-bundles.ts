@@ -23,7 +23,7 @@ import type {
 import {
   parsePlaylistItemReference,
   type PlaylistItemReference,
-} from './playlist-item-reference';
+} from '@lumacast/composition';
 import { decodeDeckBundleManifest, type CodecContext } from '../contracts/codecs';
 import type { ProjectBackup, ProjectBackupTables } from '../contracts/project-backup';
 

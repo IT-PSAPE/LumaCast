@@ -1,4 +1,4 @@
-import type { GuideLine } from './scene-types';
+import type { GuideLine } from '@lumacast/composition';
 
 export interface SnapBox {
   id: string;

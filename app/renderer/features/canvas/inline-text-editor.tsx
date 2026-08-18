@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SlideElement, TextElementPayload } from '@core/types';
-import type { RichBody, RichBlock, RichRun } from '@core/rich-text/types';
-import type { RichBoxStyle } from '@core/rich-text/resolve';
-import { boxStyleFromPayload, coerceWeight, resolveRun, synthesizePlain } from '@core/rich-text/resolve';
-import { richBodyToText } from '@core/rich-text/serialize';
-import { applyRunStyle, resolveRangeStyle, setListType } from '@core/rich-text/edit';
-import type { RichPosition, RichRange } from '@core/rich-text/edit';
+import {
+  type RichBody,
+  type RichBlock,
+  type RichRun,
+  type RichBoxStyle,
+  boxStyleFromPayload,
+  coerceWeight,
+  resolveRun,
+  synthesizePlain,
+  richBodyToText,
+  applyRunStyle,
+  resolveRangeStyle,
+  setListType,
+  type RichPosition,
+  type RichRange,
+} from '@lumacast/composition';
 import { Bold, Italic, List, ListOrdered, Strikethrough, Underline } from 'lucide-react';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { ColorPicker } from '@renderer/components/form/color-picker';

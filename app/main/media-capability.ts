@@ -36,9 +36,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { resolveLocalMediaSourcePath } from '@database/media-source-utils';
-import type { MediaAsset } from '@core/domain/media-assets';
-import type { Slide, SlideBackground } from '@core/domain/slides';
-import type { SlideElement } from '@core/domain/slide-elements';
+import type { MediaAsset, Slide, SlideBackground, SlideElement } from '@lumacast/composition';
 import type { SnapshotPatch } from '@core/snapshot-patch';
 import type { AppSnapshot } from '../contracts/rpc-results';
 

@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Unlink } from 'lucide-react';
-import { isThemeCompatibleWithOwnerKind } from '@core/theme-capabilities';
+import { isThemeCompatibleWithOwnerKind, getDeckItemLabel } from '@lumacast/composition';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
-import { getDeckItemLabel } from '@core/deck-items';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
 import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';

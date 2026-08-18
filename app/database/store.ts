@@ -15,17 +15,20 @@ import {
   type ProjectBackupTableKey,
 } from '@core/deck-bundles';
 import type { ProjectRestoreResult } from '@core/ipc';
-import { buildDeckItem } from '@core/deck-items';
 import {
+  buildDeckItem,
   makePlaylistItemReference,
   parsePlaylistItemReference,
   toPlaylistItemOwnerColumns,
   type PlaylistItemOwnerColumns,
   type PlaylistItemReference,
-} from '@core/playlist-item-reference';
-import { applyThemeToElements, createDefaultThemeElements, syncThemeToElements } from '@core/themes';
-import { isThemeCompatibleWithDeckItem, isThemeCompatibleWithOwnerKind } from '@core/theme-capabilities';
-import { createId, nowIso } from '@core/utils';
+  applyThemeToElements,
+  createDefaultThemeElements,
+  syncThemeToElements,
+  isThemeCompatibleWithDeckItem,
+  isThemeCompatibleWithOwnerKind,
+} from '@lumacast/composition';
+import { createId, nowIso } from '@lumacast/kernel';
 import {
   decodeCuePayloadJson,
   decodeOverlayAnimationJson,
@@ -36,9 +39,9 @@ import {
 } from '../contracts/codecs';
 import { SqliteDatabase } from './sqlite';
 import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations';
-// Domain primitives (#153): owned by app/core/domain/, imported directly
-// rather than through the app/core/types.ts facade.
-import type { Id } from '@core/domain/ids';
+// Domain primitives (#153, #219): owned by @lumacast/composition, imported
+// directly rather than through the app/core/types.ts facade.
+import type { Id } from '@lumacast/kernel';
 import type {
   Library,
   LibraryPlaylistBundle,
@@ -46,15 +49,29 @@ import type {
   PlaylistEntry,
   PlaylistGroup,
   PlaylistTree,
-} from '@core/domain/library';
-import type { DeckItem, DeckItemType, Presentation, Lyric, Talk } from '@core/domain/decks';
-import type { Slide, SlideKind, SlideBackground, SlideBackgroundSource, TalkScriptBlock } from '@core/domain/slides';
-import type { SlideElement, SlideElementPayload, GroupElementPayload } from '@core/domain/slide-elements';
-import type { MediaAsset, MediaAssetType } from '@core/domain/media-assets';
-import type { Overlay } from '@core/domain/overlays';
-import type { Theme, ThemeKind } from '@core/domain/theme';
-import type { Stage } from '@core/domain/stages';
-import type { Collection, CollectionBinKind, CollectionItemType } from '@core/domain/collections';
+  DeckItem,
+  DeckItemType,
+  Presentation,
+  Lyric,
+  Talk,
+  Slide,
+  SlideKind,
+  SlideBackground,
+  SlideBackgroundSource,
+  TalkScriptBlock,
+  SlideElement,
+  SlideElementPayload,
+  GroupElementPayload,
+  MediaAsset,
+  MediaAssetType,
+  Overlay,
+  Theme,
+  ThemeKind,
+  Stage,
+  Collection,
+  CollectionBinKind,
+  CollectionItemType,
+} from '@lumacast/composition';
 import type {
   Cue,
   CueFailurePolicy,

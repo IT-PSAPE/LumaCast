@@ -17,7 +17,7 @@
 // entirely once every consumer imports from the owning module directly.
 // ---------------------------------------------------------------------------
 
-export type { Id } from './domain/ids';
+export type { Id } from '@lumacast/kernel';
 export type {
   Library,
   Playlist,
@@ -25,8 +25,8 @@ export type {
   PlaylistEntry,
   PlaylistTree,
   LibraryPlaylistBundle,
-} from './domain/library';
-export type { DeckItemType, ThemeOwnerKind, Presentation, Lyric, Talk, DeckItem } from './domain/decks';
+} from '@lumacast/composition';
+export type { DeckItemType, ThemeOwnerKind, Presentation, Lyric, Talk, DeckItem } from '@lumacast/composition';
 export type {
   SlideKind,
   SlideBackgroundFit,
@@ -36,7 +36,7 @@ export type {
   SlideBackgroundSource,
   Slide,
   TalkScriptBlock,
-} from './domain/slides';
+} from '@lumacast/composition';
 export type {
   SlideElementType,
   SlideElementBase,
@@ -56,12 +56,12 @@ export type {
   GroupElementPayload,
   SlideElementPayload,
   SlideElement,
-} from './domain/slide-elements';
-export type { MediaAssetType, MediaAsset } from './domain/media-assets';
-export type { OverlayType, OverlayAnimation, Overlay } from './domain/overlays';
-export type { ThemeKind, Theme } from './domain/theme';
-export type { Stage } from './domain/stages';
-export type { CollectionBinKind, Collection, CollectionItemType } from './domain/collections';
+} from '@lumacast/composition';
+export type { MediaAssetType, MediaAsset } from '@lumacast/composition';
+export type { OverlayType, OverlayAnimation, Overlay } from '@lumacast/composition';
+export type { ThemeKind, Theme } from '@lumacast/composition';
+export type { Stage } from '@lumacast/composition';
+export type { CollectionBinKind, Collection, CollectionItemType } from '@lumacast/composition';
 export type {
   CueFailurePolicy,
   CueClearLayer,
@@ -81,7 +81,7 @@ export type {
 
 // Ordinary type-only import (not part of the re-export facade above): needed
 // by `PlaybackState` below, which has not moved (#155, not this slice).
-import type { Id } from './domain/ids';
+import type { Id } from '@lumacast/kernel';
 
 // ---------------------------------------------------------------------------
 // IPC mutation inputs (#154, parent #116): moved to app/contracts/rpc-inputs

@@ -11,7 +11,7 @@ import {
   type InlineWindowMenuItem,
   type RpcOperations,
 } from '@core/ipc';
-import type { Id } from '@core/domain/ids';
+import type { Id } from '@lumacast/kernel';
 import type {
   CollectionAssignmentInput,
   CollectionCreateInput,

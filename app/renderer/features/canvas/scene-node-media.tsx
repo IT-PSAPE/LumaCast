@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
 import { Group, Image as KonvaImage, Line, Rect } from 'react-konva';
-import { LAYER_VIDEO_NODE_ID } from '@core/presentation-layers';
+import { LAYER_VIDEO_NODE_ID } from '@lumacast/composition';
 import type { VideoElementPayload } from '@core/types';
-import type { RenderNode, ResolvedMediaState, SceneSurface } from './scene-types';
+import type { RenderNode, ResolvedMediaState, SceneSurface } from '@lumacast/composition';
 import { resolveMediaCover } from './resolve-media-cover';
 import { useKImage } from './use-k-image';
 import { useKVideo } from './use-k-video';

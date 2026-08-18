@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import type { BindingValue } from '@core/binding-values';
+import type { BindingValue } from '@lumacast/composition';
 
-export type { BindingValue, BindingOverride } from '@core/binding-values';
+export type { BindingValue, BindingOverride } from '@lumacast/composition';
 
 const EMPTY_VALUE: BindingValue = {
   currentSlideText: null,

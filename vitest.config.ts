@@ -20,6 +20,7 @@ export default defineConfig({
       '@renderer': path.resolve(__dirname, 'app/renderer'),
       '@rendering': path.resolve(__dirname, 'app/rendering'),
       '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
+      '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
     },
   },
 });

@@ -3,7 +3,7 @@ import type { Id, Overlay } from '@core/types';
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useOverlayEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { usePresentationOverlayLayer } from '../../../contexts/playback/playback-context';
-import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@core/presentation-layers';
+import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';

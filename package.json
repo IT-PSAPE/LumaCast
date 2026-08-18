@@ -55,6 +55,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@lumacast/composition": "file:packages/composition",
     "@lumacast/kernel": "file:packages/kernel",
     "@lumacast/ndi-native": "file:packages/ndi-native",
     "@tailwindcss/vite": "^4.2.1",

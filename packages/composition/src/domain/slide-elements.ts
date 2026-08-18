@@ -2,7 +2,7 @@
 // family — every visual object a slide, theme, overlay, or stage can own —
 // plus the payload variants and text-binding shapes it carries.
 import type { RichBody } from '../rich-text/types';
-import type { Id } from './ids';
+import type { Id } from '@lumacast/kernel';
 
 export type SlideElementType = 'text' | 'image' | 'video' | 'shape' | 'group';
 

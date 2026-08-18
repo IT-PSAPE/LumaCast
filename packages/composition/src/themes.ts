@@ -1,4 +1,4 @@
-import type { Id } from './domain/ids';
+import type { Id } from '@lumacast/kernel';
 import type { Theme, ThemeKind } from './domain/theme';
 import type {
   SlideElement,
@@ -7,7 +7,7 @@ import type {
   GroupElementPayload,
 } from './domain/slide-elements';
 import { cloneElement } from './clone';
-import { createId } from './utils';
+import { createId } from '@lumacast/kernel';
 
 function readTextValues(elements: SlideElement[]): string[] {
   return elements

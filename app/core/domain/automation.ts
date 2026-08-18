@@ -2,7 +2,7 @@
 // family — cues, macros, and trigger bindings. Mutation input shapes
 // (CueCreateInput and friends) are application contracts, not domain
 // primitives, and stay in app/core/types.ts pending #154.
-import type { Id } from './ids';
+import type { Id } from '@lumacast/kernel';
 
 export type CueFailurePolicy = 'continue' | 'abort';
 export type CueClearLayer = 'media' | 'video' | 'content' | 'overlay';

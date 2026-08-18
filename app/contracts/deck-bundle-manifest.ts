@@ -1,9 +1,5 @@
-import type { Id } from '@core/domain/ids';
-import type { DeckItemType } from '@core/domain/decks';
-import type { SlideBackground, SlideBackgroundSource } from '@core/domain/slides';
-import type { SlideElement } from '@core/domain/slide-elements';
-import type { OverlayType, OverlayAnimation } from '@core/domain/overlays';
-import type { ThemeKind } from '@core/domain/theme';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItemType, SlideBackground, SlideBackgroundSource, SlideElement, OverlayType, OverlayAnimation, ThemeKind } from '@lumacast/composition';
 
 // ---------------------------------------------------------------------------
 // Deck bundle manifest (issue #154, parent #116): the on-disk `.cst` archive

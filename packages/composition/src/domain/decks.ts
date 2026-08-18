@@ -1,6 +1,6 @@
 // Domain primitives (#153, split from app/core/types.ts): deck item family
 // (presentation / lyric / talk) and its shared kind discriminant.
-import type { Id } from './ids';
+import type { Id } from '@lumacast/kernel';
 
 export type DeckItemType = 'presentation' | 'lyric' | 'talk';
 

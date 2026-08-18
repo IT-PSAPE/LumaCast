@@ -1,6 +1,6 @@
 // Domain primitives (#153, split from app/core/types.ts): the slide entity,
 // its background model, and the talk-script blocks a slide owns.
-import type { Id } from './ids';
+import type { Id } from '@lumacast/kernel';
 
 export type SlideKind = 'presentation' | 'lyric' | 'talk' | 'theme' | 'overlay' | 'stage';
 

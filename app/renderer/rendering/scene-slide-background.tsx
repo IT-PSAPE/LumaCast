@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type Konva from 'konva';
 import { Group, Image as KonvaImage, Rect } from 'react-konva';
 import type { SlideBackground, SlideBackgroundFit, SlideGradient } from '@core/types';
-import type { SceneSurface } from '../features/canvas/scene-types';
+import type { SceneSurface } from '@lumacast/composition';
 import { resolveMediaFit } from '../features/canvas/resolve-media-cover';
 import { useKImage } from '../features/canvas/use-k-image';
 import { useKVideo } from '../features/canvas/use-k-video';

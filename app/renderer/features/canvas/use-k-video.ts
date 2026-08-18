@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ResolvedMediaState } from './scene-types';
+import type { ResolvedMediaState } from '@lumacast/composition';
 
 interface UseKVideoOptions {
   autoplay: boolean;

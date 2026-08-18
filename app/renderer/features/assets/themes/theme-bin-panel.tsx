@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef } from 'react';
 import type { DeckItem, Overlay, Theme } from '@core/types';
-import { isThemeCompatibleWithOwnerKind } from '@core/theme-capabilities';
+import { isThemeCompatibleWithOwnerKind } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';

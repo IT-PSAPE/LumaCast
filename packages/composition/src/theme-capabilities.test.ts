@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isThemeCompatibleWithDeckItem, isThemeCompatibleWithOwnerKind } from './theme-capabilities';
-import type { DeckItemType, Theme, ThemeKind, ThemeOwnerKind } from './types';
+import type { DeckItemType, ThemeOwnerKind } from './domain/decks';
+import type { Theme, ThemeKind } from './domain/theme';
 
 const T0 = '2024-01-01T00:00:00.000Z';
 

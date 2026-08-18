@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DeckItemType, Id } from '@core/types';
-import { isThemeCompatibleWithDeckItem } from '@core/theme-capabilities';
+import { isThemeCompatibleWithDeckItem } from '@lumacast/composition';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '../../components/overlays/dialog';
 import { FieldSelect } from '../../components/form/field';

@@ -1,4 +1,6 @@
-import type { DeckItem, DeckItemType, Presentation, Lyric, Talk, PlaylistEntry, Slide } from './types';
+import type { DeckItem, DeckItemType, Presentation, Lyric, Talk } from './domain/decks';
+import type { PlaylistEntry } from './domain/library';
+import type { Slide } from './domain/slides';
 
 interface DeckItemInput {
   id: string;

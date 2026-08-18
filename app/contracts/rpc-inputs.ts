@@ -1,10 +1,16 @@
-import type { Id } from '@core/domain/ids';
-import type { SlideBackground } from '@core/domain/slides';
-import type { SlideElementType, SlideElementBase, SlideElementPayload, SlideElement } from '@core/domain/slide-elements';
-import type { MediaAssetType } from '@core/domain/media-assets';
-import type { OverlayAnimation } from '@core/domain/overlays';
-import type { ThemeKind } from '@core/domain/theme';
-import type { CollectionBinKind, CollectionItemType } from '@core/domain/collections';
+import type { Id } from '@lumacast/kernel';
+import type {
+  SlideBackground,
+  SlideElementType,
+  SlideElementBase,
+  SlideElementPayload,
+  SlideElement,
+  MediaAssetType,
+  OverlayAnimation,
+  ThemeKind,
+  CollectionBinKind,
+  CollectionItemType,
+} from '@lumacast/composition';
 import type {
   CueFailurePolicy,
   CueKind,

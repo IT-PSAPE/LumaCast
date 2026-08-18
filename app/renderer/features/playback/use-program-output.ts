@@ -4,7 +4,7 @@ import { useNdi } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
-import type { RenderScene } from '../canvas/scene-types';
+import type { RenderScene } from '@lumacast/composition';
 
 export interface ProgramOutput {
   scene: RenderScene;

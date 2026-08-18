@@ -1,13 +1,12 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
-import { isLyricDeckItem } from '@core/deck-items';
 import type { Id, Slide } from '@core/types';
 import { Label } from '@renderer/components/display/text';
 import { EmptyState } from '../../components/display/empty-state';
 import { ScrollArea } from '../../components/layout/scroll-area';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { getSlideVisualState, slideTextDetails, slideTextPreview } from '../../utils/slides';
-import type { RenderScene, SceneSurface } from '../canvas/scene-types';
+import { isLyricDeckItem, type RenderScene, type SceneSurface } from '@lumacast/composition';
 import { ContinuousSlideGridTile } from './continuous-slide-grid-tile';
 import { useContinuousSlideSections } from './use-continuous-slide-sections';
 import { useDeckBrowser } from './deck-browser-context';

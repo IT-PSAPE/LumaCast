@@ -1,4 +1,7 @@
-import type { MediaAsset, Overlay, Slide, SlideElement } from './types';
+import type { MediaAsset } from './domain/media-assets';
+import type { Overlay } from './domain/overlays';
+import type { Slide } from './domain/slides';
+import type { SlideElement } from './domain/slide-elements';
 
 export const OUTPUT_FRAME_WIDTH = 1920;
 export const OUTPUT_FRAME_HEIGHT = 1080;

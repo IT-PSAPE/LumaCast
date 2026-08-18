@@ -1,6 +1,6 @@
 import { Folder, Layers2, LayoutTemplate, ListMusic, Monitor, Search, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { getDeckItemLabel } from '@core/deck-items';
+import { getDeckItemLabel } from '@lumacast/composition';
 import type { Id, Library, LibraryPlaylistBundle, MediaAsset, Overlay, Playlist, Stage, Theme } from '@core/types';
 import { Dialog } from '@renderer/components/overlays/dialog';
 import { DeckItemIcon, MediaAssetIcon } from '@renderer/components/display/entity-icon';

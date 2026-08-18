@@ -14,7 +14,7 @@ import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { SceneFrame } from '@renderer/components/display/scene-frame';
-import type { RenderScene } from '@renderer/features/canvas/scene-types';
+import type { RenderScene } from '@lumacast/composition';
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';

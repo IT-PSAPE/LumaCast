@@ -38,7 +38,7 @@ import {
   type CodecContext,
 } from './codecs';
 import type { DeckBundleManifest } from './deck-bundle-manifest';
-import type { SlideElement } from '@core/domain/slide-elements';
+import type { SlideElement } from '@lumacast/composition';
 
 const CONTEXT: CodecContext = { boundary: 'test', operation: 'unit', path: '' };
 

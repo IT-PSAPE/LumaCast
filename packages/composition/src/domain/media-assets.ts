@@ -1,6 +1,6 @@
 // Domain primitive (#153, split from app/core/types.ts): the media-asset
 // entity (image / video / audio) owned by the media bins.
-import type { Id } from './ids';
+import type { Id } from '@lumacast/kernel';
 
 export type MediaAssetType = 'image' | 'video' | 'audio';
 

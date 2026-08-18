@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { cloneElement } from './clone';
 import { syncThemeToElements } from './themes';
-import type { SlideElement, Theme } from './types';
+import type { SlideElement } from './domain/slide-elements';
+import type { Theme } from './domain/theme';
 
 const T0 = '2024-01-01T00:00:00.000Z';
 

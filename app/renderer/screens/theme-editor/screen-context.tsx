@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { isThemeCompatibleWithDeckItem } from '@core/theme-capabilities';
+import { isThemeCompatibleWithDeckItem } from '@lumacast/composition';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '../../contexts/use-project-content';

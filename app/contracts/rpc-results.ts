@@ -1,13 +1,22 @@
-import type { Id } from '@core/domain/ids';
-import type { Library, LibraryPlaylistBundle } from '@core/domain/library';
-import type { DeckItemType, Presentation, Lyric, Talk } from '@core/domain/decks';
-import type { Slide, TalkScriptBlock } from '@core/domain/slides';
-import type { SlideElement } from '@core/domain/slide-elements';
-import type { MediaAsset } from '@core/domain/media-assets';
-import type { OverlayType, Overlay } from '@core/domain/overlays';
-import type { ThemeKind, Theme } from '@core/domain/theme';
-import type { Stage } from '@core/domain/stages';
-import type { Collection } from '@core/domain/collections';
+import type { Id } from '@lumacast/kernel';
+import type {
+  Library,
+  LibraryPlaylistBundle,
+  DeckItemType,
+  Presentation,
+  Lyric,
+  Talk,
+  Slide,
+  TalkScriptBlock,
+  SlideElement,
+  MediaAsset,
+  OverlayType,
+  Overlay,
+  ThemeKind,
+  Theme,
+  Stage,
+  Collection,
+} from '@lumacast/composition';
 import type { Cue, Macro, TriggerBinding } from '@core/domain/automation';
 import type { DeckBundleMediaReference } from './deck-bundle-manifest';
 

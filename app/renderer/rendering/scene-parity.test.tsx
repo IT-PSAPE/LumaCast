@@ -8,7 +8,7 @@ import { SceneNodeShape } from '../features/canvas/scene-node-shape';
 import { SceneNodeText } from '../features/canvas/scene-node-text';
 import { renderSceneNodeContent } from './scene-node-content';
 import { needsOpaqueBackdrop, SceneSlideBackground } from './scene-slide-background';
-import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from './scene-traversal';
+import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from '@lumacast/composition';
 
 // Structural parity between the two scene traversals that exist post-#147/#148:
 //

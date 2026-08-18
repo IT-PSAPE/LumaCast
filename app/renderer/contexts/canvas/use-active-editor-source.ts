@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@core/presentation-layers';
+import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/composition';
 import type { SlideElement } from '@core/types';
 import { useNavigation } from '../navigation-context';
 import { useSlides } from '../slide-context';

@@ -1,5 +1,5 @@
 import type { TextCaseTransform, TextElementPayload, TextHorizontalAlign, TextVerticalAlign } from '@core/types';
-import { applyTextVisualPayload, readTextFormatting, readTextVisualPayload, type TextFormattingState, type TextVisualState } from '@core/element-payload';
+import { applyTextVisualPayload, readTextFormatting, readTextVisualPayload, type TextFormattingState, type TextVisualState } from '@lumacast/composition';
 import { parseNumber } from '../../utils/slides';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { useSystemFonts } from './use-system-fonts';

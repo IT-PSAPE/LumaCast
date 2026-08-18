@@ -1,7 +1,6 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
-import { isLyricDeckItem } from '@core/deck-items';
 import type { ElementUpdateInput, Id, MediaAsset, Overlay, Slide, SlideElement } from '@core/types';
-import { applyVisualPayload, readVisualPayload } from '@core/element-payload';
+import { isLyricDeckItem, applyVisualPayload, readVisualPayload } from '@lumacast/composition';
 import { sortElements } from '../../utils/slides';
 import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
@@ -17,7 +16,7 @@ import { useElementSelection } from '../element/use-element-selection';
 import type { ElementContextValue } from '../../types/element-context.types';
 import { cloneElements } from '../../utils/element-context-utils';
 import { buildLayeredRenderScene, buildRenderScene, buildThumbnailScene } from '../../features/canvas/build-render-scene';
-import type { RenderScene, SceneSourcePolicy, SceneSurface } from '../../features/canvas/scene-types';
+import type { RenderScene, SceneSourcePolicy, SceneSurface } from '@lumacast/composition';
 import { useActiveEditorSource } from './use-active-editor-source';
 
 // ─── Types ──────────────────────────────────────────────────────────

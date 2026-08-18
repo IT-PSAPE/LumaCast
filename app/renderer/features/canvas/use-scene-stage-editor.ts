@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
 import type { ElementUpdateInput, Id, TextElementPayload } from '@core/types';
-import type { RichBody } from '@core/rich-text/types';
-import { richBodyToText } from '@core/rich-text/serialize';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { resolveSnap, resolveTransformSnap } from './snap-guides';
-import type { GuideLine, RenderScene } from './scene-types';
+import { type RichBody, richBodyToText, type GuideLine, type RenderScene } from '@lumacast/composition';
 import { createDragSession, type DragSession } from './scene-stage-drag-session';
 import { mapSnapBoxes } from './scene-stage-editor-utils';
 import { useSceneStageShift } from './use-scene-stage-shift';

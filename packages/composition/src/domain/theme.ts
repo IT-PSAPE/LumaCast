@@ -3,7 +3,7 @@
 // a project rule (which DeckItemType accepts which theme), not a composition
 // concern, so they live in ./decks.ts and ./ (see app/core/theme-capabilities.ts)
 // instead of here. This module imports no project domain module.
-import type { Id } from './ids';
+import type { Id } from '@lumacast/kernel';
 import type { SlideBackground } from './slides';
 import type { SlideElement } from './slide-elements';
 

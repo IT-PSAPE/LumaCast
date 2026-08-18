@@ -1,4 +1,4 @@
-import type { RenderNode } from '../features/canvas/scene-types';
+import type { RenderNode } from './scene-types';
 
 // Shared scene traversal and layer-order contract. Every rendering surface
 // (editor preview and NDI capture) walks the scene through this module so the

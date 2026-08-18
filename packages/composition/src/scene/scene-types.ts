@@ -1,6 +1,8 @@
-import type { Id, Slide, SlideBackgroundFit, SlideElement, StrokePosition } from '@core/types';
-import type { VisualPayloadState } from '@core/element-payload';
-import type { BindingOverride } from '@core/binding-values';
+import type { Id } from '@lumacast/kernel';
+import type { Slide, SlideBackgroundFit } from '../domain/slides';
+import type { SlideElement, StrokePosition } from '../domain/slide-elements';
+import type { VisualPayloadState } from '../element-payload';
+import type { BindingOverride } from '../binding-values';
 
 export type SceneSurface = 'deck-editor' | 'show' | 'list' | 'monitor' | 'stage' | 'ndi-show' | 'ndi-stage';
 export type SceneSourcePolicy = 'draft' | 'persisted' | 'live';

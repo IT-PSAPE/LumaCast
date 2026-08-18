@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TextElementPayload } from '../types';
+import type { TextElementPayload } from '../domain/slide-elements';
 import { richBodyToText } from './serialize';
 import { boxStyleFromPayload, coerceWeight, resolveRun, synthesizePlain } from './resolve';
 import type { RichBoxStyle } from './resolve';

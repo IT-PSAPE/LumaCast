@@ -11,7 +11,7 @@ import { useSlides } from '@renderer/contexts/slide-context';
 import { SlideAutomationMenu } from '../automation/slide-automation-menu';
 import { SlideBindingsBadge } from '../automation/slide-bindings-badge';
 import { SlideBindingsMenu } from '../automation/slide-bindings-menu';
-import type { RenderScene } from '../canvas/scene-types';
+import type { RenderScene } from '@lumacast/composition';
 
 interface SlideGridTileProps {
   slideId: Id;

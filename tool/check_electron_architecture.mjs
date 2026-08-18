@@ -121,14 +121,6 @@ const DEFAULT_ALLOW_LIST = [
     removedBy: 'shared scene-layer (plan 0.11, Atlas)',
   },
   {
-    from: 'app/renderer/components/display/lazy-scene-stage.tsx',
-    to: 'app/renderer/features/canvas/scene-types.ts',
-    rules: ['ui-purity'],
-    reason:
-      'scene-types is the canvas render-scene contract consumed by the shared display primitive. Move the render-scene types to shared rendering together with the scene layer.',
-    removedBy: 'shared scene-layer (plan 0.11, Atlas)',
-  },
-  {
     from: 'app/renderer/components/form/doc-sortable-block.tsx',
     to: 'app/renderer/features/deck/lyric-text-utils.ts',
     rules: ['ui-purity'],

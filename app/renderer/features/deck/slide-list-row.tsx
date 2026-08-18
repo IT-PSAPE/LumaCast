@@ -14,7 +14,7 @@ import { SlideBindingsBadge } from '../automation/slide-bindings-badge';
 import { SlideBindingsMenu } from '../automation/slide-bindings-menu';
 import { Play } from 'lucide-react';
 import type { OutlineSlideRow } from './use-slide-list-view';
-import type { RenderScene } from '../canvas/scene-types';
+import type { RenderScene } from '@lumacast/composition';
 
 interface SlideOutlineRowProps {
   row: OutlineSlideRow;

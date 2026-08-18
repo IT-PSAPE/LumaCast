@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { SceneStage } from '@renderer/features/canvas/scene-stage';
-import type { RenderScene, SceneSurface } from '@renderer/features/canvas/scene-types';
+import type { RenderScene, SceneSurface } from '@lumacast/composition';
 
 interface LazySceneStageProps {
   scene: RenderScene;

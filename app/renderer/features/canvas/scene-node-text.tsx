@@ -3,12 +3,18 @@ import { Rect, Shape } from 'react-konva';
 import type { Context } from 'konva/lib/Context';
 import type { Shape as KonvaShape } from 'konva/lib/Shape';
 import type { TextCaseTransform, TextElementPayload, TextHorizontalAlign } from '@core/types';
-import type { RichBody } from '@core/rich-text/types';
-import type { RichBoxStyle } from '@core/rich-text/resolve';
-import { boxStyleFromPayload, coerceWeight, synthesizePlain } from '@core/rich-text/resolve';
-import { textToRichBody } from '@core/rich-text/serialize';
-import { createCanvasMeasurer, runFontString, wrapRuns } from '@core/rich-text/measure';
-import type { RenderNode } from './scene-types';
+import {
+  type RichBody,
+  type RichBoxStyle,
+  boxStyleFromPayload,
+  coerceWeight,
+  synthesizePlain,
+  textToRichBody,
+  createCanvasMeasurer,
+  runFontString,
+  wrapRuns,
+  type RenderNode,
+} from '@lumacast/composition';
 import { computeAutoFitFontSize, measureTextBlockHeight, measureTextLayoutHeight, textLineBleedPadding, textOverflowOffset } from './text-layout';
 import { useResolvedText } from './use-resolved-text';
 

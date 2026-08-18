@@ -1,7 +1,5 @@
-import type { Id } from '@core/domain/ids';
-import type { SlideKind, SlideBackgroundSource } from '@core/domain/slides';
-import type { SlideElementType, SlideElementBase } from '@core/domain/slide-elements';
-import type { ThemeKind } from '@core/domain/theme';
+import type { Id } from '@lumacast/kernel';
+import type { SlideKind, SlideBackgroundSource, SlideElementType, SlideElementBase, ThemeKind } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
   CueKind,

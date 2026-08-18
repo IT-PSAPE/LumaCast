@@ -15,7 +15,7 @@ import type {
   TriggerBindingTargetType,
   TriggerType,
 } from '@core/types';
-import { getSlideDeckItemId } from '@core/deck-items';
+import { getSlideDeckItemId } from '@lumacast/composition';
 import { useCast } from '@renderer/contexts/app-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { usePlaybackCommands } from '@renderer/contexts/playback/playback-context';

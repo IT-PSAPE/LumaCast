@@ -1,5 +1,27 @@
-import { readTextFormatting, readTextVisualPayload, readVisualPayload, type VisualPayloadState } from '@core/element-payload';
-import { LAYER_PREVIEW_SLIDE, LAYER_VIDEO_NODE_ID, mediaAssetToLayerElement, overlayToLayerElements } from '@core/presentation-layers';
+import {
+  readTextFormatting,
+  readTextVisualPayload,
+  readVisualPayload,
+  type VisualPayloadState,
+  LAYER_PREVIEW_SLIDE,
+  LAYER_VIDEO_NODE_ID,
+  mediaAssetToLayerElement,
+  overlayToLayerElements,
+  coerceWeight,
+  type BindingOverride,
+  type MediaHandleLookup,
+  type RenderNode,
+  type RenderScene,
+  type ResolvedBackground,
+  type ResolvedBoxVisual,
+  type ResolvedMediaState,
+  type ResolvedRenderNode,
+  type ResolvedRenderNodeBase,
+  type ResolvedRenderScene,
+  type ResolvedTextVisual,
+  type SceneSurface,
+  type SelectionState,
+} from '@lumacast/composition';
 import type {
   GroupElementPayload,
   MediaAsset,
@@ -11,23 +33,7 @@ import type {
   TextElementPayload,
   TextHorizontalAlign,
 } from '@core/types';
-import { coerceWeight } from '@core/rich-text/resolve';
 import { sortElements } from '../../utils/slides';
-import type { BindingOverride } from '@core/binding-values';
-import type {
-  MediaHandleLookup,
-  RenderNode,
-  RenderScene,
-  ResolvedBackground,
-  ResolvedBoxVisual,
-  ResolvedMediaState,
-  ResolvedRenderNode,
-  ResolvedRenderNodeBase,
-  ResolvedRenderScene,
-  ResolvedTextVisual,
-  SceneSurface,
-  SelectionState,
-} from './scene-types';
 
 interface SceneElementInput {
   element: SlideElement;

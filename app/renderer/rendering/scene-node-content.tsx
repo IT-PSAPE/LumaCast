@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { SceneNodeMedia } from '../features/canvas/scene-node-media';
 import { SceneNodeShape } from '../features/canvas/scene-node-shape';
 import { SceneNodeText } from '../features/canvas/scene-node-text';
-import type { RenderNode, SceneSurface } from '../features/canvas/scene-types';
+import type { RenderNode, SceneSurface } from '@lumacast/composition';
 
 export interface SceneNodeContentOptions {
   /** Output-only hook: called when a media node's content first resolves. */

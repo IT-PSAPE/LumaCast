@@ -16,7 +16,8 @@
       "@core/*": ["app/core/*"],
       "@database/*": ["app/database/*"],
       "@renderer/*": ["app/renderer/*"],
-      "@lumacast/kernel": ["packages/kernel/src/index.ts"]
+      "@lumacast/kernel": ["packages/kernel/src/index.ts"],
+      "@lumacast/composition": ["packages/composition/src/index.ts"]
     }
   },
   "include": [

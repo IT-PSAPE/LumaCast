@@ -1,5 +1,5 @@
 import { type MouseEvent as ReactMouseEvent } from 'react';
-import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@core/presentation-layers';
+import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/composition';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Thumbnail } from '../../components/display/thumbnail';

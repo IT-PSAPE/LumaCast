@@ -3,7 +3,7 @@
 // items into one. Mutation input shapes (CollectionCreateInput and friends)
 // are application contracts, not domain primitives, and stay in
 // app/core/types.ts pending #154.
-import type { Id } from './ids';
+import type { Id } from '@lumacast/kernel';
 
 export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage' | 'macro';
 

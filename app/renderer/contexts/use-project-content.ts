@@ -1,5 +1,5 @@
 import { useMemo, useRef } from 'react';
-import { getSlideDeckItemId } from '@core/deck-items';
+import { getSlideDeckItemId } from '@lumacast/composition';
 import type { AppSnapshot, Collection, CollectionBinKind, Cue, DeckItem, Presentation, Id, Lyric, Macro, MediaAsset, Overlay, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme, TriggerBinding } from '@core/types';
 import { sortElements, sortSlides } from '../utils/slides';
 import { useCast } from './app-context';

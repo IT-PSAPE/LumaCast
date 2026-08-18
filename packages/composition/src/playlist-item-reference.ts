@@ -1,4 +1,4 @@
-import type { Id } from './types';
+import type { Id } from '@lumacast/kernel';
 
 /**
  * Canonical playlist-item reference kinds for this issue's scope (#109).
