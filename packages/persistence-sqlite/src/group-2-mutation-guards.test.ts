@@ -7,12 +7,19 @@ import { createTestRepository } from './test-support';
 // `updateMediaAssetSrc`, `updateOverlay`, `updateStage`, and
 // `duplicateStage` each silently returned an empty patch when an id failed
 // to resolve, making a failed mutation indistinguishable from success for
-// the command/undo layers (#121-#126) that will call them. None of these
+// the command/undo layers (#121-#126) that call them. None of these
 // methods has a genuine no-op branch left after conversion — the old empty
 // patch was always a masked lookup failure — so each test pins the throw
 // and the successful path, and where the old no-op could be confused with
 // "nothing to do", proves failure and no-change are distinguishable rather
 // than relying on reading the guard.
+//
+// None of these entities were touched by the #219 item-model refactor
+// (macros/media assets/overlays/stages never had a collection_id-carrying
+// concept dissolve underneath them the way items/themes/playlists did), so
+// this file's assertions are unchanged in substance from before the
+// refactor — only the surrounding fixtures were confirmed against the real
+// store.ts exports.
 
 function createMacro(repo: CastRepository, name = 'Macro'): Id {
   const patch = repo.createMacro({ name, description: '', cues: [] });

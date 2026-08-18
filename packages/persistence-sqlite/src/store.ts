@@ -1,22 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  cloneDeckBundleManifest,
-  collectDeckBundleMediaReferences,
-  collectDeckBundlePlaylistItemIds,
-  filterDeckBundlePlaylistsToIncludedItems,
-  getDeckBundlePlaylistEntryReference,
+  cloneBundleManifest,
+  collectBundleMediaReferences,
+  collectBundlePlaylistItemIds,
+  filterBundlePlaylistsToIncludedItems,
+  getBundlePlaylistEntryReference,
+  isLegacyProjectBackup,
   PROJECT_BACKUP_FORMAT,
   PROJECT_BACKUP_VERSION,
   ProjectBackupValidationError,
   readElementMediaReference,
-  validateDeckBundleManifest,
+  validateBundleManifest,
+  validateLegacyProjectBackup,
   validateProjectBackup as validateProjectBackupDocument,
   type ProjectBackupTableKey,
 } from '@lumacast/protocol';
 import type { ProjectRestoreResult } from '@lumacast/protocol';
+import { buildProjectBackupTables } from './project-backup-io';
+import { migrateLegacyProjectBackup } from './legacy-project-backup';
 import {
-  buildDeckItem,
   makePlaylistItemReference,
   parsePlaylistItemReference,
   toPlaylistItemOwnerColumns,
@@ -25,8 +28,6 @@ import {
   applyThemeToElements,
   createDefaultThemeElements,
   syncThemeToElements,
-  isThemeCompatibleWithDeckItem,
-  isThemeCompatibleWithOwnerKind,
 } from '@lumacast/composition';
 import { createId, nowIso } from '@lumacast/kernel';
 import {
@@ -43,14 +44,9 @@ import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations';
 // directly rather than through the app/core/types.ts facade.
 import type { Id } from '@lumacast/kernel';
 import type {
-  Library,
-  LibraryPlaylistBundle,
-  Playlist,
-  PlaylistEntry,
-  PlaylistGroup,
-  PlaylistTree,
-  DeckItem,
-  DeckItemType,
+  ItemType,
+  ItemRef,
+  ThemeOwnerType,
   Presentation,
   Lyric,
   Talk,
@@ -65,12 +61,13 @@ import type {
   MediaAsset,
   MediaAssetType,
   Overlay,
-  Theme,
-  ThemeKind,
+  OverlayAnimation,
+  PresentationTheme,
   Stage,
-  Collection,
-  CollectionBinKind,
-  CollectionItemType,
+  Playlist,
+  PlaylistItemEntry,
+  PlaylistSeparator,
+  PlaylistRow,
 } from '@lumacast/composition';
 import type {
   Cue,
@@ -84,145 +81,140 @@ import type {
   TriggerBindingTargetType,
   TriggerType,
 } from '@lumacast/automation';
-// The ProjectBackup family moved to app/contracts/project-backup.ts under
-// #215 (parent #116/#153): it is a serialization contract, not a persistence
-// DTO, so it lives in the neutral app/contracts/ boundary core, database and
-// main all import — see docs/ARCHITECTURE.md for the recorded rationale.
+// The ProjectBackup family lives in the neutral @lumacast/protocol boundary
+// (a serialization contract, not a persistence DTO) — see
+// docs/ARCHITECTURE.md for the recorded rationale.
 import type {
   ProjectBackup,
-  ProjectBackupCollectionRow,
-  ProjectBackupCueRow,
-  ProjectBackupDeckItemRow,
-  ProjectBackupLibraryRow,
-  ProjectBackupMacroRow,
-  ProjectBackupMacroStepRow,
-  ProjectBackupMediaAssetRow,
-  ProjectBackupOverlayRow,
-  ProjectBackupPlaylistEntryRow,
-  ProjectBackupPlaylistGroupRow,
-  ProjectBackupPlaylistRow,
-  ProjectBackupSlideElementRow,
-  ProjectBackupSlideRow,
-  ProjectBackupStageRow,
-  ProjectBackupTables,
-  ProjectBackupTalkScriptBlockRow,
+  ProjectBackupItemRow,
   ProjectBackupThemeRow,
-  ProjectBackupTriggerBindingRow,
 } from '@lumacast/protocol';
-// Everything below has not moved under #153 and remains on the
-// app/core/types.ts facade: IPC/application contracts (#154) and the
-// deck-bundle wire format.
-import type { AppSnapshot, CueCreateInput, CueUpdateInput, BrokenDeckBundleReference, CollectionAssignmentInput, CollectionCreateInput, CollectionDeleteInput, CollectionRenameInput, CollectionReorderInput, DeckBundleBrokenReferenceDecision, DeckBundleExportOptions, DeckBundleInspection, DeckBundleInspectionOverlay, DeckBundleInspectionPlaylist, DeckBundleInspectionStage, DeckBundleInspectionTheme, DeckBundleItem, DeckBundleManifest, DeckBundleOverlay, DeckBundlePlaylist, DeckBundlePlaylistGroup, DeckBundleSlide, DeckBundleStage, DeckBundleTheme, ElementCreateInput, ElementUpdateInput, MacroCreateInput, MacroUpdateInput, MediaAssetCreateInput, OverlayCreateInput, OverlayUpdateInput, SlideBackgroundUpdateInput, SlideCreateInput, SlideNotesUpdateInput, SlideOrderUpdateInput, StageCreateInput, StageUpdateInput, TalkScriptBlockCreateInput, TalkScriptBlockOrderUpdateInput, TalkScriptBlockUpdateInput, ThemeCreateInput, ThemeUpdateInput, TriggerBindingCreateInput } from '@lumacast/protocol';
+import type {
+  AppSnapshot,
+  CueCreateInput,
+  CueUpdateInput,
+  BrokenBundleReference,
+  BundleBrokenReferenceDecision,
+  BundleExportOptions,
+  BundleInspection,
+  BundleInspectionOverlay,
+  BundleInspectionPlaylist,
+  BundleInspectionStage,
+  BundleInspectionTheme,
+  BundleItem,
+  BundleManifest,
+  BundleOverlay,
+  BundlePlaylist,
+  BundlePlaylistRow,
+  BundleSlide,
+  BundleStage,
+  BundleTalkScriptBlock,
+  BundleTheme,
+  ElementCreateInput,
+  ElementUpdateInput,
+  ItemCreateInput,
+  ItemCreateResult,
+  ItemDuplicateInput,
+  ItemDuplicateResult,
+  MacroCreateInput,
+  MacroUpdateInput,
+  MediaAssetCreateInput,
+  OverlayCreateInput,
+  OverlayUpdateInput,
+  SlideBackgroundUpdateInput,
+  SlideCreateInput,
+  SlideNotesUpdateInput,
+  SlideOrderUpdateInput,
+  StageCreateInput,
+  StageUpdateInput,
+  TalkScriptBlockCreateInput,
+  TalkScriptBlockOrderUpdateInput,
+  TalkScriptBlockUpdateInput,
+  ThemeCreateInput,
+  ThemeUpdateInput,
+  TriggerBindingCreateInput,
+} from '@lumacast/protocol';
 import { isBrokenMediaSource, toCastMediaSource } from './media-source-utils';
 import type { SnapshotPatch } from '@lumacast/protocol';
 
 const DEFAULT_W = 1920;
 const DEFAULT_H = 1080;
 
-const COLLECTION_BIN_KINDS: readonly CollectionBinKind[] = ['deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage', 'macro'];
-
 const MEDIA_ASSET_TABLES = ['image_assets', 'video_assets', 'audio_assets'] as const;
-type MediaAssetTableName = typeof MEDIA_ASSET_TABLES[number];
-
-const PROJECT_BACKUP_COLLECTION_TABLES = [
-  'deck_collections',
-  'image_collections',
-  'video_collections',
-  'audio_collections',
-  'theme_collections',
-  'overlay_collections',
-  'stage_collections',
-  'macro_collections',
-] as const;
-type ProjectBackupCollectionTableName = typeof PROJECT_BACKUP_COLLECTION_TABLES[number];
-
-const MEDIA_TYPE_BY_TABLE: Record<MediaAssetTableName, MediaAssetType> = {
-  image_assets: 'image',
-  video_assets: 'video',
-  audio_assets: 'audio',
-};
-
-const COLLECTION_TABLE_BY_BIN: Record<CollectionBinKind, string> = {
-  deck: 'deck_collections',
-  image: 'image_collections',
-  video: 'video_collections',
-  audio: 'audio_collections',
-  theme: 'theme_collections',
-  overlay: 'overlay_collections',
-  stage: 'stage_collections',
-  macro: 'macro_collections',
-};
-
-const DEFAULT_COLLECTION_NAME = 'Default Collection';
-
-// ---------------------------------------------------------------------------
-// Project recovery (#146): restore + promotion.
-//
-// `restoreProjectBackup` restores a validated `ProjectBackup` into a
-// throwaway same-directory database, validates the restored state, and only
-// then promotes it over the active database via a recoverable file swap. The
-// active database is never deleted or overwritten in place: it is first
-// renamed to a timestamped `*.prerecovery-*.sqlite` sibling that is retained
-// forever (never deleted by the app), and the swap is rolled back if any step
-// after the retain fails. The hooks below are the test-only failure-injection
-// seams for this API; production callers pass no hooks, so there is no
-// production-global state involved.
-// ---------------------------------------------------------------------------
-
-export interface ProjectRecoveryHooks {
-  /** Called on the temporary database immediately before rows are inserted. Throwing aborts the restore before any insert. */
-  beforeInsert?: (db: SqliteDatabase) => void;
-  /** Called on the temporary database after inserts, before row-count/FK validation. Throwing aborts the restore before validation. */
-  afterInsert?: (db: SqliteDatabase) => void;
-  /** Called after validation passes, before any file operation. Throwing aborts the restore before the swap. */
-  beforePromotion?: () => void;
-  /**
-   * Called after the active database has been renamed to the retained
-   * pre-recovery file but before the temporary database is renamed into
-   * place. Throwing forces the promotion to roll the swap back so the
-   * previous project stays active.
-   */
-  afterRetainActive?: () => void;
-}
-
-export interface RestoreProjectBackupOptions {
-  /** Test-only failure-injection hooks; omitted in production. */
-  hooks?: ProjectRecoveryHooks;
-}
-
-const PROJECT_BACKUP_DECK_ITEM_TABLES = ['presentations', 'lyrics', 'talks'] as const;
-
 const PROJECT_BACKUP_MEDIA_ASSET_TABLES = MEDIA_ASSET_TABLES;
 
+// #219 item-model refactor decision D2: the four per-owner theme tables.
+// PresentationTheme/LyricTheme/TalkTheme/OverlayTheme are literally the same
+// structural shape (see @lumacast/composition/domain/theme.ts), so one set of
+// table-parameterized helpers below serves all four families; only the table
+// name and the container-slide owner column differ.
+const THEME_TABLE_BY_TYPE = {
+  presentation: 'presentation_themes',
+  lyric: 'lyric_themes',
+  talk: 'talk_themes',
+  overlay: 'overlay_themes',
+} as const satisfies Record<ThemeOwnerType, string>;
+type ThemeTableName = typeof THEME_TABLE_BY_TYPE[ThemeOwnerType];
+
+// #219 decision D1: the three independent item tables/columns. There is no
+// merged id space and no cross-type order — every lookup and every reorder
+// op goes through exactly one of these three.
+const ITEM_TABLE_BY_TYPE = {
+  presentation: 'presentations',
+  lyric: 'lyrics',
+  talk: 'talks',
+} as const satisfies Record<ItemType, string>;
+type ItemTableName = typeof ITEM_TABLE_BY_TYPE[ItemType];
+
+const ITEM_OWNER_COLUMN_BY_TYPE = {
+  presentation: 'presentation_id',
+  lyric: 'lyric_id',
+  talk: 'talk_id',
+} as const satisfies Record<ItemType, string>;
+
+// The slide `kind` values a container slide can carry, and the matching
+// exclusive-arc owner column each one populates (decision D2 addendum: the
+// old bare 'theme' kind splits into one value per theme family).
+type ContainerKind = 'presentationTheme' | 'lyricTheme' | 'talkTheme' | 'overlayTheme' | 'overlay' | 'stage';
+
+function themeContainerKind(themeType: ThemeOwnerType): ContainerKind {
+  switch (themeType) {
+    case 'presentation': return 'presentationTheme';
+    case 'lyric': return 'lyricTheme';
+    case 'talk': return 'talkTheme';
+    case 'overlay': return 'overlayTheme';
+  }
+}
+
+const THEME_CONTAINER_KIND_BY_TABLE: Record<ThemeTableName, ContainerKind> = {
+  presentation_themes: 'presentationTheme',
+  lyric_themes: 'lyricTheme',
+  talk_themes: 'talkTheme',
+  overlay_themes: 'overlayTheme',
+};
+
 const PROJECT_BACKUP_TABLE_KEYS = [
-  'libraries',
+  'presentation_themes',
+  'lyric_themes',
+  'talk_themes',
+  'overlay_themes',
   'presentations',
   'lyrics',
   'talks',
+  'overlays',
+  'stages',
   'slides',
   'slide_elements',
   'talk_script_blocks',
-  'playlists',
-  'playlist_groups',
-  'playlist_entries',
   'image_assets',
   'video_assets',
   'audio_assets',
-  'overlays',
-  'themes',
-  'stages',
+  'playlists',
+  'playlist_entries',
   'cues',
   'actions',
   'action_steps',
   'trigger_bindings',
-  'deck_collections',
-  'image_collections',
-  'video_collections',
-  'audio_collections',
-  'theme_collections',
-  'overlay_collections',
-  'stage_collections',
-  'macro_collections',
 ] as const satisfies readonly ProjectBackupTableKey[];
 
 function collectProjectBackupIds(rows: readonly { id: Id }[]): Set<Id> {
@@ -244,57 +236,39 @@ function assertProjectBackupReference(
 }
 
 /**
- * Validates every cross-table reference the v22 schema (or the application's
- * invariants) requires, entirely over the backup document before any
- * database work: each non-null FK column must name an id present in the
- * backup's parent table, and the schema-soft references
- * (`actions.collection_id`, `trigger_bindings` targets) are required too,
- * because the exporter's own operations can never produce a dangling one.
- * Throws `ProjectBackupValidationError` on the first broken reference.
+ * Validates every cross-table reference the post-v27 schema requires, over
+ * the backup document, before any database work.
  */
 function assertProjectBackupReferences(backup: ProjectBackup): void {
   const t = backup.tables;
   const ids = {
-    libraries: collectProjectBackupIds(t.libraries),
     presentations: collectProjectBackupIds(t.presentations),
     lyrics: collectProjectBackupIds(t.lyrics),
     talks: collectProjectBackupIds(t.talks),
     slides: collectProjectBackupIds(t.slides),
     slide_elements: collectProjectBackupIds(t.slide_elements),
     playlists: collectProjectBackupIds(t.playlists),
-    playlist_groups: collectProjectBackupIds(t.playlist_groups),
-    themes: collectProjectBackupIds(t.themes),
+    presentation_themes: collectProjectBackupIds(t.presentation_themes),
+    lyric_themes: collectProjectBackupIds(t.lyric_themes),
+    talk_themes: collectProjectBackupIds(t.talk_themes),
+    overlay_themes: collectProjectBackupIds(t.overlay_themes),
     overlays: collectProjectBackupIds(t.overlays),
     stages: collectProjectBackupIds(t.stages),
     cues: collectProjectBackupIds(t.cues),
     actions: collectProjectBackupIds(t.actions),
-    deck_collections: collectProjectBackupIds(t.deck_collections),
-    image_collections: collectProjectBackupIds(t.image_collections),
-    video_collections: collectProjectBackupIds(t.video_collections),
-    audio_collections: collectProjectBackupIds(t.audio_collections),
-    theme_collections: collectProjectBackupIds(t.theme_collections),
-    overlay_collections: collectProjectBackupIds(t.overlay_collections),
-    stage_collections: collectProjectBackupIds(t.stage_collections),
-    macro_collections: collectProjectBackupIds(t.macro_collections),
   };
 
-  for (const row of t.presentations) {
-    assertProjectBackupReference(ids.themes, 'presentations', 'theme_id', row.id, row.theme_id);
-    assertProjectBackupReference(ids.deck_collections, 'presentations', 'collection_id', row.id, row.collection_id);
-  }
-  for (const row of t.lyrics) {
-    assertProjectBackupReference(ids.themes, 'lyrics', 'theme_id', row.id, row.theme_id);
-    assertProjectBackupReference(ids.deck_collections, 'lyrics', 'collection_id', row.id, row.collection_id);
-  }
-  for (const row of t.talks) {
-    assertProjectBackupReference(ids.themes, 'talks', 'theme_id', row.id, row.theme_id);
-    assertProjectBackupReference(ids.deck_collections, 'talks', 'collection_id', row.id, row.collection_id);
-  }
+  for (const row of t.presentations) assertProjectBackupReference(ids.presentation_themes, 'presentations', 'theme_id', row.id, row.theme_id);
+  for (const row of t.lyrics) assertProjectBackupReference(ids.lyric_themes, 'lyrics', 'theme_id', row.id, row.theme_id);
+  for (const row of t.talks) assertProjectBackupReference(ids.talk_themes, 'talks', 'theme_id', row.id, row.theme_id);
   for (const row of t.slides) {
     assertProjectBackupReference(ids.presentations, 'slides', 'presentation_id', row.id, row.presentation_id);
     assertProjectBackupReference(ids.lyrics, 'slides', 'lyric_id', row.id, row.lyric_id);
     assertProjectBackupReference(ids.talks, 'slides', 'talk_id', row.id, row.talk_id);
-    assertProjectBackupReference(ids.themes, 'slides', 'theme_id', row.id, row.theme_id);
+    assertProjectBackupReference(ids.presentation_themes, 'slides', 'presentation_theme_id', row.id, row.presentation_theme_id);
+    assertProjectBackupReference(ids.lyric_themes, 'slides', 'lyric_theme_id', row.id, row.lyric_theme_id);
+    assertProjectBackupReference(ids.talk_themes, 'slides', 'talk_theme_id', row.id, row.talk_theme_id);
+    assertProjectBackupReference(ids.overlay_themes, 'slides', 'overlay_theme_id', row.id, row.overlay_theme_id);
     assertProjectBackupReference(ids.overlays, 'slides', 'overlay_id', row.id, row.overlay_id);
     assertProjectBackupReference(ids.stages, 'slides', 'stage_id', row.id, row.stage_id);
   }
@@ -305,34 +279,11 @@ function assertProjectBackupReferences(backup: ProjectBackup): void {
   for (const row of t.talk_script_blocks) {
     assertProjectBackupReference(ids.slides, 'talk_script_blocks', 'slide_id', row.id, row.slide_id);
   }
-  for (const row of t.playlists) {
-    assertProjectBackupReference(ids.libraries, 'playlists', 'library_id', row.id, row.library_id);
-  }
-  for (const row of t.playlist_groups) {
-    assertProjectBackupReference(ids.playlists, 'playlist_groups', 'playlist_id', row.id, row.playlist_id);
-  }
   for (const row of t.playlist_entries) {
-    assertProjectBackupReference(ids.playlist_groups, 'playlist_entries', 'group_id', row.id, row.group_id);
+    assertProjectBackupReference(ids.playlists, 'playlist_entries', 'playlist_id', row.id, row.playlist_id);
     assertProjectBackupReference(ids.presentations, 'playlist_entries', 'presentation_id', row.id, row.presentation_id);
     assertProjectBackupReference(ids.lyrics, 'playlist_entries', 'lyric_id', row.id, row.lyric_id);
     assertProjectBackupReference(ids.talks, 'playlist_entries', 'talk_id', row.id, row.talk_id);
-  }
-  for (const table of PROJECT_BACKUP_MEDIA_ASSET_TABLES) {
-    for (const row of t[table]) {
-      assertProjectBackupReference(ids[`${table.split('_')[0]}_collections` as keyof typeof ids], table, 'collection_id', row.id, row.collection_id);
-    }
-  }
-  for (const row of t.themes) {
-    assertProjectBackupReference(ids.theme_collections, 'themes', 'collection_id', row.id, row.collection_id);
-  }
-  for (const row of t.overlays) {
-    assertProjectBackupReference(ids.overlay_collections, 'overlays', 'collection_id', row.id, row.collection_id);
-  }
-  for (const row of t.stages) {
-    assertProjectBackupReference(ids.stage_collections, 'stages', 'collection_id', row.id, row.collection_id);
-  }
-  for (const row of t.actions) {
-    assertProjectBackupReference(ids.macro_collections, 'actions', 'collection_id', row.id, row.collection_id);
   }
   for (const row of t.action_steps) {
     assertProjectBackupReference(ids.actions, 'action_steps', 'action_id', row.id, row.action_id);
@@ -345,112 +296,96 @@ function assertProjectBackupReferences(backup: ProjectBackup): void {
 }
 
 /**
+ * Empties every application-owned table of the (throwaway) temporary
+ * database, in FK-safe child-before-parent order. Called as the first
+ * statement of `insertProjectBackupRows`'s transaction.
+ */
+function clearProjectBackupTables(db: SqliteDatabase): void {
+  db.exec(`
+    DELETE FROM trigger_bindings;
+    DELETE FROM action_steps;
+    DELETE FROM actions;
+    DELETE FROM cues;
+    DELETE FROM slide_elements;
+    DELETE FROM talk_script_blocks;
+    DELETE FROM playlist_entries;
+    DELETE FROM playlists;
+    DELETE FROM slides;
+    DELETE FROM overlays;
+    DELETE FROM stages;
+    DELETE FROM presentation_themes;
+    DELETE FROM lyric_themes;
+    DELETE FROM talk_themes;
+    DELETE FROM overlay_themes;
+    DELETE FROM presentations;
+    DELETE FROM lyrics;
+    DELETE FROM talks;
+    DELETE FROM image_assets;
+    DELETE FROM video_assets;
+    DELETE FROM audio_assets;
+  `);
+}
+
+/**
  * Inserts every row of the backup into `db` in FK-safe parent-before-child
- * order, with every column mapped explicitly (no object spread at the
- * restore boundary). Runs in one transaction so a mid-insert failure leaves
- * the temporary database empty. The transaction starts by emptying every
- * application-owned table, because migrations seed default collection rows
- * when they run against a fresh file; the backup is the complete truth, so
- * the temporary database must end with exactly the backup's rows. The clear
- * and the insert are one atomic unit: a failure in either leaves the
- * temporary database empty.
+ * order, with every column mapped explicitly. Runs in one transaction so a
+ * mid-insert failure leaves the temporary database empty.
  */
 function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): void {
   const t = backup.tables;
 
   const tx = db.transaction(() => {
     clearProjectBackupTables(db);
-    const insertCollection = (tableName: string): void => {
+
+    const insertThemeTable = (tableName: ThemeTableName, rows: readonly ProjectBackupThemeRow[]): void => {
       const insert = db.prepare(
-        `INSERT INTO ${tableName} (id, name, order_index, is_default, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO ${tableName} (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
-      for (const row of t[tableName as keyof ProjectBackupTables]) {
-        const collectionRow = row as unknown as ProjectBackupCollectionRow;
-        insert.run(collectionRow.id, collectionRow.name, collectionRow.order_index, collectionRow.is_default, collectionRow.created_at, collectionRow.updated_at);
+      for (const row of rows) {
+        insert.run(row.id, row.name, row.width, row.height, row.order_index, row.created_at, row.updated_at);
       }
     };
-    for (const tableName of PROJECT_BACKUP_COLLECTION_TABLES) insertCollection(tableName);
+    insertThemeTable('presentation_themes', t.presentation_themes);
+    insertThemeTable('lyric_themes', t.lyric_themes);
+    insertThemeTable('talk_themes', t.talk_themes);
+    insertThemeTable('overlay_themes', t.overlay_themes);
 
-    const insertLibrary = db.prepare(
-      'INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-    );
-    for (const row of t.libraries) {
-      insertLibrary.run(row.id, row.name, row.order_index, row.created_at, row.updated_at);
-    }
-
-    const insertTheme = db.prepare(
-      `INSERT INTO themes (id, name, kind, width, height, order_index, collection_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    for (const row of t.themes) {
-      insertTheme.run(row.id, row.name, row.kind, row.width, row.height, row.order_index, row.collection_id, row.created_at, row.updated_at);
-    }
+    const insertItemTable = (tableName: ItemTableName, rows: readonly ProjectBackupItemRow[]): void => {
+      const insert = db.prepare(
+        `INSERT INTO ${tableName} (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+      );
+      for (const row of rows) {
+        insert.run(row.id, row.title, row.theme_id, row.order_index, row.created_at, row.updated_at);
+      }
+    };
+    insertItemTable('presentations', t.presentations);
+    insertItemTable('lyrics', t.lyrics);
+    insertItemTable('talks', t.talks);
 
     const insertOverlay = db.prepare(
-      `INSERT INTO overlays (id, name, enabled, animation_json, collection_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      'INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
     );
     for (const row of t.overlays) {
-      insertOverlay.run(row.id, row.name, row.enabled, row.animation_json, row.collection_id, row.created_at, row.updated_at);
+      insertOverlay.run(row.id, row.name, row.enabled, row.animation_json, row.created_at, row.updated_at);
     }
 
     const insertStage = db.prepare(
-      `INSERT INTO stages (id, name, width, height, order_index, collection_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      'INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     for (const row of t.stages) {
-      insertStage.run(row.id, row.name, row.width, row.height, row.order_index, row.collection_id, row.created_at, row.updated_at);
-    }
-
-    for (const tableName of PROJECT_BACKUP_DECK_ITEM_TABLES) {
-      const insertDeckItem = db.prepare(
-        `INSERT INTO ${tableName} (id, title, theme_id, collection_id, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      );
-      for (const row of t[tableName]) {
-        insertDeckItem.run(row.id, row.title, row.theme_id, row.collection_id, row.order_index, row.created_at, row.updated_at);
-      }
-    }
-
-    const insertCue = db.prepare(
-      `INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    );
-    for (const row of t.cues) {
-      insertCue.run(row.id, row.kind, row.payload_json, row.failure_policy, row.created_at, row.updated_at);
-    }
-
-    const insertMacro = db.prepare(
-      `INSERT INTO actions (id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    for (const row of t.actions) {
-      insertMacro.run(row.id, row.name, row.description, row.collection_id, row.scope_level, row.on_scope_exit, row.loop_enabled, row.loop_count, row.created_at, row.updated_at);
+      insertStage.run(row.id, row.name, row.width, row.height, row.order_index, row.created_at, row.updated_at);
     }
 
     const insertSlide = db.prepare(
-      `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const row of t.slides) {
       insertSlide.run(
-        row.id,
-        row.presentation_id,
-        row.lyric_id,
-        row.talk_id,
-        row.theme_id,
-        row.overlay_id,
-        row.stage_id,
-        row.kind,
-        row.width,
-        row.height,
-        row.notes,
-        row.background_json,
-        row.background_source,
-        row.order_index,
-        row.created_at,
-        row.updated_at,
+        row.id, row.presentation_id, row.lyric_id, row.talk_id,
+        row.presentation_theme_id, row.lyric_theme_id, row.talk_theme_id, row.overlay_theme_id,
+        row.overlay_id, row.stage_id, row.kind, row.width, row.height, row.notes,
+        row.background_json, row.background_source, row.order_index, row.created_at, row.updated_at,
       );
     }
 
@@ -460,21 +395,9 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
     );
     for (const row of t.slide_elements) {
       insertSlideElement.run(
-        row.id,
-        row.slide_id,
-        row.type,
-        row.x,
-        row.y,
-        row.width,
-        row.height,
-        row.rotation,
-        row.opacity,
-        row.z_index,
-        row.layer,
-        row.payload_json,
-        row.source_theme_element_id,
-        row.created_at,
-        row.updated_at,
+        row.id, row.slide_id, row.type, row.x, row.y, row.width, row.height,
+        row.rotation, row.opacity, row.z_index, row.layer, row.payload_json,
+        row.source_theme_element_id, row.created_at, row.updated_at,
       );
     }
 
@@ -487,43 +410,44 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
 
     for (const tableName of PROJECT_BACKUP_MEDIA_ASSET_TABLES) {
       const insertMediaAsset = db.prepare(
-        `INSERT INTO ${tableName} (id, name, src, collection_id, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO ${tableName} (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       );
       for (const row of t[tableName]) {
-        insertMediaAsset.run(row.id, row.name, row.src, row.collection_id, row.order_index, row.created_at, row.updated_at);
+        insertMediaAsset.run(row.id, row.name, row.src, row.order_index, row.created_at, row.updated_at);
       }
     }
 
     const insertPlaylist = db.prepare(
-      'INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
     );
     for (const row of t.playlists) {
-      insertPlaylist.run(row.id, row.library_id, row.name, row.order_index, row.created_at, row.updated_at);
-    }
-
-    const insertPlaylistGroup = db.prepare(
-      'INSERT INTO playlist_groups (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    for (const row of t.playlist_groups) {
-      insertPlaylistGroup.run(row.id, row.playlist_id, row.name, row.color_key, row.order_index, row.created_at, row.updated_at);
+      insertPlaylist.run(row.id, row.name, row.order_index, row.created_at, row.updated_at);
     }
 
     const insertPlaylistEntry = db.prepare(
-      `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const row of t.playlist_entries) {
       insertPlaylistEntry.run(
-        row.id,
-        row.group_id,
-        row.presentation_id,
-        row.lyric_id,
-        row.talk_id,
-        row.order_index,
-        row.created_at,
-        row.updated_at,
+        row.id, row.playlist_id, row.kind, row.presentation_id, row.lyric_id, row.talk_id,
+        row.label, row.color_key, row.order_index, row.created_at, row.updated_at,
       );
+    }
+
+    const insertCue = db.prepare(
+      'INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    for (const row of t.cues) {
+      insertCue.run(row.id, row.kind, row.payload_json, row.failure_policy, row.created_at, row.updated_at);
+    }
+
+    const insertMacro = db.prepare(
+      `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.actions) {
+      insertMacro.run(row.id, row.name, row.description, row.scope_level, row.on_scope_exit, row.loop_enabled, row.loop_count, row.created_at, row.updated_at);
     }
 
     const insertMacroStep = db.prepare(
@@ -532,17 +456,8 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
     );
     for (const row of t.action_steps) {
       insertMacroStep.run(
-        row.id,
-        row.action_id,
-        row.kind,
-        row.payload_json,
-        row.failure_policy,
-        row.cue_id,
-        row.order_index,
-        row.delay_before_ms,
-        row.delay_after_ms,
-        row.created_at,
-        row.updated_at,
+        row.id, row.action_id, row.kind, row.payload_json, row.failure_policy, row.cue_id,
+        row.order_index, row.delay_before_ms, row.delay_after_ms, row.created_at, row.updated_at,
       );
     }
 
@@ -552,15 +467,8 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
     );
     for (const row of t.trigger_bindings) {
       insertTriggerBinding.run(
-        row.id,
-        row.trigger_type,
-        row.source_id,
-        row.target_type,
-        row.target_id,
-        row.config_json,
-        row.enabled,
-        row.created_at,
-        row.updated_at,
+        row.id, row.trigger_type, row.source_id, row.target_type, row.target_id,
+        row.config_json, row.enabled, row.created_at, row.updated_at,
       );
     }
   });
@@ -570,7 +478,7 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
 /**
  * Completeness gate before promotion: every application-owned table in the
  * temporary database must hold exactly the number of rows the backup
- * declares. A silent partial insert can never slip past this check.
+ * declares.
  */
 function assertProjectBackupRowCounts(db: SqliteDatabase, backup: ProjectBackup): void {
   for (const tableName of PROJECT_BACKUP_TABLE_KEYS) {
@@ -586,9 +494,7 @@ function assertProjectBackupRowCounts(db: SqliteDatabase, backup: ProjectBackup)
 
 /**
  * Referential gate before promotion: `PRAGMA foreign_key_check` must report
- * zero violations on the temporary database. Every FK column was already
- * validated over the document, so this is defense in depth against insertion
- * drift (and is independently exercised by the recovery tests).
+ * zero violations on the temporary database.
  */
 function assertProjectBackupForeignKeys(db: SqliteDatabase): void {
   const violations = db.prepare('PRAGMA foreign_key_check').all() as Array<{
@@ -605,44 +511,6 @@ function assertProjectBackupForeignKeys(db: SqliteDatabase): void {
   }
 }
 
-/**
- * Every bin must carry exactly one default collection, matching the invariant
- * migrations and the repository enforce (defaults can never be deleted and
- * the app's create flows depend on them). A backup that lacks or duplicates
- * them cannot be the basis of a functioning project, so it is rejected
- * before any database work.
- */
-function assertProjectBackupDefaultCollections(backup: ProjectBackup): void {
-  for (const tableName of PROJECT_BACKUP_COLLECTION_TABLES) {
-    const defaults = (backup.tables[tableName] as ProjectBackupCollectionRow[]).filter((row) => row.is_default === 1);
-    if (defaults.length !== 1) {
-      throw new ProjectBackupValidationError(
-        `Invalid project backup: ${tableName} must contain exactly one default collection, found ${defaults.length}.`,
-      );
-    }
-  }
-}
-
-/**
- * Every bin must carry exactly one default collection after a snapshot
- * restore, mirroring the invariant `assertProjectBackupDefaultCollections`
- * enforces for project backups (#146). `AppSnapshot.collections` is normally
- * produced by `getCollections()` off a database that already holds this
- * invariant, but restore is the one seam where a corrupted or hand-built
- * snapshot could otherwise silently leave a live database with two defaults
- * or none, so it is checked before any table is touched.
- */
-function assertSnapshotCollectionDefaults(collections: readonly Collection[]): void {
-  for (const bin of COLLECTION_BIN_KINDS) {
-    const defaults = collections.filter((collection) => collection.binKind === bin && collection.isDefault);
-    if (defaults.length !== 1) {
-      throw new Error(
-        `Invalid snapshot: bin "${bin}" must contain exactly one default collection, found ${defaults.length}.`,
-      );
-    }
-  }
-}
-
 function moveSqliteSidecars(sourceBase: string, targetBase: string): void {
   for (const suffix of ['-wal', '-shm']) {
     const source = `${sourceBase}${suffix}`;
@@ -656,48 +524,6 @@ function removeSqliteSidecars(base: string): void {
   }
 }
 
-/**
- * Empties every application-owned table of the (throwaway) temporary
- * database. Needed because migrations seed default collection rows when they
- * run against a fresh file; the backup is the complete truth, so the
- * temporary database must start with zero application rows and end with
- * exactly the backup's rows. Deletes run in child-before-parent order. Called
- * as the first statement of `insertProjectBackupRows`' transaction, so the
- * clear and the inserts are one atomic unit.
- */
-function clearProjectBackupTables(db: SqliteDatabase): void {
-  db.exec(`
-    DELETE FROM trigger_bindings;
-    DELETE FROM action_steps;
-    DELETE FROM actions;
-    DELETE FROM cues;
-    DELETE FROM slide_elements;
-    DELETE FROM talk_script_blocks;
-    DELETE FROM playlist_entries;
-    DELETE FROM playlist_groups;
-    DELETE FROM playlists;
-    DELETE FROM slides;
-    DELETE FROM overlays;
-    DELETE FROM stages;
-    DELETE FROM themes;
-    DELETE FROM presentations;
-    DELETE FROM lyrics;
-    DELETE FROM talks;
-    DELETE FROM image_assets;
-    DELETE FROM video_assets;
-    DELETE FROM audio_assets;
-    DELETE FROM libraries;
-    DELETE FROM deck_collections;
-    DELETE FROM image_collections;
-    DELETE FROM video_collections;
-    DELETE FROM audio_collections;
-    DELETE FROM theme_collections;
-    DELETE FROM overlay_collections;
-    DELETE FROM stage_collections;
-    DELETE FROM macro_collections;
-  `);
-}
-
 function nextUniqueSiblingPath(base: string, marker: string): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   let candidate = `${base}.${marker}-${stamp}.sqlite`;
@@ -709,133 +535,9 @@ function nextUniqueSiblingPath(base: string, marker: string): string {
   return candidate;
 }
 
-// Media assets live in three split tables (image_assets/video_assets/audio_assets),
-// so they're resolved dynamically per id — see resolveItemTable below. Every
-// other item type maps statically.
-type StaticCollectionItemType = Exclude<CollectionItemType, 'media_asset'>;
-const ITEM_TABLE_BY_TYPE: Record<StaticCollectionItemType, string> = {
-  presentation: 'presentations',
-  lyric: 'lyrics',
-  talk: 'talks',
-  theme: 'themes',
-  overlay: 'overlays',
-  stage: 'stages',
-  macro: 'actions',
-};
-
-function isItemTypeAllowedInBin(
-  itemType: CollectionItemType,
-  binKind: CollectionBinKind,
-  itemId: Id,
-  store: CastRepository,
-): boolean {
-  if (itemType === 'presentation' || itemType === 'lyric' || itemType === 'talk') return binKind === 'deck';
-  if (itemType === 'theme') return binKind === 'theme';
-  if (itemType === 'overlay') return binKind === 'overlay';
-  if (itemType === 'stage') return binKind === 'stage';
-  if (itemType === 'macro') return binKind === 'macro';
-  if (itemType === 'media_asset') {
-    if (binKind !== 'image' && binKind !== 'video' && binKind !== 'audio') return false;
-    const assetType = store.peekMediaAssetType(itemId);
-    if (!assetType) return false;
-    if (binKind === 'audio') return assetType === 'audio';
-    if (binKind === 'image') return assetType === 'image';
-    if (binKind === 'video') return assetType === 'video';
-  }
-  return false;
-}
-
-function buildPatchSpecForItemType(itemType: CollectionItemType, itemId: Id): {
-  upsertPresentationIds?: Id[];
-  upsertLyricIds?: Id[];
-  upsertTalkIds?: Id[];
-  upsertMediaAssetIds?: Id[];
-  upsertThemeIds?: Id[];
-  upsertOverlayIds?: Id[];
-  upsertStageIds?: Id[];
-  upsertMacroIds?: Id[];
-} {
-  switch (itemType) {
-    case 'presentation': return { upsertPresentationIds: [itemId] };
-    case 'lyric': return { upsertLyricIds: [itemId] };
-    case 'talk': return { upsertTalkIds: [itemId] };
-    case 'media_asset': return { upsertMediaAssetIds: [itemId] };
-    case 'theme': return { upsertThemeIds: [itemId] };
-    case 'overlay': return { upsertOverlayIds: [itemId] };
-    case 'stage': return { upsertStageIds: [itemId] };
-    case 'macro': return { upsertMacroIds: [itemId] };
-  }
-}
-
-/**
- * Error codes for the authoritative `deleteCollection` operation (#112).
- * `protected-default` — the target collection is the bin's default and can
- * never be deleted. `default-collection-missing` — the bin has no default
- * collection to reassign members onto; this must be checked, and thrown,
- * before any write happens so a data-integrity gap never leaves a
- * half-migrated collection.
- */
-export type CollectionDeletionErrorCode = 'protected-default' | 'default-collection-missing';
-
-export class CollectionDeletionError extends Error {
-  readonly code: CollectionDeletionErrorCode;
-  readonly binKind: CollectionBinKind;
-  readonly collectionId: Id;
-
-  constructor(code: CollectionDeletionErrorCode, binKind: CollectionBinKind, collectionId: Id, message: string) {
-    super(message);
-    this.name = 'CollectionDeletionError';
-    this.code = code;
-    this.binKind = binKind;
-    this.collectionId = collectionId;
-  }
-}
-
-/**
- * Thrown by `duplicateDeckItem` (#103) before any write when the source
- * owner's type does not support whole-deck duplication. Talk duplication is
- * an explicit non-goal: this is a typed, checked-before-writes error rather
- * than a partial copy or a generic `Error`, mirroring `CollectionDeletionError`.
- */
-export type DeckItemDuplicationErrorCode = 'unsupported-owner-type';
-
-export class DeckItemDuplicationError extends Error {
-  readonly code: DeckItemDuplicationErrorCode;
-  readonly itemId: Id;
-
-  constructor(code: DeckItemDuplicationErrorCode, itemId: Id, message: string) {
-    super(message);
-    this.name = 'DeckItemDuplicationError';
-    this.code = code;
-    this.itemId = itemId;
-  }
-}
-
-/**
- * Compile-time exhaustiveness guard for `CollectionBinKind`. If a new bin
- * kind is ever added to the union without adding a matching case to
- * `reassignItemsForCollection`'s switch, `binKind` stops being `never` here
- * and the file fails to compile — mirroring the `assertNeverPlaylistItemReferenceType`
- * pattern in `@core/playlist-item-reference`.
- */
-function assertNeverCollectionBinKind(binKind: never): never {
-  throw new Error(`Unsupported collection bin kind: ${String(binKind)}`);
-}
-
-interface CollectionMemberMoveResult {
-  presentations: Id[];
-  lyrics: Id[];
-  talks: Id[];
-  mediaAssets: Id[];
-  themes: Id[];
-  overlays: Id[];
-  stages: Id[];
-  macros: Id[];
-}
-
-interface DeckOwnerRow {
-  type: DeckItemType;
-  themeId: string | null;
+interface ItemOwnerRow {
+  type: ItemType;
+  themeId: Id | null;
 }
 
 interface BrokenReferenceAccumulator {
@@ -866,9 +568,7 @@ const persistedContext = (operation: string, path: string): CodecContext => ({
 /**
  * Builds the codec context for a caller-supplied value that can only be
  * validated once a persisted row has resolved the variant it must satisfy
- * (issue #224). Distinct from `persistedContext` on purpose: the value being
- * rejected came from the caller, not from the database, so a failure here is
- * bad input rather than data corruption.
+ * (issue #224).
  */
 const resolvedInputContext = (operation: string, path: string): CodecContext => ({
   boundary: 'resolved-input',
@@ -912,11 +612,11 @@ function migrateLegacyRecastDatabase(userData: string, targetDbPath: string): vo
   }
 }
 
-function toDeckBundleTheme(theme: Theme): DeckBundleTheme {
+function toBundleTheme(theme: PresentationTheme, themeType: ThemeOwnerType): BundleTheme {
   return {
     id: theme.id,
     name: theme.name,
-    kind: theme.kind,
+    themeType,
     width: theme.width,
     height: theme.height,
     order: theme.order,
@@ -924,7 +624,7 @@ function toDeckBundleTheme(theme: Theme): DeckBundleTheme {
   };
 }
 
-function toDeckBundleOverlay(overlay: Overlay): DeckBundleOverlay {
+function toBundleOverlay(overlay: Overlay): BundleOverlay {
   // Bundle format keeps a flat summary so older importers still work; derive
   // it from the highest-z_index element each time we export.
   const summary = summarizeOverlayElements(overlay.elements);
@@ -944,7 +644,7 @@ function toDeckBundleOverlay(overlay: Overlay): DeckBundleOverlay {
   };
 }
 
-function toDeckBundleStage(stage: Stage): DeckBundleStage {
+function toBundleStage(stage: Stage): BundleStage {
   return {
     id: stage.id,
     name: stage.name,
@@ -966,8 +666,8 @@ function emptyOverlayPayload(): SlideElementPayload {
   };
 }
 
-function normalizeOverlayAnimation(animation: unknown): Required<Overlay['animation']> {
-  const parsed = animation as Partial<Overlay['animation']> | null | undefined;
+function normalizeOverlayAnimation(animation: unknown): Required<OverlayAnimation> {
+  const parsed = animation as Partial<OverlayAnimation> | null | undefined;
   const rawKind = parsed?.kind;
   const kind = rawKind === 'dissolve' || rawKind === 'fade' || rawKind === 'pulse'
     ? rawKind
@@ -984,7 +684,7 @@ function normalizeOverlayAnimation(animation: unknown): Required<Overlay['animat
   };
 }
 
-// Used only when serializing to DeckBundleOverlay (legacy export shape that
+// Used only when serializing to BundleOverlay (legacy export shape that
 // kept a flat summary alongside the full elements list).
 interface OverlaySummary {
   type: 'text' | 'image' | 'video' | 'shape';
@@ -1028,6 +728,26 @@ function summarizeOverlayElements(elements: SlideElement[]): OverlaySummary {
   };
 }
 
+export interface ProjectRecoveryHooks {
+  /** Called on the temporary database immediately before rows are inserted. Throwing aborts the restore before any insert. */
+  beforeInsert?: (db: SqliteDatabase) => void;
+  /** Called on the temporary database after inserts, before row-count/FK validation. Throwing aborts the restore before validation. */
+  afterInsert?: (db: SqliteDatabase) => void;
+  /** Called after validation passes, before any file operation. Throwing aborts the restore before the swap. */
+  beforePromotion?: () => void;
+  /**
+   * Called after the active database has been renamed to the retained
+   * pre-recovery file but before the temporary database is renamed into
+   * place. Throwing forces the promotion to roll the swap back so the
+   * previous project stays active.
+   */
+  afterRetainActive?: () => void;
+}
+
+export interface RestoreProjectBackupOptions {
+  /** Test-only failure-injection hooks; omitted in production. */
+  hooks?: ProjectRecoveryHooks;
+}
 
 export interface RepositoryOptions {
   dbPath: string;
@@ -1040,6 +760,46 @@ export interface RepositoryOptions {
    * `seed: false` to open a genuinely empty database instead.
    */
   seed?: boolean;
+}
+
+/** The full set of ids a mutation may have touched, passed to {@link CastRepository.buildPatch}. */
+interface BuildPatchSpec {
+  upsertPresentationIds?: Id[];
+  upsertLyricIds?: Id[];
+  upsertTalkIds?: Id[];
+  upsertSlideIds?: Id[];
+  upsertTalkScriptBlockIds?: Id[];
+  upsertSlideElementIds?: Id[];
+  upsertMediaAssetIds?: Id[];
+  upsertOverlayIds?: Id[];
+  upsertPresentationThemeIds?: Id[];
+  upsertLyricThemeIds?: Id[];
+  upsertTalkThemeIds?: Id[];
+  upsertOverlayThemeIds?: Id[];
+  upsertStageIds?: Id[];
+  upsertPlaylistIds?: Id[];
+  upsertPlaylistEntryIds?: Id[];
+  upsertCueIds?: Id[];
+  upsertMacroIds?: Id[];
+  upsertTriggerBindingIds?: Id[];
+  deletedPresentationIds?: Id[];
+  deletedLyricIds?: Id[];
+  deletedTalkIds?: Id[];
+  deletedSlideIds?: Id[];
+  deletedTalkScriptBlockIds?: Id[];
+  deletedSlideElementIds?: Id[];
+  deletedMediaAssetIds?: Id[];
+  deletedOverlayIds?: Id[];
+  deletedPresentationThemeIds?: Id[];
+  deletedLyricThemeIds?: Id[];
+  deletedTalkThemeIds?: Id[];
+  deletedOverlayThemeIds?: Id[];
+  deletedStageIds?: Id[];
+  deletedPlaylistIds?: Id[];
+  deletedPlaylistEntryIds?: Id[];
+  deletedCueIds?: Id[];
+  deletedMacroIds?: Id[];
+  deletedTriggerBindingIds?: Id[];
 }
 
 export class CastRepository {
@@ -1074,496 +834,19 @@ export class CastRepository {
     db.pragma('wal_autocheckpoint = 1000');
   }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  private hasColumn(tableName: string, columnName: string): boolean {
-    const rows = this.db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
-    return rows.some((row) => row.name === columnName);
-  }
-
-
-
-  private hasTable(name: string): boolean {
-    const row = this.db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-      .get(name) as { name: string } | undefined;
-
-    return row?.name === name;
-  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  private getDefaultCollectionId(binKind: CollectionBinKind): Id {
-    const table = COLLECTION_TABLE_BY_BIN[binKind];
-    const row = this.db
-      .prepare(`SELECT id FROM ${table} WHERE is_default = 1 ORDER BY created_at ASC LIMIT 1`)
-      .get() as { id: string } | undefined;
-    if (!row) {
-      // Defensive: seed if somehow missing (e.g. deleted by hand). Idempotent.
-      this.seedDefaultCollections();
-      const retry = this.db
-        .prepare(`SELECT id FROM ${table} WHERE is_default = 1 ORDER BY created_at ASC LIMIT 1`)
-        .get() as { id: string } | undefined;
-      if (!retry) throw new Error(`Default collection missing for bin: ${binKind}`);
-      return retry.id;
-    }
-    return row.id;
-  }
-
-  private getMediaAssetDefaultCollectionId(type: MediaAssetType): Id {
-    if (type === 'audio') return this.getDefaultCollectionId('audio');
-    if (type === 'video') return this.getDefaultCollectionId('video');
-    return this.getDefaultCollectionId('image');
-  }
-
-  private seedDefaultCollections(): void {
-    const tx = this.db.transaction(() => {
-      const now = nowIso();
-      const defaultIds: Record<CollectionBinKind, string> = {} as Record<CollectionBinKind, string>;
-
-      for (const bin of COLLECTION_BIN_KINDS) {
-        const table = COLLECTION_TABLE_BY_BIN[bin];
-        const existing = this.db
-          .prepare(`SELECT id FROM ${table} WHERE is_default = 1 LIMIT 1`)
-          .get() as { id: string } | undefined;
-
-        if (existing) {
-          defaultIds[bin] = existing.id;
-          continue;
-        }
-
-        const id = createId();
-        this.db
-          .prepare(
-            `INSERT INTO ${table} (id, name, order_index, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
-          )
-          .run(id, DEFAULT_COLLECTION_NAME, 0, 1, now, now);
-        defaultIds[bin] = id;
-      }
-
-      this.db
-        .prepare('UPDATE presentations SET collection_id = ? WHERE collection_id IS NULL')
-        .run(defaultIds.deck);
-      if (this.hasTable('lyrics')) {
-        this.db
-          .prepare('UPDATE lyrics SET collection_id = ? WHERE collection_id IS NULL')
-          .run(defaultIds.deck);
-      }
-      // Pre-v11 schemas had a single media_assets table with a `type`
-      // column; post-v11 the per-type tables don't need a discriminator.
-      if (this.hasTable('media_assets')) {
-        this.db
-          .prepare("UPDATE media_assets SET collection_id = ? WHERE collection_id IS NULL AND type = 'image'")
-          .run(defaultIds.image);
-        this.db
-          .prepare("UPDATE media_assets SET collection_id = ? WHERE collection_id IS NULL AND type = 'video'")
-          .run(defaultIds.video);
-        this.db
-          .prepare("UPDATE media_assets SET collection_id = ? WHERE collection_id IS NULL AND type = 'audio'")
-          .run(defaultIds.audio);
-      }
-      if (this.hasTable('image_assets')) {
-        this.db.prepare('UPDATE image_assets SET collection_id = ? WHERE collection_id IS NULL').run(defaultIds.image);
-      }
-      if (this.hasTable('video_assets')) {
-        this.db.prepare('UPDATE video_assets SET collection_id = ? WHERE collection_id IS NULL').run(defaultIds.video);
-      }
-      if (this.hasTable('audio_assets')) {
-        this.db.prepare('UPDATE audio_assets SET collection_id = ? WHERE collection_id IS NULL').run(defaultIds.audio);
-      }
-      this.db
-        .prepare('UPDATE themes SET collection_id = ? WHERE collection_id IS NULL')
-        .run(defaultIds.theme);
-      this.db
-        .prepare('UPDATE overlays SET collection_id = ? WHERE collection_id IS NULL')
-        .run(defaultIds.overlay);
-      this.db
-        .prepare('UPDATE stages SET collection_id = ? WHERE collection_id IS NULL')
-        .run(defaultIds.stage);
-      if (this.hasTable('actions') && this.hasColumn('actions', 'collection_id')) {
-        this.db
-          .prepare("UPDATE actions SET collection_id = ? WHERE collection_id IS NULL OR collection_id = ''")
-          .run(defaultIds.macro);
-      }
-    });
-    tx();
-  }
-
-  peekMediaAssetType(itemId: Id): MediaAssetType | null {
-    for (const table of MEDIA_ASSET_TABLES) {
-      const row = this.db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(itemId) as { id: string } | undefined;
-      if (row) return MEDIA_TYPE_BY_TABLE[table];
-    }
-    return null;
-  }
-
-  private getCollectionBinKindByCollectionId(collectionId: Id): CollectionBinKind | null {
-    for (const bin of COLLECTION_BIN_KINDS) {
-      const table = COLLECTION_TABLE_BY_BIN[bin];
-      const row = this.db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(collectionId) as { id: string } | undefined;
-      if (row) return bin;
-    }
-    return null;
-  }
-
-  private getCollections(): Collection[] {
-    const out: Collection[] = [];
-    for (const bin of COLLECTION_BIN_KINDS) {
-      const table = COLLECTION_TABLE_BY_BIN[bin];
-      const rows = this.db
-        .prepare(`SELECT id, name, order_index, is_default, created_at, updated_at FROM ${table} ORDER BY order_index ASC, created_at ASC`)
-        .all() as Array<{
-        id: string;
-        name: string;
-        order_index: number;
-        is_default: number;
-        created_at: string;
-        updated_at: string;
-      }>;
-      for (const row of rows) {
-        out.push({
-          id: row.id,
-          binKind: bin,
-          name: row.name,
-          order: row.order_index,
-          isDefault: row.is_default === 1,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        });
-      }
-    }
-    return out;
-  }
-
-  private getCollectionsByIds(ids: Id[]): Collection[] {
-    if (ids.length === 0) return [];
-    const idSet = new Set(ids);
-    return this.getCollections().filter((collection) => idSet.has(collection.id));
-  }
-
-  private assertCollectionNameAvailable(binKind: CollectionBinKind, name: string, excludeId?: Id): void {
-    const table = COLLECTION_TABLE_BY_BIN[binKind];
-    const existing = this.db.prepare(
-      `SELECT id FROM ${table} WHERE lower(trim(name)) = lower(trim(?)) ${excludeId ? 'AND id != ?' : ''} LIMIT 1`,
-    ).get(...(excludeId ? [name, excludeId] : [name])) as { id: string } | undefined;
-    if (existing) {
-      throw new Error(`A collection named "${name.trim()}" already exists.`);
-    }
-  }
-
-  createCollection(input: CollectionCreateInput): SnapshotPatch {
-    const table = COLLECTION_TABLE_BY_BIN[input.binKind];
-    this.assertCollectionNameAvailable(input.binKind, input.name);
-    const now = nowIso();
-    const id = createId();
-    const nextOrder =
-      ((this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM ${table}`).get() as { maxOrder: number | null }).maxOrder ?? -1) + 1;
-    this.db
-      .prepare(`INSERT INTO ${table} (id, name, order_index, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(id, input.name, nextOrder, 0, now, now);
-    return this.buildPatch({ upsertCollectionIds: [id] });
-  }
-
-  renameCollection(input: CollectionRenameInput): SnapshotPatch {
-    const table = COLLECTION_TABLE_BY_BIN[input.binKind];
-    const existing = this.db.prepare(`SELECT id, is_default FROM ${table} WHERE id = ?`).get(input.id) as
-      | { id: string; is_default: number }
-      | undefined;
-    if (!existing) {
-      throw new Error(`Collection not found: ${input.id}`);
-    }
-    if (existing.is_default === 1) {
-      throw new Error('Default collection cannot be renamed');
-    }
-    this.assertCollectionNameAvailable(input.binKind, input.name, input.id);
-    this.db
-      .prepare(`UPDATE ${table} SET name = ?, updated_at = ? WHERE id = ?`)
-      .run(input.name, nowIso(), input.id);
-    return this.buildPatch({ upsertCollectionIds: [input.id] });
-  }
-
-  /**
-   * The single authoritative operation for deleting a bin collection (#112).
-   * Exhaustive over every `CollectionBinKind` (including `macro`), validates
-   * existence/protected-status/fallback-availability before any write, then
-   * reassigns every member to the bin's default collection, deletes the now
-   * empty collection, and compacts ordering — all inside one transaction so
-   * a failure at any step restores the parent row, member ownership, and
-   * ordering exactly as they were.
-   *
-   * This schema has no separate collection-membership join table: each
-   * member row (`presentations`, `image_assets`, `actions`, …) carries its
-   * own `collection_id` foreign key directly, enforced by `PRAGMA
-   * foreign_keys = ON`. "Delete referencing membership rows" therefore means
-   * reassigning those FK columns off the doomed collection before deleting
-   * it, not deleting separate rows.
-   */
-  deleteCollection(input: CollectionDeleteInput): SnapshotPatch {
-    const table = COLLECTION_TABLE_BY_BIN[input.binKind];
-    const existing = this.db.prepare(`SELECT id, is_default FROM ${table} WHERE id = ?`).get(input.id) as
-      | { id: string; is_default: number }
-      | undefined;
-    // NOT converted to a throw under #214 group 1, unlike the identical
-    // guard in renameCollection: delete-collection.test.ts (#112, an
-    // existing test file outside this change's write boundary) pins
-    // "is a no-op for an id that does not exist" as the contract for this
-    // exact branch. Revisit alongside that test in a follow-up.
-    if (!existing) return this.buildPatch({});
-    if (existing.is_default === 1) {
-      throw new CollectionDeletionError(
-        'protected-default',
-        input.binKind,
-        input.id,
-        'Default collection cannot be deleted',
-      );
-    }
-
-    // Validate fallback availability before any write: a missing default
-    // must abort the whole operation, never self-heal mid-delete.
-    const defaultId = this.findDefaultCollectionId(input.binKind);
-    if (!defaultId) {
-      throw new CollectionDeletionError(
-        'default-collection-missing',
-        input.binKind,
-        input.id,
-        `No default collection exists for bin: ${input.binKind}`,
-      );
-    }
-
-    const tx = this.db.transaction((): { moved: CollectionMemberMoveResult; reorderedCollectionIds: Id[] } => {
-      const moved = this.reassignItemsForCollection(input.binKind, input.id, defaultId);
-      this.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(input.id);
-      const reorderedCollectionIds = this.compactCollectionOrdering(input.binKind);
-      return { moved, reorderedCollectionIds };
-    });
-    const { moved, reorderedCollectionIds } = tx();
-
-    return this.buildPatch({
-      deletedCollectionIds: [input.id],
-      upsertPresentationIds: moved.presentations,
-      upsertLyricIds: moved.lyrics,
-      upsertTalkIds: moved.talks,
-      upsertMediaAssetIds: moved.mediaAssets,
-      upsertThemeIds: moved.themes,
-      upsertOverlayIds: moved.overlays,
-      upsertStageIds: moved.stages,
-      upsertMacroIds: moved.macros,
-      upsertCollectionIds: reorderedCollectionIds,
-    });
-  }
-
-  reorderCollections(input: CollectionReorderInput): SnapshotPatch {
-    const table = COLLECTION_TABLE_BY_BIN[input.binKind];
-    const now = nowIso();
-    const tx = this.db.transaction(() => {
-      input.ids.forEach((id, index) => {
-        this.db.prepare(`UPDATE ${table} SET order_index = ?, updated_at = ? WHERE id = ?`).run(index, now, id);
-      });
-    });
-    tx();
-    return this.buildPatch({ upsertCollectionIds: input.ids });
-  }
-
-  setItemCollection(input: CollectionAssignmentInput): SnapshotPatch {
-    const itemTable = this.resolveItemTable(input.itemType, input.itemId);
-    // Unlike the target-collection guard below (already throwing), this guard
-    // masked a failed item lookup across the polymorphic item tables: the id
-    // was given and did not resolve, so reporting success was a lie (#214).
-    if (!itemTable) throw new Error(`Item not found: ${input.itemId}`);
-
-    const targetBin = this.getCollectionBinKindByCollectionId(input.collectionId);
-    if (!targetBin) {
-      throw new Error(`Unknown target collection: ${input.collectionId}`);
-    }
-    if (!isItemTypeAllowedInBin(input.itemType, targetBin, input.itemId, this)) {
-      throw new Error(`Item type ${input.itemType} cannot be moved into bin ${targetBin}`);
-    }
-
-    this.db
-      .prepare(`UPDATE ${itemTable} SET collection_id = ?, updated_at = ? WHERE id = ?`)
-      .run(input.collectionId, nowIso(), input.itemId);
-
-    return this.buildPatch(buildPatchSpecForItemType(input.itemType, input.itemId));
-  }
-
-  // Resolves the SQL table that holds a given collection item, or null when
-  // the item is missing. Media assets are spread across image/video/audio
-  // tables since the v11 schema split, so we probe each one until we find
-  // it; everything else maps statically. A null result is a failed lookup,
-  // surfaced by the caller as `Item not found` (#214).
-  private resolveItemTable(itemType: CollectionItemType, itemId: Id): string | null {
-    if (itemType === 'media_asset') {
-      for (const table of MEDIA_ASSET_TABLES) {
-        const row = this.db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(itemId) as
-          | { id: string }
-          | undefined;
-        if (row) return table;
-      }
-      return null;
-    }
-    const table = ITEM_TABLE_BY_TYPE[itemType];
-    const row = this.db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(itemId) as
-      | { id: string }
-      | undefined;
-    return row ? table : null;
-  }
-
-  private reassignItemsForCollection(
-    binKind: CollectionBinKind,
-    fromCollectionId: Id,
-    toCollectionId: Id,
-  ): CollectionMemberMoveResult {
-    const moved: CollectionMemberMoveResult = {
-      presentations: [],
-      lyrics: [],
-      talks: [],
-      mediaAssets: [],
-      themes: [],
-      overlays: [],
-      stages: [],
-      macros: [],
-    };
-    const now = nowIso();
-
-    const reassign = (table: string, bucket: Id[]) => {
-      const rows = this.db.prepare(`SELECT id FROM ${table} WHERE collection_id = ?`).all(fromCollectionId) as Array<{ id: string }>;
-      for (const row of rows) {
-        bucket.push(row.id);
-      }
-      this.db
-        .prepare(`UPDATE ${table} SET collection_id = ?, updated_at = ? WHERE collection_id = ?`)
-        .run(toCollectionId, now, fromCollectionId);
-    };
-
-    switch (binKind) {
-      case 'deck':
-        reassign('presentations', moved.presentations);
-        reassign('lyrics', moved.lyrics);
-        if (this.hasTable('talks')) reassign('talks', moved.talks);
-        break;
-      case 'image':
-        reassign('image_assets', moved.mediaAssets);
-        break;
-      case 'video':
-        reassign('video_assets', moved.mediaAssets);
-        break;
-      case 'audio':
-        reassign('audio_assets', moved.mediaAssets);
-        break;
-      case 'theme':
-        reassign('themes', moved.themes);
-        break;
-      case 'overlay':
-        reassign('overlays', moved.overlays);
-        break;
-      case 'stage':
-        reassign('stages', moved.stages);
-        break;
-      case 'macro':
-        reassign('actions', moved.macros);
-        break;
-      default:
-        return assertNeverCollectionBinKind(binKind);
-    }
-
-    return moved;
-  }
-
-  /**
-   * Finds the bin's default collection id without ever creating one.
-   * Unlike `getDefaultCollectionId` (used by every content-creation path,
-   * which self-heals by reseeding a missing default so authoring never
-   * breaks), collection deletion must abort — before any write — if the
-   * default is missing rather than silently minting a fresh one mid-delete.
-   */
-  private findDefaultCollectionId(binKind: CollectionBinKind): Id | null {
-    const table = COLLECTION_TABLE_BY_BIN[binKind];
-    const row = this.db
-      .prepare(`SELECT id FROM ${table} WHERE is_default = 1 ORDER BY created_at ASC LIMIT 1`)
-      .get() as { id: string } | undefined;
-    return row ? row.id : null;
-  }
-
-  /**
-   * Re-sequences `order_index` for every remaining collection in a bin to a
-   * contiguous 0..n-1 range (preserving relative order), closing the gap
-   * left by a deleted collection. Returns only the ids whose order actually
-   * changed, so callers can report a precise patch.
-   */
-  private compactCollectionOrdering(binKind: CollectionBinKind): Id[] {
-    const table = COLLECTION_TABLE_BY_BIN[binKind];
-    const rows = this.db
-      .prepare(`SELECT id, order_index FROM ${table} ORDER BY order_index ASC, created_at ASC`)
-      .all() as Array<{ id: string; order_index: number }>;
-    const now = nowIso();
-    const changedIds: Id[] = [];
-    rows.forEach((row, index) => {
-      if (row.order_index !== index) {
-        this.db.prepare(`UPDATE ${table} SET order_index = ?, updated_at = ? WHERE id = ?`).run(index, now, row.id);
-        changedIds.push(row.id);
-      }
-    });
-    return changedIds;
-  }
-
-
-
-
-
   private seedIfEmpty(): void {
-    const count = this.db.prepare('SELECT COUNT(*) AS count FROM libraries').get() as { count: number };
+    const count = this.db.prepare('SELECT COUNT(*) AS count FROM playlists').get() as { count: number };
     if (count.count > 0) return;
 
-    const libraryId = createId();
     const presentationId = createId();
     const slideId = createId();
     const playlistId = createId();
-    const groupId = createId();
     const now = nowIso();
 
     const tx = this.db.transaction(() => {
       this.db
-        .prepare('INSERT INTO libraries (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
-        .run(libraryId, 'Church Library', now, now);
-
-      const deckCollectionId = this.getDefaultCollectionId('deck');
-      this.db
-        .prepare('INSERT INTO presentations (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(presentationId, 'Welcome Slides', null, deckCollectionId, 0, now, now);
+        .prepare('INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(presentationId, 'Welcome Slides', null, 0, now, now);
 
       this.db
         .prepare(
@@ -1602,36 +885,29 @@ export class CastRepository {
         .run(createId(), slideId, 'shape', 160, 380, 1600, 220, 0, 1, 1, 'background', shapePayload, null, now, now);
 
       this.db
-        .prepare('INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(playlistId, libraryId, 'Sunday Service', 0, now, now);
-
-      this.db
-        .prepare(
-          'INSERT INTO playlist_groups (id, playlist_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-        )
-        .run(groupId, playlistId, 'Opening', 0, now, now);
+        .prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(playlistId, 'Sunday Service', 0, now, now);
 
       const welcomeEntryOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference('presentation', presentationId));
       this.db
         .prepare(
-          'INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          `INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(createId(), groupId, welcomeEntryOwner.presentationId, welcomeEntryOwner.lyricId, welcomeEntryOwner.talkId, 0, now, now);
+        .run(createId(), playlistId, 'item', welcomeEntryOwner.presentationId, welcomeEntryOwner.lyricId, welcomeEntryOwner.talkId, 0, now, now);
 
-      const overlayCollectionId = this.getDefaultCollectionId('overlay');
       const overlayId = createId();
       const overlaySlideId = `${overlayId}:slide`;
       this.db
         .prepare(
-          `INSERT INTO overlays (id, name, enabled, animation_json, collection_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
         )
         .run(
           overlayId,
           'Watermark',
           1,
           JSON.stringify({ kind: 'pulse', durationMs: 2000 }),
-          overlayCollectionId,
           now,
           now,
         );
@@ -1670,39 +946,23 @@ export class CastRepository {
     tx();
   }
 
-
-
-
-
   getSnapshot(): AppSnapshot {
-    const libraries = this.getLibraries();
-    const presentations = this.getPresentations();
-    const lyrics = this.getLyrics();
-    const talks = this.getTalks();
-    const itemsById = new Map<Id, DeckItem>([
-      ...presentations.map((deck) => [deck.id, deck] as const),
-      ...lyrics.map((lyric) => [lyric.id, lyric] as const),
-      ...talks.map((talk) => [talk.id, talk] as const),
-    ]);
-    const libraryBundles = libraries.map((library) => ({
-      library,
-      playlists: this.getPlaylistTreesByLibrary(library.id, itemsById)
-    }));
-
     return {
-      libraries,
-      libraryBundles,
-      presentations,
-      lyrics,
-      talks,
+      presentations: this.getPresentations(),
+      lyrics: this.getLyrics(),
+      talks: this.getTalks(),
       slides: this.getSlides(),
       talkScriptBlocks: this.getTalkScriptBlocks(),
       slideElements: this.getSlideElements(),
       mediaAssets: this.getMediaAssets(),
       overlays: this.getOverlays(),
-      themes: this.getThemes(),
+      presentationThemes: this.getThemeRows('presentation_themes'),
+      lyricThemes: this.getThemeRows('lyric_themes'),
+      talkThemes: this.getThemeRows('talk_themes'),
+      overlayThemes: this.getThemeRows('overlay_themes'),
       stages: this.getStages(),
-      collections: this.getCollections(),
+      playlists: this.getPlaylists(),
+      playlistEntries: this.getAllPlaylistRows(),
       cues: this.listCues(),
       macros: this.listMacros(),
       triggerBindings: this.listTriggerBindings(),
@@ -1811,13 +1071,12 @@ export class CastRepository {
 
   listMacros(): Macro[] {
     const rows = this.db.prepare(
-      `SELECT id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at
+      `SELECT id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at
        FROM actions ORDER BY updated_at DESC, created_at DESC, id ASC`
     ).all() as Array<{
       id: string;
       name: string;
       description: string;
-      collection_id: string;
       scope_level: string;
       on_scope_exit: string;
       loop_enabled: number;
@@ -1832,7 +1091,6 @@ export class CastRepository {
       id: row.id,
       name: row.name,
       description: row.description,
-      collectionId: row.collection_id,
       cues: cuesByMacroId.get(row.id) ?? [],
       scopeLevel: row.scope_level as ScopeLevel,
       onScopeExit: row.on_scope_exit as OnScopeExit,
@@ -1849,7 +1107,6 @@ export class CastRepository {
     const name = input.name.trim() || 'Untitled macro';
     const description = input.description?.trim() ?? '';
     const cues = input.cues ?? [];
-    const collectionId = input.collectionId ?? this.getDefaultCollectionId('macro');
     const scopeLevel: ScopeLevel = input.scopeLevel ?? 'global';
     const onScopeExit: OnScopeExit = input.onScopeExit ?? 'cancel';
     const loopEnabled = input.loopEnabled ? 1 : 0;
@@ -1857,8 +1114,8 @@ export class CastRepository {
 
     const insertMacro = this.db.prepare(
       `INSERT INTO actions
-       (id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const insertMacroCue = this.db.prepare(
       `INSERT INTO action_steps
@@ -1867,7 +1124,7 @@ export class CastRepository {
     );
 
     const tx = this.db.transaction(() => {
-      insertMacro.run(macroId, name, description, collectionId, scopeLevel, onScopeExit, loopEnabled, loopCount, now, now);
+      insertMacro.run(macroId, name, description, scopeLevel, onScopeExit, loopEnabled, loopCount, now, now);
       for (const macroCue of cues) {
         const cue = this.getCue(macroCue.cueId);
         insertMacroCue.run(
@@ -2032,25 +1289,11 @@ export class CastRepository {
    * Used by global undo/redo: the renderer holds the pre-mutation snapshot
    * and asks the repo to swap the on-disk state to match. Wrapped in a
    * single transaction so a partial failure rolls back to the prior state.
-   *
-   * Collection identity is snapshot-authoritative (#208): the eight
-   * `*_collections` tables are cleared and re-seeded from `snapshot.collections`
-   * exactly like every other table, rather than left holding whatever the
-   * destination database had self-seeded. This matters even on the database
-   * that produced the snapshot — `deleteCollection` performs a real `DELETE`
-   * on the collection row, so undoing across a collection deletion needs the
-   * deleted collection's row back, not just its default-bin siblings. Every
-   * table whose rows carry a `collection_id` (themes, presentations, lyrics,
-   * talks, media assets, overlays, stages, actions) is deleted before the
-   * collection tables and re-inserted after them, so a collection row always
-   * exists before anything can reference it — the same parent-before-child /
-   * child-before-parent discipline `clearProjectBackupTables` and
+   * Tables are deleted child-before-parent and re-inserted parent-before-
+   * child — the same discipline `clearProjectBackupTables`/
    * `insertProjectBackupRows` use for the project-backup restore path.
-   * `assertSnapshotCollectionDefaults` fails fast, before any table is
-   * touched, if the snapshot doesn't carry exactly one default per bin.
    */
   restoreFromSnapshot(snapshot: AppSnapshot): AppSnapshot {
-    assertSnapshotCollectionDefaults(snapshot.collections);
     const tx = this.db.transaction(() => {
       this.db.exec(`
         DELETE FROM trigger_bindings;
@@ -2058,146 +1301,77 @@ export class CastRepository {
         DELETE FROM actions;
         DELETE FROM cues;
         DELETE FROM playlist_entries;
+        DELETE FROM playlists;
         DELETE FROM talk_script_blocks;
         DELETE FROM slide_elements;
         DELETE FROM slides;
         DELETE FROM overlays;
-        DELETE FROM themes;
         DELETE FROM stages;
-        DELETE FROM playlist_groups;
-        DELETE FROM playlists;
         DELETE FROM presentations;
         DELETE FROM lyrics;
         DELETE FROM talks;
+        DELETE FROM presentation_themes;
+        DELETE FROM lyric_themes;
+        DELETE FROM talk_themes;
+        DELETE FROM overlay_themes;
         DELETE FROM image_assets;
         DELETE FROM video_assets;
         DELETE FROM audio_assets;
-        DELETE FROM libraries;
-        DELETE FROM deck_collections;
-        DELETE FROM image_collections;
-        DELETE FROM video_collections;
-        DELETE FROM audio_collections;
-        DELETE FROM theme_collections;
-        DELETE FROM overlay_collections;
-        DELETE FROM stage_collections;
-        DELETE FROM macro_collections;
       `);
 
-      // Collections must exist before anything below can reference them via
-      // `collection_id` (themes, presentations/lyrics/talks, media assets,
-      // overlays, stages, actions all insert after this loop).
-      for (const bin of COLLECTION_BIN_KINDS) {
-        const table = COLLECTION_TABLE_BY_BIN[bin];
-        const insertCollection = this.db.prepare(
-          `INSERT INTO ${table} (id, name, order_index, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
-        );
-        for (const collection of snapshot.collections) {
-          if (collection.binKind !== bin) continue;
-          insertCollection.run(
-            collection.id,
-            collection.name,
-            collection.order,
-            collection.isDefault ? 1 : 0,
-            collection.createdAt,
-            collection.updatedAt,
-          );
+      const insertThemeRow = (table: ThemeTableName, themes: readonly PresentationTheme[]): void => {
+        const insert = this.db.prepare(`INSERT INTO ${table} (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`);
+        const containerKind = THEME_CONTAINER_KIND_BY_TABLE[table];
+        for (const theme of themes) {
+          const themeSlideId = theme.slideId ?? `${theme.id}:slide`;
+          insert.run(theme.id, theme.name, theme.width, theme.height, theme.order, theme.createdAt, theme.updatedAt);
+          this.createContainerSlide(themeSlideId, containerKind, theme.id, theme.width, theme.height, theme.createdAt);
+          this.replaceContainerElements(themeSlideId, theme.elements, theme.updatedAt);
         }
-      }
-
-      const insertLibrary = this.db.prepare(
-        'INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-      );
-      for (const library of snapshot.libraries) {
-        insertLibrary.run(library.id, library.name, library.order, library.createdAt, library.updatedAt);
-      }
-
-      const insertTheme = this.db.prepare(
-        `INSERT INTO themes (id, name, kind, width, height, order_index, collection_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      );
-      for (const theme of snapshot.themes) {
-        const themeSlideId = theme.slideId ?? `${theme.id}:slide`;
-        insertTheme.run(
-          theme.id,
-          theme.name,
-          theme.kind,
-          theme.width,
-          theme.height,
-          theme.order,
-          theme.collectionId,
-          theme.createdAt,
-          theme.updatedAt,
-        );
-        this.createContainerSlide(themeSlideId, 'theme', theme.id, theme.width, theme.height, theme.createdAt);
-        this.replaceContainerElements(themeSlideId, theme.elements, theme.updatedAt);
-      }
+      };
+      insertThemeRow('presentation_themes', snapshot.presentationThemes);
+      insertThemeRow('lyric_themes', snapshot.lyricThemes);
+      insertThemeRow('talk_themes', snapshot.talkThemes);
+      insertThemeRow('overlay_themes', snapshot.overlayThemes);
 
       const insertPresentation = this.db.prepare(
-        'INSERT INTO presentations (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
       for (const presentation of snapshot.presentations) {
-        insertPresentation.run(
-          presentation.id,
-          presentation.title,
-          presentation.themeId ?? null,
-          presentation.collectionId,
-          presentation.order,
-          presentation.createdAt,
-          presentation.updatedAt,
-        );
+        insertPresentation.run(presentation.id, presentation.title, presentation.themeId ?? null, presentation.order, presentation.createdAt, presentation.updatedAt);
       }
 
       const insertLyric = this.db.prepare(
-        'INSERT INTO lyrics (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
       for (const lyric of snapshot.lyrics) {
-        insertLyric.run(
-          lyric.id,
-          lyric.title,
-          lyric.themeId ?? null,
-          lyric.collectionId,
-          lyric.order,
-          lyric.createdAt,
-          lyric.updatedAt,
-        );
+        insertLyric.run(lyric.id, lyric.title, lyric.themeId ?? null, lyric.order, lyric.createdAt, lyric.updatedAt);
       }
 
       const insertTalk = this.db.prepare(
-        'INSERT INTO talks (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
       for (const talk of snapshot.talks) {
-        insertTalk.run(
-          talk.id,
-          talk.title,
-          talk.themeId ?? null,
-          talk.collectionId,
-          talk.order,
-          talk.createdAt,
-          talk.updatedAt,
-        );
+        insertTalk.run(talk.id, talk.title, talk.themeId ?? null, talk.order, talk.createdAt, talk.updatedAt);
       }
 
       const insertSlide = this.db.prepare(
-        `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const slide of snapshot.slides) {
         const backgroundJson = slide.background ? JSON.stringify(slide.background) : null;
-        const backgroundSource = slide.backgroundSource ?? 'local';
         insertSlide.run(
           slide.id,
           slide.presentationId,
           slide.lyricId,
           slide.talkId,
-          slide.themeId ?? null,
-          slide.overlayId ?? null,
-          slide.stageId ?? null,
-          slide.kind ?? (slide.lyricId ? 'lyric' : slide.talkId ? 'talk' : 'presentation'),
+          slide.kind,
           slide.width,
           slide.height,
           slide.notes,
           backgroundJson,
-          backgroundSource,
+          slide.backgroundSource ?? 'local',
           slide.order,
           slide.createdAt,
           slide.updatedAt,
@@ -2209,14 +1383,7 @@ export class CastRepository {
          VALUES (?, ?, ?, ?, ?, ?)`
       );
       for (const block of snapshot.talkScriptBlocks) {
-        insertTalkScriptBlock.run(
-          block.id,
-          block.slideId,
-          block.text,
-          block.order,
-          block.createdAt,
-          block.updatedAt,
-        );
+        insertTalkScriptBlock.run(block.id, block.slideId, block.text, block.order, block.createdAt, block.updatedAt);
       }
 
       const insertSlideElement = this.db.prepare(
@@ -2225,17 +1392,9 @@ export class CastRepository {
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       // `snapshot.slideElements` (from `getSlideElements()`) is scoped to
-      // deck content slides, matching `snapshot.slides` (from `getSlides()`)
-      // exactly (#211) -- it no longer carries theme/overlay/stage container
-      // elements. Those are restored separately below via
-      // `replaceContainerElements` (theme/overlay/stage loops, keyed off
-      // each container's own `elements` field), which both recreates their
-      // container slide first and reuses the same element ids; inserting
-      // them again here would either violate the `slide_id` foreign key
-      // (their container slide hasn't been created yet at this point in the
-      // transaction) or duplicate a primary key (once it has). No extra
-      // filtering is needed here any more -- the getter's own scope keeps
-      // this loop to deck content elements (previously #208).
+      // item content slides, matching `snapshot.slides` exactly. Theme/
+      // overlay/stage container elements are restored separately above/below
+      // via `replaceContainerElements`, reusing the same element ids.
       for (const element of snapshot.slideElements) {
         insertSlideElement.run(
           element.id,
@@ -2257,143 +1416,84 @@ export class CastRepository {
       }
 
       const insertPlaylist = this.db.prepare(
-        'INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
       );
-      const insertGroup = this.db.prepare(
-        'INSERT INTO playlist_groups (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-      );
+      for (const playlist of snapshot.playlists) {
+        insertPlaylist.run(playlist.id, playlist.name, playlist.order, playlist.createdAt, playlist.updatedAt);
+      }
+
       const insertEntry = this.db.prepare(
-        'INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        `INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      for (const bundle of snapshot.libraryBundles) {
-        for (const tree of bundle.playlists) {
-          insertPlaylist.run(
-            tree.playlist.id,
-            tree.playlist.libraryId,
-            tree.playlist.name,
-            tree.playlist.order,
-            tree.playlist.createdAt,
-            tree.playlist.updatedAt,
-          );
-          for (const { group, entries } of tree.groups) {
-            insertGroup.run(
-              group.id,
-              group.playlistId,
-              group.name,
-              group.colorKey,
-              group.order,
-              group.createdAt,
-              group.updatedAt,
-            );
-            for (const { entry } of entries) {
-              const reference = this.resolvePlaylistEntryReference(entry);
-              const owner = toPlaylistItemOwnerColumns(reference);
-              insertEntry.run(
-                entry.id,
-                entry.groupId,
-                owner.presentationId,
-                owner.lyricId,
-                owner.talkId,
-                entry.order,
-                entry.createdAt,
-                entry.updatedAt,
-              );
-            }
-          }
+      for (const row of snapshot.playlistEntries) {
+        if (row.kind === 'separator') {
+          insertEntry.run(row.id, row.playlistId, 'separator', null, null, null, row.label, row.colorKey, row.order, row.createdAt, row.updatedAt);
+        } else {
+          const owner = toPlaylistItemOwnerColumns(row.reference);
+          insertEntry.run(row.id, row.playlistId, 'item', owner.presentationId, owner.lyricId, owner.talkId, null, null, row.order, row.createdAt, row.updatedAt);
         }
       }
 
       const insertImageAsset = this.db.prepare(
-        'INSERT INTO image_assets (id, name, src, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
       const insertVideoAsset = this.db.prepare(
-        'INSERT INTO video_assets (id, name, src, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO video_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
       const insertAudioAsset = this.db.prepare(
-        'INSERT INTO audio_assets (id, name, src, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        'INSERT INTO audio_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
       for (const asset of snapshot.mediaAssets) {
         const stmt = asset.type === 'image' ? insertImageAsset : asset.type === 'video' ? insertVideoAsset : insertAudioAsset;
-        stmt.run(
-          asset.id,
-          asset.name,
-          asset.src,
-          asset.collectionId,
-          asset.order,
-          asset.createdAt,
-          asset.updatedAt,
-        );
+        stmt.run(asset.id, asset.name, asset.src, asset.order, asset.createdAt, asset.updatedAt);
       }
 
       const insertOverlay = this.db.prepare(
-        `INSERT INTO overlays
-          (id, name, enabled, animation_json, collection_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       );
       for (const overlay of snapshot.overlays) {
         const overlaySlideId = overlay.slideId ?? `${overlay.id}:slide`;
-        insertOverlay.run(
-          overlay.id,
-          overlay.name,
-          overlay.enabled ? 1 : 0,
-          JSON.stringify(overlay.animation),
-          overlay.collectionId,
-          overlay.createdAt,
-          overlay.updatedAt,
-        );
+        insertOverlay.run(overlay.id, overlay.name, overlay.enabled ? 1 : 0, JSON.stringify(overlay.animation), overlay.createdAt, overlay.updatedAt);
         this.createContainerSlide(overlaySlideId, 'overlay', overlay.id, DEFAULT_W, DEFAULT_H, overlay.createdAt);
         this.replaceContainerElements(overlaySlideId, overlay.elements, overlay.updatedAt);
       }
 
       const insertStage = this.db.prepare(
-        `INSERT INTO stages (id, name, width, height, order_index, collection_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
       for (const stage of snapshot.stages) {
         const stageSlideId = stage.slideId ?? `${stage.id}:slide`;
-        insertStage.run(
-          stage.id,
-          stage.name,
-          stage.width,
-          stage.height,
-          stage.order,
-          stage.collectionId,
-          stage.createdAt,
-          stage.updatedAt,
-        );
+        insertStage.run(stage.id, stage.name, stage.width, stage.height, stage.order, stage.createdAt, stage.updatedAt);
         this.createContainerSlide(stageSlideId, 'stage', stage.id, stage.width, stage.height, stage.createdAt);
         this.replaceContainerElements(stageSlideId, stage.elements, stage.updatedAt);
       }
 
       const insertCue = this.db.prepare(
-        `INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       );
       for (const cue of snapshot.cues) {
-        insertCue.run(
-          cue.id,
-          cue.kind,
-          JSON.stringify(cue.payload),
-          cue.failurePolicy,
-          cue.createdAt,
-          cue.updatedAt,
-        );
+        insertCue.run(cue.id, cue.kind, JSON.stringify(cue.payload), cue.failurePolicy, cue.createdAt, cue.updatedAt);
       }
 
       const insertMacro = this.db.prepare(
-        'INSERT INTO actions (id, name, description, collection_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       const insertMacroStep = this.db.prepare(
         `INSERT INTO action_steps
-         (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, delay_before_ms, delay_after_ms, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const macro of snapshot.macros) {
         insertMacro.run(
           macro.id,
           macro.name,
           macro.description,
-          macro.collectionId,
+          macro.scopeLevel,
+          macro.onScopeExit,
+          macro.loopEnabled ? 1 : 0,
+          macro.loopCount,
           macro.createdAt,
           macro.updatedAt,
         );
@@ -2406,6 +1506,8 @@ export class CastRepository {
             step.orderIndex,
             JSON.stringify(step.cue.payload),
             step.cue.failurePolicy,
+            normalizeDelayMs(step.delayBeforeMs),
+            normalizeDelayMs(step.delayAfterMs),
             step.createdAt,
             step.updatedAt,
           );
@@ -2436,59 +1538,71 @@ export class CastRepository {
     return this.getSnapshot();
   }
 
-  exportDeckBundle(itemIds: Id[], options: DeckBundleExportOptions = {}): DeckBundleManifest {
+  exportBundle(itemIds: Id[], options: BundleExportOptions = {}): BundleManifest {
     const playlistIds = Array.from(new Set(options.playlistIds ?? []));
     const playlists = playlistIds
-      .map((playlistId) => this.getDeckBundlePlaylistById(playlistId))
-      .filter((playlist): playlist is DeckBundlePlaylist => playlist !== null)
+      .map((playlistId) => this.getBundlePlaylistById(playlistId))
+      .filter((playlist): playlist is BundlePlaylist => playlist !== null)
       .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
 
-    const playlistItemIds = collectDeckBundlePlaylistItemIds(playlists);
+    const playlistItemIds = collectBundlePlaylistItemIds(playlists);
 
     const uniqueIds = Array.from(new Set([...itemIds, ...playlistItemIds]));
     const items = uniqueIds
-      .map((itemId) => this.getDeckBundleItemById(itemId))
-      .filter((item): item is DeckBundleItem => item !== null)
+      .map((itemId) => this.getBundleItemById(itemId))
+      .filter((item): item is BundleItem => item !== null)
       .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title));
 
     const includedItemIds = new Set(items.map((item) => item.id));
-    const filteredPlaylists: DeckBundlePlaylist[] = filterDeckBundlePlaylistsToIncludedItems(playlists, includedItemIds);
+    const filteredPlaylists: BundlePlaylist[] = filterBundlePlaylistsToIncludedItems(playlists, includedItemIds);
 
-    const themes = options.includeAllThemes
-      ? this.getThemes().map(toDeckBundleTheme)
-      : Array.from(new Set(items.map((item) => item.themeId).filter((id): id is Id => Boolean(id))))
-          .map((themeId) => this.getDeckBundleThemeById(themeId))
-          .filter((theme): theme is DeckBundleTheme => theme !== null)
-          .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
+    let themes: BundleTheme[];
+    if (options.includeAllThemes) {
+      themes = [
+        ...this.getThemeRows('presentation_themes').map((theme) => toBundleTheme(theme, 'presentation')),
+        ...this.getThemeRows('lyric_themes').map((theme) => toBundleTheme(theme, 'lyric')),
+        ...this.getThemeRows('talk_themes').map((theme) => toBundleTheme(theme, 'talk')),
+        ...this.getThemeRows('overlay_themes').map((theme) => toBundleTheme(theme, 'overlay')),
+      ];
+    } else {
+      const themeRefs = new Map<Id, ThemeOwnerType>();
+      for (const item of items) {
+        if (item.themeId) themeRefs.set(item.themeId, item.type);
+      }
+      themes = Array.from(themeRefs.entries())
+        .map(([themeId, themeType]) => this.getBundleThemeById(themeId, themeType))
+        .filter((theme): theme is BundleTheme => theme !== null)
+        .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name));
+    }
 
     const overlays = options.includeOverlays
-      ? this.getOverlays().map(toDeckBundleOverlay)
+      ? this.getOverlays().map(toBundleOverlay)
       : [];
 
     const stages = options.includeStages
-      ? this.getStages().map(toDeckBundleStage)
+      ? this.getStages().map(toBundleStage)
       : [];
 
     return {
       format: 'cast-deck-bundle',
-      version: 1,
+      version: 2,
       exportedAt: nowIso(),
       items,
       themes,
       overlays,
       stages,
       playlists: filteredPlaylists,
-      mediaReferences: collectDeckBundleMediaReferences(items, themes, overlays, stages),
+      mediaReferences: collectBundleMediaReferences(items, themes, overlays, stages),
     };
   }
 
-  inspectImportBundle(manifest: DeckBundleManifest): DeckBundleInspection {
-    this.assertValidDeckBundleManifest(manifest, 'inspectImportBundle');
-    const normalizedManifest = cloneDeckBundleManifest(manifest);
+  inspectImportBundle(manifest: BundleManifest): BundleInspection {
+    const validatedManifest = this.assertValidBundleManifest(manifest, 'inspectImportBundle');
+    const normalizedManifest = cloneBundleManifest(validatedManifest);
     const overlays = normalizedManifest.overlays ?? [];
     const stages = normalizedManifest.stages ?? [];
     const playlists = normalizedManifest.playlists ?? [];
-    const mediaReferences = collectDeckBundleMediaReferences(
+    const mediaReferences = collectBundleMediaReferences(
       normalizedManifest.items,
       normalizedManifest.themes,
       overlays,
@@ -2514,25 +1628,24 @@ export class CastRepository {
         }))
         .sort((left, right) => left.title.localeCompare(right.title)),
       themes: normalizedManifest.themes
-        .map((theme): DeckBundleInspectionTheme => ({
+        .map((theme): BundleInspectionTheme => ({
           id: theme.id,
           name: theme.name,
-          kind: theme.kind,
+          themeType: theme.themeType,
         }))
         .sort((left, right) => left.name.localeCompare(right.name)),
       overlays: overlays
-        .map((overlay): DeckBundleInspectionOverlay => ({ id: overlay.id, name: overlay.name, type: overlay.type }))
+        .map((overlay): BundleInspectionOverlay => ({ id: overlay.id, name: overlay.name, type: overlay.type }))
         .sort((left, right) => left.name.localeCompare(right.name)),
       stages: stages
-        .map((stage): DeckBundleInspectionStage => ({ id: stage.id, name: stage.name }))
+        .map((stage): BundleInspectionStage => ({ id: stage.id, name: stage.name }))
         .sort((left, right) => left.name.localeCompare(right.name)),
       playlists: playlists
-        .map((playlist): DeckBundleInspectionPlaylist => ({
+        .map((playlist): BundleInspectionPlaylist => ({
           id: playlist.id,
           name: playlist.name,
-          libraryName: playlist.libraryName,
-          groupCount: playlist.groups.length,
-          entryCount: playlist.groups.reduce((sum, group) => sum + group.entries.length, 0),
+          separatorCount: playlist.rows.filter((row) => row.kind === 'separator').length,
+          entryCount: playlist.rows.filter((row) => row.kind === 'item').length,
         }))
         .sort((left, right) => left.name.localeCompare(right.name)),
       mediaReferences,
@@ -2540,9 +1653,9 @@ export class CastRepository {
     };
   }
 
-  finalizeImportBundle(manifest: DeckBundleManifest, decisions: DeckBundleBrokenReferenceDecision[]): AppSnapshot {
-    this.assertValidDeckBundleManifest(manifest, 'finalizeImportBundle');
-    const workingManifest = cloneDeckBundleManifest(manifest);
+  finalizeImportBundle(manifest: BundleManifest, decisions: BundleBrokenReferenceDecision[]): AppSnapshot {
+    const validatedManifest = this.assertValidBundleManifest(manifest, 'finalizeImportBundle');
+    const workingManifest = cloneBundleManifest(validatedManifest);
     const brokenReferences = this.collectBrokenBundleReferences(workingManifest);
     const decisionMap = new Map(decisions.map((decision) => [decision.source, decision]));
 
@@ -2559,96 +1672,75 @@ export class CastRepository {
     this.applyBrokenReferenceDecisions(workingManifest, decisionMap);
 
     const now = nowIso();
-    const nextThemeOrder = this.getNextThemeOrderIndex();
-    const nextContentOrder = this.getMaxDeckOrder() + 1;
-    const nextMediaAssetOrder = this.getNextMediaAssetOrderIndex();
     const normalizedReplacementSources = this.collectReplacementMediaSources(brokenReferences, decisionMap);
+    const nextMediaAssetOrder = this.getNextMediaAssetOrderIndex();
 
-    const insertTheme = this.db.prepare(
-      `INSERT INTO themes
-        (id, name, kind, width, height, order_index, collection_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    const insertPresentation = this.db.prepare(
-      'INSERT INTO presentations (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    const insertLyric = this.db.prepare(
-      'INSERT INTO lyrics (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    const insertTalk = this.db.prepare(
-      'INSERT INTO talks (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
+    const insertPresentationTheme = this.db.prepare('INSERT INTO presentation_themes (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertLyricTheme = this.db.prepare('INSERT INTO lyric_themes (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertTalkTheme = this.db.prepare('INSERT INTO talk_themes (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertOverlayTheme = this.db.prepare('INSERT INTO overlay_themes (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertThemeStmtByType: Record<ThemeOwnerType, ReturnType<SqliteDatabase['prepare']>> = {
+      presentation: insertPresentationTheme,
+      lyric: insertLyricTheme,
+      talk: insertTalkTheme,
+      overlay: insertOverlayTheme,
+    };
+    const insertPresentation = this.db.prepare('INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertLyric = this.db.prepare('INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertTalk = this.db.prepare('INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
     const insertSlide = this.db.prepare(
-      `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    const insertTalkScriptBlock = this.db.prepare(
-      'INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    );
+    const insertTalkScriptBlock = this.db.prepare('INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
     const insertElement = this.db.prepare(
       `INSERT INTO slide_elements
         (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    const insertImageAsset = this.db.prepare(
-      'INSERT INTO image_assets (id, name, src, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    const insertVideoAsset = this.db.prepare(
-      'INSERT INTO video_assets (id, name, src, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    const insertAudioAsset = this.db.prepare(
-      'INSERT INTO audio_assets (id, name, src, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
-    const insertMediaAsset = (id: Id, name: string, type: MediaAssetType, src: string, collectionId: Id, order: number, createdAt: string, updatedAt: string): void => {
+    const insertImageAsset = this.db.prepare('INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertVideoAsset = this.db.prepare('INSERT INTO video_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertAudioAsset = this.db.prepare('INSERT INTO audio_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertMediaAsset = (id: Id, name: string, type: MediaAssetType, src: string, order: number, createdAt: string, updatedAt: string): void => {
       const stmt = type === 'image' ? insertImageAsset : type === 'video' ? insertVideoAsset : insertAudioAsset;
-      stmt.run(id, name, src, collectionId, order, createdAt, updatedAt);
+      stmt.run(id, name, src, order, createdAt, updatedAt);
     };
-    const insertOverlay = this.db.prepare(
-      `INSERT INTO overlays
-       (id, name, enabled, animation_json, collection_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    );
-    const insertStage = this.db.prepare(
-      `INSERT INTO stages (id, name, width, height, order_index, collection_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    const insertLibrary = this.db.prepare(
-      'INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
-    );
-    const insertPlaylist = this.db.prepare(
-      'INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-    );
-    const insertPlaylistGroup = this.db.prepare(
-      'INSERT INTO playlist_groups (id, playlist_id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-    );
+    const insertOverlay = this.db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertStage = this.db.prepare('INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insertPlaylist = this.db.prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
     const insertPlaylistEntry = this.db.prepare(
-      `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
     const nextStageOrder = (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM stages').get() as { next_order: number }).next_order;
-    const importDeckCollectionId = this.getDefaultCollectionId('deck');
-    const importThemeCollectionId = this.getDefaultCollectionId('theme');
-    const importOverlayCollectionId = this.getDefaultCollectionId('overlay');
-    const importStageCollectionId = this.getDefaultCollectionId('stage');
+    const nextPlaylistOrderBase = (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM playlists').get() as { next_order: number }).next_order;
+    const nextOrderByItemType: Record<ItemType, number> = {
+      presentation: (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM presentations').get() as { next_order: number }).next_order,
+      lyric: (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM lyrics').get() as { next_order: number }).next_order,
+      talk: (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM talks').get() as { next_order: number }).next_order,
+    };
+    const nextOrderByThemeType: Record<ThemeOwnerType, number> = {
+      presentation: this.getNextThemeOrderIndex('presentation_themes'),
+      lyric: this.getNextThemeOrderIndex('lyric_themes'),
+      talk: this.getNextThemeOrderIndex('talk_themes'),
+      overlay: this.getNextThemeOrderIndex('overlay_themes'),
+    };
 
     const tx = this.db.transaction(() => {
       const themeIdMap = new Map<Id, Id>();
       const itemIdMap = new Map<Id, Id>();
       const replacementAssetKeys = new Set<string>();
       // Maps each original (pre-import) theme element id to the newly
-      // materialized theme element id, plus the original theme id it belongs
-      // to. Deck-item elements translate their `sourceThemeElementId`
-      // through this map at insert time; an id that fails to resolve here
-      // (dangling, unknown, or pointing at a theme not present in the
-      // bundle) is written as NULL rather than an unproven/broken id -
-      // mirrors the conservative provenance repair in migration v22.
+      // materialized theme element id, plus the original theme id it
+      // belongs to. Item elements translate their `sourceThemeElementId`
+      // through this map at insert time.
       const themeElementIdMap = new Map<Id, { newId: Id; originalThemeId: Id }>();
 
       workingManifest.themes
         .slice()
         .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name))
-        .forEach((theme, index) => {
+        .forEach((theme) => {
           const newThemeId = createId();
           const newThemeSlideId = `${newThemeId}:slide`;
           themeIdMap.set(theme.id, newThemeId);
@@ -2659,18 +1751,9 @@ export class CastRepository {
             }
             return importedElement;
           });
-          insertTheme.run(
-            newThemeId,
-            theme.name,
-            this.normalizeThemeKind(theme.kind),
-            theme.width,
-            theme.height,
-            nextThemeOrder + index,
-            importThemeCollectionId,
-            now,
-            now,
-          );
-          this.createContainerSlide(newThemeSlideId, 'theme', newThemeId, theme.width, theme.height, now);
+          const order = nextOrderByThemeType[theme.themeType]++;
+          insertThemeStmtByType[theme.themeType].run(newThemeId, theme.name, theme.width, theme.height, order, now, now);
+          this.createContainerSlide(newThemeSlideId, themeContainerKind(theme.themeType), newThemeId, theme.width, theme.height, now);
           this.replaceContainerElements(newThemeSlideId, nextElements, now);
         });
 
@@ -2684,7 +1767,6 @@ export class CastRepository {
           path.basename(replacementSource.rawPath),
           assetType,
           replacementSource.src,
-          this.getMediaAssetDefaultCollectionId(assetType),
           nextMediaAssetOrder + replacementIndex,
           now,
           now,
@@ -2694,26 +1776,21 @@ export class CastRepository {
       workingManifest.items
         .slice()
         .sort((left, right) => left.order - right.order || left.title.localeCompare(right.title))
-        .forEach((item, itemIndex) => {
+        .forEach((item) => {
           const newItemId = createId();
           itemIdMap.set(item.id, newItemId);
           const importedThemeId = item.themeId ? themeIdMap.get(item.themeId) ?? null : null;
           if (item.themeId && !importedThemeId) {
             throw new Error(`Missing imported theme for ${item.title}`);
           }
-          if (importedThemeId) {
-            const importedTheme = workingManifest.themes.find((theme) => theme.id === item.themeId) ?? null;
-            if (!importedTheme || !isThemeCompatibleWithDeckItem(importedTheme as Theme, item.type)) {
-              throw new Error(`Theme ${item.themeId} is incompatible with ${item.title}`);
-            }
-          }
+          const order = nextOrderByItemType[item.type]++;
 
           if (item.type === 'presentation') {
-            insertPresentation.run(newItemId, item.title, importedThemeId, importDeckCollectionId, nextContentOrder + itemIndex, now, now);
+            insertPresentation.run(newItemId, item.title, importedThemeId, order, now, now);
           } else if (item.type === 'talk') {
-            insertTalk.run(newItemId, item.title, importedThemeId, importDeckCollectionId, nextContentOrder + itemIndex, now, now);
+            insertTalk.run(newItemId, item.title, importedThemeId, order, now, now);
           } else {
-            insertLyric.run(newItemId, item.title, importedThemeId, importDeckCollectionId, nextContentOrder + itemIndex, now, now);
+            insertLyric.run(newItemId, item.title, importedThemeId, order, now, now);
           }
 
           item.slides
@@ -2728,9 +1805,6 @@ export class CastRepository {
                 item.type === 'presentation' ? newItemId : null,
                 item.type === 'lyric' ? newItemId : null,
                 item.type === 'talk' ? newItemId : null,
-                null,
-                null,
-                null,
                 item.type,
                 slide.width,
                 slide.height,
@@ -2744,11 +1818,6 @@ export class CastRepository {
 
               slide.elements.forEach((element, elementIndex) => {
                 const nextElement = this.createImportedSlideElement(element, newSlideId, now, elementIndex);
-                // Only trust provenance that resolves to a theme element
-                // materialized in *this* import and belongs to the theme
-                // actually assigned to this deck item; every other case
-                // (dangling id, theme absent from the bundle, mismatched
-                // theme) is written as NULL rather than a guess.
                 const mappedProvenance = element.sourceThemeElementId
                   ? themeElementIdMap.get(element.sourceThemeElementId)
                   : undefined;
@@ -2782,452 +1851,230 @@ export class CastRepository {
       (workingManifest.overlays ?? []).forEach((overlay) => {
         const newOverlayId = createId();
         const newOverlaySlideId = `${newOverlayId}:slide`;
-        insertOverlay.run(
-          newOverlayId,
-          overlay.name,
-          overlay.enabled ? 1 : 0,
-          JSON.stringify(normalizeOverlayAnimation(overlay.animation)),
-          importOverlayCollectionId,
-          now,
-          now,
-        );
+        insertOverlay.run(newOverlayId, overlay.name, overlay.enabled ? 1 : 0, JSON.stringify(normalizeOverlayAnimation(overlay.animation)), now, now);
         this.createContainerSlide(newOverlaySlideId, 'overlay', newOverlayId, DEFAULT_W, DEFAULT_H, now);
-        this.replaceContainerElements(newOverlaySlideId, overlay.elements, now);
+        // Regenerate element ids exactly like the theme/item import paths
+        // above: the manifest's elements still carry the exporting
+        // database's original ids, which collide (PRIMARY KEY) with the
+        // still-live source overlay's own slide_elements rows whenever the
+        // source item wasn't deleted (e.g. importing a bundle back into the
+        // project it was exported from). No theme-element provenance concept
+        // exists for overlays (there is no persisted overlays.theme_id and
+        // no syncThemeToLinkedItems for this owner type), so provenance is
+        // cleared rather than carried over unverified.
+        const importedOverlayElements = overlay.elements.map((element, elementIndex) => ({
+          ...this.createImportedSlideElement(element, newOverlaySlideId, now, elementIndex),
+          sourceThemeElementId: null,
+        }));
+        this.replaceContainerElements(newOverlaySlideId, importedOverlayElements, now);
       });
 
       (workingManifest.stages ?? []).forEach((stage, stageIndex) => {
         const newStageId = createId();
         const newStageSlideId = `${newStageId}:slide`;
-        insertStage.run(
-          newStageId,
-          stage.name,
-          stage.width,
-          stage.height,
-          nextStageOrder + stageIndex,
-          importStageCollectionId,
-          now,
-          now,
-        );
+        insertStage.run(newStageId, stage.name, stage.width, stage.height, nextStageOrder + stageIndex, now, now);
         this.createContainerSlide(newStageSlideId, 'stage', newStageId, stage.width, stage.height, now);
-        this.replaceContainerElements(newStageSlideId, stage.elements, now);
+        // Same fix as overlays above: regenerate element ids so they can't
+        // collide with the source stage's own still-live slide_elements rows.
+        const importedStageElements = stage.elements.map((element, elementIndex) => ({
+          ...this.createImportedSlideElement(element, newStageSlideId, now, elementIndex),
+          sourceThemeElementId: null,
+        }));
+        this.replaceContainerElements(newStageSlideId, importedStageElements, now);
       });
 
       const importedPlaylists = workingManifest.playlists ?? [];
-      if (importedPlaylists.length > 0) {
-        const libraryByName = new Map<string, Id>();
-        for (const lib of this.getLibraries()) libraryByName.set(lib.name, lib.id);
-        let nextLibraryOrder =
-          ((this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM libraries').get() as { maxOrder: number | null }).maxOrder ?? -1) + 1;
+      importedPlaylists
+        .slice()
+        .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name))
+        .forEach((playlist, playlistIndex) => {
+          const newPlaylistId = createId();
+          insertPlaylist.run(newPlaylistId, playlist.name, nextPlaylistOrderBase + playlistIndex, now, now);
 
-        const resolveLibraryId = (libraryName: string): Id => {
-          const trimmed = libraryName.trim();
-          const lookupName = trimmed || 'Imported';
-          const existing = libraryByName.get(lookupName);
-          if (existing) return existing;
-          const newLibraryId = createId();
-          insertLibrary.run(newLibraryId, lookupName, nextLibraryOrder, now, now);
-          nextLibraryOrder += 1;
-          libraryByName.set(lookupName, newLibraryId);
-          return newLibraryId;
-        };
-
-        const playlistOrderByLibrary = new Map<Id, number>();
-        const nextPlaylistOrderFor = (libraryId: Id): number => {
-          if (!playlistOrderByLibrary.has(libraryId)) {
-            const maxOrder =
-              (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlists WHERE library_id = ?').get(libraryId) as {
-                maxOrder: number | null;
-              }).maxOrder ?? -1;
-            playlistOrderByLibrary.set(libraryId, maxOrder + 1);
-          }
-          const next = playlistOrderByLibrary.get(libraryId) ?? 0;
-          playlistOrderByLibrary.set(libraryId, next + 1);
-          return next;
-        };
-
-        importedPlaylists
-          .slice()
-          .sort((left, right) => left.order - right.order || left.name.localeCompare(right.name))
-          .forEach((playlist) => {
-            const libraryId = resolveLibraryId(playlist.libraryName);
-            const newPlaylistId = createId();
-            insertPlaylist.run(newPlaylistId, libraryId, playlist.name, nextPlaylistOrderFor(libraryId), now, now);
-
-            playlist.groups
-              .slice()
-              .sort((left, right) => left.order - right.order)
-              .forEach((group, groupIndex) => {
-                const newGroupId = createId();
-                insertPlaylistGroup.run(
-                  newGroupId,
-                  newPlaylistId,
-                  group.name,
-                  group.colorKey,
-                  groupIndex,
-                  now,
-                  now,
-                );
-
-                group.entries
-                  .slice()
-                  .sort((left, right) => left.order - right.order)
-                  .forEach((entry, entryIndex) => {
-                    // Validated by assertValidDeckBundleManifest above, so this
-                    // is guaranteed to have exactly one populated owner.
-                    const sourceReference = getDeckBundlePlaylistEntryReference(entry);
-                    const importedItemId = itemIdMap.get(sourceReference.itemId);
-                    if (!importedItemId) return;
-                    const owner = toPlaylistItemOwnerColumns(
-                      makePlaylistItemReference(sourceReference.type, importedItemId),
-                    );
-                    insertPlaylistEntry.run(
-                      createId(),
-                      newGroupId,
-                      owner.presentationId,
-                      owner.lyricId,
-                      owner.talkId,
-                      entryIndex,
-                      now,
-                      now,
-                    );
-                  });
-              });
-          });
-      }
+          playlist.rows
+            .slice()
+            .sort((left, right) => left.order - right.order)
+            .forEach((row, rowIndex) => {
+              if (row.kind === 'separator') {
+                insertPlaylistEntry.run(createId(), newPlaylistId, 'separator', null, null, null, row.label, row.colorKey, rowIndex, now, now);
+                return;
+              }
+              const sourceReference = getBundlePlaylistEntryReference(row);
+              const importedItemId = itemIdMap.get(sourceReference.itemId);
+              if (!importedItemId) return;
+              const owner = toPlaylistItemOwnerColumns(makePlaylistItemReference(sourceReference.type, importedItemId));
+              insertPlaylistEntry.run(createId(), newPlaylistId, 'item', owner.presentationId, owner.lyricId, owner.talkId, null, null, rowIndex, now, now);
+            });
+        });
     });
 
     tx();
     return this.getSnapshot();
   }
 
-  createLibrary(name: string): SnapshotPatch {
+  createPlaylist(name: string): SnapshotPatch {
     const now = nowIso();
-    const libraryId = createId();
-    const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM libraries').get() as {
-        maxOrder: number | null;
-      }).maxOrder ?? -1;
+    const id = createId();
+    const currentOrder = (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlists').get() as { maxOrder: number | null }).maxOrder ?? -1;
     this.db
-      .prepare('INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
-      .run(libraryId, name, currentOrder + 1, now, now);
-    return this.buildPatch({ upsertLibraryIds: [libraryId], replaceLibraryBundles: true });
+      .prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, name, currentOrder + 1, now, now);
+    return this.buildPatch({ upsertPlaylistIds: [id] });
   }
 
-  createPlaylist(libraryId: Id, name: string): SnapshotPatch {
+  createSeparator(playlistId: Id, label: string): SnapshotPatch {
+    const exists = this.db.prepare('SELECT id FROM playlists WHERE id = ?').get(playlistId);
+    if (!exists) throw new Error(`Playlist not found: ${playlistId}`);
     const now = nowIso();
-    const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlists WHERE library_id = ?').get(libraryId) as {
-        maxOrder: number | null;
-      }).maxOrder ?? -1;
-    this.db
-      .prepare('INSERT INTO playlists (id, library_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(createId(), libraryId, name, currentOrder + 1, now, now);
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  createPlaylistGroup(playlistId: Id, name: string): SnapshotPatch {
-    const now = nowIso();
-    const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_groups WHERE playlist_id = ?').get(playlistId) as {
-        maxOrder: number | null;
-      }).maxOrder ?? -1;
-
+    const id = createId();
+    const currentOrder = (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE playlist_id = ?').get(playlistId) as { maxOrder: number | null }).maxOrder ?? -1;
     this.db
       .prepare(
-        'INSERT INTO playlist_groups (id, playlist_id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
-      )
-      .run(createId(), playlistId, name, currentOrder + 1, now, now);
-
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  renamePlaylistGroup(id: Id, name: string): SnapshotPatch {
-    const result = this.db
-      .prepare('UPDATE playlist_groups SET name = ?, updated_at = ? WHERE id = ?')
-      .run(name, nowIso(), id);
-    if (result.changes === 0) throw new Error(`Group not found: ${id}`);
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  setPlaylistGroupColor(id: Id, colorKey: string | null): SnapshotPatch {
-    this.db
-      .prepare('UPDATE playlist_groups SET color_key = ?, updated_at = ? WHERE id = ?')
-      .run(colorKey, nowIso(), id);
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  addDeckItemToGroup(playlistId: Id, groupId: Id, itemId: Id): SnapshotPatch {
-    const owner = this.resolveDeckOwnerRow(itemId);
-    if (!owner) {
-      throw new Error(`Deck item not found: ${itemId}`);
-    }
-
-    const exists = this.db
-      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
-      .get(groupId, playlistId) as { id: string } | undefined;
-
-    if (!exists) {
-      throw new Error(`Group not found: ${groupId}`);
-    }
-
-    const now = nowIso();
-    const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
-        maxOrder: number | null;
-      }).maxOrder ?? -1;
-
-    const newEntryOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference(owner.type, itemId));
-    this.db
-      .prepare(
-        `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
+        `INSERT INTO playlist_entries (id, playlist_id, kind, label, color_key, order_index, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(
-        createId(),
-        groupId,
-        newEntryOwner.presentationId,
-        newEntryOwner.lyricId,
-        newEntryOwner.talkId,
-        currentOrder + 1,
-        now,
-        now,
-      );
-
-    return this.buildPatch({ replaceLibraryBundles: true });
+      .run(id, playlistId, 'separator', label, null, currentOrder + 1, now, now);
+    return this.buildPatch({ upsertPlaylistEntryIds: [id] });
   }
 
-  moveDeckItemToGroup(playlistId: Id, itemId: Id, groupId: Id | null): SnapshotPatch {
-    const owner = this.resolveDeckOwnerRow(itemId);
-    if (!owner) {
-      throw new Error(`Deck item not found: ${itemId}`);
-    }
-    const ownerColumn = this.getDeckOwnerColumn(owner.type);
-
-    // Validate the destination before any destructive work: an unresolvable
-    // group (missing, or belonging to a different playlist) must fail loudly
-    // rather than deleting the item's current entries and reporting success.
-    if (groupId) {
-      const exists = this.db
-        .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
-        .get(groupId, playlistId) as { id: string } | undefined;
-      if (!exists) {
-        throw new Error(`Group not found: ${groupId}`);
-      }
-    }
-
-    const now = nowIso();
-    const movedEntryOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference(owner.type, itemId));
-
-    const tx = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `DELETE FROM playlist_entries
-           WHERE (${ownerColumn} = ?)
-           AND group_id IN (SELECT id FROM playlist_groups WHERE playlist_id = ?)`
-        )
-        .run(itemId, playlistId);
-
-      if (!groupId) return;
-
-      const currentOrder =
-        (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
-          maxOrder: number | null;
-        }).maxOrder ?? -1;
-
-      this.db
-        .prepare(
-          `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          createId(),
-          groupId,
-          movedEntryOwner.presentationId,
-          movedEntryOwner.lyricId,
-          movedEntryOwner.talkId,
-          currentOrder + 1,
-          now,
-          now,
-        );
-    });
-
-    tx();
-    return this.buildPatch({ replaceLibraryBundles: true });
+  renameSeparator(id: Id, label: string): SnapshotPatch {
+    const result = this.db
+      .prepare("UPDATE playlist_entries SET label = ?, updated_at = ? WHERE id = ? AND kind = 'separator'")
+      .run(label, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Separator not found: ${id}`);
+    return this.buildPatch({ upsertPlaylistEntryIds: [id] });
   }
 
-  movePlaylistEntry(entryId: Id, direction: 'up' | 'down'): SnapshotPatch {
-    const current = this.db
-      .prepare('SELECT id, group_id, order_index FROM playlist_entries WHERE id = ?')
-      .get(entryId) as { id: string; group_id: string; order_index: number } | undefined;
+  setSeparatorColor(id: Id, colorKey: string | null): SnapshotPatch {
+    const result = this.db
+      .prepare("UPDATE playlist_entries SET color_key = ?, updated_at = ? WHERE id = ? AND kind = 'separator'")
+      .run(colorKey, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Separator not found: ${id}`);
+    return this.buildPatch({ upsertPlaylistEntryIds: [id] });
+  }
 
-    if (!current) throw new Error(`Playlist entry not found: ${entryId}`);
+  /** Absolute-position reorder within a playlist's flat row list — works on an item entry or a separator alike. */
+  movePlaylistRow(rowId: Id, newOrder: number): SnapshotPatch {
+    const current = this.db.prepare('SELECT id, playlist_id FROM playlist_entries WHERE id = ?').get(rowId) as { id: string; playlist_id: string } | undefined;
+    if (!current) throw new Error(`Playlist row not found: ${rowId}`);
 
-    const neighbor = direction === 'up'
-      ? this.db
-        .prepare(
-          'SELECT id, order_index FROM playlist_entries WHERE group_id = ? AND order_index < ? ORDER BY order_index DESC LIMIT 1'
-        )
-        .get(current.group_id, current.order_index)
-      : this.db
-        .prepare(
-          'SELECT id, order_index FROM playlist_entries WHERE group_id = ? AND order_index > ? ORDER BY order_index ASC LIMIT 1'
-        )
-        .get(current.group_id, current.order_index);
+    const siblings = this.db
+      .prepare('SELECT id FROM playlist_entries WHERE playlist_id = ? ORDER BY order_index ASC')
+      .all(current.playlist_id) as Array<{ id: string }>;
+    const currentIndex = siblings.findIndex((sibling) => sibling.id === rowId);
+    if (currentIndex === -1) return this.buildPatch({});
 
-    if (!neighbor) return this.buildPatch({});
+    const maxOrder = siblings.length - 1;
+    const targetOrder = Math.max(0, Math.min(newOrder, maxOrder));
+    if (currentIndex === targetOrder) return this.buildPatch({});
+
+    const reordered = siblings.filter((_, index) => index !== currentIndex);
+    reordered.splice(targetOrder, 0, siblings[currentIndex]);
 
     const now = nowIso();
     const tx = this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?')
-        .run((neighbor as { order_index: number }).order_index, now, current.id);
-      this.db
-        .prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?')
-        .run(current.order_index, now, (neighbor as { id: string }).id);
+      reordered.forEach((sibling, index) => {
+        this.db.prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?').run(index, now, sibling.id);
+      });
     });
-
     tx();
-    return this.buildPatch({ replaceLibraryBundles: true });
+
+    return this.buildPatch({ upsertPlaylistEntryIds: reordered.map((sibling) => sibling.id) });
   }
 
-  movePlaylistEntryToGroup(entryId: Id, groupId: Id | null): SnapshotPatch {
-    const entry = this.db
-      .prepare(
-        `SELECT pe.id, pe.group_id, pg.playlist_id
-         FROM playlist_entries pe
-         JOIN playlist_groups pg ON pg.id = pe.group_id
-         WHERE pe.id = ?`
-      )
-      .get(entryId) as { id: string; group_id: string; playlist_id: string } | undefined;
+  /** Detaches any row (item entry or separator) from its playlist. Never deletes the underlying Presentation/Lyric/Talk. */
+  removePlaylistRow(rowId: Id): SnapshotPatch {
+    const row = this.db.prepare('SELECT id, playlist_id FROM playlist_entries WHERE id = ?').get(rowId) as { id: string; playlist_id: string } | undefined;
+    if (!row) return this.buildPatch({});
+    this.db.prepare('DELETE FROM playlist_entries WHERE id = ?').run(rowId);
+    const changedIds = this.normalizePlaylistRowOrder(row.playlist_id);
+    return this.buildPatch({ deletedPlaylistEntryIds: [rowId], upsertPlaylistEntryIds: changedIds });
+  }
 
-    if (!entry) throw new Error(`Playlist entry not found: ${entryId}`);
+  /** Attaches an EXISTING item to a playlist as a new row. Appends when `position` is omitted. */
+  addItemToPlaylist(playlistId: Id, itemRef: ItemRef, position?: number): SnapshotPatch {
+    const playlistExists = this.db.prepare('SELECT id FROM playlists WHERE id = ?').get(playlistId);
+    if (!playlistExists) throw new Error(`Playlist not found: ${playlistId}`);
+    const owner = this.resolveItemOwnerRow(itemRef.id);
+    if (!owner || owner.type !== itemRef.type) throw new Error(`Item not found: ${itemRef.type} ${itemRef.id}`);
 
-    if (!groupId) {
-      this.db
-        .prepare('DELETE FROM playlist_entries WHERE id = ?')
-        .run(entryId);
-      return this.buildPatch({ replaceLibraryBundles: true });
-    }
-
-    const targetGroup = this.db
-      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
-      .get(groupId, entry.playlist_id) as { id: string } | undefined;
-
-    if (!targetGroup) throw new Error(`Group not found: ${groupId}`);
-
-    const now = nowIso();
-    const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM playlist_entries WHERE group_id = ?').get(groupId) as {
-        maxOrder: number | null;
-      }).maxOrder ?? -1;
-
-    this.db
-      .prepare('UPDATE playlist_entries SET group_id = ?, order_index = ?, updated_at = ? WHERE id = ?')
-      .run(groupId, currentOrder + 1, now, entryId);
-
-    return this.buildPatch({ replaceLibraryBundles: true });
+    this.insertPlaylistItemRow(playlistId, itemRef, position);
+    return this.buildPatch({ upsertPlaylistEntryIds: this.getPlaylistRows(playlistId).map((row) => row.id) });
   }
 
   createPresentation(title: string): SnapshotPatch {
     const now = nowIso();
-    const presentationId = createId();
-    const currentOrder = this.getMaxDeckOrder();
-    const deckCollectionId = this.getDefaultCollectionId('deck');
+    const id = createId();
+    const currentOrder = (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM presentations').get() as { maxOrder: number | null }).maxOrder ?? -1;
     this.db
-      .prepare('INSERT INTO presentations (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(presentationId, title, null, deckCollectionId, currentOrder + 1, now, now);
-    return this.buildPatch({ upsertPresentationIds: [presentationId] });
+      .prepare('INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, title, null, currentOrder + 1, now, now);
+    return this.buildPatch({ upsertPresentationIds: [id] });
   }
 
   createLyric(title: string): SnapshotPatch {
     const now = nowIso();
-    const lyricId = createId();
-    const currentOrder = this.getMaxDeckOrder();
-    const deckCollectionId = this.getDefaultCollectionId('deck');
+    const id = createId();
+    const currentOrder = (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM lyrics').get() as { maxOrder: number | null }).maxOrder ?? -1;
     this.db
-      .prepare('INSERT INTO lyrics (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(lyricId, title, null, deckCollectionId, currentOrder + 1, now, now);
-    return this.buildPatch({ upsertLyricIds: [lyricId] });
+      .prepare('INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, title, null, currentOrder + 1, now, now);
+    return this.buildPatch({ upsertLyricIds: [id] });
   }
 
   createTalk(title: string): SnapshotPatch {
     const now = nowIso();
-    const talkId = createId();
-    const currentOrder = this.getMaxDeckOrder();
-    const deckCollectionId = this.getDefaultCollectionId('deck');
+    const id = createId();
+    const currentOrder = (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM talks').get() as { maxOrder: number | null }).maxOrder ?? -1;
     this.db
-      .prepare('INSERT INTO talks (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(talkId, title, null, deckCollectionId, currentOrder + 1, now, now);
-    return this.buildPatch({ upsertTalkIds: [talkId] });
+      .prepare('INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, title, null, currentOrder + 1, now, now);
+    return this.buildPatch({ upsertTalkIds: [id] });
   }
 
   createTheme(input: ThemeCreateInput): SnapshotPatch {
+    const table = THEME_TABLE_BY_TYPE[input.themeType];
     const now = nowIso();
     const themeId = createId();
     const slideId = `${themeId}:slide`;
-    const currentOrder =
-      (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM themes').get() as { maxOrder: number | null }).maxOrder ?? -1;
+    const currentOrder = (this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM ${table}`).get() as { maxOrder: number | null }).maxOrder ?? -1;
     const sourceElements = input.elements
       ? JSON.parse(JSON.stringify(input.elements)) as SlideElement[]
-      : createDefaultThemeElements(input.kind, slideId, now);
+      : createDefaultThemeElements(input.themeType, slideId, now);
     // New container — regenerate element IDs so cloned input can't collide
     // with the source theme's existing slide_elements rows.
     const elements = this.normalizeContainerElementOwnership(sourceElements, slideId)
       .map((el) => ({ ...el, id: createId() }));
-    const collectionId = input.collectionId ?? this.getDefaultCollectionId('theme');
     const width = input.width ?? DEFAULT_W;
     const height = input.height ?? DEFAULT_H;
     const backgroundJson = input.background ? JSON.stringify(input.background) : null;
 
     const tx = this.db.transaction(() => {
       this.db
-        .prepare(
-          `INSERT INTO themes
-            (id, name, kind, width, height, order_index, collection_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          themeId,
-          input.name,
-          this.normalizeThemeKind(input.kind),
-          width,
-          height,
-          currentOrder + 1,
-          collectionId,
-          now,
-          now,
-        );
-      this.createContainerSlide(slideId, 'theme', themeId, width, height, now);
-      // Set background on the container slide if provided
+        .prepare(`INSERT INTO ${table} (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(themeId, input.name, width, height, currentOrder + 1, now, now);
+      this.createContainerSlide(slideId, themeContainerKind(input.themeType), themeId, width, height, now);
       if (backgroundJson !== null) {
         this.db.prepare('UPDATE slides SET background_json = ?, updated_at = ? WHERE id = ?').run(backgroundJson, now, slideId);
       }
       this.replaceContainerElements(slideId, elements, now);
     });
     tx();
-    return this.buildPatch({ upsertThemeIds: [themeId] });
+    return this.buildPatch(this.themeUpsertSpec(input.themeType, [themeId]));
   }
 
   updateTheme(input: ThemeUpdateInput): SnapshotPatch {
+    const table = THEME_TABLE_BY_TYPE[input.themeType];
     const existing = this.db
-      .prepare('SELECT id, name, kind, width, height FROM themes WHERE id = ?')
-      .get(input.id) as {
-      id: string;
-      name: string;
-      kind: string;
-      width: number;
-      height: number;
-    } | undefined;
-
-    if (!existing) {
-      throw new Error(`Theme not found: ${input.id}`);
-    }
+      .prepare(`SELECT id, name, width, height FROM ${table} WHERE id = ?`)
+      .get(input.id) as { id: string; name: string; width: number; height: number } | undefined;
+    if (!existing) throw new Error(`Theme not found: ${input.id}`);
 
     const now = nowIso();
     const width = input.width ?? existing.width;
     const height = input.height ?? existing.height;
-
     const slideId = `${input.id}:slide`;
+
     const tx = this.db.transaction(() => {
       if (input.elements !== undefined) {
         this.replaceContainerElements(slideId, input.elements, now);
@@ -3235,91 +2082,65 @@ export class CastRepository {
       if (input.width !== undefined || input.height !== undefined) {
         this.updateContainerSlideGeometry(slideId, width, height, now);
       }
-      // Handle background update: explicit null means clear, undefined means leave unchanged
       if (input.background !== undefined) {
         const backgroundJson = input.background ? JSON.stringify(input.background) : null;
         this.db.prepare('UPDATE slides SET background_json = ?, updated_at = ? WHERE id = ?').run(backgroundJson, now, slideId);
       }
       this.db
-        .prepare(
-          `UPDATE themes
-           SET name = ?, kind = ?, width = ?, height = ?, updated_at = ?
-           WHERE id = ?`
-        )
-        .run(
-          input.name ?? existing.name,
-          this.normalizeThemeKind(input.kind ?? existing.kind),
-          width,
-          height,
-          now,
-          input.id,
-        );
+        .prepare(`UPDATE ${table} SET name = ?, width = ?, height = ?, updated_at = ? WHERE id = ?`)
+        .run(input.name ?? existing.name, width, height, now, input.id);
     });
     tx();
-    return this.buildPatch({ upsertThemeIds: [input.id] });
+    return this.buildPatch(this.themeUpsertSpec(input.themeType, [input.id]));
   }
 
-  deleteTheme(themeId: Id): SnapshotPatch {
-    const affectedPresentationIds = (this.db
-      .prepare('SELECT id FROM presentations WHERE theme_id = ?')
-      .all(themeId) as Array<{ id: string }>)
-      .map((row) => row.id);
-    const affectedLyricIds = (this.db
-      .prepare('SELECT id FROM lyrics WHERE theme_id = ?')
-      .all(themeId) as Array<{ id: string }>)
-      .map((row) => row.id);
-    const affectedTalkIds = (this.db
-      .prepare('SELECT id FROM talks WHERE theme_id = ?')
-      .all(themeId) as Array<{ id: string }>)
-      .map((row) => row.id);
+  deleteTheme(themeId: Id, themeType: ThemeOwnerType): SnapshotPatch {
+    const table = THEME_TABLE_BY_TYPE[themeType];
+    const exists = this.db.prepare(`SELECT id FROM ${table} WHERE id = ?`).get(themeId);
+    if (!exists) throw new Error(`Theme not found: ${themeId}`);
     const ownerSlideId = `${themeId}:slide`;
+
+    let affectedItemIds: Id[] = [];
     const tx = this.db.transaction(() => {
-      this.db.prepare('UPDATE presentations SET theme_id = NULL, updated_at = ? WHERE theme_id = ?').run(nowIso(), themeId);
-      this.db.prepare('UPDATE lyrics SET theme_id = NULL, updated_at = ? WHERE theme_id = ?').run(nowIso(), themeId);
-      this.db.prepare('UPDATE talks SET theme_id = NULL, updated_at = ? WHERE theme_id = ?').run(nowIso(), themeId);
-      // Drop the owning slide first (its theme_id FK references the theme).
+      if (themeType === 'presentation' || themeType === 'lyric' || themeType === 'talk') {
+        const itemTable = ITEM_TABLE_BY_TYPE[themeType];
+        affectedItemIds = (this.db.prepare(`SELECT id FROM ${itemTable} WHERE theme_id = ?`).all(themeId) as Array<{ id: string }>).map((row) => row.id);
+        this.db.prepare(`UPDATE ${itemTable} SET theme_id = NULL, updated_at = ? WHERE theme_id = ?`).run(nowIso(), themeId);
+      }
       this.deleteContainerSlide(ownerSlideId);
-      this.db.prepare('DELETE FROM themes WHERE id = ?').run(themeId);
+      this.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(themeId);
     });
     tx();
-    this.normalizeThemeOrder();
-    const remainingThemeIds = (this.db.prepare('SELECT id FROM themes ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    return this.buildPatch({
-      upsertPresentationIds: affectedPresentationIds,
-      upsertLyricIds: affectedLyricIds,
-      upsertTalkIds: affectedTalkIds,
-      upsertThemeIds: remainingThemeIds,
-      deletedThemeIds: [themeId],
-      replaceLibraryBundles: true,
-    });
+    this.normalizeThemeOrder(table);
+    const remainingThemeIds = (this.db.prepare(`SELECT id FROM ${table} ORDER BY order_index ASC`).all() as Array<{ id: string }>).map((row) => row.id);
+
+    const patchSpec: BuildPatchSpec = {
+      ...this.themeUpsertSpec(themeType, remainingThemeIds),
+      ...this.themeDeleteSpec(themeType, [themeId]),
+    };
+    if (themeType === 'presentation') patchSpec.upsertPresentationIds = affectedItemIds;
+    else if (themeType === 'lyric') patchSpec.upsertLyricIds = affectedItemIds;
+    else if (themeType === 'talk') patchSpec.upsertTalkIds = affectedItemIds;
+    return this.buildPatch(patchSpec);
   }
 
-  applyThemeToDeckItem(themeId: Id, itemId: Id): SnapshotPatch {
-    const theme = this.getThemeById(themeId);
-    if (!theme) {
-      throw new Error(`Theme not found: ${themeId}`);
-    }
-    const owner = this.resolveDeckOwnerRow(itemId);
-    if (!owner) {
-      throw new Error(`Deck item not found: ${itemId}`);
-    }
-    if (!isThemeCompatibleWithDeckItem(theme, owner.type)) {
-      throw new Error(`Theme kind '${theme.kind}' is not compatible with deck item type '${owner.type}'`);
-    }
-
-    const ownerColumn = this.getDeckOwnerColumn(owner.type);
-    const ownerTable = this.getDeckTableName(owner.type);
+  applyThemeToItem(themeId: Id, itemRef: ItemRef): SnapshotPatch {
+    const theme = this.getThemeRowById(THEME_TABLE_BY_TYPE[itemRef.type], themeId);
+    if (!theme) throw new Error(`Theme not found: ${themeId}`);
+    const itemTable = ITEM_TABLE_BY_TYPE[itemRef.type];
+    const ownerColumn = ITEM_OWNER_COLUMN_BY_TYPE[itemRef.type];
+    const exists = this.db.prepare(`SELECT id FROM ${itemTable} WHERE id = ?`).get(itemRef.id);
+    if (!exists) throw new Error(`Item not found: ${itemRef.id}`);
 
     const slides = this.db
       .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
-      .all(itemId) as Array<{ id: string }>;
-    const selectElements = this.db
-      .prepare(
-        `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
-         FROM slide_elements
-         WHERE slide_id = ?
-         ORDER BY layer ASC, z_index ASC, created_at ASC`
-      );
+      .all(itemRef.id) as Array<{ id: string }>;
+    const selectElements = this.db.prepare(
+      `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
+       FROM slide_elements
+       WHERE slide_id = ?
+       ORDER BY layer ASC, z_index ASC, created_at ASC`
+    );
     const deleteElements = this.db.prepare('DELETE FROM slide_elements WHERE slide_id = ?');
     const insertElement = this.db.prepare(
       `INSERT INTO slide_elements
@@ -3330,10 +2151,11 @@ export class CastRepository {
     const themeBackgroundJson = theme.background ? JSON.stringify(theme.background) : null;
 
     const deletedElementIds: Id[] = [];
+    const now = nowIso();
     const tx = this.db.transaction(() => {
-      this.db.prepare(`UPDATE ${ownerTable} SET theme_id = ?, updated_at = ? WHERE id = ?`).run(themeId, nowIso(), itemId);
+      this.db.prepare(`UPDATE ${itemTable} SET theme_id = ?, updated_at = ? WHERE id = ?`).run(themeId, now, itemRef.id);
       for (const slide of slides) {
-        setSlideBackground.run(themeBackgroundJson, 'theme', nowIso(), slide.id);
+        setSlideBackground.run(themeBackgroundJson, 'theme', now, slide.id);
         const currentElements = (selectElements.all(slide.id) as Array<{
           id: string;
           slide_id: string;
@@ -3362,7 +2184,7 @@ export class CastRepository {
           opacity: row.opacity,
           zIndex: row.z_index,
           layer: row.layer,
-          payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('applyThemeToDeckItem', `slide_elements.${row.id}.payload_json`)),
+          payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('applyThemeToItem', `slide_elements.${row.id}.payload_json`)),
           sourceThemeElementId: row.source_theme_element_id,
           createdAt: row.created_at,
           updatedAt: row.updated_at,
@@ -3386,47 +2208,28 @@ export class CastRepository {
             JSON.stringify(element.payload),
             element.sourceThemeElementId ?? null,
             element.createdAt,
-            nowIso(),
+            now,
           );
         }
       }
     });
-
     tx();
+
     return this.buildPatch({
-      upsertPresentationIds: owner.type === 'presentation' ? [itemId] : undefined,
-      upsertLyricIds: owner.type === 'lyric' ? [itemId] : undefined,
-      upsertTalkIds: owner.type === 'talk' ? [itemId] : undefined,
+      ...(itemRef.type === 'presentation' ? { upsertPresentationIds: [itemRef.id] } : itemRef.type === 'lyric' ? { upsertLyricIds: [itemRef.id] } : { upsertTalkIds: [itemRef.id] }),
       upsertSlideIds: slides.map((slide) => slide.id),
       upsertSlideElementIds: this.getSlideElementIdsBySlideIds(slides.map((slide) => slide.id)),
       deletedSlideElementIds: deletedElementIds,
-      replaceLibraryBundles: true,
     });
   }
 
-  syncThemeToLinkedDeckItems(themeId: Id): SnapshotPatch {
-    const theme = this.getThemeById(themeId);
-    if (!theme) {
-      throw new Error(`Theme not found: ${themeId}`);
-    }
-
-    const presentations = this.db
-      .prepare('SELECT id FROM presentations WHERE theme_id = ?')
-      .all(themeId) as Array<{ id: string }>;
-    const lyrics = this.db
-      .prepare('SELECT id FROM lyrics WHERE theme_id = ?')
-      .all(themeId) as Array<{ id: string }>;
-    const talks = this.db
-      .prepare('SELECT id FROM talks WHERE theme_id = ?')
-      .all(themeId) as Array<{ id: string }>;
-
-    const linkedItems: Array<{ id: string; type: DeckItemType }> = [
-      ...(theme.kind === 'slides' ? presentations.map((row) => ({ id: row.id, type: 'presentation' as DeckItemType })) : []),
-      ...(theme.kind === 'slides' ? talks.map((row) => ({ id: row.id, type: 'talk' as DeckItemType })) : []),
-      ...(theme.kind === 'lyrics' ? lyrics.map((row) => ({ id: row.id, type: 'lyric' as DeckItemType })) : []),
-    ];
-
-    if (linkedItems.length === 0) return this.buildPatch({});
+  syncThemeToLinkedItems(themeId: Id, itemType: ItemType): SnapshotPatch {
+    const theme = this.getThemeRowById(THEME_TABLE_BY_TYPE[itemType], themeId);
+    if (!theme) throw new Error(`Theme not found: ${themeId}`);
+    const itemTable = ITEM_TABLE_BY_TYPE[itemType];
+    const ownerColumn = ITEM_OWNER_COLUMN_BY_TYPE[itemType];
+    const linkedItemIds = (this.db.prepare(`SELECT id FROM ${itemTable} WHERE theme_id = ?`).all(themeId) as Array<{ id: string }>).map((row) => row.id);
+    if (linkedItemIds.length === 0) return this.buildPatch({});
 
     const selectElements = this.db.prepare(
       `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
@@ -3446,18 +2249,18 @@ export class CastRepository {
 
     const touchedSlideIds: string[] = [];
     const deletedElementIds: Id[] = [];
+    const now = nowIso();
     const tx = this.db.transaction(() => {
-      for (const item of linkedItems) {
-        const ownerColumn = this.getDeckOwnerColumn(item.type);
+      for (const itemId of linkedItemIds) {
         const slides = this.db
           .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
-          .all(item.id) as Array<{ id: string }>;
+          .all(itemId) as Array<{ id: string }>;
         for (const slide of slides) {
           // Sync is non-destructive: only theme-owned backgrounds are
           // refreshed; a local override survives.
           const sourceRow = slideBackgroundSource.get(slide.id) as { background_source: string | null } | undefined;
           if (!sourceRow || sourceRow.background_source !== 'local') {
-            setSlideBackground.run(themeBackgroundJson, 'theme', nowIso(), slide.id);
+            setSlideBackground.run(themeBackgroundJson, 'theme', now, slide.id);
           }
           const currentElements = (selectElements.all(slide.id) as Array<{
             id: string;
@@ -3487,7 +2290,7 @@ export class CastRepository {
             opacity: row.opacity,
             zIndex: row.z_index,
             layer: row.layer,
-            payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('syncThemeToLinkedDeckItems', `slide_elements.${row.id}.payload_json`)),
+            payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('syncThemeToLinkedItems', `slide_elements.${row.id}.payload_json`)),
             sourceThemeElementId: row.source_theme_element_id,
             createdAt: row.created_at,
             updatedAt: row.updated_at,
@@ -3511,99 +2314,57 @@ export class CastRepository {
               JSON.stringify(element.payload),
               element.sourceThemeElementId ?? null,
               element.createdAt,
-              nowIso(),
+              now,
             );
           }
           touchedSlideIds.push(slide.id);
         }
       }
     });
-
     tx();
 
-    const presentationIds = linkedItems.filter((item) => item.type === 'presentation').map((item) => item.id);
-    const lyricIds = linkedItems.filter((item) => item.type === 'lyric').map((item) => item.id);
-    const talkIds = linkedItems.filter((item) => item.type === 'talk').map((item) => item.id);
-
     return this.buildPatch({
-      upsertPresentationIds: presentationIds.length > 0 ? presentationIds : undefined,
-      upsertLyricIds: lyricIds.length > 0 ? lyricIds : undefined,
-      upsertTalkIds: talkIds.length > 0 ? talkIds : undefined,
+      ...(itemType === 'presentation' ? { upsertPresentationIds: linkedItemIds } : itemType === 'lyric' ? { upsertLyricIds: linkedItemIds } : { upsertTalkIds: linkedItemIds }),
       upsertSlideIds: touchedSlideIds,
       upsertSlideElementIds: this.getSlideElementIdsBySlideIds(touchedSlideIds),
       deletedSlideElementIds: deletedElementIds,
-      replaceLibraryBundles: true,
     });
   }
 
-  detachThemeFromDeckItem(itemId: Id): SnapshotPatch {
-    const owner = this.resolveDeckOwnerRow(itemId);
-    if (!owner) {
-      throw new Error(`Deck item not found: ${itemId}`);
-    }
-    // Item exists but already has no theme assigned — nothing to detach.
-    // Genuine no-op (#214), distinct from the not-found case above.
-    if (owner.themeId === null) return this.buildPatch({});
+  detachThemeFromItem(itemRef: ItemRef): SnapshotPatch {
+    const itemTable = ITEM_TABLE_BY_TYPE[itemRef.type];
+    const ownerColumn = ITEM_OWNER_COLUMN_BY_TYPE[itemRef.type];
+    const existing = this.db.prepare(`SELECT theme_id FROM ${itemTable} WHERE id = ?`).get(itemRef.id) as { theme_id: string | null } | undefined;
+    if (!existing) throw new Error(`Item not found: ${itemRef.id}`);
+    // Item exists but already has no theme assigned — genuine no-op (#214).
+    if (existing.theme_id === null) return this.buildPatch({});
 
-    const ownerTable = this.getDeckTableName(owner.type);
-    const ownerColumn = this.getDeckOwnerColumn(owner.type);
     const now = nowIso();
-
-    // Collect slide IDs before the transaction
-    const slideRows = this.db
-      .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
-      .all(itemId) as Array<{ id: string }>;
-    const slideIds = slideRows.map((r) => r.id);
-
-    // Collect element IDs for those slides
-    const elementIds: Id[] = [];
-    if (slideIds.length > 0) {
-      const placeholders = slideIds.map(() => '?').join(',');
-      const elementRows = this.db
-        .prepare(`SELECT id FROM slide_elements WHERE slide_id IN (${placeholders})`)
-        .all(...slideIds) as Array<{ id: string }>;
-      elementIds.push(...elementRows.map((r) => r.id));
-    }
+    const slideRows = this.db.prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`).all(itemRef.id) as Array<{ id: string }>;
+    const slideIds = slideRows.map((row) => row.id);
+    const elementIds = this.getSlideElementIdsBySlideIds(slideIds);
 
     const tx = this.db.transaction(() => {
-      // Clear theme assignment on the owner
-      this.db.prepare(`UPDATE ${ownerTable} SET theme_id = NULL, updated_at = ? WHERE id = ?`).run(now, itemId);
-
-      // Mark all slides as locally-owned background and clear element provenance
+      this.db.prepare(`UPDATE ${itemTable} SET theme_id = NULL, updated_at = ? WHERE id = ?`).run(now, itemRef.id);
       const setBackgroundLocal = this.db.prepare('UPDATE slides SET background_source = ?, updated_at = ? WHERE id = ?');
       const clearProvenance = this.db.prepare('UPDATE slide_elements SET source_theme_element_id = NULL WHERE slide_id = ?');
-
       for (const slideId of slideIds) {
         setBackgroundLocal.run('local', now, slideId);
         clearProvenance.run(slideId);
       }
     });
-
     tx();
 
     return this.buildPatch({
-      upsertPresentationIds: owner.type === 'presentation' ? [itemId] : undefined,
-      upsertLyricIds: owner.type === 'lyric' ? [itemId] : undefined,
-      upsertTalkIds: owner.type === 'talk' ? [itemId] : undefined,
+      ...(itemRef.type === 'presentation' ? { upsertPresentationIds: [itemRef.id] } : itemRef.type === 'lyric' ? { upsertLyricIds: [itemRef.id] } : { upsertTalkIds: [itemRef.id] }),
       upsertSlideIds: slideIds.length > 0 ? slideIds : undefined,
       upsertSlideElementIds: elementIds.length > 0 ? elementIds : undefined,
-      replaceLibraryBundles: true,
     });
   }
 
   applyThemeToOverlay(themeId: Id, overlayId: Id): SnapshotPatch {
-    const theme = this.getThemeById(themeId);
-    if (!theme) {
-      throw new Error(`Theme not found: ${themeId}`);
-    }
-    // Compatibility comes from the single capability matrix in @core/themes,
-    // never a local kind comparison. An incompatible theme is a validity
-    // failure (both ids resolve, the apply can never succeed), mirroring the
-    // `applyThemeToDeckItem` throw below; an unresolvable overlay is the
-    // missing-lookup case. Neither is a genuine no-op (#214).
-    if (!isThemeCompatibleWithOwnerKind(theme, 'overlay')) {
-      throw new Error(`Theme kind '${theme.kind}' is not compatible with overlay`);
-    }
+    const theme = this.getThemeRowById('overlay_themes', themeId);
+    if (!theme) throw new Error(`Theme not found: ${themeId}`);
     const exists = this.db.prepare('SELECT id FROM overlays WHERE id = ?').get(overlayId) as { id: string } | undefined;
     if (!exists) throw new Error(`Overlay not found: ${overlayId}`);
 
@@ -3619,111 +2380,61 @@ export class CastRepository {
     return this.buildPatch({ upsertOverlayIds: [overlayId] });
   }
 
-  // Preserved for existing direct-repository callers/tests that expect the
-  // raw patch. The IPC boundary (app/main/ipc.ts) calls
-  // createDeckItemWithFirstSlide below instead, which also returns the
-  // created owner's id so the renderer never has to infer it.
-  createDeckItemWithTheme(input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }): SnapshotPatch {
-    return this.createDeckItemWithFirstSlide(input).patch;
-  }
-
-  createDeckItemWithFirstSlide(input: { type: 'presentation' | 'lyric' | 'talk'; title: string; collectionId?: Id | null; themeId?: Id | null; groupId?: Id | null }): { itemId: Id; patch: SnapshotPatch } {
-    // Validate input before first write
-    if (!input || typeof input !== 'object') {
-      throw new Error('Invalid input: expected object');
-    }
-    if (input.type !== 'presentation' && input.type !== 'lyric' && input.type !== 'talk') {
-      throw new Error(`Invalid deck item type: ${input.type}. Must be 'presentation', 'lyric', or 'talk'.`);
-    }
-    const trimmedTitle = input.title?.trim();
-    if (!trimmedTitle) {
-      throw new Error('Title is required and cannot be empty');
-    }
-
+  createItem(input: ItemCreateInput): ItemCreateResult {
+    const trimmedTitle = (input.title ?? '').trim() || 'Untitled';
     const now = nowIso();
     const itemId = createId();
     const slideId = createId();
-    const collectionId = input.collectionId ?? this.getDefaultCollectionId('deck');
+    const table = ITEM_TABLE_BY_TYPE[input.type];
 
-    // Validate collection exists and is a deck collection
-    const collection = this.db.prepare(
-      'SELECT id FROM deck_collections WHERE id = ?'
-    ).get(collectionId) as { id: string } | undefined;
-    if (!collection) {
-      throw new Error(`Collection not found: ${collectionId}`);
-    }
-
-    // Validate theme if provided
-    let theme: Theme | null = null;
+    let theme: PresentationTheme | null = null;
     if (input.themeId) {
-      theme = this.getThemeById(input.themeId);
-      if (!theme) {
-        throw new Error(`Theme not found: ${input.themeId}`);
-      }
-      if (!isThemeCompatibleWithDeckItem(theme, input.type)) {
-        throw new Error(`Theme kind '${theme.kind}' is not compatible with '${input.type}'`);
-      }
+      theme = this.getThemeRowById(THEME_TABLE_BY_TYPE[input.type], input.themeId);
+      if (!theme) throw new Error(`Theme not found: ${input.themeId}`);
     }
 
-    // Validate group if provided
-    if (input.groupId) {
-      const groupExists = this.db.prepare(
-        'SELECT id FROM playlist_groups WHERE id = ?'
-      ).get(input.groupId) as { id: string } | undefined;
-      if (!groupExists) {
-        throw new Error(`Group not found: ${input.groupId}`);
-      }
+    if (input.playlistId) {
+      const playlistExists = this.db.prepare('SELECT id FROM playlists WHERE id = ?').get(input.playlistId);
+      if (!playlistExists) throw new Error(`Playlist not found: ${input.playlistId}`);
     }
 
-    // Compute correct owner order index for this collection
-    const maxOrderRow = this.db.prepare(
-      `SELECT MAX(order_index) as maxOrder FROM ${input.type === 'presentation' ? 'presentations' : input.type === 'lyric' ? 'lyrics' : 'talks'} WHERE collection_id = ?`
-    ).get(collectionId) as { maxOrder: number | null } | undefined;
-    const ownerOrderIndex = (maxOrderRow?.maxOrder ?? -1) + 1;
+    const currentOrder = (this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM ${table}`).get() as { maxOrder: number | null }).maxOrder ?? -1;
 
     const tx = this.db.transaction(() => {
-      // 1. Create the owner with explicit order
-      if (input.type === 'presentation') {
-        this.db.prepare(
-          `INSERT INTO presentations (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(itemId, trimmedTitle, input.themeId ?? null, collectionId, ownerOrderIndex, now, now);
-      } else if (input.type === 'lyric') {
-        this.db.prepare(
-          `INSERT INTO lyrics (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(itemId, trimmedTitle, input.themeId ?? null, collectionId, ownerOrderIndex, now, now);
-      } else {
-        this.db.prepare(
-          `INSERT INTO talks (id, title, theme_id, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(itemId, trimmedTitle, input.themeId ?? null, collectionId, ownerOrderIndex, now, now);
-      }
+      this.db
+        .prepare(`INSERT INTO ${table} (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(itemId, trimmedTitle, input.themeId ?? null, currentOrder + 1, now, now);
 
-      // 2. Create the first slide
-      this.db.prepare(
-        `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, 0, ?, ?)`
-      ).run(
-        slideId,
-        input.type === 'presentation' ? itemId : null,
-        input.type === 'lyric' ? itemId : null,
-        input.type === 'talk' ? itemId : null,
-        'slide',
-        theme?.width ?? DEFAULT_W,
-        theme?.height ?? DEFAULT_H,
-        theme?.background ? JSON.stringify(theme.background) : null,
-        theme ? 'theme' : 'local',
-        now,
-        now,
-      );
+      this.db
+        .prepare(
+          `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, 0, ?, ?)`
+        )
+        .run(
+          slideId,
+          input.type === 'presentation' ? itemId : null,
+          input.type === 'lyric' ? itemId : null,
+          input.type === 'talk' ? itemId : null,
+          input.type,
+          theme?.width ?? DEFAULT_W,
+          theme?.height ?? DEFAULT_H,
+          theme?.background ? JSON.stringify(theme.background) : null,
+          theme ? 'theme' : 'local',
+          now,
+          now,
+        );
 
-      // 3. Apply theme elements and background if theme is provided
-      if (theme) {
-        // Apply theme elements (with empty text values for new slide)
-        const appliedElements = applyThemeToElements(theme, [], slideId);
-        for (const element of appliedElements) {
-          this.db.prepare(
+      const elements = theme
+        ? applyThemeToElements(theme, [], slideId)
+        : createDefaultThemeElements(input.type, slideId, now);
+
+      for (const element of elements) {
+        this.db
+          .prepare(
             `INSERT INTO slide_elements (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(
+          )
+          .run(
             element.id,
             slideId,
             element.type,
@@ -3740,130 +2451,45 @@ export class CastRepository {
             element.createdAt,
             now,
           );
-        }
-      } else {
-        // Create default elements for the slide based on type, reusing the
-        // shared helper so atomic first-slide and later-slide creation cannot diverge.
-        const defaultElements = createDefaultThemeElements(
-          input.type === 'lyric' ? 'lyrics' : 'slides',
-          slideId,
-          now,
-        );
-
-        for (const element of defaultElements) {
-          this.db.prepare(
-            `INSERT INTO slide_elements (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(
-            element.id,
-            slideId,
-            element.type,
-            element.x,
-            element.y,
-            element.width,
-            element.height,
-            element.rotation,
-            element.opacity,
-            element.zIndex,
-            element.layer,
-            JSON.stringify(element.payload),
-            null,
-            element.createdAt,
-            now,
-          );
-        }
-      }
-
-      // 4. Add to group if provided
-      if (input.groupId) {
-        const maxOrder = this.db.prepare(
-          `SELECT MAX(order_index) as maxOrder FROM playlist_entries WHERE group_id = ?`
-        ).get(input.groupId) as { maxOrder: number | null } | undefined;
-
-        const newItemOwner = toPlaylistItemOwnerColumns(makePlaylistItemReference(input.type, itemId));
-        this.db.prepare(
-          `INSERT INTO playlist_entries (id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          createId(),
-          input.groupId,
-          newItemOwner.presentationId,
-          newItemOwner.lyricId,
-          newItemOwner.talkId,
-          (maxOrder?.maxOrder ?? -1) + 1,
-          now,
-          now,
-        );
       }
     });
-
     tx();
 
-    // Build the patch with all affected entities
-    const patchSpec: {
-      upsertPresentationIds?: Id[];
-      upsertLyricIds?: Id[];
-      upsertTalkIds?: Id[];
-      upsertSlideIds?: Id[];
-      upsertSlideElementIds?: Id[];
-      replaceLibraryBundles?: boolean;
-    } = {};
-
-    if (input.type === 'presentation') {
-      patchSpec.upsertPresentationIds = [itemId];
-    } else if (input.type === 'lyric') {
-      patchSpec.upsertLyricIds = [itemId];
-    } else {
-      patchSpec.upsertTalkIds = [itemId];
+    // Deliberately a separate transaction from the item/slide/element insert
+    // above: `insertPlaylistItemRow` opens its own transaction, and this
+    // lightweight sqlite wrapper's BEGIN IMMEDIATE/COMMIT does not nest.
+    if (input.playlistId) {
+      this.insertPlaylistItemRow(input.playlistId, { type: input.type, id: itemId }, input.position);
     }
 
-    patchSpec.upsertSlideIds = [slideId];
-    patchSpec.upsertSlideElementIds = this.getSlideElementIdsBySlideIds([slideId]);
-    patchSpec.replaceLibraryBundles = true;
+    const patchSpec: BuildPatchSpec = {
+      upsertSlideIds: [slideId],
+      upsertSlideElementIds: this.getSlideElementIdsBySlideIds([slideId]),
+    };
+    if (input.type === 'presentation') patchSpec.upsertPresentationIds = [itemId];
+    else if (input.type === 'lyric') patchSpec.upsertLyricIds = [itemId];
+    else patchSpec.upsertTalkIds = [itemId];
+    if (input.playlistId) {
+      patchSpec.upsertPlaylistEntryIds = this.getPlaylistRows(input.playlistId).map((row) => row.id);
+    }
 
     return { itemId, patch: this.buildPatch(patchSpec) };
   }
 
-  duplicateDeckItem(itemId: Id): { itemId: Id; patch: SnapshotPatch } {
+  duplicateItem(input: ItemDuplicateInput): ItemDuplicateResult {
+    const table = ITEM_TABLE_BY_TYPE[input.type];
+    const fkColumn = ITEM_OWNER_COLUMN_BY_TYPE[input.type];
     const now = nowIso();
 
-    // 1. Find the source item (only presentation and lyric supported)
-    const sourcePresentation = this.db
-      .prepare('SELECT id, title, theme_id, collection_id, order_index FROM presentations WHERE id = ?')
-      .get(itemId) as { id: string; title: string; theme_id: string | null; collection_id: string; order_index: number } | undefined;
-    const sourceLyric = this.db
-      .prepare('SELECT id, title, theme_id, collection_id, order_index FROM lyrics WHERE id = ?')
-      .get(itemId) as { id: string; title: string; theme_id: string | null; collection_id: string; order_index: number } | undefined;
-    const sourceTalk = this.db
-      .prepare('SELECT id, title, theme_id, collection_id, order_index FROM talks WHERE id = ?')
-      .get(itemId) as { id: string; title: string; theme_id: string | null; collection_id: string; order_index: number } | undefined;
+    const source = this.db
+      .prepare(`SELECT id, title, theme_id, order_index FROM ${table} WHERE id = ?`)
+      .get(input.id) as { id: string; title: string; theme_id: string | null; order_index: number } | undefined;
+    if (!source) throw new Error(`Item not found: ${input.id}`);
 
-    if (sourceTalk) {
-      throw new DeckItemDuplicationError(
-        'unsupported-owner-type',
-        itemId,
-        'Deck item duplication is not supported for Talk items',
-      );
-    }
-
-    const sourceType: 'presentation' | 'lyric' | null = sourcePresentation ? 'presentation' : sourceLyric ? 'lyric' : null;
-    if (!sourceType) {
-      throw new Error(`Deck item not found: ${itemId}`);
-    }
-
-    const source = sourceType === 'presentation' ? sourcePresentation! : sourceLyric!;
-    const sourceTable = sourceType === 'presentation' ? 'presentations' : 'lyrics';
-    const fkColumn = sourceType === 'presentation' ? 'presentation_id' : 'lyric_id';
-
-    // 2. Generate deterministic unique title (case-insensitive within same owner type only)
-    const baseTitle = source.title;
-    let candidateTitle = `${baseTitle} Copy`;
+    let candidateTitle = `${source.title} Copy`;
     const existingTitles = new Set(
-      (this.db.prepare(
-        `SELECT title FROM ${sourceTable}`
-      ).all() as Array<{ title: string }>).map((row) => row.title.toLowerCase())
+      (this.db.prepare(`SELECT title FROM ${table}`).all() as Array<{ title: string }>).map((row) => row.title.toLowerCase())
     );
-
     while (existingTitles.has(candidateTitle.toLowerCase())) {
       const match = candidateTitle.match(/^(.+?) Copy(?: (\d+))?$/);
       if (match) {
@@ -3874,10 +2500,7 @@ export class CastRepository {
       }
     }
 
-    // 3. Find the source's order position
     const sourceOrder = source.order_index;
-
-    // 4. Get all source slides in order
     const sourceSlides = this.db
       .prepare(
         `SELECT id, kind, width, height, background_json, background_source, notes, order_index
@@ -3885,7 +2508,7 @@ export class CastRepository {
          WHERE ${fkColumn} = ?
          ORDER BY order_index ASC`
       )
-      .all(itemId) as Array<{
+      .all(input.id) as Array<{
         id: string;
         kind: string;
         width: number;
@@ -3896,218 +2519,260 @@ export class CastRepository {
         order_index: number;
       }>;
 
-    // 5. Get all source elements for all slides
     const sourceElementsMap = new Map<string, Array<{
-      id: string;
-      slide_id: string;
       type: string;
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      rotation: number;
-      opacity: number;
-      z_index: number;
-      layer: string;
-      payload_json: string;
+      x: number; y: number; width: number; height: number;
+      rotation: number; opacity: number; z_index: number;
+      layer: string; payload_json: string;
       source_theme_element_id: string | null;
-      created_at: string;
-      updated_at: string;
     }>>();
-
     for (const slide of sourceSlides) {
-      const elements = this.db.prepare(
-        `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
-         FROM slide_elements
-         WHERE slide_id = ?
-         ORDER BY z_index ASC, created_at ASC`
-      ).all(slide.id) as Array<{
-        id: string;
-        slide_id: string;
-        type: string;
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        rotation: number;
-        opacity: number;
-        z_index: number;
-        layer: string;
-        payload_json: string;
-        source_theme_element_id: string | null;
-        created_at: string;
-        updated_at: string;
-      }>;
+      const elements = this.db
+        .prepare(
+          `SELECT type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id
+           FROM slide_elements WHERE slide_id = ? ORDER BY z_index ASC, created_at ASC`
+        )
+        .all(slide.id) as Array<{
+          type: string; x: number; y: number; width: number; height: number;
+          rotation: number; opacity: number; z_index: number; layer: string;
+          payload_json: string; source_theme_element_id: string | null;
+        }>;
       sourceElementsMap.set(slide.id, elements);
     }
 
-    // 6. Get sibling IDs that will be shifted (for patch). Order is scoped to
-    // the source's own collection — order_index is a per-(type, collection)
-    // sequence (see createDeckItemWithFirstSlide's collection-scoped MAX
-    // query), so an unscoped shift would corrupt ordering in unrelated
-    // collections that happen to share order_index values.
     const shiftedSiblings = this.db
-      .prepare(`SELECT id FROM ${sourceTable} WHERE collection_id = ? AND order_index >= ? AND id != ? ORDER BY order_index ASC`)
-      .all(source.collection_id, sourceOrder + 1, itemId) as Array<{ id: string }>;
-    const shiftedSiblingIds = shiftedSiblings.map((s) => s.id);
+      .prepare(`SELECT id FROM ${table} WHERE order_index >= ? AND id != ? ORDER BY order_index ASC`)
+      .all(sourceOrder + 1, input.id) as Array<{ id: string }>;
+    const shiftedSiblingIds = shiftedSiblings.map((row) => row.id);
 
-    // 7. Perform the duplication in a transaction
     const newOwnerId = createId();
-    const slideIdMap = new Map<string, string>();
+    const newSlideIds: Id[] = [];
+    const newElementIds: Id[] = [];
 
     const tx = this.db.transaction(() => {
-      // 8. Shift later siblings within the same collection to make room
-      this.db.prepare(
-        `UPDATE ${sourceTable}
-         SET order_index = order_index + 1, updated_at = ?
-         WHERE collection_id = ? AND order_index >= ?`
-      ).run(now, source.collection_id, sourceOrder + 1);
+      this.db.prepare(`UPDATE ${table} SET order_index = order_index + 1, updated_at = ? WHERE order_index >= ?`).run(now, sourceOrder + 1);
+      this.db
+        .prepare(`INSERT INTO ${table} (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
+        .run(newOwnerId, candidateTitle, source.theme_id, sourceOrder + 1, now, now);
 
-      // 9. Create the new owner at sourceOrder + 1
-      this.db.prepare(
-        `INSERT INTO ${sourceTable} (id, title, theme_id, collection_id, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(newOwnerId, candidateTitle, source.theme_id, source.collection_id, sourceOrder + 1, now, now);
-
-      // 10. Deep-copy every source slide
       for (const sourceSlide of sourceSlides) {
         const newSlideId = createId();
-        slideIdMap.set(sourceSlide.id, newSlideId);
-
-        this.db.prepare(
-          `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, background_json, background_source, notes, order_index, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          newSlideId,
-          sourceType === 'presentation' ? newOwnerId : null,
-          sourceType === 'lyric' ? newOwnerId : null,
-          null,
-          sourceSlide.kind,
-          sourceSlide.width,
-          sourceSlide.height,
-          sourceSlide.background_json,
-          sourceSlide.background_source ?? 'local',
-          sourceSlide.notes,
-          sourceSlide.order_index,
-          now,
-          now,
-        );
-
-        // Copy elements with new collision-free IDs, preserving sourceThemeElementId
-        const sourceElements = sourceElementsMap.get(sourceSlide.id) ?? [];
-        for (const sourceElement of sourceElements) {
-          this.db.prepare(
-            `INSERT INTO slide_elements (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(
-            createId(),
+        newSlideIds.push(newSlideId);
+        this.db
+          .prepare(
+            `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, kind, width, height, background_json, background_source, notes, order_index, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
             newSlideId,
-            sourceElement.type,
-            sourceElement.x,
-            sourceElement.y,
-            sourceElement.width,
-            sourceElement.height,
-            sourceElement.rotation,
-            sourceElement.opacity,
-            sourceElement.z_index,
-            sourceElement.layer,
-            sourceElement.payload_json,
-            sourceElement.source_theme_element_id,
+            input.type === 'presentation' ? newOwnerId : null,
+            input.type === 'lyric' ? newOwnerId : null,
+            null,
+            sourceSlide.kind,
+            sourceSlide.width,
+            sourceSlide.height,
+            sourceSlide.background_json,
+            sourceSlide.background_source ?? 'local',
+            sourceSlide.notes,
+            sourceSlide.order_index,
             now,
             now,
           );
+
+        const sourceElements = sourceElementsMap.get(sourceSlide.id) ?? [];
+        for (const sourceElement of sourceElements) {
+          const elementId = createId();
+          newElementIds.push(elementId);
+          this.db
+            .prepare(
+              `INSERT INTO slide_elements (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .run(
+              elementId,
+              newSlideId,
+              sourceElement.type,
+              sourceElement.x,
+              sourceElement.y,
+              sourceElement.width,
+              sourceElement.height,
+              sourceElement.rotation,
+              sourceElement.opacity,
+              sourceElement.z_index,
+              sourceElement.layer,
+              sourceElement.payload_json,
+              sourceElement.source_theme_element_id,
+              now,
+              now,
+            );
         }
       }
     });
-
     tx();
 
-    // 11. Build the patch with shifted siblings included
-    const patchSpec: {
-      upsertPresentationIds?: Id[];
-      upsertLyricIds?: Id[];
-      upsertTalkIds?: Id[];
-      upsertSlideIds?: Id[];
-      upsertSlideElementIds?: Id[];
-      replaceLibraryBundles?: boolean;
-    } = {};
-
-    if (sourceType === 'presentation') {
-      patchSpec.upsertPresentationIds = [newOwnerId, ...shiftedSiblingIds];
-    } else {
-      patchSpec.upsertLyricIds = [newOwnerId, ...shiftedSiblingIds];
-    }
-
-    const newSlideIds = [...slideIdMap.values()];
-    patchSpec.upsertSlideIds = newSlideIds;
-    patchSpec.upsertSlideElementIds = this.getSlideElementIdsBySlideIds(newSlideIds);
-    patchSpec.replaceLibraryBundles = true;
+    const patchSpec: BuildPatchSpec = {
+      upsertSlideIds: newSlideIds,
+      upsertSlideElementIds: newElementIds,
+    };
+    if (input.type === 'presentation') patchSpec.upsertPresentationIds = [newOwnerId, ...shiftedSiblingIds];
+    else patchSpec.upsertLyricIds = [newOwnerId, ...shiftedSiblingIds];
 
     return { itemId: newOwnerId, patch: this.buildPatch(patchSpec) };
   }
 
-  movePlaylist(id: Id, direction: 'up' | 'down'): SnapshotPatch {
-    const current = this.db
-      .prepare('SELECT id, library_id, order_index FROM playlists WHERE id = ?')
-      .get(id) as { id: string; library_id: string; order_index: number } | undefined;
-
-    if (!current) throw new Error(`Playlist not found: ${id}`);
-
-    const neighbor = direction === 'up'
-      ? this.db
-        .prepare(
-          'SELECT id, order_index FROM playlists WHERE library_id = ? AND order_index < ? ORDER BY order_index DESC LIMIT 1'
-        )
-        .get(current.library_id, current.order_index)
-      : this.db
-        .prepare(
-          'SELECT id, order_index FROM playlists WHERE library_id = ? AND order_index > ? ORDER BY order_index ASC LIMIT 1'
-        )
-        .get(current.library_id, current.order_index);
-
-    if (!neighbor) return this.buildPatch({});
-
-    const now = nowIso();
-    const tx = this.db.transaction(() => {
-      this.db
-        .prepare('UPDATE playlists SET order_index = ?, updated_at = ? WHERE id = ?')
-        .run((neighbor as { order_index: number }).order_index, now, current.id);
-      this.db
-        .prepare('UPDATE playlists SET order_index = ?, updated_at = ? WHERE id = ?')
-        .run(current.order_index, now, (neighbor as { id: string }).id);
-    });
-
-    tx();
-    return this.buildPatch({ replaceLibraryBundles: true });
+  movePresentation(id: Id, direction: 'up' | 'down'): SnapshotPatch {
+    const touchedIds = this.moveItemOrder('presentations', id, direction);
+    return touchedIds.length > 0 ? this.buildPatch({ upsertPresentationIds: touchedIds }) : this.buildPatch({});
   }
 
-  moveDeckItem(id: Id, direction: 'up' | 'down'): SnapshotPatch {
-    const orderedItems = this.getOrderedContentReferences();
-    const currentIndex = orderedItems.findIndex((item) => item.id === id);
-    if (currentIndex === -1) throw new Error(`Deck item not found: ${id}`);
+  moveLyric(id: Id, direction: 'up' | 'down'): SnapshotPatch {
+    const touchedIds = this.moveItemOrder('lyrics', id, direction);
+    return touchedIds.length > 0 ? this.buildPatch({ upsertLyricIds: touchedIds }) : this.buildPatch({});
+  }
 
-    const neighborIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    const neighbor = orderedItems[neighborIndex] ?? null;
-    const current = orderedItems[currentIndex];
-    if (!current || !neighbor) return this.buildPatch({});
+  moveTalk(id: Id, direction: 'up' | 'down'): SnapshotPatch {
+    const touchedIds = this.moveItemOrder('talks', id, direction);
+    return touchedIds.length > 0 ? this.buildPatch({ upsertTalkIds: touchedIds }) : this.buildPatch({});
+  }
 
+  movePlaylist(id: Id, direction: 'up' | 'down'): SnapshotPatch {
+    const touchedIds = this.moveItemOrder('playlists', id, direction);
+    return touchedIds.length > 0 ? this.buildPatch({ upsertPlaylistIds: touchedIds }) : this.buildPatch({});
+  }
+
+  setPlaylistOrder(playlistId: Id, newOrder: number): SnapshotPatch {
     const now = nowIso();
-    const tx = this.db.transaction(() => {
-      this.db
-        .prepare(`UPDATE ${this.getDeckTableName(current.type)} SET order_index = ?, updated_at = ? WHERE id = ?`)
-        .run(neighbor.order, now, current.id);
-      this.db
-        .prepare(`UPDATE ${this.getDeckTableName(neighbor.type)} SET order_index = ?, updated_at = ? WHERE id = ?`)
-        .run(current.order, now, neighbor.id);
-    });
+    const siblings = this.db
+      .prepare('SELECT id, order_index FROM playlists ORDER BY order_index ASC, created_at ASC')
+      .all() as Array<{ id: string; order_index: number }>;
 
-    tx();
-    return this.buildPatch({
-      upsertPresentationIds: [current, neighbor].filter((item) => item.type === 'presentation').map((item) => item.id),
-      upsertLyricIds: [current, neighbor].filter((item) => item.type === 'lyric').map((item) => item.id),
-      upsertTalkIds: [current, neighbor].filter((item) => item.type === 'talk').map((item) => item.id),
-      replaceLibraryBundles: true,
+    const currentIndex = siblings.findIndex((sibling) => sibling.id === playlistId);
+    if (currentIndex === -1) throw new Error(`Playlist not found: ${playlistId}`);
+
+    const maxOrder = siblings.length - 1;
+    const targetOrder = Math.max(0, Math.min(newOrder, maxOrder));
+    if (currentIndex === targetOrder) return this.buildPatch({});
+
+    const reordered = siblings.filter((_, index) => index !== currentIndex);
+    reordered.splice(targetOrder, 0, siblings[currentIndex]);
+
+    const tx = this.db.transaction(() => {
+      reordered.forEach((sibling, index) => {
+        this.db.prepare('UPDATE playlists SET order_index = ?, updated_at = ? WHERE id = ?').run(index, now, sibling.id);
+      });
     });
+    tx();
+
+    return this.buildPatch({ upsertPlaylistIds: reordered.map((sibling) => sibling.id) });
+  }
+
+  deletePlaylist(id: Id): SnapshotPatch {
+    const deletedPlaylistEntryIds = (this.db.prepare('SELECT id FROM playlist_entries WHERE playlist_id = ?').all(id) as Array<{ id: string }>).map((row) => row.id);
+    const tx = this.db.transaction((playlistId: Id) => {
+      this.db.prepare('DELETE FROM playlist_entries WHERE playlist_id = ?').run(playlistId);
+      this.db.prepare('DELETE FROM playlists WHERE id = ?').run(playlistId);
+    });
+    tx(id);
+    return this.buildPatch({ deletedPlaylistIds: [id], deletedPlaylistEntryIds });
+  }
+
+  deletePresentation(id: Id): SnapshotPatch {
+    const deletedSlideIds = (this.db.prepare('SELECT id FROM slides WHERE presentation_id = ?').all(id) as Array<{ id: string }>).map((row) => row.id);
+    const deletedSlideElementIds = this.getSlideElementIdsBySlideIds(deletedSlideIds);
+    const { deletedIds: deletedPlaylistEntryIds, upsertIds: upsertPlaylistEntryIds } = this.cascadeDeleteItemPlaylistRows('presentation_id', id);
+
+    const tx = this.db.transaction((presentationId: Id) => {
+      this.db.prepare('DELETE FROM slide_elements WHERE slide_id IN (SELECT id FROM slides WHERE presentation_id = ?)').run(presentationId);
+      this.db.prepare('DELETE FROM slides WHERE presentation_id = ?').run(presentationId);
+      this.db.prepare('DELETE FROM presentations WHERE id = ?').run(presentationId);
+    });
+    tx(id);
+    this.normalizeItemOrder('presentations');
+    const remainingIds = (this.db.prepare('SELECT id FROM presentations ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
+
+    return this.buildPatch({
+      upsertPresentationIds: remainingIds,
+      deletedPresentationIds: [id],
+      deletedSlideIds,
+      deletedSlideElementIds,
+      deletedPlaylistEntryIds,
+      upsertPlaylistEntryIds,
+    });
+  }
+
+  deleteLyric(id: Id): SnapshotPatch {
+    const deletedSlideIds = (this.db.prepare('SELECT id FROM slides WHERE lyric_id = ?').all(id) as Array<{ id: string }>).map((row) => row.id);
+    const deletedSlideElementIds = this.getSlideElementIdsBySlideIds(deletedSlideIds);
+    const { deletedIds: deletedPlaylistEntryIds, upsertIds: upsertPlaylistEntryIds } = this.cascadeDeleteItemPlaylistRows('lyric_id', id);
+
+    const tx = this.db.transaction((lyricId: Id) => {
+      this.db.prepare('DELETE FROM slide_elements WHERE slide_id IN (SELECT id FROM slides WHERE lyric_id = ?)').run(lyricId);
+      this.db.prepare('DELETE FROM slides WHERE lyric_id = ?').run(lyricId);
+      this.db.prepare('DELETE FROM lyrics WHERE id = ?').run(lyricId);
+    });
+    tx(id);
+    this.normalizeItemOrder('lyrics');
+    const remainingIds = (this.db.prepare('SELECT id FROM lyrics ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
+
+    return this.buildPatch({
+      upsertLyricIds: remainingIds,
+      deletedLyricIds: [id],
+      deletedSlideIds,
+      deletedSlideElementIds,
+      deletedPlaylistEntryIds,
+      upsertPlaylistEntryIds,
+    });
+  }
+
+  deleteTalk(id: Id): SnapshotPatch {
+    const deletedSlideIds = (this.db.prepare('SELECT id FROM slides WHERE talk_id = ?').all(id) as Array<{ id: string }>).map((row) => row.id);
+    const deletedSlideElementIds = this.getSlideElementIdsBySlideIds(deletedSlideIds);
+    const deletedTalkScriptBlockIds = this.getTalkScriptBlockIdsBySlideIds(deletedSlideIds);
+    const { deletedIds: deletedPlaylistEntryIds, upsertIds: upsertPlaylistEntryIds } = this.cascadeDeleteItemPlaylistRows('talk_id', id);
+
+    const tx = this.db.transaction((talkId: Id) => {
+      this.db.prepare('DELETE FROM talk_script_blocks WHERE slide_id IN (SELECT id FROM slides WHERE talk_id = ?)').run(talkId);
+      this.db.prepare('DELETE FROM slide_elements WHERE slide_id IN (SELECT id FROM slides WHERE talk_id = ?)').run(talkId);
+      this.db.prepare('DELETE FROM slides WHERE talk_id = ?').run(talkId);
+      this.db.prepare('DELETE FROM talks WHERE id = ?').run(talkId);
+    });
+    tx(id);
+    this.normalizeItemOrder('talks');
+    const remainingIds = (this.db.prepare('SELECT id FROM talks ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
+
+    return this.buildPatch({
+      upsertTalkIds: remainingIds,
+      deletedTalkIds: [id],
+      deletedSlideIds,
+      deletedSlideElementIds,
+      deletedTalkScriptBlockIds,
+      deletedPlaylistEntryIds,
+      upsertPlaylistEntryIds,
+    });
+  }
+
+  renamePlaylist(id: Id, name: string): SnapshotPatch {
+    const result = this.db.prepare('UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?').run(name, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Playlist not found: ${id}`);
+    return this.buildPatch({ upsertPlaylistIds: [id] });
+  }
+
+  renamePresentation(id: Id, title: string): SnapshotPatch {
+    const result = this.db.prepare('UPDATE presentations SET title = ?, updated_at = ? WHERE id = ?').run(title, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Item not found: ${id}`);
+    return this.buildPatch({ upsertPresentationIds: [id] });
+  }
+
+  renameLyric(id: Id, title: string): SnapshotPatch {
+    const result = this.db.prepare('UPDATE lyrics SET title = ?, updated_at = ? WHERE id = ?').run(title, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Item not found: ${id}`);
+    return this.buildPatch({ upsertLyricIds: [id] });
+  }
+
+  renameTalk(id: Id, title: string): SnapshotPatch {
+    const result = this.db.prepare('UPDATE talks SET title = ?, updated_at = ? WHERE id = ?').run(title, nowIso(), id);
+    if (result.changes === 0) throw new Error(`Item not found: ${id}`);
+    return this.buildPatch({ upsertTalkIds: [id] });
   }
 
   createSlide(input: SlideCreateInput): SnapshotPatch {
@@ -4116,15 +2781,9 @@ export class CastRepository {
 
     const now = nowIso();
     const slideId = createId();
-    const ownerColumn = this.getDeckOwnerColumn(owner.type);
-    const currentOrder =
-      (this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM slides WHERE ${ownerColumn} = ?`).get(owner.id) as {
-        maxOrder: number | null;
-      }).maxOrder ?? -1;
-    const assignedTheme = owner.themeId ? this.getThemeById(owner.themeId) : null;
-    const appliedTheme = assignedTheme && isThemeCompatibleWithDeckItem(assignedTheme, owner.type)
-      ? assignedTheme
-      : null;
+    const ownerColumn = ITEM_OWNER_COLUMN_BY_TYPE[owner.type];
+    const currentOrder = (this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM slides WHERE ${ownerColumn} = ?`).get(owner.id) as { maxOrder: number | null }).maxOrder ?? -1;
+    const theme = owner.themeId ? this.getThemeRowById(THEME_TABLE_BY_TYPE[owner.type], owner.themeId) : null;
     const insertElement = this.db.prepare(
       `INSERT INTO slide_elements
         (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
@@ -4144,15 +2803,15 @@ export class CastRepository {
         input.width ?? DEFAULT_W,
         input.height ?? DEFAULT_H,
         '',
-        appliedTheme?.background ? JSON.stringify(appliedTheme.background) : null,
-        appliedTheme ? 'theme' : 'local',
+        theme?.background ? JSON.stringify(theme.background) : null,
+        theme ? 'theme' : 'local',
         currentOrder + 1,
         now,
         now
       );
 
-    const initialElements = appliedTheme
-      ? applyThemeToElements(appliedTheme, [], slideId)
+    const initialElements = theme
+      ? applyThemeToElements(theme, [], slideId)
       : owner.type === 'lyric'
         ? [{
           id: createId(),
@@ -4237,34 +2896,35 @@ export class CastRepository {
 
   updateSlideBackground(input: SlideBackgroundUpdateInput): SnapshotPatch {
     const now = nowIso();
-    // Mark background as locally set for deck slides (not theme/overlay/stage containers).
-    const owner = this.db
-      .prepare('SELECT theme_id, overlay_id, stage_id FROM slides WHERE id = ?')
-      .get(input.slideId) as { theme_id: string | null; overlay_id: string | null; stage_id: string | null } | undefined;
-    const isContainerSlide = Boolean(owner?.theme_id || owner?.overlay_id || owner?.stage_id);
-    const backgroundSource = isContainerSlide ? 'theme' : 'local';
+    const container = this.getSlideContainerOwner(input.slideId);
+    const backgroundSource = container ? 'theme' : 'local';
 
     this.db
       .prepare('UPDATE slides SET background_json = ?, background_source = ?, updated_at = ? WHERE id = ?')
       .run(input.background ? JSON.stringify(input.background) : null, backgroundSource, now, input.slideId);
-    // Theme/overlay/stage slides don't flow through the snapshot's `slides`
-    // array — they surface via their owning container, so upsert that instead.
-    // Bump the container's own `updated_at` too: the renderer dedupes entity
-    // arrays by id+updatedAt, so without this the new background is persisted
-    // but the UI keeps the stale cached entity until a full reload.
-    if (owner?.theme_id) {
-      this.db.prepare('UPDATE themes SET updated_at = ? WHERE id = ?').run(now, owner.theme_id);
-      return this.buildPatch({ upsertThemeIds: [owner.theme_id] });
+
+    if (!container) return this.buildPatch({ upsertSlideIds: [input.slideId] });
+
+    switch (container.kind) {
+      case 'presentationTheme':
+        this.db.prepare('UPDATE presentation_themes SET updated_at = ? WHERE id = ?').run(now, container.id);
+        return this.buildPatch({ upsertPresentationThemeIds: [container.id] });
+      case 'lyricTheme':
+        this.db.prepare('UPDATE lyric_themes SET updated_at = ? WHERE id = ?').run(now, container.id);
+        return this.buildPatch({ upsertLyricThemeIds: [container.id] });
+      case 'talkTheme':
+        this.db.prepare('UPDATE talk_themes SET updated_at = ? WHERE id = ?').run(now, container.id);
+        return this.buildPatch({ upsertTalkThemeIds: [container.id] });
+      case 'overlayTheme':
+        this.db.prepare('UPDATE overlay_themes SET updated_at = ? WHERE id = ?').run(now, container.id);
+        return this.buildPatch({ upsertOverlayThemeIds: [container.id] });
+      case 'overlay':
+        this.db.prepare('UPDATE overlays SET updated_at = ? WHERE id = ?').run(now, container.id);
+        return this.buildPatch({ upsertOverlayIds: [container.id] });
+      case 'stage':
+        this.db.prepare('UPDATE stages SET updated_at = ? WHERE id = ?').run(now, container.id);
+        return this.buildPatch({ upsertStageIds: [container.id] });
     }
-    if (owner?.overlay_id) {
-      this.db.prepare('UPDATE overlays SET updated_at = ? WHERE id = ?').run(now, owner.overlay_id);
-      return this.buildPatch({ upsertOverlayIds: [owner.overlay_id] });
-    }
-    if (owner?.stage_id) {
-      this.db.prepare('UPDATE stages SET updated_at = ? WHERE id = ?').run(now, owner.stage_id);
-      return this.buildPatch({ upsertStageIds: [owner.stage_id] });
-    }
-    return this.buildPatch({ upsertSlideIds: [input.slideId] });
   }
 
   createTalkScriptBlock(input: TalkScriptBlockCreateInput): SnapshotPatch {
@@ -4447,40 +3107,32 @@ export class CastRepository {
   setSlideOrder(input: SlideOrderUpdateInput): SnapshotPatch {
     const now = nowIso();
 
-    // Get the current slide to find its parent
     const slide = this.db
       .prepare('SELECT id, presentation_id, lyric_id, talk_id FROM slides WHERE id = ?')
       .get(input.slideId) as { id: string; presentation_id: string | null; lyric_id: string | null; talk_id: string | null } | undefined;
 
     if (!slide) return this.buildPatch({});
 
-    // Determine parent column and value
     const ownerColumn = slide.presentation_id !== null ? 'presentation_id' : slide.lyric_id !== null ? 'lyric_id' : 'talk_id';
     const ownerId = slide.presentation_id ?? slide.lyric_id ?? slide.talk_id;
 
     if (!ownerId) return this.buildPatch({});
 
-    // Get all sibling slides sorted by current order_index
     const siblings = this.db
       .prepare(`SELECT id, order_index FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
       .all(ownerId) as { id: string; order_index: number }[];
 
-    // Find current position
     const currentIndex = siblings.findIndex(s => s.id === input.slideId);
     if (currentIndex === -1) return this.buildPatch({});
 
-    // Clamp newOrder to valid range
     const maxOrder = siblings.length - 1;
     const targetOrder = Math.max(0, Math.min(input.newOrder, maxOrder));
 
-    // No-op if already at target position
     if (currentIndex === targetOrder) return this.buildPatch({});
 
-    // Reorder siblings by removing current and inserting at newOrder
     const reordered = siblings.filter((_, i) => i !== currentIndex);
     reordered.splice(targetOrder, 0, siblings[currentIndex]);
 
-    // Update all siblings with new order_index values
     const tx = this.db.transaction(() => {
       reordered.forEach((sibling, index) => {
         this.db
@@ -4490,178 +3142,7 @@ export class CastRepository {
     });
 
     tx();
-    // Every sibling's order_index (and updated_at) changed, so upsert all of them.
     return this.buildPatch({ upsertSlideIds: reordered.map((sibling) => sibling.id) });
-  }
-
-  setLibraryOrder(libraryId: Id, newOrder: number): SnapshotPatch {
-    const now = nowIso();
-    const siblings = this.db
-      .prepare('SELECT id, order_index FROM libraries ORDER BY order_index ASC, created_at ASC')
-      .all() as { id: string; order_index: number }[];
-
-    const currentIndex = siblings.findIndex((s) => s.id === libraryId);
-    if (currentIndex === -1) throw new Error(`Library not found: ${libraryId}`);
-
-    const maxOrder = siblings.length - 1;
-    const targetOrder = Math.max(0, Math.min(newOrder, maxOrder));
-    if (currentIndex === targetOrder) return this.buildPatch({});
-
-    const reordered = siblings.filter((_, i) => i !== currentIndex);
-    reordered.splice(targetOrder, 0, siblings[currentIndex]);
-
-    const tx = this.db.transaction(() => {
-      reordered.forEach((sibling, index) => {
-        this.db
-          .prepare('UPDATE libraries SET order_index = ?, updated_at = ? WHERE id = ?')
-          .run(index, now, sibling.id);
-      });
-    });
-
-    tx();
-    return this.buildPatch({
-      upsertLibraryIds: reordered.map((sibling) => sibling.id),
-      replaceLibraryBundles: true,
-    });
-  }
-
-  setPlaylistOrder(playlistId: Id, newOrder: number): SnapshotPatch {
-    const now = nowIso();
-    const current = this.db
-      .prepare('SELECT id, library_id, order_index FROM playlists WHERE id = ?')
-      .get(playlistId) as { id: string; library_id: string; order_index: number } | undefined;
-
-    if (!current) throw new Error(`Playlist not found: ${playlistId}`);
-
-    const siblings = this.db
-      .prepare('SELECT id, order_index FROM playlists WHERE library_id = ? ORDER BY order_index ASC')
-      .all(current.library_id) as { id: string; order_index: number }[];
-
-    const currentIndex = siblings.findIndex((s) => s.id === playlistId);
-    if (currentIndex === -1) return this.buildPatch({});
-
-    const maxOrder = siblings.length - 1;
-    const targetOrder = Math.max(0, Math.min(newOrder, maxOrder));
-    if (currentIndex === targetOrder) return this.buildPatch({});
-
-    const reordered = siblings.filter((_, i) => i !== currentIndex);
-    reordered.splice(targetOrder, 0, siblings[currentIndex]);
-
-    const tx = this.db.transaction(() => {
-      reordered.forEach((sibling, index) => {
-        this.db
-          .prepare('UPDATE playlists SET order_index = ?, updated_at = ? WHERE id = ?')
-          .run(index, now, sibling.id);
-      });
-    });
-
-    tx();
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  movePlaylistEntryTo(entryId: Id, groupId: Id, newOrder: number): SnapshotPatch {
-    const entry = this.db
-      .prepare(
-        `SELECT pe.id, pe.group_id, pg.playlist_id
-         FROM playlist_entries pe
-         JOIN playlist_groups pg ON pg.id = pe.group_id
-         WHERE pe.id = ?`
-      )
-      .get(entryId) as { id: string; group_id: string; playlist_id: string } | undefined;
-    if (!entry) throw new Error(`Playlist entry not found: ${entryId}`);
-
-    const targetGroup = this.db
-      .prepare('SELECT id FROM playlist_groups WHERE id = ? AND playlist_id = ?')
-      .get(groupId, entry.playlist_id) as { id: string } | undefined;
-    if (!targetGroup) throw new Error(`Group not found: ${groupId}`);
-
-    const now = nowIso();
-    const isSameGroup = entry.group_id === groupId;
-
-    const tx = this.db.transaction(() => {
-      if (isSameGroup) {
-        const siblings = this.db
-          .prepare('SELECT id FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC')
-          .all(groupId) as { id: string }[];
-        const currentIndex = siblings.findIndex((s) => s.id === entryId);
-        if (currentIndex === -1) return;
-        const maxOrder = siblings.length - 1;
-        const targetOrder = Math.max(0, Math.min(newOrder, maxOrder));
-        if (currentIndex === targetOrder) return;
-        const reordered = siblings.filter((_, i) => i !== currentIndex);
-        reordered.splice(targetOrder, 0, siblings[currentIndex]);
-        reordered.forEach((sibling, index) => {
-          this.db
-            .prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?')
-            .run(index, now, sibling.id);
-        });
-        return;
-      }
-
-      const targetSiblings = this.db
-        .prepare('SELECT id FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC')
-        .all(groupId) as { id: string }[];
-      const clampedOrder = Math.max(0, Math.min(newOrder, targetSiblings.length));
-      const newTargetList = [...targetSiblings];
-      newTargetList.splice(clampedOrder, 0, { id: entryId });
-      newTargetList.forEach((item, index) => {
-        if (item.id === entryId) {
-          this.db
-            .prepare('UPDATE playlist_entries SET group_id = ?, order_index = ?, updated_at = ? WHERE id = ?')
-            .run(groupId, index, now, item.id);
-        } else {
-          this.db
-            .prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?')
-            .run(index, now, item.id);
-        }
-      });
-
-      const sourceSiblings = this.db
-        .prepare('SELECT id FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC')
-        .all(entry.group_id) as { id: string }[];
-      sourceSiblings.forEach((sibling, index) => {
-        this.db
-          .prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?')
-          .run(index, now, sibling.id);
-      });
-    });
-
-    tx();
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  setPlaylistGroupOrder(groupId: Id, newOrder: number): SnapshotPatch {
-    const now = nowIso();
-    const current = this.db
-      .prepare('SELECT id, playlist_id, order_index FROM playlist_groups WHERE id = ?')
-      .get(groupId) as { id: string; playlist_id: string; order_index: number } | undefined;
-
-    if (!current) throw new Error(`Group not found: ${groupId}`);
-
-    const siblings = this.db
-      .prepare('SELECT id, order_index FROM playlist_groups WHERE playlist_id = ? ORDER BY order_index ASC')
-      .all(current.playlist_id) as { id: string; order_index: number }[];
-
-    const currentIndex = siblings.findIndex((s) => s.id === groupId);
-    if (currentIndex === -1) return this.buildPatch({});
-
-    const maxOrder = siblings.length - 1;
-    const targetOrder = Math.max(0, Math.min(newOrder, maxOrder));
-    if (currentIndex === targetOrder) return this.buildPatch({});
-
-    const reordered = siblings.filter((_, i) => i !== currentIndex);
-    reordered.splice(targetOrder, 0, siblings[currentIndex]);
-
-    const tx = this.db.transaction(() => {
-      reordered.forEach((sibling, index) => {
-        this.db
-          .prepare('UPDATE playlist_groups SET order_index = ?, updated_at = ? WHERE id = ?')
-          .run(index, now, sibling.id);
-      });
-    });
-
-    tx();
-    return this.buildPatch({ replaceLibraryBundles: true });
   }
 
   createElement(input: ElementCreateInput): SnapshotPatch {
@@ -4866,12 +3347,9 @@ export class CastRepository {
     const assetId = createId();
     const table = this.mediaAssetTable(asset.type);
     const currentOrder = this.getNextMediaAssetOrderIndex() - 1;
-    const collectionId = asset.collectionId ?? this.getMediaAssetDefaultCollectionId(asset.type);
     this.db
-      .prepare(
-        `INSERT INTO ${table} (id, name, src, collection_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(assetId, asset.name, asset.src, collectionId, currentOrder + 1, now, now);
+      .prepare(`INSERT INTO ${table} (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(assetId, asset.name, asset.src, currentOrder + 1, now, now);
     return this.buildPatch({ upsertMediaAssetIds: [assetId] });
   }
 
@@ -4908,21 +3386,17 @@ export class CastRepository {
     // New container — regenerate element IDs so cloned/duplicated input
     // can't collide with the source overlay's existing slide_elements rows.
     const elements = (input.elements ?? []).map((el) => ({ ...el, id: createId(), slideId }));
-    const collectionId = input.collectionId ?? this.getDefaultCollectionId('overlay');
 
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO overlays
-           (id, name, enabled, animation_json, collection_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
         )
         .run(
           overlayId,
           input.name,
           1,
           JSON.stringify(normalizeOverlayAnimation(input.animation ?? { kind: 'none', durationMs: 0, autoClearDurationMs: null })),
-          collectionId,
           now,
           now,
         );
@@ -4971,245 +3445,6 @@ export class CastRepository {
     return this.buildPatch({ upsertOverlayIds: [input.id] });
   }
 
-  renameLibrary(id: Id, name: string): SnapshotPatch {
-    const result = this.db
-      .prepare('UPDATE libraries SET name = ?, updated_at = ? WHERE id = ?')
-      .run(name, nowIso(), id);
-    if (result.changes === 0) throw new Error(`Library not found: ${id}`);
-    return this.buildPatch({ upsertLibraryIds: [id], replaceLibraryBundles: true });
-  }
-
-  renamePlaylist(id: Id, name: string): SnapshotPatch {
-    const result = this.db
-      .prepare('UPDATE playlists SET name = ?, updated_at = ? WHERE id = ?')
-      .run(name, nowIso(), id);
-    if (result.changes === 0) throw new Error(`Playlist not found: ${id}`);
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  renamePresentation(id: Id, title: string): SnapshotPatch {
-    const result = this.db
-      .prepare('UPDATE presentations SET title = ?, updated_at = ? WHERE id = ?')
-      .run(title, nowIso(), id);
-    if (result.changes === 0) throw new Error(`Deck item not found: ${id}`);
-    return this.buildPatch({ upsertPresentationIds: [id], replaceLibraryBundles: true });
-  }
-
-  renameLyric(id: Id, title: string): SnapshotPatch {
-    const result = this.db
-      .prepare('UPDATE lyrics SET title = ?, updated_at = ? WHERE id = ?')
-      .run(title, nowIso(), id);
-    if (result.changes === 0) throw new Error(`Deck item not found: ${id}`);
-    return this.buildPatch({ upsertLyricIds: [id], replaceLibraryBundles: true });
-  }
-
-  renameTalk(id: Id, title: string): SnapshotPatch {
-    const result = this.db
-      .prepare('UPDATE talks SET title = ?, updated_at = ? WHERE id = ?')
-      .run(title, nowIso(), id);
-    if (result.changes === 0) throw new Error(`Deck item not found: ${id}`);
-    return this.buildPatch({ upsertTalkIds: [id], replaceLibraryBundles: true });
-  }
-
-  deleteLibrary(id: Id): SnapshotPatch {
-    const exists = this.db.prepare('SELECT id FROM libraries WHERE id = ?').get(id);
-    if (!exists) throw new Error(`Library not found: ${id}`);
-    const tx = this.db.transaction((libraryId: Id) => {
-      this.db
-        .prepare(
-          `DELETE FROM playlist_entries
-           WHERE group_id IN (
-             SELECT pg.id
-             FROM playlist_groups pg
-             JOIN playlists p ON p.id = pg.playlist_id
-             WHERE p.library_id = ?
-           )`
-        )
-        .run(libraryId);
-
-      this.db
-        .prepare(
-          `DELETE FROM playlist_groups
-           WHERE playlist_id IN (SELECT id FROM playlists WHERE library_id = ?)`
-        )
-        .run(libraryId);
-
-      this.db
-        .prepare('DELETE FROM playlists WHERE library_id = ?')
-        .run(libraryId);
-
-      this.db
-        .prepare('DELETE FROM libraries WHERE id = ?')
-        .run(libraryId);
-    });
-
-    tx(id);
-    return this.buildPatch({ deletedLibraryIds: [id], replaceLibraryBundles: true });
-  }
-
-  deletePlaylist(id: Id): SnapshotPatch {
-    const row = this.db
-      .prepare('SELECT library_id FROM playlists WHERE id = ?')
-      .get(id) as { library_id: string } | undefined;
-
-    const tx = this.db.transaction((playlistId: Id) => {
-      this.db
-        .prepare(
-          `DELETE FROM playlist_entries
-           WHERE group_id IN (SELECT id FROM playlist_groups WHERE playlist_id = ?)`
-        )
-        .run(playlistId);
-      this.db
-        .prepare('DELETE FROM playlist_groups WHERE playlist_id = ?')
-        .run(playlistId);
-      this.db
-        .prepare('DELETE FROM playlists WHERE id = ?')
-        .run(playlistId);
-    });
-
-    tx(id);
-    if (row) this.normalizePlaylistOrder(row.library_id);
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  deletePlaylistGroup(id: Id): SnapshotPatch {
-    const tx = this.db.transaction((groupId: Id) => {
-      this.db
-        .prepare('DELETE FROM playlist_entries WHERE group_id = ?')
-        .run(groupId);
-      this.db
-        .prepare('DELETE FROM playlist_groups WHERE id = ?')
-        .run(groupId);
-    });
-
-    tx(id);
-    return this.buildPatch({ replaceLibraryBundles: true });
-  }
-
-  deletePresentation(id: Id): SnapshotPatch {
-    const deletedSlideIds = (this.db
-      .prepare('SELECT id FROM slides WHERE presentation_id = ?')
-      .all(id) as Array<{ id: string }>)
-      .map((row) => row.id);
-    const deletedSlideElementIds = this.getSlideElementIdsBySlideIds(deletedSlideIds);
-    const tx = this.db.transaction((presentationId: Id) => {
-      this.db
-        .prepare(
-          `DELETE FROM slide_elements
-           WHERE slide_id IN (SELECT id FROM slides WHERE presentation_id = ?)`
-        )
-        .run(presentationId);
-      this.db
-        .prepare('DELETE FROM slides WHERE presentation_id = ?')
-        .run(presentationId);
-      this.db
-        .prepare('DELETE FROM playlist_entries WHERE presentation_id = ?')
-        .run(presentationId);
-      this.db
-        .prepare('DELETE FROM presentations WHERE id = ?')
-        .run(presentationId);
-    });
-
-    tx(id);
-    this.normalizeDeckItemOrder();
-    const remainingPresentationIds = (this.db.prepare('SELECT id FROM presentations ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    const remainingLyricIds = (this.db.prepare('SELECT id FROM lyrics ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    return this.buildPatch({
-      upsertPresentationIds: remainingPresentationIds,
-      upsertLyricIds: remainingLyricIds,
-      deletedPresentationIds: [id],
-      deletedSlideIds,
-      deletedSlideElementIds,
-      replaceLibraryBundles: true,
-    });
-  }
-
-  deleteLyric(id: Id): SnapshotPatch {
-    const deletedSlideIds = (this.db
-      .prepare('SELECT id FROM slides WHERE lyric_id = ?')
-      .all(id) as Array<{ id: string }>)
-      .map((row) => row.id);
-    const deletedSlideElementIds = this.getSlideElementIdsBySlideIds(deletedSlideIds);
-    const tx = this.db.transaction((lyricId: Id) => {
-      this.db
-        .prepare(
-          `DELETE FROM slide_elements
-           WHERE slide_id IN (SELECT id FROM slides WHERE lyric_id = ?)`
-        )
-        .run(lyricId);
-      this.db
-        .prepare('DELETE FROM slides WHERE lyric_id = ?')
-        .run(lyricId);
-      this.db
-        .prepare('DELETE FROM playlist_entries WHERE lyric_id = ?')
-        .run(lyricId);
-      this.db
-        .prepare('DELETE FROM lyrics WHERE id = ?')
-        .run(lyricId);
-    });
-
-    tx(id);
-    this.normalizeDeckItemOrder();
-    const remainingPresentationIds = (this.db.prepare('SELECT id FROM presentations ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    const remainingLyricIds = (this.db.prepare('SELECT id FROM lyrics ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    return this.buildPatch({
-      upsertPresentationIds: remainingPresentationIds,
-      upsertLyricIds: remainingLyricIds,
-      deletedLyricIds: [id],
-      deletedSlideIds,
-      deletedSlideElementIds,
-      replaceLibraryBundles: true,
-    });
-  }
-
-  deleteTalk(id: Id): SnapshotPatch {
-    const deletedSlideIds = (this.db
-      .prepare('SELECT id FROM slides WHERE talk_id = ?')
-      .all(id) as Array<{ id: string }>)
-      .map((row) => row.id);
-    const deletedSlideElementIds = this.getSlideElementIdsBySlideIds(deletedSlideIds);
-    const deletedTalkScriptBlockIds = this.getTalkScriptBlockIdsBySlideIds(deletedSlideIds);
-    const tx = this.db.transaction((talkId: Id) => {
-      this.db
-        .prepare(
-          `DELETE FROM talk_script_blocks
-           WHERE slide_id IN (SELECT id FROM slides WHERE talk_id = ?)`
-        )
-        .run(talkId);
-      this.db
-        .prepare(
-          `DELETE FROM slide_elements
-           WHERE slide_id IN (SELECT id FROM slides WHERE talk_id = ?)`
-        )
-        .run(talkId);
-      this.db
-        .prepare('DELETE FROM slides WHERE talk_id = ?')
-        .run(talkId);
-      this.db
-        .prepare('DELETE FROM playlist_entries WHERE talk_id = ?')
-        .run(talkId);
-      this.db
-        .prepare('DELETE FROM talks WHERE id = ?')
-        .run(talkId);
-    });
-
-    tx(id);
-    this.normalizeDeckItemOrder();
-    const remainingPresentationIds = (this.db.prepare('SELECT id FROM presentations ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    const remainingLyricIds = (this.db.prepare('SELECT id FROM lyrics ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    const remainingTalkIds = (this.db.prepare('SELECT id FROM talks ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
-    return this.buildPatch({
-      upsertPresentationIds: remainingPresentationIds,
-      upsertLyricIds: remainingLyricIds,
-      upsertTalkIds: remainingTalkIds,
-      deletedTalkIds: [id],
-      deletedSlideIds,
-      deletedSlideElementIds,
-      deletedTalkScriptBlockIds,
-      replaceLibraryBundles: true,
-    });
-  }
-
   setOverlayEnabled(overlayId: Id, enabled: boolean): SnapshotPatch {
     this.db
       .prepare('UPDATE overlays SET enabled = ?, updated_at = ? WHERE id = ?')
@@ -5244,24 +3479,13 @@ export class CastRepository {
     const nextOrderRow = this.db
       .prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM stages')
       .get() as { next_order: number };
-    const collectionId = input.collectionId ?? this.getDefaultCollectionId('stage');
 
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO stages (id, name, width, height, order_index, collection_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(
-          stageId,
-          input.name,
-          width,
-          height,
-          nextOrderRow.next_order,
-          collectionId,
-          now,
-          now,
-        );
+        .run(stageId, input.name, width, height, nextOrderRow.next_order, now, now);
       this.createContainerSlide(slideId, 'stage', stageId, width, height, now);
       this.replaceContainerElements(slideId, elements, now);
     });
@@ -5330,9 +3554,9 @@ export class CastRepository {
 
   duplicateStage(stageId: Id): SnapshotPatch {
     const existing = this.db
-      .prepare('SELECT id, name, width, height, collection_id FROM stages WHERE id = ?')
+      .prepare('SELECT id, name, width, height FROM stages WHERE id = ?')
       .get(stageId) as
-      | { id: string; name: string; width: number; height: number; collection_id: string }
+      | { id: string; name: string; width: number; height: number }
       | undefined;
 
     if (!existing) throw new Error(`Stage not found: ${stageId}`);
@@ -5356,19 +3580,9 @@ export class CastRepository {
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO stages (id, name, width, height, order_index, collection_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(
-          newId,
-          `${existing.name} copy`,
-          existing.width,
-          existing.height,
-          nextOrderRow.next_order,
-          existing.collection_id,
-          now,
-          now,
-        );
+        .run(newId, `${existing.name} copy`, existing.width, existing.height, nextOrderRow.next_order, now, now);
       this.createContainerSlide(newSlideId, 'stage', newId, existing.width, existing.height, now);
       this.replaceContainerElements(newSlideId, clonedElements, now);
     });
@@ -5539,89 +3753,63 @@ export class CastRepository {
     }
   }
 
-  private normalizeThemeKind(kind: string | null | undefined): ThemeKind {
-    if (kind === 'lyrics' || kind === 'overlays') return kind;
-    return 'slides';
-  }
-
   private inferLayer(type: string): 'background' | 'media' | 'content' {
     if (type === 'shape') return 'background';
     if (type === 'image' || type === 'video') return 'media';
     return 'content';
   }
 
-  private getDeckTableName(type: DeckItemType): 'presentations' | 'lyrics' | 'talks' {
-    if (type === 'presentation') return 'presentations';
-    if (type === 'lyric') return 'lyrics';
-    return 'talks';
+  /** Generic same-table up/down neighbor swap, reused for the three item tables and `playlists`. */
+  private moveItemOrder(table: ItemTableName | 'playlists', id: Id, direction: 'up' | 'down'): Id[] {
+    const current = this.db.prepare(`SELECT id, order_index FROM ${table} WHERE id = ?`).get(id) as { id: string; order_index: number } | undefined;
+    if (!current) throw new Error(`Row not found in ${table}: ${id}`);
+
+    const neighbor = direction === 'up'
+      ? this.db.prepare(`SELECT id, order_index FROM ${table} WHERE order_index < ? ORDER BY order_index DESC LIMIT 1`).get(current.order_index)
+      : this.db.prepare(`SELECT id, order_index FROM ${table} WHERE order_index > ? ORDER BY order_index ASC LIMIT 1`).get(current.order_index);
+    if (!neighbor) return [];
+
+    const n = neighbor as { id: string; order_index: number };
+    const now = nowIso();
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`UPDATE ${table} SET order_index = ?, updated_at = ? WHERE id = ?`).run(n.order_index, now, current.id);
+      this.db.prepare(`UPDATE ${table} SET order_index = ?, updated_at = ? WHERE id = ?`).run(current.order_index, now, n.id);
+    });
+    tx();
+    return [current.id, n.id];
   }
 
-  private getDeckOwnerColumn(type: DeckItemType): 'presentation_id' | 'lyric_id' | 'talk_id' {
-    if (type === 'presentation') return 'presentation_id';
-    if (type === 'lyric') return 'lyric_id';
-    return 'talk_id';
+  /** Densely renumbers one item table's order_index 0..n after a delete. */
+  private normalizeItemOrder(table: ItemTableName): void {
+    const rows = this.db.prepare(`SELECT id FROM ${table} ORDER BY order_index ASC, created_at ASC`).all() as Array<{ id: string }>;
+    const update = this.db.prepare(`UPDATE ${table} SET order_index = ?, updated_at = ? WHERE id = ?`);
+    const now = nowIso();
+    const tx = this.db.transaction(() => {
+      rows.forEach((row, index) => update.run(index, now, row.id));
+    });
+    tx();
   }
 
-  private getMaxDeckOrder(): number {
-    const row = this.db.prepare(
-      `SELECT MAX(order_index) AS maxOrder
-       FROM (
-         SELECT order_index FROM presentations
-         UNION ALL
-         SELECT order_index FROM lyrics
-         UNION ALL
-         SELECT order_index FROM talks
-       )`
-    ).get() as { maxOrder: number | null };
-    return row.maxOrder ?? -1;
-  }
+  private resolveItemOwnerRow(id: Id): ItemOwnerRow | null {
+    const presentation = this.db.prepare('SELECT theme_id FROM presentations WHERE id = ?').get(id) as { theme_id: string | null } | undefined;
+    if (presentation) return { type: 'presentation', themeId: presentation.theme_id };
 
-  private getOrderedContentReferences(): Array<{ id: Id; type: DeckItemType; order: number }> {
-    return this.db.prepare(
-      `SELECT id, type, order_index AS "order"
-       FROM (
-         SELECT id, 'presentation' AS type, order_index, created_at FROM presentations
-         UNION ALL
-         SELECT id, 'lyric' AS type, order_index, created_at FROM lyrics
-         UNION ALL
-         SELECT id, 'talk' AS type, order_index, created_at FROM talks
-       )
-       ORDER BY order_index ASC, created_at ASC, id ASC`
-    ).all() as Array<{ id: Id; type: DeckItemType; order: number }>;
-  }
+    const lyric = this.db.prepare('SELECT theme_id FROM lyrics WHERE id = ?').get(id) as { theme_id: string | null } | undefined;
+    if (lyric) return { type: 'lyric', themeId: lyric.theme_id };
 
-  private resolveDeckOwnerRow(id: Id): DeckOwnerRow | null {
-    const deck = this.db
-      .prepare('SELECT theme_id FROM presentations WHERE id = ?')
-      .get(id) as { theme_id: string | null } | undefined;
-    if (deck) {
-      return { type: 'presentation', themeId: deck.theme_id };
-    }
-
-    const lyric = this.db
-      .prepare('SELECT theme_id FROM lyrics WHERE id = ?')
-      .get(id) as { theme_id: string | null } | undefined;
-    if (lyric) {
-      return { type: 'lyric', themeId: lyric.theme_id };
-    }
-
-    const talk = this.db
-      .prepare('SELECT theme_id FROM talks WHERE id = ?')
-      .get(id) as { theme_id: string | null } | undefined;
-    if (talk) {
-      return { type: 'talk', themeId: talk.theme_id };
-    }
+    const talk = this.db.prepare('SELECT theme_id FROM talks WHERE id = ?').get(id) as { theme_id: string | null } | undefined;
+    if (talk) return { type: 'talk', themeId: talk.theme_id };
 
     return null;
   }
 
-  private resolveSlideOwnerInput(input: SlideCreateInput): (DeckOwnerRow & { id: Id }) | null {
+  private resolveSlideOwnerInput(input: SlideCreateInput): (ItemOwnerRow & { id: Id }) | null {
     const providedIds = [input.presentationId, input.lyricId, input.talkId].filter(Boolean);
     if (providedIds.length !== 1) return null;
     const ownerId = input.presentationId ?? input.lyricId ?? input.talkId ?? null;
     if (!ownerId) return null;
 
-    const owner = this.resolveDeckOwnerRow(ownerId);
+    const owner = this.resolveItemOwnerRow(ownerId);
     if (!owner) return null;
 
     if (owner.type === 'presentation' && input.presentationId) return { ...owner, id: input.presentationId };
@@ -5630,18 +3818,86 @@ export class CastRepository {
     return null;
   }
 
-  private getDeckBundleItemById(itemId: Id): DeckBundleItem | null {
-    const owner = this.resolveDeckOwnerRow(itemId);
+  /** Detaches every playlist row referencing `itemId` (owner column `ownerColumn`) and densifies each affected playlist's remaining order. */
+  private cascadeDeleteItemPlaylistRows(ownerColumn: 'presentation_id' | 'lyric_id' | 'talk_id', itemId: Id): { deletedIds: Id[]; upsertIds: Id[] } {
+    const rows = this.db.prepare(`SELECT id, playlist_id FROM playlist_entries WHERE ${ownerColumn} = ?`).all(itemId) as Array<{ id: string; playlist_id: string }>;
+    if (rows.length === 0) return { deletedIds: [], upsertIds: [] };
+    this.db.prepare(`DELETE FROM playlist_entries WHERE ${ownerColumn} = ?`).run(itemId);
+    const affectedPlaylistIds = new Set(rows.map((row) => row.playlist_id));
+    const upsertIds: Id[] = [];
+    for (const playlistId of affectedPlaylistIds) upsertIds.push(...this.normalizePlaylistRowOrder(playlistId));
+    return { deletedIds: rows.map((row) => row.id), upsertIds };
+  }
+
+  /** Inserts a new item-entry row into a playlist at `position` (append when omitted), shifting later rows. Returns the new row's id. */
+  private insertPlaylistItemRow(playlistId: Id, itemRef: ItemRef, position?: number): Id {
+    const now = nowIso();
+    const id = createId();
+    const owner = toPlaylistItemOwnerColumns(makePlaylistItemReference(itemRef.type, itemRef.id));
+    const siblingCount = (this.db.prepare('SELECT COUNT(*) AS count FROM playlist_entries WHERE playlist_id = ?').get(playlistId) as { count: number }).count;
+    const order = position === undefined ? siblingCount : Math.max(0, Math.min(position, siblingCount));
+
+    const tx = this.db.transaction(() => {
+      this.db.prepare('UPDATE playlist_entries SET order_index = order_index + 1, updated_at = ? WHERE playlist_id = ? AND order_index >= ?').run(now, playlistId, order);
+      this.db
+        .prepare(
+          `INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at)
+           VALUES (?, ?, 'item', ?, ?, ?, ?, ?, ?)`
+        )
+        .run(id, playlistId, owner.presentationId, owner.lyricId, owner.talkId, order, now, now);
+    });
+    tx();
+    return id;
+  }
+
+  /** Densely renumbers one playlist's row order after a removal. Returns only the ids whose order_index actually changed. */
+  private normalizePlaylistRowOrder(playlistId: Id): Id[] {
+    const rows = this.db
+      .prepare('SELECT id, order_index FROM playlist_entries WHERE playlist_id = ? ORDER BY order_index ASC, created_at ASC')
+      .all(playlistId) as Array<{ id: string; order_index: number }>;
+    const now = nowIso();
+    const changed: Id[] = [];
+    const tx = this.db.transaction(() => {
+      rows.forEach((row, index) => {
+        if (row.order_index !== index) {
+          this.db.prepare('UPDATE playlist_entries SET order_index = ?, updated_at = ? WHERE id = ?').run(index, now, row.id);
+          changed.push(row.id);
+        }
+      });
+    });
+    tx();
+    return changed;
+  }
+
+  private themeUpsertSpec(themeType: ThemeOwnerType, ids: Id[]): BuildPatchSpec {
+    switch (themeType) {
+      case 'presentation': return { upsertPresentationThemeIds: ids };
+      case 'lyric': return { upsertLyricThemeIds: ids };
+      case 'talk': return { upsertTalkThemeIds: ids };
+      case 'overlay': return { upsertOverlayThemeIds: ids };
+    }
+  }
+
+  private themeDeleteSpec(themeType: ThemeOwnerType, ids: Id[]): BuildPatchSpec {
+    switch (themeType) {
+      case 'presentation': return { deletedPresentationThemeIds: ids };
+      case 'lyric': return { deletedLyricThemeIds: ids };
+      case 'talk': return { deletedTalkThemeIds: ids };
+      case 'overlay': return { deletedOverlayThemeIds: ids };
+    }
+  }
+
+  private getBundleItemById(itemId: Id): BundleItem | null {
+    const owner = this.resolveItemOwnerRow(itemId);
     if (!owner) return null;
 
-    const tableName = this.getDeckTableName(owner.type);
-    const row = this.db
-      .prepare(`SELECT id, title, theme_id, order_index FROM ${tableName} WHERE id = ?`)
-      .get(itemId) as { id: string; title: string; theme_id: string | null; order_index: number } | undefined;
-
+    const table = ITEM_TABLE_BY_TYPE[owner.type];
+    const row = this.db.prepare(`SELECT id, title, theme_id, order_index FROM ${table} WHERE id = ?`).get(itemId) as
+      | { id: string; title: string; theme_id: string | null; order_index: number }
+      | undefined;
     if (!row) return null;
 
-    const ownerColumn = this.getDeckOwnerColumn(owner.type);
+    const ownerColumn = ITEM_OWNER_COLUMN_BY_TYPE[owner.type];
     const slides = this.db
       .prepare(
         `SELECT id, width, height, notes, background_json, background_source, order_index
@@ -5651,17 +3907,17 @@ export class CastRepository {
       )
       .all(itemId) as Array<{ id: string; width: number; height: number; notes: string; background_json: string | null; background_source: string | null; order_index: number }>;
 
-    const bundleSlides = slides.map((slide): DeckBundleSlide => ({
+    const bundleSlides = slides.map((slide): BundleSlide => ({
       id: slide.id,
       width: slide.width,
       height: slide.height,
       notes: slide.notes,
       order: slide.order_index,
-      background: slide.background_json ? decodeSlideBackgroundJson(slide.background_json, persistedContext('exportDeckBundle', `slides.${slide.id}.background_json`)) : null,
+      background: slide.background_json ? decodeSlideBackgroundJson(slide.background_json, persistedContext('exportBundle', `slides.${slide.id}.background_json`)) : null,
       backgroundSource: (slide.background_source ?? 'local') as SlideBackgroundSource,
       elements: this.getSlideElementsBySlideId(slide.id),
       scriptBlocks: owner.type === 'talk'
-        ? (this.getTalkScriptBlocksByIds(this.getTalkScriptBlockIdsBySlideIds([slide.id])).map((block) => ({
+        ? (this.getTalkScriptBlocksByIds(this.getTalkScriptBlockIdsBySlideIds([slide.id])).map((block): BundleTalkScriptBlock => ({
           id: block.id,
           text: block.text,
           order: block.order,
@@ -5679,251 +3935,258 @@ export class CastRepository {
     };
   }
 
-  private getDeckBundlePlaylistById(playlistId: Id): DeckBundlePlaylist | null {
-    const row = this.db
-      .prepare(
-        `SELECT p.id, p.name, p.order_index, p.library_id, l.name AS library_name
-         FROM playlists p
-         LEFT JOIN libraries l ON l.id = p.library_id
-         WHERE p.id = ?`
-      )
-      .get(playlistId) as
-      | { id: string; name: string; order_index: number; library_id: string; library_name: string | null }
+  private getBundlePlaylistById(playlistId: Id): BundlePlaylist | null {
+    const row = this.db.prepare('SELECT id, name, order_index FROM playlists WHERE id = ?').get(playlistId) as
+      | { id: string; name: string; order_index: number }
       | undefined;
-
     if (!row) return null;
 
-    const groups = this.getPlaylistGroups(playlistId).map((group): DeckBundlePlaylistGroup => ({
-      id: group.id,
-      name: group.name,
-      colorKey: group.colorKey,
-      order: group.order,
-      entries: this.getPlaylistEntries(group.id).map((entry) => {
-        const owner = toPlaylistItemOwnerColumns(entry.reference);
-        return {
-          id: entry.id,
-          presentationId: owner.presentationId,
-          lyricId: owner.lyricId,
-          talkId: owner.talkId,
-          order: entry.order,
-        };
-      }),
-    }));
+    const rows: BundlePlaylistRow[] = this.getPlaylistRows(playlistId).map((entry) => {
+      if (entry.kind === 'separator') {
+        return { id: entry.id, kind: 'separator', label: entry.label, colorKey: entry.colorKey, order: entry.order };
+      }
+      const owner = toPlaylistItemOwnerColumns(entry.reference);
+      return { id: entry.id, kind: 'item', presentationId: owner.presentationId, lyricId: owner.lyricId, talkId: owner.talkId, order: entry.order };
+    });
 
+    return { id: row.id, name: row.name, order: row.order_index, rows };
+  }
+
+  private getBundleThemeById(themeId: Id, themeType: ThemeOwnerType): BundleTheme | null {
+    const theme = this.getThemeRowById(THEME_TABLE_BY_TYPE[themeType], themeId);
+    if (!theme) return null;
+    return toBundleTheme(theme, themeType);
+  }
+
+  /**
+   * Structural validation is @lumacast/protocol's single named validation
+   * entry point for the bundle wire contract. It also decodes and converts a
+   * legacy v1 manifest to the current v2 shape (`normalizeBundleManifestV1`,
+   * wave K) — the RETURNED manifest, not the caller's original argument, is
+   * the one every downstream step (inspect/finalize) must use, so a v1
+   * import actually sees flat rows and `themeType`-tagged themes rather than
+   * the raw pre-#219 shape. Then checks the referential domain rules that
+   * don't belong in the protocol layer: theme existence/compatibility within
+   * this manifest.
+   */
+  private assertValidBundleManifest(manifest: BundleManifest, operation: string): BundleManifest {
+    const validated = validateBundleManifest(manifest, { boundary: 'bundle-import', operation, path: 'manifest' });
+
+    const themesById = new Map(validated.themes.map((theme) => [theme.id, theme] as const));
+    for (const item of validated.items) {
+      if (!item.themeId) continue;
+      const theme = themesById.get(item.themeId);
+      if (!theme) throw new Error(`Bundle item ${item.title} references a missing theme.`);
+      if (theme.themeType !== item.type) throw new Error(`Bundle item ${item.title} has an incompatible theme.`);
+    }
+    return validated;
+  }
+
+  private collectBrokenBundleReferences(manifest: BundleManifest): BrokenBundleReference[] {
+    const references = new Map<string, BrokenReferenceAccumulator>();
+
+    function collect(
+      elements: SlideElement[],
+      owner: { itemTitle?: string; themeName?: string; overlayName?: string; stageName?: string },
+    ) {
+      for (const element of elements) {
+        const reference = readElementMediaReference(element);
+        if (!reference || !isBrokenMediaSource(reference.source)) continue;
+        const current = references.get(reference.source) ?? {
+          elementTypes: new Set<'image' | 'video'>(),
+          occurrenceCount: 0,
+          itemTitles: new Set<string>(),
+          themeNames: new Set<string>(),
+          overlayNames: new Set<string>(),
+          stageNames: new Set<string>(),
+        };
+        current.elementTypes.add(reference.elementType);
+        current.occurrenceCount += 1;
+        if (owner.itemTitle) current.itemTitles.add(owner.itemTitle);
+        if (owner.themeName) current.themeNames.add(owner.themeName);
+        if (owner.overlayName) current.overlayNames.add(owner.overlayName);
+        if (owner.stageName) current.stageNames.add(owner.stageName);
+        references.set(reference.source, current);
+      }
+    }
+
+    for (const item of manifest.items) {
+      for (const slide of item.slides) {
+        collect(slide.elements, { itemTitle: item.title });
+      }
+    }
+
+    for (const theme of manifest.themes) {
+      collect(theme.elements, { themeName: theme.name });
+    }
+
+    for (const overlay of manifest.overlays ?? []) {
+      collect(overlay.elements, { overlayName: overlay.name });
+    }
+
+    for (const stage of manifest.stages ?? []) {
+      collect(stage.elements, { stageName: stage.name });
+    }
+
+    return Array.from(references.entries())
+      .map(([source, reference]) => ({
+        source,
+        elementTypes: Array.from(reference.elementTypes).sort(),
+        occurrenceCount: reference.occurrenceCount,
+        itemTitles: Array.from(reference.itemTitles).sort(),
+        themeNames: Array.from(reference.themeNames).sort(),
+        overlayNames: Array.from(reference.overlayNames).sort(),
+        stageNames: Array.from(reference.stageNames).sort(),
+      }))
+      .sort((left, right) => left.source.localeCompare(right.source));
+  }
+
+  private applyBrokenReferenceDecisions(
+    manifest: BundleManifest,
+    decisionMap: ReadonlyMap<string, BundleBrokenReferenceDecision>,
+  ): void {
+    function rewriteElements(
+      elements: SlideElement[],
+      localDecisionMap: ReadonlyMap<string, BundleBrokenReferenceDecision>,
+    ): SlideElement[] {
+      return elements.flatMap((element) => {
+        const reference = readElementMediaReference(element);
+        if (!reference || !isBrokenMediaSource(reference.source)) return [element];
+        const decision = localDecisionMap.get(reference.source);
+        if (!decision || decision.action === 'leave') return [element];
+        if (decision.action === 'remove') return [];
+        const nextSrc = toCastMediaSource(decision.replacementPath ?? '');
+        if (!nextSrc) {
+          throw new Error(`Invalid replacement path for ${reference.source}`);
+        }
+        return [{
+          ...element,
+          payload: {
+            ...element.payload,
+            src: nextSrc,
+          },
+        }];
+      });
+    }
+
+    manifest.items = manifest.items.map((item) => ({
+      ...item,
+      slides: item.slides.map((slide) => ({
+        ...slide,
+        elements: rewriteElements(slide.elements, decisionMap),
+      })),
+    }));
+    manifest.themes = manifest.themes.map((theme) => ({
+      ...theme,
+      elements: rewriteElements(theme.elements, decisionMap),
+    }));
+    if (manifest.overlays) {
+      manifest.overlays = manifest.overlays.map((overlay) => ({
+        ...overlay,
+        elements: rewriteElements(overlay.elements, decisionMap),
+      }));
+    }
+    if (manifest.stages) {
+      manifest.stages = manifest.stages.map((stage) => ({
+        ...stage,
+        elements: rewriteElements(stage.elements, decisionMap),
+      }));
+    }
+    manifest.mediaReferences = collectBundleMediaReferences(
+      manifest.items,
+      manifest.themes,
+      manifest.overlays ?? [],
+      manifest.stages ?? [],
+    );
+  }
+
+  private collectReplacementMediaSources(
+    brokenReferences: BrokenBundleReference[],
+    decisionMap: ReadonlyMap<string, BundleBrokenReferenceDecision>,
+  ): Array<{ rawPath: string; src: string; elementTypes: Array<'image' | 'video'> }> {
+    return brokenReferences.flatMap((reference) => {
+      const decision = decisionMap.get(reference.source);
+      if (!decision || decision.action !== 'replace' || !decision.replacementPath) return [];
+      const normalizedSrc = toCastMediaSource(decision.replacementPath);
+      if (!normalizedSrc) {
+        throw new Error(`Invalid replacement path for ${reference.source}`);
+      }
+      return [{
+        rawPath: decision.replacementPath,
+        src: normalizedSrc,
+        elementTypes: reference.elementTypes,
+      }];
+    });
+  }
+
+  private inferImportedMediaAssetType(
+    elementTypes: Array<'image' | 'video'>,
+    src: string,
+  ): MediaAsset['type'] {
+    const extension = path.extname(src).toLowerCase();
+    if (extension === '.mp4' || extension === '.mov' || extension === '.webm' || extension === '.m4v') {
+      return 'video';
+    }
+    if (elementTypes.includes('video') && !elementTypes.includes('image')) return 'video';
+    return 'image';
+  }
+
+  private createImportedThemeElement(
+    element: SlideElement,
+    themeSlideId: Id,
+    now: string,
+    elementIndex: number,
+  ): SlideElement {
     return {
-      id: row.id,
-      name: row.name,
-      libraryName: row.library_name ?? '',
-      order: row.order_index,
-      groups,
+      ...JSON.parse(JSON.stringify(element)) as SlideElement,
+      id: `${themeSlideId}:theme:${elementIndex}`,
+      slideId: themeSlideId,
+      createdAt: now,
+      updatedAt: now,
     };
   }
 
-  private getDeckBundleThemeById(themeId: Id): DeckBundleTheme | null {
+  private createImportedSlideElement(
+    element: SlideElement,
+    slideId: Id,
+    now: string,
+    elementIndex: number,
+  ): SlideElement {
+    return {
+      ...JSON.parse(JSON.stringify(element)) as SlideElement,
+      id: `${slideId}:element:${elementIndex}`,
+      slideId,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  private getNextThemeOrderIndex(table: ThemeTableName): number {
+    const row = this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM ${table}`).get() as { maxOrder: number | null };
+    return (row.maxOrder ?? -1) + 1;
+  }
+
+  private getNextMediaAssetOrderIndex(): number {
     const row = this.db
       .prepare(
-        `SELECT id, name, kind, width, height, order_index
-         FROM themes
-         WHERE id = ?`
+        `SELECT MAX(maxOrder) AS maxOrder FROM (
+           SELECT MAX(order_index) AS maxOrder FROM image_assets
+           UNION ALL SELECT MAX(order_index) FROM video_assets
+           UNION ALL SELECT MAX(order_index) FROM audio_assets
+         )`
       )
-      .get(themeId) as {
-      id: string;
-      name: string;
-      kind: ThemeKind;
-      width: number;
-      height: number;
-      order_index: number;
-    } | undefined;
-
-    if (!row) return null;
-
-    return {
-      id: row.id,
-      name: row.name,
-      kind: this.normalizeThemeKind(row.kind),
-      width: row.width,
-      height: row.height,
-      order: row.order_index,
-      elements: this.getSlideElementsBySlideId(`${row.id}:slide`),
-    };
+      .get() as { maxOrder: number | null };
+    return (row.maxOrder ?? -1) + 1;
   }
 
-  // ─── Patch helpers (Stage 3 of perf plan) ─────────────────────────
-  //
-  // Build a SnapshotPatch from ids touched by a mutation. The resulting
-  // patch carries just the rows that changed, not the entire snapshot.
-  // Version is monotonically increasing for de-dup / ordering at the
-  // renderer. See app/core/snapshot-patch.ts.
-
-  private nextPatchVersion(): number {
-    this.patchVersion += 1;
-    return this.patchVersion;
-  }
-
-  private buildPatch(spec: {
-    upsertLibraryIds?: Id[];
-    upsertPresentationIds?: Id[];
-    upsertLyricIds?: Id[];
-    upsertTalkIds?: Id[];
-    upsertSlideIds?: Id[];
-    upsertTalkScriptBlockIds?: Id[];
-    upsertSlideElementIds?: Id[];
-    upsertMediaAssetIds?: Id[];
-    upsertOverlayIds?: Id[];
-    upsertThemeIds?: Id[];
-    upsertStageIds?: Id[];
-    upsertCollectionIds?: Id[];
-    upsertCueIds?: Id[];
-    upsertMacroIds?: Id[];
-    upsertTriggerBindingIds?: Id[];
-    deletedLibraryIds?: Id[];
-    deletedPresentationIds?: Id[];
-    deletedLyricIds?: Id[];
-    deletedTalkIds?: Id[];
-    deletedSlideIds?: Id[];
-    deletedTalkScriptBlockIds?: Id[];
-    deletedSlideElementIds?: Id[];
-    deletedMediaAssetIds?: Id[];
-    deletedOverlayIds?: Id[];
-    deletedThemeIds?: Id[];
-    deletedStageIds?: Id[];
-    deletedCollectionIds?: Id[];
-    deletedCueIds?: Id[];
-    deletedMacroIds?: Id[];
-    deletedTriggerBindingIds?: Id[];
-    replaceLibraryBundles?: boolean;
-  }): SnapshotPatch {
-    const patch: SnapshotPatch = {
-      version: this.nextPatchVersion(),
-      upserts: {},
-      deletes: {},
-    };
-    if (spec.upsertLibraryIds && spec.upsertLibraryIds.length > 0) {
-      patch.upserts.libraries = this.getLibrariesByIds(spec.upsertLibraryIds);
-    }
-    if (spec.upsertPresentationIds && spec.upsertPresentationIds.length > 0) {
-      patch.upserts.presentations = this.getPresentationsByIds(spec.upsertPresentationIds);
-    }
-    if (spec.upsertLyricIds && spec.upsertLyricIds.length > 0) {
-      patch.upserts.lyrics = this.getLyricsByIds(spec.upsertLyricIds);
-    }
-    if (spec.upsertTalkIds && spec.upsertTalkIds.length > 0) {
-      patch.upserts.talks = this.getTalksByIds(spec.upsertTalkIds);
-    }
-    if (spec.upsertSlideIds && spec.upsertSlideIds.length > 0) {
-      patch.upserts.slides = this.getSlidesByIds(spec.upsertSlideIds);
-    }
-    if (spec.upsertTalkScriptBlockIds && spec.upsertTalkScriptBlockIds.length > 0) {
-      patch.upserts.talkScriptBlocks = this.getTalkScriptBlocksByIds(spec.upsertTalkScriptBlockIds);
-    }
-    if (spec.upsertSlideElementIds && spec.upsertSlideElementIds.length > 0) {
-      patch.upserts.slideElements = this.getSlideElementsByIds(spec.upsertSlideElementIds);
-    }
-    if (spec.upsertMediaAssetIds && spec.upsertMediaAssetIds.length > 0) {
-      patch.upserts.mediaAssets = this.getMediaAssetsByIds(spec.upsertMediaAssetIds);
-    }
-    if (spec.upsertOverlayIds && spec.upsertOverlayIds.length > 0) {
-      patch.upserts.overlays = this.getOverlaysByIds(spec.upsertOverlayIds);
-    }
-    if (spec.upsertThemeIds && spec.upsertThemeIds.length > 0) {
-      patch.upserts.themes = this.getThemesByIds(spec.upsertThemeIds);
-    }
-    if (spec.upsertStageIds && spec.upsertStageIds.length > 0) {
-      patch.upserts.stages = this.getStagesByIds(spec.upsertStageIds);
-    }
-    if (spec.upsertCollectionIds && spec.upsertCollectionIds.length > 0) {
-      patch.upserts.collections = this.getCollectionsByIds(spec.upsertCollectionIds);
-    }
-    if (spec.upsertCueIds && spec.upsertCueIds.length > 0) {
-      patch.upserts.cues = this.getCuesByIds(spec.upsertCueIds);
-    }
-    if (spec.upsertMacroIds && spec.upsertMacroIds.length > 0) {
-      patch.upserts.macros = this.getMacrosByIds(spec.upsertMacroIds);
-    }
-    if (spec.upsertTriggerBindingIds && spec.upsertTriggerBindingIds.length > 0) {
-      patch.upserts.triggerBindings = this.getTriggerBindingsByIds(spec.upsertTriggerBindingIds);
-    }
-    if (spec.deletedLibraryIds && spec.deletedLibraryIds.length > 0) {
-      patch.deletes.libraries = [...spec.deletedLibraryIds];
-    }
-    if (spec.deletedPresentationIds && spec.deletedPresentationIds.length > 0) {
-      patch.deletes.presentations = [...spec.deletedPresentationIds];
-    }
-    if (spec.deletedLyricIds && spec.deletedLyricIds.length > 0) {
-      patch.deletes.lyrics = [...spec.deletedLyricIds];
-    }
-    if (spec.deletedTalkIds && spec.deletedTalkIds.length > 0) {
-      patch.deletes.talks = [...spec.deletedTalkIds];
-    }
-    if (spec.deletedSlideIds && spec.deletedSlideIds.length > 0) {
-      patch.deletes.slides = [...spec.deletedSlideIds];
-    }
-    if (spec.deletedTalkScriptBlockIds && spec.deletedTalkScriptBlockIds.length > 0) {
-      patch.deletes.talkScriptBlocks = [...spec.deletedTalkScriptBlockIds];
-    }
-    if (spec.deletedSlideElementIds && spec.deletedSlideElementIds.length > 0) {
-      patch.deletes.slideElements = [...spec.deletedSlideElementIds];
-    }
-    if (spec.deletedMediaAssetIds && spec.deletedMediaAssetIds.length > 0) {
-      patch.deletes.mediaAssets = [...spec.deletedMediaAssetIds];
-    }
-    if (spec.deletedOverlayIds && spec.deletedOverlayIds.length > 0) {
-      patch.deletes.overlays = [...spec.deletedOverlayIds];
-    }
-    if (spec.deletedThemeIds && spec.deletedThemeIds.length > 0) {
-      patch.deletes.themes = [...spec.deletedThemeIds];
-    }
-    if (spec.deletedStageIds && spec.deletedStageIds.length > 0) {
-      patch.deletes.stages = [...spec.deletedStageIds];
-    }
-    if (spec.deletedCollectionIds && spec.deletedCollectionIds.length > 0) {
-      patch.deletes.collections = [...spec.deletedCollectionIds];
-    }
-    if (spec.deletedCueIds && spec.deletedCueIds.length > 0) {
-      patch.deletes.cues = [...spec.deletedCueIds];
-    }
-    if (spec.deletedMacroIds && spec.deletedMacroIds.length > 0) {
-      patch.deletes.macros = [...spec.deletedMacroIds];
-    }
-    if (spec.deletedTriggerBindingIds && spec.deletedTriggerBindingIds.length > 0) {
-      patch.deletes.triggerBindings = [...spec.deletedTriggerBindingIds];
-    }
-    if (spec.replaceLibraryBundles) {
-      patch.upserts.libraryBundles = this.buildLibraryBundles();
-    }
-    return patch;
-  }
-
-  private buildLibraryBundles(): LibraryPlaylistBundle[] {
-    const libraries = this.getLibraries();
-    const presentations = this.getPresentations();
-    const lyrics = this.getLyrics();
-    const talks = this.getTalks();
-    const itemsById = new Map<Id, DeckItem>([
-      ...presentations.map((deck) => [deck.id, deck] as const),
-      ...lyrics.map((lyric) => [lyric.id, lyric] as const),
-      ...talks.map((talk) => [talk.id, talk] as const),
-    ]);
-    return libraries.map((library) => ({
-      library,
-      playlists: this.getPlaylistTreesByLibrary(library.id, itemsById),
-    }));
-  }
-
-  private getLibrariesByIds(ids: Id[]): Library[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
+  private getPresentations(): Presentation[] {
     const rows = this.db
-      .prepare(
-        `SELECT id, name, order_index, created_at, updated_at
-         FROM libraries
-         WHERE id IN (${placeholders})
-         ORDER BY order_index ASC, created_at ASC`
-      )
-      .all(...ids) as Array<{ id: string; name: string; order_index: number; created_at: string; updated_at: string }>;
+      .prepare('SELECT id, title, theme_id, order_index, created_at, updated_at FROM presentations ORDER BY order_index ASC, created_at ASC')
+      .all() as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
     return rows.map((row) => ({
       id: row.id,
-      name: row.name,
+      title: row.title,
+      themeId: row.theme_id,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -5934,117 +4197,98 @@ export class CastRepository {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
-      .prepare(
-        `SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at
-         FROM presentations
-         WHERE id IN (${placeholders})
-         ORDER BY order_index ASC, created_at ASC`
-      )
-      .all(...ids) as Array<{
-      id: string;
-      title: string;
-      theme_id: string | null;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-    return rows.map((row) => buildDeckItem({
+      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM presentations WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+      .all(...ids) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    return rows.map((row) => ({
       id: row.id,
       title: row.title,
-      type: 'presentation',
       themeId: row.theme_id,
-      collectionId: row.collection_id,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    })) as Presentation[];
+    }));
+  }
+
+  private getLyrics(): Lyric[] {
+    const rows = this.db
+      .prepare('SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics ORDER BY order_index ASC, created_at ASC')
+      .all() as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      themeId: row.theme_id,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   private getLyricsByIds(ids: Id[]): Lyric[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
-      .prepare(
-        `SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at
-         FROM lyrics
-         WHERE id IN (${placeholders})
-         ORDER BY order_index ASC, created_at ASC`
-      )
-      .all(...ids) as Array<{
-      id: string;
-      title: string;
-      theme_id: string | null;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-    return rows.map((row) => buildDeckItem({
+      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+      .all(...ids) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    return rows.map((row) => ({
       id: row.id,
       title: row.title,
-      type: 'lyric',
       themeId: row.theme_id,
-      collectionId: row.collection_id,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    })) as Lyric[];
+    }));
+  }
+
+  private getTalks(): Talk[] {
+    const rows = this.db
+      .prepare('SELECT id, title, theme_id, order_index, created_at, updated_at FROM talks ORDER BY order_index ASC, created_at ASC')
+      .all() as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    return rows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      themeId: row.theme_id,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   private getTalksByIds(ids: Id[]): Talk[] {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
-      .prepare(
-        `SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at
-         FROM talks
-         WHERE id IN (${placeholders})
-         ORDER BY order_index ASC, created_at ASC`
-      )
-      .all(...ids) as Array<{
-      id: string;
-      title: string;
-      theme_id: string | null;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-    return rows.map((row) => buildDeckItem({
+      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM talks WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+      .all(...ids) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    return rows.map((row) => ({
       id: row.id,
       title: row.title,
-      type: 'talk',
       themeId: row.theme_id,
-      collectionId: row.collection_id,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    })) as Talk[];
+    }));
   }
 
-  private getSlidesByIds(ids: Id[]): Slide[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
+  // Content slides only (presentation/lyric/talk owned) — theme/overlay/
+  // stage container slides surface via their owning container's `elements`
+  // field instead, so their six non-item owner columns are always null here.
+  private getSlides(): Slide[] {
     const rows = this.db
       .prepare(
-        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.theme_id, s.overlay_id, s.stage_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
+        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
                 COALESCE(d.order_index, l.order_index, t.order_index) AS content_order
          FROM slides s
          LEFT JOIN presentations d ON d.id = s.presentation_id
          LEFT JOIN lyrics l ON l.id = s.lyric_id
          LEFT JOIN talks t ON t.id = s.talk_id
-         WHERE s.id IN (${placeholders})
+         WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL
          ORDER BY content_order ASC, s.order_index ASC`
       )
-      .all(...ids) as Array<{
+      .all() as Array<{
         id: string;
         presentation_id: string | null;
         lyric_id: string | null;
         talk_id: string | null;
-        theme_id: string | null;
-        overlay_id: string | null;
-        stage_id: string | null;
         kind: SlideKind;
         width: number;
         height: number;
@@ -6055,23 +4299,132 @@ export class CastRepository {
         created_at: string;
         updated_at: string;
       }>;
+
     return rows.map((row) => ({
       id: row.id,
       presentationId: row.presentation_id,
       lyricId: row.lyric_id,
       talkId: row.talk_id,
-      themeId: row.theme_id,
-      overlayId: row.overlay_id,
-      stageId: row.stage_id,
+      presentationThemeId: null,
+      lyricThemeId: null,
+      talkThemeId: null,
+      overlayThemeId: null,
+      overlayId: null,
+      stageId: null,
       kind: row.kind,
       width: row.width,
       height: row.height,
       notes: row.notes,
-      background: row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSnapshot', `slides.${row.id}.background_json`)) : null,
+      background: row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSlides', `slides.${row.id}.background_json`)) : null,
       backgroundSource: (row.background_source ?? 'local') as SlideBackgroundSource,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+    }));
+  }
+
+  private getSlidesByIds(ids: Id[]): Slide[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
+                COALESCE(d.order_index, l.order_index, t.order_index) AS content_order
+         FROM slides s
+         LEFT JOIN presentations d ON d.id = s.presentation_id
+         LEFT JOIN lyrics l ON l.id = s.lyric_id
+         LEFT JOIN talks t ON t.id = s.talk_id
+         WHERE s.id IN (${placeholders}) AND (s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL)
+         ORDER BY content_order ASC, s.order_index ASC`
+      )
+      .all(...ids) as Array<{
+        id: string;
+        presentation_id: string | null;
+        lyric_id: string | null;
+        talk_id: string | null;
+        kind: SlideKind;
+        width: number;
+        height: number;
+        notes: string;
+        background_json: string | null;
+        background_source: string | null;
+        order_index: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      presentationId: row.presentation_id,
+      lyricId: row.lyric_id,
+      talkId: row.talk_id,
+      presentationThemeId: null,
+      lyricThemeId: null,
+      talkThemeId: null,
+      overlayThemeId: null,
+      overlayId: null,
+      stageId: null,
+      kind: row.kind,
+      width: row.width,
+      height: row.height,
+      notes: row.notes,
+      background: row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSlidesByIds', `slides.${row.id}.background_json`)) : null,
+      backgroundSource: (row.background_source ?? 'local') as SlideBackgroundSource,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  // Scoped to item-owned slides (presentation/lyric/talk), matching
+  // `getSlides()` exactly. Theme/overlay/stage container elements surface
+  // via their owning container's `elements` field instead.
+  private getSlideElements(): SlideElement[] {
+    const rows = this.db
+      .prepare(
+        `SELECT se.id, se.slide_id, se.type, se.x, se.y, se.width, se.height, se.rotation, se.opacity, se.z_index, se.layer, se.payload_json, se.source_theme_element_id, se.created_at, se.updated_at
+         FROM slide_elements se
+         JOIN slides s ON s.id = se.slide_id
+         LEFT JOIN presentations d ON d.id = s.presentation_id
+         LEFT JOIN lyrics l ON l.id = s.lyric_id
+         LEFT JOIN talks t ON t.id = s.talk_id
+         WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL
+         ORDER BY COALESCE(d.order_index, l.order_index, t.order_index) ASC, s.order_index ASC, se.layer ASC, se.z_index ASC`
+      )
+      .all() as Array<{
+      id: string;
+      slide_id: string;
+      type: SlideElement['type'];
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+      opacity: number;
+      z_index: number;
+      layer: SlideElement['layer'];
+      payload_json: string;
+      source_theme_element_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      slideId: row.slide_id,
+      type: row.type,
+      x: row.x,
+      y: row.y,
+      width: row.width,
+      height: row.height,
+      rotation: row.rotation,
+      opacity: row.opacity,
+      zIndex: row.z_index,
+      layer: row.layer,
+      payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('getSlideElements', `slide_elements.${row.id}.payload_json`)),
+      sourceThemeElementId: row.source_theme_element_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
     }));
   }
 
@@ -6080,11 +4433,11 @@ export class CastRepository {
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
       .prepare(
-        `SELECT id, name, src, collection_id, order_index, created_at, updated_at, 'image' AS type FROM image_assets WHERE id IN (${placeholders})
+        `SELECT id, name, src, order_index, created_at, updated_at, 'image' AS type FROM image_assets WHERE id IN (${placeholders})
          UNION ALL
-         SELECT id, name, src, collection_id, order_index, created_at, updated_at, 'video' AS type FROM video_assets WHERE id IN (${placeholders})
+         SELECT id, name, src, order_index, created_at, updated_at, 'video' AS type FROM video_assets WHERE id IN (${placeholders})
          UNION ALL
-         SELECT id, name, src, collection_id, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets WHERE id IN (${placeholders})
+         SELECT id, name, src, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets WHERE id IN (${placeholders})
          ORDER BY order_index ASC, created_at ASC, id ASC`
       )
       .all(...ids, ...ids, ...ids) as Array<{
@@ -6092,7 +4445,6 @@ export class CastRepository {
       name: string;
       type: MediaAssetType;
       src: string;
-      collection_id: string;
       order_index: number;
       created_at: string;
       updated_at: string;
@@ -6102,7 +4454,6 @@ export class CastRepository {
       name: row.name,
       type: row.type,
       src: row.src,
-      collectionId: row.collection_id,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -6113,21 +4464,8 @@ export class CastRepository {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
-      .prepare(
-        `SELECT id, name, enabled, animation_json, collection_id, created_at, updated_at
-         FROM overlays
-         WHERE id IN (${placeholders})
-         ORDER BY created_at ASC, id ASC`
-      )
-      .all(...ids) as Array<{
-      id: string;
-      name: string;
-      enabled: number;
-      animation_json: string;
-      collection_id: string;
-      created_at: string;
-      updated_at: string;
-    }>;
+      .prepare(`SELECT id, name, enabled, animation_json, created_at, updated_at FROM overlays WHERE id IN (${placeholders}) ORDER BY created_at ASC, id ASC`)
+      .all(...ids) as Array<{ id: string; name: string; enabled: number; animation_json: string; created_at: string; updated_at: string }>;
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
       return {
@@ -6138,51 +4476,74 @@ export class CastRepository {
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
         animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlaysByIds', `overlays.${row.id}.animation_json`))),
-        collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
     });
   }
 
-  private getThemesByIds(ids: Id[]): Theme[] {
-    if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
+  private getThemeRows(table: ThemeTableName): PresentationTheme[] {
     const rows = this.db
-      .prepare(
-        `SELECT id, name, kind, width, height, order_index, collection_id, created_at, updated_at
-         FROM themes
-         WHERE id IN (${placeholders})
-         ORDER BY order_index ASC, created_at ASC`
-      )
-      .all(...ids) as Array<{
-      id: string;
-      name: string;
-      kind: string;
-      width: number;
-      height: number;
-      order_index: number;
-      collection_id: string;
-      created_at: string;
-      updated_at: string;
-    }>;
+      .prepare(`SELECT id, name, width, height, order_index, created_at, updated_at FROM ${table} ORDER BY order_index ASC, created_at ASC`)
+      .all() as Array<{ id: string; name: string; width: number; height: number; order_index: number; created_at: string; updated_at: string }>;
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
       return {
         id: row.id,
         slideId,
         name: row.name,
-        kind: this.normalizeThemeKind(row.kind),
         width: row.width,
         height: row.height,
         order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
-        collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
     });
+  }
+
+  private getThemeRowsByIds(table: ThemeTableName, ids: Id[]): PresentationTheme[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(`SELECT id, name, width, height, order_index, created_at, updated_at FROM ${table} WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+      .all(...ids) as Array<{ id: string; name: string; width: number; height: number; order_index: number; created_at: string; updated_at: string }>;
+    return rows.map((row) => {
+      const slideId = `${row.id}:slide`;
+      return {
+        id: row.id,
+        slideId,
+        name: row.name,
+        width: row.width,
+        height: row.height,
+        order: row.order_index,
+        elements: this.getSlideElementsBySlideId(slideId),
+        background: this.getSlideBackgroundBySlideId(slideId),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      };
+    });
+  }
+
+  private getThemeRowById(table: ThemeTableName, themeId: Id): PresentationTheme | null {
+    const row = this.db
+      .prepare(`SELECT id, name, width, height, order_index, created_at, updated_at FROM ${table} WHERE id = ?`)
+      .get(themeId) as { id: string; name: string; width: number; height: number; order_index: number; created_at: string; updated_at: string } | undefined;
+    if (!row) return null;
+    const slideId = `${row.id}:slide`;
+    return {
+      id: row.id,
+      slideId,
+      name: row.name,
+      width: row.width,
+      height: row.height,
+      order: row.order_index,
+      elements: this.getSlideElementsBySlideId(slideId),
+      background: this.getSlideBackgroundBySlideId(slideId),
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
   }
 
   private getSlideElementsByIds(ids: Id[]): SlideElement[] {
@@ -6231,12 +4592,12 @@ export class CastRepository {
   }
 
   /**
-   * Create the owning slide row for a theme/overlay/stage container.
-   * Sets exactly one of theme_id/overlay_id/stage_id back to the container.
+   * Create the owning slide row for a theme/overlay/stage container. Sets
+   * exactly one of the six non-item owner columns back to the container.
    */
   private createContainerSlide(
     slideId: Id,
-    kind: 'theme' | 'overlay' | 'stage',
+    kind: ContainerKind,
     parentId: Id,
     width: number,
     height: number,
@@ -6244,12 +4605,15 @@ export class CastRepository {
   ): void {
     this.db
       .prepare(
-        `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at)
-         VALUES (?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, '', 0, ?, ?)`
+        `INSERT INTO slides (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at)
+         VALUES (?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', 0, ?, ?)`
       )
       .run(
         slideId,
-        kind === 'theme' ? parentId : null,
+        kind === 'presentationTheme' ? parentId : null,
+        kind === 'lyricTheme' ? parentId : null,
+        kind === 'talkTheme' ? parentId : null,
+        kind === 'overlayTheme' ? parentId : null,
         kind === 'overlay' ? parentId : null,
         kind === 'stage' ? parentId : null,
         kind,
@@ -6260,21 +4624,12 @@ export class CastRepository {
       );
   }
 
-  /**
-   * Update the geometry of a container slide (themes/overlays/stages keep
-   * width/height denormalized for convenience).
-   */
   private updateContainerSlideGeometry(slideId: Id, width: number, height: number, now: string): void {
     this.db
       .prepare('UPDATE slides SET width = ?, height = ?, updated_at = ? WHERE id = ?')
       .run(width, height, now, slideId);
   }
 
-  /**
-   * Replace all slide_elements for a container slide. Used by theme/overlay/
-   * stage update paths — they always replace the full element list rather
-   * than diffing.
-   */
   private replaceContainerElements(slideId: Id, elements: SlideElement[], now: string): void {
     this.db.prepare('DELETE FROM slide_elements WHERE slide_id = ?').run(slideId);
     const insert = this.db.prepare(
@@ -6303,11 +4658,6 @@ export class CastRepository {
     }
   }
 
-  /**
-   * Container rows own every element in their tree. Group children are stored
-   * inside their parent's payload rather than in `slide_elements`, so they
-   * need the same persisted slide-id rewrite as the top-level rows.
-   */
   private normalizeContainerElementOwnership(elements: SlideElement[], slideId: Id): SlideElement[] {
     return elements.map((element) => {
       const normalized = { ...element, slideId };
@@ -6323,10 +4673,6 @@ export class CastRepository {
     });
   }
 
-  /**
-   * Delete a container slide and all its slide_elements (used when the
-   * owning theme/overlay/stage is deleted).
-   */
   private deleteContainerSlide(slideId: Id): void {
     this.db.prepare('DELETE FROM slide_elements WHERE slide_id = ?').run(slideId);
     this.db.prepare('DELETE FROM slides WHERE id = ?').run(slideId);
@@ -6409,438 +4755,28 @@ export class CastRepository {
       .map((row) => row.id);
   }
 
-  private assertValidDeckBundleManifest(manifest: DeckBundleManifest, operation: string): void {
-    // Structural validation plus playlist-entry owner-column checking is
-    // @lumacast/protocol's single named validation entry point for the
-    // bundle wire contract; it is the authoritative boundary for bundle
-    // shape, field types, enums, and owner-column referential rules. The
-    // `operation` reflects the caller (inspect vs finalize) so a failure's
-    // error carries the boundary/operation/path that actually produced it.
-    validateDeckBundleManifest(manifest, { boundary: 'bundle-import', operation, path: 'manifest' });
-
-    // Referential domain rules that validateDeckBundleManifest intentionally
-    // does not mirror: theme existence/compatibility within this manifest.
-    const themeIds = new Set<Id>();
-    for (const theme of manifest.themes) {
-      themeIds.add(theme.id);
-    }
-
-    for (const item of manifest.items) {
-      if (item.themeId && !themeIds.has(item.themeId)) {
-        throw new Error(`Bundle item ${item.title} references a missing theme.`);
-      }
-      if (item.themeId) {
-        const theme = manifest.themes.find((entry) => entry.id === item.themeId) ?? null;
-        if (!theme || !isThemeCompatibleWithDeckItem(theme as Theme, item.type)) {
-          throw new Error(`Bundle item ${item.title} has an incompatible theme.`);
-        }
-      }
-    }
-  }
-
-  private collectBrokenBundleReferences(manifest: DeckBundleManifest): BrokenDeckBundleReference[] {
-    const references = new Map<string, BrokenReferenceAccumulator>();
-
-    function collect(
-      elements: SlideElement[],
-      owner: { itemTitle?: string; themeName?: string; overlayName?: string; stageName?: string },
-    ) {
-      for (const element of elements) {
-        const reference = readElementMediaReference(element);
-        if (!reference || !isBrokenMediaSource(reference.source)) continue;
-        const current = references.get(reference.source) ?? {
-          elementTypes: new Set<'image' | 'video'>(),
-          occurrenceCount: 0,
-          itemTitles: new Set<string>(),
-          themeNames: new Set<string>(),
-          overlayNames: new Set<string>(),
-          stageNames: new Set<string>(),
-        };
-        current.elementTypes.add(reference.elementType);
-        current.occurrenceCount += 1;
-        if (owner.itemTitle) current.itemTitles.add(owner.itemTitle);
-        if (owner.themeName) current.themeNames.add(owner.themeName);
-        if (owner.overlayName) current.overlayNames.add(owner.overlayName);
-        if (owner.stageName) current.stageNames.add(owner.stageName);
-        references.set(reference.source, current);
-      }
-    }
-
-    for (const item of manifest.items) {
-      for (const slide of item.slides) {
-        collect(slide.elements, { itemTitle: item.title });
-      }
-    }
-
-    for (const theme of manifest.themes) {
-      collect(theme.elements, { themeName: theme.name });
-    }
-
-    for (const overlay of manifest.overlays ?? []) {
-      collect(overlay.elements, { overlayName: overlay.name });
-    }
-
-    for (const stage of manifest.stages ?? []) {
-      collect(stage.elements, { stageName: stage.name });
-    }
-
-    return Array.from(references.entries())
-      .map(([source, reference]) => ({
-        source,
-        elementTypes: Array.from(reference.elementTypes).sort(),
-        occurrenceCount: reference.occurrenceCount,
-        itemTitles: Array.from(reference.itemTitles).sort(),
-        themeNames: Array.from(reference.themeNames).sort(),
-        overlayNames: Array.from(reference.overlayNames).sort(),
-        stageNames: Array.from(reference.stageNames).sort(),
-      }))
-      .sort((left, right) => left.source.localeCompare(right.source));
-  }
-
-  private applyBrokenReferenceDecisions(
-    manifest: DeckBundleManifest,
-    decisionMap: ReadonlyMap<string, DeckBundleBrokenReferenceDecision>,
-  ): void {
-    function rewriteElements(
-      elements: SlideElement[],
-      localDecisionMap: ReadonlyMap<string, DeckBundleBrokenReferenceDecision>,
-    ): SlideElement[] {
-      return elements.flatMap((element) => {
-        const reference = readElementMediaReference(element);
-        if (!reference || !isBrokenMediaSource(reference.source)) return [element];
-        const decision = localDecisionMap.get(reference.source);
-        if (!decision || decision.action === 'leave') return [element];
-        if (decision.action === 'remove') return [];
-        const nextSrc = toCastMediaSource(decision.replacementPath ?? '');
-        if (!nextSrc) {
-          throw new Error(`Invalid replacement path for ${reference.source}`);
-        }
-        return [{
-          ...element,
-          payload: {
-            ...element.payload,
-            src: nextSrc,
-          },
-        }];
-      });
-    }
-
-    manifest.items = manifest.items.map((item) => ({
-      ...item,
-      slides: item.slides.map((slide) => ({
-        ...slide,
-        elements: rewriteElements(slide.elements, decisionMap),
-      })),
-    }));
-    manifest.themes = manifest.themes.map((theme) => ({
-      ...theme,
-      elements: rewriteElements(theme.elements, decisionMap),
-    }));
-    if (manifest.overlays) {
-      manifest.overlays = manifest.overlays.map((overlay) => ({
-        ...overlay,
-        elements: rewriteElements(overlay.elements, decisionMap),
-      }));
-    }
-    if (manifest.stages) {
-      manifest.stages = manifest.stages.map((stage) => ({
-        ...stage,
-        elements: rewriteElements(stage.elements, decisionMap),
-      }));
-    }
-    manifest.mediaReferences = collectDeckBundleMediaReferences(
-      manifest.items,
-      manifest.themes,
-      manifest.overlays ?? [],
-      manifest.stages ?? [],
-    );
-  }
-
-  private collectReplacementMediaSources(
-    brokenReferences: BrokenDeckBundleReference[],
-    decisionMap: ReadonlyMap<string, DeckBundleBrokenReferenceDecision>,
-  ): Array<{ rawPath: string; src: string; elementTypes: Array<'image' | 'video'> }> {
-    return brokenReferences.flatMap((reference) => {
-      const decision = decisionMap.get(reference.source);
-      if (!decision || decision.action !== 'replace' || !decision.replacementPath) return [];
-      const normalizedSrc = toCastMediaSource(decision.replacementPath);
-      if (!normalizedSrc) {
-        throw new Error(`Invalid replacement path for ${reference.source}`);
-      }
-      return [{
-        rawPath: decision.replacementPath,
-        src: normalizedSrc,
-        elementTypes: reference.elementTypes,
-      }];
-    });
-  }
-
-  private inferImportedMediaAssetType(
-    elementTypes: Array<'image' | 'video'>,
-    src: string,
-  ): MediaAsset['type'] {
-    const extension = path.extname(src).toLowerCase();
-    if (extension === '.mp4' || extension === '.mov' || extension === '.webm' || extension === '.m4v') {
-      return 'video';
-    }
-    if (elementTypes.includes('video') && !elementTypes.includes('image')) return 'video';
-    return 'image';
-  }
-
-  private createImportedThemeElement(
-    element: SlideElement,
-    themeId: Id,
-    now: string,
-    elementIndex: number,
-  ): SlideElement {
-    return {
-      ...JSON.parse(JSON.stringify(element)) as SlideElement,
-      id: `${themeId}:theme:${elementIndex}`,
-      slideId: themeId,
-      createdAt: now,
-      updatedAt: now,
-    };
-  }
-
-  private createImportedSlideElement(
-    element: SlideElement,
-    slideId: Id,
-    now: string,
-    elementIndex: number,
-  ): SlideElement {
-    return {
-      ...JSON.parse(JSON.stringify(element)) as SlideElement,
-      id: `${slideId}:element:${elementIndex}`,
-      slideId,
-      createdAt: now,
-      updatedAt: now,
-    };
-  }
-
-  private getNextThemeOrderIndex(): number {
-    const row = this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM themes').get() as { maxOrder: number | null };
-    return (row.maxOrder ?? -1) + 1;
-  }
-
-  private getNextMediaAssetOrderIndex(): number {
+  /** Resolves which of the six non-item owner columns a slide has set, if any (null for an ordinary content slide). */
+  private getSlideContainerOwner(slideId: Id): { kind: ContainerKind; id: Id } | null {
     const row = this.db
       .prepare(
-        `SELECT MAX(maxOrder) AS maxOrder FROM (
-           SELECT MAX(order_index) AS maxOrder FROM image_assets
-           UNION ALL SELECT MAX(order_index) FROM video_assets
-           UNION ALL SELECT MAX(order_index) FROM audio_assets
-         )`
+        'SELECT presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id FROM slides WHERE id = ?'
       )
-      .get() as { maxOrder: number | null };
-    return (row.maxOrder ?? -1) + 1;
-  }
-
-  private getLibraries(): Library[] {
-    const rows = this.db
-      .prepare('SELECT id, name, order_index, created_at, updated_at FROM libraries ORDER BY order_index ASC, created_at ASC')
-      .all() as Array<{ id: string; name: string; order_index: number; created_at: string; updated_at: string }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      order: row.order_index,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
-  }
-
-  private getPresentations(): Presentation[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at FROM presentations ORDER BY order_index ASC, created_at ASC'
-      )
-      .all() as Array<{
-      id: string;
-      title: string;
-      theme_id: string | null;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => buildDeckItem({
-      id: row.id,
-      title: row.title,
-      type: 'presentation',
-      themeId: row.theme_id,
-      collectionId: row.collection_id,
-      order: row.order_index,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    })) as Presentation[];
-  }
-
-  private getLyrics(): Lyric[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at FROM lyrics ORDER BY order_index ASC, created_at ASC'
-      )
-      .all() as Array<{
-      id: string;
-      title: string;
-      theme_id: string | null;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => buildDeckItem({
-      id: row.id,
-      title: row.title,
-      type: 'lyric',
-      themeId: row.theme_id,
-      collectionId: row.collection_id,
-      order: row.order_index,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    })) as Lyric[];
-  }
-
-  private getTalks(): Talk[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at FROM talks ORDER BY order_index ASC, created_at ASC'
-      )
-      .all() as Array<{
-      id: string;
-      title: string;
-      theme_id: string | null;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => buildDeckItem({
-      id: row.id,
-      title: row.title,
-      type: 'talk',
-      themeId: row.theme_id,
-      collectionId: row.collection_id,
-      order: row.order_index,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    })) as Talk[];
-  }
-
-private getSlides(): Slide[] {
-    // Only deck slides (presentation/lyric/talk kind) flow through the snapshot.
-    // Theme/overlay/stage slides are surfaced via their owning container's
-    // `elements` field instead.
-    const rows = this.db
-      .prepare(
-        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.theme_id, s.overlay_id, s.stage_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
-                COALESCE(d.order_index, l.order_index, t.order_index) AS content_order
-         FROM slides s
-         LEFT JOIN presentations d ON d.id = s.presentation_id
-         LEFT JOIN lyrics l ON l.id = s.lyric_id
-         LEFT JOIN talks t ON t.id = s.talk_id
-         WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL
-         ORDER BY content_order ASC, s.order_index ASC`
-      )
-      .all() as Array<{
-        id: string;
-        presentation_id: string | null;
-        lyric_id: string | null;
-        talk_id: string | null;
-        theme_id: string | null;
+      .get(slideId) as {
+        presentation_theme_id: string | null;
+        lyric_theme_id: string | null;
+        talk_theme_id: string | null;
+        overlay_theme_id: string | null;
         overlay_id: string | null;
         stage_id: string | null;
-        kind: SlideKind;
-        width: number;
-        height: number;
-        notes: string;
-        background_json: string | null;
-        background_source: string | null;
-        order_index: number;
-        created_at: string;
-        updated_at: string;
-      }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      presentationId: row.presentation_id,
-      lyricId: row.lyric_id,
-      talkId: row.talk_id,
-      themeId: row.theme_id,
-      overlayId: row.overlay_id,
-      stageId: row.stage_id,
-      kind: row.kind,
-      width: row.width,
-      height: row.height,
-      notes: row.notes,
-      background: row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSlides', `slides.${row.id}.background_json`)) : null,
-      backgroundSource: (row.background_source ?? 'local') as SlideBackgroundSource,
-      order: row.order_index,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
-  }
-
-  private getSlideElements(): SlideElement[] {
-    // Scoped to deck-owned slides (presentation/lyric/talk), matching
-    // `getSlides()` exactly (see #211). Theme/overlay/stage container
-    // elements are surfaced via their owning container's `elements` field
-    // instead (`getSlideElementsBySlideId`, used when building Theme/
-    // Overlay/Stage records) -- not through this collection. Before #211,
-    // this query was unfiltered and returned every `slide_elements` row
-    // regardless of owner, which silently disagreed with `getSlides()` and
-    // caused #208 (restoreFromSnapshot inserting container elements into
-    // deck slides) and #209 (a rollback test whose count included container
-    // elements it never created).
-    const rows = this.db
-      .prepare(
-        `SELECT se.*
-         FROM slide_elements se
-         JOIN slides s ON s.id = se.slide_id
-         LEFT JOIN presentations d ON d.id = s.presentation_id
-         LEFT JOIN lyrics l ON l.id = s.lyric_id
-         LEFT JOIN talks t ON t.id = s.talk_id
-         WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL
-         ORDER BY COALESCE(d.order_index, l.order_index, t.order_index) ASC, s.order_index ASC, se.layer ASC, se.z_index ASC`
-      )
-      .all() as Array<{
-      id: string;
-      slide_id: string;
-      type: SlideElement['type'];
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      rotation: number;
-      opacity: number;
-      z_index: number;
-      layer: SlideElement['layer'];
-      payload_json: string;
-      source_theme_element_id: string | null;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      slideId: row.slide_id,
-      type: row.type,
-      x: row.x,
-      y: row.y,
-      width: row.width,
-      height: row.height,
-      rotation: row.rotation,
-      opacity: row.opacity,
-      zIndex: row.z_index,
-      layer: row.layer,
-      payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('getSlideElements', `slide_elements.${row.id}.payload_json`)),
-      sourceThemeElementId: row.source_theme_element_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
-    }));
+      } | undefined;
+    if (!row) return null;
+    if (row.presentation_theme_id) return { kind: 'presentationTheme', id: row.presentation_theme_id };
+    if (row.lyric_theme_id) return { kind: 'lyricTheme', id: row.lyric_theme_id };
+    if (row.talk_theme_id) return { kind: 'talkTheme', id: row.talk_theme_id };
+    if (row.overlay_theme_id) return { kind: 'overlayTheme', id: row.overlay_theme_id };
+    if (row.overlay_id) return { kind: 'overlay', id: row.overlay_id };
+    if (row.stage_id) return { kind: 'stage', id: row.stage_id };
+    return null;
   }
 
   private getTalkScriptBlocks(): TalkScriptBlock[] {
@@ -6900,132 +4836,138 @@ private getSlides(): Slide[] {
     }));
   }
 
-  private getPlaylistsByLibrary(libraryId: Id): Playlist[] {
+  private getPlaylists(): Playlist[] {
     const rows = this.db
-      .prepare(
-        'SELECT id, library_id, name, order_index, created_at, updated_at FROM playlists WHERE library_id = ? ORDER BY order_index ASC, created_at ASC'
-      )
-      .all(libraryId) as Array<{
-      id: string;
-      library_id: string;
-      name: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
+      .prepare('SELECT id, name, order_index, created_at, updated_at FROM playlists ORDER BY order_index ASC, created_at ASC')
+      .all() as Array<{ id: string; name: string; order_index: number; created_at: string; updated_at: string }>;
     return rows.map((row) => ({
       id: row.id,
-      libraryId: row.library_id,
       name: row.name,
       order: row.order_index,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
     }));
   }
 
-  private getPlaylistGroups(playlistId: Id): PlaylistGroup[] {
+  private getPlaylistsByIds(ids: Id[]): Playlist[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
-      .prepare(
-        'SELECT id, playlist_id, name, color_key, order_index, created_at, updated_at FROM playlist_groups WHERE playlist_id = ? ORDER BY order_index ASC'
-      )
-      .all(playlistId) as Array<{
-      id: string;
-      playlist_id: string;
-      name: string;
-      color_key: string | null;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
+      .prepare(`SELECT id, name, order_index, created_at, updated_at FROM playlists WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+      .all(...ids) as Array<{ id: string; name: string; order_index: number; created_at: string; updated_at: string }>;
     return rows.map((row) => ({
       id: row.id,
-      playlistId: row.playlist_id,
       name: row.name,
-      colorKey: row.color_key,
       order: row.order_index,
       createdAt: row.created_at,
-      updatedAt: row.updated_at
+      updatedAt: row.updated_at,
     }));
   }
 
-  // Resolves the canonical reference for a full PlaylistEntry, falling back
-  // to parsing its legacy owner columns for snapshots restored from an
-  // older backup file that predates the `reference` field.
-  private resolvePlaylistEntryReference(entry: PlaylistEntry): PlaylistItemReference {
-    const provided = (entry as Partial<PlaylistEntry>).reference;
-    if (provided) return provided;
-    return parsePlaylistItemReference(entry, `playlist entry ${entry.id}`);
-  }
-
-  private getPlaylistEntries(groupId: Id): PlaylistEntry[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at FROM playlist_entries WHERE group_id = ? ORDER BY order_index ASC'
-      )
-      .all(groupId) as Array<{
-      id: string;
-      group_id: string;
-      presentation_id: string | null;
-      lyric_id: string | null;
-      talk_id: string | null;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => {
-      const owner: PlaylistItemOwnerColumns = {
-        presentationId: row.presentation_id,
-        lyricId: row.lyric_id,
-        talkId: row.talk_id,
-      };
-      const reference = parsePlaylistItemReference(owner, `playlist entry ${row.id}`);
-      return {
+  private toPlaylistRow(row: {
+    id: string;
+    playlist_id: string;
+    kind: 'item' | 'separator';
+    presentation_id: string | null;
+    lyric_id: string | null;
+    talk_id: string | null;
+    label: string | null;
+    color_key: string | null;
+    order_index: number;
+    created_at: string;
+    updated_at: string;
+  }): PlaylistRow {
+    if (row.kind === 'separator') {
+      const separator: PlaylistSeparator = {
         id: row.id,
-        groupId: row.group_id,
-        reference,
-        presentationId: row.presentation_id,
-        lyricId: row.lyric_id,
-        talkId: row.talk_id,
+        playlistId: row.playlist_id,
+        kind: 'separator',
+        label: row.label ?? '',
+        colorKey: row.color_key,
         order: row.order_index,
         createdAt: row.created_at,
-        updatedAt: row.updated_at
+        updatedAt: row.updated_at,
       };
-    });
+      return separator;
+    }
+    const owner: PlaylistItemOwnerColumns = {
+      presentationId: row.presentation_id,
+      lyricId: row.lyric_id,
+      talkId: row.talk_id,
+    };
+    const reference: PlaylistItemReference = parsePlaylistItemReference(owner, `playlist entry ${row.id}`);
+    const entry: PlaylistItemEntry = {
+      id: row.id,
+      playlistId: row.playlist_id,
+      kind: 'item',
+      reference,
+      presentationId: row.presentation_id,
+      lyricId: row.lyric_id,
+      talkId: row.talk_id,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+    return entry;
   }
 
-  private getPlaylistTreesByLibrary(libraryId: Id, itemsById: ReadonlyMap<Id, DeckItem>): PlaylistTree[] {
-    return this.getPlaylistsByLibrary(libraryId).map((playlist) => {
-      const groups = this.getPlaylistGroups(playlist.id).map((group) => {
-        const entries = this.getPlaylistEntries(group.id)
-          .map((entry) => {
-            const item = itemsById.get(entry.reference.itemId);
-            if (!item) return null;
-            return { entry, item };
-          })
-          .filter((value): value is { entry: PlaylistEntry; item: DeckItem } => value !== null);
+  private getPlaylistRows(playlistId: Id): PlaylistRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at
+         FROM playlist_entries WHERE playlist_id = ? ORDER BY order_index ASC`
+      )
+      .all(playlistId) as Array<{
+        id: string; playlist_id: string; kind: 'item' | 'separator';
+        presentation_id: string | null; lyric_id: string | null; talk_id: string | null;
+        label: string | null; color_key: string | null; order_index: number;
+        created_at: string; updated_at: string;
+      }>;
+    return rows.map((row) => this.toPlaylistRow(row));
+  }
 
-        return { group, entries };
-      });
+  private getAllPlaylistRows(): PlaylistRow[] {
+    const rows = this.db
+      .prepare(
+        `SELECT pe.id, pe.playlist_id, pe.kind, pe.presentation_id, pe.lyric_id, pe.talk_id, pe.label, pe.color_key, pe.order_index, pe.created_at, pe.updated_at
+         FROM playlist_entries pe
+         JOIN playlists p ON p.id = pe.playlist_id
+         ORDER BY p.order_index ASC, p.created_at ASC, pe.order_index ASC`
+      )
+      .all() as Array<{
+        id: string; playlist_id: string; kind: 'item' | 'separator';
+        presentation_id: string | null; lyric_id: string | null; talk_id: string | null;
+        label: string | null; color_key: string | null; order_index: number;
+        created_at: string; updated_at: string;
+      }>;
+    return rows.map((row) => this.toPlaylistRow(row));
+  }
 
-      return {
-        playlist,
-        groups
-      };
-    });
+  private getPlaylistRowsByIds(ids: Id[]): PlaylistRow[] {
+    if (ids.length === 0) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(
+        `SELECT id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at
+         FROM playlist_entries WHERE id IN (${placeholders}) ORDER BY created_at ASC, id ASC`
+      )
+      .all(...ids) as Array<{
+        id: string; playlist_id: string; kind: 'item' | 'separator';
+        presentation_id: string | null; lyric_id: string | null; talk_id: string | null;
+        label: string | null; color_key: string | null; order_index: number;
+        created_at: string; updated_at: string;
+      }>;
+    return rows.map((row) => this.toPlaylistRow(row));
   }
 
   private getMediaAssets(): MediaAsset[] {
-    // Union the three split storage tables back into a single MediaAsset[] view.
     const rows = this.db
       .prepare(
-        `SELECT id, name, src, collection_id, order_index, created_at, updated_at, 'image' AS type FROM image_assets
+        `SELECT id, name, src, order_index, created_at, updated_at, 'image' AS type FROM image_assets
          UNION ALL
-         SELECT id, name, src, collection_id, order_index, created_at, updated_at, 'video' AS type FROM video_assets
+         SELECT id, name, src, order_index, created_at, updated_at, 'video' AS type FROM video_assets
          UNION ALL
-         SELECT id, name, src, collection_id, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets
+         SELECT id, name, src, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets
          ORDER BY order_index ASC, created_at ASC, id ASC`
       )
       .all() as Array<{
@@ -7033,7 +4975,6 @@ private getSlides(): Slide[] {
       name: string;
       type: MediaAssetType;
       src: string;
-      collection_id: string;
       order_index: number;
       created_at: string;
       updated_at: string;
@@ -7044,7 +4985,6 @@ private getSlides(): Slide[] {
       name: row.name,
       type: row.type,
       src: row.src,
-      collectionId: row.collection_id,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -7054,7 +4994,7 @@ private getSlides(): Slide[] {
   private getOverlays(): Overlay[] {
     const rows = this.db
       .prepare(
-        `SELECT id, name, enabled, animation_json, collection_id, created_at, updated_at
+        `SELECT id, name, enabled, animation_json, created_at, updated_at
          FROM overlays
          ORDER BY created_at ASC, id ASC`
       )
@@ -7063,7 +5003,6 @@ private getSlides(): Slide[] {
       name: string;
       enabled: number;
       animation_json: string;
-      collection_id: string;
       created_at: string;
       updated_at: string;
     }>;
@@ -7078,45 +5017,6 @@ private getSlides(): Slide[] {
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
         animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlays', `overlays.${row.id}.animation_json`))),
-        collectionId: row.collection_id,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
-    });
-  }
-
-  private getThemes(): Theme[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, kind, width, height, order_index, collection_id, created_at, updated_at
-         FROM themes
-         ORDER BY order_index ASC, created_at ASC`
-      )
-      .all() as Array<{
-      id: string;
-      name: string;
-      kind: string;
-      width: number;
-      height: number;
-      order_index: number;
-      collection_id: string;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => {
-      const slideId = `${row.id}:slide`;
-      return {
-        id: row.id,
-        slideId,
-        name: row.name,
-        kind: this.normalizeThemeKind(row.kind),
-        width: row.width,
-        height: row.height,
-        order: row.order_index,
-        elements: this.getSlideElementsBySlideId(slideId),
-        background: this.getSlideBackgroundBySlideId(slideId),
-        collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -7126,7 +5026,7 @@ private getSlides(): Slide[] {
   private getStages(): Stage[] {
     const rows = this.db
       .prepare(
-        `SELECT id, name, width, height, order_index, collection_id, created_at, updated_at
+        `SELECT id, name, width, height, order_index, created_at, updated_at
          FROM stages
          ORDER BY order_index ASC, created_at ASC`
       )
@@ -7136,7 +5036,6 @@ private getSlides(): Slide[] {
       width: number;
       height: number;
       order_index: number;
-      collection_id: string;
       created_at: string;
       updated_at: string;
     }>;
@@ -7152,7 +5051,6 @@ private getSlides(): Slide[] {
         order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
-        collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -7164,7 +5062,7 @@ private getSlides(): Slide[] {
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
       .prepare(
-        `SELECT id, name, width, height, order_index, collection_id, created_at, updated_at
+        `SELECT id, name, width, height, order_index, created_at, updated_at
          FROM stages
          WHERE id IN (${placeholders})
          ORDER BY order_index ASC, created_at ASC`
@@ -7175,7 +5073,6 @@ private getSlides(): Slide[] {
       width: number;
       height: number;
       order_index: number;
-      collection_id: string;
       created_at: string;
       updated_at: string;
     }>;
@@ -7191,65 +5088,82 @@ private getSlides(): Slide[] {
         order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
-        collectionId: row.collection_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
     });
   }
 
-  private getThemeById(themeId: Id): Theme | null {
-    const row = this.db
-      .prepare(
-        `SELECT id, name, kind, width, height, order_index, collection_id, created_at, updated_at
-         FROM themes
-         WHERE id = ?`
-      )
-      .get(themeId) as {
-        id: string;
-        name: string;
-        kind: string;
-        width: number;
-        height: number;
-        order_index: number;
-        collection_id: string;
-        created_at: string;
-        updated_at: string;
-      } | undefined;
-    if (!row) return null;
-    const slideId = `${row.id}:slide`;
-    return {
-      id: row.id,
-      slideId,
-      name: row.name,
-      kind: this.normalizeThemeKind(row.kind),
-      width: row.width,
-      height: row.height,
-      order: row.order_index,
-      elements: this.getSlideElementsBySlideId(slideId),
-      background: this.getSlideBackgroundBySlideId(slideId),
-      collectionId: row.collection_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
+  private normalizeThemeOrder(table: ThemeTableName): void {
+    const rows = this.db.prepare(`SELECT id FROM ${table} ORDER BY order_index ASC, created_at ASC`).all() as Array<{ id: string }>;
+    const update = this.db.prepare(`UPDATE ${table} SET order_index = ?, updated_at = ? WHERE id = ?`);
+    const now = nowIso();
+    const tx = this.db.transaction(() => {
+      rows.forEach((row, index) => update.run(index, now, row.id));
+    });
+    tx();
+  }
+
+  private nextPatchVersion(): number {
+    this.patchVersion += 1;
+    return this.patchVersion;
+  }
+
+  private buildPatch(spec: BuildPatchSpec): SnapshotPatch {
+    const patch: SnapshotPatch = {
+      version: this.nextPatchVersion(),
+      upserts: {},
+      deletes: {},
     };
+
+    if (spec.upsertPresentationIds && spec.upsertPresentationIds.length > 0) patch.upserts.presentations = this.getPresentationsByIds(spec.upsertPresentationIds);
+    if (spec.upsertLyricIds && spec.upsertLyricIds.length > 0) patch.upserts.lyrics = this.getLyricsByIds(spec.upsertLyricIds);
+    if (spec.upsertTalkIds && spec.upsertTalkIds.length > 0) patch.upserts.talks = this.getTalksByIds(spec.upsertTalkIds);
+    if (spec.upsertSlideIds && spec.upsertSlideIds.length > 0) patch.upserts.slides = this.getSlidesByIds(spec.upsertSlideIds);
+    if (spec.upsertTalkScriptBlockIds && spec.upsertTalkScriptBlockIds.length > 0) patch.upserts.talkScriptBlocks = this.getTalkScriptBlocksByIds(spec.upsertTalkScriptBlockIds);
+    if (spec.upsertSlideElementIds && spec.upsertSlideElementIds.length > 0) patch.upserts.slideElements = this.getSlideElementsByIds(spec.upsertSlideElementIds);
+    if (spec.upsertMediaAssetIds && spec.upsertMediaAssetIds.length > 0) patch.upserts.mediaAssets = this.getMediaAssetsByIds(spec.upsertMediaAssetIds);
+    if (spec.upsertOverlayIds && spec.upsertOverlayIds.length > 0) patch.upserts.overlays = this.getOverlaysByIds(spec.upsertOverlayIds);
+    if (spec.upsertPresentationThemeIds && spec.upsertPresentationThemeIds.length > 0) patch.upserts.presentationThemes = this.getThemeRowsByIds('presentation_themes', spec.upsertPresentationThemeIds);
+    if (spec.upsertLyricThemeIds && spec.upsertLyricThemeIds.length > 0) patch.upserts.lyricThemes = this.getThemeRowsByIds('lyric_themes', spec.upsertLyricThemeIds);
+    if (spec.upsertTalkThemeIds && spec.upsertTalkThemeIds.length > 0) patch.upserts.talkThemes = this.getThemeRowsByIds('talk_themes', spec.upsertTalkThemeIds);
+    if (spec.upsertOverlayThemeIds && spec.upsertOverlayThemeIds.length > 0) patch.upserts.overlayThemes = this.getThemeRowsByIds('overlay_themes', spec.upsertOverlayThemeIds);
+    if (spec.upsertStageIds && spec.upsertStageIds.length > 0) patch.upserts.stages = this.getStagesByIds(spec.upsertStageIds);
+    if (spec.upsertPlaylistIds && spec.upsertPlaylistIds.length > 0) patch.upserts.playlists = this.getPlaylistsByIds(spec.upsertPlaylistIds);
+    if (spec.upsertPlaylistEntryIds && spec.upsertPlaylistEntryIds.length > 0) patch.upserts.playlistEntries = this.getPlaylistRowsByIds(spec.upsertPlaylistEntryIds);
+    if (spec.upsertCueIds && spec.upsertCueIds.length > 0) patch.upserts.cues = this.getCuesByIds(spec.upsertCueIds);
+    if (spec.upsertMacroIds && spec.upsertMacroIds.length > 0) patch.upserts.macros = this.getMacrosByIds(spec.upsertMacroIds);
+    if (spec.upsertTriggerBindingIds && spec.upsertTriggerBindingIds.length > 0) patch.upserts.triggerBindings = this.getTriggerBindingsByIds(spec.upsertTriggerBindingIds);
+
+    if (spec.deletedPresentationIds && spec.deletedPresentationIds.length > 0) patch.deletes.presentations = [...spec.deletedPresentationIds];
+    if (spec.deletedLyricIds && spec.deletedLyricIds.length > 0) patch.deletes.lyrics = [...spec.deletedLyricIds];
+    if (spec.deletedTalkIds && spec.deletedTalkIds.length > 0) patch.deletes.talks = [...spec.deletedTalkIds];
+    if (spec.deletedSlideIds && spec.deletedSlideIds.length > 0) patch.deletes.slides = [...spec.deletedSlideIds];
+    if (spec.deletedTalkScriptBlockIds && spec.deletedTalkScriptBlockIds.length > 0) patch.deletes.talkScriptBlocks = [...spec.deletedTalkScriptBlockIds];
+    if (spec.deletedSlideElementIds && spec.deletedSlideElementIds.length > 0) patch.deletes.slideElements = [...spec.deletedSlideElementIds];
+    if (spec.deletedMediaAssetIds && spec.deletedMediaAssetIds.length > 0) patch.deletes.mediaAssets = [...spec.deletedMediaAssetIds];
+    if (spec.deletedOverlayIds && spec.deletedOverlayIds.length > 0) patch.deletes.overlays = [...spec.deletedOverlayIds];
+    if (spec.deletedPresentationThemeIds && spec.deletedPresentationThemeIds.length > 0) patch.deletes.presentationThemes = [...spec.deletedPresentationThemeIds];
+    if (spec.deletedLyricThemeIds && spec.deletedLyricThemeIds.length > 0) patch.deletes.lyricThemes = [...spec.deletedLyricThemeIds];
+    if (spec.deletedTalkThemeIds && spec.deletedTalkThemeIds.length > 0) patch.deletes.talkThemes = [...spec.deletedTalkThemeIds];
+    if (spec.deletedOverlayThemeIds && spec.deletedOverlayThemeIds.length > 0) patch.deletes.overlayThemes = [...spec.deletedOverlayThemeIds];
+    if (spec.deletedStageIds && spec.deletedStageIds.length > 0) patch.deletes.stages = [...spec.deletedStageIds];
+    if (spec.deletedPlaylistIds && spec.deletedPlaylistIds.length > 0) patch.deletes.playlists = [...spec.deletedPlaylistIds];
+    if (spec.deletedPlaylistEntryIds && spec.deletedPlaylistEntryIds.length > 0) patch.deletes.playlistEntries = [...spec.deletedPlaylistEntryIds];
+    if (spec.deletedCueIds && spec.deletedCueIds.length > 0) patch.deletes.cues = [...spec.deletedCueIds];
+    if (spec.deletedMacroIds && spec.deletedMacroIds.length > 0) patch.deletes.macros = [...spec.deletedMacroIds];
+    if (spec.deletedTriggerBindingIds && spec.deletedTriggerBindingIds.length > 0) patch.deletes.triggerBindings = [...spec.deletedTriggerBindingIds];
+
+    return patch;
   }
 
   // ---------------------------------------------------------------------------
   // Project backup (#145): complete, deterministic serialization of every
-  // application-owned v22 table. All readers are pure — they never mutate the
+  // application-owned table. All readers are pure — they never mutate the
   // database — and every row field is constructed explicitly (no object
-  // spread) so the column mapping is the visible contract. Rows are ordered
-  // by (created_at, id) — deterministic for any database state; the ordering
-  // metadata the app cares about (order_index etc.) is itself serialized.
+  // spread) so the column mapping is the visible contract.
   // ---------------------------------------------------------------------------
 
-  /**
-   * Produces the complete project-backup document for the active database.
-   * Read-only: mutates nothing. Refuses to export unless the database schema
-   * version is exactly the supported version, so the produced document can
-   * never be a future-version backup, and gates every produced document
-   * through `validateProjectBackupDocument` before returning.
-   */
   exportProjectBackup(): ProjectBackup {
     const schemaVersion = this.db.pragma('user_version', { simple: true }) as number;
     if (schemaVersion !== LATEST_SCHEMA_VERSION) {
@@ -7262,36 +5176,7 @@ private getSlides(): Slide[] {
       format: PROJECT_BACKUP_FORMAT,
       version: PROJECT_BACKUP_VERSION,
       schemaVersion,
-      tables: {
-        libraries: this.readProjectBackupLibraries(),
-        presentations: this.readProjectBackupDeckItems('presentations'),
-        lyrics: this.readProjectBackupDeckItems('lyrics'),
-        talks: this.readProjectBackupDeckItems('talks'),
-        slides: this.readProjectBackupSlides(),
-        slide_elements: this.readProjectBackupSlideElements(),
-        talk_script_blocks: this.readProjectBackupTalkScriptBlocks(),
-        playlists: this.readProjectBackupPlaylists(),
-        playlist_groups: this.readProjectBackupPlaylistGroups(),
-        playlist_entries: this.readProjectBackupPlaylistEntries(),
-        image_assets: this.readProjectBackupMediaAssets('image_assets'),
-        video_assets: this.readProjectBackupMediaAssets('video_assets'),
-        audio_assets: this.readProjectBackupMediaAssets('audio_assets'),
-        overlays: this.readProjectBackupOverlays(),
-        themes: this.readProjectBackupThemes(),
-        stages: this.readProjectBackupStages(),
-        cues: this.readProjectBackupCues(),
-        actions: this.readProjectBackupActions(),
-        action_steps: this.readProjectBackupActionSteps(),
-        trigger_bindings: this.readProjectBackupTriggerBindings(),
-        deck_collections: this.readProjectBackupCollections('deck_collections'),
-        image_collections: this.readProjectBackupCollections('image_collections'),
-        video_collections: this.readProjectBackupCollections('video_collections'),
-        audio_collections: this.readProjectBackupCollections('audio_collections'),
-        theme_collections: this.readProjectBackupCollections('theme_collections'),
-        overlay_collections: this.readProjectBackupCollections('overlay_collections'),
-        stage_collections: this.readProjectBackupCollections('stage_collections'),
-        macro_collections: this.readProjectBackupCollections('macro_collections'),
-      },
+      tables: buildProjectBackupTables(this.db),
     };
     return validateProjectBackupDocument(backup);
   }
@@ -7303,31 +5188,34 @@ private getSlides(): Slide[] {
 
   /**
    * Restores a validated project backup (#146). The active database is never
-   * deleted or overwritten in place:
+   * deleted or overwritten in place: rows are inserted into a throwaway
+   * same-directory temporary database, validated for row counts and FK
+   * integrity, and only then promoted over the active database via a
+   * recoverable file swap. `options.hooks` are test-only failure-injection
+   * seams; production callers pass no options.
    *
-   * 1. The document is validated through the #145 codec, then every required
-   *    cross-table reference is checked over the document itself.
-   * 2. The rows are inserted into a throwaway same-directory temporary
-   *    database (fresh schema at `LATEST_SCHEMA_VERSION`, FK-safe
-   *    parent-before-child order, every column mapped explicitly).
-   * 3. Before promotion the temporary database must hold exactly the backup's
-   *    declared row counts and pass `PRAGMA foreign_key_check`.
-   * 4. Promotion checkpoints and closes both connections, renames the active
-   *    database to a retained `*.prerecovery-*.sqlite` sibling (never
-   *    deleted), renames the temporary database into place, and reopens the
-   *    repository on the promoted file. Any failure after the retain step
-   *    rolls the swap back so the previous project stays active.
-   *
-   * `options.hooks` are test-only failure-injection seams; production callers
-   * pass no options, so no production-global state is involved. Recovery is
-   * not exposed as routine Undo: it is a distinct operation from
-   * `restoreFromSnapshot` and returns a full snapshot (plus the retained
-   * database path) rather than a `SnapshotPatch`.
+   * A v1/schema-22 document (#219 item-model refactor, wave K) is handled
+   * BEFORE the normal v2 validation: `isLegacyProjectBackup` is a cheap
+   * classification (format + version only), and `validateLegacyProjectBackup`
+   * fully structurally validates it against the frozen v22 schema, rejecting
+   * garbage explicitly (always naming it as an older app version — see
+   * @lumacast/protocol's deck-bundles.ts). A structurally plausible v1
+   * document is migrated by `migrateLegacyProjectBackup` — materialized at
+   * schema 22, replayed through the exact tested migrations 23+ code path,
+   * and read back out as a current-shape (v2) document — then restored
+   * through this same method, recursively, so every safety net below
+   * (referential integrity, row-count/FK verification, the recoverable file
+   * swap) applies identically whether the source was v1 or v2.
    */
   restoreProjectBackup(backup: ProjectBackup, options: RestoreProjectBackupOptions = {}): ProjectRestoreResult {
+    if (isLegacyProjectBackup(backup)) {
+      const legacy = validateLegacyProjectBackup(backup);
+      const migrated = migrateLegacyProjectBackup(legacy);
+      return this.restoreProjectBackup(migrated, options);
+    }
+
     const document = validateProjectBackupDocument(backup);
     assertProjectBackupReferences(document);
-    assertProjectBackupDefaultCollections(document);
 
     const tempPath = nextUniqueSiblingPath(this.dbPath, 'restore');
     let tempDb: SqliteDatabase | undefined;
@@ -7373,12 +5261,7 @@ private getSlides(): Slide[] {
   /**
    * The recoverable same-filesystem swap: retain the active database under a
    * unique `*.prerecovery-*.sqlite` sibling and move the validated temporary
-   * database into the active path. Both connections are checkpointed and
-   * closed first so each main file is coherent on its own; SQLite sidecars
-   * (`-wal`/`-shm`) are moved alongside their main files. If the swap fails
-   * after the retain, it is rolled back so the previous project remains the
-   * active one (and, if even the rollback fails, the retained file still
-   * holds the full previous project).
+   * database into the active path.
    */
   private promoteRestoredDatabase(
     tempDb: SqliteDatabase,
@@ -7433,573 +5316,7 @@ private getSlides(): Slide[] {
     // The promoted database is already at LATEST_SCHEMA_VERSION; running the
     // migrations again is a no-op. Seeding is deliberately skipped so the
     // restored state is reproduced faithfully even if the backup legitimately
-    // contains no library rows.
+    // contains no playlist rows.
     runMigrations(this.db, this.dbPath);
-  }
-
-  private readProjectBackupLibraries(): ProjectBackupLibraryRow[] {
-    const rows = this.db
-      .prepare('SELECT id, name, order_index, created_at, updated_at FROM libraries ORDER BY created_at ASC, id ASC')
-      .all() as Array<{
-      id: string;
-      name: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupDeckItems(table: 'presentations' | 'lyrics' | 'talks'): ProjectBackupDeckItemRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at
-         FROM ${table}
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      title: string;
-      theme_id: string | null;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      theme_id: row.theme_id,
-      collection_id: row.collection_id,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupSlides(): ProjectBackupSlideRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height,
-                notes, background_json, background_source, order_index, created_at, updated_at
-         FROM slides
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      presentation_id: string | null;
-      lyric_id: string | null;
-      talk_id: string | null;
-      theme_id: string | null;
-      overlay_id: string | null;
-      stage_id: string | null;
-      kind: SlideKind;
-      width: number;
-      height: number;
-      notes: string;
-      background_json: string | null;
-      background_source: string | null;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      presentation_id: row.presentation_id,
-      lyric_id: row.lyric_id,
-      talk_id: row.talk_id,
-      theme_id: row.theme_id,
-      overlay_id: row.overlay_id,
-      stage_id: row.stage_id,
-      kind: row.kind,
-      width: row.width,
-      height: row.height,
-      notes: row.notes,
-      background_json: row.background_json,
-      background_source: row.background_source as SlideBackgroundSource | null,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupSlideElements(): ProjectBackupSlideElementRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer,
-                payload_json, source_theme_element_id, created_at, updated_at
-         FROM slide_elements
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      slide_id: string;
-      type: SlideElement['type'];
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-      rotation: number;
-      opacity: number;
-      z_index: number;
-      layer: SlideElement['layer'];
-      payload_json: string;
-      source_theme_element_id: string | null;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      slide_id: row.slide_id,
-      type: row.type,
-      x: row.x,
-      y: row.y,
-      width: row.width,
-      height: row.height,
-      rotation: row.rotation,
-      opacity: row.opacity,
-      z_index: row.z_index,
-      layer: row.layer,
-      payload_json: row.payload_json,
-      source_theme_element_id: row.source_theme_element_id,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupTalkScriptBlocks(): ProjectBackupTalkScriptBlockRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, slide_id, text, order_index, created_at, updated_at
-         FROM talk_script_blocks
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      slide_id: string;
-      text: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      slide_id: row.slide_id,
-      text: row.text,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupPlaylists(): ProjectBackupPlaylistRow[] {
-    const rows = this.db
-      .prepare(
-        'SELECT id, library_id, name, order_index, created_at, updated_at FROM playlists ORDER BY created_at ASC, id ASC',
-      )
-      .all() as Array<{
-      id: string;
-      library_id: string;
-      name: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      library_id: row.library_id,
-      name: row.name,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupPlaylistGroups(): ProjectBackupPlaylistGroupRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, playlist_id, name, color_key, order_index, created_at, updated_at
-         FROM playlist_groups
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      playlist_id: string;
-      name: string;
-      color_key: string | null;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      playlist_id: row.playlist_id,
-      name: row.name,
-      color_key: row.color_key,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupPlaylistEntries(): ProjectBackupPlaylistEntryRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, group_id, presentation_id, lyric_id, talk_id, order_index, created_at, updated_at
-         FROM playlist_entries
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      group_id: string;
-      presentation_id: string | null;
-      lyric_id: string | null;
-      talk_id: string | null;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      group_id: row.group_id,
-      presentation_id: row.presentation_id,
-      lyric_id: row.lyric_id,
-      talk_id: row.talk_id,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupMediaAssets(table: MediaAssetTableName): ProjectBackupMediaAssetRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, src, collection_id, order_index, created_at, updated_at
-         FROM ${table}
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      name: string;
-      src: string;
-      collection_id: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      src: row.src,
-      collection_id: row.collection_id,
-      order_index: row.order_index,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupOverlays(): ProjectBackupOverlayRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, enabled, animation_json, collection_id, created_at, updated_at
-         FROM overlays
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      name: string;
-      enabled: number;
-      animation_json: string;
-      collection_id: string;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      enabled: row.enabled,
-      animation_json: row.animation_json,
-      collection_id: row.collection_id,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupThemes(): ProjectBackupThemeRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, kind, width, height, order_index, collection_id, created_at, updated_at
-         FROM themes
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      name: string;
-      kind: string;
-      width: number;
-      height: number;
-      order_index: number;
-      collection_id: string;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      kind: row.kind as ThemeKind,
-      width: row.width,
-      height: row.height,
-      order_index: row.order_index,
-      collection_id: row.collection_id,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupStages(): ProjectBackupStageRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, width, height, order_index, collection_id, created_at, updated_at
-         FROM stages
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      name: string;
-      width: number;
-      height: number;
-      order_index: number;
-      collection_id: string;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      width: row.width,
-      height: row.height,
-      order_index: row.order_index,
-      collection_id: row.collection_id,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupCues(): ProjectBackupCueRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, kind, payload_json, failure_policy, created_at, updated_at
-         FROM cues
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      kind: string;
-      payload_json: string;
-      failure_policy: string;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      kind: row.kind as CueKind,
-      payload_json: row.payload_json,
-      failure_policy: row.failure_policy as CueFailurePolicy,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupActions(): ProjectBackupMacroRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, description, collection_id, scope_level, on_scope_exit, loop_enabled, loop_count,
-                created_at, updated_at
-         FROM actions
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      name: string;
-      description: string;
-      collection_id: string;
-      scope_level: string;
-      on_scope_exit: string;
-      loop_enabled: number;
-      loop_count: number | null;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      collection_id: row.collection_id,
-      scope_level: row.scope_level as ScopeLevel,
-      on_scope_exit: row.on_scope_exit as OnScopeExit,
-      loop_enabled: row.loop_enabled,
-      loop_count: row.loop_count,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupActionSteps(): ProjectBackupMacroStepRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, action_id, kind, payload_json, failure_policy, cue_id, order_index,
-                delay_before_ms, delay_after_ms, created_at, updated_at
-         FROM action_steps
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      action_id: string;
-      kind: string;
-      payload_json: string;
-      failure_policy: string;
-      cue_id: string | null;
-      order_index: number;
-      delay_before_ms: number;
-      delay_after_ms: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      action_id: row.action_id,
-      kind: row.kind as CueKind,
-      payload_json: row.payload_json,
-      failure_policy: row.failure_policy as CueFailurePolicy,
-      cue_id: row.cue_id,
-      order_index: row.order_index,
-      delay_before_ms: row.delay_before_ms,
-      delay_after_ms: row.delay_after_ms,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupTriggerBindings(): ProjectBackupTriggerBindingRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
-         FROM trigger_bindings
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      trigger_type: string;
-      source_id: string | null;
-      target_type: string;
-      target_id: string;
-      config_json: string;
-      enabled: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      trigger_type: row.trigger_type as TriggerType,
-      source_id: row.source_id,
-      target_type: row.target_type as TriggerBindingTargetType,
-      target_id: row.target_id,
-      config_json: row.config_json,
-      enabled: row.enabled,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private readProjectBackupCollections(table: ProjectBackupCollectionTableName): ProjectBackupCollectionRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, order_index, is_default, created_at, updated_at
-         FROM ${table}
-         ORDER BY created_at ASC, id ASC`,
-      )
-      .all() as Array<{
-      id: string;
-      name: string;
-      order_index: number;
-      is_default: number;
-      created_at: string;
-      updated_at: string;
-    }>;
-
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      order_index: row.order_index,
-      is_default: row.is_default,
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-    }));
-  }
-
-  private normalizePlaylistOrder(libraryId: Id): void {
-    this.db
-      .prepare(
-        `WITH ranked AS (
-           SELECT id, ROW_NUMBER() OVER (ORDER BY order_index ASC, created_at ASC, id ASC) - 1 AS next_order
-           FROM playlists
-           WHERE library_id = ?
-         )
-         UPDATE playlists
-         SET order_index = (SELECT next_order FROM ranked WHERE ranked.id = playlists.id)
-         WHERE library_id = ?`
-      )
-      .run(libraryId, libraryId);
-  }
-
-  private normalizeDeckItemOrder(): void {
-    const orderedItems = this.getOrderedContentReferences();
-    const now = nowIso();
-    const tx = this.db.transaction(() => {
-      orderedItems.forEach((item, index) => {
-        this.db
-          .prepare(`UPDATE ${this.getDeckTableName(item.type)} SET order_index = ?, updated_at = ? WHERE id = ?`)
-          .run(index, now, item.id);
-      });
-    });
-    tx();
-  }
-
-  private normalizeThemeOrder(): void {
-    const themes = this.db
-      .prepare('SELECT id FROM themes ORDER BY order_index ASC, created_at ASC')
-      .all() as Array<{ id: string }>;
-    const update = this.db.prepare('UPDATE themes SET order_index = ?, updated_at = ? WHERE id = ?');
-    const now = nowIso();
-
-    const tx = this.db.transaction(() => {
-      themes.forEach((theme, index) => {
-        update.run(index, now, theme.id);
-      });
-    });
-
-    tx();
   }
 }

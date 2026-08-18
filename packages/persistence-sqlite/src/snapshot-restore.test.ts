@@ -1,42 +1,24 @@
-// Regression coverage for #208: `restoreFromSnapshot` never touched the
-// eight `*_collections` tables, so restoring a snapshot into any database
-// other than the one that produced it threw `FOREIGN KEY constraint failed`
-// on the first row referencing a bin default (each repository self-seeds its
-// bin defaults with a random `createId()`). See the fix in `store.ts`
-// (`restoreFromSnapshot`, `assertSnapshotCollectionDefaults`).
+// Regression coverage for `restoreFromSnapshot` (ported/rewritten for the
+// #219 item-model refactor -- collections and libraries, the subject of the
+// original #208 fixture, no longer exist; see DESIGN.md D3/D4).
 //
-// Two adjacent, pre-existing bugs in the same function were masked by the
-// collection defect above (it always threw first, before either could be
-// reached) and are fixed alongside it here:
-//   1. `insertSlide`'s VALUES clause had 15 placeholders for 16 columns.
-//   2. The generic slide-element restore loop iterated `snapshot.slideElements`
-//      unfiltered. That array (from `getSlideElements()`) is not scoped to
-//      deck content slides the way `snapshot.slides` is -- it also carries
-//      every theme/overlay/stage container's elements (every fresh
-//      repository self-seeds a default overlay with a branding element, so
-//      this fires on effectively every real database). Those elements are
-//      already restored via `replaceContainerElements` in the theme/overlay/
-//      stage loops, so re-inserting them from the generic loop either hit
-//      the `slide_id` foreign key (their container slide did not exist yet)
-//      or would have collided on primary key (once it did).
+// The live defect this file pins down (found + fixed during the wave-D store
+// rewrite, see the accompanying report's "runtime defects found+fixed"
+// note): `restoreFromSnapshot` deletes every application-owned table before
+// reinserting the snapshot's rows, all inside one transaction with foreign
+// keys ON. If a live item (`presentations`/`lyrics`/`talks`) currently has a
+// theme applied -- so its `theme_id` column really does reference a live row
+// in one of the four per-owner theme tables -- the DELETE statements must
+// run in strict child-before-parent order (items before their theme table)
+// or SQLite's immediate FK enforcement throws `FOREIGN KEY constraint
+// failed` mid-transaction, an undo that should have been silent instead
+// crashing the whole operation. This is exactly the "undo while a theme is
+// applied" path a user hits constantly (apply a theme, then Cmd+Z).
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Id } from '@lumacast/kernel';
-import type { CollectionBinKind } from '@lumacast/composition';
 import { CastRepository } from './store';
-
-const COLLECTION_TABLE_BY_BIN: Record<CollectionBinKind, string> = {
-  deck: 'deck_collections',
-  image: 'image_collections',
-  video: 'video_collections',
-  audio: 'audio_collections',
-  theme: 'theme_collections',
-  overlay: 'overlay_collections',
-  stage: 'stage_collections',
-  macro: 'macro_collections',
-};
 
 type RawDb = {
   prepare(sql: string): { all(...args: unknown[]): unknown[]; get(...args: unknown[]): unknown };
@@ -48,50 +30,18 @@ function rawDb(target: CastRepository): RawDb {
 }
 
 function makeRepo(dir: string): CastRepository {
-  return new CastRepository({ dbPath: path.join(dir, 'lumacast.sqlite'), userDataPath: dir, documentsPath: dir });
+  return new CastRepository({ dbPath: path.join(dir, 'lumacast.sqlite'), userDataPath: dir, documentsPath: dir, seed: false });
 }
 
 function closeRepo(target: CastRepository): void {
   rawDb(target).close();
 }
 
-function createLibrary(target: CastRepository, name: string): Id {
-  const patch = target.createLibrary(name);
-  const library = patch.upserts.libraries?.[0];
-  if (!library) throw new Error('createLibrary returned no library');
-  return library.id;
-}
-
-function createDeckItem(target: CastRepository, type: 'presentation' | 'lyric' | 'talk', title: string): Id {
-  const patch = target.createDeckItemWithTheme({ type, title });
-  const key = type === 'presentation' ? 'presentations' : type === 'lyric' ? 'lyrics' : 'talks';
-  const item = patch.upserts[key]?.[0];
-  if (!item) throw new Error(`createDeckItemWithTheme returned no ${key} item`);
-  return item.id;
-}
-
-function defaultCollectionCounts(target: CastRepository): Record<CollectionBinKind, number> {
-  const db = rawDb(target);
-  const out = {} as Record<CollectionBinKind, number>;
-  for (const [bin, table] of Object.entries(COLLECTION_TABLE_BY_BIN) as Array<[CollectionBinKind, string]>) {
-    const row = db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE is_default = 1`).get() as { count: number };
-    out[bin] = row.count;
-  }
-  return out;
-}
-
 function foreignKeyViolations(target: CastRepository): unknown[] {
   return rawDb(target).prepare('PRAGMA foreign_key_check').all();
 }
 
-function findPresentationCollectionId(target: CastRepository, presentationId: Id): string | null {
-  const row = rawDb(target)
-    .prepare('SELECT collection_id FROM presentations WHERE id = ?')
-    .get(presentationId) as { collection_id: string | null } | undefined;
-  return row?.collection_id ?? null;
-}
-
-describe('restoreFromSnapshot collection restore (#208)', () => {
+describe('restoreFromSnapshot (#219 item-model refactor)', () => {
   let sourceDir: string;
   let destDir: string;
   let source: CastRepository;
@@ -111,178 +61,156 @@ describe('restoreFromSnapshot collection restore (#208)', () => {
     fs.rmSync(destDir, { recursive: true, force: true });
   });
 
-  it('restores cleanly into a different, independently seeded repository (verified reproduction)', () => {
-    const libraryId = createLibrary(source, 'Library');
-    const presentationId = createDeckItem(source, 'presentation', 'Slides');
-    const snapshot = source.getSnapshot();
+  it('restores over a live database where the CURRENT item still has an applied theme (child-before-parent delete-order regression)', () => {
+    const theme = source.createTheme({ name: 'Brand', themeType: 'presentation' }).upserts.presentationThemes![0]!;
+    const { itemId: presentationId } = source.createItem({ type: 'presentation', title: 'Slides', themeId: theme.id });
+    // Sanity: the live row really does carry a foreign key into the theme table.
+    expect(
+      (rawDb(source).prepare('SELECT theme_id FROM presentations WHERE id = ?').get(presentationId) as { theme_id: string }).theme_id,
+    ).toBe(theme.id);
 
-    // Sanity check on the reproduction: the two repositories self-seeded
-    // different random ids for the deck bin's default collection.
-    const sourceDeckDefault = snapshot.collections.find((c) => c.binKind === 'deck' && c.isDefault);
-    const destDeckDefaultBefore = dest.getSnapshot().collections.find((c) => c.binKind === 'deck' && c.isDefault);
-    expect(sourceDeckDefault).toBeTruthy();
-    expect(destDeckDefaultBefore).toBeTruthy();
-    expect(sourceDeckDefault!.id).not.toBe(destDeckDefaultBefore!.id);
+    const before = source.getSnapshot();
 
-    expect(() => dest.restoreFromSnapshot(snapshot)).not.toThrow();
+    // Mutate after the snapshot: a second, still-themed presentation exists
+    // in the live database at the moment restoreFromSnapshot runs, so the
+    // themed relationship is live on BOTH sides of the delete-then-insert.
+    source.createItem({ type: 'presentation', title: 'Extra', themeId: theme.id });
 
-    const restored = dest.getSnapshot();
-    expect(restored.libraries.map((l) => l.id)).toContain(libraryId);
-    expect(restored.presentations.map((p) => p.id)).toContain(presentationId);
-    expect(findPresentationCollectionId(dest, presentationId)).toBe(sourceDeckDefault!.id);
+    expect(() => source.restoreFromSnapshot(before)).not.toThrow();
+
+    const restored = source.getSnapshot();
+    expect(restored.presentations.map((p) => p.id)).toEqual([presentationId]);
+    expect(restored.presentations[0]!.themeId).toBe(theme.id);
+    expect(restored.presentationThemes.map((t) => t.id)).toEqual([theme.id]);
+    expect(foreignKeyViolations(source)).toEqual([]);
   });
 
-  it('reproduces the snapshot source collection ids, names, order and is_default flags exactly', () => {
-    createLibrary(source, 'Library');
-    source.createCollection({ binKind: 'deck', name: 'Sermons' });
-    const snapshot = source.getSnapshot();
+  it('restores over a live database where a talk still has an applied talk theme', () => {
+    const talkTheme = source.createTheme({ name: 'Sermon Theme', themeType: 'talk' }).upserts.talkThemes![0]!;
+    const { itemId: talkId } = source.createItem({ type: 'talk', title: 'Sermon', themeId: talkTheme.id });
+    const before = source.getSnapshot();
 
-    dest.restoreFromSnapshot(snapshot);
+    source.createItem({ type: 'talk', title: 'Another Sermon', themeId: talkTheme.id });
 
-    const restoredCollections = dest.getSnapshot().collections;
-    // Same set of ids, and every field on every collection matches exactly
-    // (order-independent compare since collection ordering across bins can
-    // legitimately differ in array position while still matching per-bin).
-    const byId = new Map(restoredCollections.map((c) => [c.id, c]));
-    expect(restoredCollections).toHaveLength(snapshot.collections.length);
-    for (const expected of snapshot.collections) {
-      const actual = byId.get(expected.id);
-      expect(actual).toBeTruthy();
-      expect(actual).toEqual(expected);
-    }
-  });
+    expect(() => source.restoreFromSnapshot(before)).not.toThrow();
 
-  it('leaves PRAGMA foreign_key_check clean after a cross-repository restore', () => {
-    createLibrary(source, 'Library');
-    createDeckItem(source, 'presentation', 'Slides');
-    createDeckItem(source, 'talk', 'Sermon');
-    source.createCollection({ binKind: 'image', name: 'Backgrounds' });
-    const snapshot = source.getSnapshot();
-
-    dest.restoreFromSnapshot(snapshot);
-
-    expect(foreignKeyViolations(dest)).toEqual([]);
-  });
-
-  it('leaves exactly one default collection per bin after a restore, never two or zero', () => {
-    createLibrary(source, 'Library');
-    createDeckItem(source, 'presentation', 'Slides');
-    const snapshot = source.getSnapshot();
-
-    dest.restoreFromSnapshot(snapshot);
-
-    const counts = defaultCollectionCounts(dest);
-    for (const bin of Object.keys(COLLECTION_TABLE_BY_BIN) as CollectionBinKind[]) {
-      expect(counts[bin]).toBe(1);
-    }
-  });
-
-  it('rejects a snapshot missing a bin default before touching any table', () => {
-    createLibrary(source, 'Library');
-    const snapshot = source.getSnapshot();
-    const corrupted = {
-      ...snapshot,
-      collections: snapshot.collections.filter((c) => !(c.binKind === 'deck' && c.isDefault)),
-    };
-
-    const before = dest.getSnapshot();
-    expect(() => dest.restoreFromSnapshot(corrupted)).toThrow(/exactly one default collection/);
-    // Fails fast: destination is untouched by the rejected restore.
-    expect(dest.getSnapshot()).toEqual(before);
+    const restored = source.getSnapshot();
+    expect(restored.talks.map((t) => t.id)).toEqual([talkId]);
+    expect(restored.talks[0]!.themeId).toBe(talkTheme.id);
+    expect(foreignKeyViolations(source)).toEqual([]);
   });
 
   it('same-database undo/redo round trips a snapshot back into the repository that produced it', () => {
-    const libraryId = createLibrary(source, 'Library');
-    const presentationId = createDeckItem(source, 'presentation', 'Slides');
+    const presentationId = source.createItem({ type: 'presentation', title: 'Slides' }).itemId;
     const snapshot = source.getSnapshot();
 
-    // Mutate after the snapshot was captured, then "undo" back to it.
-    createDeckItem(source, 'talk', 'Sermon added after snapshot');
-    source.createCollection({ binKind: 'deck', name: 'Extra' });
+    source.createItem({ type: 'talk', title: 'Sermon added after snapshot' });
+    source.createPlaylist('Extra');
 
     expect(() => source.restoreFromSnapshot(snapshot)).not.toThrow();
 
     const restored = source.getSnapshot();
-    // Restore reverts to exactly the pre-mutation snapshot: same library and
-    // presentation ids as captured, the post-snapshot Talk gone, and every
-    // bin's collection set back to what the snapshot held (not what the
-    // post-snapshot mutation left, e.g. the extra "Extra" deck collection).
-    expect(restored.libraries.map((l) => l.id).sort()).toEqual(snapshot.libraries.map((l) => l.id).sort());
-    expect(restored.libraries.map((l) => l.id)).toContain(libraryId);
     expect(restored.presentations.map((p) => p.id)).toEqual(snapshot.presentations.map((p) => p.id));
     expect(restored.presentations.map((p) => p.id)).toContain(presentationId);
     expect(restored.talks).toHaveLength(0);
-    expect(restored.collections.filter((c) => c.binKind === 'deck').map((c) => c.id).sort()).toEqual(
-      snapshot.collections.filter((c) => c.binKind === 'deck').map((c) => c.id).sort(),
-    );
+    expect(restored.playlists.map((p) => p.id).sort()).toEqual(snapshot.playlists.map((p) => p.id).sort());
     expect(foreignKeyViolations(source)).toEqual([]);
   });
 
-  // Open question from the issue: can undo across a collection deletion --
-  // where items were reassigned to a bin default and the snapshot predates
-  // that deletion -- hit the FK failure on the SAME database? Answer: yes,
-  // it was reachable pre-fix. `deleteCollection` performs a real SQL DELETE
-  // on the collection row (store.ts, `deleteCollection`), so a pre-deletion
-  // snapshot's items still reference a collection id that no longer exists
-  // anywhere in the live database once the collection is deleted -- there is
-  // no self-seeded fallback row wearing that id the way there is for a fresh
-  // database's bin defaults. The old `restoreFromSnapshot` never re-created
-  // collection rows at all, so restoring that snapshot would have hit the
-  // exact same `FOREIGN KEY constraint failed` on the first item row
-  // referencing the deleted collection. The fix resolves this too, because
-  // collections are now restored wholesale from the snapshot, including the
-  // since-deleted one.
-  it('restores cleanly across a same-database collection deletion (snapshot predates the delete)', () => {
-    const libraryId = createLibrary(source, 'Library');
-    const customCollection = source.createCollection({ binKind: 'deck', name: 'Sermons' }).upserts.collections?.[0];
-    if (!customCollection) throw new Error('createCollection returned no collection');
-    const presentationId = createDeckItem(source, 'presentation', 'Slides');
-    source.setItemCollection({ itemType: 'presentation', itemId: presentationId, collectionId: customCollection.id });
+  it('restores cleanly into a different, independently seeded repository', () => {
+    const presentationId = source.createItem({ type: 'presentation', title: 'Slides' }).itemId;
+    dest.createPlaylist('Destination-only playlist');
+    const snapshot = source.getSnapshot();
+
+    expect(() => dest.restoreFromSnapshot(snapshot)).not.toThrow();
+
+    const restored = dest.getSnapshot();
+    expect(restored.presentations.map((p) => p.id)).toContain(presentationId);
+    // The destination's own pre-restore content is gone -- restore replaces
+    // the whole database, it does not merge.
+    expect(restored.playlists.some((p) => p.name === 'Destination-only playlist')).toBe(false);
+    expect(foreignKeyViolations(dest)).toEqual([]);
+  });
+
+  it('restores cleanly across a same-database theme deletion (snapshot predates the delete)', () => {
+    const theme = source.createTheme({ name: 'Brand', themeType: 'presentation' }).upserts.presentationThemes![0]!;
+    const presentationId = source.createItem({ type: 'presentation', title: 'Slides', themeId: theme.id }).itemId;
 
     const preDeletionSnapshot = source.getSnapshot();
-    expect(findPresentationCollectionId(source, presentationId)).toBe(customCollection.id);
+    expect(preDeletionSnapshot.presentations.find((p) => p.id === presentationId)!.themeId).toBe(theme.id);
 
-    // Delete the custom collection: the item is reassigned to the bin
-    // default and the collection row is really gone (not just re-seeded
-    // under a new random id).
-    source.deleteCollection({ binKind: 'deck', id: customCollection.id });
-    const deckCollectionIdsAfterDelete = source.getSnapshot().collections
-      .filter((c) => c.binKind === 'deck')
-      .map((c) => c.id);
-    expect(deckCollectionIdsAfterDelete).not.toContain(customCollection.id);
+    // Delete the theme: the item's themeId is nulled and the theme row is
+    // really gone (not re-seeded under a new id -- there is no self-seeded
+    // fallback for a deleted theme the way collections used to have).
+    source.deleteTheme(theme.id, 'presentation');
+    expect(source.getSnapshot().presentationThemes.map((t) => t.id)).not.toContain(theme.id);
 
     // Undo: restore the snapshot captured before the deletion, on the same
     // repository/database that produced it.
     expect(() => source.restoreFromSnapshot(preDeletionSnapshot)).not.toThrow();
 
     const restored = source.getSnapshot();
-    expect(restored.libraries.map((l) => l.id)).toContain(libraryId);
-    expect(restored.collections.some((c) => c.id === customCollection.id && c.binKind === 'deck')).toBe(true);
-    expect(findPresentationCollectionId(source, presentationId)).toBe(customCollection.id);
+    expect(restored.presentationThemes.some((t) => t.id === theme.id)).toBe(true);
+    expect(restored.presentations.find((p) => p.id === presentationId)!.themeId).toBe(theme.id);
     expect(foreignKeyViolations(source)).toEqual([]);
   });
 
-  it('restores a snapshot whose overlay/theme elements are carried in snapshot.slideElements without error or duplication (adjacent bug)', () => {
-    // Every fresh repository self-seeds a default overlay with its own
-    // branding element; `getSnapshot().slideElements` includes that
-    // container-owned element alongside genuine deck content elements.
-    const overlayId = source.getSnapshot().overlays[0]?.id;
-    expect(overlayId).toBeTruthy();
-    createLibrary(source, 'Library');
-    createDeckItem(source, 'presentation', 'Slides');
+  it('restores a snapshot whose overlay/theme container elements are carried through their owner, not slideElements, without duplication', () => {
+    // Every element on a theme/overlay/stage container slide is surfaced
+    // through that owner's own `elements` field -- never through
+    // `snapshot.slideElements`, which is scoped to item-owned slides only
+    // (see snapshot-scope.test.ts). Restoring must not duplicate or drop
+    // these container elements.
+    const overlay = source.createOverlay({
+      name: 'Watermark',
+      elements: [
+        {
+          id: 'overlay-el-1',
+          slideId: '',
+          type: 'text',
+          x: 0, y: 0, width: 100, height: 20, rotation: 0, opacity: 1, zIndex: 1, layer: 'content',
+          payload: { text: 'CAST', fontFamily: 'Helvetica', fontSize: 24, color: '#FFFFFF', alignment: 'left', weight: '400' },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    }).upserts.overlays![0]!;
+    source.createItem({ type: 'presentation', title: 'Slides' });
     const snapshot = source.getSnapshot();
 
-    const overlayElementCountBefore = snapshot.overlays.find((o) => o.id === overlayId)?.elements.length ?? 0;
-    expect(overlayElementCountBefore).toBeGreaterThan(0);
-    expect(snapshot.slideElements.some((e) => e.slideId !== undefined)).toBe(true);
+    const overlayElementCountBefore = snapshot.overlays.find((o) => o.id === overlay.id)?.elements.length ?? 0;
+    expect(overlayElementCountBefore).toBe(1);
+    expect(snapshot.slideElements.every((e) => e.slideId !== `${overlay.id}:slide`)).toBe(true);
 
     expect(() => dest.restoreFromSnapshot(snapshot)).not.toThrow();
 
     const restored = dest.getSnapshot();
-    const restoredOverlay = restored.overlays.find((o) => o.id === overlayId);
+    const restoredOverlay = restored.overlays.find((o) => o.id === overlay.id);
     expect(restoredOverlay).toBeTruthy();
-    // Not duplicated: the overlay's element count matches the source exactly.
     expect(restoredOverlay!.elements).toHaveLength(overlayElementCountBefore);
+    expect(foreignKeyViolations(dest)).toEqual([]);
+  });
+
+  it('restores flat playlists/playlistEntries (item rows and separators) with ids preserved', () => {
+    const presentationId = source.createItem({ type: 'presentation', title: 'Slides' }).itemId;
+    const playlistId = source.createPlaylist('Sunday').upserts.playlists![0]!.id;
+    source.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
+    const sepPatch = source.createSeparator(playlistId, 'Opening');
+    const sepId = sepPatch.upserts.playlistEntries!.find((row) => row.kind === 'separator')!.id;
+
+    const snapshot = source.getSnapshot();
+    const itemRowId = snapshot.playlistEntries.find((row) => row.kind === 'item' && row.reference.itemId === presentationId)!.id;
+
+    expect(() => dest.restoreFromSnapshot(snapshot)).not.toThrow();
+
+    const restored = dest.getSnapshot();
+    const restoredSeparator = restored.playlistEntries.find((row) => row.id === sepId);
+    const restoredItemRow = restored.playlistEntries.find((row) => row.id === itemRowId);
+    expect(restoredSeparator).toBeTruthy();
+    expect(restoredSeparator!.kind).toBe('separator');
+    expect((restoredSeparator as { label: string }).label).toBe('Opening');
+    expect(restoredItemRow).toBeTruthy();
+    expect(restoredItemRow!.kind).toBe('item');
     expect(foreignKeyViolations(dest)).toEqual([]);
   });
 });

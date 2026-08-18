@@ -7,13 +7,23 @@ import type { SlideElement, TextElementPayload } from '@lumacast/composition';
 import type { AppSnapshot } from '@lumacast/protocol';
 import { CastRepository } from './store';
 
-// Covers #144: Apply, Reset, Sync, Detach, and duplication (slide + deck item)
+// Covers #144: Apply, Reset, Sync, Detach, and duplication (slide + item)
 // must each carry provenance correctly and have observably distinct
 // semantics through the real repository/SQLite path, not just the pure
 // merge function unit-tested in app/core/theme-sync.test.ts. "Reset to
 // Theme" in the renderer is the same repository call as "Apply" — both are
 // the destructive rebuild described by the parent issue (#104) — so this
-// suite exercises `applyThemeToDeckItem` for both roles.
+// suite exercises `applyThemeToItem` for both roles.
+//
+// #219 item-model refactor: `applyThemeToItem`/`detachThemeFromItem` now
+// take an `ItemRef` and `syncThemeToLinkedItems` now takes an explicit
+// `itemType` — the four theme families each have their own table, so a
+// theme can only ever sync against the one item table matching its own
+// family. This suite is exercised against presentation items/themes
+// throughout (the mechanics are shared verbatim across families per
+// store.ts's table-parameterized helpers), plus a dedicated block proving
+// the fan-out a single `themes` table used to allow across item types is
+// now structurally impossible.
 
 let repo: CastRepository;
 let tmpDir: string;
@@ -28,25 +38,20 @@ function rawDb(): { prepare(sql: string): { run(...args: unknown[]): unknown; ge
   }).db;
 }
 
-function createTheme(kind: 'slides' | 'lyrics', name = 'Theme'): Id {
-  const patch = repo.createTheme({ name, kind, width: 1920, height: 1080 });
-  const theme = patch.upserts.themes?.[0];
+function createTheme(name = 'Theme'): Id {
+  const patch = repo.createTheme({ name, themeType: 'presentation', width: 1920, height: 1080 });
+  const theme = patch.upserts.presentationThemes?.[0];
   if (!theme) throw new Error('createTheme returned no theme');
   return theme.id;
 }
 
-function createDeckItemWithTheme(type: 'presentation' | 'lyric', title: string, themeId: Id): Id {
-  repo.createDeckItemWithTheme({ type, title, themeId });
-  const snapshot = repo.getSnapshot();
-  const list = type === 'presentation' ? snapshot.presentations : snapshot.lyrics;
-  const item = list.find((entry) => entry.title === title);
-  if (!item) throw new Error(`expected a created ${type} named "${title}"`);
-  return item.id;
+function createItemWithTheme(title: string, themeId: Id): Id {
+  return repo.createItem({ type: 'presentation', title, themeId }).itemId;
 }
 
 function slideIdForItem(itemId: Id): Id {
   const snapshot = repo.getSnapshot();
-  const slide = snapshot.slides.find((entry) => entry.presentationId === itemId || entry.lyricId === itemId);
+  const slide = snapshot.slides.find((entry) => entry.presentationId === itemId);
   if (!slide) throw new Error(`expected a slide owned by item ${itemId}`);
   return slide.id;
 }
@@ -56,7 +61,7 @@ function elementsForSlide(snapshot: AppSnapshot, slideId: Id): SlideElement[] {
 }
 
 function themeElementId(themeId: Id): Id {
-  const theme = repo.getSnapshot().themes.find((entry) => entry.id === themeId);
+  const theme = repo.getSnapshot().presentationThemes.find((entry) => entry.id === themeId);
   if (!theme || theme.elements.length === 0) throw new Error(`expected theme ${themeId} to have an element`);
   return theme.elements[0].id;
 }
@@ -78,8 +83,8 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
 
   describe('Apply/Reset vs Sync are observably distinct', () => {
     it('Sync preserves a user-created element that Apply (Reset) discards', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
 
       expect(elementsForSlide(repo.getSnapshot(), slideId)).toHaveLength(1);
@@ -100,14 +105,14 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
       expect(customElementId).toBeTruthy();
 
       // Sync (non-destructive merge): the custom element survives untouched.
-      repo.syncThemeToLinkedDeckItems(themeId);
+      repo.syncThemeToLinkedItems(themeId, 'presentation');
       const afterSync = elementsForSlide(repo.getSnapshot(), slideId);
       expect(afterSync).toHaveLength(2);
       expect(afterSync.some((element) => element.id === customElementId)).toBe(true);
 
       // Apply/Reset (destructive rebuild): the custom element is gone and
       // every remaining element is theme-owned.
-      repo.applyThemeToDeckItem(themeId, itemId);
+      repo.applyThemeToItem(themeId, { type: 'presentation', id: itemId });
       const afterReset = elementsForSlide(repo.getSnapshot(), slideId);
       expect(afterReset).toHaveLength(1);
       expect(afterReset.some((element) => element.id === customElementId)).toBe(false);
@@ -115,16 +120,16 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
     });
 
     it('Sync updates a matched theme-owned element in place, preserving its materialized id', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
       const originalElementId = elementsForSlide(repo.getSnapshot(), slideId)[0].id;
       const sourceElementId = themeElementId(themeId);
 
-      const theme = repo.getSnapshot().themes.find((entry) => entry.id === themeId)!;
-      repo.updateTheme({ id: themeId, elements: [{ ...theme.elements[0], x: 999 }] });
+      const theme = repo.getSnapshot().presentationThemes.find((entry) => entry.id === themeId)!;
+      repo.updateTheme({ id: themeId, themeType: 'presentation', elements: [{ ...theme.elements[0], x: 999 }] });
 
-      repo.syncThemeToLinkedDeckItems(themeId);
+      repo.syncThemeToLinkedItems(themeId, 'presentation');
       const after = elementsForSlide(repo.getSnapshot(), slideId);
       expect(after).toHaveLength(1);
       expect(after[0].id).toBe(originalElementId);
@@ -135,12 +140,12 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
 
   describe('Detach preserves appearance and neutralizes provenance', () => {
     it('keeps every visual property but clears provenance and the theme link', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
       const before = elementsForSlide(repo.getSnapshot(), slideId)[0];
 
-      repo.detachThemeFromDeckItem(itemId);
+      repo.detachThemeFromItem({ type: 'presentation', id: itemId });
 
       const snapshot = repo.getSnapshot();
       const item = snapshot.presentations.find((entry) => entry.id === itemId);
@@ -160,16 +165,16 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
     });
 
     it('prevents a later Sync of the former theme from touching the detached item', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
       const before = elementsForSlide(repo.getSnapshot(), slideId)[0];
 
-      repo.detachThemeFromDeckItem(itemId);
+      repo.detachThemeFromItem({ type: 'presentation', id: itemId });
 
-      const theme = repo.getSnapshot().themes.find((entry) => entry.id === themeId)!;
-      repo.updateTheme({ id: themeId, elements: [{ ...theme.elements[0], x: 555 }] });
-      repo.syncThemeToLinkedDeckItems(themeId);
+      const theme = repo.getSnapshot().presentationThemes.find((entry) => entry.id === themeId)!;
+      repo.updateTheme({ id: themeId, themeType: 'presentation', elements: [{ ...theme.elements[0], x: 555 }] });
+      repo.syncThemeToLinkedItems(themeId, 'presentation');
 
       const after = elementsForSlide(repo.getSnapshot(), slideId)[0];
       expect(after.x).toBe(before.x);
@@ -178,14 +183,14 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
   });
 
   describe('Duplication preserves provenance without sharing mutable ids', () => {
-    it('duplicateDeckItem: the copy stays independently syncable', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Original', themeId);
+    it('duplicateItem: the copy stays independently syncable', () => {
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Original', themeId);
       const slideId = slideIdForItem(itemId);
       const originalElementId = elementsForSlide(repo.getSnapshot(), slideId)[0].id;
       const sourceElementId = themeElementId(themeId);
 
-      const { itemId: duplicateItemId } = repo.duplicateDeckItem(itemId);
+      const { itemId: duplicateItemId } = repo.duplicateItem({ type: 'presentation', id: itemId });
       const duplicateSlideId = slideIdForItem(duplicateItemId);
       const duplicateElement = elementsForSlide(repo.getSnapshot(), duplicateSlideId)[0];
 
@@ -199,9 +204,9 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
 
       // Mutate the theme and sync: both copies update independently, each
       // keeping its own materialized element id.
-      const theme = repo.getSnapshot().themes.find((entry) => entry.id === themeId)!;
-      repo.updateTheme({ id: themeId, elements: [{ ...theme.elements[0], x: 777 }] });
-      repo.syncThemeToLinkedDeckItems(themeId);
+      const theme = repo.getSnapshot().presentationThemes.find((entry) => entry.id === themeId)!;
+      repo.updateTheme({ id: themeId, themeType: 'presentation', elements: [{ ...theme.elements[0], x: 777 }] });
+      repo.syncThemeToLinkedItems(themeId, 'presentation');
 
       const originalAfter = elementsForSlide(repo.getSnapshot(), slideId)[0];
       const duplicateAfter = elementsForSlide(repo.getSnapshot(), duplicateSlideId)[0];
@@ -212,9 +217,9 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
       expect(duplicateAfter.id).not.toBe(originalAfter.id);
     });
 
-    it('duplicateSlide: the sibling slide stays independently syncable within the same deck item', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+    it('duplicateSlide: the sibling slide stays independently syncable within the same item', () => {
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
       const originalElementId = elementsForSlide(repo.getSnapshot(), slideId)[0].id;
       const sourceElementId = themeElementId(themeId);
@@ -229,9 +234,9 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
       expect(duplicateElement.id).not.toBe(originalElementId);
       expect(duplicateElement.sourceThemeElementId).toBe(sourceElementId);
 
-      const theme = repo.getSnapshot().themes.find((entry) => entry.id === themeId)!;
-      repo.updateTheme({ id: themeId, elements: [{ ...theme.elements[0], x: 321 }] });
-      repo.syncThemeToLinkedDeckItems(themeId);
+      const theme = repo.getSnapshot().presentationThemes.find((entry) => entry.id === themeId)!;
+      repo.updateTheme({ id: themeId, themeType: 'presentation', elements: [{ ...theme.elements[0], x: 321 }] });
+      repo.syncThemeToLinkedItems(themeId, 'presentation');
 
       const originalAfter = elementsForSlide(repo.getSnapshot(), slideId)[0];
       const duplicateAfter = elementsForSlide(repo.getSnapshot(), duplicateSlideId)[0];
@@ -243,22 +248,22 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
 
   describe('Sync distinguishes a failed lookup from a genuine no-op (#212)', () => {
     it('throws the same explicit error as Apply when the theme id does not resolve', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
       const unresolvableId = 'does-not-exist';
 
-      expect(() => repo.syncThemeToLinkedDeckItems(unresolvableId))
+      expect(() => repo.syncThemeToLinkedItems(unresolvableId, 'presentation'))
         .toThrow(`Theme not found: ${unresolvableId}`);
-      expect(() => repo.applyThemeToDeckItem(unresolvableId, itemId))
+      expect(() => repo.applyThemeToItem(unresolvableId, { type: 'presentation', id: itemId }))
         .toThrow(`Theme not found: ${unresolvableId}`);
     });
 
-    it('returns an empty, no-op patch without throwing when the theme resolves but has no linked deck items', () => {
-      const themeId = createTheme('slides', 'Unlinked Theme');
+    it('returns an empty, no-op patch without throwing when the theme resolves but has no linked items', () => {
+      const themeId = createTheme('Unlinked Theme');
 
-      let patch: ReturnType<typeof repo.syncThemeToLinkedDeckItems> | undefined;
+      let patch: ReturnType<typeof repo.syncThemeToLinkedItems> | undefined;
       expect(() => {
-        patch = repo.syncThemeToLinkedDeckItems(themeId);
+        patch = repo.syncThemeToLinkedItems(themeId, 'presentation');
       }).not.toThrow();
 
       expect(patch).toBeDefined();
@@ -273,9 +278,9 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
 
   describe('Multi-owner Sync is one transaction and fails all-or-nothing', () => {
     it('leaves every owner unchanged and reports the error when one owner is corrupt', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const goodItemId = createDeckItemWithTheme('presentation', 'Good', themeId);
-      const badItemId = createDeckItemWithTheme('presentation', 'Bad', themeId);
+      const themeId = createTheme('Slide Theme');
+      const goodItemId = createItemWithTheme('Good', themeId);
+      const badItemId = createItemWithTheme('Bad', themeId);
       const goodSlideId = slideIdForItem(goodItemId);
       const badSlideId = slideIdForItem(badItemId);
 
@@ -289,16 +294,16 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
       const badElementRow = rawDb()
         .prepare('SELECT id, payload_json FROM slide_elements WHERE slide_id = ?')
         .get(badSlideId) as { id: string; payload_json: string };
-      const theme = repo.getSnapshot().themes.find((entry) => entry.id === themeId)!;
+      const theme = repo.getSnapshot().presentationThemes.find((entry) => entry.id === themeId)!;
 
       // Corrupt the "bad" owner's persisted element payload directly, bypassing
       // the repository's own write path — simulating a corrupt/incompatible
       // record the sync must not silently skip (per #104's non-goals).
       rawDb().prepare('UPDATE slide_elements SET payload_json = ? WHERE id = ?').run('not valid json', badElementRow.id);
 
-      repo.updateTheme({ id: themeId, elements: [{ ...theme.elements[0], x: 42 }] });
+      repo.updateTheme({ id: themeId, themeType: 'presentation', elements: [{ ...theme.elements[0], x: 42 }] });
 
-      expect(() => repo.syncThemeToLinkedDeckItems(themeId)).toThrow();
+      expect(() => repo.syncThemeToLinkedItems(themeId, 'presentation')).toThrow();
 
       // The good owner must be untouched — the multi-owner sync is one
       // transaction, so a failure on the bad owner rolls back the good one too.
@@ -317,8 +322,8 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
     });
 
     it('reports the existing operation error rather than a generic failure', () => {
-      const themeId = createTheme('slides', 'Slide Theme');
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
       const elementRow = rawDb()
         .prepare('SELECT id FROM slide_elements WHERE slide_id = ?')
@@ -327,7 +332,7 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
 
       let caught: unknown = null;
       try {
-        repo.syncThemeToLinkedDeckItems(themeId);
+        repo.syncThemeToLinkedItems(themeId, 'presentation');
       } catch (error) {
         caught = error;
       }
@@ -341,9 +346,9 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
     // keep each authored text value attached to the field it came from (by
     // sourceThemeElementId), per #104's core motivation. Apply/Reset is a
     // documented non-goal here: it is a destructive rebuild that carries
-    // over existing text purely by z-order position (app/core/themes.ts
-    // `applyThemeToElements`, deliberately unchanged by #143), so a reorder
-    // is expected to cross-attach text to the wrong field on Reset.
+    // over existing text purely by z-order position (composition's
+    // `themes.ts` `applyThemeToElements`, deliberately unchanged by #143), so
+    // a reorder is expected to cross-attach text to the wrong field on Reset.
 
     function textPayload(text: string): TextElementPayload {
       return {
@@ -360,7 +365,7 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
       const now = new Date().toISOString();
       const patch = repo.createTheme({
         name: 'Two Field Theme',
-        kind: 'slides',
+        themeType: 'presentation',
         width: 1920,
         height: 1080,
         elements: [
@@ -378,7 +383,7 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
           },
         ],
       });
-      const theme = patch.upserts.themes?.[0];
+      const theme = patch.upserts.presentationThemes?.[0];
       if (!theme) throw new Error('createTheme returned no theme');
       const [titleEl, subtitleEl] = theme.elements;
       return { themeId: theme.id, titleSourceId: titleEl.id, subtitleSourceId: subtitleEl.id };
@@ -397,26 +402,27 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
     }
 
     function reorderThemeFields(themeId: Id, titleSourceId: Id, subtitleSourceId: Id): void {
-      const theme = repo.getSnapshot().themes.find((entry) => entry.id === themeId)!;
+      const theme = repo.getSnapshot().presentationThemes.find((entry) => entry.id === themeId)!;
       const titleEl = theme.elements.find((el) => el.id === titleSourceId)!;
       const subtitleEl = theme.elements.find((el) => el.id === subtitleSourceId)!;
       // Swap z-order: subtitle now reads first, title now reads last.
       repo.updateTheme({
         id: themeId,
+        themeType: 'presentation',
         elements: [{ ...titleEl, zIndex: 30 }, { ...subtitleEl, zIndex: 5 }],
       });
     }
 
     it('Sync: authored text stays attached to its field after the theme fields reorder', () => {
       const { themeId, titleSourceId, subtitleSourceId } = makeTwoFieldTheme();
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
 
       authorText(slideId, titleSourceId, 'Title Text');
       authorText(slideId, subtitleSourceId, 'Subtitle Text');
 
       reorderThemeFields(themeId, titleSourceId, subtitleSourceId);
-      repo.syncThemeToLinkedDeckItems(themeId);
+      repo.syncThemeToLinkedItems(themeId, 'presentation');
 
       expect(textFor(slideId, titleSourceId)).toBe('Title Text');
       expect(textFor(slideId, subtitleSourceId)).toBe('Subtitle Text');
@@ -424,14 +430,14 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
 
     it('Reset: documented non-goal — positional carry-over cross-attaches text after reorder', () => {
       const { themeId, titleSourceId, subtitleSourceId } = makeTwoFieldTheme();
-      const itemId = createDeckItemWithTheme('presentation', 'Deck', themeId);
+      const itemId = createItemWithTheme('Deck', themeId);
       const slideId = slideIdForItem(itemId);
 
       authorText(slideId, titleSourceId, 'Title Text');
       authorText(slideId, subtitleSourceId, 'Subtitle Text');
 
       reorderThemeFields(themeId, titleSourceId, subtitleSourceId);
-      repo.applyThemeToDeckItem(themeId, itemId);
+      repo.applyThemeToItem(themeId, { type: 'presentation', id: itemId });
 
       // Apply/Reset positionally shifts the pre-reset z-ordered text values
       // into the post-reorder theme element walk order, crossing the two
@@ -439,6 +445,45 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
       // left in place for Apply per #143's non-goals.
       expect(textFor(slideId, subtitleSourceId)).toBe('Title Text');
       expect(textFor(slideId, titleSourceId)).toBe('Subtitle Text');
+    });
+  });
+
+  describe('Per-type themes: a presentation theme never fans out to talks (changed from the single themes table)', () => {
+    // Before #219, one shared `themes` table meant a single 'slides'-kind
+    // theme could theme both presentations and talks at once (see the old
+    // theme-apply.test.ts's "applies a slides theme to a talk"). Now
+    // `presentation_themes` and `talk_themes` are independent tables/id
+    // spaces: a presentation theme's id is never present in `talk_themes`,
+    // so it structurally cannot theme, or be synced against, a talk.
+
+    function createTalk(title: string): Id {
+      return repo.createItem({ type: 'talk', title }).itemId;
+    }
+
+    it('createItem rejects assigning a presentation theme id to a talk — the old cross-family sharing is gone', () => {
+      const themeId = createTheme('Slide Theme');
+      expect(() => repo.createItem({ type: 'talk', title: 'Talk', themeId }))
+        .toThrow(new RegExp(`Theme not found: ${themeId}`));
+    });
+
+    it('applyThemeToItem rejects applying a presentation theme to a talk', () => {
+      const themeId = createTheme('Slide Theme');
+      const talkId = createTalk('Talk');
+      expect(() => repo.applyThemeToItem(themeId, { type: 'talk', id: talkId }))
+        .toThrow(new RegExp(`Theme not found: ${themeId}`));
+    });
+
+    it('syncThemeToLinkedItems rejects a presentation theme id when called for itemType talk', () => {
+      const themeId = createTheme('Slide Theme');
+      const itemId = createItemWithTheme('Deck', themeId);
+
+      expect(() => repo.syncThemeToLinkedItems(themeId, 'talk'))
+        .toThrow(new RegExp(`Theme not found: ${themeId}`));
+
+      // The presentation item that actually owns this theme is completely
+      // unaffected by the rejected cross-family sync attempt.
+      const slideId = slideIdForItem(itemId);
+      expect(elementsForSlide(repo.getSnapshot(), slideId)).toHaveLength(1);
     });
   });
 });

@@ -1,33 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import type { Id } from '@lumacast/kernel';
+import type { ItemType, ThemeOwnerType } from '@lumacast/composition';
 import type { CastRepository } from './store';
 import { createTestRepository } from './test-support';
 
 // Covers the theme/overlay slice of #214: `updateTheme`,
-// `detachThemeFromDeckItem`, and `applyThemeToOverlay` each had a branch
+// `detachThemeFromItem`, and `applyThemeToOverlay` each had a branch
 // that silently returned an empty patch when an id failed to resolve, even
-// though a sibling method in this file (`applyThemeToDeckItem`,
-// `syncThemeToLinkedDeckItems`) already throws `Theme not found`/`Deck item
-// not found` for the identical lookup failure. Group 1 (2bcdedf) converted
+// though a sibling method in this file (`applyThemeToItem`,
+// `syncThemeToLinkedItems`) already throws `Theme not found`/`Item not
+// found` for the identical lookup failure. Group 1 (2bcdedf) converted
 // the missing-theme branch of `applyThemeToOverlay`; group 2 converts its
 // two remaining silent branches: an incompatible theme — a validity failure
-// mirroring `applyThemeToDeckItem`'s compatibility throw, not a missing
+// mirroring `applyThemeToItem`'s compatibility throw, not a missing
 // lookup — and an unresolvable overlay. These tests pin the fixed contract
 // for all three branches, and separately pin that the one genuine no-op
 // this issue leaves alone (already-untethered theme) still returns an empty
 // patch without throwing.
+//
+// #219 item-model refactor: the single `themes` table (discriminated by
+// `kind`) split into four independent per-owner tables. What used to be an
+// "incompatible theme kind" validity failure (both ids resolve, but the
+// kinds don't match) is now, structurally, just another missing-theme
+// lookup: a theme id from one family's table is never present in another
+// family's table, since the four are separate id spaces. The invariant
+// itself — a theme belonging to the wrong family can never be applied —
+// still holds; only the shape of the failure (not-found vs. not-compatible)
+// changed, so these tests are ported rather than deleted.
 
-function createDeckItem(repo: CastRepository, type: 'presentation' | 'lyric' | 'talk', title: string): Id {
-  const patch = repo.createDeckItemWithTheme({ type, title });
-  const key = type === 'presentation' ? 'presentations' : type === 'lyric' ? 'lyrics' : 'talks';
-  const item = patch.upserts[key]?.[0];
-  if (!item) throw new Error(`createDeckItemWithTheme returned no ${key} item`);
-  return item.id;
+function createItem(repo: CastRepository, type: ItemType, title: string): Id {
+  return repo.createItem({ type, title }).itemId;
 }
 
-function createTheme(repo: CastRepository, kind: 'slides' | 'lyrics' | 'overlays', name = 'Theme'): Id {
-  const patch = repo.createTheme({ name, kind });
-  const theme = patch.upserts.themes?.[0];
+function createTheme(repo: CastRepository, themeType: ThemeOwnerType, name = 'Theme'): Id {
+  const patch = repo.createTheme({ name, themeType });
+  const key = themeType === 'presentation' ? 'presentationThemes'
+    : themeType === 'lyric' ? 'lyricThemes'
+    : themeType === 'talk' ? 'talkThemes'
+    : 'overlayThemes';
+  const theme = patch.upserts[key]?.[0];
   if (!theme) throw new Error('createTheme returned no theme');
   return theme.id;
 }
@@ -43,7 +54,7 @@ describe('CastRepository.updateTheme (#214)', () => {
   it('throws for an unresolvable theme id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      expect(() => repo.updateTheme({ id: 'no-such-theme', name: 'New name' }))
+      expect(() => repo.updateTheme({ id: 'no-such-theme', themeType: 'presentation', name: 'New name' }))
         .toThrow(/Theme not found: no-such-theme/);
     } finally {
       close();
@@ -54,9 +65,9 @@ describe('CastRepository.updateTheme (#214)', () => {
   it('updates an existing theme without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const themeId = createTheme(repo, 'slides');
-      const patch = repo.updateTheme({ id: themeId, name: 'Renamed' });
-      expect(patch.upserts.themes?.[0]?.name).toBe('Renamed');
+      const themeId = createTheme(repo, 'presentation');
+      const patch = repo.updateTheme({ id: themeId, themeType: 'presentation', name: 'Renamed' });
+      expect(patch.upserts.presentationThemes?.[0]?.name).toBe('Renamed');
     } finally {
       close();
       cleanup();
@@ -64,12 +75,12 @@ describe('CastRepository.updateTheme (#214)', () => {
   });
 });
 
-describe('CastRepository.detachThemeFromDeckItem (#214)', () => {
-  it('throws for an unresolvable deck item id', () => {
+describe('CastRepository.detachThemeFromItem (#214)', () => {
+  it('throws for an unresolvable item id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      expect(() => repo.detachThemeFromDeckItem('no-such-item'))
-        .toThrow(/Deck item not found: no-such-item/);
+      expect(() => repo.detachThemeFromItem({ type: 'presentation', id: 'no-such-item' }))
+        .toThrow(/Item not found: no-such-item/);
     } finally {
       close();
       cleanup();
@@ -79,9 +90,9 @@ describe('CastRepository.detachThemeFromDeckItem (#214)', () => {
   it('is a genuine no-op, not an error, when the item exists but already has no theme', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const itemId = createDeckItem(repo, 'presentation', 'Untethered');
-      // Freshly created deck items start with no theme assigned.
-      const patch = repo.detachThemeFromDeckItem(itemId);
+      const itemId = createItem(repo, 'presentation', 'Untethered');
+      // Freshly created items start with no theme assigned.
+      const patch = repo.detachThemeFromItem({ type: 'presentation', id: itemId });
       expect(patch.upserts).toEqual({});
       expect(patch.deletes).toEqual({});
     } finally {
@@ -104,16 +115,13 @@ describe('CastRepository.applyThemeToOverlay (#214)', () => {
     }
   });
 
-  it('throws for a theme incompatible with overlays (validity failure, not a no-op)', () => {
+  it('throws for a theme id belonging to a different family than overlays (validity failure, not a no-op) — presentation_themes and overlay_themes are independent id spaces, so a presentation theme id is simply absent from overlay_themes', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      // 'slides' themes are not compatible with overlays; both ids resolve
-      // but the apply can never succeed, mirroring `applyThemeToDeckItem`'s
-      // compatibility throw.
-      const themeId = createTheme(repo, 'slides');
+      const themeId = createTheme(repo, 'presentation');
       const overlayId = createOverlay(repo);
       expect(() => repo.applyThemeToOverlay(themeId, overlayId))
-        .toThrow(/Theme kind 'slides' is not compatible with overlay/);
+        .toThrow(new RegExp(`Theme not found: ${themeId}`));
     } finally {
       close();
       cleanup();
@@ -123,7 +131,7 @@ describe('CastRepository.applyThemeToOverlay (#214)', () => {
   it('throws for an unresolvable overlay id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const themeId = createTheme(repo, 'overlays');
+      const themeId = createTheme(repo, 'overlay');
       expect(() => repo.applyThemeToOverlay(themeId, 'no-such-overlay'))
         .toThrow(/Overlay not found: no-such-overlay/);
     } finally {
@@ -135,7 +143,7 @@ describe('CastRepository.applyThemeToOverlay (#214)', () => {
   it('applies a compatible theme to an existing overlay without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const themeId = createTheme(repo, 'overlays');
+      const themeId = createTheme(repo, 'overlay');
       const overlayId = createOverlay(repo);
       const patch = repo.applyThemeToOverlay(themeId, overlayId);
       expect(patch.upserts.overlays?.[0]?.id).toBe(overlayId);

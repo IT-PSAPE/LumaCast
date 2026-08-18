@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Id } from '@lumacast/kernel';
-import type { PlaylistTree, SlideElementPayload } from '@lumacast/composition';
+import type { ItemType, SlideElement, SlideElementPayload } from '@lumacast/composition';
 import type { CastRepository } from './store';
 import { createTestRepository } from './test-support';
 
 // Covers #214's group 4: the mutation methods that never checked existence
-// at all. `deleteCue`, `deleteMacro`, `deleteStage`, `deleteLibrary`,
-// `renamePlaylistGroup`, `renameLibrary`, `renamePlaylist`,
+// at all. `deleteCue`, `deleteMacro`, `deleteStage`, `renamePlaylist`,
 // `renamePresentation`, `renameLyric`, and `renameTalk` ran their
 // UPDATE/DELETE and returned a patch claiming success even when zero rows
 // matched. `updateElementsBatch` silently dropped unresolvable ids from the
@@ -15,43 +14,31 @@ import { createTestRepository } from './test-support';
 // runs inside a transaction, `updateElementsBatch` is all-or-nothing — one
 // bad id rolls the whole batch back, leaving even the resolvable inputs
 // unmodified (pinned below).
+//
+// #219 item-model refactor fallout for this file specifically:
+//   - `deleteLibrary` and `renameLibrary` tested a destroyed concept
+//     (D4: the library concept is gone entirely) — deleted, not ported.
+//   - `renamePlaylistGroup` tested a destroyed concept (D5: groups become
+//     separator rows) — its invariant (throw-on-unresolvable /
+//     succeed-on-existing) is ported below as `renameSeparator`.
+//   - `renamePresentation`/`renameLyric`/`renameTalk` now throw
+//     "Item not found" (not "Deck item not found" — the vocabulary rename
+//     applies to this error message too) and are created via the unified
+//     `createItem` op rather than the destroyed `createDeckItemWithTheme`.
+//   - `createDeckItemWithElements`'s theme fixture now uses `createTheme`'s
+//     `themeType` field instead of the destroyed `kind`, and item creation
+//     goes through `createItem` rather than `createDeckItemWithFirstSlide`.
 
-function createLibrary(repo: CastRepository, name: string): Id {
-  const patch = repo.createLibrary(name);
-  const library = patch.upserts.libraries?.[0];
-  if (!library) throw new Error('createLibrary returned no library');
-  return library.id;
+function createItem(repo: CastRepository, type: ItemType, title: string): Id {
+  const { itemId } = repo.createItem({ type, title });
+  return itemId;
 }
 
-function createDeckItem(repo: CastRepository, type: 'presentation' | 'lyric' | 'talk', title: string): Id {
-  const patch = repo.createDeckItemWithTheme({ type, title });
-  const key = type === 'presentation' ? 'presentations' : type === 'lyric' ? 'lyrics' : 'talks';
-  const item = patch.upserts[key]?.[0];
-  if (!item) throw new Error(`createDeckItemWithTheme returned no ${key} item`);
-  return item.id;
-}
-
-function findPlaylistTree(repo: CastRepository, playlistName: string): PlaylistTree {
-  for (const bundle of repo.getSnapshot().libraryBundles) {
-    const tree = bundle.playlists.find((t) => t.playlist.name === playlistName);
-    if (tree) return tree;
-  }
-  throw new Error(`playlist not found: ${playlistName}`);
-}
-
-function createPlaylistWithGroup(
-  repo: CastRepository,
-  libraryId: Id,
-  playlistName: string,
-  groupName: string,
-): { playlistId: Id; groupId: Id } {
-  repo.createPlaylist(libraryId, playlistName);
-  const tree = findPlaylistTree(repo, playlistName);
-  repo.createPlaylistGroup(tree.playlist.id, groupName);
-  const updated = findPlaylistTree(repo, playlistName);
-  const group = updated.groups.find((g) => g.group.name === groupName);
-  if (!group) throw new Error(`group not found: ${groupName}`);
-  return { playlistId: tree.playlist.id, groupId: group.group.id };
+function createPlaylist(repo: CastRepository, name: string): Id {
+  const patch = repo.createPlaylist(name);
+  const playlist = patch.upserts.playlists?.[0];
+  if (!playlist) throw new Error('createPlaylist returned no playlist');
+  return playlist.id;
 }
 
 const textPayload: SlideElementPayload = {
@@ -63,12 +50,12 @@ const textPayload: SlideElementPayload = {
   weight: '400',
 };
 
-function makeElement(id: string, zIndex = 1) {
+function makeElement(id: string, zIndex = 1): SlideElement {
   const now = new Date().toISOString();
   return {
     id,
     slideId: '',
-    type: 'text' as const,
+    type: 'text',
     x: 0,
     y: 0,
     width: 100,
@@ -76,27 +63,27 @@ function makeElement(id: string, zIndex = 1) {
     rotation: 0,
     opacity: 1,
     zIndex,
-    layer: 'content' as const,
+    layer: 'content',
     payload: textPayload,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-// A themed deck item's slide elements are reachable through the public
+// A themed item's slide elements are reachable through the public
 // snapshot, giving the batch tests real element ids to mutate.
-function createDeckItemWithElements(repo: CastRepository, elementCount: number): { itemId: Id; elementIds: Id[] } {
+function createItemWithElements(repo: CastRepository, elementCount: number): { itemId: Id; elementIds: Id[] } {
   const themePatch = repo.createTheme({
     name: 'Theme',
-    kind: 'slides',
+    themeType: 'presentation',
     elements: Array.from({ length: elementCount }, (_, i) => makeElement(`el-${i}`, i + 1)),
   });
-  const theme = themePatch.upserts.themes?.[0];
+  const theme = themePatch.upserts.presentationThemes?.[0];
   if (!theme) throw new Error('createTheme returned no theme');
-  const { itemId } = repo.createDeckItemWithFirstSlide({ type: 'presentation', title: 'Deck', themeId: theme.id });
+  const { itemId } = repo.createItem({ type: 'presentation', title: 'Deck', themeId: theme.id });
   const snapshot = repo.getSnapshot();
   const slide = snapshot.slides.find((s) => s.presentationId === itemId);
-  if (!slide) throw new Error('created deck item has no slide');
+  if (!slide) throw new Error('created item has no slide');
   const elementIds = snapshot.slideElements.filter((element) => element.slideId === slide.id).map((element) => element.id);
   if (elementIds.length !== elementCount) throw new Error(`expected ${elementCount} slide elements, got ${elementIds.length}`);
   return { itemId, elementIds };
@@ -221,81 +208,29 @@ describe('CastRepository.deleteStage (#214)', () => {
   });
 });
 
-describe('CastRepository.deleteLibrary (#214)', () => {
-  it('throws for an unresolvable library id', () => {
+describe('CastRepository.renameSeparator (#214, ported from the destroyed renamePlaylistGroup)', () => {
+  it('throws for an unresolvable separator row id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      expect(() => repo.deleteLibrary('no-such-library'))
-        .toThrow(/Library not found: no-such-library/);
+      expect(() => repo.renameSeparator('no-such-row', 'Renamed'))
+        .toThrow(/Separator not found: no-such-row/);
     } finally {
       close();
       cleanup();
     }
   });
 
-  it('deletes an existing library and its playlists without throwing', () => {
+  it('renames an existing separator without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const libraryId = createLibrary(repo, 'Library');
-      repo.createPlaylist(libraryId, 'Service');
+      const playlistId = createPlaylist(repo, 'Service');
+      const separatorId = repo.createSeparator(playlistId, 'Opening').upserts.playlistEntries![0].id;
 
-      const deletePatch = repo.deleteLibrary(libraryId);
-      expect(deletePatch.deletes.libraries).toContain(libraryId);
-      expect(repo.getSnapshot().libraries.some((library) => library.id === libraryId)).toBe(false);
-    } finally {
-      close();
-      cleanup();
-    }
-  });
-});
+      repo.renameSeparator(separatorId, 'Renamed');
 
-describe('CastRepository.renamePlaylistGroup (#214)', () => {
-  it('throws for an unresolvable group id', () => {
-    const { repository: repo, close, cleanup } = createTestRepository();
-    try {
-      expect(() => repo.renamePlaylistGroup('no-such-group', 'Renamed'))
-        .toThrow(/Group not found: no-such-group/);
-    } finally {
-      close();
-      cleanup();
-    }
-  });
-
-  it('renames an existing group without throwing', () => {
-    const { repository: repo, close, cleanup } = createTestRepository();
-    try {
-      const libraryId = createLibrary(repo, 'Library');
-      const { groupId } = createPlaylistWithGroup(repo, libraryId, 'Service', 'Opening');
-
-      repo.renamePlaylistGroup(groupId, 'Renamed');
-
-      const tree = findPlaylistTree(repo, 'Service');
-      expect(tree.groups.find((g) => g.group.id === groupId)?.group.name).toBe('Renamed');
-    } finally {
-      close();
-      cleanup();
-    }
-  });
-});
-
-describe('CastRepository.renameLibrary (#214)', () => {
-  it('throws for an unresolvable library id', () => {
-    const { repository: repo, close, cleanup } = createTestRepository();
-    try {
-      expect(() => repo.renameLibrary('no-such-library', 'Renamed'))
-        .toThrow(/Library not found: no-such-library/);
-    } finally {
-      close();
-      cleanup();
-    }
-  });
-
-  it('renames an existing library without throwing', () => {
-    const { repository: repo, close, cleanup } = createTestRepository();
-    try {
-      const libraryId = createLibrary(repo, 'Library');
-      const patch = repo.renameLibrary(libraryId, 'Renamed');
-      expect(patch.upserts.libraries?.[0]?.name).toBe('Renamed');
+      const row = repo.getSnapshot().playlistEntries.find((r) => r.id === separatorId);
+      expect(row?.kind).toBe('separator');
+      if (row?.kind === 'separator') expect(row.label).toBe('Renamed');
     } finally {
       close();
       cleanup();
@@ -318,13 +253,11 @@ describe('CastRepository.renamePlaylist (#214)', () => {
   it('renames an existing playlist without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const libraryId = createLibrary(repo, 'Library');
-      repo.createPlaylist(libraryId, 'Service');
-      const tree = findPlaylistTree(repo, 'Service');
+      const playlistId = createPlaylist(repo, 'Service');
 
-      repo.renamePlaylist(tree.playlist.id, 'Renamed');
+      repo.renamePlaylist(playlistId, 'Renamed');
 
-      expect(findPlaylistTree(repo, 'Renamed').playlist.name).toBe('Renamed');
+      expect(repo.getSnapshot().playlists.find((p) => p.id === playlistId)?.name).toBe('Renamed');
     } finally {
       close();
       cleanup();
@@ -333,15 +266,15 @@ describe('CastRepository.renamePlaylist (#214)', () => {
 });
 
 describe('CastRepository.renamePresentation / renameLyric / renameTalk (#214)', () => {
-  it('throws for an unresolvable deck item id', () => {
+  it('throws for an unresolvable item id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       expect(() => repo.renamePresentation('no-such-item', 'Renamed'))
-        .toThrow(/Deck item not found: no-such-item/);
+        .toThrow(/Item not found: no-such-item/);
       expect(() => repo.renameLyric('no-such-item', 'Renamed'))
-        .toThrow(/Deck item not found: no-such-item/);
+        .toThrow(/Item not found: no-such-item/);
       expect(() => repo.renameTalk('no-such-item', 'Renamed'))
-        .toThrow(/Deck item not found: no-such-item/);
+        .toThrow(/Item not found: no-such-item/);
     } finally {
       close();
       cleanup();
@@ -351,7 +284,7 @@ describe('CastRepository.renamePresentation / renameLyric / renameTalk (#214)', 
   it('renames an existing presentation without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const presentationId = createDeckItem(repo, 'presentation', 'Deck');
+      const presentationId = createItem(repo, 'presentation', 'Deck');
       const patch = repo.renamePresentation(presentationId, 'Renamed');
       expect(patch.upserts.presentations?.[0]?.title).toBe('Renamed');
     } finally {
@@ -363,7 +296,7 @@ describe('CastRepository.renamePresentation / renameLyric / renameTalk (#214)', 
   it('renames an existing lyric without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const lyricId = createDeckItem(repo, 'lyric', 'Song');
+      const lyricId = createItem(repo, 'lyric', 'Song');
       const patch = repo.renameLyric(lyricId, 'Renamed');
       expect(patch.upserts.lyrics?.[0]?.title).toBe('Renamed');
     } finally {
@@ -375,7 +308,7 @@ describe('CastRepository.renamePresentation / renameLyric / renameTalk (#214)', 
   it('renames an existing talk without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const talkId = createDeckItem(repo, 'talk', 'Sermon');
+      const talkId = createItem(repo, 'talk', 'Sermon');
       const patch = repo.renameTalk(talkId, 'Renamed');
       expect(patch.upserts.talks?.[0]?.title).toBe('Renamed');
     } finally {
@@ -389,7 +322,7 @@ describe('CastRepository.updateElementsBatch (#214)', () => {
   it('throws for a batch containing an unresolvable element id and changes nothing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const { elementIds } = createDeckItemWithElements(repo, 2);
+      const { elementIds } = createItemWithElements(repo, 2);
       const [firstId, secondId] = elementIds;
 
       expect(() => repo.updateElementsBatch([
@@ -411,7 +344,7 @@ describe('CastRepository.updateElementsBatch (#214)', () => {
   it('updates every element of an all-resolvable batch without throwing', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const { elementIds } = createDeckItemWithElements(repo, 2);
+      const { elementIds } = createItemWithElements(repo, 2);
       const [firstId, secondId] = elementIds;
 
       const patch = repo.updateElementsBatch([

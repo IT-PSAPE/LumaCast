@@ -10,9 +10,14 @@ import { CastRepository } from './store';
 // Covers the bundle-import half of theme element provenance
 // (`source_theme_element_id`): #142's fixed decision that provenance is
 // preserved across bundle serialization even though imports materialize
-// brand-new theme element ids. Exact-copy provenance (duplicate deck item,
+// brand-new theme element ids. Exact-copy provenance (duplicate item,
 // duplicate slide) is already covered by other suites; this file is scoped
 // to `finalizeImportBundle`.
+//
+// #219 item-model refactor: exercised against a presentation theme (one of
+// the four per-owner theme tables) — provenance semantics within a family
+// are unchanged by the split (DESIGN.md D2), so covering one family here is
+// not a coverage loss.
 
 let repo: CastRepository;
 let tmpDir: string;
@@ -21,19 +26,15 @@ function closeRepo(): void {
   (repo as unknown as { db: { close(): void } }).db.close();
 }
 
-function createTheme(kind: 'slides' | 'lyrics', name = 'Theme'): Id {
-  const patch = repo.createTheme({ name, kind, width: 1920, height: 1080 });
-  const theme = patch.upserts.themes?.[0];
+function createTheme(name = 'Theme'): Id {
+  const patch = repo.createTheme({ name, themeType: 'presentation', width: 1920, height: 1080 });
+  const theme = patch.upserts.presentationThemes?.[0];
   if (!theme) throw new Error('createTheme returned no theme');
   return theme.id;
 }
 
-function createDeckItem(type: 'presentation' | 'lyric' | 'talk', title: string): Id {
-  const patch = repo.createDeckItemWithTheme({ type, title });
-  const key = type === 'presentation' ? 'presentations' : type === 'lyric' ? 'lyrics' : 'talks';
-  const item = patch.upserts[key]?.[0];
-  if (!item) throw new Error(`createDeckItemWithTheme returned no ${key} item`);
-  return item.id;
+function createItem(title: string): Id {
+  return repo.createItem({ type: 'presentation', title }).itemId;
 }
 
 function elementsForSlide(snapshot: AppSnapshot, slideId: Id): SlideElement[] {
@@ -62,13 +63,13 @@ describe('CastRepository.finalizeImportBundle element provenance', () => {
   });
 
   it('threads sourceThemeElementId through export/import via the newly materialized theme element ids', () => {
-    const themeId = createTheme('slides', 'Slide Theme');
-    const itemId = createDeckItem('presentation', 'Deck');
-    repo.applyThemeToDeckItem(themeId, itemId);
+    const themeId = createTheme('Slide Theme');
+    const itemId = createItem('Deck');
+    repo.applyThemeToItem(themeId, { type: 'presentation', id: itemId });
 
     const before = repo.getSnapshot();
     const slideId = firstSlideIdForPresentation(before, itemId);
-    const originalTheme = before.themes.find((theme) => theme.id === themeId);
+    const originalTheme = before.presentationThemes.find((theme) => theme.id === themeId);
     if (!originalTheme) throw new Error('expected the created theme in the snapshot');
     const originalThemeElementIds = new Set(originalTheme.elements.map((element) => element.id));
     const originalSlideElements = elementsForSlide(before, slideId);
@@ -76,12 +77,12 @@ describe('CastRepository.finalizeImportBundle element provenance', () => {
     expect(originalSlideElements.length).toBeGreaterThan(0);
     expect(originalSlideElements.every((element) => Boolean(element.sourceThemeElementId) && originalThemeElementIds.has(element.sourceThemeElementId as Id))).toBe(true);
 
-    const manifest = repo.exportDeckBundle([itemId]);
+    const manifest = repo.exportBundle([itemId]);
     const after = repo.finalizeImportBundle(manifest, []);
 
     const importedItem = after.presentations.find((presentation) => presentation.id !== itemId && presentation.title === 'Deck');
     expect(importedItem).toBeTruthy();
-    const importedTheme = after.themes.find((theme) => theme.id !== themeId && theme.name === 'Slide Theme');
+    const importedTheme = after.presentationThemes.find((theme) => theme.id !== themeId && theme.name === 'Slide Theme');
     expect(importedTheme).toBeTruthy();
     expect(importedItem?.themeId).toBe(importedTheme?.id);
 
@@ -107,11 +108,11 @@ describe('CastRepository.finalizeImportBundle element provenance', () => {
   });
 
   it('nulls a dangling sourceThemeElementId instead of writing an id absent from the imported theme', () => {
-    const themeId = createTheme('slides', 'Slide Theme');
-    const itemId = createDeckItem('presentation', 'Deck');
-    repo.applyThemeToDeckItem(themeId, itemId);
+    const themeId = createTheme('Slide Theme');
+    const itemId = createItem('Deck');
+    repo.applyThemeToItem(themeId, { type: 'presentation', id: itemId });
 
-    const manifest = repo.exportDeckBundle([itemId]);
+    const manifest = repo.exportBundle([itemId]);
     const targetSlide = manifest.items[0]?.slides[0];
     const targetElement = targetSlide?.elements.find((element) => element.sourceThemeElementId);
     if (!targetSlide || !targetElement) throw new Error('expected a themed element in the exported manifest');
@@ -136,18 +137,18 @@ describe('CastRepository.finalizeImportBundle element provenance', () => {
   });
 
   it('nulls sourceThemeElementId that resolves to a real theme element belonging to a different theme than the one assigned to the item', () => {
-    const themeAId = createTheme('slides', 'Theme A');
-    const themeBId = createTheme('slides', 'Theme B');
-    const itemAId = createDeckItem('presentation', 'Deck A');
-    const itemBId = createDeckItem('presentation', 'Deck B');
-    repo.applyThemeToDeckItem(themeAId, itemAId);
-    repo.applyThemeToDeckItem(themeBId, itemBId);
+    const themeAId = createTheme('Theme A');
+    const themeBId = createTheme('Theme B');
+    const itemAId = createItem('Deck A');
+    const itemBId = createItem('Deck B');
+    repo.applyThemeToItem(themeAId, { type: 'presentation', id: itemAId });
+    repo.applyThemeToItem(themeBId, { type: 'presentation', id: itemBId });
 
-    const themeB = repo.getSnapshot().themes.find((theme) => theme.id === themeBId);
+    const themeB = repo.getSnapshot().presentationThemes.find((theme) => theme.id === themeBId);
     const themeBElementId = themeB?.elements[0]?.id;
     if (!themeBElementId) throw new Error('expected theme B to have a materialized element');
 
-    const manifest = repo.exportDeckBundle([itemAId, itemBId]);
+    const manifest = repo.exportBundle([itemAId, itemBId]);
     expect(manifest.themes.map((theme) => theme.id).sort()).toEqual([themeAId, themeBId].sort());
 
     const itemAManifest = manifest.items.find((item) => item.id === itemAId);
@@ -168,25 +169,25 @@ describe('CastRepository.finalizeImportBundle element provenance', () => {
     expect(correspondingElement?.sourceThemeElementId ?? null).toBeNull();
   });
 
-  it('regression: an imported themed deck item survives a subsequent syncThemeToLinkedDeckItems without losing or duplicating elements', () => {
-    const themeId = createTheme('slides', 'Slide Theme');
-    const itemId = createDeckItem('presentation', 'Deck');
-    repo.applyThemeToDeckItem(themeId, itemId);
+  it('regression: an imported themed item survives a subsequent syncThemeToLinkedItems without losing or duplicating elements', () => {
+    const themeId = createTheme('Slide Theme');
+    const itemId = createItem('Deck');
+    repo.applyThemeToItem(themeId, { type: 'presentation', id: itemId });
 
-    const manifest = repo.exportDeckBundle([itemId]);
+    const manifest = repo.exportBundle([itemId]);
     const imported = repo.finalizeImportBundle(manifest, []);
 
-    const importedTheme = imported.themes.find((theme) => theme.id !== themeId && theme.name === 'Slide Theme');
+    const importedTheme = imported.presentationThemes.find((theme) => theme.id !== themeId && theme.name === 'Slide Theme');
     const importedItem = imported.presentations.find((presentation) => presentation.id !== itemId && presentation.title === 'Deck');
     if (!importedTheme || !importedItem) throw new Error('expected the imported theme and presentation');
     const importedSlideId = firstSlideIdForPresentation(imported, importedItem.id);
     const beforeSync = elementsForSlide(imported, importedSlideId);
 
-    // Sanity: the imported deck item's elements are already 1:1 with the
+    // Sanity: the imported item's elements are already 1:1 with the
     // imported theme's own elements (this is what a correct import produces).
     expect(beforeSync.length).toBe(importedTheme.elements.length);
 
-    repo.syncThemeToLinkedDeckItems(importedTheme.id);
+    repo.syncThemeToLinkedItems(importedTheme.id, 'presentation');
 
     const afterSync = repo.getSnapshot();
     const afterSyncElements = elementsForSlide(afterSync, importedSlideId);

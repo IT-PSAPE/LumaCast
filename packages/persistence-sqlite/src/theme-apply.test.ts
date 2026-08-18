@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Id } from '@lumacast/kernel';
-import type { SlideBackground, SlideElement } from '@lumacast/composition';
+import type { ItemType, SlideBackground, SlideElement, ThemeOwnerType } from '@lumacast/composition';
 import type { AppSnapshot } from '@lumacast/protocol';
 import { CastRepository } from './store';
 
@@ -14,26 +14,43 @@ function closeRepo(): void {
   (repo as unknown as { db: { close(): void } }).db.close();
 }
 
-function createTheme(kind: 'slides' | 'lyrics', name = 'Theme'): Id {
-  const patch = repo.createTheme({ name, kind, width: 1920, height: 1080 });
-  const theme = patch.upserts.themes?.[0];
+// #219 item-model refactor: one per-owner theme table per family — the wire
+// patch key that carries a given family's rows also varies by family.
+type ThemePatchKey = 'presentationThemes' | 'lyricThemes' | 'talkThemes' | 'overlayThemes';
+const THEME_PATCH_KEY: Record<ThemeOwnerType, ThemePatchKey> = {
+  presentation: 'presentationThemes',
+  lyric: 'lyricThemes',
+  talk: 'talkThemes',
+  overlay: 'overlayThemes',
+};
+
+function createTheme(themeType: ThemeOwnerType, name = 'Theme'): Id {
+  const patch = repo.createTheme({ name, themeType, width: 1920, height: 1080 });
+  const theme = patch.upserts[THEME_PATCH_KEY[themeType]]?.[0];
   if (!theme) throw new Error('createTheme returned no theme');
   return theme.id;
 }
 
-function createDeckItem(type: 'presentation' | 'lyric' | 'talk', title: string): Id {
-  const patch = repo.createDeckItemWithTheme({ type, title });
-  const key = type === 'presentation' ? 'presentations' : type === 'lyric' ? 'lyrics' : 'talks';
-  const item = patch.upserts[key]?.[0];
-  if (!item) throw new Error(`createDeckItemWithTheme returned no ${key} item`);
-  return item.id;
+function createItem(type: ItemType, title: string): Id {
+  return repo.createItem({ type, title }).itemId;
 }
 
 function elementsForSlide(snapshot: AppSnapshot, slideId: Id): SlideElement[] {
   return snapshot.slideElements.filter((element) => element.slideId === slideId);
 }
 
-describe('CastRepository.applyThemeToDeckItem', () => {
+function slideIdForItem(type: ItemType, itemId: Id): Id {
+  const snapshot = repo.getSnapshot();
+  const slide = snapshot.slides.find((entry) =>
+    type === 'presentation' ? entry.presentationId === itemId
+    : type === 'lyric' ? entry.lyricId === itemId
+    : entry.talkId === itemId
+  );
+  if (!slide) throw new Error(`expected a slide owned by ${type} ${itemId}`);
+  return slide.id;
+}
+
+describe('CastRepository.applyThemeToItem', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-test-'));
     repo = new CastRepository({
@@ -49,28 +66,27 @@ describe('CastRepository.applyThemeToDeckItem', () => {
   });
 
   it('throws a descriptive error for a missing theme id', () => {
-    const itemId = createDeckItem('presentation', 'Deck');
-    expect(() => repo.applyThemeToDeckItem('no-such-theme', itemId)).toThrow(/Theme not found: no-such-theme/);
+    const itemId = createItem('presentation', 'Deck');
+    expect(() => repo.applyThemeToItem('no-such-theme', { type: 'presentation', id: itemId })).toThrow(/Theme not found: no-such-theme/);
   });
 
   it('throws a descriptive error for a missing owner id', () => {
-    const themeId = createTheme('slides');
-    expect(() => repo.applyThemeToDeckItem(themeId, 'no-such-item')).toThrow(/Deck item not found: no-such-item/);
+    const themeId = createTheme('presentation');
+    expect(() => repo.applyThemeToItem(themeId, { type: 'presentation', id: 'no-such-item' })).toThrow(/Item not found: no-such-item/);
   });
 
-  it('throws a descriptive error for an incompatible theme kind', () => {
-    const themeId = createTheme('lyrics', 'Lyric Theme');
-    const itemId = createDeckItem('presentation', 'Deck');
-    expect(() => repo.applyThemeToDeckItem(themeId, itemId)).toThrow(/not compatible/);
+  it('throws for a theme id from a different family — the four theme tables are independent id spaces, so a lyric theme can never be found when applying to a presentation', () => {
+    const lyricThemeId = createTheme('lyric', 'Lyric Theme');
+    const itemId = createItem('presentation', 'Deck');
+    expect(() => repo.applyThemeToItem(lyricThemeId, { type: 'presentation', id: itemId })).toThrow(new RegExp(`Theme not found: ${lyricThemeId}`));
   });
 
-  it('applies a slides theme to a presentation and materializes its elements', () => {
-    const themeId = createTheme('slides', 'Slide Theme');
-    const itemId = createDeckItem('presentation', 'Deck');
-    const slideId = repo.getSnapshot().slides.find((slide) => slide.presentationId === itemId)?.id;
-    if (!slideId) throw new Error('expected a slide on the created presentation');
+  it('applies a presentation theme to a presentation and materializes its elements', () => {
+    const themeId = createTheme('presentation', 'Slide Theme');
+    const itemId = createItem('presentation', 'Deck');
+    const slideId = slideIdForItem('presentation', itemId);
 
-    const patch = repo.applyThemeToDeckItem(themeId, itemId);
+    const patch = repo.applyThemeToItem(themeId, { type: 'presentation', id: itemId });
 
     const presentation = patch.upserts.presentations?.[0];
     expect(presentation?.themeId).toBe(themeId);
@@ -83,30 +99,29 @@ describe('CastRepository.applyThemeToDeckItem', () => {
     expect(elements.every((element) => element.sourceThemeElementId)).toBe(true);
   });
 
-  it('applies a slides theme to a talk', () => {
-    const themeId = createTheme('slides', 'Slide Theme');
-    const itemId = createDeckItem('talk', 'Talk');
-    const patch = repo.applyThemeToDeckItem(themeId, itemId);
+  it('applies a talk theme to a talk', () => {
+    const themeId = createTheme('talk', 'Talk Theme');
+    const itemId = createItem('talk', 'Talk');
+    const patch = repo.applyThemeToItem(themeId, { type: 'talk', id: itemId });
     expect(patch.upserts.talks?.[0]?.themeId).toBe(themeId);
   });
 
   it('applies a lyric theme to a lyric', () => {
-    const themeId = createTheme('lyrics', 'Lyric Theme');
-    const itemId = createDeckItem('lyric', 'Song');
-    const patch = repo.applyThemeToDeckItem(themeId, itemId);
+    const themeId = createTheme('lyric', 'Lyric Theme');
+    const itemId = createItem('lyric', 'Song');
+    const patch = repo.applyThemeToItem(themeId, { type: 'lyric', id: itemId });
     expect(patch.upserts.lyrics?.[0]?.themeId).toBe(themeId);
   });
 
   it('detaching clears the relationship but keeps materialized slide content', () => {
-    const themeId = createTheme('slides', 'Slide Theme');
-    const itemId = createDeckItem('presentation', 'Deck');
-    repo.applyThemeToDeckItem(themeId, itemId);
-    const slideId = repo.getSnapshot().slides.find((slide) => slide.presentationId === itemId)?.id;
-    if (!slideId) throw new Error('expected a slide on the created presentation');
+    const themeId = createTheme('presentation', 'Slide Theme');
+    const itemId = createItem('presentation', 'Deck');
+    repo.applyThemeToItem(themeId, { type: 'presentation', id: itemId });
+    const slideId = slideIdForItem('presentation', itemId);
     const materializedCount = elementsForSlide(repo.getSnapshot(), slideId).length;
     expect(materializedCount).toBeGreaterThan(0);
 
-    const patch = repo.detachThemeFromDeckItem(itemId);
+    const patch = repo.detachThemeFromItem({ type: 'presentation', id: itemId });
 
     expect(patch.upserts.presentations?.[0]?.themeId).toBeNull();
     const snapshot = repo.getSnapshot();
@@ -118,14 +133,14 @@ describe('CastRepository.applyThemeToDeckItem', () => {
   });
 
   it('sync refreshes theme-owned backgrounds but preserves a local override', () => {
-    const themeId = createTheme('slides', 'Slide Theme');
+    const themeId = createTheme('presentation', 'Slide Theme');
     const themeBackground: SlideBackground = { type: 'color', color: '#AAAAAA' };
-    repo.updateTheme({ id: themeId, background: themeBackground });
+    repo.updateTheme({ id: themeId, themeType: 'presentation', background: themeBackground });
 
-    const themedItemId = createDeckItem('presentation', 'Themed Deck');
-    const localOverrideItemId = createDeckItem('presentation', 'Local Override Deck');
-    repo.applyThemeToDeckItem(themeId, themedItemId);
-    repo.applyThemeToDeckItem(themeId, localOverrideItemId);
+    const themedItemId = createItem('presentation', 'Themed Deck');
+    const localOverrideItemId = createItem('presentation', 'Local Override Deck');
+    repo.applyThemeToItem(themeId, { type: 'presentation', id: themedItemId });
+    repo.applyThemeToItem(themeId, { type: 'presentation', id: localOverrideItemId });
 
     const snapshot = repo.getSnapshot();
     const localOverrideSlide = snapshot.slides.find((slide) => slide.presentationId === localOverrideItemId);
@@ -137,8 +152,8 @@ describe('CastRepository.applyThemeToDeckItem', () => {
     });
 
     const replacedBackground: SlideBackground = { type: 'color', color: '#CCCCCC' };
-    repo.updateTheme({ id: themeId, background: replacedBackground });
-    repo.syncThemeToLinkedDeckItems(themeId);
+    repo.updateTheme({ id: themeId, themeType: 'presentation', background: replacedBackground });
+    repo.syncThemeToLinkedItems(themeId, 'presentation');
 
     const after = repo.getSnapshot();
     const localOverrideAfter = after.slides.find((slide) => slide.id === localOverrideSlide.id);

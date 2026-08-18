@@ -2,10 +2,8 @@ export type {
   ProjectRecoveryHooks,
   RestoreProjectBackupOptions,
   RepositoryOptions,
-  CollectionDeletionErrorCode,
-  DeckItemDuplicationErrorCode,
 } from './store';
-export { CastRepository, CollectionDeletionError, DeckItemDuplicationError } from './store';
+export { CastRepository } from './store';
 
 export type { Migration, RunMigrationsOptions } from './migrations';
 export {

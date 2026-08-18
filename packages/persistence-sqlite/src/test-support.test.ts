@@ -7,14 +7,14 @@ import { createTestRepository } from './test-support';
 describe('createTestRepository', () => {
   it('reads back the same data after close and reopen', () => {
     const { repository, paths, close, reopen, cleanup } = createTestRepository();
-    const created = repository.createLibrary('Round Trip Library');
-    const libraryId = created.upserts.libraries?.[0]?.id;
-    expect(libraryId).toBeTruthy();
+    const created = repository.createPlaylist('Round Trip Playlist');
+    const playlistId = created.upserts.playlists?.[0]?.id;
+    expect(playlistId).toBeTruthy();
     expect(paths.dbPath).toBe(path.join(paths.root, 'lumacast.sqlite'));
 
     close();
     const reopened = reopen();
-    expect(reopened.getSnapshot().libraries.some((library) => library.id === libraryId)).toBe(true);
+    expect(reopened.getSnapshot().playlists.some((playlist) => playlist.id === playlistId)).toBe(true);
 
     close();
     cleanup();
@@ -28,14 +28,34 @@ describe('createTestRepository', () => {
       expect(first.paths.root).not.toBe(second.paths.root);
       expect(first.paths.dbPath).not.toBe(second.paths.dbPath);
 
-      first.repository.createLibrary('Isolation Library');
-      expect(first.repository.getSnapshot().libraries.some((library) => library.name === 'Isolation Library')).toBe(true);
-      expect(second.repository.getSnapshot().libraries.some((library) => library.name === 'Isolation Library')).toBe(false);
+      first.repository.createPlaylist('Isolation Playlist');
+      expect(first.repository.getSnapshot().playlists.some((playlist) => playlist.name === 'Isolation Playlist')).toBe(true);
+      expect(second.repository.getSnapshot().playlists.some((playlist) => playlist.name === 'Isolation Playlist')).toBe(false);
     } finally {
       first.close();
       second.close();
       first.cleanup();
       second.cleanup();
+    }
+  });
+
+  it('round trips a created item (presentation) alongside its playlist entry', () => {
+    const { repository, close, cleanup } = createTestRepository();
+    try {
+      const playlistId = repository.createPlaylist('Sunday').upserts.playlists![0]!.id;
+      const { itemId, patch } = repository.createItem({ type: 'presentation', title: 'Announcements', playlistId });
+
+      expect(patch.upserts.presentations?.some((presentation) => presentation.id === itemId)).toBe(true);
+      const snapshot = repository.getSnapshot();
+      expect(snapshot.presentations.some((presentation) => presentation.id === itemId)).toBe(true);
+      expect(
+        snapshot.playlistEntries.some(
+          (row) => row.kind === 'item' && row.reference.itemId === itemId && row.playlistId === playlistId,
+        ),
+      ).toBe(true);
+    } finally {
+      close();
+      cleanup();
     }
   });
 
