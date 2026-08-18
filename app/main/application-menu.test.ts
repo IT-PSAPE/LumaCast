@@ -39,9 +39,8 @@ function makeState(overrides: Partial<AppMenuState> = {}): AppMenuState {
     workbenchMode: 'show',
     slideBrowserMode: 'grid',
     playlistBrowserMode: 'current',
-    hasCurrentLibrary: false,
     hasCurrentPlaylist: false,
-    hasCurrentDeckItem: false,
+    hasCurrentItem: false,
     hasCurrentSlide: false,
     hasMultipleSlides: false,
     hasEditableSelection: false,
@@ -343,7 +342,7 @@ describe('updateApplicationMenu', () => {
   });
 
   it('preserves dynamic enabled state in the built template', () => {
-    updateApplicationMenu(makeWindow(7), makeState({ hasCurrentDeckItem: true, canExportWorkspace: true }));
+    updateApplicationMenu(makeWindow(7), makeState({ hasCurrentItem: true, canExportWorkspace: true }));
 
     const template = lastTemplate();
     const fileMenu = template.find((item) => item.id === 'file')!;

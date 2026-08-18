@@ -9,9 +9,8 @@
 export type AppMenuCommandId =
   | 'file.newPresentation'
   | 'file.newLyric'
-  | 'file.newLibrary'
   | 'file.newPlaylist'
-  | 'file.newGroup'
+  | 'file.newSeparator'
   | 'file.newSlide'
   | 'file.exportCurrentItem'
   | 'file.exportWorkspace'
@@ -45,12 +44,11 @@ export type AppMenuCommandId =
   | 'playback.toggleStageOutput';
 
 export interface AppMenuState {
-  workbenchMode: 'show' | 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings';
+  workbenchMode: 'show' | 'item-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings';
   slideBrowserMode: 'grid' | 'list';
   playlistBrowserMode: 'current' | 'tabs' | 'continuous';
-  hasCurrentLibrary: boolean;
   hasCurrentPlaylist: boolean;
-  hasCurrentDeckItem: boolean;
+  hasCurrentItem: boolean;
   hasCurrentSlide: boolean;
   hasMultipleSlides: boolean;
   hasEditableSelection: boolean;

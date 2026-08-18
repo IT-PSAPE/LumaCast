@@ -34,9 +34,8 @@ const DEFAULT_APP_MENU_STATE: AppMenuState = {
   workbenchMode: 'show',
   slideBrowserMode: 'grid',
   playlistBrowserMode: 'current',
-  hasCurrentLibrary: false,
   hasCurrentPlaylist: false,
-  hasCurrentDeckItem: false,
+  hasCurrentItem: false,
   hasCurrentSlide: false,
   hasMultipleSlides: false,
   hasEditableSelection: false,
@@ -87,26 +86,22 @@ function buildFileMenu(state: AppMenuState): SerializableMenuItem[] {
       label: 'New Lyric',
     }),
     { type: 'separator' },
-    commandDescriptor('file.newLibrary', {
-      label: 'New Library',
-    }),
     commandDescriptor('file.newPlaylist', {
       label: 'New Playlist',
-      enabled: state.hasCurrentLibrary,
     }),
-    commandDescriptor('file.newGroup', {
-      label: 'New Group',
+    commandDescriptor('file.newSeparator', {
+      label: 'New Separator',
       enabled: state.hasCurrentPlaylist,
     }),
     commandDescriptor('file.newSlide', {
       label: 'New Slide',
       accelerator: 'CmdOrCtrl+Shift+N',
-      enabled: state.hasCurrentDeckItem,
+      enabled: state.hasCurrentItem,
     }),
     { type: 'separator' },
     commandDescriptor('file.exportCurrentItem', {
       label: 'Export Current Item…',
-      enabled: state.hasCurrentDeckItem,
+      enabled: state.hasCurrentItem,
     }),
     commandDescriptor('file.exportWorkspace', {
       label: 'Export Workspace…',
@@ -190,7 +185,7 @@ function buildViewMenu(state: AppMenuState): SerializableMenuItem[] {
     commandDescriptor('view.mode.deckEditor', {
       label: 'Slides',
       type: 'radio',
-      checked: state.workbenchMode === 'deck-editor',
+      checked: state.workbenchMode === 'item-editor',
     }),
     commandDescriptor('view.mode.overlayEditor', {
       label: 'Overlays',

@@ -5,22 +5,19 @@ import {
   IPC,
   NDI_EVENTS,
   NDI_FRAME_CHANNEL_NAMES,
-  type DeckItemCreateWithThemeInput,
   type InlineWindowMenuBounds,
   type InlineWindowMenuItem,
+  type ItemCreateInput,
+  type ItemDuplicateInput,
   type RpcOperations,
 } from '@lumacast/protocol';
 import type { AppMenuState } from '@lumacast/commands';
 import type { Id } from '@lumacast/kernel';
+import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
 import type {
-  CollectionAssignmentInput,
-  CollectionCreateInput,
-  CollectionDeleteInput,
-  CollectionRenameInput,
-  CollectionReorderInput,
   CueCreateInput,
   CueUpdateInput,
-  DeckBundleExportOptions,
+  BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
   MacroCreateInput,
@@ -41,7 +38,7 @@ import type {
   ThemeUpdateInput,
   TriggerBindingCreateInput,
 } from '@lumacast/protocol';
-import type { AppSnapshot, DeckBundleBrokenReferenceDecision } from '@lumacast/protocol';
+import type { AppSnapshot, BundleBrokenReferenceDecision } from '@lumacast/protocol';
 import type { NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputName } from '@lumacast/protocol';
 import type { ProjectBackup } from '@lumacast/protocol';
 import {
@@ -49,16 +46,12 @@ import {
   RPC_MOVE_DIRECTIONS,
   expectRpcPrimitiveArgs,
   decodeAppSnapshotShape,
-  decodeCollectionAssignmentInput,
-  decodeCollectionCreateInput,
-  decodeCollectionDeleteInput,
-  decodeCollectionReorderInput,
-  decodeCollectionRenameInput,
   decodeCueCreateInput,
   decodeCueUpdateInput,
-  decodeDeckBundleBrokenReferenceDecision,
-  decodeDeckBundleExportOptions,
-  decodeDeckItemCreateWithThemeInput,
+  decodeBundleBrokenReferenceDecision,
+  decodeBundleExportOptions,
+  decodeItemCreateInput,
+  decodeItemDuplicateInput,
   decodeElementCreateInput,
   decodeElementUpdateInput,
   decodeInlineWindowMenuBounds,
@@ -113,6 +106,38 @@ const NDI_OUTPUT_NAMES = new Set<NdiOutputName>(['audience', 'stage']);
 /** Context for the renderer-originated RPC codecs in app/contracts/codecs.ts (issue #150). */
 function rpcContext(operation: string, path = ''): CodecContext {
   return { boundary: 'rpc', operation, path };
+}
+
+const ITEM_TYPES = ['presentation', 'lyric', 'talk'] as const satisfies readonly ItemType[];
+const THEME_OWNER_TYPES = ['presentation', 'lyric', 'talk', 'overlay'] as const satisfies readonly ThemeOwnerType[];
+
+function childContext(context: CodecContext, field: string): CodecContext {
+  return { ...context, path: context.path ? `${context.path}.${field}` : field };
+}
+
+// #219 item-model refactor: `ItemRef` (decision D1's typed `{ type, id }`
+// reference) crosses the wire on `applyThemeToItem`, `detachThemeFromItem`,
+// and `addItemToPlaylist`, but is structural rather than a named RPC input
+// type in @lumacast/protocol's rpc-inputs.ts — so unlike every other
+// structured argument in this file, its codec lives here rather than being
+// imported from `@lumacast/protocol`.
+function decodeItemRef(value: unknown, context: CodecContext): ItemRef {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new CodecError(context, `must be an object, got ${value === null ? 'null' : typeof value}`);
+  }
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (key !== 'type' && key !== 'id') throw new CodecError(childContext(context, key), 'unknown field');
+  }
+  const { type } = record;
+  if (typeof type !== 'string' || !(ITEM_TYPES as readonly string[]).includes(type)) {
+    throw new CodecError(childContext(context, 'type'), `must be one of [${ITEM_TYPES.join(', ')}], got ${JSON.stringify(type)}`);
+  }
+  const { id } = record;
+  if (typeof id !== 'string') {
+    throw new CodecError(childContext(context, 'id'), `must be a string, got ${JSON.stringify(id)}`);
+  }
+  return { type: type as ItemType, id };
 }
 
 function safeHandle<Args extends unknown[], R>(
@@ -287,8 +312,8 @@ export const registerIpcHandlers = (
     getSnapshot: () => repo.getSnapshot(),
     restoreFromSnapshot: (_event, snapshot: AppSnapshot) =>
       repo.restoreFromSnapshot(decodeAppSnapshotShape(snapshot, rpcContext('restoreFromSnapshot'))),
-    chooseDeckBundleExportPath: async (event, suggestedName: string) => {
-      expectRpcPrimitiveArgs([suggestedName], [{ name: 'suggestedName', kind: 'string' }], rpcContext('chooseDeckBundleExportPath'));
+    chooseBundleExportPath: async (event, suggestedName: string) => {
+      expectRpcPrimitiveArgs([suggestedName], [{ name: 'suggestedName', kind: 'string' }], rpcContext('chooseBundleExportPath'));
       const result = await showSaveDialogForEvent(event, {
         title: 'Export Deck Bundle',
         defaultPath: `${sanitizeSuggestedBundleName(suggestedName)}.cst`,
@@ -298,7 +323,7 @@ export const registerIpcHandlers = (
       if (result.canceled || !result.filePath) return null;
       return ensureBundleExtension(result.filePath);
     },
-    chooseDeckBundleImportPath: async (event) => {
+    chooseBundleImportPath: async (event) => {
       const result = await showOpenDialogForEvent(event, {
         title: 'Import Deck Bundle',
         filters: [{ name: 'CST Bundle', extensions: ['cst'] }],
@@ -314,8 +339,8 @@ export const registerIpcHandlers = (
       });
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
-    exportDeckBundle: async (_event, itemIds: Id[], filePath: string, options?: DeckBundleExportOptions) => {
-      const ctx = rpcContext('exportDeckBundle');
+    exportBundle: async (_event, itemIds: Id[], filePath: string, options?: BundleExportOptions) => {
+      const ctx = rpcContext('exportBundle');
       expectRpcPrimitiveArgs(
         [itemIds, filePath],
         [
@@ -326,8 +351,8 @@ export const registerIpcHandlers = (
       );
       const validatedOptions = options === undefined
         ? undefined
-        : decodeDeckBundleExportOptions(options, rpcContext('exportDeckBundle', 'options'));
-      const bundle = repo.exportDeckBundle(itemIds, validatedOptions);
+        : decodeBundleExportOptions(options, rpcContext('exportBundle', 'options'));
+      const bundle = repo.exportBundle(itemIds, validatedOptions);
       const normalizedPath = ensureBundleExtension(filePath);
       await writeDeckBundleArchive(normalizedPath, bundle);
       return { filePath: normalizedPath, itemCount: bundle.items.length };
@@ -337,14 +362,14 @@ export const registerIpcHandlers = (
       const bundle = await readDeckBundleArchive(filePath);
       return repo.inspectImportBundle(bundle);
     },
-    finalizeImportBundle: async (_event, filePath: string, decisions: DeckBundleBrokenReferenceDecision[]) => {
+    finalizeImportBundle: async (_event, filePath: string, decisions: BundleBrokenReferenceDecision[]) => {
       const ctx = rpcContext('finalizeImportBundle');
       expectRpcPrimitiveArgs([filePath], [{ name: 'filePath', kind: 'string' }], ctx);
       if (!Array.isArray(decisions)) {
         throw new CodecError(ctx, `decisions must be an array, got ${typeof decisions}`);
       }
       const validatedDecisions = decisions.map((decision, index) =>
-        decodeDeckBundleBrokenReferenceDecision(decision, rpcContext('finalizeImportBundle', `decisions[${index}]`))
+        decodeBundleBrokenReferenceDecision(decision, rpcContext('finalizeImportBundle', `decisions[${index}]`))
       );
       const bundle = await readDeckBundleArchive(filePath);
       return repo.finalizeImportBundle(bundle, validatedDecisions);
@@ -374,41 +399,33 @@ export const registerIpcHandlers = (
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteTriggerBinding'));
       return repo.deleteTriggerBinding(id);
     },
-    createLibrary: (_event, name: string) => {
-      expectRpcPrimitiveArgs([name], [{ name: 'name', kind: 'string' }], rpcContext('createLibrary'));
-      return repo.createLibrary(name);
+    createPlaylist: (_event, name: string) => {
+      expectRpcPrimitiveArgs([name], [{ name: 'name', kind: 'string' }], rpcContext('createPlaylist'));
+      return repo.createPlaylist(name);
     },
-    createPlaylist: (_event, libraryId: Id, name: string) => {
+    createSeparator: (_event, playlistId: Id, label: string) => {
       expectRpcPrimitiveArgs(
-        [libraryId, name],
-        [{ name: 'libraryId', kind: 'string' }, { name: 'name', kind: 'string' }],
-        rpcContext('createPlaylist'),
+        [playlistId, label],
+        [{ name: 'playlistId', kind: 'string' }, { name: 'label', kind: 'string' }],
+        rpcContext('createSeparator'),
       );
-      return repo.createPlaylist(libraryId, name);
+      return repo.createSeparator(playlistId, label);
     },
-    createPlaylistGroup: (_event, playlistId: Id, name: string) => {
+    renameSeparator: (_event, id: Id, label: string) => {
       expectRpcPrimitiveArgs(
-        [playlistId, name],
-        [{ name: 'playlistId', kind: 'string' }, { name: 'name', kind: 'string' }],
-        rpcContext('createPlaylistGroup'),
+        [id, label],
+        [{ name: 'id', kind: 'string' }, { name: 'label', kind: 'string' }],
+        rpcContext('renameSeparator'),
       );
-      return repo.createPlaylistGroup(playlistId, name);
+      return repo.renameSeparator(id, label);
     },
-    renamePlaylistGroup: (_event, id: Id, name: string) => {
-      expectRpcPrimitiveArgs(
-        [id, name],
-        [{ name: 'id', kind: 'string' }, { name: 'name', kind: 'string' }],
-        rpcContext('renamePlaylistGroup'),
-      );
-      return repo.renamePlaylistGroup(id, name);
-    },
-    setPlaylistGroupColor: (_event, id: Id, colorKey: string | null) => {
+    setSeparatorColor: (_event, id: Id, colorKey: string | null) => {
       expectRpcPrimitiveArgs(
         [id, colorKey],
         [{ name: 'id', kind: 'string' }, { name: 'colorKey', kind: 'nullableString' }],
-        rpcContext('setPlaylistGroupColor'),
+        rpcContext('setSeparatorColor'),
       );
-      return repo.setPlaylistGroupColor(id, colorKey);
+      return repo.setSeparatorColor(id, colorKey);
     },
     movePlaylist: (_event, id: Id, direction: 'up' | 'down') => {
       expectRpcPrimitiveArgs(
@@ -418,45 +435,26 @@ export const registerIpcHandlers = (
       );
       return repo.movePlaylist(id, direction);
     },
-    addDeckItemToGroup: (_event, playlistId: Id, groupId: Id, itemId: Id) => {
+    movePlaylistRow: (_event, rowId: Id, newOrder: number) => {
       expectRpcPrimitiveArgs(
-        [playlistId, groupId, itemId],
-        [{ name: 'playlistId', kind: 'string' }, { name: 'groupId', kind: 'string' }, { name: 'itemId', kind: 'string' }],
-        rpcContext('addDeckItemToGroup'),
+        [rowId, newOrder],
+        [{ name: 'rowId', kind: 'string' }, { name: 'newOrder', kind: 'number' }],
+        rpcContext('movePlaylistRow'),
       );
-      return repo.addDeckItemToGroup(playlistId, groupId, itemId);
+      return repo.movePlaylistRow(rowId, newOrder);
     },
-    moveDeckItemToGroup: (_event, playlistId: Id, itemId: Id, groupId: Id | null) => {
-      expectRpcPrimitiveArgs(
-        [playlistId, itemId, groupId],
-        [{ name: 'playlistId', kind: 'string' }, { name: 'itemId', kind: 'string' }, { name: 'groupId', kind: 'nullableString' }],
-        rpcContext('moveDeckItemToGroup'),
-      );
-      return repo.moveDeckItemToGroup(playlistId, itemId, groupId);
+    removePlaylistRow: (_event, rowId: Id) => {
+      expectRpcPrimitiveArgs([rowId], [{ name: 'rowId', kind: 'string' }], rpcContext('removePlaylistRow'));
+      return repo.removePlaylistRow(rowId);
     },
-    movePlaylistEntryToGroup: (_event, entryId: Id, groupId: Id | null) => {
-      expectRpcPrimitiveArgs(
-        [entryId, groupId],
-        [{ name: 'entryId', kind: 'string' }, { name: 'groupId', kind: 'nullableString' }],
-        rpcContext('movePlaylistEntryToGroup'),
-      );
-      return repo.movePlaylistEntryToGroup(entryId, groupId);
-    },
-    movePlaylistEntry: (_event, entryId: Id, direction: 'up' | 'down') => {
-      expectRpcPrimitiveArgs(
-        [entryId, direction],
-        [{ name: 'entryId', kind: 'string' }, { name: 'direction', kind: 'enum', values: RPC_MOVE_DIRECTIONS }],
-        rpcContext('movePlaylistEntry'),
-      );
-      return repo.movePlaylistEntry(entryId, direction);
-    },
-    moveDeckItem: (_event, id: Id, direction: 'up' | 'down') => {
-      expectRpcPrimitiveArgs(
-        [id, direction],
-        [{ name: 'id', kind: 'string' }, { name: 'direction', kind: 'enum', values: RPC_MOVE_DIRECTIONS }],
-        rpcContext('moveDeckItem'),
-      );
-      return repo.moveDeckItem(id, direction);
+    addItemToPlaylist: (_event, playlistId: Id, itemRef: ItemRef, position?: number) => {
+      const ctx = rpcContext('addItemToPlaylist');
+      expectRpcPrimitiveArgs([playlistId], [{ name: 'playlistId', kind: 'string' }], ctx);
+      const validatedItemRef = decodeItemRef(itemRef, rpcContext('addItemToPlaylist', 'itemRef'));
+      if (position !== undefined) {
+        expectRpcPrimitiveArgs([position], [{ name: 'position', kind: 'number' }], ctx);
+      }
+      return repo.addItemToPlaylist(playlistId, validatedItemRef, position);
     },
     createPresentation: (_event, title: string) => {
       expectRpcPrimitiveArgs([title], [{ name: 'title', kind: 'string' }], rpcContext('createPresentation'));
@@ -496,14 +494,6 @@ export const registerIpcHandlers = (
       repo.setTalkScriptBlockOrder(decodeTalkScriptBlockOrderUpdateInput(input, rpcContext('setTalkScriptBlockOrder'))),
     setSlideOrder: (_event, input: SlideOrderUpdateInput) =>
       repo.setSlideOrder(decodeSlideOrderUpdateInput(input, rpcContext('setSlideOrder'))),
-    setLibraryOrder: (_event, libraryId: Id, newOrder: number) => {
-      expectRpcPrimitiveArgs(
-        [libraryId, newOrder],
-        [{ name: 'libraryId', kind: 'string' }, { name: 'newOrder', kind: 'number' }],
-        rpcContext('setLibraryOrder'),
-      );
-      return repo.setLibraryOrder(libraryId, newOrder);
-    },
     setPlaylistOrder: (_event, playlistId: Id, newOrder: number) => {
       expectRpcPrimitiveArgs(
         [playlistId, newOrder],
@@ -511,22 +501,6 @@ export const registerIpcHandlers = (
         rpcContext('setPlaylistOrder'),
       );
       return repo.setPlaylistOrder(playlistId, newOrder);
-    },
-    setPlaylistGroupOrder: (_event, groupId: Id, newOrder: number) => {
-      expectRpcPrimitiveArgs(
-        [groupId, newOrder],
-        [{ name: 'groupId', kind: 'string' }, { name: 'newOrder', kind: 'number' }],
-        rpcContext('setPlaylistGroupOrder'),
-      );
-      return repo.setPlaylistGroupOrder(groupId, newOrder);
-    },
-    movePlaylistEntryTo: (_event, entryId: Id, groupId: Id, newOrder: number) => {
-      expectRpcPrimitiveArgs(
-        [entryId, groupId, newOrder],
-        [{ name: 'entryId', kind: 'string' }, { name: 'groupId', kind: 'string' }, { name: 'newOrder', kind: 'number' }],
-        rpcContext('movePlaylistEntryTo'),
-      );
-      return repo.movePlaylistEntryTo(entryId, groupId, newOrder);
     },
     createElement: (_event, input: ElementCreateInput) =>
       repo.createElement(decodeElementCreateInput(input, rpcContext('createElement'))),
@@ -610,25 +584,35 @@ export const registerIpcHandlers = (
       repo.createTheme(decodeThemeCreateInput(input, rpcContext('createTheme'))),
     updateTheme: (_event, input: ThemeUpdateInput) =>
       repo.updateTheme(decodeThemeUpdateInput(input, rpcContext('updateTheme'))),
-    deleteTheme: (_event, themeId: Id) => {
-      expectRpcPrimitiveArgs([themeId], [{ name: 'themeId', kind: 'string' }], rpcContext('deleteTheme'));
-      return repo.deleteTheme(themeId);
-    },
-    applyThemeToDeckItem: (_event, themeId: Id, itemId: Id) => {
+    // `themeType` selects which of the four independent theme tables `themeId`
+    // lives in (decision D2) — required even though it duplicates information
+    // the id alone can't carry.
+    deleteTheme: (_event, themeId: Id, themeType: ThemeOwnerType) => {
       expectRpcPrimitiveArgs(
-        [themeId, itemId],
-        [{ name: 'themeId', kind: 'string' }, { name: 'itemId', kind: 'string' }],
-        rpcContext('applyThemeToDeckItem'),
+        [themeId, themeType],
+        [{ name: 'themeId', kind: 'string' }, { name: 'themeType', kind: 'enum', values: THEME_OWNER_TYPES }],
+        rpcContext('deleteTheme'),
       );
-      return repo.applyThemeToDeckItem(themeId, itemId);
+      return repo.deleteTheme(themeId, themeType);
     },
-    detachThemeFromDeckItem: (_event, itemId: Id) => {
-      expectRpcPrimitiveArgs([itemId], [{ name: 'itemId', kind: 'string' }], rpcContext('detachThemeFromDeckItem'));
-      return repo.detachThemeFromDeckItem(itemId);
+    applyThemeToItem: (_event, themeId: Id, itemRef: ItemRef) => {
+      expectRpcPrimitiveArgs([themeId], [{ name: 'themeId', kind: 'string' }], rpcContext('applyThemeToItem'));
+      const validatedItemRef = decodeItemRef(itemRef, rpcContext('applyThemeToItem', 'itemRef'));
+      return repo.applyThemeToItem(themeId, validatedItemRef);
     },
-    syncThemeToLinkedDeckItems: (_event, themeId: Id) => {
-      expectRpcPrimitiveArgs([themeId], [{ name: 'themeId', kind: 'string' }], rpcContext('syncThemeToLinkedDeckItems'));
-      return repo.syncThemeToLinkedDeckItems(themeId);
+    detachThemeFromItem: (_event, itemRef: ItemRef) => {
+      const validatedItemRef = decodeItemRef(itemRef, rpcContext('detachThemeFromItem', 'itemRef'));
+      return repo.detachThemeFromItem(validatedItemRef);
+    },
+    // `itemType` scopes the sync to one item table; overlay themes have no
+    // linked-item concept to sync.
+    syncThemeToLinkedItems: (_event, themeId: Id, itemType: ItemType) => {
+      expectRpcPrimitiveArgs(
+        [themeId, itemType],
+        [{ name: 'themeId', kind: 'string' }, { name: 'itemType', kind: 'enum', values: ITEM_TYPES }],
+        rpcContext('syncThemeToLinkedItems'),
+      );
+      return repo.syncThemeToLinkedItems(themeId, itemType);
     },
     applyThemeToOverlay: (_event, themeId: Id, overlayId: Id) => {
       expectRpcPrimitiveArgs(
@@ -638,12 +622,10 @@ export const registerIpcHandlers = (
       );
       return repo.applyThemeToOverlay(themeId, overlayId);
     },
-    createDeckItemWithTheme: (_event, input: DeckItemCreateWithThemeInput) =>
-      repo.createDeckItemWithFirstSlide(decodeDeckItemCreateWithThemeInput(input, rpcContext('createDeckItemWithTheme'))),
-    duplicateDeckItem: (_event, itemId: Id) => {
-      expectRpcPrimitiveArgs([itemId], [{ name: 'itemId', kind: 'string' }], rpcContext('duplicateDeckItem'));
-      return repo.duplicateDeckItem(itemId);
-    },
+    createItem: (_event, input: ItemCreateInput) =>
+      repo.createItem(decodeItemCreateInput(input, rpcContext('createItem'))),
+    duplicateItem: (_event, input: ItemDuplicateInput) =>
+      repo.duplicateItem(decodeItemDuplicateInput(input, rpcContext('duplicateItem'))),
     createStage: (_event, input: StageCreateInput) =>
       repo.createStage(decodeStageCreateInput(input, rpcContext('createStage'))),
     updateStage: (_event, input: StageUpdateInput) =>
@@ -655,14 +637,6 @@ export const registerIpcHandlers = (
     duplicateStage: (_event, stageId: Id) => {
       expectRpcPrimitiveArgs([stageId], [{ name: 'stageId', kind: 'string' }], rpcContext('duplicateStage'));
       return repo.duplicateStage(stageId);
-    },
-    renameLibrary: (_event, id: Id, name: string) => {
-      expectRpcPrimitiveArgs(
-        [id, name],
-        [{ name: 'id', kind: 'string' }, { name: 'name', kind: 'string' }],
-        rpcContext('renameLibrary'),
-      );
-      return repo.renameLibrary(id, name);
     },
     renamePlaylist: (_event, id: Id, name: string) => {
       expectRpcPrimitiveArgs(
@@ -696,17 +670,36 @@ export const registerIpcHandlers = (
       );
       return repo.renameTalk(id, title);
     },
-    deleteLibrary: (_event, id: Id) => {
-      expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteLibrary'));
-      return repo.deleteLibrary(id);
+    // Per-type reorder (decision D1): each item table keeps its own
+    // `order_index` sequence, so the old cross-type `moveDeckItem` splits
+    // one-for-one per table.
+    movePresentation: (_event, id: Id, direction: 'up' | 'down') => {
+      expectRpcPrimitiveArgs(
+        [id, direction],
+        [{ name: 'id', kind: 'string' }, { name: 'direction', kind: 'enum', values: RPC_MOVE_DIRECTIONS }],
+        rpcContext('movePresentation'),
+      );
+      return repo.movePresentation(id, direction);
+    },
+    moveLyric: (_event, id: Id, direction: 'up' | 'down') => {
+      expectRpcPrimitiveArgs(
+        [id, direction],
+        [{ name: 'id', kind: 'string' }, { name: 'direction', kind: 'enum', values: RPC_MOVE_DIRECTIONS }],
+        rpcContext('moveLyric'),
+      );
+      return repo.moveLyric(id, direction);
+    },
+    moveTalk: (_event, id: Id, direction: 'up' | 'down') => {
+      expectRpcPrimitiveArgs(
+        [id, direction],
+        [{ name: 'id', kind: 'string' }, { name: 'direction', kind: 'enum', values: RPC_MOVE_DIRECTIONS }],
+        rpcContext('moveTalk'),
+      );
+      return repo.moveTalk(id, direction);
     },
     deletePlaylist: (_event, id: Id) => {
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deletePlaylist'));
       return repo.deletePlaylist(id);
-    },
-    deletePlaylistGroup: (_event, id: Id) => {
-      expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deletePlaylistGroup'));
-      return repo.deletePlaylistGroup(id);
     },
     deletePresentation: (_event, id: Id) => {
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deletePresentation'));
@@ -720,16 +713,6 @@ export const registerIpcHandlers = (
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteTalk'));
       return repo.deleteTalk(id);
     },
-    createCollection: (_event, input: CollectionCreateInput) =>
-      repo.createCollection(decodeCollectionCreateInput(input, rpcContext('createCollection'))),
-    renameCollection: (_event, input: CollectionRenameInput) =>
-      repo.renameCollection(decodeCollectionRenameInput(input, rpcContext('renameCollection'))),
-    deleteCollection: (_event, input: CollectionDeleteInput) =>
-      repo.deleteCollection(decodeCollectionDeleteInput(input, rpcContext('deleteCollection'))),
-    reorderCollections: (_event, input: CollectionReorderInput) =>
-      repo.reorderCollections(decodeCollectionReorderInput(input, rpcContext('reorderCollections'))),
-    setItemCollection: (_event, input: CollectionAssignmentInput) =>
-      repo.setItemCollection(decodeCollectionAssignmentInput(input, rpcContext('setItemCollection'))),
     // Reuses the existing full project-backup validator (app/core/deck-bundles,
     // issue #145/#146) instead of re-implementing per-table validation here —
     // that would mirror internal domain shapes wholesale, which issue #150's

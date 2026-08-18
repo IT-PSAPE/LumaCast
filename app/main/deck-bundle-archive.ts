@@ -1,9 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { crc32 } from 'node:zlib';
-import { validateDeckBundleManifest, validateProjectBackup } from '@lumacast/protocol';
+import { validateBundleManifest, validateProjectBackup } from '@lumacast/protocol';
 import type { CodecContext } from '@lumacast/protocol';
 import type { ProjectBackup } from '@lumacast/protocol';
-import type { DeckBundleManifest } from '@lumacast/protocol';
+import type { BundleManifest } from '@lumacast/protocol';
 
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
@@ -144,13 +144,13 @@ async function readSingleEntryZip(filePath: string): Promise<{ entryName: string
   return { entryName: centralEntryName, data };
 }
 
-export async function writeDeckBundleArchive(filePath: string, manifest: DeckBundleManifest): Promise<void> {
-  validateDeckBundleManifest(manifest, archiveContext('writeDeckBundleArchive'));
+export async function writeDeckBundleArchive(filePath: string, manifest: BundleManifest): Promise<void> {
+  validateBundleManifest(manifest, archiveContext('writeDeckBundleArchive'));
   const data = Buffer.from(JSON.stringify(manifest, null, 2), 'utf8');
   await writeSingleEntryZip(filePath, MANIFEST_ENTRY_NAME, data);
 }
 
-export async function readDeckBundleArchive(filePath: string): Promise<DeckBundleManifest> {
+export async function readDeckBundleArchive(filePath: string): Promise<BundleManifest> {
   const { entryName, data } = await readSingleEntryZip(filePath);
   if (entryName !== MANIFEST_ENTRY_NAME) {
     throw new Error('Invalid bundle entry.');
@@ -162,7 +162,7 @@ export async function readDeckBundleArchive(filePath: string): Promise<DeckBundl
   } catch (error) {
     throw new Error(`Invalid bundle manifest: ${(error as Error).message}`);
   }
-  return validateDeckBundleManifest(parsed, archiveContext('readDeckBundleArchive'));
+  return validateBundleManifest(parsed, archiveContext('readDeckBundleArchive'));
 }
 
 function archiveContext(operation: string): CodecContext {
