@@ -78,40 +78,43 @@ describe('generateFixture — entity/relationship coverage (#200 acceptance: req
 
   it('small is a minimal but complete ordinary project', () => {
     const counts = manifests.small.entityCounts;
-    expect(counts.libraries).toBeGreaterThanOrEqual(1);
     expect(counts.playlists).toBeGreaterThanOrEqual(1);
-    expect(counts.playlistGroups).toBeGreaterThanOrEqual(1);
+    expect(counts.separators).toBeGreaterThanOrEqual(1);
     expect(counts.presentations).toBe(1);
     expect(counts.lyrics).toBe(1);
     expect(counts.talks).toBe(1);
     expect(counts.slides).toBe(3);
     expect(counts.talkScriptBlocks).toBe(1);
-    expect(counts.deckSlideElements).toBeGreaterThan(0);
-    expect(counts.themes).toBe(1);
+    expect(counts.itemSlideElements).toBeGreaterThan(0);
+    expect(counts.presentationThemes).toBe(1);
+    expect(counts.lyricThemes).toBe(0);
+    expect(counts.talkThemes).toBe(0);
+    expect(counts.overlayThemes).toBe(0);
   });
 
-  it('large has many decks, slides, elements, groups, playlists and collections', () => {
+  it('large has many items, slides, elements, playlists and separators', () => {
     const small = manifests.small.entityCounts;
     const large = manifests.large.entityCounts;
-    expect(large.libraries).toBeGreaterThan(small.libraries);
     expect(large.playlists).toBeGreaterThan(small.playlists);
-    expect(large.playlistGroups).toBeGreaterThan(small.playlistGroups);
+    expect(large.separators).toBeGreaterThan(small.separators);
     expect(large.presentations + large.lyrics + large.talks).toBeGreaterThan(20);
     expect(large.slides).toBeGreaterThan(50);
-    expect(large.deckSlideElements).toBeGreaterThan(100);
-    expect(large.collections).toBeGreaterThan(small.collections);
+    expect(large.itemSlideElements).toBeGreaterThan(100);
   });
 
   it('media-heavy is dominated by media assets referenced from slide content', () => {
     const counts = manifests['media-heavy'].entityCounts;
     expect(counts.mediaAssets).toBeGreaterThanOrEqual(60);
-    expect(counts.deckSlideElements).toBeGreaterThan(0);
+    expect(counts.itemSlideElements).toBeGreaterThan(0);
     expect(counts.mediaAssets).toBeGreaterThan(counts.presentations + counts.lyrics + counts.talks);
   });
 
-  it('theme-heavy has many decks sharing themes with real provenance links, including through overlays', () => {
+  it('theme-heavy has many items sharing themes with real provenance links, across all four theme families', () => {
     const { manifest, snapshot } = generateFixture('theme-heavy');
-    expect(manifest.entityCounts.themes).toBeGreaterThanOrEqual(3);
+    expect(manifest.entityCounts.presentationThemes).toBeGreaterThanOrEqual(1);
+    expect(manifest.entityCounts.lyricThemes).toBeGreaterThanOrEqual(1);
+    expect(manifest.entityCounts.talkThemes).toBeGreaterThanOrEqual(1);
+    expect(manifest.entityCounts.overlayThemes).toBeGreaterThanOrEqual(1);
     expect(manifest.entityCounts.overlays).toBeGreaterThanOrEqual(3);
     expect(manifest.entityCounts.presentations).toBeGreaterThan(0);
     expect(manifest.entityCounts.talks).toBeGreaterThan(0);
@@ -121,14 +124,14 @@ describe('generateFixture — entity/relationship coverage (#200 acceptance: req
     expect(provenanceLinked.length).toBeGreaterThan(0);
 
     // As of #211, `getSlideElements()` (and so `AppSnapshot.slideElements`)
-    // is scoped to deck-owned slides exactly like `AppSnapshot.slides` —
-    // theme/overlay/stage container elements (there are 6 of them here: 3
-    // themes + 3 overlays, each with one default element) are excluded
-    // entirely, not merely double-counted. `slideElements` and
-    // `deckSlideElements` should therefore be equal; a mismatch would mean
+    // is scoped to item-owned slides exactly like `AppSnapshot.slides` —
+    // theme/overlay/stage container elements (there are 7 of them here: 4
+    // per-family themes + 3 overlays, each with one default element) are
+    // excluded entirely, not merely double-counted. `slideElements` and
+    // `itemSlideElements` should therefore be equal; a mismatch would mean
     // that scoping has regressed and container elements are leaking back
-    // into the deck-content count.
-    expect(manifest.entityCounts.slideElements).toBe(manifest.entityCounts.deckSlideElements);
+    // into the item-content count.
+    expect(manifest.entityCounts.slideElements).toBe(manifest.entityCounts.itemSlideElements);
   });
 
   it('talk-automation-heavy is dominated by talks, script blocks, cues, macros and trigger bindings', () => {

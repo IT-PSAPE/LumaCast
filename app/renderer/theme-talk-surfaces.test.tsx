@@ -1,19 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
 import type { Id } from '@lumacast/kernel';
-import type { DeckItem, Lyric, Overlay, Presentation, Talk, Theme, ThemeKind } from '@lumacast/composition';
-import { DeckItemInspector } from './features/inspector/presentation-inspector';
+import type { EditorThemeSource } from '@lumacast/canvas';
+import type { ItemRef, Lyric, Overlay, Presentation, Talk } from '@lumacast/composition';
+import { ItemInspector } from './features/inspector/item-inspector';
 import { useThemeBin } from './features/assets/themes/use-theme-bin';
-import { resolveThemeApplyTargets } from './features/assets/themes/theme-bin-panel';
+import { ThemeBinPanel } from './features/assets/themes/theme-bin-panel';
 import { WorkbenchProvider } from './contexts/workbench-context';
 
-// Covers #113: Talk uses the same compatible slide-theme model as
-// Presentation, so every apply/reset/detach surface in the write boundary
-// must treat it identically instead of maintaining its own UI-specific type
-// list. These tests exercise the real production hooks/components — not a
-// reimplementation of their logic — so a regression in the capability wiring
-// (app/core/themes.ts, theme-bin-panel.tsx, presentation-inspector.tsx,
-// use-theme-bin.ts) fails here.
+// Covers #219 item-model refactor decision D2: talk themes are their own
+// family (`talkThemes`), not a member of a shared `Theme.kind` union — every
+// apply/reset/detach surface picks its targets structurally from whichever
+// family is active, with no capability matrix left to consult. These tests
+// exercise the real production hooks/components (use-theme-bin.ts,
+// theme-bin-panel.tsx, item-inspector.tsx) — not a reimplementation of their
+// logic — so a regression in the per-family wiring fails here.
 
 const mocks = vi.hoisted(() => ({
   cast: { value: null as unknown },
@@ -22,6 +23,17 @@ const mocks = vi.hoisted(() => ({
   themeEditor: { value: null as unknown },
   confirm: { fn: null as unknown },
 }));
+
+// ThemeBinPanel's grid view mounts a live scene preview per tile via
+// IntersectionObserver, which jsdom doesn't implement. These tests only
+// exercise the row + context menu (list view), so a no-op stub is enough to
+// let the initial grid-mode mount pass through without ever going visible.
+class FakeIntersectionObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
 
 vi.mock('./contexts/app-context', () => ({
   useCast: () => mocks.cast.value,
@@ -44,36 +56,33 @@ vi.mock('./components/overlays/confirm-dialog', () => ({
 }));
 
 // ─── Fixtures ────────────────────────────────────────────────────────
+// All four theme families (presentation/lyric/talk/overlay) share one row
+// shape with no `kind` discriminant (decision D2) — one fixture builder
+// covers every family; which array/map a theme lives in says what it themes.
 
-function makeTheme(id: Id, kind: ThemeKind, name: string): Theme {
+function makeTheme(id: Id, name: string): EditorThemeSource {
   const now = new Date().toISOString();
-  return {
-    id, slideId: `${id}:slide`, name, kind, width: 1920, height: 1080,
-    order: 0, collectionId: 'theme-col', createdAt: now, updatedAt: now, elements: [],
-  };
+  return { id, slideId: `${id}:slide`, name, width: 1920, height: 1080, order: 0, createdAt: now, updatedAt: now, elements: [] };
 }
 
 function makePresentation(id: Id, title: string, themeId: Id | null = null): Presentation {
   const now = new Date().toISOString();
-  return { id, title, type: 'presentation', themeId, collectionId: 'deck-col', order: 0, createdAt: now, updatedAt: now };
+  return { id, title, themeId, order: 0, createdAt: now, updatedAt: now };
 }
 
 function makeLyric(id: Id, title: string, themeId: Id | null = null): Lyric {
   const now = new Date().toISOString();
-  return { id, title, type: 'lyric', themeId, collectionId: 'deck-col', order: 0, createdAt: now, updatedAt: now };
+  return { id, title, themeId, order: 0, createdAt: now, updatedAt: now };
 }
 
 function makeTalk(id: Id, title: string, themeId: Id | null = null): Talk {
   const now = new Date().toISOString();
-  return { id, title, type: 'talk', themeId, collectionId: 'deck-col', order: 0, createdAt: now, updatedAt: now };
+  return { id, title, themeId, order: 0, createdAt: now, updatedAt: now };
 }
 
 function makeOverlay(id: Id, name: string): Overlay {
   const now = new Date().toISOString();
-  return {
-    id, slideId: `${id}:slide`, name, enabled: true, elements: [],
-    animation: { kind: 'none', durationMs: 0 }, collectionId: 'overlay-col', createdAt: now, updatedAt: now,
-  };
+  return { id, slideId: `${id}:slide`, name, enabled: true, elements: [], animation: { kind: 'none', durationMs: 0 }, createdAt: now, updatedAt: now };
 }
 
 afterEach(() => {
@@ -81,81 +90,44 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// ─── theme-bin-panel.tsx: "Apply to" target picker ────────────────────
-
-describe('resolveThemeApplyTargets (theme-bin-panel apply-to picker)', () => {
-  it('includes a compatible talk alongside a compatible presentation for a slide theme, excluding lyric', () => {
-    const theme = makeTheme('theme-1', 'slides', 'Slide Theme');
-    const deckItems: DeckItem[] = [
-      makePresentation('p1', 'My Presentation'),
-      makeLyric('l1', 'My Lyric'),
-      makeTalk('t1', 'My Talk'),
-    ];
-
-    const { deckItems: targets, overlays } = resolveThemeApplyTargets(theme, deckItems, []);
-
-    expect(targets.map((item) => item.id)).toEqual(['p1', 't1']);
-    expect(overlays).toEqual([]);
-  });
-
-  it('excludes talk and presentation for a lyric theme', () => {
-    const theme = makeTheme('theme-2', 'lyrics', 'Lyric Theme');
-    const deckItems: DeckItem[] = [makePresentation('p1', 'P'), makeTalk('t1', 'T'), makeLyric('l1', 'L')];
-
-    const { deckItems: targets } = resolveThemeApplyTargets(theme, deckItems, []);
-
-    expect(targets.map((item) => item.id)).toEqual(['l1']);
-  });
-
-  it('only offers overlays for an overlay theme, never deck items (including talk)', () => {
-    const theme = makeTheme('theme-3', 'overlays', 'Overlay Theme');
-    const deckItems: DeckItem[] = [makePresentation('p1', 'P'), makeTalk('t1', 'T'), makeLyric('l1', 'L')];
-    const overlayList = [makeOverlay('o1', 'Lower Third')];
-
-    const { deckItems: targets, overlays } = resolveThemeApplyTargets(theme, deckItems, overlayList);
-
-    expect(targets).toEqual([]);
-    expect(overlays.map((o) => o.id)).toEqual(['o1']);
-  });
-
-  it('offers no overlays for a slide theme even when overlays exist', () => {
-    const theme = makeTheme('theme-4', 'slides', 'Slide Theme');
-    const overlayList = [makeOverlay('o1', 'Lower Third')];
-
-    const { overlays } = resolveThemeApplyTargets(theme, [], overlayList);
-
-    expect(overlays).toEqual([]);
-  });
-});
-
 // ─── use-theme-bin.ts: click-to-apply gating ──────────────────────────
 
-describe('useThemeBin (click-to-apply gating)', () => {
-  function setup(currentDeckItem: DeckItem | null, themes: Theme[], applyThemeToTarget = vi.fn().mockResolvedValue(undefined)) {
-    mocks.cast.value = { mutatePatch: vi.fn(), setStatusText: vi.fn() };
-    mocks.navigation.value = { currentDeckItem };
-    mocks.themeEditor.value = { themes, applyThemeToTarget };
-    mocks.project.value = { collectionsByBinKind: new Map() };
+describe('useThemeBin (per-family click-to-apply gating)', () => {
+  function setup(currentItemRef: ItemRef | null, themeType: 'presentation' | 'lyric' | 'talk' | 'overlay', applyThemeToTarget = vi.fn().mockResolvedValue(undefined)) {
+    mocks.navigation.value = { currentItemRef };
+    mocks.themeEditor.value = { themeType, setThemeType: vi.fn(), themes: [], applyThemeToTarget };
     return applyThemeToTarget;
   }
 
-  it('applies a compatible slide theme directly to the current talk', async () => {
-    const talk = makeTalk('t1', 'My Talk');
-    const theme = makeTheme('theme-1', 'slides', 'Slide Theme');
-    const applyThemeToTarget = setup(talk, [theme]);
+  it('applies a talk theme to the current talk when the talk family is active', async () => {
+    const talk: ItemRef = { type: 'talk', id: 't1' };
+    const theme = makeTheme('theme-1', 'Talk Theme');
+    const applyThemeToTarget = setup(talk, 'talk');
 
     const { result } = renderHook(() => useThemeBin());
     await act(async () => {
       await result.current.handleApplyTheme(theme);
     });
 
-    expect(applyThemeToTarget).toHaveBeenCalledWith('theme-1', { type: 'deck-item', itemId: 't1' });
+    expect(applyThemeToTarget).toHaveBeenCalledWith('theme-1', { type: 'item', itemRef: talk });
   });
 
-  it('never applies an incompatible lyric theme to the current talk', async () => {
-    const talk = makeTalk('t1', 'My Talk');
-    const theme = makeTheme('theme-2', 'lyrics', 'Lyric Theme');
-    const applyThemeToTarget = setup(talk, [theme]);
+  it('never applies a lyric-family theme to the current talk — no cross-family matrix left to consult', async () => {
+    const talk: ItemRef = { type: 'talk', id: 't1' };
+    const theme = makeTheme('theme-2', 'Lyric Theme');
+    const applyThemeToTarget = setup(talk, 'lyric');
+
+    const { result } = renderHook(() => useThemeBin());
+    await act(async () => {
+      await result.current.handleApplyTheme(theme);
+    });
+
+    expect(applyThemeToTarget).not.toHaveBeenCalled();
+  });
+
+  it('does nothing without a current item', async () => {
+    const theme = makeTheme('theme-3', 'Talk Theme');
+    const applyThemeToTarget = setup(null, 'talk');
 
     const { result } = renderHook(() => useThemeBin());
     await act(async () => {
@@ -166,67 +138,166 @@ describe('useThemeBin (click-to-apply gating)', () => {
   });
 });
 
-// ─── presentation-inspector.tsx (DeckItemInspector): target picker + ──
-// ─── destructive Reset confirmation, extended to talk ─────────────────
+// ─── theme-bin-panel.tsx: "Apply to" target picker ────────────────────
 
-describe('DeckItemInspector for talk deck items', () => {
+describe('ThemeBinPanel "Apply to" targets (per-family, no capability matrix)', () => {
+  function renderPanel(options: {
+    themeType: 'presentation' | 'lyric' | 'talk' | 'overlay';
+    theme: EditorThemeSource;
+    presentations?: Presentation[];
+    lyrics?: Lyric[];
+    talks?: Talk[];
+    overlays?: Overlay[];
+  }) {
+    mocks.cast.value = { setStatusText: vi.fn() };
+    mocks.navigation.value = { currentItemRef: null };
+    mocks.themeEditor.value = {
+      themeType: options.themeType,
+      setThemeType: vi.fn(),
+      themes: [options.theme],
+      applyThemeToTarget: vi.fn().mockResolvedValue(undefined),
+      renameTheme: vi.fn(),
+      deleteTheme: vi.fn(),
+    };
+    mocks.project.value = {
+      presentations: options.presentations ?? [],
+      lyrics: options.lyrics ?? [],
+      talks: options.talks ?? [],
+      overlays: options.overlays ?? [],
+    };
+    mocks.confirm.fn = vi.fn().mockResolvedValue(true);
+
+    render(
+      <WorkbenchProvider>
+        <ThemeBinPanel />
+      </WorkbenchProvider>,
+    );
+
+    // The grid view's tiles render a live scene preview; switch to list view
+    // so this test exercises only the row + context menu, not scene rendering.
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }));
+    fireEvent.contextMenu(screen.getByDisplayValue(options.theme.name));
+  }
+
+  it('offers only talks as apply targets for the talk theme family, excluding presentations and lyrics', () => {
+    const theme = makeTheme('theme-1', 'Talk Theme');
+    renderPanel({
+      themeType: 'talk',
+      theme,
+  presentations: [makePresentation('p1', 'My Presentation')],
+      lyrics: [makeLyric('l1', 'My Lyric')],
+      talks: [makeTalk('t1', 'My Talk')],
+    });
+
+    act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'Apply to' })); });
+    const menus = screen.getAllByRole('menu');
+    const submenu = menus[menus.length - 1];
+
+    expect(within(submenu).getByRole('menuitem', { name: 'My Talk' })).toBeTruthy();
+    expect(within(submenu).queryByRole('menuitem', { name: 'My Presentation' })).toBeNull();
+    expect(within(submenu).queryByRole('menuitem', { name: 'My Lyric' })).toBeNull();
+  });
+
+  it('offers only overlays as apply targets for the overlay theme family, never items', () => {
+    const theme = makeTheme('theme-2', 'Overlay Theme');
+    renderPanel({
+      themeType: 'overlay',
+      theme,
+      presentations: [makePresentation('p1', 'My Presentation')],
+      talks: [makeTalk('t1', 'My Talk')],
+      overlays: [makeOverlay('o1', 'Lower Third')],
+    });
+
+    act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'Apply to' })); });
+    const menus = screen.getAllByRole('menu');
+    const submenu = menus[menus.length - 1];
+
+    expect(within(submenu).getByRole('menuitem', { name: 'Lower Third' })).toBeTruthy();
+    expect(within(submenu).queryByRole('menuitem', { name: 'My Presentation' })).toBeNull();
+    expect(within(submenu).queryByRole('menuitem', { name: 'My Talk' })).toBeNull();
+  });
+
+  it('disables "Apply to" when its family has no compatible targets, rather than opening an empty submenu', () => {
+    const theme = makeTheme('theme-3', 'Talk Theme');
+    renderPanel({ themeType: 'talk', theme, talks: [] });
+
+    act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'Apply to' })); });
+
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+  });
+});
+
+// ─── item-inspector.tsx: per-family theme select/reset/detach ─────────
+
+describe('ItemInspector theme surfaces for a talk (its own theme family)', () => {
   function renderInspector(options: {
-    currentDeckItem: DeckItem | null;
-    themes: Theme[];
+    currentItemRef: ItemRef | null;
+    currentItem: Talk | Presentation | Lyric | null;
+    talkThemes?: EditorThemeSource[];
+    lyricThemes?: EditorThemeSource[];
+    talkThemesById?: Map<Id, EditorThemeSource>;
     applyThemeToTarget?: ReturnType<typeof vi.fn>;
-    detachThemeFromDeckItem?: ReturnType<typeof vi.fn>;
+    detachThemeFromItem?: ReturnType<typeof vi.fn>;
     confirmResult?: boolean;
   }) {
     const applyThemeToTarget = options.applyThemeToTarget ?? vi.fn().mockResolvedValue(undefined);
-    const detachThemeFromDeckItem = options.detachThemeFromDeckItem ?? vi.fn().mockResolvedValue(undefined);
+    const detachThemeFromItem = options.detachThemeFromItem ?? vi.fn().mockResolvedValue(undefined);
     const confirmMock = vi.fn().mockResolvedValue(options.confirmResult ?? true);
     const setStatusText = vi.fn();
 
     mocks.cast.value = { setStatusText };
-    mocks.navigation.value = { currentDeckItem: options.currentDeckItem, renameDeckItem: vi.fn() };
+    mocks.navigation.value = { currentItemRef: options.currentItemRef, currentItem: options.currentItem, renameItem: vi.fn() };
     mocks.project.value = {
-      themes: options.themes,
-      themesById: new Map(options.themes.map((t) => [t.id, t])),
+      presentationThemes: [],
+      lyricThemes: options.lyricThemes ?? [],
+      talkThemes: options.talkThemes ?? [],
+      presentationThemesById: new Map(),
+      lyricThemesById: new Map((options.lyricThemes ?? []).map((t) => [t.id, t])),
+      talkThemesById: options.talkThemesById ?? new Map((options.talkThemes ?? []).map((t) => [t.id, t])),
     };
-    mocks.themeEditor.value = { applyThemeToTarget, detachThemeFromDeckItem };
+    mocks.themeEditor.value = { applyThemeToTarget, detachThemeFromItem };
     mocks.confirm.fn = confirmMock;
 
     render(
       <WorkbenchProvider>
-        <DeckItemInspector />
+        <ItemInspector />
       </WorkbenchProvider>,
     );
 
-    return { applyThemeToTarget, detachThemeFromDeckItem, confirmMock, setStatusText };
+    return { applyThemeToTarget, detachThemeFromItem, confirmMock, setStatusText };
   }
 
-  it('offers a compatible slide theme as a target for a talk, hiding an incompatible lyric theme', () => {
+  it('offers only talkThemes for a talk, never a lyricThemes entry', () => {
+    const talkRef: ItemRef = { type: 'talk', id: 't1' };
     const talk = makeTalk('t1', 'My Talk');
-    const slideTheme = makeTheme('theme-1', 'slides', 'Slide Theme');
-    const lyricTheme = makeTheme('theme-2', 'lyrics', 'Lyric Theme');
-    renderInspector({ currentDeckItem: talk, themes: [slideTheme, lyricTheme] });
+    const talkTheme = makeTheme('theme-1', 'Talk Theme');
+    const lyricTheme = makeTheme('theme-2', 'Lyric Theme');
+    renderInspector({ currentItemRef: talkRef, currentItem: talk, talkThemes: [talkTheme], lyricThemes: [lyricTheme] });
 
     expect(screen.queryByText('No compatible themes available.')).toBeNull();
 
-    fireEvent.pointerDown(screen.getByRole('button', { name: /select a theme/i }), { button: 0 });
-
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Select a theme…' }), { button: 0 });
     const menu = screen.getByRole('menu');
-    expect(within(menu).getByRole('menuitem', { name: 'Slide Theme' })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: 'Talk Theme' })).toBeTruthy();
     expect(within(menu).queryByRole('menuitem', { name: 'Lyric Theme' })).toBeNull();
   });
 
-  it('reports no compatible themes for a talk when only an incompatible lyric theme exists', () => {
+  it('reports no compatible themes for a talk when talkThemes is empty, even with lyricThemes present', () => {
+    const talkRef: ItemRef = { type: 'talk', id: 't1' };
     const talk = makeTalk('t1', 'My Talk');
-    const lyricTheme = makeTheme('theme-2', 'lyrics', 'Lyric Theme');
-    renderInspector({ currentDeckItem: talk, themes: [lyricTheme] });
+    const lyricTheme = makeTheme('theme-2', 'Lyric Theme');
+    renderInspector({ currentItemRef: talkRef, currentItem: talk, talkThemes: [], lyricThemes: [lyricTheme] });
 
     expect(screen.getByText('No compatible themes available.')).toBeTruthy();
   });
 
-  it('extends the destructive Reset confirmation to a talk and only resets after confirming', async () => {
-    const theme = makeTheme('theme-1', 'slides', 'Slide Theme');
+  it('resets a talk to its assigned talk theme only after confirming the destructive action', async () => {
+    const theme = makeTheme('theme-1', 'Talk Theme');
+    const talkRef: ItemRef = { type: 'talk', id: 't1' };
     const talk = makeTalk('t1', 'My Talk', 'theme-1');
-    const { applyThemeToTarget, confirmMock } = renderInspector({ currentDeckItem: talk, themes: [theme], confirmResult: true });
+    const { applyThemeToTarget, confirmMock } = renderInspector({
+      currentItemRef: talkRef, currentItem: talk, talkThemes: [theme], confirmResult: true,
+    });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Reset To Theme' }));
@@ -238,13 +309,16 @@ describe('DeckItemInspector for talk deck items', () => {
       title: 'Reset "My Talk" to theme?',
       destructive: true,
     }));
-    expect(applyThemeToTarget).toHaveBeenCalledWith('theme-1', { type: 'deck-item', itemId: 't1' });
+    expect(applyThemeToTarget).toHaveBeenCalledWith('theme-1', { type: 'item', itemRef: talkRef });
   });
 
   it('does not reset a talk when the destructive confirmation is declined', async () => {
-    const theme = makeTheme('theme-1', 'slides', 'Slide Theme');
+    const theme = makeTheme('theme-1', 'Talk Theme');
+    const talkRef: ItemRef = { type: 'talk', id: 't1' };
     const talk = makeTalk('t1', 'My Talk', 'theme-1');
-    const { applyThemeToTarget, confirmMock } = renderInspector({ currentDeckItem: talk, themes: [theme], confirmResult: false });
+    const { applyThemeToTarget, confirmMock } = renderInspector({
+      currentItemRef: talkRef, currentItem: talk, talkThemes: [theme], confirmResult: false,
+    });
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Reset To Theme' }));
@@ -256,16 +330,13 @@ describe('DeckItemInspector for talk deck items', () => {
     expect(applyThemeToTarget).not.toHaveBeenCalled();
   });
 
-  // Covers #221: bare `void detachThemeFromDeckItem(...)` let rejections escape
-  // as unhandled promise rejections instead of reporting a specific failure.
-  it('reports a specific failure when detach rejects instead of escaping an unhandled rejection', async () => {
-    const theme = makeTheme('theme-1', 'slides', 'Slide Theme');
+  it('reports a specific failure when detaching a talk theme rejects, instead of an unhandled rejection', async () => {
+    const theme = makeTheme('theme-1', 'Talk Theme');
+    const talkRef: ItemRef = { type: 'talk', id: 't1' };
     const talk = makeTalk('t1', 'My Talk', 'theme-1');
-    const detachThemeFromDeckItem = vi.fn().mockRejectedValue(new Error('Deck item not found: t1'));
+    const detachThemeFromItem = vi.fn().mockRejectedValue(new Error('Item not found: t1'));
     const { setStatusText } = renderInspector({
-      currentDeckItem: talk,
-      themes: [theme],
-      detachThemeFromDeckItem,
+      currentItemRef: talkRef, currentItem: talk, talkThemes: [theme], detachThemeFromItem,
     });
 
     await act(async () => {
@@ -274,7 +345,7 @@ describe('DeckItemInspector for talk deck items', () => {
       await Promise.resolve();
     });
 
-    expect(detachThemeFromDeckItem).toHaveBeenCalledWith('t1');
-    expect(setStatusText).toHaveBeenCalledWith('Failed to detach theme: Deck item not found: t1');
+    expect(detachThemeFromItem).toHaveBeenCalledWith(talkRef);
+    expect(setStatusText).toHaveBeenCalledWith('Failed to detach theme: Item not found: t1');
   });
 });

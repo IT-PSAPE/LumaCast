@@ -95,7 +95,6 @@ function makeMacro(id: string, name: string, cues: Array<{ cue: Cue; orderIndex:
     id,
     name,
     description: '',
-    collectionId: 'coll-1',
     scopeLevel: 'global',
     onScopeExit: 'none',
     loopEnabled: false,

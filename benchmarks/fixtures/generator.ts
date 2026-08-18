@@ -1,7 +1,7 @@
 import { createTestRepository, withDeterministicRuntime, LATEST_SCHEMA_VERSION } from '@lumacast/persistence-sqlite';
 import type { CastRepository } from '@lumacast/persistence-sqlite';
 import type { Id } from '@lumacast/kernel';
-import type { MediaAssetType } from '@lumacast/composition';
+import type { ItemType, MediaAssetType } from '@lumacast/composition';
 import type { CueKind, CuePayload } from '@lumacast/automation';
 import type { AppSnapshot } from '@lumacast/protocol';
 import { imageElementInput, shapeElementInput, textElementInput, videoElementInput } from './element-factories';
@@ -50,13 +50,13 @@ export function generateFixture(fixtureClass: string, options: GenerateFixtureOp
   }
 
   // `createTestRepository` itself (migrations plus the repository's own
-  // eager default-collection seeding) must run *inside* the deterministic
-  // patch, not just the population step below it: a brand-new database runs
-  // every migration up to `LATEST_SCHEMA_VERSION` on construction, and one
-  // of those migrations (and the repository's own first-write path) mints
-  // ids/timestamps of its own. Construct the repository outside this
-  // function's control but under the same patch so *nothing* the fixture
-  // touches — schema setup included — can fall back to real time/randomness.
+  // eager seeding) must run *inside* the deterministic patch, not just the
+  // population step below it: a brand-new database runs every migration up
+  // to `LATEST_SCHEMA_VERSION` on construction, and one of those migrations
+  // (and the repository's own first-write path) mints ids/timestamps of its
+  // own. Construct the repository outside this function's control but under
+  // the same patch so *nothing* the fixture touches — schema setup included
+  // — can fall back to real time/randomness.
   return withDeterministicRuntime({ seed }, () => {
     const handle = createTestRepository({ seed: false });
     try {
@@ -96,72 +96,53 @@ function populateFixture(repo: CastRepository, fixtureClass: FixtureClass, seed:
 // ─── small: a single ordinary project ──────────────────────────────────
 
 function populateSmall(repo: CastRepository): void {
-  const libraryId = requireId(repo.createLibrary('Sunday Service').upserts.libraries);
-  const playlistId = findPlaylistId(repo, libraryId, requirePlaylistName(repo, libraryId, 'Order of Service'));
-  const groupId = findGroupId(repo, playlistId, requireGroupName(repo, playlistId, 'Welcome'));
+  const playlistId = requireId(repo.createPlaylist('Order of Service').upserts.playlists);
+  repo.createSeparator(playlistId, 'Welcome');
 
-  const themeId = requireId(repo.createTheme({ name: 'House Theme', kind: 'slides' }).upserts.themes);
+  const themeId = requireId(repo.createTheme({ name: 'House Theme', themeType: 'presentation' }).upserts.presentationThemes);
 
-  const { itemId: deckId } = repo.createDeckItemWithFirstSlide({
-    type: 'presentation',
-    title: 'Welcome Slides',
-    themeId,
-    groupId,
-  });
-  const { itemId: lyricId } = repo.createDeckItemWithFirstSlide({ type: 'lyric', title: 'Opening Song', groupId });
-  const { itemId: talkId } = repo.createDeckItemWithFirstSlide({ type: 'talk', title: 'Message', groupId });
+  const { itemId: presentationId } = repo.createItem({ type: 'presentation', title: 'Welcome Slides', themeId, playlistId });
+  const { itemId: lyricId } = repo.createItem({ type: 'lyric', title: 'Opening Song', playlistId });
+  const { itemId: talkId, patch: talkPatch } = repo.createItem({ type: 'talk', title: 'Message', playlistId });
 
-  repo.createTalkScriptBlock({ slideId: firstSlideId(repo, talkId), text: 'Welcome everyone.' });
+  repo.createTalkScriptBlock({ slideId: requireId(talkPatch.upserts.slides), text: 'Welcome everyone.' });
 
-  void deckId;
+  void presentationId;
   void lyricId;
+  void talkId;
 }
 
-// ─── large: many decks, slides, elements, groups, playlists, collections ─
+// ─── large: many items, slides, elements, playlists and separators ─────
 
-const LARGE_LIBRARY_COUNT = 2;
-const LARGE_PLAYLISTS_PER_LIBRARY = 2;
-const LARGE_GROUPS_PER_PLAYLIST = 2;
-const LARGE_DECK_COUNT = 24;
-const LARGE_EXTRA_SLIDES_PER_DECK = 2;
+const LARGE_PLAYLIST_COUNT = 4;
+const LARGE_SEPARATORS_PER_PLAYLIST = 2;
+const LARGE_ITEM_COUNT = 24;
+const LARGE_EXTRA_SLIDES_PER_ITEM = 2;
 const LARGE_ELEMENTS_PER_EXTRA_SLIDE = 2;
-const DECK_TYPES = ['presentation', 'lyric', 'talk'] as const;
+const ITEM_TYPES: readonly ItemType[] = ['presentation', 'lyric', 'talk'];
 
 function populateLarge(repo: CastRepository): void {
-  const deckCollectionId = requireId(repo.createCollection({ binKind: 'deck', name: 'Large Fixture Decks' }).upserts.collections);
-  requireId(repo.createCollection({ binKind: 'theme', name: 'Large Fixture Themes' }).upserts.collections);
-
   const themeIds = [
-    requireId(repo.createTheme({ name: 'Theme Alpha', kind: 'slides' }).upserts.themes),
-    requireId(repo.createTheme({ name: 'Theme Beta', kind: 'lyrics' }).upserts.themes),
+    requireId(repo.createTheme({ name: 'Theme Alpha', themeType: 'presentation' }).upserts.presentationThemes),
+    requireId(repo.createTheme({ name: 'Theme Beta', themeType: 'lyric' }).upserts.lyricThemes),
   ];
 
-  const groupIds: Id[] = [];
-  for (let libraryIndex = 0; libraryIndex < LARGE_LIBRARY_COUNT; libraryIndex += 1) {
-    const libraryId = requireId(repo.createLibrary(`Library ${libraryIndex}`).upserts.libraries);
-    for (let playlistIndex = 0; playlistIndex < LARGE_PLAYLISTS_PER_LIBRARY; playlistIndex += 1) {
-      const playlistName = `Playlist ${libraryIndex}-${playlistIndex}`;
-      const playlistId = findPlaylistId(repo, libraryId, requirePlaylistName(repo, libraryId, playlistName));
-      for (let groupIndex = 0; groupIndex < LARGE_GROUPS_PER_PLAYLIST; groupIndex += 1) {
-        const groupName = `Group ${libraryIndex}-${playlistIndex}-${groupIndex}`;
-        groupIds.push(findGroupId(repo, playlistId, requireGroupName(repo, playlistId, groupName)));
-      }
+  const playlistIds: Id[] = [];
+  for (let playlistIndex = 0; playlistIndex < LARGE_PLAYLIST_COUNT; playlistIndex += 1) {
+    const playlistId = requireId(repo.createPlaylist(`Playlist ${playlistIndex}`).upserts.playlists);
+    playlistIds.push(playlistId);
+    for (let separatorIndex = 0; separatorIndex < LARGE_SEPARATORS_PER_PLAYLIST; separatorIndex += 1) {
+      repo.createSeparator(playlistId, `Section ${playlistIndex}-${separatorIndex}`);
     }
   }
 
-  for (let deckIndex = 0; deckIndex < LARGE_DECK_COUNT; deckIndex += 1) {
-    const type = DECK_TYPES[deckIndex % DECK_TYPES.length]!;
-    const groupId = groupIds[deckIndex % groupIds.length]!;
-    const themeId = type === 'lyric' ? themeIds[1] : deckIndex % 3 === 0 ? themeIds[0] : undefined;
-    const { itemId } = repo.createDeckItemWithFirstSlide({
-      type,
-      title: `Deck ${deckIndex} (${type})`,
-      collectionId: type === 'presentation' ? deckCollectionId : undefined,
-      themeId,
-      groupId,
-    });
+  for (let itemIndex = 0; itemIndex < LARGE_ITEM_COUNT; itemIndex += 1) {
+    const type = ITEM_TYPES[itemIndex % ITEM_TYPES.length]!;
+    const playlistId = playlistIds[itemIndex % playlistIds.length]!;
+    const themeId = type === 'lyric' ? themeIds[1] : itemIndex % 3 === 0 ? themeIds[0] : undefined;
+    const { itemId } = repo.createItem({ type, title: `Item ${itemIndex} (${type})`, themeId, playlistId });
 
-    for (let slideIndex = 0; slideIndex < LARGE_EXTRA_SLIDES_PER_DECK; slideIndex += 1) {
+    for (let slideIndex = 0; slideIndex < LARGE_EXTRA_SLIDES_PER_ITEM; slideIndex += 1) {
       const slideId = requireId(
         repo.createSlide(ownerInputFor(type, itemId)).upserts.slides,
       );
@@ -169,7 +150,7 @@ function populateLarge(repo: CastRepository): void {
       for (let elementIndex = 0; elementIndex < LARGE_ELEMENTS_PER_EXTRA_SLIDE; elementIndex += 1) {
         elements.push(
           elementIndex % 2 === 0
-            ? textElementInput(slideId, elementIndex, `Deck ${deckIndex} / Slide ${slideIndex} / ${elementIndex}`)
+            ? textElementInput(slideId, elementIndex, `Item ${itemIndex} / Slide ${slideIndex} / ${elementIndex}`)
             : shapeElementInput(slideId, elementIndex),
         );
       }
@@ -180,34 +161,26 @@ function populateLarge(repo: CastRepository): void {
 
 // ─── media-heavy: many media assets referenced by many elements ────────
 
-const MEDIA_HEAVY_DECK_COUNT = 6;
-const MEDIA_HEAVY_SLIDES_PER_DECK = 2;
+const MEDIA_HEAVY_ITEM_COUNT = 6;
+const MEDIA_HEAVY_SLIDES_PER_ITEM = 2;
 const MEDIA_HEAVY_IMAGE_ASSET_COUNT = 25;
 const MEDIA_HEAVY_VIDEO_ASSET_COUNT = 20;
 const MEDIA_HEAVY_AUDIO_ASSET_COUNT = 15;
 
 function populateMediaHeavy(repo: CastRepository, seed: string): void {
-  const imageCollectionId = requireId(repo.createCollection({ binKind: 'image', name: 'Fixture Images' }).upserts.collections);
-  const videoCollectionId = requireId(repo.createCollection({ binKind: 'video', name: 'Fixture Videos' }).upserts.collections);
+  const imageAssetIds = createMediaAssets(repo, 'image', MEDIA_HEAVY_IMAGE_ASSET_COUNT, seed);
+  const videoAssetIds = createMediaAssets(repo, 'video', MEDIA_HEAVY_VIDEO_ASSET_COUNT, seed);
+  createMediaAssets(repo, 'audio', MEDIA_HEAVY_AUDIO_ASSET_COUNT, seed);
 
-  const imageAssetIds = createMediaAssets(repo, 'image', MEDIA_HEAVY_IMAGE_ASSET_COUNT, seed, imageCollectionId);
-  const videoAssetIds = createMediaAssets(repo, 'video', MEDIA_HEAVY_VIDEO_ASSET_COUNT, seed, videoCollectionId);
-  createMediaAssets(repo, 'audio', MEDIA_HEAVY_AUDIO_ASSET_COUNT, seed, undefined);
+  const playlistId = requireId(repo.createPlaylist('Media Playlist').upserts.playlists);
+  repo.createSeparator(playlistId, 'Media');
 
-  const libraryId = requireId(repo.createLibrary('Media Library').upserts.libraries);
-  const playlistId = findPlaylistId(repo, libraryId, requirePlaylistName(repo, libraryId, 'Media Playlist'));
-  const groupId = findGroupId(repo, playlistId, requireGroupName(repo, playlistId, 'Media Group'));
-
-  for (let deckIndex = 0; deckIndex < MEDIA_HEAVY_DECK_COUNT; deckIndex += 1) {
-    const { itemId } = repo.createDeckItemWithFirstSlide({
-      type: 'presentation',
-      title: `Media Deck ${deckIndex}`,
-      groupId,
-    });
-    for (let slideIndex = 0; slideIndex < MEDIA_HEAVY_SLIDES_PER_DECK; slideIndex += 1) {
+  for (let itemIndex = 0; itemIndex < MEDIA_HEAVY_ITEM_COUNT; itemIndex += 1) {
+    const { itemId } = repo.createItem({ type: 'presentation', title: `Media Item ${itemIndex}`, playlistId });
+    for (let slideIndex = 0; slideIndex < MEDIA_HEAVY_SLIDES_PER_ITEM; slideIndex += 1) {
       const slideId = requireId(repo.createSlide({ presentationId: itemId }).upserts.slides);
-      const imageAsset = imageAssetIds[(deckIndex * MEDIA_HEAVY_SLIDES_PER_DECK + slideIndex) % imageAssetIds.length]!;
-      const videoAsset = videoAssetIds[(deckIndex * MEDIA_HEAVY_SLIDES_PER_DECK + slideIndex) % videoAssetIds.length]!;
+      const imageAsset = imageAssetIds[(itemIndex * MEDIA_HEAVY_SLIDES_PER_ITEM + slideIndex) % imageAssetIds.length]!;
+      const videoAsset = videoAssetIds[(itemIndex * MEDIA_HEAVY_SLIDES_PER_ITEM + slideIndex) % videoAssetIds.length]!;
       repo.createElementsBatch([
         imageElementInput(slideId, 0, imageAsset.src),
         videoElementInput(slideId, 1, videoAsset.src),
@@ -221,57 +194,62 @@ function createMediaAssets(
   type: MediaAssetType,
   count: number,
   seed: string,
-  collectionId: Id | undefined,
 ): Array<{ id: Id; src: string }> {
   const created: Array<{ id: Id; src: string }> = [];
   for (let index = 0; index < count; index += 1) {
     const extension = type === 'image' ? 'png' : type === 'video' ? 'mp4' : 'wav';
     const src = `fixture-media://${seed}/${type}/${String(index).padStart(4, '0')}.${extension}`;
-    const patch = repo.createMediaAsset({ name: `${type} ${index}`, type, src, collectionId });
+    const patch = repo.createMediaAsset({ name: `${type} ${index}`, type, src });
     created.push({ id: requireId(patch.upserts.mediaAssets), src });
   }
   return created;
 }
 
-// ─── theme-heavy: many decks sharing themes, edited and re-synced ──────
+// ─── theme-heavy: many items sharing themes, edited and re-synced ──────
 
-const THEME_HEAVY_DECKS_PER_THEME = 6;
+const THEME_HEAVY_ITEMS_PER_THEME = 6;
 
 function populateThemeHeavy(repo: CastRepository): void {
-  const slidesThemeId = requireId(repo.createTheme({ name: 'Slides Theme', kind: 'slides' }).upserts.themes);
-  const lyricsThemeId = requireId(repo.createTheme({ name: 'Lyrics Theme', kind: 'lyrics' }).upserts.themes);
-  const overlaysThemeId = requireId(repo.createTheme({ name: 'Overlay Theme', kind: 'overlays' }).upserts.themes);
+  const presentationThemeId = requireId(
+    repo.createTheme({ name: 'Presentation Theme', themeType: 'presentation' }).upserts.presentationThemes,
+  );
+  const lyricThemeId = requireId(repo.createTheme({ name: 'Lyric Theme', themeType: 'lyric' }).upserts.lyricThemes);
+  const talkThemeId = requireId(repo.createTheme({ name: 'Talk Theme', themeType: 'talk' }).upserts.talkThemes);
+  const overlayThemeId = requireId(repo.createTheme({ name: 'Overlay Theme', themeType: 'overlay' }).upserts.overlayThemes);
 
   const presentationIds: Id[] = [];
   const talkIds: Id[] = [];
-  for (let index = 0; index < THEME_HEAVY_DECKS_PER_THEME; index += 1) {
+  for (let index = 0; index < THEME_HEAVY_ITEMS_PER_THEME; index += 1) {
     presentationIds.push(
-      repo.createDeckItemWithFirstSlide({ type: 'presentation', title: `Themed Presentation ${index}`, themeId: slidesThemeId }).itemId,
+      repo.createItem({ type: 'presentation', title: `Themed Presentation ${index}`, themeId: presentationThemeId }).itemId,
     );
     talkIds.push(
-      repo.createDeckItemWithFirstSlide({ type: 'talk', title: `Themed Talk ${index}`, themeId: slidesThemeId }).itemId,
+      repo.createItem({ type: 'talk', title: `Themed Talk ${index}`, themeId: talkThemeId }).itemId,
     );
-    repo.createDeckItemWithFirstSlide({ type: 'lyric', title: `Themed Lyric ${index}`, themeId: lyricsThemeId });
+    repo.createItem({ type: 'lyric', title: `Themed Lyric ${index}`, themeId: lyricThemeId });
   }
 
   for (let index = 0; index < 3; index += 1) {
     const overlayId = requireId(repo.createOverlay({ name: `Themed Overlay ${index}` }).upserts.overlays);
-    repo.applyThemeToOverlay(overlaysThemeId, overlayId);
+    repo.applyThemeToOverlay(overlayThemeId, overlayId);
   }
 
-  // Nested provenance: duplicating a themed deck carries its elements'
-  // sourceThemeElementId forward onto a second generation of decks.
+  // Nested provenance: duplicating a themed presentation carries its
+  // elements' sourceThemeElementId forward onto a second generation of
+  // items. Talks are not duplicable (decision D1), so only presentations
+  // exercise this path.
   for (const presentationId of presentationIds.slice(0, 3)) {
-    repo.duplicateDeckItem(presentationId);
+    repo.duplicateItem({ type: 'presentation', id: presentationId });
   }
 
-  // Editing the theme and re-syncing fans the change out across every deck
+  // Editing the theme and re-syncing fans the change out across every item
   // still linked to it — the provenance path #104/#113 made non-destructive.
-  repo.updateTheme({ id: slidesThemeId, name: 'Slides Theme (revised)' });
-  repo.syncThemeToLinkedDeckItems(slidesThemeId);
+  // Sync is strictly per-family: a presentation theme never fans out to talks.
+  repo.updateTheme({ id: presentationThemeId, themeType: 'presentation', name: 'Presentation Theme (revised)' });
+  repo.syncThemeToLinkedItems(presentationThemeId, 'presentation');
 
   for (const talkId of talkIds.slice(0, 2)) {
-    repo.applyThemeToDeckItem(slidesThemeId, talkId);
+    repo.applyThemeToItem(talkThemeId, { type: 'talk', id: talkId });
   }
 }
 
@@ -306,7 +284,7 @@ function populateTalkAutomationHeavy(repo: CastRepository): void {
   const talkIds: Id[] = [];
   const talkSlideIds: Id[] = [];
   for (let talkIndex = 0; talkIndex < TALK_COUNT; talkIndex += 1) {
-    const { itemId, patch } = repo.createDeckItemWithFirstSlide({ type: 'talk', title: `Talk ${talkIndex}` });
+    const { itemId, patch } = repo.createItem({ type: 'talk', title: `Talk ${talkIndex}` });
     talkIds.push(itemId);
     talkSlideIds.push(requireId(patch.upserts.slides));
     for (let blockIndex = 0; blockIndex < SCRIPT_BLOCKS_PER_TALK; blockIndex += 1) {
@@ -384,42 +362,7 @@ function requireId(records: Array<{ id: Id }> | undefined): Id {
   return id;
 }
 
-function requirePlaylistName(repo: CastRepository, libraryId: Id, name: string): string {
-  repo.createPlaylist(libraryId, name);
-  return name;
-}
-
-function requireGroupName(repo: CastRepository, playlistId: Id, name: string): string {
-  repo.createPlaylistGroup(playlistId, name);
-  return name;
-}
-
-function findPlaylistId(repo: CastRepository, libraryId: Id, name: string): Id {
-  const bundle = repo.getSnapshot().libraryBundles.find((entry) => entry.library.id === libraryId);
-  const tree = bundle?.playlists.find((entry) => entry.playlist.name === name);
-  if (!tree) throw new Error(`Fixture generation invariant violated: playlist '${name}' not found after creation.`);
-  return tree.playlist.id;
-}
-
-function findGroupId(repo: CastRepository, playlistId: Id, name: string): Id {
-  for (const bundle of repo.getSnapshot().libraryBundles) {
-    const tree = bundle.playlists.find((entry) => entry.playlist.id === playlistId);
-    if (!tree) continue;
-    const group = tree.groups.find((entry) => entry.group.name === name);
-    if (group) return group.group.id;
-  }
-  throw new Error(`Fixture generation invariant violated: group '${name}' not found after creation.`);
-}
-
-function firstSlideId(repo: CastRepository, deckItemId: Id): Id {
-  const slide = repo.getSnapshot().slides.find(
-    (candidate) => candidate.presentationId === deckItemId || candidate.lyricId === deckItemId || candidate.talkId === deckItemId,
-  );
-  if (!slide) throw new Error(`Fixture generation invariant violated: no slide found for deck item ${deckItemId}.`);
-  return slide.id;
-}
-
-function ownerInputFor(type: (typeof DECK_TYPES)[number], itemId: Id): { presentationId?: Id; lyricId?: Id; talkId?: Id } {
+function ownerInputFor(type: ItemType, itemId: Id): { presentationId?: Id; lyricId?: Id; talkId?: Id } {
   if (type === 'presentation') return { presentationId: itemId };
   if (type === 'lyric') return { lyricId: itemId };
   return { talkId: itemId };

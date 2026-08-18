@@ -38,26 +38,35 @@ export function isFixtureClass(value: string): value is FixtureClass {
  * owning container's own `elements` field. Before #211 this table was
  * unfiltered and the two counts could diverge; they're kept as separate
  * fields anyway so a regression there (the scoping drifting apart again)
- * shows up immediately as `slideElements > deckSlideElements` instead of
+ * shows up immediately as `slideElements > itemSlideElements` instead of
  * silently going unnoticed.
+ *
+ * #219 item-model refactor decision D3/D4: libraries and collections are
+ * destroyed, so neither has a count field here. Playlists are global and
+ * flat (D4/D5) — `playlistEntries` is the total flat row count and
+ * `separators` is the subset of those rows that are divider rows rather
+ * than item entries. Themes are four independent per-owner families (D2)
+ * with no shared `themes` table, so the count is per-type rather than one
+ * combined `themes` figure.
  */
 export interface FixtureEntityCounts {
-  libraries: number;
   playlists: number;
-  playlistGroups: number;
   playlistEntries: number;
+  separators: number;
   presentations: number;
   lyrics: number;
   talks: number;
   slides: number;
   talkScriptBlocks: number;
   slideElements: number;
-  deckSlideElements: number;
+  itemSlideElements: number;
   mediaAssets: number;
   overlays: number;
-  themes: number;
+  presentationThemes: number;
+  lyricThemes: number;
+  talkThemes: number;
+  overlayThemes: number;
   stages: number;
-  collections: number;
   cues: number;
   macros: number;
   triggerBindings: number;
@@ -74,50 +83,43 @@ export interface FixtureManifest {
   contentHash: string;
 }
 
-function countDeckSlideElements(snapshot: AppSnapshot): number {
-  const deckSlideIds = new Set(snapshot.slides.map((slide) => slide.id));
-  return snapshot.slideElements.filter((element) => deckSlideIds.has(element.slideId)).length;
+function countItemSlideElements(snapshot: AppSnapshot): number {
+  const itemSlideIds = new Set(snapshot.slides.map((slide) => slide.id));
+  return snapshot.slideElements.filter((element) => itemSlideIds.has(element.slideId)).length;
 }
 
-function countPlaylistsAndGroupsAndEntries(snapshot: AppSnapshot): {
-  playlists: number;
-  playlistGroups: number;
-  playlistEntries: number;
-} {
-  let playlists = 0;
-  let playlistGroups = 0;
-  let playlistEntries = 0;
-  for (const bundle of snapshot.libraryBundles) {
-    playlists += bundle.playlists.length;
-    for (const tree of bundle.playlists) {
-      playlistGroups += tree.groups.length;
-      for (const group of tree.groups) {
-        playlistEntries += group.entries.length;
-      }
-    }
-  }
-  return { playlists, playlistGroups, playlistEntries };
+/**
+ * `AppSnapshot.playlistEntries` is already the flat, ordered row list (D5/D8)
+ * — no library/playlist/group tree to walk. `separators` is just the subset
+ * of those rows whose `kind` is `'separator'` rather than `'item'`.
+ */
+function countPlaylistRows(snapshot: AppSnapshot): { playlistEntries: number; separators: number } {
+  return {
+    playlistEntries: snapshot.playlistEntries.length,
+    separators: snapshot.playlistEntries.filter((row) => row.kind === 'separator').length,
+  };
 }
 
 export function computeEntityCounts(snapshot: AppSnapshot): FixtureEntityCounts {
-  const { playlists, playlistGroups, playlistEntries } = countPlaylistsAndGroupsAndEntries(snapshot);
+  const { playlistEntries, separators } = countPlaylistRows(snapshot);
   return {
-    libraries: snapshot.libraries.length,
-    playlists,
-    playlistGroups,
+    playlists: snapshot.playlists.length,
     playlistEntries,
+    separators,
     presentations: snapshot.presentations.length,
     lyrics: snapshot.lyrics.length,
     talks: snapshot.talks.length,
     slides: snapshot.slides.length,
     talkScriptBlocks: snapshot.talkScriptBlocks.length,
     slideElements: snapshot.slideElements.length,
-    deckSlideElements: countDeckSlideElements(snapshot),
+    itemSlideElements: countItemSlideElements(snapshot),
     mediaAssets: snapshot.mediaAssets.length,
     overlays: snapshot.overlays.length,
-    themes: snapshot.themes.length,
+    presentationThemes: snapshot.presentationThemes.length,
+    lyricThemes: snapshot.lyricThemes.length,
+    talkThemes: snapshot.talkThemes.length,
+    overlayThemes: snapshot.overlayThemes.length,
     stages: snapshot.stages.length,
-    collections: snapshot.collections.length,
     cues: snapshot.cues.length,
     macros: snapshot.macros.length,
     triggerBindings: snapshot.triggerBindings.length,
