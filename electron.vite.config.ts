@@ -111,6 +111,7 @@ export default defineConfig({
       }
     },
     resolve: {
+      dedupe: ['react', 'react-dom', 'konva', 'react-konva'],
       alias: {
         '@renderer': path.resolve(__dirname, 'app/renderer'),
         '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
@@ -118,7 +119,8 @@ export default defineConfig({
         '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
         '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
         '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
-        '@lumacast/playback': path.resolve(__dirname, 'packages/playback/src/index.ts')
+        '@lumacast/playback': path.resolve(__dirname, 'packages/playback/src/index.ts'),
+        '@lumacast/canvas': path.resolve(__dirname, 'packages/canvas/src/index.ts')
       }
     },
     plugins: [tailwindcss(), react()]

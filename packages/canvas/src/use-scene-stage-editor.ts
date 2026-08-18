@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
 import type { Id } from '@lumacast/kernel';
-import type { TextElementPayload } from '@lumacast/composition';
+import type { SlideElement, TextElementPayload } from '@lumacast/composition';
 import type { ElementUpdateInput } from '@lumacast/protocol';
-import { useElements } from '../../contexts/canvas/canvas-context';
 import { resolveSnap, resolveTransformSnap } from './snap-guides';
 import { type RichBody, richBodyToText, type GuideLine, type RenderScene } from '@lumacast/composition';
 import { createDragSession, type DragSession } from './scene-stage-drag-session';
@@ -13,9 +12,27 @@ import { useSceneStageMarquee } from './use-scene-stage-marquee';
 import { useSceneStageDraftBuffer } from './use-scene-stage-draft-buffer';
 import { bindFixedClientRect } from './scene-node-bounds';
 
+// The narrow slice of the app-shell's element context this editor actually
+// touches. The app (contexts/canvas/canvas-context.tsx) owns the full
+// context and passes this port in — the package never reaches for the
+// context itself, so it stays free of an app-shell dependency.
+export interface SceneStageElementsPort {
+  effectiveElements: SlideElement[];
+  baseElements: SlideElement[];
+  selectedElementIds: Id[];
+  selectElements: (ids: Id[]) => void;
+  toggleElementSelection: (id: Id) => void;
+  selectElement: (id: Id | null) => void;
+  clearSelection: () => void;
+  setDraftElements: React.Dispatch<React.SetStateAction<Record<Id, Partial<SlideElement>>>>;
+  commitElementUpdates: (updates: ElementUpdateInput[], withHistory?: boolean) => Promise<void>;
+  setCanvasInteracting: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
 interface UseSceneStageEditorParams {
   scene: RenderScene;
   editable: boolean;
+  elements: SceneStageElementsPort;
 }
 
 // A body is "rich" once any run carries an override or any block is a list.
@@ -36,7 +53,7 @@ function bodyIsRich(body: RichBody): boolean {
   );
 }
 
-export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorParams) {
+export function useSceneStageEditor({ scene, editable, elements }: UseSceneStageEditorParams) {
   const {
     effectiveElements,
     baseElements,
@@ -48,7 +65,7 @@ export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorPara
     setDraftElements,
     commitElementUpdates,
     setCanvasInteracting,
-  } = useElements();
+  } = elements;
 
   const stageRef = useRef<Konva.Stage | null>(null);
   const transformerRef = useRef<Konva.Transformer | null>(null);

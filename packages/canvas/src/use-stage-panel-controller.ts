@@ -1,15 +1,30 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { MediaAsset } from '@lumacast/composition';
-import type { MediaPickerAssetKind } from '../../components/overlays/media-picker-dialog';
-import { useElements } from '../../contexts/canvas/canvas-context';
-import { useActiveEditorSource } from '../../contexts/canvas/use-active-editor-source';
-import { useProjectContent } from '../../contexts/use-project-content';
+import type { MediaAsset, SlideElement } from '@lumacast/composition';
+import type { ActiveEditorSource } from './editor-source';
+
+// Mirrors app/renderer/components/overlays/media-picker-dialog.tsx's
+// MediaPickerAssetKind. Declared locally (rather than imported) so this
+// package stays free of a dependency on that shared app-shell UI component;
+// TypeScript's structural typing keeps the two interchangeable at the
+// app/package boundary.
+export type MediaPickerAssetKind = 'image' | 'video';
 
 interface SelectionMetrics {
   x: number | null;
   y: number | null;
   width: number | null;
   height: number | null;
+}
+
+// Mirrors the `x`/`y`/`width`/`height` fields of app's
+// ElementInspectorDraft (app/renderer/types/ui.ts) — the only fields this
+// controller reads. See MediaPickerAssetKind above for why this is a local
+// structural type rather than an import.
+export interface StagePanelElementDraft {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 interface StagePanelControllerState {
@@ -32,10 +47,27 @@ interface StagePanelController {
   state: StagePanelControllerState;
 }
 
-export function useStagePanelController(): StagePanelController {
-  const activeEditorSource = useActiveEditorSource();
-  const { selectedElement, elementDraft, createFromMedia, importMedia } = useElements();
-  const { mediaAssets } = useProjectContent();
+// The narrow slice of app-shell state this controller needs. The app (its
+// stage-panel.tsx caller) resolves the active editor source, selection/draft
+// state, media-creation actions, and the project's media assets, then passes
+// them in — the package never reaches into an app-shell context directly.
+export interface StagePanelControllerDeps {
+  activeEditorSource: ActiveEditorSource;
+  selectedElement: SlideElement | null;
+  elementDraft: StagePanelElementDraft | null;
+  createFromMedia: (asset: MediaAsset, x: number, y: number) => Promise<void>;
+  importMedia: (files: FileList) => Promise<void>;
+  mediaAssets: MediaAsset[];
+}
+
+export function useStagePanelController({
+  activeEditorSource,
+  selectedElement,
+  elementDraft,
+  createFromMedia,
+  importMedia,
+  mediaAssets,
+}: StagePanelControllerDeps): StagePanelController {
   const [pickerKind, setPickerKind] = useState<MediaPickerAssetKind | null>(null);
 
   const state = useMemo<StagePanelControllerState>(() => {

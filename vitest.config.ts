@@ -11,9 +11,11 @@ export default defineConfig({
       'app/**/*.test.tsx',
       'benchmarks/**/*.test.ts',
       'packages/**/*.test.ts',
+      'packages/**/*.test.tsx',
     ],
   },
   resolve: {
+    dedupe: ['react', 'react-dom', 'konva', 'react-konva'],
     alias: {
       '@renderer': path.resolve(__dirname, 'app/renderer'),
       '@rendering': path.resolve(__dirname, 'app/rendering'),
@@ -25,6 +27,7 @@ export default defineConfig({
       '@lumacast/persistence-sqlite': path.resolve(__dirname, 'packages/persistence-sqlite/src/index.ts'),
       '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts'),
       '@lumacast/playback': path.resolve(__dirname, 'packages/playback/src/index.ts'),
+      '@lumacast/canvas': path.resolve(__dirname, 'packages/canvas/src/index.ts'),
     },
   },
 });

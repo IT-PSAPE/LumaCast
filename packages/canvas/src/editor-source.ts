@@ -1,6 +1,5 @@
 import type { Id } from '@lumacast/kernel';
 import type { DeckItemType, Overlay, Slide, SlideElement, Stage, Theme, ThemeKind } from '@lumacast/composition';
-import type { WorkbenchMode } from '../../types/ui';
 
 export type EditorWorkbenchMode = 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor';
 
@@ -16,7 +15,7 @@ export interface EditorCreateCapabilities {
   video: boolean;
 }
 
-interface EditorSourceBase<TMode extends WorkbenchMode, TMeta> {
+interface EditorSourceBase<TMode extends string, TMeta> {
   mode: TMode;
   entityId: Id | null;
   hasSource: boolean;
@@ -49,7 +48,17 @@ export interface StageEditorSource extends EditorSourceBase<'stage-editor', {
   stage: Stage | null;
 }> {}
 
-export interface InactiveEditorSource extends EditorSourceBase<Exclude<WorkbenchMode, EditorWorkbenchMode>, {}> {}
+// The app owns the full workbench-mode vocabulary (WorkbenchMode in
+// app/renderer/types/ui.ts: 'show' | 'deck-editor' | 'overlay-editor' |
+// 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings'). This
+// package only renders for the four editor modes above, so the
+// "everything else" branch is spelled out as the residual literals here
+// rather than importing the app-shell type and excluding from it — that
+// keeps discriminated-union narrowing on `.mode` exact (a plain `string`
+// field would make every branch's `mode === 'deck-editor'` check
+// ambiguous). If WorkbenchMode ever grows a mode beyond these seven, this
+// literal set needs a matching update.
+export interface InactiveEditorSource extends EditorSourceBase<'show' | 'macro-editor' | 'settings', {}> {}
 
 export type ActiveEditorSource =
   | DeckEditorSource
@@ -58,6 +67,6 @@ export type ActiveEditorSource =
   | StageEditorSource
   | InactiveEditorSource;
 
-export function isEditorWorkbenchMode(mode: WorkbenchMode): mode is EditorWorkbenchMode {
+export function isEditorWorkbenchMode(mode: string): mode is EditorWorkbenchMode {
   return mode === 'deck-editor' || mode === 'overlay-editor' || mode === 'theme-editor' || mode === 'stage-editor';
 }

@@ -4,11 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Id } from '@lumacast/kernel';
 import type { Slide, SlideBackground, SlideElement } from '@lumacast/composition';
 import { buildRenderScene, buildResolvedRenderScene } from '../features/canvas/build-render-scene';
-import { SceneNodeMedia } from '../features/canvas/scene-node-media';
-import { SceneNodeShape } from '../features/canvas/scene-node-shape';
-import { SceneNodeText } from '../features/canvas/scene-node-text';
-import { renderSceneNodeContent } from './scene-node-content';
-import { needsOpaqueBackdrop, SceneSlideBackground } from './scene-slide-background';
+import { SceneNodeMedia, SceneNodeShape, SceneNodeText, renderSceneNodeContent, needsOpaqueBackdrop, SceneSlideBackground } from '@lumacast/canvas';
 import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from '@lumacast/composition';
 
 // Structural parity between the two scene traversals that exist post-#147/#148:

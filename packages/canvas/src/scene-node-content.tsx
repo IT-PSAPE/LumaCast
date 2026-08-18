@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { SceneNodeMedia } from '../features/canvas/scene-node-media';
-import { SceneNodeShape } from '../features/canvas/scene-node-shape';
-import { SceneNodeText } from '../features/canvas/scene-node-text';
+import { SceneNodeMedia } from './scene-node-media';
+import { SceneNodeShape } from './scene-node-shape';
+import { SceneNodeText } from './scene-node-text';
 import type { RenderNode, SceneSurface } from '@lumacast/composition';
 
 export interface SceneNodeContentOptions {

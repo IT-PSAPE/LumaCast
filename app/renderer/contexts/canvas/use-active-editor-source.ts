@@ -6,7 +6,7 @@ import { useSlides } from '../slide-context';
 import { useOverlayEditor, useDeckEditor, useStageEditor, useThemeEditor } from '../asset-editor/asset-editor-context';
 import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
-import type { ActiveEditorSource, EditorCreateCapabilities } from './editor-source';
+import type { ActiveEditorSource, EditorCreateCapabilities } from '@lumacast/canvas';
 
 const NOOP_CREATE_CAPABILITIES: EditorCreateCapabilities = {
   text: false,

@@ -19,8 +19,7 @@ import {
 import { Bold, Italic, List, ListOrdered, Strikethrough, Underline } from 'lucide-react';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { ColorPicker } from '@renderer/components/form/color-picker';
-import { resolveInlineTextAlign } from './inline-text-editor-utils';
-import { computeAutoFitFontSize } from './text-layout';
+import { resolveInlineTextAlign, computeAutoFitFontSize } from '@lumacast/canvas';
 
 interface InlineTextEditorProps {
   editingTextId: string;

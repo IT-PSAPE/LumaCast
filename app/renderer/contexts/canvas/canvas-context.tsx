@@ -14,7 +14,7 @@ import { useWorkbench } from '../workbench-context';
 import { useElementCommands } from '../element/use-element-commands';
 import { useElementHistory } from '../element/use-element-history';
 import { useElementInspectorSync } from '../element/use-element-inspector-sync';
-import { useElementSelection } from '../element/use-element-selection';
+import { useElementSelection } from '@lumacast/canvas';
 import type { ElementContextValue } from '../../types/element-context.types';
 import { cloneElements } from '../../utils/element-context-utils';
 import { buildLayeredRenderScene, buildRenderScene, buildThumbnailScene } from '../../features/canvas/build-render-scene';

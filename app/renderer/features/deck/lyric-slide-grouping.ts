@@ -1,4 +1,4 @@
-import { measureInlineTextHeight } from '../canvas/inline-text-editor-utils';
+import { measureInlineTextHeight } from '@lumacast/canvas';
 import type { LyricLayoutConfig } from './lyric-layout-config';
 
 const SEGMENT_JOIN = '\n';

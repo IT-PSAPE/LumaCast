@@ -21,7 +21,8 @@
       "@lumacast/protocol": ["packages/protocol/src/index.ts"],
       "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"],
       "@lumacast/engine": ["packages/engine/src/index.ts"],
-      "@lumacast/playback": ["packages/playback/src/index.ts"]
+      "@lumacast/playback": ["packages/playback/src/index.ts"],
+      "@lumacast/canvas": ["packages/canvas/src/index.ts"]
     }
   },
   "include": [
@@ -29,6 +30,7 @@
     "app/**/*.ts",
     "app/**/*.tsx",
     "benchmarks/**/*.ts",
-    "packages/**/*.ts"
+    "packages/**/*.ts",
+    "packages/**/*.tsx"
   ]
 }

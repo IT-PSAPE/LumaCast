@@ -8,13 +8,15 @@ import { ContextMenu } from '../../components/overlays/context-menu';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { hasClipboardContent } from '../../contexts/element/use-element-history';
 import type { RenderNode, RenderScene, SceneSurface } from '@lumacast/composition';
-import { renderSceneNodeContent } from '../../rendering/scene-node-content';
 import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from '@lumacast/composition';
-import { SceneSlideBackground } from '../../rendering/scene-slide-background';
+import {
+  renderSceneNodeContent,
+  SceneSlideBackground,
+  useSceneStageEditor,
+  useSceneStageViewport,
+  type SceneViewportTransform,
+} from '@lumacast/canvas';
 import { InlineTextEditor } from './inline-text-editor';
-import { useSceneStageEditor } from './use-scene-stage-editor';
-import type { SceneViewportTransform } from './use-scene-stage-viewport';
-import { useSceneStageViewport } from './use-scene-stage-viewport';
 import { setCaptureSurface } from '../../rendering/capture-surface-registry';
 
 interface SceneStageProps {
@@ -130,16 +132,25 @@ const SceneNode = memo(function SceneNode({
 // ─── SceneStage ─────────────────────────────────────────────────────
 
 export function SceneStage({ scene, surface = 'show', editable = false, className = '', onDrop, onDragOver, fixedViewport = null, onViewportChange, ndiCaptureSource }: SceneStageProps) {
-  const editor = useSceneStageEditor({ scene, editable });
+  const {
+    selectedElementIds, selectElements, toggleElementSelection, selectElement, clearSelection,
+    effectiveElements, baseElements, setDraftElements, commitElementUpdates, setCanvasInteracting,
+    reorderElements, copySelection, cutSelection, pasteSelection, duplicateSelection, deleteSelected,
+  } = useElements();
+  const editor = useSceneStageEditor({
+    scene,
+    editable,
+    elements: {
+      effectiveElements, baseElements, selectedElementIds, selectElements,
+      toggleElementSelection, selectElement, clearSelection, setDraftElements,
+      commitElementUpdates, setCanvasInteracting,
+    },
+  });
   const viewport = useSceneStageViewport(scene.width, scene.height, fixedViewport);
   const snaps = useMemo(rotationSnaps, []);
   // Shared back→front traversal: visibility filtering and node frame transforms
   // come from the shared scene layer so every surface walks the scene identically.
   const sceneNodes = useMemo(() => traverseSceneNodes(scene.nodes), [scene.nodes]);
-  const {
-    selectedElementIds, selectElement, effectiveElements, reorderElements,
-    copySelection, cutSelection, pasteSelection, duplicateSelection, deleteSelected,
-  } = useElements();
 
   // Element stacking is back→front in `effectiveElements`. Each op produces a
   // new back→front id order and hands the whole list to `reorderElements`.

@@ -56,6 +56,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@lumacast/automation": "file:packages/automation",
+    "@lumacast/canvas": "file:packages/canvas",
     "@lumacast/commands": "file:packages/commands",
     "@lumacast/composition": "file:packages/composition",
     "@lumacast/engine": "file:packages/engine",

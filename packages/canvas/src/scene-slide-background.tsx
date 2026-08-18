@@ -3,9 +3,9 @@ import type Konva from 'konva';
 import { Group, Image as KonvaImage, Rect } from 'react-konva';
 import type { SlideBackground, SlideBackgroundFit, SlideGradient } from '@lumacast/composition';
 import type { SceneSurface } from '@lumacast/composition';
-import { resolveMediaFit } from '../features/canvas/resolve-media-cover';
-import { useKImage } from '../features/canvas/use-k-image';
-import { useKVideo } from '../features/canvas/use-k-video';
+import { resolveMediaFit } from './resolve-media-cover';
+import { useKImage } from './use-k-image';
+import { useKVideo } from './use-k-video';
 
 // Shared slide/stage background renderer for the Konva surfaces. The editor
 // preview (scene-stage.tsx) and the NDI capture path (ndi-frame-capture.tsx)

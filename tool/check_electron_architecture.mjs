@@ -30,6 +30,12 @@ const ALIASES = {
 
 const NDI_HOST_COMMAND_EXPORTS = new Set(['NdiHostCommand', 'NdiHostEvent']);
 
+// Packages allowed to import react/react-dom/konva/react-konva under
+// package-purity (issue #219, W9). Only @lumacast/canvas is a rendering
+// package — every other package stays headless. Electron stays banned for
+// every package regardless of membership here.
+const REACT_ALLOWED_PACKAGES = new Set(['canvas']);
+
 // ---------------------------------------------------------------------------
 // Package graph (issue #223, parent #219). npm workspace packages live under
 // packages/*. No packages exist yet beyond packages/ndi-native (a native
@@ -44,7 +50,7 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   kernel: [],
   composition: ['kernel'],
   project: ['kernel', 'composition'],
-  canvas: ['kernel', 'composition'],
+  canvas: ['kernel', 'composition', 'protocol'],
   // Commands stays platform-independent at its core.
   commands: ['kernel'],
   automation: ['kernel', 'composition'],
@@ -97,7 +103,7 @@ const RULE_TITLES = {
   'package-app-boundary':
     'No package under packages/* may import application code under app/; packages may not depend on the application.',
   'package-purity':
-    'A package must not import React, React DOM, Konva, React-Konva, or Electron; packages are headless domain/platform code.',
+    'A package must not import React, React DOM, Konva, React-Konva, or Electron; packages are headless domain/platform code, except @lumacast/canvas, which may import react/react-dom/konva/react-konva (never electron).',
   'persistence-purity':
     'A persistence package must not import renderer code; persistence is process/storage logic and must not depend on the renderer.',
   'package-public-entry':
@@ -602,8 +608,12 @@ export function check(options = {}) {
       if (k === 'native' && fromZone !== 'mainNdi' && fromZone !== 'pkg:engine') {
         add('engine-session', `imports native module ${e.specifier} outside the NDI engine-session boundary (app/main/ndi or packages/engine)`);
       }
-      if (fromZone?.startsWith('pkg:') && (k === 'react' || k === 'electron')) {
-        add('package-purity', `imports ${e.specifier}`);
+      if (fromZone?.startsWith('pkg:')) {
+        const fromPkg = fromZone.slice(4);
+        const reactAllowed = REACT_ALLOWED_PACKAGES.has(fromPkg);
+        if (k === 'electron' || (k === 'react' && !reactAllowed)) {
+          add('package-purity', `imports ${e.specifier}`);
+        }
       }
       continue;
     }
@@ -884,6 +894,11 @@ function runSelfTests() {
       rules: ['package-app-boundary'],
     }),
     scenario('packages/headless-purity', 'scenarios/packages/headless-purity', 'fail', {
+      rules: ['package-purity'],
+    }),
+    // canvas is the sole react/konva-allowed package (issue #219, W9).
+    scenario('packages/canvas-react-allowed', 'scenarios/packages/canvas-react-allowed', 'pass'),
+    scenario('packages/canvas-electron-still-banned', 'scenarios/packages/canvas-electron-still-banned', 'fail', {
       rules: ['package-purity'],
     }),
     scenario('packages/persistence-renderer', 'scenarios/packages/persistence-renderer', 'fail', {

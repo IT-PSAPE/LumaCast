@@ -1,0 +1,14 @@
+{
+  "name": "@lumacast/canvas",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "description": "The Konva scene renderer and canvas editor: scene-node components, the stage editing/marquee/viewport interaction hooks, image/video resolution, and the inline text-editing primitives shared by the editor and NDI capture paths. The only package permitted to import react/react-dom/konva/react-konva.",
+  "peerDependencies": {
+    "konva": "^10.2.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-konva": "^19.2.3"
+  }
+}

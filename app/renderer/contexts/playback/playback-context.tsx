@@ -4,7 +4,7 @@ import type { MediaAsset, Overlay } from '@lumacast/composition';
 import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
 import { useProjectContent } from '../use-project-content';
-import { getLayerVideoElement, retainVideoSource, subscribeToVideoPool, type VideoLayerHandle } from '../../features/canvas/use-k-video';
+import { getLayerVideoElement, retainVideoSource, subscribeToVideoPool, type VideoLayerHandle } from '@lumacast/canvas';
 import { addNdiAudioElement, removeNdiAudioElement } from '../../features/playback/ndi-audio-capture';
 import { recordObsEvent } from '../../features/observability/metrics-store';
 import {

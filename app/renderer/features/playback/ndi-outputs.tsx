@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { NdiOutputName } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
-import { BindingProvider } from '../canvas/binding-context';
+import { BindingProvider } from '@lumacast/canvas';
 import { NdiFrameCapture } from './ndi-frame-capture';
 import { setNdiAudioEnabledOutputs } from './ndi-audio-capture';
 import { useProgramBindingValue, useStageBindingValue, useStageScene } from './use-stage-scene';

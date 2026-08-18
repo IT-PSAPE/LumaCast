@@ -1,8 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react';
-import type { MediaAsset } from '@lumacast/composition';
-import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
-import { useActiveEditorSource } from '../../contexts/canvas/use-active-editor-source';
-import { useWorkbench } from '../../contexts/workbench-context';
+import type { MediaAsset, RenderScene } from '@lumacast/composition';
+import type { ActiveEditorSource } from './editor-source';
 import { mapViewportPointToScene, type SceneViewportTransform } from './use-scene-stage-viewport';
 
 interface StageViewportControllerActions {
@@ -13,12 +11,25 @@ interface StageViewportControllerActions {
 
 interface StageViewportControllerState {
   editable: boolean;
-  scene: ReturnType<typeof useRenderScenes>['editScene'];
+  scene: RenderScene;
 }
 
 interface StageViewportController {
   actions: StageViewportControllerActions;
   state: StageViewportControllerState;
+}
+
+// The narrow slice of app-shell state this controller needs. The app (its
+// stage-viewport.tsx caller) resolves the active editor source, the
+// workbench's inspector-tab setter, the two candidate scenes, and the
+// element-creation action, then passes them in — the package never reaches
+// into an app-shell context directly.
+export interface StageViewportControllerDeps {
+  activeEditorSource: ActiveEditorSource;
+  setInspectorTab: (tab: 'shape') => void;
+  editScene: RenderScene;
+  showScene: RenderScene;
+  createFromMedia: (asset: MediaAsset, x: number, y: number) => Promise<void>;
 }
 
 function parseDraggedMedia(raw: string): MediaAsset | null {
@@ -31,14 +42,13 @@ function parseDraggedMedia(raw: string): MediaAsset | null {
   }
 }
 
-export function useStageViewportController(): StageViewportController {
-  const activeEditorSource = useActiveEditorSource();
-  // Reaches the shared workbench context directly (not through the inspector
-  // feature's useInspector() facade) so the canvas feature never depends on
-  // the inspector feature — see inspector-context.tsx for the reasoning.
-  const { actions: { setInspectorTab } } = useWorkbench();
-  const { editScene, showScene } = useRenderScenes();
-  const { createFromMedia } = useElements();
+export function useStageViewportController({
+  activeEditorSource,
+  setInspectorTab,
+  editScene,
+  showScene,
+  createFromMedia,
+}: StageViewportControllerDeps): StageViewportController {
   const editable = activeEditorSource.editable;
   const scene = editable ? editScene : showScene;
   const viewportRef = useRef<SceneViewportTransform>({

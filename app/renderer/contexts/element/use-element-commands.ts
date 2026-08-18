@@ -7,7 +7,7 @@ import type { SnapshotPatch } from '@lumacast/protocol';
 import { castMediaSrc, getOverlayDefaults, typeFromFile } from '../../utils/slides';
 import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
-import type { ActiveEditorSource } from '../canvas/editor-source';
+import type { ActiveEditorSource } from '@lumacast/canvas';
 import {
   createTextElement,
   newOverlayElement,

@@ -15,7 +15,7 @@ import { useAudio, useVideo, usePresentationLayers, useStagePlayback } from '../
 import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useWorkbench } from '../../contexts/workbench-context';
 import type { ProgramSurfaceKind } from '../../types/ui';
-import { BindingProvider } from '../canvas/binding-context';
+import { BindingProvider } from '@lumacast/canvas';
 import { AudioBinPanel } from '../assets/audio/audio-bin-panel';
 import { MediaBinPanel } from '../assets/media/media-bin-panel';
 import { OverlayBinPanel } from '../assets/overlays/overlay-bin-panel';
