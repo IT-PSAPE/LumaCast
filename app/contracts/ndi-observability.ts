@@ -1,0 +1,166 @@
+// ---------------------------------------------------------------------------
+// NDI output/diagnostics and observability surface (issue #154, parent
+// #116): the IPC event/result shapes for NDI output control
+// (app/main/ndi/*, app/core/ipc.ts's `NdiEventPayloads`) and the log/metrics
+// surface exposed to the renderer (app/main/logger.ts,
+// app/main/system-metrics.ts). Grouped as one module because both are
+// process-neutral, self-contained observability wire shapes with no domain
+// dependency — neither family needs anything from `@core/domain`.
+// ---------------------------------------------------------------------------
+
+export type NdiOutputName = 'audience' | 'stage';
+
+export interface NdiOutputState {
+  audience: boolean;
+  stage: boolean;
+}
+
+export type NdiSourceStatus = 'idle' | 'live';
+
+export interface NdiOutputConfig {
+  senderName: string;
+  withAlpha: boolean;
+}
+
+export type NdiOutputConfigMap = Record<NdiOutputName, NdiOutputConfig>;
+
+export interface NdiTallyState {
+  onProgram: boolean;
+  onPreview: boolean;
+}
+
+export interface NdiActiveSenderDiagnostics {
+  senderName: string;
+  width: number;
+  height: number;
+  withAlpha: boolean;
+  asyncVideoSend: boolean;
+  connectionCount: number | null;
+  // Bidirectional NDI tally signal (receiver tells sender "I'm on program /
+  // preview"). Null if the loaded runtime doesn't expose tally polling.
+  tally: NdiTallyState | null;
+  startedAtMs: number;
+  performance: NdiSenderPerformanceDiagnostics;
+  audio: NdiSenderAudioDiagnostics;
+}
+
+export interface NdiFrameTelemetry {
+  captureDurationMs: number;
+  readbackDurationMs: number;
+  skippedCaptures: number;
+  framesDroppedBackpressure: number;
+  // Cross-process Date.now() timestamps. Each stage stamps as the frame
+  // travels: renderer sets signature/capture/rendererSend; main sets
+  // mainReceived and proxyForwarded; utility sets hostReceived. The native
+  // send timestamp is computed inside the service and not echoed back.
+  // Optional — older telemetry shapes still validate.
+  signatureChangedAtMs?: number | null;
+  captureStartedAtMs?: number;
+  rendererSendAtMs?: number;
+  mainReceivedAtMs?: number;
+  proxyForwardedAtMs?: number;
+  hostReceivedAtMs?: number;
+}
+
+export interface NdiPipelineStageStats {
+  p50: number;
+  p95: number;
+  lastMs: number;
+  count: number;
+}
+
+export interface NdiPipelineLatencyDiagnostics {
+  // Headline numbers — the user's symptom is sender-side latency, and
+  // signatureToWire is how long between a state change and bits on the wire.
+  frameAgeAtWire: NdiPipelineStageStats;
+  signatureToWire: NdiPipelineStageStats;
+  // Per-stage spans — for attributing where time goes when the headline
+  // numbers are too high.
+  captureToRendererSend: NdiPipelineStageStats;
+  rendererToMainIpc: NdiPipelineStageStats;
+  mainHandler: NdiPipelineStageStats;
+  mainToHostIpc: NdiPipelineStageStats;
+  hostToNative: NdiPipelineStageStats;
+}
+
+export interface NdiSenderPerformanceDiagnostics {
+  framesCaptured: number;
+  framesSent: number;
+  framesReplayed: number;
+  framesRejected: number;
+  framesSkippedNoConnections: number;
+  skippedCaptures: number;
+  framesDroppedBackpressure: number;
+  bytesReceived: number;
+  cacheCopyBytes: number;
+  avgCaptureDurationMs: number;
+  avgReadbackDurationMs: number;
+  avgSendDurationMs: number;
+  // p50/p95/p99 of send durations over the rolling window — captures
+  // latency tail not visible from the average.
+  p50SendDurationMs: number;
+  p95SendDurationMs: number;
+  p99SendDurationMs: number;
+  // Standard deviation of the inter-send interval. High jitter is a
+  // strong signal that something upstream (capture, IPC, GC) is stalling.
+  sendIntervalJitterMs: number;
+  lastFrameBytes: number;
+  minFrameBytes: number;
+  maxFrameBytes: number;
+  blackoutFramesSent: number;
+  // Stage-by-stage pipeline latency for diagnosing where sender-side time
+  // is going (renderer capture → IPC → utility process → native send).
+  pipeline: NdiPipelineLatencyDiagnostics;
+}
+
+export interface NdiSenderAudioDiagnostics {
+  audioFramesReceived: number;
+  audioFramesSent: number;
+  audioFramesRejected: number;
+  audioSamplesSent: number;
+  audioSilenceFramesSent: number;
+  lastSampleRate: number;
+  lastChannels: number;
+}
+
+export interface NdiDiagnostics {
+  outputState: NdiOutputState;
+  outputConfig: NdiOutputConfig;
+  outputConfigs: NdiOutputConfigMap;
+  runtimeLoaded: boolean;
+  runtimePath: string | null;
+  activeSender: NdiActiveSenderDiagnostics | null;
+  senders: Record<NdiOutputName, NdiActiveSenderDiagnostics | null>;
+  sourceStatus: NdiSourceStatus;
+  lastError: string | null;
+}
+
+export interface SystemProcessMetrics {
+  rssBytes: number;
+  heapUsedBytes: number;
+  heapTotalBytes: number;
+  externalBytes: number;
+  cpuPercent: number;
+}
+
+export interface SystemMetricsSnapshot {
+  capturedAtMs: number;
+  uptimeSeconds: number;
+  main: SystemProcessMetrics;
+}
+
+export interface LogSessionSummary {
+  path: string;
+  fileName: string;
+  sizeBytes: number;
+  modifiedAtMs: number;
+  isCurrent: boolean;
+}
+
+export interface LogReadResult {
+  totalBytes: number;
+  // Byte offset returned to the caller for incremental reads. Pass back as
+  // `offset` to fetch the next chunk after `lines`.
+  nextOffset: number;
+  lines: string[];
+}

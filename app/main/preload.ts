@@ -1,51 +1,49 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@core/ipc';
 import type { SnapshotPatch } from '@core/snapshot-patch';
+import type { Id } from '@core/domain/ids';
+import type { Cue, Macro, TriggerBinding } from '@core/domain/automation';
 import type {
-  AppSnapshot,
-  Cue,
-  CueCreateInput,
-  CueUpdateInput,
-  DeckBundleBrokenReferenceDecision,
-  DeckBundleExportOptions,
-  DeckBundleInspection,
-  ElementCreateInput,
-  ElementUpdateInput,
-  Id,
-  LogReadResult,
-  LogSessionSummary,
-  Macro,
-  MediaAssetCreateInput,
   CollectionAssignmentInput,
   CollectionCreateInput,
   CollectionDeleteInput,
   CollectionRenameInput,
   CollectionReorderInput,
+  CueCreateInput,
+  CueUpdateInput,
+  DeckBundleExportOptions,
+  ElementCreateInput,
+  ElementUpdateInput,
   MacroCreateInput,
   MacroUpdateInput,
-  NdiDiagnostics,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiFrameTelemetry,
-  NdiOutputName,
-  NdiOutputState,
+  MediaAssetCreateInput,
   OverlayCreateInput,
   OverlayUpdateInput,
-  StageCreateInput,
-  StageUpdateInput,
-  SystemMetricsSnapshot,
-  ThemeCreateInput,
-  ThemeUpdateInput,
-  TriggerBinding,
-  TriggerBindingCreateInput,
+  SlideBackgroundUpdateInput,
   SlideCreateInput,
   SlideNotesUpdateInput,
-  SlideBackgroundUpdateInput,
   SlideOrderUpdateInput,
+  StageCreateInput,
+  StageUpdateInput,
   TalkScriptBlockCreateInput,
   TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput
-} from '@core/types';
+  TalkScriptBlockUpdateInput,
+  ThemeCreateInput,
+  ThemeUpdateInput,
+  TriggerBindingCreateInput,
+} from '../contracts/rpc-inputs';
+import type { AppSnapshot, DeckBundleBrokenReferenceDecision, DeckBundleInspection } from '../contracts/rpc-results';
+import type {
+  LogReadResult,
+  LogSessionSummary,
+  NdiDiagnostics,
+  NdiFrameTelemetry,
+  NdiOutputConfig,
+  NdiOutputConfigMap,
+  NdiOutputName,
+  NdiOutputState,
+  SystemMetricsSnapshot,
+} from '../contracts/ndi-observability';
 import type { ProjectBackup } from '../contracts/project-backup';
 
 const api = {

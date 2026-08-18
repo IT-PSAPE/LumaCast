@@ -1,42 +1,25 @@
+import type { CueClearLayer, CuePayload, LifecycleAction } from '@core/domain/automation';
+import type { SlideBackground } from '@core/domain/slides';
+import type { SlideElement, SlideElementPayload, SlideElementType } from '@core/domain/slide-elements';
+import type { OverlayAnimation } from '@core/domain/overlays';
 import type {
-  AppSnapshot,
   CollectionAssignmentInput,
   CollectionCreateInput,
   CollectionDeleteInput,
   CollectionReorderInput,
   CollectionRenameInput,
-  CueClearLayer,
   CueCreateInput,
-  CuePayload,
   CueUpdateInput,
-  DeckBundleBrokenReferenceDecision,
   DeckBundleExportOptions,
-  DeckBundleItem,
-  DeckBundleManifest,
-  DeckBundleMediaReference,
-  DeckBundleOverlay,
-  DeckBundlePlaylist,
-  DeckBundleSlide,
-  DeckBundleStage,
-  DeckBundleTheme,
   ElementCreateInput,
   ElementUpdateInput,
-  LifecycleAction,
   MacroCreateInput,
   MacroUpdateInput,
   MediaAssetCreateInput,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiOutputName,
-  OverlayAnimation,
   OverlayCreateInput,
   OverlayUpdateInput,
-  SlideBackground,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
-  SlideElement,
-  SlideElementPayload,
-  SlideElementType,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
   StageCreateInput,
@@ -47,7 +30,19 @@ import type {
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
-} from '@core/types';
+} from './rpc-inputs';
+import type { AppSnapshot, DeckBundleBrokenReferenceDecision } from './rpc-results';
+import type { NdiOutputConfig, NdiOutputConfigMap, NdiOutputName } from './ndi-observability';
+import type {
+  DeckBundleItem,
+  DeckBundleManifest,
+  DeckBundleMediaReference,
+  DeckBundleOverlay,
+  DeckBundlePlaylist,
+  DeckBundleSlide,
+  DeckBundleStage,
+  DeckBundleTheme,
+} from './deck-bundle-manifest';
 import type { DeckItemCreateWithThemeInput, InlineWindowMenuBounds } from '@core/ipc';
 
 /**
