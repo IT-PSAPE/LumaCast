@@ -83,7 +83,7 @@ import type {
   TriggerBinding,
   TriggerBindingTargetType,
   TriggerType,
-} from '@core/domain/automation';
+} from '@lumacast/automation';
 // The ProjectBackup family moved to app/contracts/project-backup.ts under
 // #215 (parent #116/#153): it is a serialization contract, not a persistence
 // DTO, so it lives in the neutral app/contracts/ boundary core, database and

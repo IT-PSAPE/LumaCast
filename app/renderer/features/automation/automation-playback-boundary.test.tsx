@@ -3,7 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ReactNode } from 'react';
-import type { Cue, Macro } from '@core/types';
+import type { Cue, Macro } from '@lumacast/automation';
 import { AutomationProvider, useAutomation } from './automation-context';
 import type { PlaybackCommandPort } from '../../contexts/playback/playback-context';
 

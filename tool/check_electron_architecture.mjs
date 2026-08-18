@@ -49,7 +49,7 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   canvas: ['kernel', 'composition'],
   // Commands stays platform-independent at its core.
   commands: ['kernel'],
-  automation: ['kernel', 'commands', 'project'],
+  automation: ['kernel', 'composition'],
   playback: ['kernel', 'project', 'composition', 'commands'],
   // Protocol owns no domain behaviour.
   protocol: ['kernel'],

@@ -1,11 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { Id } from '@lumacast/kernel';
 import type {
   Cue,
   CueClearLayer,
   CueFailurePolicy,
   CueKind,
   CuePayload,
-  Id,
   LifecycleAction,
   LifecycleTarget,
   Macro,
@@ -14,7 +14,7 @@ import type {
   TriggerBinding,
   TriggerBindingTargetType,
   TriggerType,
-} from '@core/types';
+} from '@lumacast/automation';
 import { getSlideDeckItemId } from '@lumacast/composition';
 import { useCast } from '@renderer/contexts/app-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';

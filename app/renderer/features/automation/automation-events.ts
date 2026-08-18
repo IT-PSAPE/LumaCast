@@ -1,4 +1,5 @@
-import type { TriggerType, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { TriggerType } from '@lumacast/automation';
 
 export const AUTOMATION_TRIGGER_EVENT = 'lumacast:automation-trigger';
 

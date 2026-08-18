@@ -1,4 +1,6 @@
-import type { Cue, CueClearLayer, CueKind, Id, LifecycleAction, LifecycleTarget, MediaAsset, Overlay, Stage } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset, Overlay, Stage } from '@lumacast/composition';
+import type { Cue, CueClearLayer, CueKind, LifecycleAction, LifecycleTarget } from './model';
 
 export const CUE_KIND_LABELS: Record<CueKind, string> = {
   'overlay.activate': 'Activate overlay',

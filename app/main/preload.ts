@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@core/ipc';
 import type { SnapshotPatch } from '@core/snapshot-patch';
 import type { Id } from '@lumacast/kernel';
-import type { Cue, Macro, TriggerBinding } from '@core/domain/automation';
+import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import type {
   CollectionAssignmentInput,
   CollectionCreateInput,

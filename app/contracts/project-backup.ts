@@ -7,7 +7,7 @@ import type {
   OnScopeExit,
   TriggerType,
   TriggerBindingTargetType,
-} from '@core/domain/automation';
+} from '@lumacast/automation';
 
 // ---------------------------------------------------------------------------
 // Project backup (#145): a complete, versioned serialization of every

@@ -114,10 +114,13 @@ function findEdgesInto(files: SourceFile[], intoDir: string): ImportEdge[] {
 }
 
 describe('domain vs persistence-DTO boundary (#153)', () => {
-  it('app/core/domain/ exists and has real content (guards against an empty, meaningless check)', () => {
-    const domainFiles = listTsFiles(DOMAIN_DIR);
-    expect(domainFiles.length).toBeGreaterThan(0);
-  });
+  // The "domain dir has real content" guard was dropped here (package
+  // extraction wave #219 W2): app/core/domain/ is now empty by design — its
+  // last file (automation.ts) moved to packages/automation/src/model.ts —
+  // and stays empty as later waves land, so an emptiness guard would be a
+  // false alarm rather than a caught mistake. This whole file is slated for
+  // retirement in wave W5 once app/core/ and app/database/dto/ are gone; see
+  // PACKAGE-MIGRATION-PLAN.md.
 
   it('no file under app/core/domain/ imports from app/database/ (domain primitives must not depend on persistence DTOs, or anything else in the database layer)', () => {
     const violations = findEdgesInto(readAll(DOMAIN_DIR), DATABASE_DIR);

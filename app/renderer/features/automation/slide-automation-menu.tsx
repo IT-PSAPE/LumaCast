@@ -1,4 +1,5 @@
-import type { CueKind, CuePayload, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { CueKind, CuePayload } from '@lumacast/automation';
 import { ContextMenu } from '@renderer/components/overlays/context-menu';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useAutomation } from './automation-context';

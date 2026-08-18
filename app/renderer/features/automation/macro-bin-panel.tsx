@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, useState } from 'react';
 import { Check, Play, Workflow } from 'lucide-react';
-import type { Id, Macro, TriggerBinding } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Macro, TriggerBinding } from '@lumacast/automation';
 import { useWorkbench } from '../../contexts/workbench-context';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
 import { useConfirm } from '../../components/overlays/confirm-dialog';

@@ -77,7 +77,7 @@ export type {
   MacroCue,
   Macro,
   TriggerBinding,
-} from './domain/automation';
+} from '@lumacast/automation';
 
 // Ordinary type-only import (not part of the re-export facade above): needed
 // by `PlaybackState` below, which has not moved (#155, not this slice).

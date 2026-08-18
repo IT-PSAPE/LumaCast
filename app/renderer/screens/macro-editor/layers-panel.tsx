@@ -6,7 +6,7 @@ import { EmptyState } from '@renderer/components/display/empty-state';
 import { SelectableRow } from '@renderer/components/display/selectable-row';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
-import { CUE_KIND_LABELS, describeCue } from '@renderer/features/automation/describe-cue';
+import { CUE_KIND_LABELS, describeCue } from '@lumacast/automation';
 import { useMacroEditorScreen, type MacroEditorCueRow } from './screen-context';
 
 export function MacroEditorLayersPanel() {

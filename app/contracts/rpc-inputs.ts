@@ -19,7 +19,7 @@ import type {
   ScopeLevel,
   TriggerBindingTargetType,
   TriggerType,
-} from '@core/domain/automation';
+} from '@lumacast/automation';
 
 // ---------------------------------------------------------------------------
 // RPC mutation inputs (issue #154, parent #116): the argument shapes of the

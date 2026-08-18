@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { Cue, Macro, TriggerBinding } from './domain/automation';
+import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import type {
   CollectionAssignmentInput,
   CollectionCreateInput,

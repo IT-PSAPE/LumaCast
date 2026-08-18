@@ -17,7 +17,7 @@ import type {
   Stage,
   Collection,
 } from '@lumacast/composition';
-import type { Cue, Macro, TriggerBinding } from '@core/domain/automation';
+import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import type { DeckBundleMediaReference } from './deck-bundle-manifest';
 
 // ---------------------------------------------------------------------------

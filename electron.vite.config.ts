@@ -57,7 +57,10 @@ export default defineConfig({
     // require("@lumacast/kernel") in out/main/index.js, and Node's CJS
     // loader cannot parse that raw ESM TypeScript source. Exclude it so
     // Rollup inlines it via the alias below instead.
-    plugins: [externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition'] }), buildNdiHostBundlePlugin()],
+    plugins: [
+      externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation'] }),
+      buildNdiHostBundlePlugin()
+    ],
     build: {
       outDir: 'out/main',
       lib: {
@@ -69,14 +72,15 @@ export default defineConfig({
         '@core': path.resolve(__dirname, 'app/core'),
         '@database': path.resolve(__dirname, 'app/database'),
         '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
-        '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts')
+        '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
+        '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts')
       }
     }
   },
   preload: {
     // Same reasoning as the main config above: keep @lumacast/kernel bundled
     // rather than externalized.
-    plugins: [externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation'] })],
     build: {
       outDir: 'out/preload',
       lib: {
@@ -87,7 +91,8 @@ export default defineConfig({
       alias: {
         '@core': path.resolve(__dirname, 'app/core'),
         '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
-        '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts')
+        '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
+        '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts')
       }
     }
   },
@@ -104,7 +109,8 @@ export default defineConfig({
         '@renderer': path.resolve(__dirname, 'app/renderer'),
         '@core': path.resolve(__dirname, 'app/core'),
         '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
-        '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts')
+        '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
+        '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts')
       }
     },
     plugins: [tailwindcss(), react()]
