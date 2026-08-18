@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 
 export function useIndexedSelection() {
   const [indices, setIndices] = useState<Record<Id, number>>({});

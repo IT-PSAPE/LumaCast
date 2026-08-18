@@ -1,5 +1,5 @@
 import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
-import type { Theme } from '@core/types';
+import type { Theme } from '@lumacast/composition';
 import { Layers, Music, Plus, Presentation } from 'lucide-react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { LumaCastPanel } from '@renderer/components/layout/panel';

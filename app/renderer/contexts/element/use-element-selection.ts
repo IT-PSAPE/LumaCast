@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 
 interface UseElementSelectionInput {
   effectiveElements: SlideElement[];

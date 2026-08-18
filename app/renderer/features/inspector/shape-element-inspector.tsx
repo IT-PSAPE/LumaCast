@@ -12,7 +12,7 @@ import { IconGroup } from '@renderer/components/icon-group';
 import { useShapeInspector } from './use-shape-inspector';
 import { Section } from './inspector-section';
 import { EmptyState } from '../../components/display/empty-state';
-import { StrokePosition } from '@core/types';
+import type { StrokePosition } from '@lumacast/composition';
 import { parseNumber } from '@renderer/utils/slides';
 import { Label } from '@renderer/components/display/text';
 

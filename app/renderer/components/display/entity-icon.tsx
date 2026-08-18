@@ -1,4 +1,4 @@
-import type { MediaAsset, MediaAssetType, DeckItem, DeckItemType } from '@core/types';
+import type { MediaAsset, MediaAssetType, DeckItem, DeckItemType } from '@lumacast/composition';
 import { FileText, Film, Image, Mic, Music, Presentation } from 'lucide-react';
 
 // ─── Media Asset Icon ────────────────────────────────

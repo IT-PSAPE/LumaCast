@@ -1,10 +1,4 @@
-import type {
-  NdiDiagnostics,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiOutputName,
-  NdiOutputState,
-} from '@core/types';
+import type { NdiDiagnostics, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState } from '@lumacast/protocol';
 import type { NdiServiceLike } from './ndi-protocol';
 
 /**

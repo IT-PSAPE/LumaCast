@@ -1,6 +1,6 @@
 import { BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { CastRepository } from '@database/store';
-import { validateProjectBackup } from '@core/deck-bundles';
+import { validateProjectBackup } from '@lumacast/protocol';
 import {
   IPC,
   NDI_EVENTS,
@@ -9,7 +9,7 @@ import {
   type InlineWindowMenuBounds,
   type InlineWindowMenuItem,
   type RpcOperations,
-} from '@core/ipc';
+} from '@lumacast/protocol';
 import type { AppMenuState } from '@lumacast/commands';
 import type { Id } from '@lumacast/kernel';
 import type {
@@ -40,10 +40,10 @@ import type {
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
-} from '../contracts/rpc-inputs';
-import type { AppSnapshot, DeckBundleBrokenReferenceDecision } from '../contracts/rpc-results';
-import type { NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputName } from '../contracts/ndi-observability';
-import type { ProjectBackup } from '../contracts/project-backup';
+} from '@lumacast/protocol';
+import type { AppSnapshot, DeckBundleBrokenReferenceDecision } from '@lumacast/protocol';
+import type { NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputName } from '@lumacast/protocol';
+import type { ProjectBackup } from '@lumacast/protocol';
 import {
   CodecError,
   RPC_MOVE_DIRECTIONS,
@@ -82,7 +82,7 @@ import {
   decodeThemeUpdateInput,
   decodeTriggerBindingCreateInput,
   type CodecContext,
-} from '../contracts/codecs';
+} from '@lumacast/protocol';
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
 import type { AppUpdater } from './app-updater';
 import { readDeckBundleArchive, writeDeckBundleArchive } from './deck-bundle-archive';

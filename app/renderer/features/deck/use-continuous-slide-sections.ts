@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useSlides } from '../../contexts/slide-context';

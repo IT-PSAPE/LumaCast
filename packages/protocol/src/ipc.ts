@@ -28,8 +28,8 @@ import type {
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
-} from '../contracts/rpc-inputs';
-import type { AppSnapshot, DeckBundleBrokenReferenceDecision, DeckBundleInspection } from '../contracts/rpc-results';
+} from './rpc-inputs';
+import type { AppSnapshot, DeckBundleBrokenReferenceDecision, DeckBundleInspection } from './rpc-results';
 import type {
   LogReadResult,
   LogSessionSummary,
@@ -40,9 +40,9 @@ import type {
   NdiOutputName,
   NdiOutputState,
   SystemMetricsSnapshot,
-} from '../contracts/ndi-observability';
+} from './ndi-observability';
 import type { SnapshotPatch } from './snapshot-patch';
-import type { ProjectBackup } from '../contracts/project-backup';
+import type { ProjectBackup } from './project-backup';
 import type { AppMenuCommandId, AppMenuState } from '@lumacast/commands';
 
 export interface RpcError {

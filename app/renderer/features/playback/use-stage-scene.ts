@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { TextElementPayload } from '@core/types';
+import type { TextElementPayload } from '@lumacast/composition';
 import { useSlides } from '../../contexts/slide-context';
 import { buildRenderScene } from '../canvas/build-render-scene';
 import type { BindingValue } from '@lumacast/composition';

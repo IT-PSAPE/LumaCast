@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef } from 'react';
 import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
-import type { Id, Slide } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Slide } from '@lumacast/composition';
 import { Label } from '@renderer/components/display/text';
 import { EmptyState } from '../../components/display/empty-state';
 import { ScrollArea } from '../../components/layout/scroll-area';

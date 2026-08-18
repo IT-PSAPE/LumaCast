@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type MouseEventHandler, type ReactNode } from 'react';
-import type { InlineWindowMenuItem } from '@core/ipc';
+import type { InlineWindowMenuItem } from '@lumacast/protocol';
 import { cn } from '@renderer/utils/cn';
 
 const isMac = window.castApi.platform === 'darwin';

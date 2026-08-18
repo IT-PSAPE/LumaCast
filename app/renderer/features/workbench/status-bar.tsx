@@ -1,6 +1,6 @@
 import { cv } from '@renderer/utils/cv';
 import { LoaderCircle } from 'lucide-react';
-import type { NdiActiveSenderDiagnostics } from '@core/types';
+import type { NdiActiveSenderDiagnostics } from '@lumacast/protocol';
 import { useCast, useNdi } from '../../contexts/app-context';
 
 const indicatorStyles = cv({

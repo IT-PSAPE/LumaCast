@@ -1,7 +1,9 @@
 import { useCallback } from 'react';
 import { isLyricDeckItem } from '@lumacast/composition';
-import type { DeckItem, ElementCreateInput, Id, MediaAsset, SlideElement } from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, MediaAsset, SlideElement } from '@lumacast/composition';
+import type { ElementCreateInput } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
 import { castMediaSrc, getOverlayDefaults, typeFromFile } from '../../utils/slides';
 import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';

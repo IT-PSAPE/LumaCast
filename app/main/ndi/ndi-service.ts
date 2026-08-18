@@ -1,19 +1,6 @@
 import { performance } from 'node:perf_hooks';
-import { NDI_OUTPUT_HEIGHT, NDI_OUTPUT_ORDER, NDI_OUTPUT_WIDTH } from '@core/ndi';
-import type {
-  NdiActiveSenderDiagnostics,
-  NdiDiagnostics,
-  NdiFrameTelemetry,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiOutputName,
-  NdiOutputState,
-  NdiPipelineLatencyDiagnostics,
-  NdiPipelineStageStats,
-  NdiSenderAudioDiagnostics,
-  NdiSenderPerformanceDiagnostics,
-  NdiSourceStatus,
-} from '@core/types';
+import { NDI_OUTPUT_HEIGHT, NDI_OUTPUT_ORDER, NDI_OUTPUT_WIDTH } from '@lumacast/protocol';
+import type { NdiActiveSenderDiagnostics, NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState, NdiPipelineLatencyDiagnostics, NdiPipelineStageStats, NdiSenderAudioDiagnostics, NdiSenderPerformanceDiagnostics, NdiSourceStatus } from '@lumacast/protocol';
 import { defaultNdiModuleLoader, type NdiNativeModule } from './ndi-native-module';
 
 const HEARTBEAT_INTERVAL_MS = Math.round(1000 / 30);

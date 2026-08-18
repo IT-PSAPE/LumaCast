@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { DeckBundleManifest, Id, PlaylistEntry, PlaylistTree } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { PlaylistEntry, PlaylistTree } from '@lumacast/composition';
+import type { DeckBundleManifest } from '@lumacast/protocol';
 import { CastRepository } from './store';
 
 let repo: CastRepository;

@@ -1,4 +1,5 @@
-import type { Id, MediaAsset } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset } from '@lumacast/composition';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
 import { MediaAssetIcon } from '../../../components/display/entity-icon';

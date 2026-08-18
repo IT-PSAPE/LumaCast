@@ -28,7 +28,7 @@ import {
 // Importing the real preload module runs `contextBridge.exposeInMainWorld`
 // as a side effect; this is the only way to observe the bridge object it
 // actually builds, as opposed to what `MainApi` merely permits it to build.
-await import('../main/preload');
+await import('../../../app/main/preload');
 
 function exposedApi(): Record<string, unknown> {
   const call = exposeInMainWorld.mock.calls.find(([key]) => key === 'castApi');

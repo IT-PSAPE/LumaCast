@@ -1,4 +1,4 @@
-import type { NdiOutputConfig, NdiOutputConfigMap, NdiOutputName } from './types';
+import type { NdiOutputConfig, NdiOutputConfigMap, NdiOutputName } from './ndi-observability';
 
 export const NDI_OUTPUT_WIDTH = 1920;
 export const NDI_OUTPUT_HEIGHT = 1080;

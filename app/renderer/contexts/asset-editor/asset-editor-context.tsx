@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createDefaultThemeElements } from '@lumacast/composition';
-import type { Id, Overlay, OverlayCreateInput, OverlayUpdateInput, SlideBackground, SlideElement, Stage, Theme, ThemeKind, GroupElementPayload } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Overlay, SlideBackground, SlideElement, Stage, Theme, ThemeKind, GroupElementPayload } from '@lumacast/composition';
+import type { OverlayCreateInput, OverlayUpdateInput } from '@lumacast/protocol';
 import { cloneElements, slideElementsSignature } from '../../utils/staged-editor-utils';
 import { getOverlayDefaults } from '../../utils/slides';
 import { createId } from '../../utils/create-id';

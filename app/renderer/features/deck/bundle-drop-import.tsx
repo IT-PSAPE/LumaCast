@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type {
-  DeckBundleBrokenReferenceAction,
-  DeckBundleBrokenReferenceDecision,
-  DeckBundleInspection,
-} from '@core/types';
+import type { DeckBundleBrokenReferenceAction, DeckBundleBrokenReferenceDecision, DeckBundleInspection } from '@lumacast/protocol';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '@renderer/components/overlays/dialog';
 import { useCast } from '@renderer/contexts/app-context';

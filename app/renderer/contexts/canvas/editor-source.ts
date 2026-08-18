@@ -1,4 +1,5 @@
-import type { DeckItemType, Id, Overlay, Slide, SlideElement, Stage, Theme, ThemeKind } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItemType, Overlay, Slide, SlideElement, Stage, Theme, ThemeKind } from '@lumacast/composition';
 import type { WorkbenchMode } from '../../types/ui';
 
 export type EditorWorkbenchMode = 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor';

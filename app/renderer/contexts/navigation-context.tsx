@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getSlideDeckItemId } from '@lumacast/composition';
-import type { Id, LibraryPlaylistBundle } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { LibraryPlaylistBundle } from '@lumacast/composition';
 import { useCast } from './app-context';
 import { useProjectContent } from './use-project-content';
 import { useThemeEditor } from './asset-editor/asset-editor-context';

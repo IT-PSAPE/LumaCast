@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { LibraryPlaylistBundle } from '@core/types';
+import type { LibraryPlaylistBundle } from '@lumacast/composition';
 import { Folder, Plus } from 'lucide-react';
 import { useCast } from '@renderer/contexts/app-context';
 import { useNavigation } from '@renderer/contexts/navigation-context';

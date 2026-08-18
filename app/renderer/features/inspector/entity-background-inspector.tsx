@@ -1,4 +1,5 @@
-import type { Id, SlideBackground } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideBackground } from '@lumacast/composition';
 import { useCast } from '@renderer/contexts/app-context';
 import { BackgroundControls } from './background-controls';
 

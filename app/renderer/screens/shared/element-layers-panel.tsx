@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { SlideElement, TextElementPayload } from '@core/types';
+import type { SlideElement, TextElementPayload } from '@lumacast/composition';
 import { Box, Eye, EyeOff, Film, Image, Lock, LockOpen, Square, Type } from 'lucide-react';
 import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';

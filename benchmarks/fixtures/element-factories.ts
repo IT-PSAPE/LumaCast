@@ -1,4 +1,5 @@
-import type { ElementCreateInput, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { ElementCreateInput } from '@lumacast/protocol';
 
 // Small, deterministic factories for each slide element payload shape a
 // fixture generator needs. Geometry and colors are derived from `index` so

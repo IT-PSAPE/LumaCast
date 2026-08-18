@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CastRepository } from './store';
-import type { Id, PlaylistTree } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { PlaylistTree } from '@lumacast/composition';
 import { createTestRepository } from './test-support';
 
 // Covers the promoted item from #214: `addDeckItemToGroup` silently returned

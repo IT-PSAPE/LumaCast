@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CollectionBinKind, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { CollectionBinKind } from '@lumacast/composition';
 import { createTestRepository } from './test-support';
 import { CollectionDeletionError } from './store';
 import type { CastRepository } from './store';

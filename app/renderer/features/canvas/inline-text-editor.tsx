@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SlideElement, TextElementPayload } from '@core/types';
+import type { SlideElement, TextElementPayload } from '@lumacast/composition';
 import {
   type RichBody,
   type RichBlock,

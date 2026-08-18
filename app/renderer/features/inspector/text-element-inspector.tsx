@@ -1,4 +1,4 @@
-import type { StrokePosition, TextCaseTransform } from '@core/types';
+import type { StrokePosition, TextCaseTransform } from '@lumacast/composition';
 import { cn } from '@renderer/utils/cn';
 import { ColorPicker } from '../../components/form/color-picker';
 import { FieldIcon, FieldInput, FieldSelect } from '../../components/form/field';

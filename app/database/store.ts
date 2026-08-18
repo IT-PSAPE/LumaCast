@@ -13,8 +13,8 @@ import {
   validateDeckBundleManifest,
   validateProjectBackup as validateProjectBackupDocument,
   type ProjectBackupTableKey,
-} from '@core/deck-bundles';
-import type { ProjectRestoreResult } from '@core/ipc';
+} from '@lumacast/protocol';
+import type { ProjectRestoreResult } from '@lumacast/protocol';
 import {
   buildDeckItem,
   makePlaylistItemReference,
@@ -36,7 +36,7 @@ import {
   decodeSlideElementPayload,
   decodeSlideElementPayloadJson,
   type CodecContext,
-} from '../contracts/codecs';
+} from '@lumacast/protocol';
 import { SqliteDatabase } from './sqlite';
 import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations';
 // Domain primitives (#153, #219): owned by @lumacast/composition, imported
@@ -108,57 +108,13 @@ import type {
   ProjectBackupTalkScriptBlockRow,
   ProjectBackupThemeRow,
   ProjectBackupTriggerBindingRow,
-} from '../contracts/project-backup';
+} from '@lumacast/protocol';
 // Everything below has not moved under #153 and remains on the
 // app/core/types.ts facade: IPC/application contracts (#154) and the
 // deck-bundle wire format.
-import type {
-  AppSnapshot,
-  CueCreateInput,
-  CueUpdateInput,
-  BrokenDeckBundleReference,
-  CollectionAssignmentInput,
-  CollectionCreateInput,
-  CollectionDeleteInput,
-  CollectionRenameInput,
-  CollectionReorderInput,
-  DeckBundleBrokenReferenceDecision,
-  DeckBundleExportOptions,
-  DeckBundleInspection,
-  DeckBundleInspectionOverlay,
-  DeckBundleInspectionPlaylist,
-  DeckBundleInspectionStage,
-  DeckBundleInspectionTheme,
-  DeckBundleItem,
-  DeckBundleManifest,
-  DeckBundleOverlay,
-  DeckBundlePlaylist,
-  DeckBundlePlaylistGroup,
-  DeckBundleSlide,
-  DeckBundleStage,
-  DeckBundleTheme,
-  ElementCreateInput,
-  ElementUpdateInput,
-  MacroCreateInput,
-  MacroUpdateInput,
-  MediaAssetCreateInput,
-  OverlayCreateInput,
-  OverlayUpdateInput,
-  SlideBackgroundUpdateInput,
-  SlideCreateInput,
-  SlideNotesUpdateInput,
-  SlideOrderUpdateInput,
-  StageCreateInput,
-  StageUpdateInput,
-  TalkScriptBlockCreateInput,
-  TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput,
-  ThemeCreateInput,
-  ThemeUpdateInput,
-  TriggerBindingCreateInput,
-} from '@core/types';
+import type { AppSnapshot, CueCreateInput, CueUpdateInput, BrokenDeckBundleReference, CollectionAssignmentInput, CollectionCreateInput, CollectionDeleteInput, CollectionRenameInput, CollectionReorderInput, DeckBundleBrokenReferenceDecision, DeckBundleExportOptions, DeckBundleInspection, DeckBundleInspectionOverlay, DeckBundleInspectionPlaylist, DeckBundleInspectionStage, DeckBundleInspectionTheme, DeckBundleItem, DeckBundleManifest, DeckBundleOverlay, DeckBundlePlaylist, DeckBundlePlaylistGroup, DeckBundleSlide, DeckBundleStage, DeckBundleTheme, ElementCreateInput, ElementUpdateInput, MacroCreateInput, MacroUpdateInput, MediaAssetCreateInput, OverlayCreateInput, OverlayUpdateInput, SlideBackgroundUpdateInput, SlideCreateInput, SlideNotesUpdateInput, SlideOrderUpdateInput, StageCreateInput, StageUpdateInput, TalkScriptBlockCreateInput, TalkScriptBlockOrderUpdateInput, TalkScriptBlockUpdateInput, ThemeCreateInput, ThemeUpdateInput, TriggerBindingCreateInput } from '@lumacast/protocol';
 import { isBrokenMediaSource, toCastMediaSource } from './media-source-utils';
-import type { SnapshotPatch } from '@core/snapshot-patch';
+import type { SnapshotPatch } from '@lumacast/protocol';
 
 const DEFAULT_W = 1920;
 const DEFAULT_H = 1080;
@@ -6455,7 +6411,7 @@ export class CastRepository {
 
   private assertValidDeckBundleManifest(manifest: DeckBundleManifest, operation: string): void {
     // Structural validation plus playlist-entry owner-column checking is
-    // @core/deck-bundles's single named validation entry point for the
+    // @lumacast/protocol's single named validation entry point for the
     // bundle wire contract; it is the authoritative boundary for bundle
     // shape, field types, enums, and owner-column referential rules. The
     // `operation` reflects the caller (inspect vs finalize) so a failure's

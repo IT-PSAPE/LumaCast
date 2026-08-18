@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { getSlideDeckItemId, isTalkDeckItem } from '@lumacast/composition';
-import type { AppSnapshot, Id, Slide, SlideBackground, SlideElement, TalkScriptBlock } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Slide, SlideBackground, SlideElement, TalkScriptBlock } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
 import { clamp, sortSlides } from '../utils/slides';
 import { useIndexedSelection } from '../hooks/use-indexed-selection';
 import { useCast } from './app-context';

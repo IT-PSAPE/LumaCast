@@ -1,5 +1,6 @@
 import { isLyricDeckItem } from '@lumacast/composition';
-import type { DeckItem, Id, PlaylistTree } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, PlaylistTree } from '@lumacast/composition';
 
 interface PlaylistEntryLookup {
   entryId: Id;

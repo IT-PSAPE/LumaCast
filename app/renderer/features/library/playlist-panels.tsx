@@ -7,7 +7,7 @@ import { useLibraryBrowser } from './library-browser-context';
 import { GroupsBrowser } from './groups-browser';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { PlaylistTree } from '@core/types';
+import type { PlaylistTree } from '@lumacast/composition';
 import { RenameField, RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { useEffect, useRef } from 'react';
 import { useLibraryPanelState } from './library-panel-context';

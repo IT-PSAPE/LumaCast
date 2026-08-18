@@ -15,7 +15,7 @@ import { MacroEditorScreenProvider, useMacroEditorScreen } from './screen-contex
 import { MacroEditorLayersPanel } from './layers-panel';
 import { MacroEditorCanvasPanel } from './canvas-panel';
 import { MacroEditorInspectorPanel } from './inspector-panel';
-import type { Macro } from '@core/types';
+import type { Macro } from '@lumacast/automation';
 
 export function MacroEditorScreen() {
   return (

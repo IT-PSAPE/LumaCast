@@ -1,6 +1,9 @@
 import { useMemo, useRef } from 'react';
 import { getSlideDeckItemId } from '@lumacast/composition';
-import type { AppSnapshot, Collection, CollectionBinKind, Cue, DeckItem, Presentation, Id, Lyric, Macro, MediaAsset, Overlay, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme, TriggerBinding } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Collection, CollectionBinKind, DeckItem, Presentation, Lyric, MediaAsset, Overlay, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from '@lumacast/composition';
+import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
+import type { AppSnapshot } from '@lumacast/protocol';
 import { sortElements, sortSlides } from '../utils/slides';
 import { useCast } from './app-context';
 

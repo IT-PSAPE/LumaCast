@@ -1,4 +1,4 @@
-import type { MediaAsset, OverlayAnimation, Slide, SlideElement } from '@core/types';
+import type { MediaAsset, OverlayAnimation, Slide, SlideElement } from '@lumacast/composition';
 import type { SlideBrowserMode, PlaylistBrowserMode, SlideVisualState } from '../types/ui';
 import { LAYER_ORDER } from '../types/ui';
 export { clamp } from './math';

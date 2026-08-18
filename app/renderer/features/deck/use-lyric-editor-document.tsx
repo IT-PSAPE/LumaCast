@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 import type { Block } from '../../components/form/doc-editor';
 import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';

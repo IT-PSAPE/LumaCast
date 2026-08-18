@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import type { DeckItem, PlaylistEntry, PlaylistTree } from '@core/types';
+import type { DeckItem, PlaylistEntry, PlaylistTree } from '@lumacast/composition';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { Accordion } from '../../components/display/accordion';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';

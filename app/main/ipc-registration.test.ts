@@ -72,7 +72,7 @@ vi.mock('./security', () => ({
   assertTrustedIpcSender: vi.fn(),
 }));
 
-import { IPC, NDI_FRAME_CHANNEL_NAMES } from '@core/ipc';
+import { IPC, NDI_FRAME_CHANNEL_NAMES } from '@lumacast/protocol';
 import { registerIpcHandlers } from './ipc';
 import type { CastRepository } from '@database/store';
 import type { NdiServiceLike } from './ndi/ndi-protocol';

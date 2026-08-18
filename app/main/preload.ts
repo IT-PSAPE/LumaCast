@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@core/ipc';
-import type { SnapshotPatch } from '@core/snapshot-patch';
+import { APP_MENU_EVENTS, IPC, NDI_EVENTS, type DeckItemCreateResult, type DeckItemCreateWithThemeInput, type DeckItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
 import type { Id } from '@lumacast/kernel';
 import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import type {
@@ -31,8 +31,8 @@ import type {
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
-} from '../contracts/rpc-inputs';
-import type { AppSnapshot, DeckBundleBrokenReferenceDecision, DeckBundleInspection } from '../contracts/rpc-results';
+} from '@lumacast/protocol';
+import type { AppSnapshot, DeckBundleBrokenReferenceDecision, DeckBundleInspection } from '@lumacast/protocol';
 import type {
   LogReadResult,
   LogSessionSummary,
@@ -43,16 +43,16 @@ import type {
   NdiOutputName,
   NdiOutputState,
   SystemMetricsSnapshot,
-} from '../contracts/ndi-observability';
-import type { ProjectBackup } from '../contracts/project-backup';
+} from '@lumacast/protocol';
+import type { ProjectBackup } from '@lumacast/protocol';
 
 const api = {
   platform: process.platform,
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   readClipboardText: () => ipcRenderer.invoke(IPC.readClipboardText) as Promise<string>,
   writeClipboardText: (text: string) => ipcRenderer.invoke(IPC.writeClipboardText, text) as Promise<void>,
-  getInlineWindowMenuItems: () => ipcRenderer.invoke(IPC.getInlineWindowMenuItems) as Promise<import('@core/ipc').InlineWindowMenuItem[]>,
-  popupInlineWindowMenu: (menuId: string, bounds: import('@core/ipc').InlineWindowMenuBounds) =>
+  getInlineWindowMenuItems: () => ipcRenderer.invoke(IPC.getInlineWindowMenuItems) as Promise<import('@lumacast/protocol').InlineWindowMenuItem[]>,
+  popupInlineWindowMenu: (menuId: string, bounds: import('@lumacast/protocol').InlineWindowMenuBounds) =>
     ipcRenderer.invoke(IPC.popupInlineWindowMenu, menuId, bounds) as Promise<void>,
   updateAppMenuState: (state: import('@lumacast/commands').AppMenuState) =>
     ipcRenderer.invoke(IPC.updateAppMenuState, state) as Promise<void>,

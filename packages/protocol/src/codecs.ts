@@ -41,7 +41,7 @@ import type {
   DeckBundleStage,
   DeckBundleTheme,
 } from './deck-bundle-manifest';
-import type { DeckItemCreateWithThemeInput, InlineWindowMenuBounds } from '@core/ipc';
+import type { DeckItemCreateWithThemeInput, InlineWindowMenuBounds } from './ipc';
 
 /**
  * Runtime codecs for values that cross a trust boundary (issue #149, parent

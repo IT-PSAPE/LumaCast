@@ -1,5 +1,6 @@
 import { useCallback, useMemo, type ReactNode } from 'react';
-import type { DeckItemType, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItemType } from '@lumacast/composition';
 import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useCreateDeckItem } from '../../features/deck/create-deck-item';
 import { useNavigation } from '../../contexts/navigation-context';

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
-import type { SystemMetricsSnapshot } from '@core/types';
+import type { SystemMetricsSnapshot } from '@lumacast/protocol';
 
 // Ring-buffered domain events for the observability timeline. Events are
 // also logged to the console so the main-process file logger captures them

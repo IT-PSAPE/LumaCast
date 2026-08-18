@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app } from 'electron';
-import type { NdiOutputConfigMap } from '@core/types';
+import type { NdiOutputConfigMap } from '@lumacast/protocol';
 import {
   createDefaultNdiOutputConfigs,
   migrateLegacyNdiOutputConfigs,
   normalizeNdiOutputConfigs,
-} from '@core/ndi';
-import { CodecError, decodeStoredNdiOutputConfigMap, type CodecContext } from '../../contracts/codecs';
+} from '@lumacast/protocol';
+import { CodecError, decodeStoredNdiOutputConfigMap, type CodecContext } from '@lumacast/protocol';
 
 const CONFIG_FILE = 'ndi-output-config.json';
 const CURRENT_CONFIG_VERSION = 2;

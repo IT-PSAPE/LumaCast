@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react';
-import type { MediaAsset } from '@core/types';
+import type { MediaAsset } from '@lumacast/composition';
 import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useActiveEditorSource } from '../../contexts/canvas/use-active-editor-source';
 import { useWorkbench } from '../../contexts/workbench-context';

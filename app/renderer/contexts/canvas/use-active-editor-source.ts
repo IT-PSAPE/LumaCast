@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/composition';
-import type { SlideElement } from '@core/types';
+import type { SlideElement } from '@lumacast/composition';
 import { useNavigation } from '../navigation-context';
 import { useSlides } from '../slide-context';
 import { useOverlayEditor, useDeckEditor, useStageEditor, useThemeEditor } from '../asset-editor/asset-editor-context';

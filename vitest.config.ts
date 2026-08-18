@@ -15,7 +15,6 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@core': path.resolve(__dirname, 'app/core'),
       '@database': path.resolve(__dirname, 'app/database'),
       '@renderer': path.resolve(__dirname, 'app/renderer'),
       '@rendering': path.resolve(__dirname, 'app/rendering'),
@@ -23,6 +22,7 @@ export default defineConfig({
       '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
       '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
       '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
+      '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
     },
   },
 });

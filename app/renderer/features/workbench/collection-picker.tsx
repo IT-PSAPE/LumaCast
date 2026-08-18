@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, FolderClosed, FolderOpen, Pencil, Plus, Trash2 } from 'lucide-react';
-import type { Collection } from '@core/types';
+import type { Collection } from '@lumacast/composition';
 import { cn } from '@renderer/utils/cn';
 import { Popover } from '../../components/overlays/popover';
 import { useConfirm } from '../../components/overlays/confirm-dialog';

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { Theme } from '@core/types';
+import type { Theme } from '@lumacast/composition';
 import { isThemeCompatibleWithOwnerKind } from '@lumacast/composition';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useNavigation } from '../../../contexts/navigation-context';

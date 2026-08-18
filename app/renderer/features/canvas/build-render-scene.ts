@@ -22,17 +22,7 @@ import {
   type SceneSurface,
   type SelectionState,
 } from '@lumacast/composition';
-import type {
-  GroupElementPayload,
-  MediaAsset,
-  Overlay,
-  Slide,
-  SlideBackground,
-  SlideElement,
-  TextCaseTransform,
-  TextElementPayload,
-  TextHorizontalAlign,
-} from '@core/types';
+import type { GroupElementPayload, MediaAsset, Overlay, Slide, SlideBackground, SlideElement, TextCaseTransform, TextElementPayload, TextHorizontalAlign } from '@lumacast/composition';
 import { sortElements } from '../../utils/slides';
 
 interface SceneElementInput {

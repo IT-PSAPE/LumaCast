@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { MediaAsset, SlideBackground, SlideBackgroundFit, SlideGradient } from '@core/types';
+import type { MediaAsset, SlideBackground, SlideBackgroundFit, SlideGradient } from '@lumacast/composition';
 import { ColorPicker } from '@renderer/components/form/color-picker';
 import { FieldInput, FieldSelect } from '@renderer/components/form/field';
 import { ReacstButton } from '@renderer/components/controls/button';

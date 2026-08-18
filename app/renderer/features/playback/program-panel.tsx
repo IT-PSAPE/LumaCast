@@ -1,6 +1,6 @@
 import { useRef, useState, type ChangeEvent } from 'react';
 import { ChevronDown, AlignLeft, Film, Image, Layers, Layers2, LayoutGrid, Pause, Pencil, Play, Plus, RectangleHorizontal, Repeat, SkipBack, SkipForward, Upload, Volume2, VolumeX, XCircle } from 'lucide-react';
-import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
+import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@lumacast/protocol';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '../../components/display/tabs';

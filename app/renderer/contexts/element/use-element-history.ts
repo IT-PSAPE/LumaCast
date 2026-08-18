@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { AppSnapshot, ElementCreateInput, ElementUpdateInput, Id, SlideElement } from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
+import type { AppSnapshot, ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
 import { createId } from '../../utils/create-id';
 import { buildSnapshotDiff } from './element-history-utils';
 import { cloneElements, payloadSignature } from '../../utils/element-context-utils';

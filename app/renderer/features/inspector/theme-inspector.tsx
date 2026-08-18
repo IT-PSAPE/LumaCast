@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { SlideBackground } from '@lumacast/composition';
 import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
@@ -37,7 +38,7 @@ export function ThemeInspector() {
     setStatusText('Theme renamed');
   }
 
-  function handleBackgroundChange(background: import('@core/types').SlideBackground | null) {
+  function handleBackgroundChange(background: SlideBackground | null) {
     if (!currentTheme) return;
     updateThemeDraft({ id: currentTheme.id, background });
   }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ClockFormat, TextBinding, TextElementPayload, TimerFormat } from '@core/types';
+import type { ClockFormat, TextBinding, TextElementPayload, TimerFormat } from '@lumacast/composition';
 import { useBinding, type BindingOverride, type BindingValue } from './binding-context';
 
 const PLACEHOLDER_CURRENT_SLIDE_TEXT = '[Current Slide]';

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { Label } from '@renderer/components/display/text';
 import DocEditor, { type Block } from '../../components/form/doc-editor';
 import { useCast } from '../../contexts/app-context';

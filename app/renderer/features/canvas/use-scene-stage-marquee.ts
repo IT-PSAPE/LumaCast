@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type Konva from 'konva';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { collectMarqueeHits, normalizeRect, type SelectionBox } from './scene-stage-editor-utils';
 
 interface UseSceneStageMarqueeParams {

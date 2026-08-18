@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Id, PlaylistTree, SlideElementPayload } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { PlaylistTree, SlideElementPayload } from '@lumacast/composition';
 import type { CastRepository } from './store';
 import { createTestRepository } from './test-support';
 

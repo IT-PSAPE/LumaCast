@@ -1,4 +1,4 @@
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 
 const DECK_ITEM_DRAG_TYPE = 'application/x-lumacast-deck-item';
 

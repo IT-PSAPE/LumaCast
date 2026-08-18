@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent } from 'react';
-import type { Id, MediaAsset } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset } from '@lumacast/composition';
 import { Film, Image as ImageIcon, Upload } from 'lucide-react';
 import { cn } from '@renderer/utils/cn';
 import { ReacstButton } from '@renderer/components/controls/button';

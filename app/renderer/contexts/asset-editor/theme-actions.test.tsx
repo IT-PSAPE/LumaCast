@@ -3,9 +3,11 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ReactNode } from 'react';
-import type { AppSnapshot, Id, Presentation, SlideElement, Theme, ThemeKind } from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
-import { applyPatch, createEmptyPatch } from '@core/snapshot-patch';
+import type { Id } from '@lumacast/kernel';
+import type { Presentation, SlideElement, Theme, ThemeKind } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
+import { applyPatch, createEmptyPatch } from '@lumacast/protocol';
 import { AssetEditorProvider, useThemeEditor, type ThemeEditorValue } from './asset-editor-context';
 
 // Covers #144: Apply/Reset, Sync, and Detach are wired to three distinct

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { DeckItem, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { filterByText } from '../../utils/filter-by-text';

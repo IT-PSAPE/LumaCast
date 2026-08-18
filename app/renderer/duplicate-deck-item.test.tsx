@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import type { AppSnapshot, DeckItem, Id, Lyric, Presentation, Talk } from '@core/types';
-import { createEmptyPatch } from '@core/snapshot-patch';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, Lyric, Presentation, Talk } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
+import { createEmptyPatch } from '@lumacast/protocol';
 import { AssetEditorProvider } from './contexts/asset-editor/asset-editor-context';
 import { NavigationProvider, useNavigation } from './contexts/navigation-context';
 import type { NavigationContextValue } from './types/navigation-context-types';

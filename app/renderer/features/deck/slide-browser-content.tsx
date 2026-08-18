@@ -14,7 +14,7 @@ import { SlideGridTile } from './slide-grid-tile';
 import { SlideOutlineRow } from './slide-list-row';
 import { useOutlineView } from './use-slide-list-view';
 import type { SlideBrowserContentVariant } from './use-deck-browser-view';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 
 interface SlideBrowserContentProps {
   variant: SlideBrowserContentVariant;

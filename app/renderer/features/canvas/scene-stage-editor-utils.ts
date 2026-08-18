@@ -1,5 +1,6 @@
 import type Konva from 'konva';
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 import type { SnapBox } from './snap-guides';
 
 export interface SelectionBox {

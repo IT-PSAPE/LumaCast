@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { Id, MediaAsset } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset } from '@lumacast/composition';
 import { cn } from '@renderer/utils/cn';
 import { AlertTriangle } from 'lucide-react';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';

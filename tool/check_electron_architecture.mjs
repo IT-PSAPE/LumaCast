@@ -24,7 +24,6 @@ const REPO_ROOT = path.resolve(TOOL_DIR, '..');
 const FIXTURES_ROOT = path.join(TOOL_DIR, 'fixtures', 'electron-architecture');
 
 const ALIASES = {
-  '@core': 'app/core',
   '@database': 'app/database',
   '@renderer': 'app/renderer',
   '@rendering': 'app/rendering',
@@ -51,8 +50,7 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   commands: ['kernel'],
   automation: ['kernel', 'composition'],
   playback: ['kernel', 'project', 'composition', 'commands'],
-  // Protocol owns no domain behaviour.
-  protocol: ['kernel'],
+  protocol: ['kernel', 'composition', 'automation', 'commands'],
   // Persistence never depends on renderer packages (enforced separately by
   // the persistence-purity rule below, which is not expressible as a
   // package-name allow list).

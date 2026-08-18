@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { MediaAsset } from '@core/types';
+import type { MediaAsset } from '@lumacast/composition';
 import type { MediaPickerAssetKind } from '../../components/overlays/media-picker-dialog';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { useActiveEditorSource } from '../../contexts/canvas/use-active-editor-source';

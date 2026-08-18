@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { DeckItem, Id, LibraryPlaylistBundle, PlaylistTree } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, LibraryPlaylistBundle, PlaylistTree } from '@lumacast/composition';
 import { Check, ChevronDown, ListMusic, Search } from 'lucide-react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';

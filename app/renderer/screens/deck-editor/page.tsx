@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Play, Plus, Search } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { cn } from '@renderer/utils/cn';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
 import { useConfirm } from '../../components/overlays/confirm-dialog';

@@ -1,13 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import type {
-  DeckBundleBrokenReferenceAction,
-  DeckBundleBrokenReferenceDecision,
-  DeckBundleExportOptions,
-  DeckBundleInspection,
-  DeckItem,
-  Id,
-  Playlist,
-} from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, Playlist } from '@lumacast/composition';
+import type { DeckBundleBrokenReferenceAction, DeckBundleBrokenReferenceDecision, DeckBundleExportOptions, DeckBundleInspection } from '@lumacast/protocol';
 import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 

@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import type { AppSnapshot, Presentation, Slide, SlideBackground, SlideElement, Theme } from '@core/types';
+import type { Presentation, Slide, SlideBackground, SlideElement, Theme } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
 
 // End-to-end regression test for GitHub issue #100 (root theme epic). The
 // epic's "Completion" section lists nine manual QA steps; this spec drives

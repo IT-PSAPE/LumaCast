@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react';
-import type { Id, Overlay } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Overlay } from '@lumacast/composition';
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useOverlayEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { usePresentationOverlayLayer } from '../../../contexts/playback/playback-context';

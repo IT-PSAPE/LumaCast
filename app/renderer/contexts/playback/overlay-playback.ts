@@ -1,4 +1,5 @@
-import type { Id, Overlay, OverlayAnimation } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Overlay, OverlayAnimation } from '@lumacast/composition';
 
 export type OverlayPlaybackMode = 'single' | 'multiple';
 export type OverlayPlaybackState = 'entering' | 'live' | 'exiting';

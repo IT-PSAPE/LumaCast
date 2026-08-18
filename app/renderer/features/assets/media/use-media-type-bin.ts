@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { CollectionBinKind, Id, MediaAsset } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { CollectionBinKind, MediaAsset } from '@lumacast/composition';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
 import { compareByKey, useMediaBinSort } from '../../workbench/use-bin-sort';

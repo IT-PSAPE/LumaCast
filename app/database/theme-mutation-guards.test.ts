@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import type { CastRepository } from './store';
 import { createTestRepository } from './test-support';
 

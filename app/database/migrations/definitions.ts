@@ -1,7 +1,7 @@
 import type { SqliteDatabase } from '../sqlite';
 import type { Migration } from './types';
 import { toCastMediaSource } from '../media-source-utils';
-import type { SlideBackground, SlideElement } from '@core/types';
+import type { SlideBackground, SlideElement } from '@lumacast/composition';
 import {
   COLLECTION_TABLE_BY_BIN,
   DEFAULT_H,

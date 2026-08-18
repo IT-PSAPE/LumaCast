@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Cue, CueFailurePolicy, CueKind, CuePayload, Id, LifecycleAction, LifecycleTarget, Macro, MacroCue } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Cue, CueFailurePolicy, CueKind, CuePayload, LifecycleAction, LifecycleTarget, Macro, MacroCue } from '@lumacast/automation';
 import { useAutomation } from '@renderer/features/automation/automation-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useWorkbench } from '@renderer/contexts/workbench-context';

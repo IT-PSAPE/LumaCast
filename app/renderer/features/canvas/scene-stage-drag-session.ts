@@ -1,4 +1,5 @@
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 import type { SnapBox } from './snap-guides';
 import { mapSnapBoxes } from './scene-stage-editor-utils';
 

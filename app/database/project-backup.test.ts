@@ -9,8 +9,8 @@ import {
   PROJECT_BACKUP_VERSION,
   ProjectBackupValidationError,
   validateProjectBackup,
-} from '@core/deck-bundles';
-import type { DeckBundleManifest, ProjectBackup, ProjectBackupTables } from '@core/types';
+} from '@lumacast/protocol';
+import type { DeckBundleManifest, ProjectBackup, ProjectBackupTables } from '@lumacast/protocol';
 import {
   readDeckBundleArchive,
   readProjectBackupArchive,

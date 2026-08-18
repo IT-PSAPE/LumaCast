@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import type { DeckItem, Id, PlaylistTree, Slide } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, PlaylistTree, Slide } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 

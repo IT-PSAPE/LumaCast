@@ -1,4 +1,6 @@
-import type { Id, MediaAsset, SlideElement, ElementUpdateInput } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset, SlideElement } from '@lumacast/composition';
+import type { ElementUpdateInput } from '@lumacast/protocol';
 import type { ElementInspectorDraft } from './ui';
 
 export interface ElementContextValue {

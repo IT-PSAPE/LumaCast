@@ -1,4 +1,4 @@
-import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload, TimerFormat } from '@core/types';
+import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload, TimerFormat } from '@lumacast/composition';
 import { Label } from '@renderer/components/display/text';
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { FieldInput, FieldSelect } from '@renderer/components/form/field';

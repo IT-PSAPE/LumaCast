@@ -1,4 +1,5 @@
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type SlideBrowserMode = 'grid' | 'list';

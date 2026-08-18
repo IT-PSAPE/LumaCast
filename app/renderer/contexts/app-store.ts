@@ -1,20 +1,13 @@
 import { create } from 'zustand';
 import { useShallow } from 'zustand/react/shallow';
 import { recordObsEvent } from '../features/observability/metrics-store';
-import { createDefaultNdiOutputConfigs } from '@core/ndi';
+import { createDefaultNdiOutputConfigs } from '@lumacast/protocol';
 import {
   applyPatch,
   invertPatch,
   type SnapshotPatch,
-} from '@core/snapshot-patch';
-import type {
-  AppSnapshot,
-  NdiDiagnostics,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiOutputName,
-  NdiOutputState,
-} from '@core/types';
+} from '@lumacast/protocol';
+import type { AppSnapshot, NdiDiagnostics, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState } from '@lumacast/protocol';
 import type { ThemeMode } from '../types/ui';
 
 // ─── Types ──────────────────────────────────────────────────────────

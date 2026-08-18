@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 import { useCast } from '../../contexts/app-context';
 
 interface UpdateSlideOutlineTextInput {

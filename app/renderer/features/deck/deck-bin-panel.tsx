@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import type { DeckItem, Id, Slide } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, Slide } from '@lumacast/composition';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
@@ -142,7 +143,7 @@ export function useDuplicateDeckItem(item: DeckItem) {
     try {
       // duplicateDeckItem returns the duplicate's owner id directly, so it
       // never needs to be inferred by diffing entity arrays before/after
-      // the mutation (see DeckItemDuplicateResult in @core/ipc).
+      // the mutation (see DeckItemDuplicateResult in @lumacast/protocol).
       const result = await window.castApi.duplicateDeckItem(item.id);
       await mutatePatch(async () => result.patch);
       browseDeckItem(result.itemId);

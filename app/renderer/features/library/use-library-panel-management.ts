@@ -1,5 +1,7 @@
 import { useCallback } from 'react';
-import type { AppSnapshot, DeckItemType, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItemType } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
 import { useCast } from '../../contexts/app-context';
 
 function findCreatedId(previousIds: Set<Id>, currentIds: Id[]): Id | null {

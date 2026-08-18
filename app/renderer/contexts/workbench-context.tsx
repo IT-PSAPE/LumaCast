@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { OverlayAnimation } from '@core/types';
+import type { OverlayAnimation } from '@lumacast/composition';
 import type { DrawerTab, DrawerViewModeMap, InspectorTab, LibraryPanelView, PlaylistBrowserMode, ProgramGridDensity, ProgramMode, ProgramSurfaceKind, ResourceDrawerViewMode, SlideBrowserMode, WorkbenchMode } from '../types/ui';
 import { useGridSize } from '../hooks/use-grid-size';
 import { useLocalStorage } from '../hooks/use-local-storage';

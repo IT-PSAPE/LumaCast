@@ -1,4 +1,4 @@
-import type { TextElementPayload } from '@core/types';
+import type { TextElementPayload } from '@lumacast/composition';
 
 interface MeasureInlineTextHeightInput {
   text: string;

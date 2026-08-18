@@ -1,8 +1,4 @@
-import type {
-  BrokenDeckBundleReference,
-  DeckBundleBrokenReferenceAction,
-  DeckBundleInspection,
-} from '@core/types';
+import type { BrokenDeckBundleReference, DeckBundleBrokenReferenceAction, DeckBundleInspection } from '@lumacast/protocol';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { ReacstButton } from '@renderer/components/controls/button';
 

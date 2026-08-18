@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Rect, Shape } from 'react-konva';
 import type { Context } from 'konva/lib/Context';
 import type { Shape as KonvaShape } from 'konva/lib/Shape';
-import type { TextCaseTransform, TextElementPayload, TextHorizontalAlign } from '@core/types';
+import type { TextCaseTransform, TextElementPayload, TextHorizontalAlign } from '@lumacast/composition';
 import {
   type RichBody,
   type RichBoxStyle,

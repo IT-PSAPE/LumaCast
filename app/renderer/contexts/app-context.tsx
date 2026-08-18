@@ -1,14 +1,7 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { recordObsEvent } from '../features/observability/metrics-store';
-import type {
-  AppSnapshot,
-  NdiDiagnostics,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiOutputName,
-  NdiOutputState,
-} from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
+import type { AppSnapshot, NdiDiagnostics, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
 import type { ThemeMode } from '../types/ui';
 import { useAppStore, useShallow } from './app-store';
 

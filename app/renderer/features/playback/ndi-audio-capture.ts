@@ -9,7 +9,7 @@
 // hears the elements through their speakers — `createMediaElementSource`
 // otherwise hijacks the element's native output.
 
-import type { NdiOutputName } from '@core/types';
+import type { NdiOutputName } from '@lumacast/protocol';
 
 const TARGET_SAMPLE_RATE = 48000;
 const FRAME_SAMPLES = 1024; // ~21 ms at 48 kHz

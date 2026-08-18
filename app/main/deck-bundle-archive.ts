@@ -1,9 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { crc32 } from 'node:zlib';
-import { validateDeckBundleManifest, validateProjectBackup } from '@core/deck-bundles';
-import type { CodecContext } from '../contracts/codecs';
-import type { ProjectBackup } from '../contracts/project-backup';
-import type { DeckBundleManifest } from '@core/types';
+import { validateDeckBundleManifest, validateProjectBackup } from '@lumacast/protocol';
+import type { CodecContext } from '@lumacast/protocol';
+import type { ProjectBackup } from '@lumacast/protocol';
+import type { DeckBundleManifest } from '@lumacast/protocol';
 
 const END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
 const CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;

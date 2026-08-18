@@ -1,5 +1,7 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
-import type { ElementUpdateInput, Id, MediaAsset, Overlay, Slide, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset, Overlay, Slide, SlideElement } from '@lumacast/composition';
+import type { ElementUpdateInput } from '@lumacast/protocol';
 import { isLyricDeckItem, applyVisualPayload, readVisualPayload } from '@lumacast/composition';
 import { sortElements } from '../../utils/slides';
 import { useCast } from '../app-context';

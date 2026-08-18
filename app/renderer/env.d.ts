@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { MainApi } from '@core/ipc';
+import type { MainApi } from '@lumacast/protocol';
 
 declare global {
   interface LocalFontData {

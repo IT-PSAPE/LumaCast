@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { isLyricDeckItem } from '@lumacast/composition';
-import type { Id, Slide, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Slide, SlideElement } from '@lumacast/composition';
 import type { SlideVisualState } from '../../types/ui';
 import { clamp, getSlideVisualState, slideTextDetails } from '../../utils/slides';
 import { useNavigation } from '../../contexts/navigation-context';

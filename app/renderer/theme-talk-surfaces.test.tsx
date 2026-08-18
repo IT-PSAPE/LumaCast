@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
-import type { DeckItem, Id, Lyric, Overlay, Presentation, Talk, Theme, ThemeKind } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, Lyric, Overlay, Presentation, Talk, Theme, ThemeKind } from '@lumacast/composition';
 import { DeckItemInspector } from './features/inspector/presentation-inspector';
 import { useThemeBin } from './features/assets/themes/use-theme-bin';
 import { resolveThemeApplyTargets } from './features/assets/themes/theme-bin-panel';

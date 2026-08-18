@@ -1,6 +1,6 @@
 import { memo, type CSSProperties, type HTMLAttributes, type Ref } from 'react';
 import { Play } from 'lucide-react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';

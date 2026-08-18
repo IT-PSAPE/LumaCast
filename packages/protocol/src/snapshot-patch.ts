@@ -1,4 +1,7 @@
-import type { AppSnapshot, Collection, Cue, Id, LibraryPlaylistBundle, Library, Lyric, Macro, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme, TriggerBinding } from './types';
+import type { Id } from '@lumacast/kernel';
+import type { Collection, Library, LibraryPlaylistBundle, Lyric, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from '@lumacast/composition';
+import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
+import type { AppSnapshot } from './rpc-results';
 
 // ─── Types ──────────────────────────────────────────────────────────
 

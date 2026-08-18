@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react';
-import type { PlaylistTree } from '@core/types';
+import type { PlaylistTree } from '@lumacast/composition';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { ScrollArea } from '../../components/layout/scroll-area';
 import { useNavigation } from '../../contexts/navigation-context';

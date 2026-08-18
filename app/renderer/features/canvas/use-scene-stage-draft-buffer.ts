@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 
 interface UseSceneStageDraftBufferInput {
   setDraftElements: React.Dispatch<React.SetStateAction<Record<Id, Partial<SlideElement>>>>;

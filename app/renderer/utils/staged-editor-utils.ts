@@ -1,4 +1,4 @@
-import type { SlideElement } from '@core/types';
+import type { SlideElement } from '@lumacast/composition';
 
 export { cloneElement, cloneElements } from '@lumacast/composition';
 

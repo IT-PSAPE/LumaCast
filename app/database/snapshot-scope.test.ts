@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { SlideElement, SlideElementPayload } from '@core/types';
+import type { SlideElement, SlideElementPayload } from '@lumacast/composition';
 import { CastRepository } from './store';
 
 // Covers #211: `getSlides()` deliberately scopes itself to deck-owned slides

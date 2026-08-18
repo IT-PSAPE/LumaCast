@@ -1,7 +1,8 @@
 import type { ReactElement } from 'react';
 import { Rect } from 'react-konva';
 import { describe, expect, it } from 'vitest';
-import type { Id, Slide, SlideBackground, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Slide, SlideBackground, SlideElement } from '@lumacast/composition';
 import { buildRenderScene, buildResolvedRenderScene } from '../features/canvas/build-render-scene';
 import { SceneNodeMedia } from '../features/canvas/scene-node-media';
 import { SceneNodeShape } from '../features/canvas/scene-node-shape';

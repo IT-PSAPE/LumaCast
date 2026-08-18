@@ -1,4 +1,4 @@
-import type { SlideBackgroundFit } from '@core/types';
+import type { SlideBackgroundFit } from '@lumacast/composition';
 
 interface MediaCoverRect {
   x: number;

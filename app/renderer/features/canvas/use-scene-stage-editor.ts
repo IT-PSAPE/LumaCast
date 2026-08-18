@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
-import type { ElementUpdateInput, Id, TextElementPayload } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { TextElementPayload } from '@lumacast/composition';
+import type { ElementUpdateInput } from '@lumacast/protocol';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { resolveSnap, resolveTransformSnap } from './snap-guides';
 import { type RichBody, richBodyToText, type GuideLine, type RenderScene } from '@lumacast/composition';

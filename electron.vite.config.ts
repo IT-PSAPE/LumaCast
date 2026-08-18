@@ -37,9 +37,11 @@ function buildNdiHostBundlePlugin(): Plugin {
           },
           resolve: {
             alias: {
-              '@core': path.resolve(__dirname, 'app/core'),
               '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
-              '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts')
+              '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
+              '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
+              '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
+              '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts')
             }
           }
         });
@@ -58,7 +60,7 @@ export default defineConfig({
     // loader cannot parse that raw ESM TypeScript source. Exclude it so
     // Rollup inlines it via the alias below instead.
     plugins: [
-      externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation', '@lumacast/commands'] }),
+      externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation', '@lumacast/commands', '@lumacast/protocol'] }),
       buildNdiHostBundlePlugin()
     ],
     build: {
@@ -69,19 +71,19 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@core': path.resolve(__dirname, 'app/core'),
         '@database': path.resolve(__dirname, 'app/database'),
         '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
         '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
         '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
-        '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts')
+        '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
+        '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts')
       }
     }
   },
   preload: {
     // Same reasoning as the main config above: keep @lumacast/kernel bundled
     // rather than externalized.
-    plugins: [externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation', '@lumacast/commands'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation', '@lumacast/commands', '@lumacast/protocol'] })],
     build: {
       outDir: 'out/preload',
       lib: {
@@ -90,11 +92,11 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '@core': path.resolve(__dirname, 'app/core'),
         '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
         '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
         '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
-        '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts')
+        '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
+        '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts')
       }
     }
   },
@@ -109,11 +111,11 @@ export default defineConfig({
     resolve: {
       alias: {
         '@renderer': path.resolve(__dirname, 'app/renderer'),
-        '@core': path.resolve(__dirname, 'app/core'),
         '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
         '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
         '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
-        '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts')
+        '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
+        '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts')
       }
     },
     plugins: [tailwindcss(), react()]

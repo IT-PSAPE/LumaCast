@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import type { AppSnapshot, GroupElementPayload, Id, SlideElement, Theme, ThemeKind } from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
-import { applyPatch } from '@core/snapshot-patch';
+import type { Id } from '@lumacast/kernel';
+import type { GroupElementPayload, SlideElement, Theme, ThemeKind } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
+import { applyPatch } from '@lumacast/protocol';
 import { AssetEditorProvider, useThemeEditor, type ThemeEditorValue } from './asset-editor-context';
 
 // Covers issue #105: duplicating a theme must construct an independent

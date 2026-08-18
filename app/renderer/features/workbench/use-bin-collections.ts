@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Collection, CollectionBinKind, Id, CollectionItemType } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Collection, CollectionBinKind, CollectionItemType } from '@lumacast/composition';
 import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 

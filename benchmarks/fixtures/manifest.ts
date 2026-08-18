@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { AppSnapshot } from '@core/types';
+import type { AppSnapshot } from '@lumacast/protocol';
 
 /**
  * Bumped whenever the generation logic in `generator.ts` changes in any way

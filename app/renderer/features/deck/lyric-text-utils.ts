@@ -1,4 +1,5 @@
-import type { ElementCreateInput, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { ElementCreateInput } from '@lumacast/protocol';
 
 export function buildLyricTextElement(slideId: Id, text: string): ElementCreateInput {
   return {

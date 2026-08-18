@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppSnapshot, Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
 import { CastRepository } from './store';
 
 // Covers the bundle-import half of theme element provenance

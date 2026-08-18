@@ -1,12 +1,5 @@
 import { utilityProcess, type UtilityProcess } from 'electron';
-import type {
-  NdiDiagnostics,
-  NdiFrameTelemetry,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiOutputName,
-  NdiOutputState,
-} from '@core/types';
+import type { NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState } from '@lumacast/protocol';
 import type {
   BlackoutFlushOptions,
   NdiHostCommand,

@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AppSnapshot, Id, SlideBackground, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideBackground, SlideElement } from '@lumacast/composition';
+import type { AppSnapshot } from '@lumacast/protocol';
 import { CastRepository } from './store';
 
 let repo: CastRepository;

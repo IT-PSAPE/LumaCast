@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  LogReadResult,
-  LogSessionSummary,
-  NdiActiveSenderDiagnostics,
-  NdiOutputName,
-  NdiPipelineStageStats,
-  NdiSenderPerformanceDiagnostics,
-  NdiTallyState,
-} from '@core/types';
+import type { LogReadResult, LogSessionSummary, NdiActiveSenderDiagnostics, NdiOutputName, NdiPipelineStageStats, NdiSenderPerformanceDiagnostics, NdiTallyState } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
 import { useImageCacheStats } from '../canvas/use-image-cache-stats';
 import {

@@ -23,7 +23,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { CollectionBinKind, Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { CollectionBinKind } from '@lumacast/composition';
 import { CastRepository } from './store';
 
 const COLLECTION_TABLE_BY_BIN: Record<CollectionBinKind, string> = {

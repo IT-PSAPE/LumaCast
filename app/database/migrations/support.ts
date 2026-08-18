@@ -1,5 +1,6 @@
 import type { SqliteDatabase } from '../sqlite';
-import type { CollectionBinKind, CueKind, SlideElement, SlideElementPayload } from '@core/types';
+import type { CollectionBinKind, SlideElement, SlideElementPayload } from '@lumacast/composition';
+import type { CueKind } from '@lumacast/automation';
 
 // Deliberately independent of `@core/utils` — the migrations module operates
 // on a raw SQLite handle only and must stay runnable outside the app's

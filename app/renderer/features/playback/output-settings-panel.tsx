@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { NdiOutputName } from '@core/types';
+import type { NdiOutputName } from '@lumacast/protocol';
 import { FieldCheckbox as CheckboxField, FieldInput } from '../../components/form/field';
 import { useNdi } from '../../contexts/app-context';
 

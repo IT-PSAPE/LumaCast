@@ -1,4 +1,4 @@
-import type { NdiOutputName } from '@core/types';
+import type { NdiOutputName } from '@lumacast/protocol';
 import { setCaptureSurface, useCaptureSurface } from '../../rendering/capture-surface-registry';
 
 // Thin NDI-flavored facade over the shared, feature-agnostic capture-surface

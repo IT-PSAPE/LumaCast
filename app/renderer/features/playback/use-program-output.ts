@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { NdiSourceStatus } from '@core/types';
+import type { NdiSourceStatus } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';

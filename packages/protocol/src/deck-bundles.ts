@@ -1,6 +1,20 @@
+import type { Id } from '@lumacast/kernel';
+import type {
+  SlideBackgroundSource,
+  SlideElement,
+  SlideElementType,
+  SlideKind,
+  ThemeKind,
+} from '@lumacast/composition';
 import type {
   CueFailurePolicy,
   CueKind,
+  OnScopeExit,
+  ScopeLevel,
+  TriggerBindingTargetType,
+  TriggerType,
+} from '@lumacast/automation';
+import type {
   DeckBundleItem,
   DeckBundleManifest,
   DeckBundleMediaReference,
@@ -9,23 +23,13 @@ import type {
   DeckBundlePlaylistEntry,
   DeckBundleStage,
   DeckBundleTheme,
-  Id,
-  OnScopeExit,
-  ScopeLevel,
-  SlideBackgroundSource,
-  SlideElement,
-  SlideElementType,
-  SlideKind,
-  ThemeKind,
-  TriggerBindingTargetType,
-  TriggerType,
-} from './types';
+} from './deck-bundle-manifest';
 import {
   parsePlaylistItemReference,
   type PlaylistItemReference,
 } from '@lumacast/composition';
-import { decodeDeckBundleManifest, type CodecContext } from '../contracts/codecs';
-import type { ProjectBackup, ProjectBackupTables } from '../contracts/project-backup';
+import { decodeDeckBundleManifest, type CodecContext } from './codecs';
+import type { ProjectBackup, ProjectBackupTables } from './project-backup';
 
 interface MediaReferenceAccumulator {
   elementTypes: Set<'image' | 'video'>;

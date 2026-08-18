@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Stage, Layer, Group } from 'react-konva';
 import type Konva from 'konva';
-import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@core/ndi';
-import type { NdiOutputName, TextBinding } from '@core/types';
+import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@lumacast/protocol';
+import type { TextBinding } from '@lumacast/composition';
+import type { NdiOutputName } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
 import { renderSceneNodeContent } from '../../rendering/scene-node-content';
 import { needsOpaqueBackdrop, SceneSlideBackground } from '../../rendering/scene-slide-background';

@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { IPC } from '@core/ipc';
-import { ProjectBackupValidationError } from '@core/deck-bundles';
-import type { ProjectBackup, ProjectBackupTables } from '@core/types';
+import { IPC } from '@lumacast/protocol';
+import { ProjectBackupValidationError } from '@lumacast/protocol';
+import type { ProjectBackup, ProjectBackupTables } from '@lumacast/protocol';
 import { CastRepository, type ProjectRecoveryHooks } from './store';
 import type { SqliteDatabase } from './sqlite';
 

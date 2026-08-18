@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Id, MediaAsset, Overlay } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset, Overlay } from '@lumacast/composition';
 import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
 import { useProjectContent } from '../use-project-content';

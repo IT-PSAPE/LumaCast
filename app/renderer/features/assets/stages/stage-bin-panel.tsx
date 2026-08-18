@@ -1,5 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react';
-import type { Id, Stage } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Stage } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';

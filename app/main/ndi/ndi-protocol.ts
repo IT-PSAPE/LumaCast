@@ -1,11 +1,4 @@
-import type {
-  NdiDiagnostics,
-  NdiFrameTelemetry,
-  NdiOutputConfig,
-  NdiOutputConfigMap,
-  NdiOutputName,
-  NdiOutputState,
-} from '@core/types';
+import type { NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState } from '@lumacast/protocol';
 
 export interface BlackoutFlushOptions {
   // Optional sender to flush; omit to flush every active sender.

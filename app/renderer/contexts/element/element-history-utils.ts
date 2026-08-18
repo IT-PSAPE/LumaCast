@@ -1,4 +1,6 @@
-import type { ElementCreateInput, ElementUpdateInput, Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
+import type { ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
 import { sameElementState } from '../../utils/element-context-utils';
 
 interface SnapshotDiff {

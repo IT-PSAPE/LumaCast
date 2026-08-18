@@ -1,4 +1,5 @@
-import type { DeckItem, DeckItemType, Id, LibraryPlaylistBundle } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { DeckItem, DeckItemType, LibraryPlaylistBundle } from '@lumacast/composition';
 
 export interface NavigationStateValue {
   currentLibraryId: Id | null;

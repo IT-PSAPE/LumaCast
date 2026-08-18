@@ -1,5 +1,5 @@
 import { memo, type CSSProperties, type HTMLAttributes, type Ref } from 'react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { cn } from '@renderer/utils/cn';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { RenameField } from '@renderer/components/form/rename-field';

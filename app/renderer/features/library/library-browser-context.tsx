@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { PlaylistTree } from '@core/types';
+import type { PlaylistTree } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLibraryPanelManagement } from './use-library-panel-management';
 import { useLibraryPanelState } from './library-panel-context';

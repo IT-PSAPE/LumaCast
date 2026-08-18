@@ -1,7 +1,10 @@
 import type { CastRepository } from '@database/store';
 import { createTestRepository, withDeterministicRuntime } from '@database/test-support';
 import { LATEST_SCHEMA_VERSION } from '@database/migrations';
-import type { AppSnapshot, CueKind, CuePayload, Id, MediaAssetType } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAssetType } from '@lumacast/composition';
+import type { CueKind, CuePayload } from '@lumacast/automation';
+import type { AppSnapshot } from '@lumacast/protocol';
 import { imageElementInput, shapeElementInput, textElementInput, videoElementInput } from './element-factories';
 import { buildManifest, type FixtureClass, type FixtureManifest, isFixtureClass } from './manifest';
 

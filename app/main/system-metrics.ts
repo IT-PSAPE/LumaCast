@@ -1,4 +1,4 @@
-import type { SystemMetricsSnapshot } from '@core/types';
+import type { SystemMetricsSnapshot } from '@lumacast/protocol';
 
 // Returns a snapshot of the main process's memory + CPU usage.
 //

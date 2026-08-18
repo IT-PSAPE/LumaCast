@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { LogReadResult, LogSessionSummary } from '@core/types';
+import type { LogReadResult, LogSessionSummary } from '@lumacast/protocol';
 
 type ConsoleMethod = 'log' | 'info' | 'warn' | 'error';
 
