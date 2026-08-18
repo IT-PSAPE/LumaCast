@@ -23,9 +23,9 @@ import {
 } from './index';
 
 const FIXTURES_ROOT = path.join(fileURLToPath(new URL('..', import.meta.url)), 'fixtures');
-const EXPECTED_SCHEMA_VERSIONS = Array.from({ length: 23 }, (_, i) => i);
+const EXPECTED_SCHEMA_VERSIONS = Array.from({ length: 28 }, (_, i) => i);
 const TEMP_PREFIX = 'lumacast-schema-equivalence-';
-const SAFETY_SOURCE_VERSION = 21;
+const SAFETY_SOURCE_VERSION = 26;
 
 interface FixtureDiscovery {
   version: number;
@@ -224,15 +224,15 @@ afterAll(() => {
 });
 
 describe('schema equivalence across historical fixtures (#108)', () => {
-  it('pins fixture manifests for exactly versions 0..22 with matching directory suffixes', () => {
-    expect(LATEST_SCHEMA_VERSION, 'LATEST_SCHEMA_VERSION must be 22').toBe(22);
+  it('pins fixture manifests for exactly versions 0..27 with matching directory suffixes', () => {
+    expect(LATEST_SCHEMA_VERSION, 'LATEST_SCHEMA_VERSION must be 27').toBe(27);
     expect(
       MIGRATIONS.map((migration) => migration.version),
-      'MIGRATIONS versions must be a dense contiguous prefix 1..22',
-    ).toEqual(Array.from({ length: 22 }, (_, i) => i + 1));
+      'MIGRATIONS versions must be a dense contiguous prefix 1..27',
+    ).toEqual(Array.from({ length: 27 }, (_, i) => i + 1));
     expect(
       FIXTURES.map((fixture) => fixture.version),
-      'fixture manifests must cover exactly versions 0..22 with no gaps or duplicates',
+      'fixture manifests must cover exactly versions 0..27 with no gaps or duplicates',
     ).toEqual(EXPECTED_SCHEMA_VERSIONS);
     for (const fixture of FIXTURES) {
       expect(
@@ -316,11 +316,14 @@ describe('migration runner safety (#108)', () => {
     try {
       materializeHistoricalSchema(historical, SAFETY_SOURCE_VERSION);
 
-      const sentinelId = 'sentinel-library';
-      const sentinelName = 'Sentinel Library';
+      // `libraries` is gone by SAFETY_SOURCE_VERSION (dropped at v24, #219
+      // item-model refactor decision D4) — `playlists` survives to the tip
+      // and needs no FK-satisfying fixture data, so it's the sentinel table.
+      const sentinelId = 'sentinel-playlist';
+      const sentinelName = 'Sentinel Playlist';
       const now = new Date().toISOString();
       historical
-        .prepare('INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, 0, ?, ?)')
+        .prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, 0, ?, ?)')
         .run(sentinelId, sentinelName, now, now);
 
       const onBackupCreated = vi.fn<(backupPath: string) => void>();
@@ -334,7 +337,7 @@ describe('migration runner safety (#108)', () => {
       try {
         expect(backup.pragma('integrity_check', { simple: true })).toBe('ok');
         expect(backup.pragma('user_version', { simple: true })).toBe(SAFETY_SOURCE_VERSION);
-        expect(backup.prepare('SELECT id, name FROM libraries WHERE id = ?').get(sentinelId)).toEqual({
+        expect(backup.prepare('SELECT id, name FROM playlists WHERE id = ?').get(sentinelId)).toEqual({
           id: sentinelId,
           name: sentinelName,
         });
@@ -389,11 +392,14 @@ describe('migration runner safety (#108)', () => {
     try {
       materializeHistoricalSchema(historical, SAFETY_SOURCE_VERSION);
 
-      const sentinelId = 'sentinel-library';
-      const sentinelName = 'Sentinel Library';
+      // `libraries` is gone by SAFETY_SOURCE_VERSION (dropped at v24, #219
+      // item-model refactor decision D4) — `playlists` survives to the tip
+      // and needs no FK-satisfying fixture data, so it's the sentinel table.
+      const sentinelId = 'sentinel-playlist';
+      const sentinelName = 'Sentinel Playlist';
       const now = new Date().toISOString();
       historical
-        .prepare('INSERT INTO libraries (id, name, order_index, created_at, updated_at) VALUES (?, ?, 0, ?, ?)')
+        .prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, 0, ?, ?)')
         .run(sentinelId, sentinelName, now, now);
 
       const onBackupCreated = vi.fn<(backupPath: string) => void>();
@@ -404,7 +410,7 @@ describe('migration runner safety (#108)', () => {
       expect(onBackupCreated).not.toHaveBeenCalled();
       expect(fs.readFileSync(backupDir, 'utf8')).toBe('not a directory');
       expect(historical.pragma('user_version', { simple: true })).toBe(SAFETY_SOURCE_VERSION);
-      expect(historical.prepare('SELECT id, name FROM libraries WHERE id = ?').get(sentinelId)).toEqual({
+      expect(historical.prepare('SELECT id, name FROM playlists WHERE id = ?').get(sentinelId)).toEqual({
         id: sentinelId,
         name: sentinelName,
       });

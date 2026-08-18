@@ -1,5 +1,5 @@
 import type { SqliteDatabase } from '../sqlite';
-import type { CollectionBinKind, SlideElement, SlideElementPayload } from '@lumacast/composition';
+import type { SlideElement, SlideElementPayload } from '@lumacast/composition';
 import type { CueKind } from '@lumacast/automation';
 
 // Deliberately independent of `@core/utils` — the migrations module operates
@@ -12,6 +12,14 @@ export const DEFAULT_W = 1920;
 export const DEFAULT_H = 1080;
 
 export const DEFAULT_COLLECTION_NAME = 'Default Collection';
+
+// #219 item-model refactor decision D3: collections are destroyed everywhere
+// — `@lumacast/composition` no longer exports this type. Migrations v9/v10/
+// v11/v17 still need the bin-kind vocabulary to replay unchanged for old
+// databases, so this is a local, frozen-in-place copy rather than a shared
+// import; it must never grow new bin kinds, only stay exactly as historical
+// as the migrations that depend on it.
+export type CollectionBinKind = 'deck' | 'image' | 'video' | 'audio' | 'theme' | 'overlay' | 'stage' | 'macro';
 
 export const COLLECTION_BIN_KINDS: readonly CollectionBinKind[] = [
   'deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage', 'macro',

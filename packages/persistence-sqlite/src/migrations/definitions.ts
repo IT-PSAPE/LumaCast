@@ -1741,6 +1741,771 @@ function migrateProvenanceRepair(db: SqliteDatabase): void {
   // elements with proven legacy IDs get provenance set.
 }
 
+// ---------------------------------------------------------------------------
+// v23 — destroy collections (#219 item-model refactor decision D3): every
+// per-bin `*_collections` table, and the `collection_id` column it backed on
+// every collection-scoped item table, are dropped. Nine tables rebuild
+// without the column (nothing else about their shape changes — themes keeps
+// its `kind` column for now; that's v26's job); `actions.collection_id` has
+// no declared FK so it's dropped in place. The eight collection tables are
+// then dropped outright. Requires foreign_keys off (multiple table
+// recreations).
+// ---------------------------------------------------------------------------
+function rebuildDeckItemTableWithoutCollection(db: SqliteDatabase, table: 'presentations' | 'lyrics' | 'talks'): void {
+  if (!hasColumn(db, table, 'collection_id')) return;
+  const tempTable = `${table}_v23`;
+  db.exec(`
+    CREATE TABLE ${tempTable} (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES themes(id)
+    );
+
+    INSERT INTO ${tempTable} (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at
+    FROM ${table};
+
+    DROP TABLE ${table};
+    ALTER TABLE ${tempTable} RENAME TO ${table};
+  `);
+
+  if (table === 'talks') {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_talks_order_index ON talks(order_index);');
+  } else {
+    const orderIndexName = table === 'presentations' ? 'idx_decks_order_index' : 'idx_lyrics_order_index';
+    const themeIndexName = table === 'presentations' ? 'idx_decks_theme_id' : 'idx_lyrics_theme_id';
+    db.exec(`CREATE INDEX IF NOT EXISTS ${orderIndexName} ON ${table}(order_index);`);
+    db.exec(`CREATE INDEX IF NOT EXISTS ${themeIndexName} ON ${table}(theme_id);`);
+  }
+}
+
+function rebuildThemesWithoutCollection(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'themes', 'collection_id')) return;
+  db.exec(`
+    CREATE TABLE themes_v23 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO themes_v23 (id, name, kind, width, height, order_index, created_at, updated_at)
+    SELECT id, name, kind, width, height, order_index, created_at, updated_at
+    FROM themes;
+
+    DROP TABLE themes;
+    ALTER TABLE themes_v23 RENAME TO themes;
+
+    CREATE INDEX IF NOT EXISTS idx_themes_order_index ON themes(order_index);
+  `);
+}
+
+function rebuildStagesWithoutCollection(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'stages', 'collection_id')) return;
+  db.exec(`
+    CREATE TABLE stages_v23 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO stages_v23 (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM stages;
+
+    DROP TABLE stages;
+    ALTER TABLE stages_v23 RENAME TO stages;
+
+    CREATE INDEX IF NOT EXISTS idx_stages_order_index ON stages(order_index);
+  `);
+}
+
+function rebuildOverlaysWithoutCollection(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'overlays', 'collection_id')) return;
+  db.exec(`
+    CREATE TABLE overlays_v23 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      animation_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO overlays_v23 (id, name, enabled, animation_json, created_at, updated_at)
+    SELECT id, name, enabled, animation_json, created_at, updated_at
+    FROM overlays;
+
+    DROP TABLE overlays;
+    ALTER TABLE overlays_v23 RENAME TO overlays;
+
+    CREATE INDEX IF NOT EXISTS idx_overlays_created_at ON overlays(created_at);
+  `);
+}
+
+function rebuildMediaAssetTableWithoutCollection(
+  db: SqliteDatabase,
+  table: 'image_assets' | 'video_assets' | 'audio_assets',
+): void {
+  if (!hasColumn(db, table, 'collection_id')) return;
+  const tempTable = `${table}_v23`;
+  db.exec(`
+    CREATE TABLE ${tempTable} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      src TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO ${tempTable} (id, name, src, order_index, created_at, updated_at)
+    SELECT id, name, src, order_index, created_at, updated_at
+    FROM ${table};
+
+    DROP TABLE ${table};
+    ALTER TABLE ${tempTable} RENAME TO ${table};
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_created_at ON ${table}(created_at);`);
+}
+
+function dropActionsCollectionColumn(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'actions', 'collection_id')) return;
+  try {
+    db.exec('ALTER TABLE actions DROP COLUMN collection_id');
+  } catch (error) {
+    console.warn('[DB migrations] Could not drop actions.collection_id column, leaving in place:', error);
+  }
+}
+
+function migrateDropCollections(db: SqliteDatabase): void {
+  rebuildDeckItemTableWithoutCollection(db, 'presentations');
+  rebuildDeckItemTableWithoutCollection(db, 'lyrics');
+  rebuildDeckItemTableWithoutCollection(db, 'talks');
+  rebuildThemesWithoutCollection(db);
+  rebuildStagesWithoutCollection(db);
+  rebuildOverlaysWithoutCollection(db);
+  rebuildMediaAssetTableWithoutCollection(db, 'image_assets');
+  rebuildMediaAssetTableWithoutCollection(db, 'video_assets');
+  rebuildMediaAssetTableWithoutCollection(db, 'audio_assets');
+  dropActionsCollectionColumn(db);
+
+  for (const table of Object.values(COLLECTION_TABLE_BY_BIN)) {
+    db.exec(`DROP TABLE IF EXISTS ${table};`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v24 — destroy the library concept (#219 item-model refactor decision D4):
+// rebuild `playlists` without `library_id`, folding every library's playlists
+// into one deterministic global order (library order/creation time, then the
+// playlist's own order/creation time, then id — same merge-order shape as
+// v3's cross-library content globalization), then drop `libraries` outright.
+// Requires foreign_keys off.
+// ---------------------------------------------------------------------------
+function migrateGlobalPlaylists(db: SqliteDatabase): void {
+  if (hasColumn(db, 'playlists', 'library_id')) {
+    db.exec(`
+      CREATE TABLE playlists_v24 (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO playlists_v24 (id, name, order_index, created_at, updated_at)
+      SELECT
+        p.id,
+        p.name,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            COALESCE(l.order_index, 0) ASC,
+            COALESCE(l.created_at, p.created_at) ASC,
+            p.order_index ASC,
+            p.created_at ASC,
+            p.id ASC
+        ) - 1,
+        p.created_at,
+        p.updated_at
+      FROM playlists p
+      LEFT JOIN libraries l ON l.id = p.library_id;
+
+      DROP TABLE playlists;
+      ALTER TABLE playlists_v24 RENAME TO playlists;
+
+      CREATE INDEX IF NOT EXISTS idx_playlists_order_index ON playlists(order_index);
+    `);
+  }
+
+  db.exec('DROP TABLE IF EXISTS libraries;');
+}
+
+// ---------------------------------------------------------------------------
+// v25 — playlist groups become separators (#219 item-model refactor decision
+// D5): a group is no longer an accordion container, it's a plain divider row
+// inside the flat entry list. Rebuilds `playlist_entries` directly under
+// `playlist_id` with a `kind` discriminator ('item' | 'separator'),
+// synthesizing one separator row per group — even an empty one — carrying
+// its name (-> label) and color, immediately followed by its own entries,
+// then densely renumbers each playlist's whole row list 0..n. Item entry ids
+// are preserved (live/preview selection and armed-output state key off
+// them); separator rows get new ids. Canonical per-playlist flattening
+// order: groups by (order_index, rowid), then each group's entries the same
+// way. Requires foreign_keys off.
+// ---------------------------------------------------------------------------
+function synthesizePlaylistSeparators(db: SqliteDatabase): void {
+  if (!hasTable(db, 'playlist_groups')) return;
+
+  db.exec(`
+    CREATE TABLE playlist_entries_v25 (
+      id TEXT PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('item', 'separator')),
+      presentation_id TEXT,
+      lyric_id TEXT,
+      talk_id TEXT,
+      label TEXT,
+      color_key TEXT,
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(playlist_id) REFERENCES playlists(id),
+      CHECK (
+        (kind = 'item' AND label IS NULL AND
+          (presentation_id IS NOT NULL) + (lyric_id IS NOT NULL) + (talk_id IS NOT NULL) = 1)
+        OR
+        (kind = 'separator' AND presentation_id IS NULL AND lyric_id IS NULL AND talk_id IS NULL)
+      )
+    );
+  `);
+
+  const insertRow = db.prepare(
+    `INSERT INTO playlist_entries_v25
+      (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  const playlists = db.prepare('SELECT id FROM playlists').all() as Array<{ id: string }>;
+  for (const playlist of playlists) {
+    const groups = db
+      .prepare(
+        `SELECT id, name, color_key, created_at, updated_at
+         FROM playlist_groups
+         WHERE playlist_id = ?
+         ORDER BY order_index ASC, rowid ASC`,
+      )
+      .all(playlist.id) as Array<{
+        id: string;
+        name: string;
+        color_key: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+    let order = 0;
+    for (const group of groups) {
+      insertRow.run(
+        createId(), playlist.id, 'separator', null, null, null,
+        group.name, group.color_key, order, group.created_at, group.updated_at,
+      );
+      order += 1;
+
+      const entries = db
+        .prepare(
+          `SELECT id, presentation_id, lyric_id, talk_id, created_at, updated_at
+           FROM playlist_entries
+           WHERE group_id = ?
+           ORDER BY order_index ASC, rowid ASC`,
+        )
+        .all(group.id) as Array<{
+          id: string;
+          presentation_id: string | null;
+          lyric_id: string | null;
+          talk_id: string | null;
+          created_at: string;
+          updated_at: string;
+        }>;
+
+      for (const entry of entries) {
+        insertRow.run(
+          entry.id, playlist.id, 'item', entry.presentation_id, entry.lyric_id, entry.talk_id,
+          null, null, order, entry.created_at, entry.updated_at,
+        );
+        order += 1;
+      }
+    }
+  }
+
+  // Entries whose group_id doesn't resolve to any playlist_groups row at all
+  // are unassignable: pre-migration `playlist_entries` carried no direct
+  // playlist reference, only via its (unenforced, FK-less) group_id, so a
+  // dangling group_id leaves no way to recover which playlist the entry
+  // belonged to. The store's own mutation paths always cascade a group/
+  // playlist delete onto its entries, so this is unreachable via ordinary
+  // app use — a defensive branch for hand-edited or historically corrupted
+  // files, not a normal case. Such rows are dropped (logged) rather than
+  // inventing an owning playlist for them.
+  const orphaned = db
+    .prepare('SELECT id FROM playlist_entries WHERE group_id NOT IN (SELECT id FROM playlist_groups)')
+    .all() as Array<{ id: string }>;
+  if (orphaned.length > 0) {
+    console.warn(
+      `[DB migrations] Dropping ${orphaned.length} playlist_entries row(s) whose group_id references no ` +
+      'playlist_groups row (unassignable to any playlist).',
+    );
+  }
+
+  db.exec(`
+    DROP TABLE playlist_entries;
+    ALTER TABLE playlist_entries_v25 RENAME TO playlist_entries;
+
+    DROP TABLE playlist_groups;
+
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id ON playlist_entries(playlist_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_presentation_id ON playlist_entries(presentation_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_lyric_id ON playlist_entries(lyric_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_talk_id ON playlist_entries(talk_id);
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// v26 — per-owner theme tables (#219 item-model refactor decision D2): the
+// single `themes` table (kind 'slides' | 'lyrics' | 'overlays') splits into
+// `presentation_themes` / `lyric_themes` / `talk_themes` / `overlay_themes`,
+// ids preserved for the first three families' direct mapping. A 'slides'
+// theme referenced by at least one talk is additionally *cloned* into
+// talk_themes under a brand-new id (one clone per source theme, shared by
+// every talk that referenced it) — presentations and talks used to be able
+// to share one 'slides' theme row; now each owner family needs its own row,
+// so the talk side gets its own copy rather than a second owner on the same
+// row. Cloning duplicates the theme's container slide
+// (`${themeId}:slide` -> `${newId}:slide`) and its `slide_elements` (new
+// element ids, old->new map), then remaps provenance on the cloning talk's
+// own slides: `slide_elements.source_theme_element_id` pointing at a cloned
+// source element is rewritten via that map, and `slides.background_source`
+// is recomputed the same way v21/v22's provenance repair did. `slides`
+// itself is rebuilt: the single `theme_id` owner column is replaced by four
+// (`presentation_theme_id` / `lyric_theme_id` / `talk_theme_id` /
+// `overlay_theme_id`), the CHECK becomes a 9-way exclusive arc, and a
+// container slide's `kind` ('theme') is rewritten to the per-owner value
+// ('presentationTheme' / 'lyricTheme' / 'talkTheme' / 'overlayTheme').
+// `presentations`/`lyrics`/`talks` are rebuilt with their `theme_id` FK
+// retargeted at the matching per-owner table (talks' value repointed at its
+// clone). Requires foreign_keys off.
+// ---------------------------------------------------------------------------
+function createPerOwnerThemeTable(db: SqliteDatabase, table: string): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${table} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+/** Clone one talk-referenced theme (container slide + its elements) into `talk_themes` under `newThemeId`. Returns the old->new element-id map, used to remap provenance on the talk's own slides. */
+function cloneTalkTheme(
+  db: SqliteDatabase,
+  sourceThemeId: string,
+  newThemeId: string,
+  orderIndex: number,
+): Map<string, string> {
+  const elementIdMap = new Map<string, string>();
+
+  const theme = db
+    .prepare('SELECT name, width, height, created_at, updated_at FROM themes WHERE id = ?')
+    .get(sourceThemeId) as
+    | { name: string; width: number; height: number; created_at: string; updated_at: string }
+    | undefined;
+  if (!theme) return elementIdMap;
+
+  db
+    .prepare(
+      `INSERT INTO talk_themes (id, name, width, height, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(newThemeId, theme.name, theme.width, theme.height, orderIndex, theme.created_at, theme.updated_at);
+
+  const sourceSlideId = `${sourceThemeId}:slide`;
+  const newSlideId = `${newThemeId}:slide`;
+  const sourceSlide = db
+    .prepare(
+      `SELECT width, height, notes, order_index, created_at, updated_at, background_json, background_source
+       FROM slides WHERE id = ?`,
+    )
+    .get(sourceSlideId) as
+    | {
+        width: number;
+        height: number;
+        notes: string;
+        order_index: number;
+        created_at: string;
+        updated_at: string;
+        background_json: string | null;
+        background_source: string | null;
+      }
+    | undefined;
+  if (!sourceSlide) return elementIdMap;
+
+  db
+    .prepare(
+      `INSERT INTO slides
+        (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+       VALUES (?, NULL, NULL, NULL, ?, NULL, NULL, 'theme', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      newSlideId,
+      newThemeId,
+      sourceSlide.width,
+      sourceSlide.height,
+      sourceSlide.notes,
+      sourceSlide.order_index,
+      sourceSlide.created_at,
+      sourceSlide.updated_at,
+      sourceSlide.background_json,
+      sourceSlide.background_source,
+    );
+
+  const sourceElements = db
+    .prepare(
+      `SELECT id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, created_at, updated_at, source_theme_element_id
+       FROM slide_elements WHERE slide_id = ?`,
+    )
+    .all(sourceSlideId) as Array<{
+      id: string;
+      type: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+      opacity: number;
+      z_index: number;
+      layer: string;
+      payload_json: string;
+      created_at: string;
+      updated_at: string;
+      source_theme_element_id: string | null;
+    }>;
+
+  const insertElement = db.prepare(
+    `INSERT INTO slide_elements
+      (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, created_at, updated_at, source_theme_element_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const element of sourceElements) {
+    const newElementId = createId();
+    elementIdMap.set(element.id, newElementId);
+    insertElement.run(
+      newElementId, newSlideId, element.type, element.x, element.y, element.width, element.height,
+      element.rotation, element.opacity, element.z_index, element.layer, element.payload_json,
+      element.created_at, element.updated_at, element.source_theme_element_id,
+    );
+  }
+
+  return elementIdMap;
+}
+
+function migratePerOwnerThemes(db: SqliteDatabase): void {
+  if (!hasTable(db, 'themes')) return;
+
+  createPerOwnerThemeTable(db, 'presentation_themes');
+  createPerOwnerThemeTable(db, 'lyric_themes');
+  createPerOwnerThemeTable(db, 'talk_themes');
+  createPerOwnerThemeTable(db, 'overlay_themes');
+
+  db.exec(`
+    INSERT INTO presentation_themes (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM themes WHERE kind NOT IN ('lyrics', 'overlays');
+
+    INSERT INTO lyric_themes (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM themes WHERE kind = 'lyrics';
+
+    INSERT INTO overlay_themes (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM themes WHERE kind = 'overlays';
+  `);
+
+  // Clone each theme referenced by >=1 talk, one clone per source theme,
+  // shared by every talk that referenced it.
+  const talkThemeSources = db
+    .prepare(
+      `SELECT DISTINCT th.id, th.order_index
+       FROM themes th
+       JOIN talks t ON t.theme_id = th.id
+       ORDER BY th.order_index ASC, th.id ASC`,
+    )
+    .all() as Array<{ id: string; order_index: number }>;
+
+  const themeCloneMap = new Map<string, string>(); // source theme id -> new talk_themes id
+  const elementCloneMapByTheme = new Map<string, Map<string, string>>(); // source theme id -> (old element id -> new element id)
+
+  talkThemeSources.forEach((source, index) => {
+    const newThemeId = createId();
+    themeCloneMap.set(source.id, newThemeId);
+    elementCloneMapByTheme.set(source.id, cloneTalkTheme(db, source.id, newThemeId, index));
+  });
+
+  const talkRows = db.prepare('SELECT id, theme_id FROM talks WHERE theme_id IS NOT NULL').all() as Array<{
+    id: string;
+    theme_id: string;
+  }>;
+
+  // Remap provenance + recompute background_source on every talk-owned slide
+  // whose theme was cloned, mirroring v21/v22's provenance repair, BEFORE
+  // repointing talks.theme_id at the clone (the lookups below still need the
+  // *source* theme id).
+  const updateBackgroundSource = db.prepare('UPDATE slides SET background_source = ? WHERE id = ?');
+  const updateElementProvenance = db.prepare('UPDATE slide_elements SET source_theme_element_id = ? WHERE id = ?');
+
+  for (const talk of talkRows) {
+    const sourceThemeId = talk.theme_id;
+    const elementMap = elementCloneMapByTheme.get(sourceThemeId);
+    if (!elementMap) continue;
+
+    const sourceTheme = db.prepare('SELECT kind FROM themes WHERE id = ?').get(sourceThemeId) as
+      | { kind: string }
+      | undefined;
+    const isCompatible = sourceTheme?.kind === 'slides';
+    const themeBackground = db
+      .prepare('SELECT background_json FROM slides WHERE id = ?')
+      .get(`${sourceThemeId}:slide`) as { background_json: string | null } | undefined;
+
+    const ownedSlides = db
+      .prepare('SELECT id, background_json, background_source FROM slides WHERE talk_id = ?')
+      .all(talk.id) as Array<{ id: string; background_json: string | null; background_source: string | null }>;
+
+    for (const slide of ownedSlides) {
+      const slideBg = slide.background_json ? parseJson<SlideBackground>(slide.background_json) : null;
+      const themeBg = themeBackground?.background_json
+        ? parseJson<SlideBackground>(themeBackground.background_json)
+        : null;
+      const newBackgroundSource: 'theme' | 'local' =
+        isCompatible && slideBg && themeBg && JSON.stringify(slideBg) === JSON.stringify(themeBg)
+          ? 'theme'
+          : 'local';
+      if (slide.background_source !== newBackgroundSource) {
+        updateBackgroundSource.run(newBackgroundSource, slide.id);
+      }
+
+      const elements = db
+        .prepare('SELECT id, source_theme_element_id FROM slide_elements WHERE slide_id = ?')
+        .all(slide.id) as Array<{ id: string; source_theme_element_id: string | null }>;
+      for (const element of elements) {
+        if (!element.source_theme_element_id) continue;
+        const newElementId = elementMap.get(element.source_theme_element_id);
+        if (newElementId) {
+          updateElementProvenance.run(newElementId, element.id);
+        }
+      }
+    }
+  }
+
+  const updateTalkTheme = db.prepare('UPDATE talks SET theme_id = ? WHERE id = ?');
+  for (const talk of talkRows) {
+    const newThemeId = themeCloneMap.get(talk.theme_id);
+    if (newThemeId) {
+      updateTalkTheme.run(newThemeId, talk.id);
+    }
+  }
+
+  // Rebuild slides: retire the single `theme_id` owner column for the four
+  // per-owner columns, and rewrite a container slide's `kind` accordingly.
+  db.exec(`
+    CREATE TABLE slides_v26 (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      talk_id TEXT,
+      presentation_theme_id TEXT,
+      lyric_theme_id TEXT,
+      talk_theme_id TEXT,
+      overlay_theme_id TEXT,
+      overlay_id TEXT,
+      stage_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'presentation',
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      background_json TEXT,
+      background_source TEXT DEFAULT 'theme',
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      FOREIGN KEY(talk_id) REFERENCES talks(id),
+      FOREIGN KEY(presentation_theme_id) REFERENCES presentation_themes(id),
+      FOREIGN KEY(lyric_theme_id) REFERENCES lyric_themes(id),
+      FOREIGN KEY(talk_theme_id) REFERENCES talk_themes(id),
+      FOREIGN KEY(overlay_theme_id) REFERENCES overlay_themes(id),
+      FOREIGN KEY(overlay_id) REFERENCES overlays(id),
+      FOREIGN KEY(stage_id) REFERENCES stages(id),
+      CHECK (
+        (presentation_id IS NOT NULL) +
+        (lyric_id IS NOT NULL) +
+        (talk_id IS NOT NULL) +
+        (presentation_theme_id IS NOT NULL) +
+        (lyric_theme_id IS NOT NULL) +
+        (talk_theme_id IS NOT NULL) +
+        (overlay_theme_id IS NOT NULL) +
+        (overlay_id IS NOT NULL) +
+        (stage_id IS NOT NULL) = 1
+      )
+    );
+
+    INSERT INTO slides_v26
+      (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+    SELECT
+      s.id, s.presentation_id, s.lyric_id, s.talk_id,
+      CASE WHEN s.theme_id IS NOT NULL AND pt.id IS NOT NULL THEN s.theme_id END,
+      CASE WHEN s.theme_id IS NOT NULL AND lt.id IS NOT NULL THEN s.theme_id END,
+      CASE WHEN s.theme_id IS NOT NULL AND tt.id IS NOT NULL THEN s.theme_id END,
+      CASE WHEN s.theme_id IS NOT NULL AND ot.id IS NOT NULL THEN s.theme_id END,
+      s.overlay_id, s.stage_id,
+      CASE
+        WHEN s.theme_id IS NOT NULL AND pt.id IS NOT NULL THEN 'presentationTheme'
+        WHEN s.theme_id IS NOT NULL AND lt.id IS NOT NULL THEN 'lyricTheme'
+        WHEN s.theme_id IS NOT NULL AND tt.id IS NOT NULL THEN 'talkTheme'
+        WHEN s.theme_id IS NOT NULL AND ot.id IS NOT NULL THEN 'overlayTheme'
+        ELSE s.kind
+      END,
+      s.width, s.height, s.notes, s.order_index, s.created_at, s.updated_at, s.background_json, s.background_source
+    FROM slides s
+    LEFT JOIN presentation_themes pt ON pt.id = s.theme_id
+    LEFT JOIN lyric_themes lt ON lt.id = s.theme_id
+    LEFT JOIN talk_themes tt ON tt.id = s.theme_id
+    LEFT JOIN overlay_themes ot ON ot.id = s.theme_id;
+
+    DROP TABLE slides;
+    ALTER TABLE slides_v26 RENAME TO slides;
+
+    CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_lyric_id ON slides(lyric_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_talk_id ON slides(talk_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_presentation_theme_id ON slides(presentation_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_lyric_theme_id ON slides(lyric_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_talk_theme_id ON slides(talk_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_overlay_theme_id ON slides(overlay_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_overlay_id ON slides(overlay_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_stage_id ON slides(stage_id);
+  `);
+
+  // Rebuild presentations/lyrics/talks with their theme_id FK retargeted at
+  // the matching per-owner table (talks' value is already the clone id).
+  db.exec(`
+    CREATE TABLE presentations_v26 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES presentation_themes(id)
+    );
+    INSERT INTO presentations_v26 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at FROM presentations;
+    DROP TABLE presentations;
+    ALTER TABLE presentations_v26 RENAME TO presentations;
+    CREATE INDEX IF NOT EXISTS idx_decks_order_index ON presentations(order_index);
+    CREATE INDEX IF NOT EXISTS idx_decks_theme_id ON presentations(theme_id);
+
+    CREATE TABLE lyrics_v26 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES lyric_themes(id)
+    );
+    INSERT INTO lyrics_v26 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics;
+    DROP TABLE lyrics;
+    ALTER TABLE lyrics_v26 RENAME TO lyrics;
+    CREATE INDEX IF NOT EXISTS idx_lyrics_order_index ON lyrics(order_index);
+    CREATE INDEX IF NOT EXISTS idx_lyrics_theme_id ON lyrics(theme_id);
+
+    CREATE TABLE talks_v26 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES talk_themes(id)
+    );
+    INSERT INTO talks_v26 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at FROM talks;
+    DROP TABLE talks;
+    ALTER TABLE talks_v26 RENAME TO talks;
+    CREATE INDEX IF NOT EXISTS idx_talks_order_index ON talks(order_index);
+    CREATE INDEX IF NOT EXISTS idx_talks_theme_id ON talks(theme_id);
+  `);
+
+  db.exec('DROP TABLE themes;');
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_presentation_themes_order_index ON presentation_themes(order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_lyric_themes_order_index ON lyric_themes(order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_talk_themes_order_index ON talk_themes(order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_overlay_themes_order_index ON overlay_themes(order_index);');
+}
+
+// ---------------------------------------------------------------------------
+// v27 — item-scope (#219 item-model refactor decision D6/D7): rename the
+// persisted macro scope-level value 'deckItem' -> 'item' (Presentation/
+// Lyric/Talk are independent first-class items now, not a unified "deck
+// item"), and densely renormalize order_index 0..n per table for every
+// per-type sequence this refactor introduced (presentations/lyrics/talks —
+// no longer sharing one cross-type order — and the four theme tables).
+// `playlists` and `playlist_entries` already got a fresh dense order from
+// v24/v25 and don't need it again here.
+// ---------------------------------------------------------------------------
+function renumberOrderIndexDense(db: SqliteDatabase, table: string): void {
+  db.exec(`
+    WITH ranked AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY order_index ASC, created_at ASC, id ASC) - 1 AS rank
+      FROM ${table}
+    )
+    UPDATE ${table} SET order_index = (SELECT rank FROM ranked WHERE ranked.id = ${table}.id);
+  `);
+}
+
+function migrateItemScope(db: SqliteDatabase): void {
+  if (hasTable(db, 'actions') && hasColumn(db, 'actions', 'scope_level')) {
+    db.exec("UPDATE actions SET scope_level = 'item' WHERE scope_level = 'deckItem'");
+  }
+
+  const orderedTables = [
+    'presentations', 'lyrics', 'talks',
+    'presentation_themes', 'lyric_themes', 'talk_themes', 'overlay_themes',
+  ];
+  for (const table of orderedTables) {
+    if (hasTable(db, table)) {
+      renumberOrderIndexDense(db, table);
+    }
+  }
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'bootstrap-legacy-schema', up: bootstrapLegacySchema },
   { version: 2, name: 'stabilize-legacy-schema', up: stabilizeLegacySchema },
@@ -1764,4 +2529,9 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 20, name: 'macro-scope-lifecycle', up: migrateMacroScopeLifecycle },
   { version: 21, name: 'provenance', up: migrateProvenance },
   { version: 22, name: 'provenance-repair', up: migrateProvenanceRepair },
+  { version: 23, name: 'drop-collections', up: migrateDropCollections, requiresForeignKeysOff: true },
+  { version: 24, name: 'global-playlists', up: migrateGlobalPlaylists, requiresForeignKeysOff: true },
+  { version: 25, name: 'playlist-separators', up: synthesizePlaylistSeparators, requiresForeignKeysOff: true },
+  { version: 26, name: 'per-owner-themes', up: migratePerOwnerThemes, requiresForeignKeysOff: true },
+  { version: 27, name: 'item-scope', up: migrateItemScope },
 ];

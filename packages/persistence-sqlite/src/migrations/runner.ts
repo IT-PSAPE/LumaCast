@@ -117,6 +117,44 @@ function createVerifiedBackup(
 }
 
 /**
+ * Applies migrations whose `version` is greater than `db`'s current
+ * `user_version` and less than or equal to `targetVersion`, in order —
+ * exactly the same replay loop {@link runMigrations} runs, but stopping
+ * short of `LATEST_SCHEMA_VERSION` and without writing a pre-migration
+ * backup (there is nothing meaningful to back up: every caller passes a
+ * fresh, empty temporary database). Used to materialize a specific
+ * historical schema version — schema-equivalence.test.ts's fixture
+ * materialization follows this same pattern locally, and the legacy (v1)
+ * project-backup importer (@lumacast/persistence-sqlite's
+ * legacy-project-backup.ts) calls this directly: once to materialize a v1
+ * document at schema 22, then again up to `LATEST_SCHEMA_VERSION` so
+ * migrations 23+ replay through the exact tested code path a live database
+ * upgrade uses — zero duplicated transform logic.
+ */
+export function applyMigrationsThroughVersion(db: SqliteDatabase, targetVersion: number): void {
+  const currentVersion = getUserVersion(db);
+  const pending = MIGRATIONS.filter((migration) => migration.version > currentVersion && migration.version <= targetVersion);
+
+  for (const migration of pending) {
+    const previousForeignKeysEnabled = migration.requiresForeignKeysOff ? getForeignKeysEnabled(db) : null;
+    if (migration.requiresForeignKeysOff) {
+      db.pragma('foreign_keys = OFF');
+    }
+    try {
+      const applyMigration = db.transaction(() => {
+        migration.up(db);
+        setUserVersion(db, migration.version);
+      });
+      applyMigration();
+    } finally {
+      if (migration.requiresForeignKeysOff) {
+        db.pragma(`foreign_keys = ${previousForeignKeysEnabled ? 'ON' : 'OFF'}`);
+      }
+    }
+  }
+}
+
+/**
  * The single ordered migration runner. Applies every migration whose
  * `version` is greater than the database's current `user_version`, in
  * ascending order, to bring it to `LATEST_SCHEMA_VERSION`. Used identically
