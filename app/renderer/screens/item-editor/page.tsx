@@ -2,10 +2,11 @@ import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Play, Plus, Search } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import type { Id } from '@lumacast/kernel';
+import type { ItemRef } from '@lumacast/composition';
 import { cn } from '@renderer/utils/cn';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
-import { DeckItemIcon } from '../../components/display/entity-icon';
+import { ItemIcon } from '../../components/display/entity-icon';
 import { Dropdown } from '../../components/form/dropdown';
 import { FieldTextarea } from '../../components/form/field';
 import { Popover } from '../../components/overlays/popover';
@@ -19,24 +20,24 @@ import { EmptyState } from '@renderer/components/display/empty-state';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { Label } from '@renderer/components/display/text';
-import { DeckEditorInspectorPanel } from './inspector-panel';
-import { DeckEditorLayersPanel } from './layers-panel';
-import { DeckEditorScreenProvider, useDeckEditorScreen } from './screen-context';
-import { TalkScriptBlocksPanel } from '../../features/deck/talk-script-blocks-panel';
+import { ItemEditorInspectorPanel } from './inspector-panel';
+import { ItemEditorLayersPanel } from './layers-panel';
+import { ItemEditorScreenProvider, useItemEditorScreen } from './screen-context';
+import { TalkScriptBlocksPanel } from '../../features/items/talk-script-blocks-panel';
 
-export function DeckEditorScreen() {
+export function ItemEditorScreen() {
   return (
-    <DeckEditorScreenProvider>
-      <DeckEditorScreenContent />
-    </DeckEditorScreenProvider>
+    <ItemEditorScreenProvider>
+      <ItemEditorScreenContent />
+    </ItemEditorScreenProvider>
   );
 }
 
-function DeckEditorScreenContent() {
-  const { state, actions } = useDeckEditorScreen();
+function ItemEditorScreenContent() {
+  const { state, actions } = useItemEditorScreen();
 
   return (
-      <SplitPanel.Panel splitId="edit-main" orientation="horizontal" className="h-full" data-ui-region="deck-editor-layout">
+      <SplitPanel.Panel splitId="edit-main" orientation="horizontal" className="h-full" data-ui-region="item-editor-layout">
         {/* LEFT PANEL: LAYERS PANEL */}
         <SplitPanel.Segment id="edit-left" defaultSize={280} minSize={140} collapsible>
           <LumaCastPanel.Root className="h-full border-r border-secondary">
@@ -44,7 +45,7 @@ function DeckEditorScreenContent() {
               <SplitPanel.Segment id={'slide-list'} defaultSize={440} minSize={180}>
                 <LumaCastPanel.Group className="h-full min-h-0">
                   <LumaCastPanel.GroupTitle>
-                    <DeckItemPicker />
+                    <ItemPicker />
                     <Dropdown>
                       <Dropdown.Trigger
                         aria-label="Add"
@@ -53,24 +54,24 @@ function DeckEditorScreenContent() {
                         <Plus />
                       </Dropdown.Trigger>
                       <Dropdown.Panel placement="bottom-end">
-                        <Dropdown.Item onClick={() => actions.openCreateDeckItem('lyric')}>
+                        <Dropdown.Item onClick={() => actions.openCreateItem('lyric')}>
                           New lyric
                         </Dropdown.Item>
-                        <Dropdown.Item onClick={() => actions.openCreateDeckItem('presentation')}>
+                        <Dropdown.Item onClick={() => actions.openCreateItem('presentation')}>
                           New presentation
                         </Dropdown.Item>
-                        <Dropdown.Item onClick={() => actions.openCreateDeckItem('talk')}>
+                        <Dropdown.Item onClick={() => actions.openCreateItem('talk')}>
                           New talk
                         </Dropdown.Item>
                         <Dropdown.Separator />
-                        <Dropdown.Item onClick={() => { void actions.createSlide(); }} disabled={!state.currentDeckItem}>
+                        <Dropdown.Item onClick={() => { void actions.createSlide(); }} disabled={!state.currentItem}>
                           New slide
                         </Dropdown.Item>
                       </Dropdown.Panel>
                     </Dropdown>
                   </LumaCastPanel.GroupTitle>
                   <LumaCastPanel.Content className="min-h-0">
-                    {!state.currentDeckItem ? (
+                    {!state.currentItem ? (
                       <EmptyState.Root>
                         <EmptyState.Title>No item selected</EmptyState.Title>
                         <EmptyState.Description>Pick a presentation or lyric from the menu above to start editing.</EmptyState.Description>
@@ -83,9 +84,9 @@ function DeckEditorScreenContent() {
                     ) : (
                       <ScrollArea.Root scrollPadding={8}>
                         <ScrollArea.Viewport className="p-2">
-                          <div className="grid min-w-0 grid-cols-1 content-start gap-3" role="grid" aria-label={`Current ${state.currentDeckItem?.type === 'lyric' ? 'lyrics' : 'slides'}`}>
+                          <div className="grid min-w-0 grid-cols-1 content-start gap-3" role="grid" aria-label={`Current ${state.currentItemRef?.type === 'lyric' ? 'lyrics' : 'slides'}`}>
                             {state.slides.map((slide, index) => (
-                              <DeckEditorSlideListItem key={slide.id} slide={slide} index={index} />
+                              <ItemEditorSlideListItem key={slide.id} slide={slide} index={index} />
                             ))}
                           </div>
                         </ScrollArea.Viewport>
@@ -103,7 +104,7 @@ function DeckEditorScreenContent() {
                     <Label.xs className="mr-auto">Layers</Label.xs>
                   </LumaCastPanel.GroupTitle>
                   <LumaCastPanel.Content className="overflow-y-auto p-2">
-                    <DeckEditorLayersPanel />
+                    <ItemEditorLayersPanel />
                   </LumaCastPanel.Content>
                 </LumaCastPanel.Group>
               </SplitPanel.Segment>
@@ -129,7 +130,7 @@ function DeckEditorScreenContent() {
                     </ReacstButton>
                   </div>
                 </div> */}
-                {state.currentDeckItem?.type === 'talk' && state.currentSlide ? (
+                {state.currentItemRef?.type === 'talk' && state.currentSlide ? (
                   <TalkScriptBlocksPanel slideId={state.currentSlide.id} />
                 ) : (
                   <FieldTextarea
@@ -148,20 +149,20 @@ function DeckEditorScreenContent() {
 
         {/* RIGHT PANEL: INSPECTOR PANEL*/}
         <SplitPanel.Segment id="edit-right" defaultSize={320} minSize={140} collapsible>
-          <DeckEditorInspectorPanel />
+          <ItemEditorInspectorPanel />
         </SplitPanel.Segment>
       </SplitPanel.Panel>
   );
 }
 
-function DeckEditorSlideListItem({
+function ItemEditorSlideListItem({
   slide,
   index,
 }: {
-  slide: ReturnType<typeof useDeckEditorScreen>['state']['slides'][number];
+  slide: ReturnType<typeof useItemEditorScreen>['state']['slides'][number];
   index: number;
 }) {
-  const { state, actions } = useDeckEditorScreen();
+  const { state, actions } = useItemEditorScreen();
   const elements = state.currentSlide?.id === slide.id ? state.effectiveElements : actions.getSlideElements(slide.id);
   const scene = actions.getThumbnailScene(slide.id, 'deck-editor');
   if (!scene) return null;
@@ -215,7 +216,7 @@ function SlideTile({ slideId, scene, index, isActive, isLive, isEmpty, textPrevi
 }
 
 function SlideTileBody({ slideId, scene, index, isActive, isLive, isEmpty, textPreview, onSelect }: SlideTileProps) {
-  const { state, actions } = useDeckEditorScreen();
+  const { state, actions } = useItemEditorScreen();
   const confirm = useConfirm();
   const isFirst = index === 0;
   const isLast = index === state.slides.length - 1;
@@ -281,11 +282,11 @@ function SlideTileBody({ slideId, scene, index, isActive, isLive, isEmpty, textP
   );
 }
 
-// Combobox-style picker that replaces the static deck-item title in the
-// edit screen's left panel. Click the trigger to open a popover with a
-// search input and a filtered list of deck items; pick one to switch.
-function DeckItemPicker() {
-  const { state, actions } = useDeckEditorScreen();
+// Combobox-style picker that replaces the static item title in the edit
+// screen's left panel. Click the trigger to open a popover with a search
+// input and a filtered list of items; pick one to switch.
+function ItemPicker() {
+  const { state, actions } = useItemEditorScreen();
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -295,12 +296,12 @@ function DeckItemPicker() {
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return state.deckItems;
-    return state.deckItems.filter((item) => item.title.toLowerCase().includes(q));
-  }, [filter, state.deckItems]);
+    if (!q) return state.pickerItems;
+    return state.pickerItems.filter((item) => item.title.toLowerCase().includes(q));
+  }, [filter, state.pickerItems]);
 
-  const listboxId = 'deck-editor-item-picker-listbox';
-  const activeOptionId = filtered[highlightedIndex] ? `deck-editor-item-option-${filtered[highlightedIndex].id}` : undefined;
+  const listboxId = 'item-editor-item-picker-listbox';
+  const activeOptionId = filtered[highlightedIndex] ? `item-editor-item-option-${filtered[highlightedIndex].itemRef.id}` : undefined;
 
   function handleOpen() {
     setOpen(true);
@@ -314,8 +315,8 @@ function DeckItemPicker() {
     setOpen(false);
   }
 
-  function handleSelect(id: Id) {
-    actions.browseDeckItem(id);
+  function handleSelect(itemRef: ItemRef) {
+    actions.browseItem(itemRef);
     handleClose();
   }
 
@@ -329,7 +330,7 @@ function DeckItemPicker() {
     } else if (event.key === 'Enter') {
       event.preventDefault();
       const target = filtered[highlightedIndex];
-      if (target) handleSelect(target.id);
+      if (target) handleSelect(target.itemRef);
     } else if (event.key === 'Escape') {
       event.preventDefault();
       handleClose();
@@ -342,16 +343,16 @@ function DeckItemPicker() {
         ref={triggerRef}
         type="button"
         onClick={open ? handleClose : handleOpen}
-        aria-label="Select deck item"
+        aria-label="Select item"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listboxId}
         className="h-6.5 flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-tertiary"
-        title={state.currentDeckItem?.title ?? 'No item selected'}
+        title={state.currentItem?.title ?? 'No item selected'}
       >
-        {state.currentDeckItem ? <DeckItemIcon entity={state.currentDeckItem} className="shrink-0 text-tertiary" /> : null}
+        {state.currentItemRef ? <ItemIcon entity={state.currentItemRef} className="shrink-0 text-tertiary" /> : null}
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-primary">
-          {state.currentDeckItem?.title ?? 'No item selected'}
+          {state.currentItem?.title ?? 'No item selected'}
         </span>
         <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
       </button>
@@ -371,19 +372,19 @@ function DeckItemPicker() {
               value={filter}
               onChange={(event) => { setFilter(event.target.value); setHighlightedIndex(0); }}
               onKeyDown={handleInputKeyDown}
-              placeholder="Search deck items"
+              placeholder="Search items"
               className="min-w-0 flex-1 bg-transparent text-sm text-primary outline-none placeholder:text-tertiary"
             />
           </div>
-          <div ref={listRef} id={listboxId} role="listbox" aria-label="Deck items" className="max-h-72 overflow-y-auto p-1">
+          <div ref={listRef} id={listboxId} role="listbox" aria-label="Items" className="max-h-72 overflow-y-auto p-1">
             {filtered.length === 0 ? (
-              <div className="px-2 py-1.5 text-sm text-tertiary">No deck items match.</div>
+              <div className="px-2 py-1.5 text-sm text-tertiary">No items match.</div>
             ) : (
               filtered.map((item, index) => (
-                <DeckItemPickerOption
-                  key={item.id}
+                <ItemPickerOption
+                  key={item.itemRef.id}
                   item={item}
-                  isCurrent={item.id === state.currentDeckItemId}
+                  isCurrent={state.currentItemRef !== null && state.currentItemRef.type === item.itemRef.type && state.currentItemRef.id === item.itemRef.id}
                   isHighlighted={index === highlightedIndex}
                   onSelect={handleSelect}
                   onHighlight={() => setHighlightedIndex(index)}
@@ -397,26 +398,26 @@ function DeckItemPicker() {
   );
 }
 
-function DeckItemPickerOption({
+function ItemPickerOption({
   item,
   isCurrent,
   isHighlighted,
   onSelect,
   onHighlight,
 }: {
-  item: ReturnType<typeof useDeckEditorScreen>['state']['deckItems'][number];
+  item: ReturnType<typeof useItemEditorScreen>['state']['pickerItems'][number];
   isCurrent: boolean;
   isHighlighted: boolean;
-  onSelect: (id: Id) => void;
+  onSelect: (itemRef: ItemRef) => void;
   onHighlight: () => void;
 }) {
   function handleSelect() {
-    onSelect(item.id);
+    onSelect(item.itemRef);
   }
 
   return (
     <button
-      id={`deck-editor-item-option-${item.id}`}
+      id={`item-editor-item-option-${item.itemRef.id}`}
       type="button"
       role="option"
       aria-selected={isHighlighted}
@@ -428,7 +429,7 @@ function DeckItemPickerOption({
         isHighlighted ? 'bg-tertiary text-primary' : 'hover:bg-tertiary hover:text-primary',
       )}
     >
-      <DeckItemIcon entity={item} className="shrink-0 text-tertiary" />
+      <ItemIcon entity={item.itemRef} className="shrink-0 text-tertiary" />
       <span className="min-w-0 flex-1 truncate">{item.title}</span>
       {isCurrent ? <span className="shrink-0 text-xs uppercase tracking-wide text-tertiary">current</span> : null}
     </button>

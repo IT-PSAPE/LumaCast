@@ -2,6 +2,7 @@ import { AppWindow, EllipsisVertical, LayoutGrid, List, RectangleHorizontal, Row
 import { Dropdown } from '../../components/form/dropdown';
 import { GridSizeSlider } from '../../components/form/grid-size-slider';
 import { Tabs } from '../../components/display/tabs';
+import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useDeckBrowser } from './deck-browser-context';
@@ -35,20 +36,21 @@ function PlaylistTabItem({ items }: { items: PlaylistDeckSequenceItem[] }) {
 export function DeckBrowserToolbar({ items, headerVariant }: DeckBrowserToolbarProps) {
   const { open: openLyricEditor } = useLyricEditor();
   const { createSlide } = useSlides();
-  const { currentDeckItem, currentLibraryBundle, currentPlaylistId, isDetachedDeckBrowser } = useNavigation();
+  const { snapshot } = useCast();
+  const { currentItem, currentItemRef, currentPlaylistId, isDetachedDeckBrowser } = useNavigation();
   const { slideBrowserMode, setSlideBrowserMode, playlistBrowserMode, setPlaylistBrowserMode, gridItemSize, gridSizeMin, gridSizeMax, gridSizeStep, setGridItemSize } = useDeckBrowser();
 
   const isGridMode = slideBrowserMode === 'grid';
   const showPlaylistModes = !isDetachedDeckBrowser && (isGridMode || slideBrowserMode === 'list');
   const showContentInfo = headerVariant !== 'hidden';
-  const currentPlaylist = currentLibraryBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId)?.playlist ?? null;
+  const currentPlaylist = snapshot?.playlists.find((playlist) => playlist.id === currentPlaylistId) ?? null;
 
   function handleAddSlide() {
-    if (currentDeckItem) void createSlide();
+    if (currentItem) void createSlide();
   }
 
   function handleOpenEditor() {
-    if (currentDeckItem?.type === 'lyric') openLyricEditor();
+    if (currentItemRef?.type === 'lyric') openLyricEditor();
   }
 
   function ViewIcon() {
@@ -83,8 +85,8 @@ export function DeckBrowserToolbar({ items, headerVariant }: DeckBrowserToolbarP
             {headerVariant === 'tabs' ? (
               <PlaylistTabItem items={items} />
             ) : (
-              <span className="truncate text-sm font-medium text-primary" title={headerVariant === 'continuous' ? currentPlaylist?.name : currentDeckItem?.title}>
-                {headerVariant === 'continuous' ? currentPlaylist?.name ?? 'Playlist' : currentDeckItem?.title ?? 'No item selected'}
+              <span className="truncate text-sm font-medium text-primary" title={headerVariant === 'continuous' ? currentPlaylist?.name : currentItem?.title}>
+                {headerVariant === 'continuous' ? currentPlaylist?.name ?? 'Playlist' : currentItem?.title ?? 'No item selected'}
               </span>
             )}
           </div>

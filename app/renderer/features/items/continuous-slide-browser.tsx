@@ -7,7 +7,7 @@ import { EmptyState } from '../../components/display/empty-state';
 import { ScrollArea } from '../../components/layout/scroll-area';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { getSlideVisualState, slideTextDetails, slideTextPreview } from '../../utils/slides';
-import { isLyricDeckItem, type RenderScene, type SceneSurface } from '@lumacast/composition';
+import type { RenderScene, SceneSurface } from '@lumacast/composition';
 import { ContinuousSlideGridTile } from './continuous-slide-grid-tile';
 import { useContinuousSlideSections } from './use-continuous-slide-sections';
 import { useDeckBrowser } from './deck-browser-context';
@@ -171,7 +171,7 @@ function GridSlideRow({ row, sections, gridItemSize, getThumbnailScene }: GridSl
           <ContinuousSlideGridTile
             key={slide.id}
             entryId={row.item.entryId}
-            itemId={row.item.item.id}
+            itemRef={row.item.itemRef}
             index={index}
             scene={scene}
             selected={isCurrentPresentation && index === sections.currentSlideIndex}
@@ -221,7 +221,7 @@ function ContinuousSlideListView({ items }: { items: PlaylistDeckSequenceItem[] 
     const details = slideTextDetails(elements);
     const scene = getThumbnailScene(row.slide.id, 'list');
     if (!scene) return null;
-    const textEditable = isLyricDeckItem(row.item.item);
+    const textEditable = row.item.itemRef.type === 'lyric';
     const outlineRow = {
       slide: row.slide,
       index: row.index,
@@ -240,10 +240,10 @@ function ContinuousSlideListView({ items }: { items: PlaylistDeckSequenceItem[] 
     } satisfies OutlineSlideRow;
 
     function handleSelect() {
-      sections.handleActivateSlide(row.item.entryId, row.item.item.id, row.index);
+      sections.handleActivateSlide(row.item.entryId, row.item.itemRef, row.index);
     }
     function handleOpen() {
-      sections.handleEditSlide(row.item.entryId, row.item.item.id, row.index);
+      sections.handleEditSlide(row.item.entryId, row.item.itemRef, row.index);
     }
     function handleTextCommit(_slideId: Id, nextText: string) {
       updateText({

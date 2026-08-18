@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from 'react';
-import { isLyricDeckItem } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
 import type { Slide, SlideElement } from '@lumacast/composition';
 import type { SlideVisualState } from '../../types/ui';
 import { clamp, getSlideVisualState, slideTextDetails } from '../../utils/slides';
+import { itemRefsEqual } from '../../utils/navigation-context-utils';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useSlideOutlineTextEditing } from './use-slide-outline-text-editing';
@@ -29,11 +29,11 @@ interface OutlineViewModel {
 }
 
 export function useOutlineView(): OutlineViewModel {
-  const { currentDeckItem, currentDeckItemId, currentOutputDeckItemId, isDetachedDeckBrowser } = useNavigation();
+  const { currentItemRef, currentOutputItemRef, isDetachedDeckBrowser } = useNavigation();
   const { slides, currentSlideIndex, liveSlideIndex, slideElementsById, activateSlide, setCurrentSlideIndex } = useSlides();
   const { updateText } = useSlideOutlineTextEditing();
-  const textEditable = isLyricDeckItem(currentDeckItem);
-  const showLiveState = !isDetachedDeckBrowser && currentDeckItemId === currentOutputDeckItemId;
+  const textEditable = currentItemRef?.type === 'lyric';
+  const showLiveState = !isDetachedDeckBrowser && itemRefsEqual(currentItemRef, currentOutputItemRef);
 
   const rows = useMemo(() => {
     return slides.map((slide, index) => {

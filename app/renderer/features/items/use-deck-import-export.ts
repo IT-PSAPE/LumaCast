@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { DeckItem, Playlist } from '@lumacast/composition';
-import type { DeckBundleBrokenReferenceAction, DeckBundleBrokenReferenceDecision, DeckBundleExportOptions, DeckBundleInspection } from '@lumacast/protocol';
+import type { ItemType, Playlist } from '@lumacast/composition';
+import type { BundleBrokenReferenceAction, BundleBrokenReferenceDecision, BundleExportOptions, BundleInspection } from '@lumacast/protocol';
 import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 
+// #219 item-model refactor decision D4/D9: there is no library tier any more
+// to flatten — playlists are already a flat snapshot field. The unified
+// `items` list this hook used to read is rebuilt here as a purely local
+// view-model (id/title/type rows over the three per-type arrays) for the
+// export picker's sake only; it is not a stored merged-entity concept.
+export interface ExportableItem {
+  id: Id;
+  title: string;
+  type: ItemType;
+}
+
 interface ImportDecisionState {
-  action: DeckBundleBrokenReferenceAction;
+  action: BundleBrokenReferenceAction;
   replacementPath: string | null;
 }
 
@@ -17,7 +28,8 @@ interface ExtraIncludeFlags {
 }
 
 interface ImportExportSettingsState {
-  deckItems: DeckItem[];
+  items: ExportableItem[];
+  playlists: Playlist[];
   filterText: string;
   selectedItemIds: Set<Id>;
   selectedPlaylistIds: Set<Id>;
@@ -25,7 +37,7 @@ interface ImportExportSettingsState {
   exportInFlight: boolean;
   importInFlight: boolean;
   importPath: string | null;
-  inspection: DeckBundleInspection | null;
+  inspection: BundleInspection | null;
   decisionMap: ReadonlyMap<string, ImportDecisionState>;
   blockedImportReasons: string[];
   message: string | null;
@@ -40,17 +52,17 @@ interface ImportExportSettingsActions {
   setExtraFlag: (flag: keyof ExtraIncludeFlags, value: boolean) => void;
   exportSelected: () => Promise<void>;
   exportPlaylist: (playlist: Playlist) => Promise<void>;
-  exportDeckItem: (item: DeckItem) => Promise<void>;
+  exportItem: (item: ExportableItem) => Promise<void>;
   exportWorkspace: () => Promise<void>;
   chooseImportBundle: () => Promise<void>;
   clearImportReview: () => void;
-  setBrokenReferenceAction: (source: string, action: DeckBundleBrokenReferenceAction) => void;
+  setBrokenReferenceAction: (source: string, action: BundleBrokenReferenceAction) => void;
   chooseReplacementPath: (source: string) => Promise<void>;
   finalizeImport: () => Promise<void>;
 }
 
 export function useDeckImportExport(): { state: ImportExportSettingsState; actions: ImportExportSettingsActions } {
-  const { deckItems } = useProjectContent();
+  const { presentations, lyrics, talks } = useProjectContent();
   const { snapshot, mutate, setStatusText } = useCast();
   const [filterText, setFilterText] = useState('');
   const [selectedItemIds, setSelectedItemIds] = useState<Set<Id>>(new Set());
@@ -58,7 +70,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
   const [exportInFlight, setExportInFlight] = useState(false);
   const [importInFlight, setImportInFlight] = useState(false);
   const [importPath, setImportPath] = useState<string | null>(null);
-  const [inspection, setInspection] = useState<DeckBundleInspection | null>(null);
+  const [inspection, setInspection] = useState<BundleInspection | null>(null);
   const [decisionMap, setDecisionMap] = useState<Map<string, ImportDecisionState>>(new Map());
   const [message, setMessage] = useState<string | null>(null);
   const [extras, setExtras] = useState<ExtraIncludeFlags>({
@@ -67,7 +79,15 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     includeStages: false,
   });
 
-  function buildExportOptions(playlistIds: Id[] = []): DeckBundleExportOptions {
+  const items = useMemo<ExportableItem[]>(() => [
+    ...presentations.map((item) => ({ id: item.id, title: item.title, type: 'presentation' as const })),
+    ...lyrics.map((item) => ({ id: item.id, title: item.title, type: 'lyric' as const })),
+    ...talks.map((item) => ({ id: item.id, title: item.title, type: 'talk' as const })),
+  ], [presentations, lyrics, talks]);
+
+  const playlists = snapshot?.playlists ?? [];
+
+  function buildExportOptions(playlistIds: Id[] = []): BundleExportOptions {
     return {
       includeAllThemes: extras.includeAllThemes,
       includeOverlays: extras.includeOverlays,
@@ -78,31 +98,29 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
 
   const normalizedFilterText = filterText.trim().toLowerCase();
   const filteredItems = useMemo(() => {
-    return deckItems.filter((item) => {
+    return items.filter((item) => {
       if (!normalizedFilterText) return true;
       return item.title.toLowerCase().includes(normalizedFilterText) || item.type.toLowerCase().includes(normalizedFilterText);
     });
-  }, [deckItems, normalizedFilterText]);
+  }, [items, normalizedFilterText]);
 
   useEffect(() => {
-    const contentIds = new Set(deckItems.map((item) => item.id));
+    const contentIds = new Set(items.map((item) => item.id));
     setSelectedItemIds((current) => {
       const next = new Set(Array.from(current).filter((id) => contentIds.has(id)));
       if (next.size === current.size) return current;
       return next;
     });
-  }, [deckItems]);
+  }, [items]);
 
   useEffect(() => {
-    const playlistIds = new Set(
-      (snapshot?.libraryBundles ?? []).flatMap((bundle) => bundle.playlists.map((tree) => tree.playlist.id)),
-    );
+    const playlistIds = new Set(playlists.map((playlist) => playlist.id));
     setSelectedPlaylistIds((current) => {
       const next = new Set(Array.from(current).filter((id) => playlistIds.has(id)));
       if (next.size === current.size) return current;
       return next;
     });
-  }, [snapshot]);
+  }, [playlists]);
 
   const blockedImportReasons = useMemo(() => {
     if (!inspection) return [];
@@ -151,21 +169,19 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     const playlistCount = selectedPlaylistIds.size;
 
     if (itemCount === 1 && playlistCount === 0) {
-      const only = deckItems.find((item) => selectedItemIds.has(item.id));
+      const only = items.find((item) => selectedItemIds.has(item.id));
       if (only) return only.title;
     }
     if (itemCount === 0 && playlistCount === 1) {
-      const tree = (snapshot?.libraryBundles ?? [])
-        .flatMap((bundle) => bundle.playlists)
-        .find((entry) => selectedPlaylistIds.has(entry.playlist.id));
-      if (tree) return `cast-playlist-${tree.playlist.name.trim() || 'playlist'}`;
+      const playlist = playlists.find((entry) => selectedPlaylistIds.has(entry.id));
+      if (playlist) return `cast-playlist-${playlist.name.trim() || 'playlist'}`;
     }
 
     const total = itemCount + playlistCount;
     return total > 0 ? `cast-bundle-${total}` : 'cast-bundle';
   }
 
-  async function runExport(itemIds: Id[], playlistIds: Id[], suggestedName: string, options: DeckBundleExportOptions) {
+  async function runExport(itemIds: Id[], playlistIds: Id[], suggestedName: string, options: BundleExportOptions) {
     const hasItems = itemIds.length > 0;
     const hasPlaylists = playlistIds.length > 0;
     const hasExtras = Boolean(options.includeAllThemes || options.includeOverlays || options.includeStages);
@@ -173,9 +189,9 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     setExportInFlight(true);
     updateMessage(null);
     try {
-      const filePath = await window.castApi.chooseDeckBundleExportPath(suggestedName);
+      const filePath = await window.castApi.chooseBundleExportPath(suggestedName);
       if (!filePath) return;
-      const result = await window.castApi.exportDeckBundle(itemIds, filePath, options);
+      const result = await window.castApi.exportBundle(itemIds, filePath, options);
       const summary: string[] = [];
       summary.push(`${result.itemCount} item${result.itemCount === 1 ? '' : 's'}`);
       if (hasPlaylists) summary.push(`${playlistIds.length} playlist${playlistIds.length === 1 ? '' : 's'}`);
@@ -200,15 +216,13 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     await runExport([], [playlist.id], `cast-playlist-${slug}`, buildExportOptions([playlist.id]));
   }
 
-  async function handleExportDeckItem(item: DeckItem) {
+  async function handleExportItem(item: ExportableItem) {
     await runExport([item.id], [], item.title, buildExportOptions());
   }
 
   async function handleExportWorkspace() {
-    const allItemIds = deckItems.map((item) => item.id);
-    const allPlaylistIds = (snapshot?.libraryBundles ?? []).flatMap((bundle) =>
-      bundle.playlists.map((tree) => tree.playlist.id),
-    );
+    const allItemIds = items.map((item) => item.id);
+    const allPlaylistIds = playlists.map((playlist) => playlist.id);
     await runExport(allItemIds, allPlaylistIds, 'cast-workspace', {
       includeAllThemes: true,
       includeOverlays: true,
@@ -230,7 +244,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     setImportInFlight(true);
     updateMessage(null);
     try {
-      const filePath = await window.castApi.chooseDeckBundleImportPath();
+      const filePath = await window.castApi.chooseBundleImportPath();
       if (!filePath) return;
       await inspectBundle(filePath);
     } catch (error) {
@@ -247,7 +261,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     updateMessage(null);
   }
 
-  function handleSetBrokenReferenceAction(source: string, action: DeckBundleBrokenReferenceAction) {
+  function handleSetBrokenReferenceAction(source: string, action: BundleBrokenReferenceAction) {
     setDecisionMap((current) => {
       const next = new Map(current);
       const existing = next.get(source);
@@ -269,7 +283,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
     });
   }
 
-  function buildFinalizeDecisions(): DeckBundleBrokenReferenceDecision[] {
+  function buildFinalizeDecisions(): BundleBrokenReferenceDecision[] {
     if (!inspection) return [];
     return inspection.brokenReferences.map((reference) => {
       const decision = decisionMap.get(reference.source);
@@ -311,7 +325,8 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
 
   return {
     state: {
-      deckItems: filteredItems,
+      items: filteredItems,
+      playlists,
       filterText,
       selectedItemIds,
       selectedPlaylistIds,
@@ -333,7 +348,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
       setExtraFlag: handleSetExtraFlag,
       exportSelected: handleExportSelected,
       exportPlaylist: handleExportPlaylist,
-      exportDeckItem: handleExportDeckItem,
+      exportItem: handleExportItem,
       exportWorkspace: handleExportWorkspace,
       chooseImportBundle: handleChooseImportBundle,
       clearImportReview: handleClearImportReview,
@@ -344,7 +359,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
   };
 }
 
-function describeExtras(options: DeckBundleExportOptions): string {
+function describeExtras(options: BundleExportOptions): string {
   const parts: string[] = [];
   if (options.includeAllThemes) parts.push('all themes');
   if (options.includeOverlays) parts.push('overlays');

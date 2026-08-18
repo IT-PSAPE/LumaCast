@@ -1,4 +1,4 @@
-export const GROUP_COLOR_OPTIONS = [
+export const SEPARATOR_COLOR_OPTIONS = [
   { key: 'red', label: 'Red', swatch: '#dc2626' },
   { key: 'orange', label: 'Orange', swatch: '#f97316' },
   { key: 'amber', label: 'Amber', swatch: '#fbbf24' },
@@ -23,20 +23,20 @@ interface Rgb {
   b: number;
 }
 
-export interface GroupHeaderColors {
+export interface SeparatorColors {
   backgroundColor: string;
   textColor: string;
 }
 
-const DEFAULT_GROUP_COLORS = GROUP_COLOR_OPTIONS.slice(0, 8);
-const GROUP_COLOR_BY_KEY = new Map<string, (typeof GROUP_COLOR_OPTIONS)[number]>(
-  GROUP_COLOR_OPTIONS.map((option) => [option.key, option] as const)
+const DEFAULT_SEPARATOR_COLORS = SEPARATOR_COLOR_OPTIONS.slice(0, 8);
+const SEPARATOR_COLOR_BY_KEY = new Map<string, (typeof SEPARATOR_COLOR_OPTIONS)[number]>(
+  SEPARATOR_COLOR_OPTIONS.map((option) => [option.key, option] as const)
 );
 
-function hashGroupId(groupId: string): number {
+function hashSeparatorId(separatorId: string): number {
   let hash = 0;
-  for (let index = 0; index < groupId.length; index += 1) {
-    hash = (hash * 31 + groupId.charCodeAt(index)) >>> 0;
+  for (let index = 0; index < separatorId.length; index += 1) {
+    hash = (hash * 31 + separatorId.charCodeAt(index)) >>> 0;
   }
   return hash;
 }
@@ -60,10 +60,10 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export function getGroupHeaderColors(groupId: string, colorKey: string | null): GroupHeaderColors {
-  const fallbackIndex = hashGroupId(groupId) % DEFAULT_GROUP_COLORS.length;
-  const fallbackOption = DEFAULT_GROUP_COLORS[fallbackIndex];
-  const activeOption = colorKey ? GROUP_COLOR_BY_KEY.get(colorKey) ?? fallbackOption : fallbackOption;
+export function getSeparatorColors(separatorId: string, colorKey: string | null): SeparatorColors {
+  const fallbackIndex = hashSeparatorId(separatorId) % DEFAULT_SEPARATOR_COLORS.length;
+  const fallbackOption = DEFAULT_SEPARATOR_COLORS[fallbackIndex];
+  const activeOption = colorKey ? SEPARATOR_COLOR_BY_KEY.get(colorKey) ?? fallbackOption : fallbackOption;
 
   return {
     backgroundColor: withAlpha(activeOption.swatch, 0.18),

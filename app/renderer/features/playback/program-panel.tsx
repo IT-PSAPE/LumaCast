@@ -23,8 +23,6 @@ import { StageBinPanel } from '../assets/stages/stage-bin-panel';
 import { MacroBinPanel } from '../automation/macro-bin-panel';
 import { useAutomation } from '../automation/automation-context';
 import { dispatchAutomationTriggerEvent } from '../automation/automation-events';
-import { CollectionPicker } from '../workbench/collection-picker';
-import { useBinCollections } from '../workbench/use-bin-collections';
 import { useProgramOutput } from './use-program-output';
 import { useProgramBindingValue, useStageBindingValue, useStageScene } from './use-stage-scene';
 import { SceneStage } from '../canvas/scene-stage';
@@ -33,7 +31,7 @@ type BottomTab = 'overlays' | 'stage' | 'video' | 'audio' | 'macros';
 
 export function ProgramPanel() {
   const { clearLayer, clearAllLayers, mediaLayerAsset, videoLayerAsset, contentLayerVisible, activeOverlays, overlayMode, setOverlayMode } = usePresentationLayers();
-  const { currentOutputDeckItemId } = useNavigation();
+  const { currentOutputItemRef } = useNavigation();
   const audio = useAudio();
   const { importMedia } = useElements();
   const { createOverlay } = useOverlayEditor();
@@ -43,21 +41,10 @@ export function ProgramPanel() {
   const [bottomTab, setBottomTab] = useState<BottomTab>('overlays');
   const audioImportInputRef = useRef<HTMLInputElement>(null);
   const videoImportInputRef = useRef<HTMLInputElement>(null);
-  const overlayCollections = useBinCollections('overlay');
-  const stageCollections = useBinCollections('stage');
-  const videoCollections = useBinCollections('video');
-  const audioCollections = useBinCollections('audio');
-  const macroCollections = useBinCollections('macro');
   const { actions: { createMacro } } = useAutomation();
-  const activeCollections =
-    bottomTab === 'overlays' ? overlayCollections
-      : bottomTab === 'stage' ? stageCollections
-      : bottomTab === 'video' ? videoCollections
-      : bottomTab === 'audio' ? audioCollections
-      : macroCollections;
   const mediaActive = Boolean(mediaLayerAsset);
   const videoActive = Boolean(videoLayerAsset);
-  const contentActive = contentLayerVisible && Boolean(currentOutputDeckItemId);
+  const contentActive = contentLayerVisible && Boolean(currentOutputItemRef);
   const overlayActive = activeOverlays.length > 0;
   const audioActive = audio.isPlaying || audio.currentTime > 0;
 
@@ -172,7 +159,6 @@ export function ProgramPanel() {
             </Tabs.List>
           </LumaCastPanel.GroupTitle>
           <div className="w-full flex shrink-0 items-center gap-1 border-b border-secondary px-1.5 py-1">
-            <CollectionPicker api={activeCollections} popoverPlacement="bottom-start" />
             <div className="ml-auto flex items-center gap-1">
               {bottomTab === 'overlays' ? (
                 <>
@@ -240,7 +226,7 @@ export function ProgramPanel() {
                 <AudioBackgroundControls />
               </div>
               <div className='flex flex-1 min-h-0 w-full'>
-                <AudioBinPanel collections={audioCollections} hideFooterPicker />
+                <AudioBinPanel />
               </div>
             </LumaCastPanel.Content>
           ) : bottomTab === 'video' ? (
@@ -249,19 +235,19 @@ export function ProgramPanel() {
                 <VideoBackgroundControls />
               </div>
               <div className='flex flex-1 min-h-0 w-full'>
-                <MediaBinPanel binKind="video" collections={videoCollections} hideFooterPicker />
+                <MediaBinPanel binKind="video" />
               </div>
             </LumaCastPanel.Content>
           ) : bottomTab === 'macros' ? (
             <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
-              <MacroBinPanel collections={macroCollections} hideFooterPicker />
+              <MacroBinPanel />
             </LumaCastPanel.Content>
           ) : (
             <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
               {bottomTab === 'overlays' ? (
-                <OverlayBinPanel collections={overlayCollections} hideFooterPicker />
+                <OverlayBinPanel />
               ) : (
-                <StageBinPanel collections={stageCollections} hideFooterPicker />
+                <StageBinPanel />
               )}
             </LumaCastPanel.Content>
           )}

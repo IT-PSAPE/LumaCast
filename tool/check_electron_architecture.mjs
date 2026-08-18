@@ -129,10 +129,10 @@ const DEFAULT_ALLOW_LIST = [
   },
   {
     from: 'app/renderer/components/form/doc-sortable-block.tsx',
-    to: 'app/renderer/features/deck/lyric-text-utils.ts',
+    to: 'app/renderer/features/items/lyric-text-utils.ts',
     rules: ['ui-purity'],
     reason:
-      'Lyric import text parsing lives in the deck feature but is used by a shared doc-sortable form component. Move the parser to app/core so shared form components need no feature dependency.',
+      'Lyric import text parsing lives in the items feature but is used by a shared doc-sortable form component. Move the parser to app/core so shared form components need no feature dependency.',
     removedBy: 'Atlas (move lyric import parser to app/core)',
   },
   {

@@ -12,15 +12,9 @@ import { filterByText } from '../../utils/filter-by-text';
 import { useGridSize } from '../../hooks/use-grid-size';
 import type { ResourceDrawerViewMode } from '../../types/ui';
 import { BinShell } from '../workbench/bin-shell';
-import type { BinCollectionsApi } from '../workbench/use-bin-collections';
 import { useAutomation } from './automation-context';
 
-interface MacroBinPanelProps {
-  collections: BinCollectionsApi;
-  hideFooterPicker?: boolean;
-}
-
-export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBinPanelProps) {
+export function MacroBinPanel() {
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const {
     state: { macros, bindings, currentMacroId },
@@ -30,14 +24,9 @@ export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBi
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.macro-bin', 3, 2, 4);
 
-  const filteredByCollection = useMemo(
-    () => collections.filterByActiveCollection(macros),
-    [macros, collections],
-  );
-
   const filteredMacros = useMemo(
-    () => filterByText(filteredByCollection, searchValue, (macro: Macro) => [macro.name, macro.description]),
-    [filteredByCollection, searchValue],
+    () => filterByText(macros, searchValue, (macro: Macro) => [macro.name, macro.description]),
+    [macros, searchValue],
   );
 
   function handleOpenMacro(id: Id) {
@@ -66,7 +55,6 @@ export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBi
 
   return (
     <BinShell
-      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search macros…"
@@ -96,10 +84,6 @@ export function MacroBinPanel({ collections, hideFooterPicker = false }: MacroBi
             // exists (#214); mutatePatch has already reported the failure (#221),
             // so absorb the rethrow here.
             onRename={(name) => { void updateMacroFields(macro.id, { name }).catch(() => undefined); }}
-            onMoveToCollection={async (collectionId) => {
-              await collections.assignItem('macro', macro.id, collectionId);
-            }}
-            collectionsApi={collections}
           />
         ))}
       </BinPanelLayout>
@@ -119,8 +103,6 @@ interface MacroCardProps {
   onDuplicateMacro: (id: Id) => Promise<Macro | null>;
   onToggleRunOnStartup: (id: Id) => Promise<void>;
   onRename: (next: string) => void;
-  onMoveToCollection: (collectionId: Id) => Promise<void>;
-  collectionsApi: BinCollectionsApi;
 }
 
 function MacroCardImpl(props: MacroCardProps) {
@@ -131,11 +113,10 @@ function MacroCardImpl(props: MacroCardProps) {
   );
 }
 
-function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOpen, onRunMacro, onDeleteMacro, onDuplicateMacro, onToggleRunOnStartup, onRename, onMoveToCollection, collectionsApi }: MacroCardProps) {
+function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOpen, onRunMacro, onDeleteMacro, onDuplicateMacro, onToggleRunOnStartup, onRename }: MacroCardProps) {
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
-  const otherCollections = collectionsApi.collections.filter((c) => c.id !== macro.collectionId);
   const cueCountLabel = `${macro.cues.length} ${macro.cues.length === 1 ? 'cue' : 'cues'}`;
 
   async function handleDelete() {
@@ -185,23 +166,6 @@ function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOp
               Run on startup
             </span>
           </ContextMenu.Item>
-          <ContextMenu.Submenu label="Move to collection">
-            {otherCollections.length > 0 ? (
-              otherCollections.map((collection) => (
-                <ContextMenu.Item
-                  key={collection.id}
-                  // onMoveToCollection → setItemCollection rejects when the collection was
-                  // deleted under the open menu (#221); mutatePatch has already
-                  // reported the failure, so absorb the rethrow here.
-                  onSelect={() => { void onMoveToCollection(collection.id).catch(() => undefined); }}
-                >
-                  {collection.name}
-                </ContextMenu.Item>
-              ))
-            ) : (
-              <ContextMenu.Item disabled onSelect={() => {}}>No other collections</ContextMenu.Item>
-            )}
-          </ContextMenu.Submenu>
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

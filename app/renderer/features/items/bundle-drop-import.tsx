@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { DeckBundleBrokenReferenceAction, DeckBundleBrokenReferenceDecision, DeckBundleInspection } from '@lumacast/protocol';
+import type { BundleBrokenReferenceAction, BundleBrokenReferenceDecision, BundleInspection } from '@lumacast/protocol';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '@renderer/components/overlays/dialog';
 import { useCast } from '@renderer/contexts/app-context';
 import { BrokenReferenceReviewList } from './broken-reference-review-list';
 
 interface DecisionState {
-  action: DeckBundleBrokenReferenceAction;
+  action: BundleBrokenReferenceAction;
   replacementPath: string | null;
 }
 
 interface DropTarget {
   filePath: string;
-  inspection: DeckBundleInspection | null;
+  inspection: BundleInspection | null;
   error: string | null;
 }
 
@@ -107,7 +107,7 @@ export function BundleDropImport() {
     });
   }, [decisionMap, target]);
 
-  function handleActionChange(source: string, action: DeckBundleBrokenReferenceAction) {
+  function handleActionChange(source: string, action: BundleBrokenReferenceAction) {
     setDecisionMap((current) => {
       const next = new Map(current);
       const existing = next.get(source);
@@ -133,7 +133,7 @@ export function BundleDropImport() {
     if (!target?.inspection || !target.filePath || importing || blockedReasons.length > 0) return;
     setImporting(true);
     try {
-      const decisions: DeckBundleBrokenReferenceDecision[] = target.inspection.brokenReferences.map((reference) => {
+      const decisions: BundleBrokenReferenceDecision[] = target.inspection.brokenReferences.map((reference) => {
         const decision = decisionMap.get(reference.source);
         if (!decision) throw new Error(`Missing decision for ${reference.source}`);
         return {

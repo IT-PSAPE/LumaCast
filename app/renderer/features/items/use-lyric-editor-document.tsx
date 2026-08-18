@@ -22,19 +22,20 @@ interface UseLyricEditorSaveArgs {
 }
 
 export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSaveArgs) {
-  const { currentDeckItem } = useNavigation();
+  const { currentItem, currentItemRef } = useNavigation();
   const { slides } = useSlides();
   const { slideElementsBySlideId } = useProjectContent();
   const { mutatePatch, runOperation, setStatusText } = useCast();
   const [isSaving, setIsSaving] = useState(false);
+  const isLyric = currentItemRef?.type === 'lyric';
 
   const initialBlocks = useMemo<Block[]>(() => {
-    if (!isOpen || !currentDeckItem || currentDeckItem.type !== 'lyric') return [];
+    if (!isOpen || !currentItem || !isLyric) return [];
     return slides.map((slide) => ({
       id: slide.id,
       content: slideTextDetails(slideElementsBySlideId.get(slide.id) ?? []).text,
     }));
-  }, [isOpen, currentDeckItem, slideElementsBySlideId, slides]);
+  }, [isOpen, currentItem, isLyric, slideElementsBySlideId, slides]);
 
   const writeSlideText = useCallback(async (slideId: Id, text: string, currentElements: SlideElement[]) => {
     const textElement = findTextElement(currentElements);
@@ -63,7 +64,7 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
   }, [mutatePatch, writeSlideText]);
 
   const saveBlocks = useCallback(async (blocks: Block[], options?: { skipGrouping?: boolean }) => {
-    if (!currentDeckItem || currentDeckItem.type !== 'lyric') return;
+    if (!currentItem || !isLyric) return;
 
     setIsSaving(true);
 
@@ -88,7 +89,7 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
             await writeSlideText(reuseId, text, elements);
             orderedSlideIds.push(reuseId);
           } else {
-            const created = await createSlideWithText(currentDeckItem.id, text);
+            const created = await createSlideWithText(currentItem.id, text);
             orderedSlideIds.push(created);
           }
         }
@@ -111,7 +112,7 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
     } finally {
       setIsSaving(false);
     }
-  }, [config, createSlideWithText, currentDeckItem, mutatePatch, onClose, runOperation, setStatusText, slideElementsBySlideId, slides, writeSlideText]);
+  }, [config, createSlideWithText, currentItem, isLyric, mutatePatch, onClose, runOperation, setStatusText, slideElementsBySlideId, slides, writeSlideText]);
 
   return { initialBlocks, saveBlocks, isSaving };
 }

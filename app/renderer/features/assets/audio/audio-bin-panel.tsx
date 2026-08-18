@@ -9,15 +9,9 @@ import { useAudioCoverArt } from '../../../hooks/use-audio-cover-art';
 import { useElements } from '../../../contexts/canvas/canvas-context';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
 import { BinShell } from '../../workbench/bin-shell';
-import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import { useAudioBin } from './use-audio-bin';
 
-interface AudioBinPanelProps {
-  collections: BinCollectionsApi;
-  hideFooterPicker?: boolean;
-}
-
-export function AudioBinPanel({ collections, hideFooterPicker = false }: AudioBinPanelProps) {
+export function AudioBinPanel() {
   const {
     audioAssets,
     currentAudioAssetId,
@@ -26,11 +20,10 @@ export function AudioBinPanel({ collections, hideFooterPicker = false }: AudioBi
     setSearchValue,
     viewMode,
     setViewMode,
-  } = useAudioBin(collections);
+  } = useAudioBin();
 
   return (
     <BinShell
-      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search audio…"
@@ -55,7 +48,6 @@ export function AudioBinPanel({ collections, hideFooterPicker = false }: AudioBi
               asset={asset}
               isActive={currentAudioAssetId === asset.id}
               onArm={armAudio}
-              collectionsApi={collections}
             />
           ))}
         </BinPanelLayout>
@@ -68,7 +60,6 @@ interface AudioRowProps {
   asset: MediaAsset;
   isActive: boolean;
   onArm: (id: Id) => void;
-  collectionsApi: BinCollectionsApi;
 }
 
 function AudioRow(props: AudioRowProps) {
@@ -79,7 +70,7 @@ function AudioRow(props: AudioRowProps) {
   );
 }
 
-function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps) {
+function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
   const coverArt = useAudioCoverArt(asset.src);
   const { deleteMedia } = useElements();
   const confirm = useConfirm();
@@ -95,21 +86,12 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
   async function handleDelete() {
     const ok = await confirm({
       title: `Delete "${asset.name}"?`,
-      description: 'This audio will be removed from your library.',
+      description: 'This audio will be permanently removed.',
       confirmLabel: 'Delete',
       destructive: true,
     });
     if (ok) await deleteMedia(asset.id);
   }
-
-  function handleMoveToCollection(collectionId: Id) {
-    // setItemCollection rejects when the collection was deleted under the
-    // open menu (#221); mutatePatch has already reported the failure, so
-    // absorb the rethrow here.
-    void collectionsApi.assignItem('media_asset', asset.id, collectionId).catch(() => undefined);
-  }
-
-  const otherCollections = collectionsApi.collections.filter((c) => c.id !== asset.collectionId);
 
   return (
     <>
@@ -131,18 +113,6 @@ function AudioRowBody({ asset, isActive, onArm, collectionsApi }: AudioRowProps)
       </SelectableRow.Root>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Submenu label="Move to collection">
-            {otherCollections.length > 0 ? (
-              otherCollections.map((collection) => (
-                <ContextMenu.Item key={collection.id} onSelect={() => handleMoveToCollection(collection.id)}>
-                  {collection.name}
-                </ContextMenu.Item>
-              ))
-            ) : (
-              <ContextMenu.Item disabled onSelect={() => {}}>No other collections</ContextMenu.Item>
-            )}
-          </ContextMenu.Submenu>
-          <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete().catch(() => undefined); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>

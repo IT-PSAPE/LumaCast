@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import type { Id } from '@lumacast/kernel';
+import type { ItemRef } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useSlides } from '../../contexts/slide-context';
@@ -9,12 +10,12 @@ export function useContinuousSlideSections() {
   const { currentSlideIndex, liveSlideIndex, activatePlaylistEntrySlide, focusPlaylistEntrySlide } = useSlides();
   const { slideElementsBySlideId } = useProjectContent();
 
-  const handleActivateSlide = useCallback((entryId: Id, itemId: Id, slideIndex: number) => {
-    activatePlaylistEntrySlide(entryId, itemId, slideIndex);
+  const handleActivateSlide = useCallback((entryId: Id, itemRef: ItemRef, slideIndex: number) => {
+    activatePlaylistEntrySlide(entryId, itemRef, slideIndex);
   }, [activatePlaylistEntrySlide]);
 
-  const handleEditSlide = useCallback((entryId: Id, itemId: Id, slideIndex: number) => {
-    focusPlaylistEntrySlide(entryId, itemId, slideIndex);
+  const handleEditSlide = useCallback((entryId: Id, itemRef: ItemRef, slideIndex: number) => {
+    focusPlaylistEntrySlide(entryId, itemRef, slideIndex);
   }, [focusPlaylistEntrySlide]);
 
   return {

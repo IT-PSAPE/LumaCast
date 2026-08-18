@@ -5,7 +5,7 @@ import { CANVAS_VIEW_LABELS, PLAYLIST_DISPLAY_MODE_LABELS } from '../utils/slide
 import { useCast } from '../contexts/app-context';
 import { useSlides } from '../contexts/slide-context';
 import { useElements } from '../contexts/canvas/canvas-context';
-import { useDeckBrowser } from '../features/deck/deck-browser-context';
+import { useDeckBrowser } from '../features/items/deck-browser-context';
 import { useCommandPalette } from '../features/command-palette/command-palette-context';
 import { useWorkbench } from '../contexts/workbench-context';
 
@@ -34,7 +34,7 @@ export function useKeyboardShortcuts(): void {
   const { selectedElementId, clearSelection, deleteSelected, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, undo, redo } = useElements();
   const { setSlideBrowserMode, setPlaylistBrowserMode } = useDeckBrowser();
   const { state: { workbenchMode } } = useWorkbench();
-  const isEditSlideBrowser = workbenchMode === 'deck-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'theme-editor' || workbenchMode === 'stage-editor';
+  const isEditSlideBrowser = workbenchMode === 'item-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'theme-editor' || workbenchMode === 'stage-editor';
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

@@ -1,18 +1,18 @@
 import { createContext, useContext, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Ellipsis } from 'lucide-react';
+import type { ThemeOwnerType } from '@lumacast/composition';
 import { Tabs } from '../../components/display/tabs';
 import { Dropdown } from '../../components/form/dropdown';
 import { FileTrigger } from '../../components/form/file-trigger';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { useWorkbench } from '../../contexts/workbench-context';
-import { useCreateDeckItem } from '../deck/create-deck-item';
+import { useCreateItem } from '../items/create-item';
 import { useResourceDrawer } from './resource-drawer-context';
 import type { DrawerTab } from '../../types/ui';
 import { MediaBinPanel } from '../assets/media/media-bin-panel';
 import { ThemeBinPanel } from '../assets/themes/theme-bin-panel';
-import { DeckBinPanel } from '../deck/deck-bin-panel';
-import { useBinCollections } from './use-bin-collections';
+import { DeckBinPanel } from '../items/deck-bin-panel';
 import {
   useDeckBinSort,
   useMediaBinSort,
@@ -192,15 +192,15 @@ function Toolbar() {
 
 function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
   const { state } = useDrawer();
-  const { open: openCreateDeckItem } = useCreateDeckItem();
+  const { open: openCreateItem } = useCreateItem();
   const { createTheme } = useThemeEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const deckSort = useDeckBinSort();
   const mediaSort = useMediaBinSort();
   const themeSort = useThemeBinSort();
 
-  function handleCreateTheme(kind: 'slides' | 'lyrics') {
-    createTheme(kind);
+  function handleCreateTheme(themeType: ThemeOwnerType) {
+    createTheme(themeType);
     setWorkbenchMode('theme-editor');
   }
 
@@ -212,9 +212,9 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
       <Dropdown.Panel placement="bottom-end">
         {state.drawerTab === 'deck' && (
           <>
-            <Dropdown.Item onClick={() => openCreateDeckItem('presentation')}>New presentation</Dropdown.Item>
-            <Dropdown.Item onClick={() => openCreateDeckItem('lyric')}>New lyric</Dropdown.Item>
-            <Dropdown.Item onClick={() => openCreateDeckItem('talk')}>New talk</Dropdown.Item>
+            <Dropdown.Item onClick={() => openCreateItem('presentation')}>New presentation</Dropdown.Item>
+            <Dropdown.Item onClick={() => openCreateItem('lyric')}>New lyric</Dropdown.Item>
+            <Dropdown.Item onClick={() => openCreateItem('talk')}>New talk</Dropdown.Item>
             <Dropdown.Separator />
             <SortMenuItems options={DECK_SORT_OPTIONS} sort={deckSort.sort} onChange={deckSort.setSort} />
           </>
@@ -228,8 +228,10 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
         )}
         {state.drawerTab === 'themes' && (
           <>
-            <Dropdown.Item onClick={() => handleCreateTheme('slides')}>New slides theme</Dropdown.Item>
-            <Dropdown.Item onClick={() => handleCreateTheme('lyrics')}>New lyrics theme</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleCreateTheme('presentation')}>New presentation theme</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleCreateTheme('lyric')}>New lyric theme</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleCreateTheme('talk')}>New talk theme</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleCreateTheme('overlay')}>New overlay theme</Dropdown.Item>
             <Dropdown.Separator />
             <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={themeSort.sort} onChange={themeSort.setSort} />
           </>
@@ -245,12 +247,11 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
 function Body() {
   const { state } = useDrawer();
   const { drawerTab } = state;
-  const imageCollections = useBinCollections('image');
 
   return (
     <div className="flex min-h-0 flex-1">
       {drawerTab === 'deck' && <DeckBinPanel />}
-      {drawerTab === 'image' && <MediaBinPanel binKind="image" collections={imageCollections} />}
+      {drawerTab === 'image' && <MediaBinPanel binKind="image" />}
       {drawerTab === 'themes' && <ThemeBinPanel />}
     </div>
   );

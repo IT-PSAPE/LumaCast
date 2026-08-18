@@ -1,19 +1,19 @@
-import type { BrokenDeckBundleReference, DeckBundleBrokenReferenceAction, DeckBundleInspection } from '@lumacast/protocol';
+import type { BrokenBundleReference, BundleBrokenReferenceAction, BundleInspection } from '@lumacast/protocol';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { ReacstButton } from '@renderer/components/controls/button';
 
 interface BrokenReferenceReviewListProps {
-  inspection: DeckBundleInspection;
-  decisionMap: ReadonlyMap<string, { action: DeckBundleBrokenReferenceAction; replacementPath: string | null }>;
-  onActionChange: (source: string, action: DeckBundleBrokenReferenceAction) => void;
+  inspection: BundleInspection;
+  decisionMap: ReadonlyMap<string, { action: BundleBrokenReferenceAction; replacementPath: string | null }>;
+  onActionChange: (source: string, action: BundleBrokenReferenceAction) => void;
   onChooseReplacement: (source: string) => Promise<void>;
 }
 
 interface BrokenReferenceRowProps {
-  reference: BrokenDeckBundleReference;
-  action: DeckBundleBrokenReferenceAction | null;
+  reference: BrokenBundleReference;
+  action: BundleBrokenReferenceAction | null;
   replacementPath: string | null;
-  onActionChange: (source: string, action: DeckBundleBrokenReferenceAction) => void;
+  onActionChange: (source: string, action: BundleBrokenReferenceAction) => void;
   onChooseReplacement: (source: string) => Promise<void>;
 }
 

@@ -1,11 +1,10 @@
 import { ResourceDrawer } from '../../features/workbench/resource-drawer';
-import { ContinuousSlideBrowser } from '../../features/deck/continuous-slide-browser';
+import { ContinuousSlideBrowser } from '../../features/items/continuous-slide-browser';
 import { ProgramPanel } from '../../features/playback/program-panel';
-import { DeckBrowserToolbar } from '../../features/deck/deck-browser-toolbar';
-import { SlideBrowserContent } from '../../features/deck/slide-browser-content';
+import { DeckBrowserToolbar } from '../../features/items/deck-browser-toolbar';
+import { SlideBrowserContent } from '../../features/items/slide-browser-content';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { LibrariesPanel } from '@renderer/features/library/libraries-panel';
-import { PlaylistPanels } from '@renderer/features/library/playlist-panels';
+import { PlaylistPanels } from '@renderer/features/playlists/playlist-panels';
 import { Logo } from '@renderer/components/assets';
 import { ShowScreenProvider, useShowScreen } from './screen-context';
 
@@ -23,7 +22,6 @@ function ShowScreenContent() {
   return (
     <SplitPanel.Panel splitId="show-main" orientation="horizontal" className="h-full">
       <SplitPanel.Segment id="show-left" defaultSize={300} minSize={140} collapsible>
-        <LibrariesPanel />
         <PlaylistPanels />
       </SplitPanel.Segment>
       <SplitPanel.Segment id="show-center" defaultSize={840} minSize={360}>

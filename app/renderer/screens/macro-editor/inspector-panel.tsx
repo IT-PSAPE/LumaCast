@@ -34,7 +34,7 @@ const LIFECYCLE_ACTION_OPTIONS: Array<{ value: LifecycleAction; label: string }>
 ];
 const SCOPE_LEVEL_OPTIONS: Array<{ value: ScopeLevel; label: string }> = [
   { value: 'global', label: 'Global (runs until cancelled)' },
-  { value: 'deckItem', label: 'Deck item (stops when leaving the deck item)' },
+  { value: 'item', label: 'Item (stops when leaving the item)' },
   { value: 'slide', label: 'Slide (stops when leaving the slide)' },
 ];
 const ON_SCOPE_EXIT_OPTIONS: Array<{ value: OnScopeExit; label: string }> = [

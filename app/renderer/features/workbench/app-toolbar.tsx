@@ -77,7 +77,7 @@ export function AppToolbar() {
       <div style={noDragStyle}>
         <SegmentedControl value={workbenchMode} onValueChange={handleWorkbenchModeChange} label="Application views">
           <SegmentedControl.Label value="show">Show</SegmentedControl.Label>
-          <SegmentedControl.Label value="deck-editor">Edit</SegmentedControl.Label>
+          <SegmentedControl.Label value="item-editor">Edit</SegmentedControl.Label>
           <SegmentedControl.Label value="overlay-editor">Overlay</SegmentedControl.Label>
           <SegmentedControl.Label value="theme-editor">Themes</SegmentedControl.Label>
           <SegmentedControl.Label value="stage-editor">Stage</SegmentedControl.Label>
@@ -154,7 +154,7 @@ function renderPanelToggleItem(toggle: PanelToggleButton) {
 }
 
 function isWorkbenchMode(value: string): value is WorkbenchMode {
-  return value === 'show' || value === 'deck-editor' || value === 'overlay-editor' || value === 'theme-editor' || value === 'stage-editor' || value === 'macro-editor' || value === 'settings';
+  return value === 'show' || value === 'item-editor' || value === 'overlay-editor' || value === 'theme-editor' || value === 'stage-editor' || value === 'macro-editor' || value === 'settings';
 }
 
 function panelToggleIcon(id: PanelToggleButton['id']) {

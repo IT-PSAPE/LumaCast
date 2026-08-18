@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { cn } from '@renderer/utils/cn'
-import { parseLyricImportText } from '@renderer/features/deck/lyric-text-utils'
+import { parseLyricImportText } from '@renderer/features/items/lyric-text-utils'
 import type { Block } from './doc-editor'
 import { Label } from '../display/text'
 

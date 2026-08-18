@@ -3,11 +3,8 @@ import { GridSizeSlider } from '../../components/form/grid-size-slider';
 import { SegmentedControl } from '../../components/controls/segmented-control';
 import { cn } from '@renderer/utils/cn';
 import type { ResourceDrawerViewMode } from '../../types/ui';
-import { CollectionPicker } from './collection-picker';
-import type { BinCollectionsApi } from './use-bin-collections';
 
 interface BinFooterProps {
-  collections?: BinCollectionsApi;
   searchValue: string;
   onSearchChange: (value: string) => void;
   searchPlaceholder?: string;
@@ -24,10 +21,9 @@ interface BinFooterProps {
 
 export function BinFooter(props: BinFooterProps) {
   const {
-    collections,
     searchValue,
     onSearchChange,
-    searchPlaceholder = 'Search collection…',
+    searchPlaceholder = 'Search…',
     viewMode,
     onViewModeChange,
     gridSize,
@@ -46,7 +42,6 @@ export function BinFooter(props: BinFooterProps) {
 
   return (
     <div className={cn('flex shrink-0 items-center gap-1.5 border-t border-secondary bg-background-secondary px-1.5 py-1', className)}>
-      {collections ? <CollectionPicker api={collections} /> : null}
       <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded bg-tertiary px-1.5 py-1 focus-within:bg-tertiary/60">
         <Search size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
         <input

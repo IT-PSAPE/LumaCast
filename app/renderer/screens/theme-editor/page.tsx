@@ -1,11 +1,12 @@
 import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
-import type { Theme } from '@lumacast/composition';
-import { Layers, Music, Plus, Presentation } from 'lucide-react';
+import type { ThemeOwnerType } from '@lumacast/composition';
+import { FileText, Layers, Music, Plus, Presentation as PresentationIcon } from 'lucide-react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { Dropdown } from '../../components/form/dropdown';
+import { SegmentedControl } from '../../components/controls/segmented-control';
 import { buildRenderScene } from '../../features/canvas/build-render-scene';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
@@ -19,6 +20,18 @@ import { ThemeEditorInspectorPanel } from './inspector-panel';
 import { ThemeEditorLayersPanel } from './layers-panel';
 import { ThemeEditorScreenProvider, useThemeEditorScreen } from './screen-context';
 
+// #219 item-model refactor decision D2: the four theme families are
+// independent tables, and useThemeEditor() only ever holds one 'active'
+// family's staged draft state at a time — so the screen shows one family's
+// list at once behind this selector, matching the same family-selector
+// pattern the theme resource bin uses (features/assets/themes/theme-bin-panel.tsx).
+const FAMILY_OPTIONS: ReadonlyArray<{ value: ThemeOwnerType; label: string; Icon: typeof PresentationIcon }> = [
+  { value: 'presentation', label: 'Presentation', Icon: PresentationIcon },
+  { value: 'lyric', label: 'Lyric', Icon: Music },
+  { value: 'talk', label: 'Talk', Icon: FileText },
+  { value: 'overlay', label: 'Overlay', Icon: Layers },
+];
+
 export function ThemeEditorScreen() {
   return (
     <ThemeEditorScreenProvider>
@@ -29,6 +42,11 @@ export function ThemeEditorScreen() {
 
 function ThemeEditorScreenContent() {
   const { state, actions } = useThemeEditorScreen();
+
+  function handleFamilyChange(next: string | string[]) {
+    if (Array.isArray(next) || !next) return;
+    actions.setThemeType(next as ThemeOwnerType);
+  }
 
   return (
     <SplitPanel.Panel splitId="editor-main" orientation="horizontal" className="h-full" data-ui-region="editor-layout">
@@ -47,15 +65,22 @@ function ThemeEditorScreenContent() {
                       <Plus />
                     </Dropdown.Trigger>
                     <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={() => actions.createTheme('slides')}>
-                        New presentation theme
-                      </Dropdown.Item>
-                      <Dropdown.Item onClick={() => actions.createTheme('lyrics')}>
-                        New lyric theme
+                      <Dropdown.Item onClick={actions.createTheme}>
+                        New theme
                       </Dropdown.Item>
                     </Dropdown.Panel>
                   </Dropdown>
                 </LumaCastPanel.GroupTitle>
+                <div className="px-2 pt-2">
+                  <SegmentedControl fill value={state.themeType} onValueChange={handleFamilyChange} label="Theme family">
+                    {FAMILY_OPTIONS.map(({ value, label, Icon }) => (
+                      <SegmentedControl.Label key={value} value={value} fill className="flex items-center justify-center gap-1.5">
+                        <Icon size={12} strokeWidth={1.75} />
+                        {label}
+                      </SegmentedControl.Label>
+                    ))}
+                  </SegmentedControl>
+                </div>
                 <LumaCastPanel.Content>
                   {state.themes.length === 0 ? (
                     <EmptyState.Root>
@@ -174,7 +199,6 @@ function ThemeListItemBody({
         <Thumbnail.Caption>
           <div className="flex items-center gap-2" onDoubleClick={handleCaptionDoubleClick}>
             <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
-            <ThemeKindIcon kind={theme.kind} />
             <span className="min-w-0 truncate text-sm text-tertiary">{theme.name}</span>
           </div>
         </Thumbnail.Caption>
@@ -189,14 +213,4 @@ function ThemeListItemBody({
       </ContextMenu.Portal>
     </>
   );
-}
-
-function ThemeKindIcon({ kind }: { kind: Theme['kind'] }) {
-  if (kind === 'lyrics') {
-    return <Music size={14} strokeWidth={1.75} className="shrink-0 text-tertiary" />;
-  }
-  if (kind === 'overlays') {
-    return <Layers size={14} strokeWidth={1.75} className="shrink-0 text-tertiary" />;
-  }
-  return <Presentation size={14} strokeWidth={1.75} className="shrink-0 text-tertiary" />;
 }

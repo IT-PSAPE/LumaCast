@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Unlink } from 'lucide-react';
-import { isThemeCompatibleWithOwnerKind, getDeckItemLabel } from '@lumacast/composition';
+import { getItemTypeLabel } from '@lumacast/composition';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { FieldInput, FieldSelect } from '../../components/form/field';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
@@ -13,22 +13,37 @@ import { Label } from '@renderer/components/display/text';
 
 const NO_TEMPLATE_VALUE = '';
 
-export function DeckItemInspector() {
-  const { currentDeckItem, renameDeckItem } = useNavigation();
-  const { themes, themesById } = useProjectContent();
-  const { applyThemeToTarget, detachThemeFromDeckItem } = useThemeEditor();
+export function ItemInspector() {
+  const { currentItemRef, currentItem, renameItem } = useNavigation();
+  const {
+    presentationThemes, lyricThemes, talkThemes,
+    presentationThemesById, lyricThemesById, talkThemesById,
+  } = useProjectContent();
+  const { applyThemeToTarget, detachThemeFromItem } = useThemeEditor();
   const { setStatusText } = useCast();
   const confirm = useConfirm();
   const [titleDraft, setTitleDraft] = useState('');
 
-  const assignedTheme = currentDeckItem?.themeId
-    ? themesById.get(currentDeckItem.themeId) ?? null
-    : null;
-
+  // The three item types each theme against their own table (D2: no
+  // capability matrix left to check — which table an id lives in already
+  // says what it can theme), so the inspector just picks the one array/map
+  // matching the current item's type.
   const compatibleThemes = useMemo(() => {
-    if (!currentDeckItem) return [];
-    return themes.filter((theme) => isThemeCompatibleWithOwnerKind(theme, currentDeckItem.type));
-  }, [currentDeckItem, themes]);
+    if (!currentItemRef) return [];
+    if (currentItemRef.type === 'presentation') return presentationThemes;
+    if (currentItemRef.type === 'lyric') return lyricThemes;
+    return talkThemes;
+  }, [currentItemRef, lyricThemes, presentationThemes, talkThemes]);
+
+  const assignedTheme = useMemo(() => {
+    if (!currentItem?.themeId || !currentItemRef) return null;
+    const byId = currentItemRef.type === 'presentation'
+      ? presentationThemesById
+      : currentItemRef.type === 'lyric'
+        ? lyricThemesById
+        : talkThemesById;
+    return byId.get(currentItem.themeId) ?? null;
+  }, [currentItem, currentItemRef, lyricThemesById, presentationThemesById, talkThemesById]);
 
   const themeOptions = useMemo(() => [
     { value: NO_TEMPLATE_VALUE, label: 'Select a theme…' },
@@ -36,39 +51,39 @@ export function DeckItemInspector() {
   ], [compatibleThemes]);
 
   useEffect(() => {
-    if (!currentDeckItem) {
+    if (!currentItem) {
       setTitleDraft('');
       return;
     }
-    setTitleDraft(currentDeckItem.title);
-  }, [currentDeckItem]);
+    setTitleDraft(currentItem.title);
+  }, [currentItem]);
 
   function handleTitleChange(value: string) {
     setTitleDraft(value);
   }
 
   function handleTitleBlur() {
-    if (!currentDeckItem) return;
+    if (!currentItemRef || !currentItem) return;
     const trimmed = titleDraft.trim();
-    if (!trimmed || trimmed === currentDeckItem.title) return;
-    // renameDeckItem → renamePresentation/Lyric/Talk rejects when the item no
+    if (!trimmed || trimmed === currentItem.title) return;
+    // renameItem → renamePresentation/Lyric/Talk rejects when the item no
     // longer exists (#214), which this blur commit can race with a concurrent
     // delete. mutatePatch has already reported the failure, so absorb the
     // rethrow here.
-    void renameDeckItem(currentDeckItem.id, trimmed).catch(() => undefined);
+    void renameItem(currentItemRef, trimmed).catch(() => undefined);
   }
 
   async function handleResetToTheme() {
-    if (!currentDeckItem?.themeId) return;
+    if (!currentItem?.themeId || !currentItemRef) return;
     const ok = await confirm({
-      title: `Reset "${currentDeckItem.title}" to theme?`,
+      title: `Reset "${currentItem.title}" to theme?`,
       description: 'This replaces every slide’s content with the theme’s elements. Elements you added yourself will be removed.',
       confirmLabel: 'Reset',
       destructive: true,
     });
     if (!ok) return;
     try {
-      await applyThemeToTarget(currentDeckItem.themeId, { type: 'deck-item', itemId: currentDeckItem.id });
+      await applyThemeToTarget(currentItem.themeId, { type: 'item', itemRef: currentItemRef });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStatusText(`Failed to reset to theme: ${message}`);
@@ -76,9 +91,9 @@ export function DeckItemInspector() {
   }
 
   async function handleApplyTheme(themeId: string) {
-    if (!currentDeckItem || themeId === NO_TEMPLATE_VALUE) return;
+    if (!currentItemRef || themeId === NO_TEMPLATE_VALUE) return;
     try {
-      await applyThemeToTarget(themeId, { type: 'deck-item', itemId: currentDeckItem.id });
+      await applyThemeToTarget(themeId, { type: 'item', itemRef: currentItemRef });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStatusText(`Failed to apply theme: ${message}`);
@@ -86,21 +101,21 @@ export function DeckItemInspector() {
   }
 
   async function handleDetachTheme() {
-    if (!currentDeckItem) return;
+    if (!currentItemRef) return;
     try {
-      await detachThemeFromDeckItem(currentDeckItem.id);
+      await detachThemeFromItem(currentItemRef);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStatusText(`Failed to detach theme: ${message}`);
     }
   }
 
-  if (!currentDeckItem) {
+  if (!currentItemRef || !currentItem) {
     return <div className="text-sm text-tertiary">No item selected.</div>;
   }
 
-  const itemLabel = getDeckItemLabel(currentDeckItem);
-  const hasThemeId = Boolean(currentDeckItem.themeId);
+  const itemLabel = getItemTypeLabel(currentItemRef.type);
+  const hasThemeId = Boolean(currentItem.themeId);
 
   return (
     <>

@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/display/empty-state';
 import { ThumbnailGrid } from '../../components/layout/thumbnail-grid';
 import { ScrollArea } from '../../components/layout/scroll-area';
 import { getSlideVisualState, slideTextPreview } from '../../utils/slides';
+import { itemRefsEqual } from '../../utils/navigation-context-utils';
 import { useDeckBrowser } from './deck-browser-context';
 import { SlideGridTile } from './slide-grid-tile';
 import { SlideOutlineRow } from './slide-list-row';
@@ -26,11 +27,11 @@ export function SlideBrowserContent({ variant }: SlideBrowserContentProps) {
 }
 
 function SingleSlideGrid() {
-  const { currentDeckItemId, currentOutputDeckItemId, isDetachedDeckBrowser } = useNavigation();
+  const { currentItemRef, currentOutputItemRef, isDetachedDeckBrowser } = useNavigation();
   const { slides, currentSlideIndex, liveSlideIndex, slideElementsById, activateSlide, setCurrentSlideIndex, reorderSlide } = useSlides();
   const { getThumbnailScene } = useRenderScenes();
   const { gridItemSize } = useDeckBrowser();
-  const showLiveState = !isDetachedDeckBrowser && currentDeckItemId === currentOutputDeckItemId;
+  const showLiveState = !isDetachedDeckBrowser && itemRefsEqual(currentItemRef, currentOutputItemRef);
   const sensors = useSlideReorderSensors();
   const handleDragEnd = useSlideReorderHandler(slides.map((slide) => slide.id), reorderSlide);
 

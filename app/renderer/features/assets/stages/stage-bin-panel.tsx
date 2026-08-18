@@ -17,14 +17,8 @@ import { filterByText } from '../../../utils/filter-by-text';
 import { useGridSize } from '../../../hooks/use-grid-size';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 import { BinShell } from '../../workbench/bin-shell';
-import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 
-interface StageBinPanelProps {
-  collections: BinCollectionsApi;
-  hideFooterPicker?: boolean;
-}
-
-export function StageBinPanel({ collections, hideFooterPicker = false }: StageBinPanelProps) {
+export function StageBinPanel() {
   const { stages: allStages } = useProjectContent();
   const { currentStageId, setCurrentStageId } = useStagePlayback();
   const { setCurrentStageId: setEditorStageId } = useStageEditor();
@@ -33,19 +27,13 @@ export function StageBinPanel({ collections, hideFooterPicker = false }: StageBi
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.stage-bin', 3, 2, 4);
 
-  const filteredByCollection = useMemo(
-    () => collections.filterByActiveCollection(allStages),
-    [allStages, collections],
-  );
-
   const stages = useMemo(
-    () => filterByText(filteredByCollection, searchValue, (stage: Stage) => [stage.name]),
-    [filteredByCollection, searchValue],
+    () => filterByText(allStages, searchValue, (stage: Stage) => [stage.name]),
+    [allStages, searchValue],
   );
 
   return (
     <BinShell
-      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search stages…"
@@ -70,7 +58,6 @@ export function StageBinPanel({ collections, hideFooterPicker = false }: StageBi
               setCurrentStageId(id);
               setWorkbenchMode('stage-editor');
             }}
-            collectionsApi={collections}
           />
         ))}
       </BinPanelLayout>
@@ -84,7 +71,6 @@ interface StageCardProps {
   isActive: boolean;
   onActivate: (id: Id | null) => void;
   onEdit: (id: Id) => void;
-  collectionsApi: BinCollectionsApi;
 }
 
 function StageCardImpl(props: StageCardProps) {
@@ -95,13 +81,12 @@ function StageCardImpl(props: StageCardProps) {
   );
 }
 
-function StageCardBody({ stage, index, isActive, onActivate, onEdit, collectionsApi }: StageCardProps) {
+function StageCardBody({ stage, index, isActive, onActivate, onEdit }: StageCardProps) {
   const { updateStageDraft, deleteStage, duplicateStage } = useStageEditor();
   const scene = useMemo(() => buildRenderScene({ width: stage.width, height: stage.height, background: stage.background ?? null }, stage.elements), [stage.background, stage.elements, stage.height, stage.width]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
-  const otherCollections = collectionsApi.collections.filter((c) => c.id !== stage.collectionId);
 
   function handleActivate() {
     onActivate(isActive ? null : stage.id);
@@ -147,23 +132,6 @@ function StageCardBody({ stage, index, isActive, onActivate, onEdit, collections
           <ContextMenu.Item onSelect={handleEdit}>Edit</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { duplicateStage(stage.id); }}>Duplicate</ContextMenu.Item>
-          <ContextMenu.Submenu label="Move to collection">
-            {otherCollections.length > 0 ? (
-              otherCollections.map((collection) => (
-                <ContextMenu.Item
-                  key={collection.id}
-                  // setItemCollection rejects when the collection was deleted under the
-                  // open menu (#221); mutatePatch has already reported the failure,
-                  // so absorb the rethrow here.
-                  onSelect={() => { void collectionsApi.assignItem('stage', stage.id, collection.id).catch(() => undefined); }}
-                >
-                  {collection.name}
-                </ContextMenu.Item>
-              ))
-            ) : (
-              <ContextMenu.Item disabled onSelect={() => {}}>No other collections</ContextMenu.Item>
-            )}
-          </ContextMenu.Submenu>
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

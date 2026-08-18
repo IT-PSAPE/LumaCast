@@ -18,7 +18,7 @@ interface LyricEditorModalProps {
 }
 
 export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
-  const { currentDeckItem } = useNavigation();
+  const { currentItemRef } = useNavigation();
   const { config, updateConfig } = useLyricLayoutConfig();
   const { initialBlocks, saveBlocks, isSaving } = useLyricEditorSave({ isOpen, onClose, config });
   const blocksRef = useRef<Block[]>(initialBlocks);
@@ -58,7 +58,7 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
     setHasAppliedGrouping(true);
   }
 
-  if (!isOpen || !currentDeckItem || currentDeckItem.type !== 'lyric') return null;
+  if (!isOpen || currentItemRef?.type !== 'lyric') return null;
 
   return (
     <>

@@ -1,62 +1,84 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { DeckItemType } from '@lumacast/composition';
-import { isThemeCompatibleWithDeckItem } from '@lumacast/composition';
+import type { ItemType, PlaylistRow } from '@lumacast/composition';
+import { getPlaylistEntryItemRef } from '@lumacast/composition';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '../../components/overlays/dialog';
 import { FieldSelect } from '../../components/form/field';
-import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
+import { useCast } from '../../contexts/app-context';
+import { useProjectContent } from '../../contexts/use-project-content';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLyricEditor } from './lyric-editor';
 
-type DeckItemKind = DeckItemType;
-
-interface CreateDeckItemContextValue {
-  open: (kind: DeckItemKind) => void;
+interface CreateItemContextValue {
+  open: (type: ItemType) => void;
   close: () => void;
 }
 
-const CreateDeckItemContext = createContext<CreateDeckItemContextValue | null>(null);
+const CreateItemContext = createContext<CreateItemContextValue | null>(null);
 
-export function useCreateDeckItem(): CreateDeckItemContextValue {
-  const ctx = useContext(CreateDeckItemContext);
-  if (!ctx) throw new Error('useCreateDeckItem must be used within CreateDeckItemProvider');
+export function useCreateItem(): CreateItemContextValue {
+  const ctx = useContext(CreateItemContext);
+  if (!ctx) throw new Error('useCreateItem must be used within CreateItemProvider');
   return ctx;
 }
 
-export function CreateDeckItemProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<{ open: boolean; kind: DeckItemKind }>({
+export function CreateItemProvider({ children }: { children: ReactNode }) {
+  const [state, setState] = useState<{ open: boolean; type: ItemType }>({
     open: false,
-    kind: 'presentation',
+    type: 'presentation',
   });
 
-  const open = useCallback((kind: DeckItemKind) => setState({ open: true, kind }), []);
+  const open = useCallback((type: ItemType) => setState({ open: true, type }), []);
   const close = useCallback(() => setState((prev) => ({ ...prev, open: false })), []);
 
-  const value = useMemo<CreateDeckItemContextValue>(() => ({ open, close }), [open, close]);
+  const value = useMemo<CreateItemContextValue>(() => ({ open, close }), [open, close]);
 
   return (
-    <CreateDeckItemContext.Provider value={value}>
+    <CreateItemContext.Provider value={value}>
       {children}
-      <CreateDeckItemDialog isOpen={state.open} kind={state.kind} onClose={close} />
-    </CreateDeckItemContext.Provider>
+      <CreateItemDialog isOpen={state.open} type={state.type} onClose={close} />
+    </CreateItemContext.Provider>
   );
 }
 
-interface CreateDeckItemDialogProps {
+interface CreateItemDialogProps {
   isOpen: boolean;
-  kind: DeckItemKind;
+  type: ItemType;
   onClose: () => void;
 }
 
-function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogProps) {
-  const { themes } = useThemeEditor();
-  const { currentLibraryBundle, createDeckItem } = useNavigation();
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+// #219 item-model refactor decision D9: there is no group tier any more, so
+// "where in the playlist" collapses to a position within that playlist's own
+// flat row list — one option per existing row (insert before it) plus a
+// trailing "end of playlist" option, built straight from the same rows the
+// playlist panel renders.
+function buildPositionOptions(rows: PlaylistRow[], resolveItemRef: ReturnType<typeof useProjectContent>['resolveItemRef']): SelectOption[] {
+  const options = rows.map((row, index) => ({
+    value: String(index),
+    label: row.kind === 'separator'
+      ? `Before separator "${row.label}"`
+      : `Before "${resolveItemRef(getPlaylistEntryItemRef(row))?.title ?? 'item'}"`,
+  }));
+  options.push({ value: String(rows.length), label: 'At the end' });
+  return options;
+}
+
+function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProps) {
+  const { snapshot } = useCast();
+  const { presentationThemes, lyricThemes, talkThemes, resolveItemRef } = useProjectContent();
+  const { createItem } = useNavigation();
   const { open: openLyricEditor } = useLyricEditor();
 
   const [name, setName] = useState('');
   const [themeId, setThemeId] = useState<string>('');
-  const [groupId, setGroupId] = useState<string>('');
+  const [playlistId, setPlaylistId] = useState<string>('');
+  const [position, setPosition] = useState<string>('');
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -65,37 +87,49 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
     if (!isOpen) return;
     setName('');
     setThemeId('');
-    setGroupId('');
+    setPlaylistId('');
+    setPosition('');
     setBusy(false);
     // Focus after the Dialog content takes focus on mount.
     const handle = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(handle);
   }, [isOpen]);
 
-  const compatibleThemes = useMemo(
-    () => themes.filter((theme) => isThemeCompatibleWithDeckItem(theme, kind)),
-    [themes, kind],
+  const compatibleThemes = type === 'presentation' ? presentationThemes : type === 'lyric' ? lyricThemes : talkThemes;
+
+  const playlistOptions = useMemo(() => (snapshot?.playlists ?? []).map((playlist) => ({
+    value: playlist.id,
+    label: playlist.name,
+  })), [snapshot]);
+
+  const selectedPlaylistRows = useMemo(() => {
+    if (!playlistId || !snapshot) return [];
+    return snapshot.playlistEntries
+      .filter((row) => row.playlistId === playlistId)
+      .slice()
+      .sort((left, right) => left.order - right.order);
+  }, [playlistId, snapshot]);
+
+  const positionOptions = useMemo(
+    () => buildPositionOptions(selectedPlaylistRows, resolveItemRef),
+    [selectedPlaylistRows, resolveItemRef],
   );
 
-  const groupOptions = useMemo(() => {
-    if (!currentLibraryBundle) return [];
-    return currentLibraryBundle.playlists.flatMap((tree) => (
-      tree.groups.map((group) => ({
-        value: group.group.id,
-        label: `${tree.playlist.name} › ${group.group.name}`,
-      }))
-    ));
-  }, [currentLibraryBundle]);
+  function handlePlaylistChange(nextPlaylistId: string) {
+    setPlaylistId(nextPlaylistId);
+    setPosition('');
+  }
 
   async function handleCreate({ thenOpenEditor = false }: { thenOpenEditor?: boolean } = {}) {
     if (busy) return;
     setBusy(true);
     try {
-      await createDeckItem({
-        kind,
+      await createItem({
+        type,
         name,
         themeId: themeId ? (themeId as Id) : undefined,
-        groupId: groupId ? (groupId as Id) : undefined,
+        playlistId: playlistId ? (playlistId as Id) : undefined,
+        position: playlistId && position ? Number(position) : undefined,
       });
       onClose();
       if (thenOpenEditor) openLyricEditor();
@@ -113,15 +147,15 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
 
   if (!isOpen) return null;
 
-  const title = kind === 'lyric' ? 'New lyric' : kind === 'talk' ? 'New talk' : 'New presentation';
-  const placeholder = kind === 'lyric' ? 'New Lyric' : kind === 'talk' ? 'New Talk' : 'New Presentation';
+  const title = type === 'lyric' ? 'New lyric' : type === 'talk' ? 'New talk' : 'New presentation';
+  const placeholder = type === 'lyric' ? 'New Lyric' : type === 'talk' ? 'New Talk' : 'New Presentation';
 
   return (
     <Dialog.Root open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Backdrop />
         <Dialog.Positioner>
-          <Dialog.Content data-ui-region="create-deck-item-dialog" className="w-full max-w-md">
+          <Dialog.Content data-ui-region="create-item-dialog" className="w-full max-w-md">
             <Dialog.Header>
               <Dialog.Title>{title}</Dialog.Title>
               <Dialog.CloseButton />
@@ -151,21 +185,29 @@ function CreateDeckItemDialog({ isOpen, kind, onClose }: CreateDeckItemDialogPro
                   ]}
                 />
               ) : null}
-              {groupOptions.length > 0 ? (
+              {playlistOptions.length > 0 ? (
                 <FieldSelect
                   label="Add to playlist"
-                  value={groupId}
-                  onChange={setGroupId}
+                  value={playlistId}
+                  onChange={handlePlaylistChange}
                   options={[
                     { value: '', label: "Don't add to a playlist" },
-                    ...groupOptions,
+                    ...playlistOptions,
                   ]}
                 />
               ) : null}
+              {playlistId && positionOptions.length > 0 ? (
+                <FieldSelect
+                  label="Position"
+                  value={position || String(selectedPlaylistRows.length)}
+                  onChange={setPosition}
+                  options={positionOptions}
+                />
+              ) : null}
             </Dialog.Body>
-            <Dialog.Footer className={kind === 'lyric' ? undefined : 'justify-end gap-2'}>
+            <Dialog.Footer className={type === 'lyric' ? undefined : 'justify-end gap-2'}>
               <ReacstButton variant="ghost" onClick={onClose} disabled={busy}>Close</ReacstButton>
-              {kind === 'lyric' ? (
+              {type === 'lyric' ? (
                 <div className="flex items-center gap-2">
                   <ReacstButton variant="take" onClick={() => handleCreate()} disabled={busy}>
                     {busy ? 'Saving…' : 'Save'}

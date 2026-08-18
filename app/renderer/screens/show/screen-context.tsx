@@ -1,6 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
-import { LibraryBrowserProvider } from '../../features/library/library-browser-context';
-import { useDeckBrowserView } from '../../features/deck/use-deck-browser-view';
+import { useDeckBrowserView } from '../../features/items/use-deck-browser-view';
 import { createScreenContext } from '../../contexts/create-screen-context';
 
 interface ShowScreenContextValue {
@@ -25,11 +24,7 @@ function ShowScreenContextBridge({ children }: { children: ReactNode }) {
 }
 
 export function ShowScreenProvider({ children }: { children: ReactNode }) {
-  return (
-    <LibraryBrowserProvider>
-      <ShowScreenContextBridge>{children}</ShowScreenContextBridge>
-    </LibraryBrowserProvider>
-  );
+  return <ShowScreenContextBridge>{children}</ShowScreenContextBridge>;
 }
 
 export { useShowScreen };

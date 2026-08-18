@@ -4,16 +4,16 @@ import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '@renderer/components/display/tabs';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
-import { DeckItemInspector } from '@renderer/features/inspector/presentation-inspector';
+import { ItemInspector } from '@renderer/features/inspector/item-inspector';
 import { SlideBackgroundInspector } from '@renderer/features/inspector/slide-background-inspector';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
 import { TextElementInspector } from '@renderer/features/inspector/text-element-inspector';
 import { VideoElementInspector } from '@renderer/features/inspector/video-element-inspector';
 import type { InspectorTab } from '@renderer/types/ui';
-import { useDeckEditorScreen } from './screen-context';
+import { useItemEditorScreen } from './screen-context';
 
-export function DeckEditorInspectorPanel() {
-  const { state, actions } = useDeckEditorScreen();
+export function ItemEditorInspectorPanel() {
+  const { state, actions } = useItemEditorScreen();
   const { inspectorTab, setInspectorTab } = useInspector();
   const { selectedElement } = useElements();
   const hasSelection = Boolean(selectedElement);
@@ -56,7 +56,7 @@ export function DeckEditorInspectorPanel() {
             {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
           </Tabs.List>
           <Tabs.Panel value="presentation">
-            <DeckItemInspector />
+            <ItemInspector />
             <SlideBackgroundInspector />
           </Tabs.Panel>
           <Tabs.Panel value="shape">

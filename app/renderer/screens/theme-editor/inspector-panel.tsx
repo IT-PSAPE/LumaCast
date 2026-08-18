@@ -89,15 +89,20 @@ export function ThemeEditorInspectorPanel() {
                 {state.isPushingChanges ? 'Pushing…' : 'Save Changes'}
               </ReacstButton>
             )}
-            <ReacstButton
-              variant="ghost"
-              onClick={() => { void handleSyncLinkedItems(); }}
-              disabled={state.linkedItemCount === 0 || state.isSyncing || state.hasPendingChanges}
-              title={state.hasPendingChanges ? 'Push theme changes first' : state.linkedItemCount === 0 ? 'No deck items use this theme' : undefined}
-              className="w-full"
-            >
-              {state.isSyncing ? 'Syncing…' : `Sync ${state.linkedItemCount} linked ${state.linkedItemCount === 1 ? 'item' : 'items'}`}
-            </ReacstButton>
+            {/* Overlays don't carry a persisted themeId (D2: theming an
+                overlay is a one-shot apply, not a linked reference), so the
+                overlay family has no "linked items" to sync. */}
+            {state.themeType !== 'overlay' && (
+              <ReacstButton
+                variant="ghost"
+                onClick={() => { void handleSyncLinkedItems(); }}
+                disabled={state.linkedItemCount === 0 || state.isSyncing || state.hasPendingChanges}
+                title={state.hasPendingChanges ? 'Push theme changes first' : state.linkedItemCount === 0 ? 'No items use this theme' : undefined}
+                className="w-full"
+              >
+                {state.isSyncing ? 'Syncing…' : `Sync ${state.linkedItemCount} linked ${state.linkedItemCount === 1 ? 'item' : 'items'}`}
+              </ReacstButton>
+            )}
           </div>
         </LumaCastPanel.Footer>
       )}

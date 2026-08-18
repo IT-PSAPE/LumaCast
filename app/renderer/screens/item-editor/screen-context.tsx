@@ -1,21 +1,31 @@
 import { useCallback, useMemo, type ReactNode } from 'react';
-import type { Id } from '@lumacast/kernel';
-import type { DeckItemType } from '@lumacast/composition';
+import type { ItemRef, ItemType } from '@lumacast/composition';
 import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
-import { useCreateDeckItem } from '../../features/deck/create-deck-item';
+import { useCreateItem } from '../../features/items/create-item';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useDeckEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useSlides } from '../../contexts/slide-context';
 import { useEditorLeftPanelNav } from '../../features/workbench/use-editor-left-panel-nav';
-import { useSlideNotesPanel } from '../../features/deck/use-slide-notes-panel';
+import { useSlideNotesPanel } from '../../features/items/use-slide-notes-panel';
 import { createScreenContext } from '../../contexts/create-screen-context';
 
-interface DeckEditorScreenContextValue {
+// #219 item-model refactor decision D9: there is no merged deckItems array
+// on useProjectContent any more (per-type arrays only), so this screen
+// builds its own small view-model list — one entry per presentation/lyric/
+// talk with its ItemRef attached — purely to drive the item picker below.
+// This mirrors the precedent already set by use-app-menu.ts's exportWorkspace
+// local concat: a screen-local UI view, not a stored merged-array concept.
+interface ItemPickerEntry {
+  itemRef: ItemRef;
+  title: string;
+}
+
+interface ItemEditorScreenContextValue {
   state: {
-    currentDeckItem: ReturnType<typeof useNavigation>['currentDeckItem'];
-    currentDeckItemId: ReturnType<typeof useNavigation>['currentDeckItemId'];
-    deckItems: ReturnType<typeof useProjectContent>['deckItems'];
+    currentItem: ReturnType<typeof useNavigation>['currentItem'];
+    currentItemRef: ReturnType<typeof useNavigation>['currentItemRef'];
+    pickerItems: ItemPickerEntry[];
     slides: ReturnType<typeof useSlides>['slides'];
     currentSlide: ReturnType<typeof useSlides>['currentSlide'];
     currentSlideIndex: ReturnType<typeof useSlides>['currentSlideIndex'];
@@ -26,8 +36,8 @@ interface DeckEditorScreenContextValue {
     notesPanel: ReturnType<typeof useSlideNotesPanel>;
   };
   actions: {
-    openCreateDeckItem: (kind: DeckItemType) => void;
-    browseDeckItem: (id: Id) => void;
+    openCreateItem: (type: ItemType) => void;
+    browseItem: (itemRef: ItemRef) => void;
     setCurrentSlideIndex: (index: number) => void;
     createSlide: () => Promise<void>;
     duplicateSlide: ReturnType<typeof useSlides>['duplicateSlide'];
@@ -39,11 +49,11 @@ interface DeckEditorScreenContextValue {
   };
 }
 
-const [DeckEditorScreenContextProvider, useDeckEditorScreen] = createScreenContext<DeckEditorScreenContextValue>('DeckEditorScreenContext');
+const [ItemEditorScreenContextProvider, useItemEditorScreen] = createScreenContext<ItemEditorScreenContextValue>('ItemEditorScreenContext');
 
-export function DeckEditorScreenProvider({ children }: { children: ReactNode }) {
-  const { currentDeckItem, currentDeckItemId, browseDeckItem } = useNavigation();
-  const { open: openCreateDeckItem } = useCreateDeckItem();
+export function ItemEditorScreenProvider({ children }: { children: ReactNode }) {
+  const { currentItem, currentItemRef, browseItem } = useNavigation();
+  const { open: openCreateItem } = useCreateItem();
   const { effectiveElements } = useElements();
   const { getSlideElements, hasPendingChanges, isPushingChanges, pushChanges } = useDeckEditor();
   const {
@@ -59,7 +69,13 @@ export function DeckEditorScreenProvider({ children }: { children: ReactNode }) 
   } = useSlides();
   const { getThumbnailScene, commitProgramScene } = useRenderScenes();
   const notesPanel = useSlideNotesPanel();
-  const { deckItems } = useProjectContent();
+  const { presentations, lyrics, talks } = useProjectContent();
+
+  const pickerItems = useMemo<ItemPickerEntry[]>(() => [
+    ...presentations.map((item) => ({ itemRef: { type: 'presentation' as const, id: item.id }, title: item.title })),
+    ...lyrics.map((item) => ({ itemRef: { type: 'lyric' as const, id: item.id }, title: item.title })),
+    ...talks.map((item) => ({ itemRef: { type: 'talk' as const, id: item.id }, title: item.title })),
+  ], [presentations, lyrics, talks]);
 
   useEditorLeftPanelNav({
     items: slides,
@@ -73,11 +89,11 @@ export function DeckEditorScreenProvider({ children }: { children: ReactNode }) 
     commitProgramScene();
   }, [commitProgramScene, hasPendingChanges, pushChanges]);
 
-  const value = useMemo<DeckEditorScreenContextValue>(() => ({
+  const value = useMemo<ItemEditorScreenContextValue>(() => ({
     state: {
-      currentDeckItem,
-      currentDeckItemId,
-      deckItems,
+      currentItem,
+      currentItemRef,
+      pickerItems,
       slides,
       currentSlide,
       currentSlideIndex,
@@ -88,8 +104,8 @@ export function DeckEditorScreenProvider({ children }: { children: ReactNode }) 
       notesPanel,
     },
     actions: {
-      openCreateDeckItem,
-      browseDeckItem,
+      openCreateItem,
+      browseItem,
       setCurrentSlideIndex,
       createSlide,
       duplicateSlide,
@@ -100,13 +116,13 @@ export function DeckEditorScreenProvider({ children }: { children: ReactNode }) 
       getThumbnailScene,
     },
   }), [
-    browseDeckItem,
+    browseItem,
     createSlide,
-    currentDeckItem,
-    currentDeckItemId,
+    currentItem,
+    currentItemRef,
     currentSlide,
     currentSlideIndex,
-    deckItems,
+    pickerItems,
     deleteSlide,
     duplicateSlide,
     effectiveElements,
@@ -118,12 +134,12 @@ export function DeckEditorScreenProvider({ children }: { children: ReactNode }) 
     liveSlideIndex,
     moveSlide,
     notesPanel,
-    openCreateDeckItem,
+    openCreateItem,
     setCurrentSlideIndex,
     slides,
   ]);
 
-  return <DeckEditorScreenContextProvider value={value}>{children}</DeckEditorScreenContextProvider>;
+  return <ItemEditorScreenContextProvider value={value}>{children}</ItemEditorScreenContextProvider>;
 }
 
-export { useDeckEditorScreen };
+export { useItemEditorScreen };

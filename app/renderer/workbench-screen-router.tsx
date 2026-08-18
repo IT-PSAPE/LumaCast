@@ -9,8 +9,8 @@ import { ShowScreen } from './screens/show/page';
 // Editors and settings are heavyweight (Konva, big inspectors, asset editors)
 // and only ever entered from a menu/command. Code-splitting them keeps the
 // initial renderer bundle small.
-const DeckEditorScreen = lazy(() =>
-  import('./screens/deck-editor/page').then((m) => ({ default: m.DeckEditorScreen })),
+const ItemEditorScreen = lazy(() =>
+  import('./screens/item-editor/page').then((m) => ({ default: m.ItemEditorScreen })),
 );
 const OverlayEditorScreen = lazy(() =>
   import('./screens/overlay-editor/page').then((m) => ({ default: m.OverlayEditorScreen })),
@@ -39,7 +39,7 @@ export function WorkbenchScreenRouter() {
 
   return (
     <Suspense fallback={null}>
-      {workbenchMode === 'deck-editor' ? <DeckEditorScreen /> : null}
+      {workbenchMode === 'item-editor' ? <ItemEditorScreen /> : null}
       {workbenchMode === 'overlay-editor' ? <OverlayEditorScreen /> : null}
       {workbenchMode === 'theme-editor' ? <ThemeEditorScreen /> : null}
       {workbenchMode === 'stage-editor' ? <StageEditorScreen /> : null}

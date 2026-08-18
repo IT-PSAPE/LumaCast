@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Play } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
+import type { ItemRef } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '@renderer/components/display/scene-frame';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
@@ -9,26 +10,26 @@ import type { RenderScene } from '@lumacast/composition';
 
 interface ContinuousSlideGridTileProps {
   entryId: Id;
-  itemId: Id;
+  itemRef: ItemRef;
   index: number;
   scene: RenderScene;
   selected: boolean;
   isLive: boolean;
   isEmpty: boolean;
   textPreview: string;
-  onActivate: (entryId: Id, itemId: Id, slideIndex: number) => void;
-  onEdit: (entryId: Id, itemId: Id, slideIndex: number) => void;
+  onActivate: (entryId: Id, itemRef: ItemRef, slideIndex: number) => void;
+  onEdit: (entryId: Id, itemRef: ItemRef, slideIndex: number) => void;
 }
 
-function ContinuousSlideGridTileImpl({ entryId, itemId, index, scene, selected, isLive, isEmpty, textPreview, onActivate, onEdit }: ContinuousSlideGridTileProps) {
+function ContinuousSlideGridTileImpl({ entryId, itemRef, index, scene, selected, isLive, isEmpty, textPreview, onActivate, onEdit }: ContinuousSlideGridTileProps) {
   const ref = useScrollAreaActiveItem(selected);
 
   function handleClick() {
-    onActivate(entryId, itemId, index);
+    onActivate(entryId, itemRef, index);
   }
 
   function handleDoubleClick() {
-    onEdit(entryId, itemId, index);
+    onEdit(entryId, itemRef, index);
   }
 
   return (

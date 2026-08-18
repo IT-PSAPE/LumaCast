@@ -16,7 +16,7 @@ export function useLyricEditor(): LyricEditorContextValue {
 
 // Owns the lyric-editor modal so it can be opened from anywhere in the app —
 // both the deck-browser toolbar's "Open lyric editor" button and the
-// create-deck-item dialog's "Save and edit" button. The modal itself reads the
+// create-item dialog's "Save and edit" button. The modal itself reads the
 // current deck item from navigation context, so callers don't pass an id.
 export function LyricEditorProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);

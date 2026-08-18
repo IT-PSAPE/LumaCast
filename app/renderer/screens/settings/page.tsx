@@ -5,7 +5,7 @@ import { AppearanceSettingsPanel } from './appearance-settings-panel';
 import { ObservabilityPanel } from '../../features/observability/observability-panel';
 import { OutputSettingsPanel } from '../../features/playback/output-settings-panel';
 import { OverlaySettingsPanel } from '../../features/assets/overlays/overlay-settings-panel';
-import { ImportExportPanel } from '../../features/deck/import-export-panel';
+import { ImportExportPanel } from '../../features/items/import-export-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 
 type SettingsTabId = 'appearance' | 'output' | 'overlays' | 'observability' | 'transfer';

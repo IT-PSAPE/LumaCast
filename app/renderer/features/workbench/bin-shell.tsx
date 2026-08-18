@@ -2,10 +2,8 @@ import type { ReactNode } from 'react';
 import { cn } from '@renderer/utils/cn';
 import type { ResourceDrawerViewMode } from '../../types/ui';
 import { BinFooter } from './bin-footer';
-import type { BinCollectionsApi } from './use-bin-collections';
 
 interface BinShellProps {
-  collections?: BinCollectionsApi;
   children: ReactNode;
   searchValue: string;
   onSearchChange: (value: string) => void;
@@ -23,7 +21,6 @@ interface BinShellProps {
 }
 
 export function BinShell({
-  collections,
   children,
   searchValue,
   onSearchChange,
@@ -45,7 +42,6 @@ export function BinShell({
         {children}
       </div>
       <BinFooter
-        collections={collections}
         searchValue={searchValue}
         onSearchChange={onSearchChange}
         searchPlaceholder={searchPlaceholder}

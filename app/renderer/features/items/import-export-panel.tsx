@@ -1,18 +1,16 @@
 import { useMemo, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { DeckItem, LibraryPlaylistBundle, PlaylistTree } from '@lumacast/composition';
+import type { Playlist } from '@lumacast/composition';
 import { Check, ChevronDown, ListMusic, Search } from 'lucide-react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
-import { DeckItemIcon } from '@renderer/components/display/entity-icon';
+import { ItemIcon } from '@renderer/components/display/entity-icon';
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { SelectableRow } from '@renderer/components/display/selectable-row';
 import { Tabs } from '@renderer/components/display/tabs';
 import { Checkbox } from '@renderer/components/form/checkbox';
-import { useCast } from '@renderer/contexts/app-context';
-import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { BrokenReferenceReviewList } from './broken-reference-review-list';
-import { useDeckImportExport } from './use-deck-import-export';
+import { useDeckImportExport, type ExportableItem } from './use-deck-import-export';
 
 type TransferTab = 'export' | 'import';
 type TypeFilter = 'all' | 'presentation' | 'lyric' | 'talk' | 'playlist';
@@ -21,15 +19,14 @@ interface ItemRow {
   kind: 'item';
   id: Id;
   title: string;
-  item: DeckItem;
+  item: ExportableItem;
 }
 
 interface PlaylistRow {
   kind: 'playlist';
   id: Id;
   title: string;
-  tree: PlaylistTree;
-  itemCount: number;
+  playlist: Playlist;
 }
 
 type Row = ItemRow | PlaylistRow;
@@ -43,23 +40,12 @@ export function ImportExportPanel() {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const { state, actions } = useDeckImportExport();
-  const { deckItems } = useProjectContent();
-  const { snapshot } = useCast();
-
-  const libraryBundles: LibraryPlaylistBundle[] = snapshot?.libraryBundles ?? [];
-  const playlistTrees = useMemo(() => libraryBundles.flatMap((bundle) => bundle.playlists), [libraryBundles]);
 
   const allRows: Row[] = useMemo(() => {
-    const itemRows: ItemRow[] = deckItems.map((item) => ({ kind: 'item', id: item.id, title: item.title, item }));
-    const playlistRows: PlaylistRow[] = playlistTrees.map((tree) => {
-      const uniqueItemIds = new Set<Id>();
-      for (const group of tree.groups) {
-        for (const entry of group.entries) uniqueItemIds.add(entry.item.id);
-      }
-      return { kind: 'playlist', id: tree.playlist.id, title: tree.playlist.name, tree, itemCount: uniqueItemIds.size };
-    });
+    const itemRows: ItemRow[] = state.items.map((item) => ({ kind: 'item', id: item.id, title: item.title, item }));
+    const playlistRows: PlaylistRow[] = state.playlists.map((playlist) => ({ kind: 'playlist', id: playlist.id, title: playlist.name, playlist }));
     return [...playlistRows, ...itemRows];
-  }, [deckItems, playlistTrees]);
+  }, [state.items, state.playlists]);
 
   const normalizedFilter = state.filterText.trim().toLowerCase();
   const filteredRows = useMemo(() => {
@@ -92,14 +78,14 @@ export function ImportExportPanel() {
 
   const selectionPreview = useMemo(() => {
     const titles: string[] = [];
-    for (const tree of playlistTrees) {
-      if (state.selectedPlaylistIds.has(tree.playlist.id)) titles.push(tree.playlist.name);
+    for (const playlist of state.playlists) {
+      if (state.selectedPlaylistIds.has(playlist.id)) titles.push(playlist.name);
     }
-    for (const item of deckItems) {
+    for (const item of state.items) {
       if (state.selectedItemIds.has(item.id)) titles.push(item.title);
     }
     return titles;
-  }, [deckItems, playlistTrees, state.selectedItemIds, state.selectedPlaylistIds]);
+  }, [state.items, state.playlists, state.selectedItemIds, state.selectedPlaylistIds]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -113,8 +99,8 @@ export function ImportExportPanel() {
       {activeTab === 'export' ? (
         <section className="flex flex-col gap-4">
           <WorkspaceCard
-            itemCount={deckItems.length}
-            playlistCount={playlistTrees.length}
+            itemCount={state.items.length}
+            playlistCount={state.playlists.length}
             onExport={() => void actions.exportWorkspace()}
             disabled={state.exportInFlight}
             inFlight={state.exportInFlight}
@@ -148,7 +134,7 @@ export function ImportExportPanel() {
               onToggle={handleToggleRow}
               emptyMessage={
                 allRows.length === 0
-                  ? 'Nothing to export yet — create a presentation, lyric, or playlist first.'
+                  ? 'Nothing to export yet — create a presentation, lyric, or talk first.'
                   : 'Nothing matches your filter.'
               }
             />
@@ -228,6 +214,7 @@ export function ImportExportPanel() {
                       </span>
                       <span className="shrink-0 text-xs uppercase tracking-wide text-tertiary">
                         playlist · {pluralize(playlist.entryCount, 'entry', 'entries')}
+                        {playlist.separatorCount > 0 ? `, ${pluralize(playlist.separatorCount, 'separator', 'separators')}` : ''}
                       </span>
                     </div>
                   ))}
@@ -333,15 +320,13 @@ function RowList({
             {row.kind === 'playlist' ? (
               <ListMusic size={14} strokeWidth={1.75} className="text-tertiary" />
             ) : (
-              <DeckItemIcon entity={row.item} size={14} strokeWidth={1.75} className="text-tertiary" />
+              <ItemIcon entity={row.item.type} size={14} strokeWidth={1.75} className="text-tertiary" />
             )}
           </SelectableRow.Leading>
           <SelectableRow.Label>{row.title}</SelectableRow.Label>
           <SelectableRow.Trailing>
             <span className="text-xs uppercase tracking-wide text-tertiary">
-              {row.kind === 'playlist'
-                ? `playlist · ${pluralize(row.itemCount, 'item', 'items')}`
-                : row.item.type}
+              {row.kind === 'item' ? row.item.type : 'playlist'}
             </span>
             {isSelected(row) ? <Check size={12} strokeWidth={2.5} className="text-brand_solid" /> : null}
           </SelectableRow.Trailing>
@@ -421,7 +406,7 @@ function SelectionFooter({
             {preview.slice(0, 3).join(', ')}{preview.length > 3 ? `, +${preview.length - 3} more` : ''}
           </span>
         ) : (
-          <span>Pick items or playlists above.</span>
+          <span>Pick items above.</span>
         )}
       </div>
       <div className="flex items-center gap-2">

@@ -1,10 +1,9 @@
-import { Folder, Layers2, LayoutTemplate, ListMusic, Monitor, Search, Workflow } from 'lucide-react';
+import { Layers2, LayoutTemplate, ListMusic, Monitor, Search, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { getDeckItemLabel } from '@lumacast/composition';
-import type { Id } from '@lumacast/kernel';
-import type { Library, LibraryPlaylistBundle, MediaAsset, Overlay, Playlist, Stage, Theme } from '@lumacast/composition';
+import { getItemTypeLabel } from '@lumacast/composition';
+import type { ItemRef, ItemType, MediaAsset, Overlay, Stage, ThemeOwnerType } from '@lumacast/composition';
 import { Dialog } from '@renderer/components/overlays/dialog';
-import { DeckItemIcon, MediaAssetIcon } from '@renderer/components/display/entity-icon';
+import { ItemIcon, MediaAssetIcon } from '@renderer/components/display/entity-icon';
 import { useCast } from '@renderer/contexts/app-context';
 import { useNavigation } from '@renderer/contexts/navigation-context';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
@@ -20,9 +19,10 @@ import { useCommandPalette } from './command-palette-context';
 import { useAutomation } from '../automation/automation-context';
 
 type ResultKind =
-  | 'library'
   | 'playlist'
-  | 'deckItem'
+  | 'presentation'
+  | 'lyric'
+  | 'talk'
   | 'overlay'
   | 'theme'
   | 'stage'
@@ -40,9 +40,10 @@ interface ResultItem {
 }
 
 const SECTION_ORDER: Array<{ kind: ResultKind; title: string }> = [
-  { kind: 'library', title: 'Libraries' },
   { kind: 'playlist', title: 'Playlists' },
-  { kind: 'deckItem', title: 'Deck items' },
+  { kind: 'presentation', title: 'Presentations' },
+  { kind: 'lyric', title: 'Lyrics' },
+  { kind: 'talk', title: 'Talks' },
   { kind: 'overlay', title: 'Overlays' },
   { kind: 'theme', title: 'Themes' },
   { kind: 'stage', title: 'Stages' },
@@ -55,10 +56,21 @@ const SECTION_BY_KIND = new Map(SECTION_ORDER.map((entry, index) => [entry.kind,
 
 const RESULT_LIMIT = 50;
 
+// getItemTypeLabel only knows the three item types; the command palette's
+// theme results span all four theme families (items + overlay), so this
+// adds the one extra case rather than widening getItemTypeLabel itself
+// (which composition's #219 decision D2 keeps scoped to ItemType).
+function themeOwnerLabel(themeType: ThemeOwnerType): string {
+  return themeType === 'overlay' ? 'Overlay' : getItemTypeLabel(themeType);
+}
+
 export function CommandPalette() {
   const { isOpen, close } = useCommandPalette();
   const { snapshot } = useCast();
-  const { deckItems, mediaAssets } = useProjectContent();
+  const {
+    presentations, lyrics, talks, mediaAssets,
+    presentationThemes, lyricThemes, talkThemes, overlayThemes,
+  } = useProjectContent();
   const navigation = useNavigation();
   const { actions: workbenchActions } = useWorkbench();
   const overlayEditor = useOverlayEditor();
@@ -86,44 +98,38 @@ export function CommandPalette() {
   const results = useMemo<ResultItem[]>(() => {
     if (!snapshot) return [];
 
-    const libraryById = new Map<Id, Library>(snapshot.libraries.map((library) => [library.id, library]));
-
-    const libraryItems: ResultItem[] = snapshot.libraries.map((library) => ({
-      id: `library:${library.id}`,
-      kind: 'library',
-      label: library.name,
-      subtitle: 'Library',
-      icon: <Folder size={16} />,
-      onSelect: () => {
-        navigation.selectLibrary(library.id);
-        workbenchActions.setWorkbenchMode('show');
-      },
-    }));
-
-    const playlistItems: ResultItem[] = flattenPlaylists(snapshot.libraryBundles, libraryById).map(({ playlist, library }) => ({
+    const playlistItems: ResultItem[] = snapshot.playlists.map((playlist) => ({
       id: `playlist:${playlist.id}`,
       kind: 'playlist',
       label: playlist.name,
-      subtitle: `Playlist · ${library.name}`,
+      subtitle: 'Playlist',
       icon: <ListMusic size={16} />,
       onSelect: () => {
-        navigation.selectLibrary(library.id);
         navigation.setCurrentPlaylistId(playlist.id);
         workbenchActions.setWorkbenchMode('show');
       },
     }));
 
-    const deckItemResults: ResultItem[] = deckItems.map((item) => ({
-      id: `deckItem:${item.id}`,
-      kind: 'deckItem',
-      label: item.title,
-      subtitle: getDeckItemLabel(item),
-      icon: <DeckItemIcon entity={item} size={16} />,
-      onSelect: () => {
-        navigation.browseDeckItem(item.id);
-        workbenchActions.setWorkbenchMode('deck-editor');
-      },
-    }));
+    function itemResults(type: ItemType, items: Array<{ id: string; title: string }>): ResultItem[] {
+      return items.map((item) => {
+        const itemRef: ItemRef = { type, id: item.id };
+        return {
+          id: `${type}:${item.id}`,
+          kind: type,
+          label: item.title,
+          subtitle: getItemTypeLabel(type),
+          icon: <ItemIcon entity={itemRef} size={16} />,
+          onSelect: () => {
+            navigation.browseItem(itemRef);
+            workbenchActions.setWorkbenchMode('item-editor');
+          },
+        };
+      });
+    }
+
+    const presentationResults = itemResults('presentation', presentations);
+    const lyricResults = itemResults('lyric', lyrics);
+    const talkResults = itemResults('talk', talks);
 
     const overlayResults: ResultItem[] = overlayEditor.overlays.map((overlay: Overlay) => ({
       id: `overlay:${overlay.id}`,
@@ -137,17 +143,26 @@ export function CommandPalette() {
       },
     }));
 
-    const themeResults: ResultItem[] = themeEditor.themes.map((theme: Theme) => ({
-      id: `theme:${theme.id}`,
-      kind: 'theme',
-      label: theme.name,
-      subtitle: `Theme · ${theme.kind}`,
-      icon: <LayoutTemplate size={16} />,
-      onSelect: () => {
-        themeEditor.openThemeEditor(theme.id);
-        workbenchActions.setWorkbenchMode('theme-editor');
-      },
-    }));
+    function themeResultsFor(themeType: ThemeOwnerType, themes: Array<{ id: string; name: string }>): ResultItem[] {
+      return themes.map((theme) => ({
+        id: `theme:${themeType}:${theme.id}`,
+        kind: 'theme',
+        label: theme.name,
+        subtitle: `Theme · ${themeOwnerLabel(themeType)}`,
+        icon: <LayoutTemplate size={16} />,
+        onSelect: () => {
+          themeEditor.openThemeEditor(themeType, theme.id);
+          workbenchActions.setWorkbenchMode('theme-editor');
+        },
+      }));
+    }
+
+    const themeResults: ResultItem[] = [
+      ...themeResultsFor('presentation', presentationThemes),
+      ...themeResultsFor('lyric', lyricThemes),
+      ...themeResultsFor('talk', talkThemes),
+      ...themeResultsFor('overlay', overlayThemes),
+    ];
 
     const stageResults: ResultItem[] = stageEditor.stages.map((stage: Stage) => ({
       id: `stage:${stage.id}`,
@@ -209,9 +224,10 @@ export function CommandPalette() {
     }));
 
     const all: ResultItem[] = [
-      ...libraryItems,
       ...playlistItems,
-      ...deckItemResults,
+      ...presentationResults,
+      ...lyricResults,
+      ...talkResults,
       ...overlayResults,
       ...themeResults,
       ...stageResults,
@@ -231,7 +247,12 @@ export function CommandPalette() {
       .sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label))
       .map(({ item }) => item)
       .slice(0, RESULT_LIMIT);
-  }, [snapshot, deckItems, mediaAssets, overlayEditor, themeEditor, stageEditor, audio, macros, runMacro, setMediaLayerAsset, video, query, navigation, workbenchActions]);
+  }, [
+    snapshot, presentations, lyrics, talks, mediaAssets,
+    presentationThemes, lyricThemes, talkThemes, overlayThemes,
+    overlayEditor, themeEditor, stageEditor, audio, macros, runMacro,
+    setMediaLayerAsset, video, query, navigation, workbenchActions,
+  ]);
 
   const sectionedResults = useMemo(() => groupBySection(results), [results]);
 
@@ -268,7 +289,7 @@ export function CommandPalette() {
                 value={query}
                 onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
                 onKeyDown={handleKeyDown}
-                placeholder="Search libraries, playlists, decks, overlays, themes, stages, media…"
+                placeholder="Search playlists, items, overlays, themes, stages, media…"
                 className="w-full bg-transparent text-sm text-primary placeholder:text-tertiary outline-none"
                 autoComplete="off"
                 spellCheck={false}
@@ -323,18 +344,6 @@ export function CommandPalette() {
       </Dialog.Portal>
     </Dialog.Root>
   );
-}
-
-function flattenPlaylists(bundles: LibraryPlaylistBundle[], libraryById: Map<Id, Library>): Array<{ playlist: Playlist; library: Library }> {
-  const out: Array<{ playlist: Playlist; library: Library }> = [];
-  for (const bundle of bundles) {
-    for (const tree of bundle.playlists) {
-      const library = libraryById.get(tree.playlist.libraryId);
-      if (!library) continue;
-      out.push({ playlist: tree.playlist, library });
-    }
-  }
-  return out;
 }
 
 function groupBySection(items: ResultItem[]): Array<{ kind: ResultKind; title: string; items: ResultItem[] }> {

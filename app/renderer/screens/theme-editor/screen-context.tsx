@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import { isThemeCompatibleWithDeckItem } from '@lumacast/composition';
+import type { ItemType, ThemeOwnerType } from '@lumacast/composition';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '../../contexts/use-project-content';
@@ -8,6 +8,7 @@ import { createScreenContext } from '../../contexts/create-screen-context';
 
 interface ThemeEditorScreenContextValue {
   state: {
+    themeType: ThemeOwnerType;
     themes: ReturnType<typeof useThemeEditor>['themes'];
     currentThemeId: ReturnType<typeof useThemeEditor>['currentThemeId'];
     currentTheme: ReturnType<typeof useThemeEditor>['currentTheme'];
@@ -17,9 +18,10 @@ interface ThemeEditorScreenContextValue {
     isSyncing: boolean;
   };
   actions: {
+    setThemeType: (themeType: ThemeOwnerType) => void;
     selectTheme: (id: string) => void;
     requestThemeNameFocus: (id: string) => void;
-    createTheme: ReturnType<typeof useThemeEditor>['createTheme'];
+    createTheme: () => void;
     saveChanges: () => Promise<void>;
     syncLinkedItems: () => Promise<void>;
   };
@@ -29,6 +31,8 @@ const [ThemeEditorScreenContextProvider, useThemeEditorScreen] = createScreenCon
 
 export function ThemeEditorScreenProvider({ children }: { children: ReactNode }) {
   const {
+    themeType,
+    setThemeType,
     themes,
     currentThemeId,
     currentTheme,
@@ -36,29 +40,35 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     isPushingChanges,
     openThemeEditor,
     requestNameFocus,
-    syncLinkedDeckItems,
+    syncLinkedItems,
     createTheme,
     pushChanges,
   } = useThemeEditor();
   const { commitProgramScene } = useRenderScenes();
-  const { deckItems } = useProjectContent();
+  const { presentations, lyrics, talks } = useProjectContent();
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const linkedItemCount = currentTheme
-    ? deckItems.filter((item) => item.themeId === currentTheme.id && isThemeCompatibleWithDeckItem(currentTheme, item.type)).length
+  // #219 item-model refactor decision D2: theme sync is strictly per-family
+  // now, and overlays don't carry a persisted themeId at all (theming an
+  // overlay is a one-shot apply, not a linked reference) — so the overlay
+  // family simply has no "linked items" concept to count or sync.
+  const itemsForFamily = themeType === 'presentation' ? presentations : themeType === 'lyric' ? lyrics : themeType === 'talk' ? talks : null;
+
+  const linkedItemCount = currentTheme && itemsForFamily
+    ? itemsForFamily.filter((item) => item.themeId === currentTheme.id).length
     : 0;
 
   useEditorLeftPanelNav({
     items: themes,
     currentId: currentThemeId,
-    activate: (id) => openThemeEditor(id),
+    activate: (id) => openThemeEditor(themeType, id),
   });
 
   async function handleSyncLinkedItems() {
-    if (!currentTheme || linkedItemCount === 0) return;
+    if (!currentTheme || linkedItemCount === 0 || themeType === 'overlay') return;
     setIsSyncing(true);
     try {
-      await syncLinkedDeckItems(currentTheme.id);
+      await syncLinkedItems(currentTheme.id, themeType as ItemType);
     } finally {
       setIsSyncing(false);
     }
@@ -72,6 +82,7 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
 
   const value = useMemo<ThemeEditorScreenContextValue>(() => ({
     state: {
+      themeType,
       themes,
       currentThemeId,
       currentTheme,
@@ -81,9 +92,10 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
       isSyncing,
     },
     actions: {
-      selectTheme: openThemeEditor,
+      setThemeType,
+      selectTheme: (id) => openThemeEditor(themeType, id),
       requestThemeNameFocus: requestNameFocus,
-      createTheme,
+      createTheme: () => createTheme(themeType),
       saveChanges: handleSaveChanges,
       syncLinkedItems: handleSyncLinkedItems,
     },
@@ -98,6 +110,8 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     linkedItemCount,
     openThemeEditor,
     requestNameFocus,
+    setThemeType,
+    themeType,
     themes,
   ]);
 

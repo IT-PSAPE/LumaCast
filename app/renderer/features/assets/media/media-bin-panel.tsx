@@ -18,13 +18,10 @@ import { useGridSize } from '../../../hooks/use-grid-size';
 import { useVideoPoster } from '../../../hooks/use-video-poster';
 import { castMediaSrc } from '../../../utils/slides';
 import { BinShell } from '../../workbench/bin-shell';
-import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import { useMediaTypeBin, type MediaBinKind } from './use-media-type-bin';
 
 interface MediaBinPanelProps {
   binKind: MediaBinKind;
-  collections: BinCollectionsApi;
-  hideFooterPicker?: boolean;
 }
 
 const GRID_CONFIG: Record<MediaBinKind, { default: number; min: number; max: number }> = {
@@ -33,9 +30,8 @@ const GRID_CONFIG: Record<MediaBinKind, { default: number; min: number; max: num
   audio: { default: 3, min: 2, max: 4 },
 };
 
-export function MediaBinPanel({ binKind, collections, hideFooterPicker = false }: MediaBinPanelProps) {
-  const { mediaAssets, searchValue, setSearchValue, viewMode, setViewMode, moveAssetToCollection } =
-    useMediaTypeBin(binKind, collections);
+export function MediaBinPanel({ binKind }: MediaBinPanelProps) {
+  const { mediaAssets, searchValue, setSearchValue, viewMode, setViewMode } = useMediaTypeBin(binKind);
   const { mediaLayerAssetId, videoLayerAssetId, setMediaLayerAsset } = usePresentationMediaLayer();
   const { armVideo } = useVideo();
   const gridStorageKey = `lumacast.grid-size.${binKind}-bin`;
@@ -44,7 +40,6 @@ export function MediaBinPanel({ binKind, collections, hideFooterPicker = false }
 
   return (
     <BinShell
-      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder={`Search ${binKind}…`}
@@ -65,8 +60,6 @@ export function MediaBinPanel({ binKind, collections, hideFooterPicker = false }
             mode={viewMode}
             onAssignLayer={setMediaLayerAsset}
             onArmVideo={armVideo}
-            collectionsApi={collections}
-            onMoveToCollection={moveAssetToCollection}
           />
         ))}
       </BinPanelLayout>
@@ -79,8 +72,6 @@ interface MediaItemProps {
   isActive: boolean;
   onAssignLayer: (id: Id) => void;
   onArmVideo: (id: Id) => void;
-  collectionsApi: BinCollectionsApi;
-  onMoveToCollection: (assetId: Id, collectionId: Id) => Promise<void>;
 }
 
 function MediaBinItem({ mode, ...props }: MediaItemProps & { mode: 'grid' | 'list' }) {
@@ -126,39 +117,16 @@ function useMediaContextActions(asset: MediaAsset) {
 }
 
 function MediaContextMenuItems({
-  asset,
-  collectionsApi,
-  onMoveToCollection,
   onReplaceSource,
   onDelete,
 }: {
-  asset: MediaAsset;
-  collectionsApi: BinCollectionsApi;
-  onMoveToCollection: (assetId: Id, collectionId: Id) => Promise<void>;
   onReplaceSource: () => void;
   onDelete: () => void;
 }) {
-  const otherCollections = collectionsApi.collections.filter((c) => c.id !== asset.collectionId);
   return (
     <ContextMenu.Portal>
       <ContextMenu.Menu>
         <ContextMenu.Item onSelect={onReplaceSource}>Replace source…</ContextMenu.Item>
-        <ContextMenu.Separator />
-        {otherCollections.length > 0 ? (
-          <ContextMenu.Submenu label="Move to collection">
-            {otherCollections.map((collection) => (
-              <ContextMenu.Item
-                key={collection.id}
-                // onMoveToCollection → setItemCollection rejects when the collection was
-                // deleted under the open menu (#221); mutatePatch has already
-                // reported the failure, so absorb the rethrow here.
-                onSelect={() => { void onMoveToCollection(asset.id, collection.id).catch(() => undefined); }}
-              >
-                {collection.name}
-              </ContextMenu.Item>
-            ))}
-          </ContextMenu.Submenu>
-        ) : null}
         <ContextMenu.Separator />
         <ContextMenu.Item variant="destructive" onSelect={onDelete}>Delete</ContextMenu.Item>
       </ContextMenu.Menu>
@@ -174,7 +142,7 @@ function MediaRow(props: MediaItemProps) {
   );
 }
 
-function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsApi, onMoveToCollection }: MediaItemProps) {
+function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo }: MediaItemProps) {
   const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
   const {
@@ -213,9 +181,6 @@ function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsA
         </div>
       </SelectableRow.Root>
       <MediaContextMenuItems
-        asset={asset}
-        collectionsApi={collectionsApi}
-        onMoveToCollection={onMoveToCollection}
         onReplaceSource={() => { void handleReplaceSource().catch(() => undefined); }}
         onDelete={() => { void handleDelete().catch(() => undefined); }}
       />
@@ -231,7 +196,7 @@ function MediaTile(props: MediaItemProps) {
   );
 }
 
-function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collectionsApi, onMoveToCollection }: MediaItemProps) {
+function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo }: MediaItemProps) {
   const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
   const {
@@ -271,9 +236,6 @@ function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo, collections
         </Thumbnail.Tile>
       </div>
       <MediaContextMenuItems
-        asset={asset}
-        collectionsApi={collectionsApi}
-        onMoveToCollection={onMoveToCollection}
         onReplaceSource={() => { void handleReplaceSource().catch(() => undefined); }}
         onDelete={() => { void handleDelete().catch(() => undefined); }}
       />

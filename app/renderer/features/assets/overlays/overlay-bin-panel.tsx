@@ -17,14 +17,8 @@ import { filterByText } from '../../../utils/filter-by-text';
 import { useGridSize } from '../../../hooks/use-grid-size';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 import { BinShell } from '../../workbench/bin-shell';
-import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 
-interface OverlayBinPanelProps {
-  collections: BinCollectionsApi;
-  hideFooterPicker?: boolean;
-}
-
-export function OverlayBinPanel({ collections, hideFooterPicker = false }: OverlayBinPanelProps) {
+export function OverlayBinPanel() {
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const { overlays: allOverlays, setCurrentOverlayId } = useOverlayEditor();
   const { activeOverlayIds, activateOverlay } = usePresentationOverlayLayer();
@@ -32,19 +26,13 @@ export function OverlayBinPanel({ collections, hideFooterPicker = false }: Overl
   const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.overlay-bin', 3, 2, 4);
 
-  const filteredByCollection = useMemo(
-    () => collections.filterByActiveCollection(allOverlays),
-    [allOverlays, collections],
-  );
-
   const overlays = useMemo(
-    () => filterByText(filteredByCollection, searchValue, (overlay: Overlay) => [overlay.name]),
-    [filteredByCollection, searchValue],
+    () => filterByText(allOverlays, searchValue, (overlay: Overlay) => [overlay.name]),
+    [allOverlays, searchValue],
   );
 
   return (
     <BinShell
-      collections={hideFooterPicker ? undefined : collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search overlays…"
@@ -66,7 +54,6 @@ export function OverlayBinPanel({ collections, hideFooterPicker = false }: Overl
             onActivate={activateOverlay}
             onEdit={setCurrentOverlayId}
             setWorkbenchMode={setWorkbenchMode}
-            collectionsApi={collections}
           />
         ))}
       </BinPanelLayout>
@@ -81,7 +68,6 @@ interface OverlayCardProps {
   onActivate: (id: Id) => void;
   onEdit: (id: Id) => void;
   setWorkbenchMode: (mode: 'overlay-editor') => void;
-  collectionsApi: BinCollectionsApi;
 }
 
 function OverlayCardImpl(props: OverlayCardProps) {
@@ -92,13 +78,12 @@ function OverlayCardImpl(props: OverlayCardProps) {
   );
 }
 
-function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWorkbenchMode, collectionsApi }: OverlayCardProps) {
+function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWorkbenchMode }: OverlayCardProps) {
   const { updateOverlayDraft, deleteOverlay, duplicateOverlay } = useOverlayEditor();
   const scene = useMemo(() => buildRenderScene({ width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null }, overlayToLayerElements(overlay)), [overlay]);
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
-  const otherCollections = collectionsApi.collections.filter((c) => c.id !== overlay.collectionId);
 
   function handleActivate() {
     onEdit(overlay.id);
@@ -146,23 +131,6 @@ function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWork
           <ContextMenu.Item onSelect={handleEdit}>Edit</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { duplicateOverlay(overlay.id); }}>Duplicate</ContextMenu.Item>
-          <ContextMenu.Submenu label="Move to collection">
-            {otherCollections.length > 0 ? (
-              otherCollections.map((collection) => (
-                <ContextMenu.Item
-                  key={collection.id}
-                  // setItemCollection rejects when the collection was deleted under the
-                  // open menu (#221); mutatePatch has already reported the failure,
-                  // so absorb the rethrow here.
-                  onSelect={() => { void collectionsApi.assignItem('overlay', overlay.id, collection.id).catch(() => undefined); }}
-                >
-                  {collection.name}
-                </ContextMenu.Item>
-              ))
-            ) : (
-              <ContextMenu.Item disabled onSelect={() => {}}>No other collections</ContextMenu.Item>
-            )}
-          </ContextMenu.Submenu>
           <ContextMenu.Separator />
           <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>

@@ -49,17 +49,17 @@ export function useStageBindingValue(): BindingValue {
 }
 
 export function useProgramBindingValue(): BindingValue {
-  const { currentOutputDeckItemId, outputArmVersion } = useNavigation();
+  const { currentOutputItemRef, outputArmVersion } = useNavigation();
   const { liveSlide, liveElements, nextLiveSlide, nextLiveElements, liveTalkScriptBlock, liveTalkScriptProgress } = useSlides();
   const [armedAtMs, setArmedAtMs] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!currentOutputDeckItemId) {
+    if (!currentOutputItemRef) {
       setArmedAtMs(null);
       return;
     }
     setArmedAtMs(Date.now());
-  }, [currentOutputDeckItemId, outputArmVersion]);
+  }, [currentOutputItemRef, outputArmVersion]);
 
   return useMemo(() => ({
     currentSlideText: liveSlide ? extractSlideText(liveElements) : null,

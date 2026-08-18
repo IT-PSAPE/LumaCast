@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef } from 'react';
-import type { DeckItem, Overlay, Theme } from '@lumacast/composition';
-import { isThemeCompatibleWithOwnerKind } from '@lumacast/composition';
+import type { ItemType, Lyric, Overlay, Presentation, Talk, ThemeOwnerType } from '@lumacast/composition';
+import type { EditorThemeSource } from '@lumacast/canvas';
+import { FileText, Layers, Music, Presentation as PresentationIcon } from 'lucide-react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
@@ -8,6 +9,7 @@ import { RenameField, type RenameFieldHandle } from '../../../components/form/re
 import { SelectableRow } from '../../../components/display/selectable-row';
 import { Thumbnail } from '../../../components/display/thumbnail';
 import { SceneFrame } from '../../../components/display/scene-frame';
+import { SegmentedControl } from '../../../components/controls/segmented-control';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useCast } from '../../../contexts/app-context';
 import { useProjectContent } from '../../../contexts/use-project-content';
@@ -16,30 +18,21 @@ import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
 import { useGridSize } from '../../../hooks/use-grid-size';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
 import { BinShell } from '../../workbench/bin-shell';
-import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import { useThemeBin } from './use-theme-bin';
 
-// Pure, testable derivation of a theme's compatible apply targets from the
-// full pool of deck items and overlays. Uses the single capability function
-// from @core/themes instead of building its own type-specific arrays, so a
-// theme's compatible owner kinds (including talk) never drift out of sync
-// with app/core/themes.ts's capability matrix.
-export function resolveThemeApplyTargets(
-  theme: Theme,
-  deckItems: readonly DeckItem[],
-  overlays: readonly Overlay[],
-): { deckItems: DeckItem[]; overlays: Overlay[] } {
-  return {
-    deckItems: deckItems.filter((item) => isThemeCompatibleWithOwnerKind(theme, item.type)),
-    overlays: isThemeCompatibleWithOwnerKind(theme, 'overlay') ? [...overlays] : [],
-  };
-}
+const FAMILY_OPTIONS: ReadonlyArray<{ value: ThemeOwnerType; label: string; Icon: typeof PresentationIcon }> = [
+  { value: 'presentation', label: 'Presentation', Icon: PresentationIcon },
+  { value: 'lyric', label: 'Lyric', Icon: Music },
+  { value: 'talk', label: 'Talk', Icon: FileText },
+  { value: 'overlay', label: 'Overlay', Icon: Layers },
+];
 
 export function ThemeBinPanel() {
   const {
+    themeType,
+    setThemeType,
     filteredThemes,
     handleApplyTheme,
-    collections,
     searchValue,
     setSearchValue,
     viewMode,
@@ -47,9 +40,13 @@ export function ThemeBinPanel() {
   } = useThemeBin();
   const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.theme-bin', 6, 4, 8);
 
+  function handleFamilyChange(next: string | string[]) {
+    if (Array.isArray(next) || !next) return;
+    setThemeType(next as ThemeOwnerType);
+  }
+
   return (
     <BinShell
-      collections={collections}
       searchValue={searchValue}
       onSearchChange={setSearchValue}
       searchPlaceholder="Search themes…"
@@ -61,6 +58,14 @@ export function ThemeBinPanel() {
       gridSizeStep={step}
       onGridSizeChange={setGridSize}
     >
+      <SegmentedControl fill value={themeType} onValueChange={handleFamilyChange} label="Theme family" className="mb-2">
+        {FAMILY_OPTIONS.map(({ value, label, Icon }) => (
+          <SegmentedControl.Label key={value} value={value} fill className="flex items-center justify-center gap-1.5">
+            <Icon size={12} strokeWidth={1.75} />
+            {label}
+          </SegmentedControl.Label>
+        ))}
+      </SegmentedControl>
       <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
         {filteredThemes.map((theme, index) => (
           <ThemeBinItem
@@ -68,8 +73,8 @@ export function ThemeBinPanel() {
             theme={theme}
             index={index}
             mode={viewMode}
+            themeType={themeType}
             onApply={handleApplyTheme}
-            collectionsApi={collections}
           />
         ))}
       </BinPanelLayout>
@@ -78,10 +83,10 @@ export function ThemeBinPanel() {
 }
 
 interface ThemeItemProps {
-  theme: Theme;
+  theme: EditorThemeSource;
   index: number;
-  onApply: (theme: Theme) => void;
-  collectionsApi: BinCollectionsApi;
+  themeType: ThemeOwnerType;
+  onApply: (theme: EditorThemeSource) => void;
 }
 
 function ThemeBinItem({ mode, ...props }: ThemeItemProps & { mode: ResourceDrawerViewMode }) {
@@ -97,7 +102,7 @@ function ThemeRowImpl(props: ThemeItemProps) {
   );
 }
 
-function ThemeRowBody({ theme, index, onApply, collectionsApi }: ThemeItemProps) {
+function ThemeRowBody({ theme, index, themeType, onApply }: ThemeItemProps) {
   const { renameTheme } = useThemeEditor();
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteTheme(theme);
@@ -126,11 +131,8 @@ function ThemeRowBody({ theme, index, onApply, collectionsApi }: ThemeItemProps)
         <SelectableRow.Label>
           <RenameField ref={renameRef} value={theme.name} onValueChange={handleRename} className="label-xs" />
         </SelectableRow.Label>
-        <SelectableRow.Trailing>
-          <span className="text-xs uppercase tracking-wide text-tertiary">{theme.kind}</span>
-        </SelectableRow.Trailing>
       </SelectableRow.Root>
-      <ThemeContextMenuItems theme={theme} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
+      <ThemeContextMenuItems theme={theme} themeType={themeType} renameRef={renameRef} onDelete={() => { void handleDelete(); }} />
     </>
   );
 }
@@ -143,7 +145,7 @@ function ThemeTileImpl(props: ThemeItemProps) {
   );
 }
 
-function ThemeTileBody({ theme, index, onApply, collectionsApi }: ThemeItemProps) {
+function ThemeTileBody({ theme, index, themeType, onApply }: ThemeItemProps) {
   const { renameTheme } = useThemeEditor();
   const scene = useMemo(() => buildRenderScene({ width: theme.width, height: theme.height, background: theme.background ?? null }, theme.elements), [theme.background, theme.elements, theme.height, theme.width]);
   const renameRef = useRef<RenameFieldHandle>(null);
@@ -175,12 +177,12 @@ function ThemeTileBody({ theme, index, onApply, collectionsApi }: ThemeItemProps
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
-      <ThemeContextMenuItems theme={theme} renameRef={renameRef} collectionsApi={collectionsApi} onDelete={() => { void handleDelete(); }} />
+      <ThemeContextMenuItems theme={theme} themeType={themeType} renameRef={renameRef} onDelete={() => { void handleDelete(); }} />
     </>
   );
 }
 
-function useDeleteTheme(theme: Theme) {
+function useDeleteTheme(theme: EditorThemeSource) {
   const { deleteTheme } = useThemeEditor();
   const confirm = useConfirm();
 
@@ -195,24 +197,38 @@ function useDeleteTheme(theme: Theme) {
   };
 }
 
+// A theme family's items are always its exclusive apply targets — structural
+// gating (#219 D2) means there is no cross-family compatibility to filter,
+// unlike the old single-table Theme.kind matrix this replaces.
+type ApplyTargets =
+  | { kind: 'item'; itemType: ItemType; items: (Presentation | Lyric | Talk)[]; label: string }
+  | { kind: 'overlay'; items: Overlay[]; label: string };
+
 function ThemeContextMenuItems({
   theme,
+  themeType,
   renameRef,
-  collectionsApi,
   onDelete,
 }: {
-  theme: Theme;
+  theme: EditorThemeSource;
+  themeType: ThemeOwnerType;
   renameRef: React.RefObject<RenameFieldHandle | null>;
-  collectionsApi: BinCollectionsApi;
   onDelete: () => void;
 }) {
   const { applyThemeToTarget } = useThemeEditor();
   const { setStatusText } = useCast();
-  const { deckItems, overlays } = useProjectContent();
+  const { presentations, lyrics, talks, overlays } = useProjectContent();
 
-  async function handleApplyToDeckItem(itemId: string) {
+  const targets = useMemo<ApplyTargets>(() => {
+    if (themeType === 'presentation') return { kind: 'item', itemType: 'presentation', items: presentations, label: 'presentations' };
+    if (themeType === 'lyric') return { kind: 'item', itemType: 'lyric', items: lyrics, label: 'lyrics' };
+    if (themeType === 'talk') return { kind: 'item', itemType: 'talk', items: talks, label: 'talks' };
+    return { kind: 'overlay', items: overlays, label: 'overlays' };
+  }, [themeType, presentations, lyrics, talks, overlays]);
+
+  async function handleApplyToItem(itemId: string, itemType: ItemType) {
     try {
-      await applyThemeToTarget(theme.id, { type: 'deck-item', itemId });
+      await applyThemeToTarget(theme.id, { type: 'item', itemRef: { type: itemType, id: itemId } });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setStatusText(`Failed to apply theme: ${message}`);
@@ -228,13 +244,7 @@ function ThemeContextMenuItems({
     }
   }
 
-  const { deckItems: compatibleDeckItems, overlays: compatibleOverlays } = useMemo(
-    () => resolveThemeApplyTargets(theme, deckItems, overlays),
-    [deckItems, overlays, theme],
-  );
-
-  const hasTargets = compatibleDeckItems.length > 0 || compatibleOverlays.length > 0;
-  const targetLabel = theme.kind === 'overlays' ? 'overlays' : theme.kind === 'lyrics' ? 'lyrics' : 'deck items';
+  const hasTargets = targets.items.length > 0;
 
   return (
     <ContextMenu.Portal>
@@ -242,43 +252,21 @@ function ThemeContextMenuItems({
         <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
         <ContextMenu.Submenu label="Apply to" disabled={!hasTargets}>
           {!hasTargets ? (
-            <ContextMenu.Item disabled>No compatible {targetLabel}</ContextMenu.Item>
+            <ContextMenu.Item disabled onSelect={() => {}}>No compatible {targets.label}</ContextMenu.Item>
+          ) : targets.kind === 'overlay' ? (
+            targets.items.map((overlay) => (
+              <ContextMenu.Item key={overlay.id} onSelect={() => { void handleApplyToOverlay(overlay.id); }}>
+                {overlay.name}
+              </ContextMenu.Item>
+            ))
           ) : (
-            <>
-              {compatibleDeckItems.map((item) => (
-                <ContextMenu.Item
-                  key={item.id}
-                  onSelect={() => { void handleApplyToDeckItem(item.id); }}
-                >
-                  {item.title}
-                </ContextMenu.Item>
-              ))}
-              {compatibleOverlays.map((overlay) => (
-                <ContextMenu.Item
-                  key={overlay.id}
-                  onSelect={() => { void handleApplyToOverlay(overlay.id); }}
-                >
-                  {overlay.name}
-                </ContextMenu.Item>
-              ))}
-            </>
+            targets.items.map((item) => (
+              <ContextMenu.Item key={item.id} onSelect={() => { void handleApplyToItem(item.id, targets.itemType); }}>
+                {item.title}
+              </ContextMenu.Item>
+            ))
           )}
         </ContextMenu.Submenu>
-        {collectionsApi.collections.filter((c) => c.id !== theme.collectionId).length > 0 ? (
-          <ContextMenu.Submenu label="Move to collection">
-            {collectionsApi.collections.filter((c) => c.id !== theme.collectionId).map((collection) => (
-              <ContextMenu.Item
-                key={collection.id}
-                // setItemCollection rejects when the collection was deleted under the
-                // open menu (#221); mutatePatch has already reported the failure,
-                // so absorb the rethrow here.
-                onSelect={() => { void collectionsApi.assignItem('theme', theme.id, collection.id).catch(() => undefined); }}
-              >
-                {collection.name}
-              </ContextMenu.Item>
-            ))}
-          </ContextMenu.Submenu>
-        ) : null}
         <ContextMenu.Separator />
         <ContextMenu.Item variant="destructive" onSelect={onDelete}>Delete</ContextMenu.Item>
       </ContextMenu.Menu>

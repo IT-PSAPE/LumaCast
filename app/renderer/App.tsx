@@ -8,9 +8,9 @@ import { SlideProvider } from './contexts/slide-context';
 import { WorkbenchProvider } from './contexts/workbench-context';
 import { CommandPalette } from './features/command-palette/command-palette';
 import { CommandPaletteProvider } from './features/command-palette/command-palette-context';
-import { BundleDropImport } from './features/deck/bundle-drop-import';
-import { CreateDeckItemProvider } from './features/deck/create-deck-item';
-import { LyricEditorProvider } from './features/deck/lyric-editor';
+import { BundleDropImport } from './features/items/bundle-drop-import';
+import { CreateItemProvider } from './features/items/create-item';
+import { LyricEditorProvider } from './features/items/lyric-editor';
 import { AutomationProvider } from './features/automation/automation-context';
 import { NdiOutputs } from './features/playback/ndi-outputs';
 import { ConfirmProvider } from './components/overlays/confirm-dialog';
@@ -34,7 +34,7 @@ export function App() {
                   <SlideProvider>
                     <AutomationProvider>
                       <LyricEditorProvider>
-                        <CreateDeckItemProvider>
+                        <CreateItemProvider>
                           <CanvasProvider>
                             <CommandPaletteProvider>
                               <NdiOutputs />
@@ -45,7 +45,7 @@ export function App() {
                               <BundleDropImport />
                             </CommandPaletteProvider>
                           </CanvasProvider>
-                        </CreateDeckItemProvider>
+                        </CreateItemProvider>
                       </LyricEditorProvider>
                     </AutomationProvider>
                   </SlideProvider>

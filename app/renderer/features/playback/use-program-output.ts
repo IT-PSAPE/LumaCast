@@ -14,11 +14,11 @@ export interface ProgramOutput {
 
 export function useProgramOutput(): ProgramOutput {
   const { state: { outputConfigs } } = useNdi();
-  const { currentOutputDeckItemId } = useNavigation();
+  const { currentOutputItemRef } = useNavigation();
   const { liveSlide } = useSlides();
   const { programScene } = useRenderScenes();
   const outputConfig = outputConfigs.audience;
-  const status: NdiSourceStatus = currentOutputDeckItemId && liveSlide ? 'live' : 'idle';
+  const status: NdiSourceStatus = currentOutputItemRef && liveSlide ? 'live' : 'idle';
   const background = outputConfig.withAlpha ? 'transparent' : 'black';
 
   return useMemo<ProgramOutput>(() => ({
