@@ -102,9 +102,18 @@ export function fileSrc(file: File): string {
  * is denied; the renderable source for a persisted asset is the `src` main
  * returns on the asset itself. Pass the result of this function to an IPC
  * mutation and render what comes back.
+ *
+ * The scheme prefix is overridable via `window.__castMediaBase`, a global the
+ * browser-preview shim (tool/browser-preview/shim.ts) sets before this module
+ * evaluates. The Electron app never sets that global, so `CAST_MEDIA_BASE`
+ * resolves to the literal `cast-media://` prefix and this function's behavior
+ * there is byte-identical to before.
  */
+const CAST_MEDIA_BASE: string =
+  (globalThis as { __castMediaBase?: string }).__castMediaBase ?? 'cast-media://';
+
 export function castMediaSrc(filePath: string): string {
-  return `cast-media://${encodeURIComponent(filePath)}`;
+  return `${CAST_MEDIA_BASE}${encodeURIComponent(filePath)}`;
 }
 
 export function parseNumber(value: string, fallback: number): number {

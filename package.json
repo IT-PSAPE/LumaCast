@@ -30,6 +30,7 @@
     "build": "electron-vite build",
     "prepreview": "npm run ensure:native-deps",
     "preview": "electron-vite preview",
+    "preview:browser": "node tool/browser-preview/build.mjs && node out/tool/server.js",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run ensure:native-deps",
     "test": "vitest run",
