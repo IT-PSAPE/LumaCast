@@ -160,7 +160,10 @@ export function SceneStage({ scene, surface = 'show', editable = false, classNam
         if (selected.has(next[i]) && !selected.has(next[i - 1])) [next[i], next[i - 1]] = [next[i - 1], next[i]];
       }
     }
-    void reorderElements(next);
+    // reorderElements → updateElementsBatch rejects when an element no longer
+    // exists (#214), which a reorder action can race with a concurrent delete.
+    // mutatePatch has already reported the failure, so absorb the rethrow here.
+    void reorderElements(next).catch(() => undefined);
   }, [effectiveElements, reorderElements, selectedElementIds]);
   const [menuState, setMenuState] = useState<{ x: number; y: number; targetId: Id | null } | null>(null);
   const menuPosition = menuState ? { x: menuState.x, y: menuState.y } : null;

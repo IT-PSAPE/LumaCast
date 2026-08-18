@@ -51,7 +51,10 @@ function SortableLibraryRow({ bundle }: { bundle: LibraryPlaylistBundle }) {
   }
 
   function handleRename(name: string) {
-    void renameLibrary(bundle.library.id, name);
+    // renameLibrary rejects when the library no longer exists (#214), which a
+    // rename field commit can race with a concurrent delete. mutatePatch has
+    // already reported the failure, so absorb the rethrow here.
+    void renameLibrary(bundle.library.id, name).catch(() => undefined);
     clearRecentlyCreated();
   }
 

@@ -75,7 +75,10 @@ function PlaylistRow({ tree }: { tree: PlaylistTree }) {
   }, [isEditing]);
 
   function handleRename(name: string) {
-    void renamePlaylist(tree.playlist.id, name);
+    // renamePlaylist rejects when the playlist no longer exists (#214), which
+    // a rename field commit can race with a concurrent delete. mutatePatch has
+    // already reported the failure, so absorb the rethrow here.
+    void renamePlaylist(tree.playlist.id, name).catch(() => undefined);
     clearRecentlyCreated();
   }
 

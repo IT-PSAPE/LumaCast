@@ -39,7 +39,11 @@ export function useDeckBin() {
   }, [filteredByCollection, searchValue, slidesByDeckItemId, sort]);
 
   function handleRename(itemId: Id, title: string) {
-    void renameDeckItem(itemId, title);
+    // renameDeckItem → renamePresentation/Lyric/Talk rejects when the item no
+    // longer exists (#214), which a rename field commit can race with a
+    // concurrent delete. mutatePatch has already reported the failure, so
+    // absorb the rethrow here.
+    void renameDeckItem(itemId, title).catch(() => undefined);
     setEditingPresentationId(null);
   }
 

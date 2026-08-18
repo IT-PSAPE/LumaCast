@@ -72,7 +72,10 @@ export function DeckEditorInspectorPanel() {
       </Tabs.Root>
       {state.hasPendingChanges && (
         <LumaCastPanel.Footer className="p-3">
-          <ReacstButton onClick={() => { void actions.saveChanges(); }} disabled={state.isPushingChanges} className="w-full">
+          {/* saveChanges → pushChanges → updateElementsBatch/deleteElementsBatch
+              rejects when an element no longer exists (#214); mutatePatch has
+              already reported the failure, so absorb the rethrow here. */}
+          <ReacstButton onClick={() => { void actions.saveChanges().catch(() => undefined); }} disabled={state.isPushingChanges} className="w-full">
             {state.isPushingChanges ? 'Pushing…' : 'Save Changes'}
           </ReacstButton>
         </LumaCastPanel.Footer>

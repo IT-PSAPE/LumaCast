@@ -193,7 +193,11 @@ function MacroInspector() {
         </Section.Body>
       </Section.Root>
       <div className="mt-auto p-2">
-        <ReacstButton variant="danger" onClick={() => { void deleteCurrentMacro(); }} className="w-full">
+        {/* deleteCurrentMacro → deleteMacro rejects when the macro no longer
+            exists (#214), which a delete can race with a concurrent delete.
+            mutatePatch has already reported the failure, so absorb the rethrow
+            here. */}
+        <ReacstButton variant="danger" onClick={() => { void deleteCurrentMacro().catch(() => undefined); }} className="w-full">
           <span className="inline-flex items-center gap-1.5"><Trash2 className="size-4" />Delete macro</span>
         </ReacstButton>
       </div>

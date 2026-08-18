@@ -34,7 +34,10 @@ export function ElementLayersPanel({ emptyMessage }: { emptyMessage: string }) {
     if (oldIndex === -1 || newIndex === -1) return;
     const frontToBack = arrayMove(orderedElements, oldIndex, newIndex);
     // reorderElements expects back→front order.
-    void reorderElements(frontToBack.map((el) => el.id).reverse());
+    // reorderElements → updateElementsBatch rejects when an element no longer
+    // exists (#214), which a layer reorder can race with a concurrent delete.
+    // mutatePatch has already reported the failure, so absorb the rethrow here.
+    void reorderElements(frontToBack.map((el) => el.id).reverse()).catch(() => undefined);
   }
 
   function handleSelect(element: SlideElement) {

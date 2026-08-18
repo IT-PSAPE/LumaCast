@@ -144,7 +144,10 @@ function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOp
       confirmLabel: 'Delete',
       destructive: true,
     });
-    if (ok) await onDeleteMacro(macro.id);
+    // onDeleteMacro → deleteMacro rejects when the macro no longer exists
+    // (#214), which a delete can race with a concurrent delete. mutatePatch has
+    // already reported the failure, so absorb the rethrow here.
+    if (ok) await onDeleteMacro(macro.id).catch(() => undefined);
   }
 
   return (

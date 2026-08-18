@@ -131,7 +131,10 @@ describe('main IPC registration (issue #152)', () => {
   });
 
   it('registers nothing outside the canonical map (extra-registration regression)', () => {
-    const canonicalChannels = new Set(RPC_CHANNEL_NAMES.map((name) => IPC[name]));
+    // Widened to Set<string> deliberately: the registered channels this is
+    // compared against are Map keys typed as plain strings, and the point of
+    // the test is to catch a channel *outside* the canonical union.
+    const canonicalChannels = new Set<string>(RPC_CHANNEL_NAMES.map((name) => IPC[name]));
     const registeredChannels = [...handleRegistrations.keys()];
     const extra = registeredChannels.filter((channel) => !canonicalChannels.has(channel));
 

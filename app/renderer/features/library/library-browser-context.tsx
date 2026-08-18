@@ -54,8 +54,20 @@ export function LibraryBrowserProvider({ children }: { children: ReactNode }) {
       setLibrariesView: () => { setLibraryPanelView('libraries'); },
       setPlaylistView: () => { setLibraryPanelView('playlist'); },
       beginEditing,
-      renameGroup: (groupId: string, name: string) => { void renameGroup(groupId, name); },
-      renameDeckItem: (itemId: string, title: string) => { void renameDeckItem(itemId, title); },
+      renameGroup: (groupId: string, name: string) => {
+        // renameGroup → renamePlaylistGroup rejects when the group no longer
+        // exists (#214), which a rename field commit can race with a concurrent
+        // delete. mutatePatch has already reported the failure, so absorb the
+        // rethrow here.
+        void renameGroup(groupId, name).catch(() => undefined);
+      },
+      renameDeckItem: (itemId: string, title: string) => {
+        // renameDeckItem → renamePresentation/Lyric/Talk rejects when the item
+        // no longer exists (#214), which a rename field commit can race with a
+        // concurrent delete. mutatePatch has already reported the failure, so
+        // absorb the rethrow here.
+        void renameDeckItem(itemId, title).catch(() => undefined);
+      },
       isEditing,
       clearEditing,
     },

@@ -80,7 +80,10 @@ export function useKeyboardShortcuts(): void {
         clearSelection: () => clearSelection(),
         nudgeOrGoNext: (e) => {
           if (isEditSlideBrowser) {
-            if (selectedElementId) void nudgeSelection(e.shiftKey ? 10 : 1, 0);
+            // nudgeSelection → updateElementsBatch rejects when an element no
+            // longer exists (#214); mutatePatch has already reported the
+            // failure, so absorb the rethrow here.
+            if (selectedElementId) void nudgeSelection(e.shiftKey ? 10 : 1, 0).catch(() => undefined);
             return;
           }
           if (isOutputArmedOnCurrent) goNext();
@@ -88,14 +91,15 @@ export function useKeyboardShortcuts(): void {
         },
         nudgeOrGoPrev: (e) => {
           if (isEditSlideBrowser) {
-            if (selectedElementId) void nudgeSelection(e.shiftKey ? -10 : -1, 0);
+            // See nudgeOrGoNext: same race, same absorption.
+            if (selectedElementId) void nudgeSelection(e.shiftKey ? -10 : -1, 0).catch(() => undefined);
             return;
           }
           if (isOutputArmedOnCurrent) goPrev();
           else setCurrentSlideIndex(currentSlideIndex - 1);
         },
-        nudgeUp: (e) => { void nudgeSelection(0, e.shiftKey ? -10 : -1); },
-        nudgeDown: (e) => { void nudgeSelection(0, e.shiftKey ? 10 : 1); },
+        nudgeUp: (e) => { void nudgeSelection(0, e.shiftKey ? -10 : -1).catch(() => undefined); },
+        nudgeDown: (e) => { void nudgeSelection(0, e.shiftKey ? 10 : 1).catch(() => undefined); },
         activateSlide: (_event, digit) => {
           const jumpTo = Number(digit) - 1;
           if (jumpTo < slides.length) activateSlide(jumpTo);

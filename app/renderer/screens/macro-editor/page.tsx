@@ -56,7 +56,10 @@ function MacroEditorScreenContent() {
       confirmLabel: 'Delete',
       destructive: true,
     });
-    if (ok) await deleteMacro(macro.id);
+    // deleteMacro rejects when the macro no longer exists (#214), which a
+    // delete can race with a concurrent delete. mutatePatch has already
+    // reported the failure, so absorb the rethrow here.
+    if (ok) await deleteMacro(macro.id).catch(() => undefined);
   }
 
   return (

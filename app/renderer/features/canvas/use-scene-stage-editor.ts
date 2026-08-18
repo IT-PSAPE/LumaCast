@@ -110,7 +110,11 @@ export function useSceneStageEditor({ scene, editable }: UseSceneStageEditorPara
       const updates = selectedElementIds
         .map((id) => readNodeUpdate(id))
         .filter((update): update is ElementUpdateInput => Boolean(update));
-      await commitElementUpdates(updates);
+      // commitElementUpdates → updateElementsBatch rejects when an element no
+      // longer exists (#214), which a drag/transform end can race with a
+      // concurrent delete. mutatePatch has already reported the failure, so
+      // absorb the rethrow here.
+      await commitElementUpdates(updates).catch(() => undefined);
     } finally {
       setCanvasInteracting(false);
     }

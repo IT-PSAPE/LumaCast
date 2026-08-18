@@ -178,7 +178,11 @@ export function useAppMenu(): void {
       case 'edit.undo':
         if (execEditableCommand('undo')) return;
         if (isEditWorkbench) {
-          await elements.undo();
+          // elements.undo → applySnapshot → updateElementsBatch rejects when an
+          // element no longer exists (#214), which an undo can race with a
+          // concurrent delete. mutatePatch has already reported the failure, so
+          // absorb the rethrow here.
+          await elements.undo().catch(() => undefined);
           return;
         }
         await cast.undo();
@@ -186,7 +190,8 @@ export function useAppMenu(): void {
       case 'edit.redo':
         if (execEditableCommand('redo')) return;
         if (isEditWorkbench) {
-          await elements.redo();
+          // See edit.undo above: same race, same absorption.
+          await elements.redo().catch(() => undefined);
           return;
         }
         await cast.redo();

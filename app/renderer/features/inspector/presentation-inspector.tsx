@@ -52,7 +52,11 @@ export function DeckItemInspector() {
     if (!currentDeckItem) return;
     const trimmed = titleDraft.trim();
     if (!trimmed || trimmed === currentDeckItem.title) return;
-    void renameDeckItem(currentDeckItem.id, trimmed);
+    // renameDeckItem → renamePresentation/Lyric/Talk rejects when the item no
+    // longer exists (#214), which this blur commit can race with a concurrent
+    // delete. mutatePatch has already reported the failure, so absorb the
+    // rethrow here.
+    void renameDeckItem(currentDeckItem.id, trimmed).catch(() => undefined);
   }
 
   async function handleResetToTheme() {
