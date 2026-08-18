@@ -17,6 +17,13 @@ export interface Overlay {
   slideId: Id;
   name: string;
   enabled: boolean;
+  /**
+   * Position in the overlay list panel, dense and 0-based. Added with the
+   * v28 `list-order-index` migration so the overlay list can be drag-
+   * reordered like every other list panel; before that overlays were only
+   * ever ordered by `createdAt`.
+   */
+  order: number;
   background?: SlideBackground | null;
   elements: SlideElement[];
   animation: OverlayAnimation;

@@ -23,7 +23,7 @@ import {
 } from './index';
 
 const FIXTURES_ROOT = path.join(fileURLToPath(new URL('..', import.meta.url)), 'fixtures');
-const EXPECTED_SCHEMA_VERSIONS = Array.from({ length: 28 }, (_, i) => i);
+const EXPECTED_SCHEMA_VERSIONS = Array.from({ length: 29 }, (_, i) => i);
 const TEMP_PREFIX = 'lumacast-schema-equivalence-';
 const SAFETY_SOURCE_VERSION = 26;
 
@@ -224,15 +224,15 @@ afterAll(() => {
 });
 
 describe('schema equivalence across historical fixtures (#108)', () => {
-  it('pins fixture manifests for exactly versions 0..27 with matching directory suffixes', () => {
-    expect(LATEST_SCHEMA_VERSION, 'LATEST_SCHEMA_VERSION must be 27').toBe(27);
+  it('pins fixture manifests for exactly versions 0..28 with matching directory suffixes', () => {
+    expect(LATEST_SCHEMA_VERSION, 'LATEST_SCHEMA_VERSION must be 28').toBe(28);
     expect(
       MIGRATIONS.map((migration) => migration.version),
-      'MIGRATIONS versions must be a dense contiguous prefix 1..27',
-    ).toEqual(Array.from({ length: 27 }, (_, i) => i + 1));
+      'MIGRATIONS versions must be a dense contiguous prefix 1..28',
+    ).toEqual(Array.from({ length: 28 }, (_, i) => i + 1));
     expect(
       FIXTURES.map((fixture) => fixture.version),
-      'fixture manifests must cover exactly versions 0..27 with no gaps or duplicates',
+      'fixture manifests must cover exactly versions 0..28 with no gaps or duplicates',
     ).toEqual(EXPECTED_SCHEMA_VERSIONS);
     for (const fixture of FIXTURES) {
       expect(

@@ -44,6 +44,7 @@ function makeMacro(id: string, cues: MacroCue[], overrides: Partial<Macro> = {})
     name: `Macro ${id}`,
     description: '',
     cues,
+    order: 0,
     scopeLevel: 'global',
     onScopeExit: 'none',
     loopEnabled: false,

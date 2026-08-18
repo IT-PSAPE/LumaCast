@@ -17,6 +17,7 @@ function makeOverlay(id: string, overrides: Partial<Overlay> = {}): Overlay {
     slideId: 'slide-1',
     name: `Overlay ${id}`,
     enabled: true,
+    order: 0,
     elements: [],
     animation: { kind: 'none', durationMs: 0, autoClearDurationMs: null },
     createdAt: '2026-01-01T00:00:00.000Z',

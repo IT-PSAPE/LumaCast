@@ -2506,6 +2506,45 @@ function migrateItemScope(db: SqliteDatabase): void {
   }
 }
 
+// #ISSUE list-reorder: overlays and macros (`actions`) were the last two
+// user-facing lists with no persisted position — every other list panel
+// already ordered by an `order_index` column. Both get one here so their
+// panels can be drag-reordered like the rest.
+//
+// Backfill order matches what each list *already showed* before this
+// migration, so upgrading never appears to shuffle anything: overlays read
+// `ORDER BY created_at ASC, id ASC`, macros read `ORDER BY updated_at DESC,
+// created_at DESC, id ASC`. Both readers switch to `order_index` afterwards.
+function ensureListOrderIndexColumns(db: SqliteDatabase): void {
+  if (hasTable(db, 'overlays') && !hasColumn(db, 'overlays', 'order_index')) {
+    db.exec('ALTER TABLE overlays ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+    db.exec(`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) - 1 AS rank
+        FROM overlays
+      )
+      UPDATE overlays SET order_index = (SELECT rank FROM ranked WHERE ranked.id = overlays.id);
+    `);
+  }
+  if (hasTable(db, 'overlays')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_overlays_order_index ON overlays(order_index)');
+  }
+
+  if (hasTable(db, 'actions') && !hasColumn(db, 'actions', 'order_index')) {
+    db.exec('ALTER TABLE actions ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+    db.exec(`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC, created_at DESC, id ASC) - 1 AS rank
+        FROM actions
+      )
+      UPDATE actions SET order_index = (SELECT rank FROM ranked WHERE ranked.id = actions.id);
+    `);
+  }
+  if (hasTable(db, 'actions')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_actions_order_index ON actions(order_index)');
+  }
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'bootstrap-legacy-schema', up: bootstrapLegacySchema },
   { version: 2, name: 'stabilize-legacy-schema', up: stabilizeLegacySchema },
@@ -2534,4 +2573,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 25, name: 'playlist-separators', up: synthesizePlaylistSeparators, requiresForeignKeysOff: true },
   { version: 26, name: 'per-owner-themes', up: migratePerOwnerThemes, requiresForeignKeysOff: true },
   { version: 27, name: 'item-scope', up: migrateItemScope },
+  { version: 28, name: 'list-order-index', up: ensureListOrderIndexColumns },
 ];

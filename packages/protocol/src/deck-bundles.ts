@@ -209,7 +209,7 @@ export const PROJECT_BACKUP_LEGACY_VERSION = 1 as const;
 // match; the focused lockstep test in project-backup.test.ts fails on drift.
 // Core keeps its own copy because the migrations module is unreachable here
 // (core may not import the database layer).
-export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 27 as const;
+export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 28 as const;
 // The one and only schema version a v1-format backup was ever exported at
 // (PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION was hardcoded to 22 for the whole
 // lifetime of format version 1). `validateLegacyProjectBackup` rejects any
@@ -376,6 +376,7 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'name', type: 'string' },
     { name: 'enabled', type: 'flag' },
     { name: 'animation_json', type: 'json-string' },
+    { name: 'order_index', type: 'number' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
@@ -408,6 +409,7 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'on_scope_exit', type: 'enum', enum: ON_SCOPE_EXITS },
     { name: 'loop_enabled', type: 'flag' },
     { name: 'loop_count', type: 'number', nullable: true },
+    { name: 'order_index', type: 'number' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],

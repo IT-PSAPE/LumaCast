@@ -97,8 +97,8 @@ function seedMaximalFixture(db: SqliteDatabase): void {
   db.prepare('INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run('talk-1', 'Sunday Sermon', null, 0, T0, T0);
 
-  db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('overlay-1', 'Watermark', 1, JSON.stringify({ kind: 'dissolve', durationMs: 500 }), T0, T0);
+  db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run('overlay-1', 'Watermark', 1, JSON.stringify({ kind: 'dissolve', durationMs: 500 }), 0, T0, T0);
 
   db.prepare('INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run('stage-1', 'Audience', 1920, 1080, 0, T0, T0);
@@ -172,13 +172,13 @@ function seedMaximalFixture(db: SqliteDatabase): void {
     .run('cue-3', 'flow.lifecycle', JSON.stringify(CUE_3_PAYLOAD), 'continue', T2, T2);
 
   db.prepare(
-    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run('macro-1', 'Run Service Cues', 'Auto-advance service', 'global', 'cancel', 0, null, T0, T0);
+    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run('macro-1', 'Run Service Cues', 'Auto-advance service', 'global', 'cancel', 0, null, 0, T0, T0);
   db.prepare(
-    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run('macro-2', 'Slide Loop', 'Loop the slide', 'slide', 'revert', 1, 3, T1, T1);
+    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run('macro-2', 'Slide Loop', 'Loop the slide', 'slide', 'revert', 1, 3, 1, T1, T1);
 
   db.prepare(
     `INSERT INTO action_steps (id, action_id, kind, payload_json, failure_policy, cue_id, order_index, delay_before_ms, delay_after_ms, created_at, updated_at)
@@ -242,9 +242,9 @@ describe('project recovery restore (#146, backup v2)', () => {
     expect(siblingFiles(tmpDir).filter((name) => restoreSiblingPattern('prerecovery').test(name))).toHaveLength(1);
   });
 
-  it('round trips byte-for-byte at schema version 27: re-exporting the promoted project reproduces the exact source document', () => {
+  it('round trips byte-for-byte at schema version 28: re-exporting the promoted project reproduces the exact source document', () => {
     const backup = repo.exportProjectBackup();
-    expect(backup.schemaVersion).toBe(27);
+    expect(backup.schemaVersion).toBe(28);
 
     repo.restoreProjectBackup(backup);
     const restored = repo.exportProjectBackup();

@@ -59,6 +59,8 @@ interface AutomationContextValue {
       loopCount?: number | null;
     }) => Promise<void>;
     deleteMacro: (id: Id) => Promise<void>;
+    /** Absolute-position reorder of the macro list (v28 `order_index`). */
+    reorderMacro: (id: Id, newOrder: number) => Promise<void>;
     duplicateMacro: (id: Id) => Promise<Macro | null>;
     setMacroCues: (macroId: Id, cues: Array<{ id?: Id; cueId: Id; orderIndex: number; delayBeforeMs?: number; delayAfterMs?: number }>) => Promise<void>;
     runCue: (cueId: Id) => Promise<void>;
@@ -191,6 +193,10 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     await mutatePatch(() => window.castApi.updateMacro({ id, ...fields }));
   }, [mutatePatch]);
 
+  const reorderMacro = useCallback(async (id: Id, newOrder: number) => {
+    await mutatePatch(() => window.castApi.setMacroOrder(id, newOrder));
+  }, [mutatePatch]);
+
   const deleteMacro = useCallback(async (id: Id) => {
     await mutatePatch(() => window.castApi.deleteMacro(id));
     setCurrentMacroId((current) => (current === id ? null : current));
@@ -284,6 +290,7 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
       createMacro,
       updateMacroFields,
       deleteMacro,
+      reorderMacro,
       duplicateMacro,
       setMacroCues,
       runCue,
@@ -294,7 +301,7 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
       getBindingsForSource,
       getBindingsForMacro,
     },
-  }), [triggerBindings, createBinding, createMacro, cues, currentMacroId, deleteBinding, deleteMacro, duplicateMacro, ensureCue, getBindingsForMacro, getBindingsForSource, isLoading, macros, runCue, runMacro, setMacroCues, updateMacroFields]);
+  }), [triggerBindings, createBinding, createMacro, cues, currentMacroId, deleteBinding, deleteMacro, duplicateMacro, ensureCue, getBindingsForMacro, getBindingsForSource, isLoading, macros, reorderMacro, runCue, runMacro, setMacroCues, updateMacroFields]);
 
   return (
     <AutomationContext.Provider value={value}>

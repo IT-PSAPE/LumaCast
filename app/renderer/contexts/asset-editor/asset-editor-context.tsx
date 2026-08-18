@@ -5,7 +5,7 @@ import type { ItemRef, ItemType, Overlay, SlideBackground, SlideElement, Stage, 
 import type { EditorThemeSource } from '@lumacast/canvas';
 import type { AppSnapshot, OverlayCreateInput, OverlayUpdateInput } from '@lumacast/protocol';
 import type { WorkbenchMode } from '../../types/ui';
-import { cloneElements, slideElementsSignature } from '../../utils/staged-editor-utils';
+import { cloneElements, moveStagedItem, slideElementsSignature } from '../../utils/staged-editor-utils';
 import { getOverlayDefaults } from '../../utils/slides';
 import { createId } from '../../utils/create-id';
 import { useStagedCollection } from '../../hooks/use-staged-collection';
@@ -63,6 +63,13 @@ export interface ThemeEditorValue {
   deleteTheme: (themeId: Id) => void;
   duplicateTheme: (themeId: Id) => void;
   renameTheme: (themeId: Id, name: string) => void;
+  /**
+   * Persists a drag-reorder of the theme list for the active family. Unlike the
+   * staged create/rename/delete actions this writes through immediately —
+   * `pushChanges` has no vocabulary for position, so a staged-only reorder
+   * would be discarded the moment the buffer cleared.
+   */
+  reorderTheme: (themeId: Id, newOrder: number) => Promise<void>;
   requestNameFocus: (themeId: Id) => void;
   pushChanges: () => Promise<Id | null>;
 }
@@ -80,6 +87,8 @@ interface OverlayEditorValue {
   duplicateOverlay: (overlayId: Id) => void;
   deleteCurrentOverlay: () => Promise<void>;
   deleteOverlay: (overlayId: Id) => Promise<void>;
+  /** Persists a drag-reorder of the overlay list (writes through — see reorderTheme). */
+  reorderOverlay: (overlayId: Id, newOrder: number) => Promise<void>;
   requestNameFocus: (overlayId: Id) => void;
   pushChanges: () => Promise<void>;
 }
@@ -106,6 +115,8 @@ interface StageEditorValue {
   duplicateStage: (stageId: Id) => void;
   deleteCurrentStage: () => Promise<void>;
   deleteStage: (stageId: Id) => Promise<void>;
+  /** Persists a drag-reorder of the stage list (writes through — see reorderTheme). */
+  reorderStage: (stageId: Id, newOrder: number) => Promise<void>;
   requestNameFocus: (stageId: Id) => void;
   pushChanges: () => Promise<void>;
 }
@@ -139,6 +150,7 @@ interface ThemeFamilyState {
   duplicateTheme: (themeId: Id) => void;
   deleteTheme: (themeId: Id) => void;
   renameTheme: (themeId: Id, name: string) => void;
+  reorderTheme: (themeId: Id, newOrder: number) => Promise<void>;
   pushChanges: () => Promise<Id | null>;
 }
 
@@ -280,6 +292,14 @@ function useThemeFamily(
     setStatusText('Deleted theme');
   }, [persistedThemes, setStatusText, staged]);
 
+  const reorderTheme = useCallback(async (themeId: Id, newOrder: number) => {
+    // Keep an open staged buffer in step with the write so the visible list
+    // (staged ?? persisted) does not flip back when the patch lands.
+    staged.setStagedItems((current) => (current ? moveStagedItem(current, themeId, newOrder) : current));
+    await mutatePatch(() => window.castApi.setThemeOrder(themeId, themeType, newOrder));
+    setStatusText('Reordered theme');
+  }, [mutatePatch, setStatusText, staged, themeType]);
+
   // Holds the current in-flight push promise so concurrent callers await the same one.
   const pushPromiseRef = useRef<Promise<Id | null> | null>(null);
 
@@ -374,6 +394,7 @@ function useThemeFamily(
     duplicateTheme,
     deleteTheme,
     renameTheme,
+    reorderTheme,
     pushChanges,
   };
 }
@@ -429,6 +450,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
       id: overlayId,
       slideId: `${overlayId}:slide`,
       enabled: true,
+      order: (overlays.at(-1)?.order ?? -1) + 1,
       createdAt: now, updatedAt: now,
       ...getOverlayDefaults({
         animationKind: overlayDefaults.animationKind,
@@ -460,6 +482,12 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     }
     setStatusText('Deleted overlay');
   }, [overlayStaged, persistedOverlays, setStatusText]);
+
+  const reorderOverlayAction = useCallback(async (overlayId: Id, newOrder: number) => {
+    overlayStaged.setStagedItems((current) => (current ? moveStagedItem(current, overlayId, newOrder) : current));
+    await mutatePatch(() => window.castApi.setOverlayOrder(overlayId, newOrder));
+    setStatusText('Reordered overlay');
+  }, [mutatePatch, overlayStaged, setStatusText]);
 
   const duplicateOverlayAction = useCallback((overlayId: Id) => {
     const source = overlays.find((overlay) => overlay.id === overlayId);
@@ -555,9 +583,10 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     duplicateOverlay: duplicateOverlayAction,
     deleteCurrentOverlay,
     deleteOverlay: deleteOverlayAction,
+    reorderOverlay: reorderOverlayAction,
     requestNameFocus: requestOverlayNameFocus,
     pushChanges: pushOverlayChanges,
-  }), [createOverlayAction, duplicateOverlayAction, overlayStaged.currentItem, overlayStaged.currentItemId, deleteCurrentOverlay, deleteOverlayAction, overlayStaged.hasPendingChanges, overlayStaged.isPushingChanges, overlayNameFocusRequest, overlays, pushOverlayChanges, overlayStaged.setCurrentItemId, requestOverlayNameFocus, updateOverlayDraft]);
+  }), [createOverlayAction, duplicateOverlayAction, overlayStaged.currentItem, overlayStaged.currentItemId, deleteCurrentOverlay, deleteOverlayAction, overlayStaged.hasPendingChanges, overlayStaged.isPushingChanges, overlayNameFocusRequest, overlays, pushOverlayChanges, reorderOverlayAction, overlayStaged.setCurrentItemId, requestOverlayNameFocus, updateOverlayDraft]);
 
   // ── Theme editor (per-family, #219 decision D2) ──
 
@@ -698,6 +727,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     deleteTheme: deleteThemeAction,
     duplicateTheme: duplicateThemeAction,
     renameTheme: renameThemeAction,
+    reorderTheme: activeFamily.reorderTheme,
     requestNameFocus: requestThemeNameFocus,
     pushChanges: activeFamily.pushChanges,
   }), [
@@ -758,6 +788,12 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     setStatusText('Created stage');
     return draft.id;
   }, [persistedStages, setStatusText, stageStaged, stages]);
+
+  const reorderStageAction = useCallback(async (stageId: Id, newOrder: number) => {
+    stageStaged.setStagedItems((current) => (current ? moveStagedItem(current, stageId, newOrder) : current));
+    await mutatePatch(() => window.castApi.setStageOrder(stageId, newOrder));
+    setStatusText('Reordered stage');
+  }, [mutatePatch, setStatusText, stageStaged]);
 
   const duplicateStageAction = useCallback((stageId: Id) => {
     const source = stages.find((stage) => stage.id === stageId);
@@ -880,12 +916,13 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     duplicateStage: duplicateStageAction,
     deleteCurrentStage,
     deleteStage: deleteStageAction,
+    reorderStage: reorderStageAction,
     requestNameFocus: requestStageNameFocus,
     pushChanges: pushStageChanges,
   }), [
     createStageAction, duplicateStageAction, stageStaged.currentItem, stageStaged.currentItemId,
     deleteCurrentStage, deleteStageAction, stageStaged.hasPendingChanges, stageStaged.isPushingChanges, stageNameFocusRequest,
-    stages, pushStageChanges, replaceStageElements, stageStaged.setCurrentItemId, requestStageNameFocus, updateStageDraft,
+    stages, pushStageChanges, replaceStageElements, reorderStageAction, stageStaged.setCurrentItemId, requestStageNameFocus, updateStageDraft,
   ]);
 
   // ── Deck editor ──

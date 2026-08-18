@@ -82,7 +82,7 @@ function makeTalk(id: Id, title: string, themeId: Id | null = null): Talk {
 
 function makeOverlay(id: Id, name: string): Overlay {
   const now = new Date().toISOString();
-  return { id, slideId: `${id}:slide`, name, enabled: true, elements: [], animation: { kind: 'none', durationMs: 0 }, createdAt: now, updatedAt: now };
+  return { id, slideId: `${id}:slide`, name, enabled: true, order: 0, elements: [], animation: { kind: 'none', durationMs: 0 }, createdAt: now, updatedAt: now };
 }
 
 afterEach(() => {

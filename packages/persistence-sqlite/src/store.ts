@@ -363,10 +363,10 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
     insertItemTable('talks', t.talks);
 
     const insertOverlay = db.prepare(
-      'INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     for (const row of t.overlays) {
-      insertOverlay.run(row.id, row.name, row.enabled, row.animation_json, row.created_at, row.updated_at);
+      insertOverlay.run(row.id, row.name, row.enabled, row.animation_json, row.order_index, row.created_at, row.updated_at);
     }
 
     const insertStage = db.prepare(
@@ -443,11 +443,11 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
     }
 
     const insertMacro = db.prepare(
-      `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const row of t.actions) {
-      insertMacro.run(row.id, row.name, row.description, row.scope_level, row.on_scope_exit, row.loop_enabled, row.loop_count, row.created_at, row.updated_at);
+      insertMacro.run(row.id, row.name, row.description, row.scope_level, row.on_scope_exit, row.loop_enabled, row.loop_count, row.order_index, row.created_at, row.updated_at);
     }
 
     const insertMacroStep = db.prepare(
@@ -900,14 +900,15 @@ export class CastRepository {
       const overlaySlideId = `${overlayId}:slide`;
       this.db
         .prepare(
-          `INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           overlayId,
           'Watermark',
           1,
           JSON.stringify({ kind: 'pulse', durationMs: 2000 }),
+          0,
           now,
           now,
         );
@@ -1071,8 +1072,8 @@ export class CastRepository {
 
   listMacros(): Macro[] {
     const rows = this.db.prepare(
-      `SELECT id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at
-       FROM actions ORDER BY updated_at DESC, created_at DESC, id ASC`
+      `SELECT id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at
+       FROM actions ORDER BY order_index ASC, created_at ASC, id ASC`
     ).all() as Array<{
       id: string;
       name: string;
@@ -1081,6 +1082,7 @@ export class CastRepository {
       on_scope_exit: string;
       loop_enabled: number;
       loop_count: number | null;
+      order_index: number;
       created_at: string;
       updated_at: string;
     }>;
@@ -1096,6 +1098,7 @@ export class CastRepository {
       onScopeExit: row.on_scope_exit as OnScopeExit,
       loopEnabled: row.loop_enabled === 1,
       loopCount: row.loop_count,
+      order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -1112,10 +1115,11 @@ export class CastRepository {
     const loopEnabled = input.loopEnabled ? 1 : 0;
     const loopCount = normalizeLoopCount(input.loopCount);
 
+    const nextOrder = this.getNextOrderIndex('actions');
     const insertMacro = this.db.prepare(
       `INSERT INTO actions
-       (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const insertMacroCue = this.db.prepare(
       `INSERT INTO action_steps
@@ -1124,7 +1128,7 @@ export class CastRepository {
     );
 
     const tx = this.db.transaction(() => {
-      insertMacro.run(macroId, name, description, scopeLevel, onScopeExit, loopEnabled, loopCount, now, now);
+      insertMacro.run(macroId, name, description, scopeLevel, onScopeExit, loopEnabled, loopCount, nextOrder, now, now);
       for (const macroCue of cues) {
         const cue = this.getCue(macroCue.cueId);
         insertMacroCue.run(
@@ -1221,10 +1225,18 @@ export class CastRepository {
     this.db.prepare('DELETE FROM actions WHERE id = ?').run(id);
     this.db.prepare('DELETE FROM action_steps WHERE action_id = ?').run(id);
     this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?").run(id);
+    const upsertMacroIds = this.normalizeOrderIndex('actions');
     return this.buildPatch({
       deletedMacroIds: [id],
+      upsertMacroIds,
       deletedTriggerBindingIds: orphanedBindingIds,
     });
+  }
+
+  /** Absolute-position reorder of the macro list (v28 `order_index`). */
+  setMacroOrder(macroId: Id, newOrder: number): SnapshotPatch {
+    const upsertMacroIds = this.setFlatTableOrder('actions', macroId, newOrder, 'Macro');
+    return this.buildPatch({ upsertMacroIds });
   }
 
   listTriggerBindings(): TriggerBinding[] {
@@ -1450,14 +1462,17 @@ export class CastRepository {
       }
 
       const insertOverlay = this.db.prepare(
-        `INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
       );
-      for (const overlay of snapshot.overlays) {
+      snapshot.overlays.forEach((overlay, overlayIndex) => {
         const overlaySlideId = overlay.slideId ?? `${overlay.id}:slide`;
-        insertOverlay.run(overlay.id, overlay.name, overlay.enabled ? 1 : 0, JSON.stringify(overlay.animation), overlay.createdAt, overlay.updatedAt);
+        // An undo/redo restore round-trips whatever `order` the snapshot
+        // carried; a legacy snapshot without one falls back to array position
+        // so the list keeps the order the caller was showing.
+        insertOverlay.run(overlay.id, overlay.name, overlay.enabled ? 1 : 0, JSON.stringify(overlay.animation), overlay.order ?? overlayIndex, overlay.createdAt, overlay.updatedAt);
         this.createContainerSlide(overlaySlideId, 'overlay', overlay.id, DEFAULT_W, DEFAULT_H, overlay.createdAt);
         this.replaceContainerElements(overlaySlideId, overlay.elements, overlay.updatedAt);
-      }
+      });
 
       const insertStage = this.db.prepare(
         `INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -1477,15 +1492,15 @@ export class CastRepository {
       }
 
       const insertMacro = this.db.prepare(
-        `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       const insertMacroStep = this.db.prepare(
         `INSERT INTO action_steps
          (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, delay_before_ms, delay_after_ms, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      for (const macro of snapshot.macros) {
+      snapshot.macros.forEach((macro, macroIndex) => {
         insertMacro.run(
           macro.id,
           macro.name,
@@ -1494,6 +1509,7 @@ export class CastRepository {
           macro.onScopeExit,
           macro.loopEnabled ? 1 : 0,
           macro.loopCount,
+          macro.order ?? macroIndex,
           macro.createdAt,
           macro.updatedAt,
         );
@@ -1512,7 +1528,7 @@ export class CastRepository {
             step.updatedAt,
           );
         }
-      }
+      });
 
       const insertTriggerBinding = this.db.prepare(
         `INSERT INTO trigger_bindings
@@ -1705,7 +1721,7 @@ export class CastRepository {
       const stmt = type === 'image' ? insertImageAsset : type === 'video' ? insertVideoAsset : insertAudioAsset;
       stmt.run(id, name, src, order, createdAt, updatedAt);
     };
-    const insertOverlay = this.db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertOverlay = this.db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const insertStage = this.db.prepare('INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const insertPlaylist = this.db.prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
     const insertPlaylistEntry = this.db.prepare(
@@ -1714,6 +1730,7 @@ export class CastRepository {
     );
 
     const nextStageOrder = (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM stages').get() as { next_order: number }).next_order;
+    let nextOverlayOrder = this.getNextOrderIndex('overlays');
     const nextPlaylistOrderBase = (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM playlists').get() as { next_order: number }).next_order;
     const nextOrderByItemType: Record<ItemType, number> = {
       presentation: (this.db.prepare('SELECT COALESCE(MAX(order_index), -1) + 1 AS next_order FROM presentations').get() as { next_order: number }).next_order,
@@ -1851,7 +1868,7 @@ export class CastRepository {
       (workingManifest.overlays ?? []).forEach((overlay) => {
         const newOverlayId = createId();
         const newOverlaySlideId = `${newOverlayId}:slide`;
-        insertOverlay.run(newOverlayId, overlay.name, overlay.enabled ? 1 : 0, JSON.stringify(normalizeOverlayAnimation(overlay.animation)), now, now);
+        insertOverlay.run(newOverlayId, overlay.name, overlay.enabled ? 1 : 0, JSON.stringify(normalizeOverlayAnimation(overlay.animation)), nextOverlayOrder++, now, now);
         this.createContainerSlide(newOverlaySlideId, 'overlay', newOverlayId, DEFAULT_W, DEFAULT_H, now);
         // Regenerate element ids exactly like the theme/item import paths
         // above: the manifest's elements still carry the exporting
@@ -3387,16 +3404,19 @@ export class CastRepository {
     // can't collide with the source overlay's existing slide_elements rows.
     const elements = (input.elements ?? []).map((el) => ({ ...el, id: createId(), slideId }));
 
+    const nextOrder = this.getNextOrderIndex('overlays');
+
     const tx = this.db.transaction(() => {
       this.db
         .prepare(
-          `INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+          `INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           overlayId,
           input.name,
           1,
           JSON.stringify(normalizeOverlayAnimation(input.animation ?? { kind: 'none', durationMs: 0, autoClearDurationMs: null })),
+          nextOrder,
           now,
           now,
         );
@@ -3460,7 +3480,14 @@ export class CastRepository {
       this.db.prepare('DELETE FROM overlays WHERE id = ?').run(overlayId);
     });
     tx();
-    return this.buildPatch({ deletedOverlayIds: [overlayId] });
+    const upsertOverlayIds = this.normalizeOrderIndex('overlays');
+    return this.buildPatch({ deletedOverlayIds: [overlayId], upsertOverlayIds });
+  }
+
+  /** Absolute-position reorder of the overlay list (v28 `order_index`). */
+  setOverlayOrder(overlayId: Id, newOrder: number): SnapshotPatch {
+    const upsertOverlayIds = this.setFlatTableOrder('overlays', overlayId, newOrder, 'Overlay');
+    return this.buildPatch({ upsertOverlayIds });
   }
 
   // ─── Stages ───────────────────────────────────────────────────────
@@ -3549,7 +3576,60 @@ export class CastRepository {
       this.db.prepare('DELETE FROM stages WHERE id = ?').run(stageId);
     });
     tx();
-    return this.buildPatch({ deletedStageIds: [stageId] });
+    this.normalizeStageOrder();
+    const remainingStageIds = (this.db.prepare('SELECT id FROM stages ORDER BY order_index ASC').all() as Array<{ id: string }>).map((row) => row.id);
+    return this.buildPatch({ deletedStageIds: [stageId], upsertStageIds: remainingStageIds });
+  }
+
+  /**
+   * Absolute-position reorder of the stage list. `stages.order_index` has
+   * existed since v8; until the list panels became drag-reorderable nothing
+   * ever wrote it after creation.
+   */
+  setStageOrder(stageId: Id, newOrder: number): SnapshotPatch {
+    const siblings = this.db
+      .prepare('SELECT id FROM stages ORDER BY order_index ASC, created_at ASC, id ASC')
+      .all() as Array<{ id: string }>;
+    const currentIndex = siblings.findIndex((sibling) => sibling.id === stageId);
+    if (currentIndex === -1) throw new Error(`Stage not found: ${stageId}`);
+
+    const targetOrder = Math.max(0, Math.min(newOrder, siblings.length - 1));
+    if (currentIndex === targetOrder) return this.buildPatch({});
+
+    const reordered = siblings.filter((_, index) => index !== currentIndex);
+    reordered.splice(targetOrder, 0, siblings[currentIndex]);
+
+    const update = this.db.prepare('UPDATE stages SET order_index = ? WHERE id = ?');
+    const tx = this.db.transaction(() => {
+      reordered.forEach((sibling, index) => update.run(index, sibling.id));
+    });
+    tx();
+
+    return this.buildPatch({ upsertStageIds: reordered.map((sibling) => sibling.id) });
+  }
+
+  /** Absolute-position reorder within one of the four per-owner theme tables. */
+  setThemeOrder(themeId: Id, themeType: ThemeOwnerType, newOrder: number): SnapshotPatch {
+    const table = THEME_TABLE_BY_TYPE[themeType];
+    const siblings = this.db
+      .prepare(`SELECT id FROM ${table} ORDER BY order_index ASC, created_at ASC, id ASC`)
+      .all() as Array<{ id: string }>;
+    const currentIndex = siblings.findIndex((sibling) => sibling.id === themeId);
+    if (currentIndex === -1) throw new Error(`Theme not found: ${themeId}`);
+
+    const targetOrder = Math.max(0, Math.min(newOrder, siblings.length - 1));
+    if (currentIndex === targetOrder) return this.buildPatch({});
+
+    const reordered = siblings.filter((_, index) => index !== currentIndex);
+    reordered.splice(targetOrder, 0, siblings[currentIndex]);
+
+    const update = this.db.prepare(`UPDATE ${table} SET order_index = ? WHERE id = ?`);
+    const tx = this.db.transaction(() => {
+      reordered.forEach((sibling, index) => update.run(index, sibling.id));
+    });
+    tx();
+
+    return this.buildPatch(this.themeUpsertSpec(themeType, reordered.map((sibling) => sibling.id)));
   }
 
   duplicateStage(stageId: Id): SnapshotPatch {
@@ -4161,6 +4241,69 @@ export class CastRepository {
     };
   }
 
+  /**
+   * Next appended position for one of the flat, globally-ordered tables
+   * (`overlays`/`actions`). Mirrors getNextThemeOrderIndex for the two tables
+   * that gained an `order_index` in the v28 `list-order-index` migration.
+   */
+  private getNextOrderIndex(table: 'overlays' | 'actions'): number {
+    const row = this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM ${table}`).get() as { maxOrder: number | null };
+    return (row.maxOrder ?? -1) + 1;
+  }
+
+  /**
+   * Renumbers `table` to a dense 0..n-1 `order_index`, preserving relative
+   * order, and returns every id whose position changed so the caller can put
+   * exactly those rows in its patch. `updated_at` is deliberately left alone:
+   * a neighbour shifting up because something above it was deleted is not an
+   * edit to that neighbour, and the macro list sorts stably without it.
+   */
+  private normalizeOrderIndex(table: 'overlays' | 'actions'): Id[] {
+    const rows = this.db
+      .prepare(`SELECT id, order_index FROM ${table} ORDER BY order_index ASC, created_at ASC, id ASC`)
+      .all() as Array<{ id: string; order_index: number }>;
+    const update = this.db.prepare(`UPDATE ${table} SET order_index = ? WHERE id = ?`);
+    const changed: Id[] = [];
+    const tx = this.db.transaction(() => {
+      rows.forEach((row, index) => {
+        if (row.order_index === index) return;
+        update.run(index, row.id);
+        changed.push(row.id);
+      });
+    });
+    tx();
+    return changed;
+  }
+
+  /**
+   * Absolute-position reorder for `overlays`/`actions`: lifts the row out and
+   * reinserts it at `newOrder`, then renumbers densely — the same
+   * remove-then-insert semantics as setPlaylistOrder/movePlaylistRow, which is
+   * exactly what a drag-and-drop drop index means. Out-of-range targets clamp
+   * instead of throwing, and a no-op move returns an empty patch.
+   */
+  private setFlatTableOrder(table: 'overlays' | 'actions', id: Id, newOrder: number, label: string): Id[] {
+    const siblings = this.db
+      .prepare(`SELECT id FROM ${table} ORDER BY order_index ASC, created_at ASC, id ASC`)
+      .all() as Array<{ id: string }>;
+    const currentIndex = siblings.findIndex((sibling) => sibling.id === id);
+    if (currentIndex === -1) throw new Error(`${label} not found: ${id}`);
+
+    const targetOrder = Math.max(0, Math.min(newOrder, siblings.length - 1));
+    if (currentIndex === targetOrder) return [];
+
+    const reordered = siblings.filter((_, index) => index !== currentIndex);
+    reordered.splice(targetOrder, 0, siblings[currentIndex]);
+
+    const update = this.db.prepare(`UPDATE ${table} SET order_index = ? WHERE id = ?`);
+    const tx = this.db.transaction(() => {
+      reordered.forEach((sibling, index) => update.run(index, sibling.id));
+    });
+    tx();
+
+    return reordered.map((sibling) => sibling.id);
+  }
+
   private getNextThemeOrderIndex(table: ThemeTableName): number {
     const row = this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM ${table}`).get() as { maxOrder: number | null };
     return (row.maxOrder ?? -1) + 1;
@@ -4464,8 +4607,8 @@ export class CastRepository {
     if (ids.length === 0) return [];
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db
-      .prepare(`SELECT id, name, enabled, animation_json, created_at, updated_at FROM overlays WHERE id IN (${placeholders}) ORDER BY created_at ASC, id ASC`)
-      .all(...ids) as Array<{ id: string; name: string; enabled: number; animation_json: string; created_at: string; updated_at: string }>;
+      .prepare(`SELECT id, name, enabled, animation_json, order_index, created_at, updated_at FROM overlays WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC, id ASC`)
+      .all(...ids) as Array<{ id: string; name: string; enabled: number; animation_json: string; order_index: number; created_at: string; updated_at: string }>;
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
       return {
@@ -4473,6 +4616,7 @@ export class CastRepository {
         slideId,
         name: row.name,
         enabled: row.enabled === 1,
+        order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
         animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlaysByIds', `overlays.${row.id}.animation_json`))),
@@ -4994,15 +5138,16 @@ export class CastRepository {
   private getOverlays(): Overlay[] {
     const rows = this.db
       .prepare(
-        `SELECT id, name, enabled, animation_json, created_at, updated_at
+        `SELECT id, name, enabled, animation_json, order_index, created_at, updated_at
          FROM overlays
-         ORDER BY created_at ASC, id ASC`
+         ORDER BY order_index ASC, created_at ASC, id ASC`
       )
       .all() as Array<{
       id: string;
       name: string;
       enabled: number;
       animation_json: string;
+      order_index: number;
       created_at: string;
       updated_at: string;
     }>;
@@ -5014,6 +5159,7 @@ export class CastRepository {
         slideId,
         name: row.name,
         enabled: row.enabled === 1,
+        order: row.order_index,
         elements: this.getSlideElementsBySlideId(slideId),
         background: this.getSlideBackgroundBySlideId(slideId),
         animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlays', `overlays.${row.id}.animation_json`))),
@@ -5092,6 +5238,18 @@ export class CastRepository {
         updatedAt: row.updated_at,
       };
     });
+  }
+
+  private normalizeStageOrder(): void {
+    const rows = this.db.prepare('SELECT id, order_index FROM stages ORDER BY order_index ASC, created_at ASC, id ASC').all() as Array<{ id: string; order_index: number }>;
+    const update = this.db.prepare('UPDATE stages SET order_index = ? WHERE id = ?');
+    const tx = this.db.transaction(() => {
+      rows.forEach((row, index) => {
+        if (row.order_index === index) return;
+        update.run(index, row.id);
+      });
+    });
+    tx();
   }
 
   private normalizeThemeOrder(table: ThemeTableName): void {

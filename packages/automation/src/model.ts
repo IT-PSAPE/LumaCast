@@ -68,6 +68,12 @@ export interface Macro {
   name: string;
   description: string;
   cues: MacroCue[];
+  /**
+   * Position in the macro list panel, dense and 0-based. Added with the v28
+   * `list-order-index` migration; before that macros were only ever ordered
+   * by `updatedAt` descending.
+   */
+  order: number;
   scopeLevel: ScopeLevel;
   onScopeExit: OnScopeExit;
   loopEnabled: boolean;

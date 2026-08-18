@@ -134,6 +134,16 @@ interface RpcMethodSignatures {
   setTalkScriptBlockOrder: (input: TalkScriptBlockOrderUpdateInput) => Promise<SnapshotPatch>;
   setSlideOrder: (input: SlideOrderUpdateInput) => Promise<SnapshotPatch>;
   setPlaylistOrder: (playlistId: Id, newOrder: number) => Promise<SnapshotPatch>;
+  // Absolute-position list reorders, one per list panel that can be dragged.
+  // All four take the drop index in the visible list and clamp out-of-range
+  // targets, matching setPlaylistOrder/movePlaylistRow's remove-then-insert
+  // semantics. `setOverlayOrder`/`setMacroOrder` became possible with the v28
+  // `list-order-index` migration; stages and themes have had an order column
+  // since v8/v4 but nothing ever wrote it after creation.
+  setOverlayOrder: (overlayId: Id, newOrder: number) => Promise<SnapshotPatch>;
+  setStageOrder: (stageId: Id, newOrder: number) => Promise<SnapshotPatch>;
+  setThemeOrder: (themeId: Id, themeType: ThemeOwnerType, newOrder: number) => Promise<SnapshotPatch>;
+  setMacroOrder: (macroId: Id, newOrder: number) => Promise<SnapshotPatch>;
   createElement: (input: ElementCreateInput) => Promise<SnapshotPatch>;
   createElementsBatch: (inputs: ElementCreateInput[]) => Promise<SnapshotPatch>;
   updateElement: (input: ElementUpdateInput) => Promise<SnapshotPatch>;
@@ -392,6 +402,10 @@ export const IPC = {
   setTalkScriptBlockOrder: 'cast:setTalkScriptBlockOrder',
   setSlideOrder: 'cast:setSlideOrder',
   setPlaylistOrder: 'cast:setPlaylistOrder',
+  setOverlayOrder: 'cast:setOverlayOrder',
+  setStageOrder: 'cast:setStageOrder',
+  setThemeOrder: 'cast:setThemeOrder',
+  setMacroOrder: 'cast:setMacroOrder',
   createElement: 'cast:createElement',
   createElementsBatch: 'cast:createElementsBatch',
   updateElement: 'cast:updateElement',

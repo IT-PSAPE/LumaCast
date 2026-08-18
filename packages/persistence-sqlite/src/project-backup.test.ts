@@ -152,8 +152,8 @@ function seedMaximalFixture(db: SqliteDatabase): void {
   db.prepare('INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run('talk-1', 'Sunday Sermon', 'ttheme-1', 0, T0, T0);
 
-  db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('overlay-1', 'Watermark', 1, JSON.stringify({ kind: 'dissolve', durationMs: 500, autoClearDurationMs: 3000 }), T0, T0);
+  db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run('overlay-1', 'Watermark', 1, JSON.stringify({ kind: 'dissolve', durationMs: 500, autoClearDurationMs: 3000 }), 0, T0, T0);
 
   db.prepare('INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run('stage-1', 'Audience', 1920, 1080, 0, T0, T0);
@@ -247,13 +247,13 @@ function seedMaximalFixture(db: SqliteDatabase): void {
     .run('cue-6', 'layer.clear', JSON.stringify(CUE_6_PAYLOAD), 'continue', T4, T4);
 
   db.prepare(
-    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run('macro-1', 'Run Service Cues', 'Auto-advance service', 'item', 'cancel', 0, null, T0, T0);
+    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run('macro-1', 'Run Service Cues', 'Auto-advance service', 'item', 'cancel', 0, null, 0, T0, T0);
   db.prepare(
-    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run('macro-2', 'Slide Loop', 'Loop the slide', 'slide', 'revert', 1, 3, T1, T1);
+    `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run('macro-2', 'Slide Loop', 'Loop the slide', 'slide', 'revert', 1, 3, 1, T1, T1);
 
   db.prepare(
     `INSERT INTO action_steps (id, action_id, kind, payload_json, failure_policy, cue_id, order_index, delay_before_ms, delay_after_ms, created_at, updated_at)
@@ -357,7 +357,7 @@ const EXPECTED_TABLES: ProjectBackupTables = {
     { id: 'audio-1', name: 'Sting', src: 'cast-media://audio-1', order_index: 0, created_at: T0, updated_at: T0 },
   ],
   overlays: [
-    { id: 'overlay-1', name: 'Watermark', enabled: 1, animation_json: JSON.stringify({ kind: 'dissolve', durationMs: 500, autoClearDurationMs: 3000 }), created_at: T0, updated_at: T0 },
+    { id: 'overlay-1', name: 'Watermark', enabled: 1, animation_json: JSON.stringify({ kind: 'dissolve', durationMs: 500, autoClearDurationMs: 3000 }), order_index: 0, created_at: T0, updated_at: T0 },
   ],
   presentation_themes: [
     { id: 'ptheme-1', name: 'Brand', width: 1920, height: 1080, order_index: 0, created_at: T0, updated_at: T1 },
@@ -383,8 +383,8 @@ const EXPECTED_TABLES: ProjectBackupTables = {
     { id: 'cue-6', kind: 'layer.clear', payload_json: JSON.stringify(CUE_6_PAYLOAD), failure_policy: 'continue', created_at: T4, updated_at: T4 },
   ],
   actions: [
-    { id: 'macro-1', name: 'Run Service Cues', description: 'Auto-advance service', scope_level: 'item', on_scope_exit: 'cancel', loop_enabled: 0, loop_count: null, created_at: T0, updated_at: T0 },
-    { id: 'macro-2', name: 'Slide Loop', description: 'Loop the slide', scope_level: 'slide', on_scope_exit: 'revert', loop_enabled: 1, loop_count: 3, created_at: T1, updated_at: T1 },
+    { id: 'macro-1', name: 'Run Service Cues', description: 'Auto-advance service', scope_level: 'item', on_scope_exit: 'cancel', loop_enabled: 0, loop_count: null, order_index: 0, created_at: T0, updated_at: T0 },
+    { id: 'macro-2', name: 'Slide Loop', description: 'Loop the slide', scope_level: 'slide', on_scope_exit: 'revert', loop_enabled: 1, loop_count: 3, order_index: 1, created_at: T1, updated_at: T1 },
   ],
   action_steps: [
     { id: 'step-1', action_id: 'macro-1', kind: 'overlay.activate', payload_json: JSON.stringify(CUE_1_PAYLOAD), failure_policy: 'continue', cue_id: 'cue-1', order_index: 0, delay_before_ms: 0, delay_after_ms: 250, created_at: T0, updated_at: T0 },
@@ -560,7 +560,7 @@ describe('project backup serialization (#145, backup v2)', () => {
 describe('project backup validation (#145, backup v2)', () => {
   it('keeps the core-supported schema version in lockstep with the database migrations', () => {
     expect(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION).toBe(LATEST_SCHEMA_VERSION);
-    expect(LATEST_SCHEMA_VERSION).toBe(27);
+    expect(LATEST_SCHEMA_VERSION).toBe(28);
   });
 
   it('rejects a v1/schema-22 backup with an explicit "older app version" message, not a silent/generic failure', () => {

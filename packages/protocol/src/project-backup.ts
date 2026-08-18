@@ -158,6 +158,7 @@ export interface ProjectBackupOverlayRow {
   name: string;
   enabled: number;
   animation_json: string;
+  order_index: number;
   created_at: string;
   updated_at: string;
 }
@@ -200,6 +201,7 @@ export interface ProjectBackupMacroRow {
   on_scope_exit: OnScopeExit;
   loop_enabled: number;
   loop_count: number | null;
+  order_index: number;
   created_at: string;
   updated_at: string;
 }

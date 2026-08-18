@@ -502,6 +502,42 @@ export const registerIpcHandlers = (
       );
       return repo.setPlaylistOrder(playlistId, newOrder);
     },
+    setOverlayOrder: (_event, overlayId: Id, newOrder: number) => {
+      expectRpcPrimitiveArgs(
+        [overlayId, newOrder],
+        [{ name: 'overlayId', kind: 'string' }, { name: 'newOrder', kind: 'number' }],
+        rpcContext('setOverlayOrder'),
+      );
+      return repo.setOverlayOrder(overlayId, newOrder);
+    },
+    setStageOrder: (_event, stageId: Id, newOrder: number) => {
+      expectRpcPrimitiveArgs(
+        [stageId, newOrder],
+        [{ name: 'stageId', kind: 'string' }, { name: 'newOrder', kind: 'number' }],
+        rpcContext('setStageOrder'),
+      );
+      return repo.setStageOrder(stageId, newOrder);
+    },
+    setThemeOrder: (_event, themeId: Id, themeType: ThemeOwnerType, newOrder: number) => {
+      expectRpcPrimitiveArgs(
+        [themeId, themeType, newOrder],
+        [
+          { name: 'themeId', kind: 'string' },
+          { name: 'themeType', kind: 'enum', values: THEME_OWNER_TYPES },
+          { name: 'newOrder', kind: 'number' },
+        ],
+        rpcContext('setThemeOrder'),
+      );
+      return repo.setThemeOrder(themeId, themeType, newOrder);
+    },
+    setMacroOrder: (_event, macroId: Id, newOrder: number) => {
+      expectRpcPrimitiveArgs(
+        [macroId, newOrder],
+        [{ name: 'macroId', kind: 'string' }, { name: 'newOrder', kind: 'number' }],
+        rpcContext('setMacroOrder'),
+      );
+      return repo.setMacroOrder(macroId, newOrder);
+    },
     createElement: (_event, input: ElementCreateInput) =>
       repo.createElement(decodeElementCreateInput(input, rpcContext('createElement'))),
     createElementsBatch: (_event, inputs: ElementCreateInput[]) => {

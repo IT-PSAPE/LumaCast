@@ -244,17 +244,18 @@ function readProjectBackupMediaAssets(db: SqliteDatabase, table: MediaAssetTable
 function readProjectBackupOverlays(db: SqliteDatabase): ProjectBackupOverlayRow[] {
   const rows = db
     .prepare(
-      `SELECT id, name, enabled, animation_json, created_at, updated_at
+      `SELECT id, name, enabled, animation_json, order_index, created_at, updated_at
        FROM overlays
        ORDER BY created_at ASC, id ASC`,
     )
-    .all() as Array<{ id: string; name: string; enabled: number; animation_json: string; created_at: string; updated_at: string }>;
+    .all() as Array<{ id: string; name: string; enabled: number; animation_json: string; order_index: number; created_at: string; updated_at: string }>;
 
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
     enabled: row.enabled,
     animation_json: row.animation_json,
+    order_index: row.order_index,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }));
@@ -323,7 +324,7 @@ function readProjectBackupActions(db: SqliteDatabase): ProjectBackupMacroRow[] {
   const rows = db
     .prepare(
       `SELECT id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count,
-              created_at, updated_at
+              order_index, created_at, updated_at
        FROM actions
        ORDER BY created_at ASC, id ASC`,
     )
@@ -335,6 +336,7 @@ function readProjectBackupActions(db: SqliteDatabase): ProjectBackupMacroRow[] {
     on_scope_exit: string;
     loop_enabled: number;
     loop_count: number | null;
+    order_index: number;
     created_at: string;
     updated_at: string;
   }>;
@@ -347,6 +349,7 @@ function readProjectBackupActions(db: SqliteDatabase): ProjectBackupMacroRow[] {
     on_scope_exit: row.on_scope_exit as OnScopeExit,
     loop_enabled: row.loop_enabled,
     loop_count: row.loop_count,
+    order_index: row.order_index,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }));

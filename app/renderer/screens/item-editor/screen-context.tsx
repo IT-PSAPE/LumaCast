@@ -43,6 +43,7 @@ interface ItemEditorScreenContextValue {
     duplicateSlide: ReturnType<typeof useSlides>['duplicateSlide'];
     deleteSlide: ReturnType<typeof useSlides>['deleteSlide'];
     moveSlide: ReturnType<typeof useSlides>['moveSlide'];
+    reorderSlide: ReturnType<typeof useSlides>['reorderSlide'];
     saveChanges: () => Promise<void>;
     getSlideElements: ReturnType<typeof useDeckEditor>['getSlideElements'];
     getThumbnailScene: ReturnType<typeof useRenderScenes>['getThumbnailScene'];
@@ -66,6 +67,7 @@ export function ItemEditorScreenProvider({ children }: { children: ReactNode }) 
     duplicateSlide,
     deleteSlide,
     moveSlide,
+    reorderSlide,
   } = useSlides();
   const { getThumbnailScene, commitProgramScene } = useRenderScenes();
   const notesPanel = useSlideNotesPanel();
@@ -111,6 +113,7 @@ export function ItemEditorScreenProvider({ children }: { children: ReactNode }) 
       duplicateSlide,
       deleteSlide,
       moveSlide,
+      reorderSlide,
       saveChanges: handleSaveChanges,
       getSlideElements,
       getThumbnailScene,
@@ -135,6 +138,7 @@ export function ItemEditorScreenProvider({ children }: { children: ReactNode }) 
     moveSlide,
     notesPanel,
     openCreateItem,
+    reorderSlide,
     setCurrentSlideIndex,
     slides,
   ]);
