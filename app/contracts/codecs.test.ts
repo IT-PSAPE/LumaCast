@@ -837,4 +837,205 @@ describe('decodeAppSnapshotShape', () => {
     snapshot.themes = [{ name: 'Theme without id' }];
     expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'themes[0].id');
   });
+
+  // --- issue #224: libraryBundles is a tree, not a flat row list -----------
+
+  function libraryBundle(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      library: { id: 'lib-1', name: 'Main', order: 0, createdAt: 'now', updatedAt: 'now' },
+      playlists: [
+        {
+          playlist: { id: 'pl-1', libraryId: 'lib-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' },
+          groups: [
+            {
+              group: { id: 'grp-1', playlistId: 'pl-1', name: 'Opening', colorKey: null, order: 0, createdAt: 'now', updatedAt: 'now' },
+              entries: [
+                {
+                  entry: {
+                    id: 'ent-1',
+                    groupId: 'grp-1',
+                    reference: { kind: 'presentation', itemId: 'pres-1' },
+                    presentationId: 'pres-1',
+                    lyricId: null,
+                    talkId: null,
+                    order: 0,
+                    createdAt: 'now',
+                    updatedAt: 'now',
+                  },
+                  item: { id: 'pres-1', type: 'presentation', title: 'Deck', collectionId: 'col-1', order: 0, createdAt: 'now', updatedAt: 'now' },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it('accepts a populated libraryBundles tree (regression: bundles carry no id of their own)', () => {
+    // The shallow pass required a string `id` on every row of every array,
+    // including libraryBundles — whose entries are `{ library, playlists }`.
+    // Any project with at least one library therefore failed validation, which
+    // took restoreFromSnapshot (undo/redo) out entirely.
+    const snapshot = emptySnapshot();
+    snapshot.libraryBundles = [libraryBundle()];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a bundle whose library is not an object', () => {
+    const snapshot = emptySnapshot();
+    snapshot.libraryBundles = [libraryBundle({ library: 'Main' })];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'libraryBundles[0].library');
+  });
+
+  it('rejects a wrong-typed field deep inside a bundle tree, naming the path', () => {
+    const snapshot = emptySnapshot();
+    const bundle = libraryBundle();
+    const playlists = bundle.playlists as Record<string, unknown>[];
+    const groups = playlists[0].groups as Record<string, unknown>[];
+    (groups[0].group as Record<string, unknown>).order = 'first';
+    snapshot.libraryBundles = [bundle];
+    expectCodecError(
+      () => decodeAppSnapshotShape(snapshot, CONTEXT),
+      'libraryBundles[0].playlists[0].groups[0].group.order',
+    );
+  });
+
+  it('rejects a bundle whose playlists is not an array', () => {
+    const snapshot = emptySnapshot();
+    snapshot.libraryBundles = [libraryBundle({ playlists: {} })];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'libraryBundles[0].playlists');
+  });
+
+  // --- issue #224: wrong-typed fields on otherwise well-shaped rows --------
+
+  it('rejects a numeric field supplied as a string', () => {
+    // SQLite INTEGER affinity would coerce this silently and it would survive
+    // the restore transaction as a corrupt row.
+    const snapshot = emptySnapshot();
+    snapshot.collections = [{ id: 'col-1', name: 'Default', order: '3', isDefault: true }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'collections[0].order');
+  });
+
+  it('rejects a string field supplied as a number', () => {
+    const snapshot = emptySnapshot();
+    snapshot.mediaAssets = [{ id: 'm-1', name: 42, type: 'image', src: 'cast-media://x' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'mediaAssets[0].name');
+  });
+
+  it('rejects a boolean field supplied as a string', () => {
+    const snapshot = emptySnapshot();
+    snapshot.collections = [{ id: 'col-1', name: 'Default', isDefault: 'yes' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'collections[0].isDefault');
+  });
+
+  it('rejects a non-finite number where a number is expected', () => {
+    const snapshot = emptySnapshot();
+    snapshot.talkScriptBlocks = [{ id: 'b-1', slideId: 's-1', text: 'hi', order: Number.NaN }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'talkScriptBlocks[0].order');
+  });
+
+  it('rejects an object where a primitive field is expected', () => {
+    const snapshot = emptySnapshot();
+    snapshot.libraries = [{ id: 'lib-1', name: { first: 'Main' } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'libraries[0].name');
+  });
+
+  it('accepts null and undefined for any recognized field, and ignores unknown field names', () => {
+    // Both leniencies are deliberate: nullability varies per family, and this
+    // pass must only ever narrow what is accepted.
+    const snapshot = emptySnapshot();
+    snapshot.slides = [{
+      id: 's-1',
+      presentationId: null,
+      lyricId: null,
+      talkId: null,
+      themeId: undefined,
+      order: 0,
+      // Not in the field-kind map: not this boundary's business.
+      somethingNewFromAFutureMigration: { nested: true },
+    }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  // --- issue #224: structured fields delegate to their owning decoders -----
+
+  it('rejects a slide element whose payload does not match its own type', () => {
+    const snapshot = emptySnapshot();
+    snapshot.slideElements = [{
+      ...textElement(),
+      id: 'el-1',
+      type: 'video',
+      // A video payload requires src, autoplay, and loop.
+      payload: { src: 'cast-media://x' },
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'slideElements[0].payload');
+  });
+
+  it('rejects a malformed slide background', () => {
+    const snapshot = emptySnapshot();
+    snapshot.slides = [{ id: 's-1', background: { type: 'gradient', gradient: { kind: 'linear', stops: [] } } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'slides[0].background');
+  });
+
+  it('rejects a theme whose owned element is malformed', () => {
+    const snapshot = emptySnapshot();
+    snapshot.themes = [{
+      id: 'th-1',
+      name: 'Theme',
+      elements: [{ ...textElement(), id: 'el-1', type: 'text', payload: { text: 'hi' } }],
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'themes[0].elements[0].payload');
+  });
+
+  it('rejects a theme whose elements array is missing', () => {
+    const snapshot = emptySnapshot();
+    snapshot.themes = [{ id: 'th-1', name: 'Theme' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'themes[0].elements');
+  });
+
+  it('rejects a malformed cue payload', () => {
+    const snapshot = emptySnapshot();
+    snapshot.cues = [{ id: 'cue-1', kind: 'overlay.activate', payload: { overlayId: 7 } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'cues[0].payload');
+  });
+
+  it("rejects a malformed cue payload nested in a macro's steps", () => {
+    const snapshot = emptySnapshot();
+    snapshot.macros = [{
+      id: 'mac-1',
+      name: 'Macro',
+      cues: [{
+        id: 'mc-1',
+        macroId: 'mac-1',
+        cueId: 'cue-1',
+        cue: { id: 'cue-1', kind: 'overlay.activate', payload: { unknownKey: 'x' } },
+        orderIndex: 0,
+        delayBeforeMs: 0,
+        delayAfterMs: 0,
+      }],
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'macros[0].cues[0].cue.payload');
+  });
+
+  it('rejects a trigger binding whose config is not an object', () => {
+    const snapshot = emptySnapshot();
+    snapshot.triggerBindings = [{ id: 'tb-1', triggerType: 'slide.take', targetType: 'cue', targetId: 'cue-1', config: 'nope' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'triggerBindings[0].config');
+  });
+
+  it('accepts a well-formed populated snapshot across every structured family', () => {
+    const snapshot = emptySnapshot();
+    snapshot.libraryBundles = [libraryBundle()];
+    snapshot.collections = [{ id: 'col-1', binKind: 'deck', name: 'Default', order: 0, isDefault: true, createdAt: 'now', updatedAt: 'now' }];
+    snapshot.slides = [{ id: 's-1', background: { type: 'color', color: '#000' }, order: 0, notes: '', width: 1920, height: 1080 }];
+    snapshot.slideElements = [{ ...textElement(), id: 'el-1', type: 'shape', payload: { fillColor: '#fff' } }];
+    snapshot.themes = [{ id: 'th-1', name: 'Theme', kind: 'slides', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.overlays = [{ id: 'ov-1', name: 'Lower third', enabled: true, elements: [], animation: { kind: 'fade', durationMs: 250 } }];
+    snapshot.stages = [{ id: 'st-1', name: 'Stage', elements: [], width: 1920, height: 1080 }];
+    snapshot.cues = [{ id: 'cue-1', kind: 'overlay.activate', payload: { overlayId: 'ov-1' }, failurePolicy: 'continue' }];
+    snapshot.triggerBindings = [{ id: 'tb-1', triggerType: 'slide.take', targetType: 'cue', targetId: 'cue-1', config: {}, enabled: true }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
 });

@@ -30,6 +30,7 @@ import {
   decodeCuePayloadJson,
   decodeOverlayAnimationJson,
   decodeSlideBackgroundJson,
+  decodeSlideElementPayload,
   decodeSlideElementPayloadJson,
   type CodecContext,
 } from '../contracts/codecs';
@@ -885,6 +886,19 @@ const parseJson = <T>(value: string): T => {
 /** Builds the codec context for a persisted JSON column read. */
 const persistedContext = (operation: string, path: string): CodecContext => ({
   boundary: 'persisted',
+  operation,
+  path,
+});
+
+/**
+ * Builds the codec context for a caller-supplied value that can only be
+ * validated once a persisted row has resolved the variant it must satisfy
+ * (issue #224). Distinct from `persistedContext` on purpose: the value being
+ * rejected came from the caller, not from the database, so a failure here is
+ * bad input rather than data corruption.
+ */
+const resolvedInputContext = (operation: string, path: string): CodecContext => ({
+  boundary: 'resolved-input',
   operation,
   path,
 });
@@ -4779,7 +4793,19 @@ export class CastRepository {
         input.opacity ?? existing.opacity,
         input.zIndex ?? existing.z_index,
         input.layer ?? existing.layer,
-        JSON.stringify(input.payload ?? decodeSlideElementPayloadJson(existing.payload_json, existing.type, persistedContext('updateElement', `slide_elements.${existing.id}.payload_json`))),
+        // A replacement payload is validated against the variant the *existing
+        // row* declares (issue #224). The IPC codec structurally cannot do this
+        // — an update does not carry `type`, and that discriminant lives only
+        // here — so this is the first layer that can resolve the variant.
+        JSON.stringify(
+          input.payload
+            ? decodeSlideElementPayload(
+              input.payload,
+              existing.type,
+              resolvedInputContext('updateElement', `slide_elements.${existing.id}.payload`),
+            )
+            : decodeSlideElementPayloadJson(existing.payload_json, existing.type, persistedContext('updateElement', `slide_elements.${existing.id}.payload_json`)),
+        ),
         now,
         input.id
       );
@@ -4823,7 +4849,19 @@ export class CastRepository {
           input.opacity ?? existing.opacity,
           input.zIndex ?? existing.z_index,
           input.layer ?? existing.layer,
-          JSON.stringify(input.payload ?? decodeSlideElementPayloadJson(existing.payload_json, existing.type, persistedContext('updateElementsBatch', `slide_elements.${existing.id}.payload_json`))),
+          // See updateElement: the replacement payload is validated against the
+          // variant the existing row declares (issue #224). This runs inside
+          // the batch transaction, so one mismatched payload rolls the whole
+          // batch back rather than applying a partial update.
+          JSON.stringify(
+            input.payload
+              ? decodeSlideElementPayload(
+                input.payload,
+                existing.type,
+                resolvedInputContext('updateElementsBatch', `slide_elements.${existing.id}.payload`),
+              )
+              : decodeSlideElementPayloadJson(existing.payload_json, existing.type, persistedContext('updateElementsBatch', `slide_elements.${existing.id}.payload_json`)),
+          ),
           nowIso(),
           input.id
         );

@@ -966,10 +966,14 @@ const ELEMENT_UPDATE_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'bool
  * here: unlike creation, an update does not carry the element's `type`, and
  * that discriminant lives only on the existing persisted row — reading it
  * here would mean querying the repository as part of "validation", which is
- * exactly the side effect this boundary exists to run before. A malformed
- * *replacement* payload shape mismatched to its variant is a known, accepted
- * gap for this focused pass (see issue #150 report); `app/database/store.ts`
- * still validates the *existing* payload when `payload` is omitted.
+ * exactly the side effect this boundary exists to run before.
+ *
+ * A replacement payload mismatched to its variant is therefore validated one
+ * layer in, in `app/database/store.ts` (issue #224): `updateElement` and
+ * `updateElementsBatch` both hold the existing row's `type` at the point they
+ * serialize the payload, and call `decodeSlideElementPayload` against it. That
+ * is the first layer that can resolve the variant, so it is where the check
+ * belongs — not here, and not duplicated in both places.
  */
 export function decodeElementUpdateInput(value: unknown, context: CodecContext): ElementUpdateInput {
   if (!isRecord(value)) fail(context, 'must be an object');
@@ -1224,29 +1228,289 @@ const APP_SNAPSHOT_ARRAY_FIELDS = [
 ] as const;
 
 /**
- * Shallow structural check for a full-state snapshot restore: every entity
- * array named in `AppSnapshot` must be present, and every element in it must
- * be an object with a string `id`. This catches a garbled, truncated, or
- * wrong-shaped snapshot before `restoreFromSnapshot` clears and repopulates
- * every application table — the destructive side effect this boundary exists
- * to run before.
+ * `libraryBundles` is the one entry in `APP_SNAPSHOT_ARRAY_FIELDS` that is not
+ * a flat row list. Its elements are read-composed trees
+ * (`{ library, playlists: [{ playlist, groups: [{ group, entries: [{ entry, item }] }] }] }`)
+ * and carry no `id` of their own — and `restoreFromSnapshot` reads playlists,
+ * groups, and entries from nowhere else, so the tree has to be walked rather
+ * than skipped.
+ */
+const APP_SNAPSHOT_TREE_FIELD = 'libraryBundles';
+
+/**
+ * Expected primitive kind for a snapshot row field, keyed by **field name
+ * across every family** rather than per entity.
  *
- * It deliberately does NOT validate each of the sixteen entity families'
- * full field shape the way decodeDeckBundleManifest validates deck bundles:
- * doing so would mean hand-writing and maintaining a second full decoder for
- * every domain family in app/core/domain, which is out of scope for this
- * focused pass (see issue #150's report for the explicit cut line). A field
- * that is present on a row but has the wrong type is not caught here.
+ * This is deliberately not a per-family field spec. Issue #150's fixed
+ * decisions forbid mirroring internal domain types at this boundary, and
+ * sixteen hand-written per-entity decoders would be exactly that mirror — a
+ * second copy of `app/core/domain` to keep in sync. What this map encodes
+ * instead is the naming convention the domain families already share: `order`
+ * and `zIndex` are numbers wherever they appear, `createdAt` and every
+ * `*Id` are strings, `enabled` and `isDefault` are booleans. It is checked
+ * against every family uniformly, so it grows only when a genuinely new field
+ * name enters the domain, and no family can drift away from it silently.
+ *
+ * Fields whose value is structured (`payload`, `background`, `elements`,
+ * `animation`, `config`, `cues`, `reference`) are absent here on purpose:
+ * those already have owning decoders, and `checkSnapshotRow` routes to them.
+ */
+const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'boolean'>> = {
+  // Identity and free text
+  id: 'string',
+  name: 'string',
+  title: 'string',
+  description: 'string',
+  notes: 'string',
+  text: 'string',
+  src: 'string',
+  colorKey: 'string',
+  createdAt: 'string',
+  updatedAt: 'string',
+  // Discriminants and enum-valued columns. Checked as strings only: the
+  // *allowed values* are each family's own business, and several are already
+  // enforced by the structured decoders below or by the database schema.
+  type: 'string',
+  kind: 'string',
+  binKind: 'string',
+  layer: 'string',
+  backgroundSource: 'string',
+  scopeLevel: 'string',
+  onScopeExit: 'string',
+  failurePolicy: 'string',
+  triggerType: 'string',
+  targetType: 'string',
+  // Foreign keys and owner pointers
+  collectionId: 'string',
+  slideId: 'string',
+  libraryId: 'string',
+  playlistId: 'string',
+  groupId: 'string',
+  macroId: 'string',
+  cueId: 'string',
+  themeId: 'string',
+  overlayId: 'string',
+  stageId: 'string',
+  assetId: 'string',
+  presentationId: 'string',
+  lyricId: 'string',
+  talkId: 'string',
+  sourceId: 'string',
+  targetId: 'string',
+  sourceThemeElementId: 'string',
+  // Geometry, ordering, and timings
+  order: 'number',
+  orderIndex: 'number',
+  x: 'number',
+  y: 'number',
+  width: 'number',
+  height: 'number',
+  rotation: 'number',
+  opacity: 'number',
+  zIndex: 'number',
+  delayBeforeMs: 'number',
+  delayAfterMs: 'number',
+  durationMs: 'number',
+  autoClearDurationMs: 'number',
+  loopCount: 'number',
+  // Flags
+  isDefault: 'boolean',
+  enabled: 'boolean',
+  loopEnabled: 'boolean',
+};
+
+/**
+ * Checks the primitive fields of one snapshot row against
+ * `SNAPSHOT_ROW_FIELD_KINDS`.
+ *
+ * Two deliberate leniencies, both chosen so this pass can only ever *narrow*
+ * what is accepted and can never reject a snapshot today's code accepts:
+ *
+ * - **An unrecognized field name is ignored.** A field this map has not heard
+ *   of is not this map's business; failing on it would make adding a domain
+ *   field a breaking change to undo/redo.
+ * - **`null` and `undefined` always pass.** Which fields are nullable or
+ *   optional varies per family (`themeId` is optional on deck items, the six
+ *   owner FKs on `Slide` are null for all but one, `loopCount: number | null`
+ *   means "loop forever"), and encoding that here would be the per-family
+ *   mirror this map exists to avoid. Getting it wrong in the strict direction
+ *   would reject legitimate snapshots — the failure mode that took undo/redo
+ *   out entirely before this change.
+ *
+ * What is left is the case that actually corrupts data: a field that is
+ * *present with a value of the wrong type*. SQLite column affinity silently
+ * coerces many of those rather than rejecting them (a string in an INTEGER
+ * column, a number in a TEXT column), so they survive the restore transaction
+ * and persist as corrupt rows.
+ */
+function checkSnapshotRowFields(row: Record<string, unknown>, context: CodecContext): void {
+  for (const [field, value] of Object.entries(row)) {
+    const kind = SNAPSHOT_ROW_FIELD_KINDS[field];
+    if (kind === undefined) continue;
+    if (value === null || value === undefined) continue;
+
+    if (kind === 'string') expectString(value, context, field);
+    else if (kind === 'number') expectFiniteNumber(value, context, field);
+    else expectBoolean(value, context, field);
+  }
+}
+
+/** A structured field on a row, delegated to the decoder that already owns it. */
+function checkSnapshotRowStructure(field: string, row: Record<string, unknown>, context: CodecContext): void {
+  switch (field) {
+    case 'slideElements':
+      // The element decoder already validates base fields plus the payload
+      // variant for the element's own `type`, recursing into group children.
+      decodeSlideElement(row, context);
+      return;
+    case 'slides':
+      if (row.background !== null && row.background !== undefined) {
+        decodeSlideBackground(row.background, child(context, 'background'));
+      }
+      return;
+    case 'themes':
+    case 'stages':
+    case 'overlays': {
+      if (row.background !== null && row.background !== undefined) {
+        decodeSlideBackground(row.background, child(context, 'background'));
+      }
+      const elements = expectArray(row.elements, context, 'elements');
+      elements.forEach((element, index) => {
+        decodeSlideElement(element, child(context, `elements[${index}]`));
+      });
+      if (field === 'overlays' && row.animation !== undefined) {
+        decodeOverlayAnimation(row.animation, child(context, 'animation'));
+      }
+      return;
+    }
+    case 'cues':
+      decodeCuePayload(row.payload, child(context, 'payload'));
+      return;
+    case 'macros': {
+      const cues = expectArray(row.cues, context, 'cues');
+      cues.forEach((macroCue, index) => {
+        const cueContext = child(context, `cues[${index}]`);
+        if (!isRecord(macroCue)) fail(cueContext, 'must be an object');
+        checkSnapshotRowFields(macroCue, cueContext);
+        // A MacroCue embeds the full cue it steps through.
+        if (!isRecord(macroCue.cue)) fail(child(cueContext, 'cue'), 'must be an object');
+        checkSnapshotRowFields(macroCue.cue, child(cueContext, 'cue'));
+        decodeCuePayload(macroCue.cue.payload, child(cueContext, 'cue.payload'));
+      });
+      return;
+    }
+    case 'triggerBindings':
+      // `config: Record<string, unknown>` is deliberately open — its shape is
+      // the trigger's business, not the boundary's. Only the container type is
+      // asserted, since a non-object reaches the persistence layer as one.
+      if (row.config !== null && row.config !== undefined && !isRecord(row.config)) {
+        fail(child(context, 'config'), `must be an object, got ${describe(row.config)}`);
+      }
+      return;
+    default:
+      return;
+  }
+}
+
+/** Walks one `libraryBundles` tree: library → playlists → groups → entries. */
+function checkLibraryBundle(value: unknown, context: CodecContext): void {
+  if (!isRecord(value)) fail(context, 'must be an object');
+
+  if (!isRecord(value.library)) fail(child(context, 'library'), 'must be an object');
+  const libraryContext = child(context, 'library');
+  expectString(value.library.id, libraryContext, 'id');
+  checkSnapshotRowFields(value.library, libraryContext);
+
+  const playlists = expectArray(value.playlists, context, 'playlists');
+  playlists.forEach((tree, treeIndex) => {
+    const treeContext = child(context, `playlists[${treeIndex}]`);
+    if (!isRecord(tree)) fail(treeContext, 'must be an object');
+
+    if (!isRecord(tree.playlist)) fail(child(treeContext, 'playlist'), 'must be an object');
+    const playlistContext = child(treeContext, 'playlist');
+    expectString(tree.playlist.id, playlistContext, 'id');
+    checkSnapshotRowFields(tree.playlist, playlistContext);
+
+    const groups = expectArray(tree.groups, treeContext, 'groups');
+    groups.forEach((groupNode, groupIndex) => {
+      const groupNodeContext = child(treeContext, `groups[${groupIndex}]`);
+      if (!isRecord(groupNode)) fail(groupNodeContext, 'must be an object');
+
+      if (!isRecord(groupNode.group)) fail(child(groupNodeContext, 'group'), 'must be an object');
+      const groupContext = child(groupNodeContext, 'group');
+      expectString(groupNode.group.id, groupContext, 'id');
+      checkSnapshotRowFields(groupNode.group, groupContext);
+
+      const entries = expectArray(groupNode.entries, groupNodeContext, 'entries');
+      entries.forEach((entryNode, entryIndex) => {
+        const entryNodeContext = child(groupNodeContext, `entries[${entryIndex}]`);
+        if (!isRecord(entryNode)) fail(entryNodeContext, 'must be an object');
+
+        if (!isRecord(entryNode.entry)) fail(child(entryNodeContext, 'entry'), 'must be an object');
+        const entryContext = child(entryNodeContext, 'entry');
+        expectString(entryNode.entry.id, entryContext, 'id');
+        checkSnapshotRowFields(entryNode.entry, entryContext);
+        // `entry.reference` is validated by the repository's
+        // `resolvePlaylistEntryReference`, which is the authority on which
+        // owner column a reference resolves to; duplicating that discrimination
+        // here would mirror it. `item` is a read-composed deck item the restore
+        // never inserts from, so it is walked for field types only.
+        if (isRecord(entryNode.item)) {
+          checkSnapshotRowFields(entryNode.item, child(entryNodeContext, 'item'));
+        }
+      });
+    });
+  });
+}
+
+/**
+ * Validates a full-state snapshot before `restoreFromSnapshot` clears and
+ * repopulates every application table — the destructive side effect this
+ * boundary exists to run before.
+ *
+ * Depth (issue #224, deepening #150's shallow pass). Three layers, none of
+ * which mirrors a domain type:
+ *
+ * 1. Every entity array named in `AppSnapshot` must be present and hold
+ *    objects; flat-row families must carry a string `id` (as before).
+ * 2. Every recognized primitive field on every row is type-checked against
+ *    `SNAPSHOT_ROW_FIELD_KINDS`, a convention map shared by all families.
+ * 3. Structured fields are delegated to the decoders that already own them —
+ *    `decodeSlideElement` (which validates the payload variant against the
+ *    element's own `type`), `decodeSlideBackground`, `decodeOverlayAnimation`,
+ *    `decodeCuePayload`.
+ *
+ * On the destructive-transaction framing: `restoreFromSnapshot` wraps its
+ * deletes and inserts in a single `db.transaction(...)`, so a row that makes
+ * `.run()` throw rolls the deletes back and does not destroy data. The risk
+ * this closes is therefore **silent corruption**, not data loss: SQLite column
+ * affinity coerces rather than rejects many wrong-typed bindings (a numeric
+ * string into an INTEGER column, a number into a TEXT column), and structured
+ * fields are `JSON.stringify`-ed, so a malformed payload persists intact and
+ * only fails much later on read. Those survive the transaction. Validating
+ * here also turns an opaque mid-transaction SQLite `TypeError` into a boundary
+ * error naming the exact row and field.
  */
 export function decodeAppSnapshotShape(value: unknown, context: CodecContext): AppSnapshot {
   if (!isRecord(value)) fail(context, 'must be an object');
+
   for (const field of APP_SNAPSHOT_ARRAY_FIELDS) {
     const items = expectArray(value[field], context, field);
+
     items.forEach((item, index) => {
       const itemContext = child(context, `${field}[${index}]`);
+
+      if (field === APP_SNAPSHOT_TREE_FIELD) {
+        checkLibraryBundle(item, itemContext);
+        return;
+      }
+
       if (!isRecord(item)) fail(itemContext, 'must be an object');
       expectString(item.id, itemContext, 'id');
+      checkSnapshotRowFields(item, itemContext);
+      checkSnapshotRowStructure(field, item, itemContext);
     });
   }
+
   return value as unknown as AppSnapshot;
 }
