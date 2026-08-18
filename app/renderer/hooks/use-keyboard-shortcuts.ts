@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { SHORTCUTS, type ShortcutActionId } from '@core/shortcuts';
+import { SHORTCUTS, matchesShortcut, handleEditableTextShortcut, type ShortcutActionId } from '@lumacast/commands';
 import type { SlideBrowserMode, PlaylistBrowserMode } from '../types/ui';
 import { CANVAS_VIEW_LABELS, PLAYLIST_DISPLAY_MODE_LABELS } from '../utils/slides';
 import { useCast } from '../contexts/app-context';
@@ -8,8 +8,6 @@ import { useElements } from '../contexts/canvas/canvas-context';
 import { useDeckBrowser } from '../features/deck/deck-browser-context';
 import { useCommandPalette } from '../features/command-palette/command-palette-context';
 import { useWorkbench } from '../contexts/workbench-context';
-import { matchesShortcut } from './use-keyboard-shortcuts-match';
-import { handleEditableTextShortcut } from '../utils/editable-text-shortcuts';
 
 function isEditableTarget(target: HTMLElement | null): boolean {
   if (!target) return false;

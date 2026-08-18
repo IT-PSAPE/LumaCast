@@ -18,7 +18,8 @@
       "@renderer/*": ["app/renderer/*"],
       "@lumacast/kernel": ["packages/kernel/src/index.ts"],
       "@lumacast/composition": ["packages/composition/src/index.ts"],
-      "@lumacast/automation": ["packages/automation/src/index.ts"]
+      "@lumacast/automation": ["packages/automation/src/index.ts"],
+      "@lumacast/commands": ["packages/commands/src/index.ts"]
     }
   },
   "include": [

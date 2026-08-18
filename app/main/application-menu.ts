@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions, shell } from 'electron';
-import { APP_MENU_EVENTS, type AppMenuCommandId, type AppMenuState, type InlineWindowMenuBounds } from '@core/ipc';
+import { APP_MENU_EVENTS, type InlineWindowMenuBounds } from '@core/ipc';
+import type { AppMenuCommandId, AppMenuState } from '@lumacast/commands';
 
 export interface InlineWindowMenuItem {
   id: string;

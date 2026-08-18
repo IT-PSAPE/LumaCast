@@ -1,0 +1,8 @@
+{
+  "name": "@lumacast/commands",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "description": "Keyboard-shortcut definitions and the app-menu command vocabulary, plus headless keyboard-event matching helpers."
+}

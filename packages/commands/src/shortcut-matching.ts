@@ -1,4 +1,4 @@
-import type { ShortcutDefinition } from '@core/shortcuts';
+import type { ShortcutDefinition } from './shortcuts';
 
 export type ShortcutMatch = false | true | string;
 

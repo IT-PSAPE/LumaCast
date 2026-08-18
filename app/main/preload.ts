@@ -54,7 +54,7 @@ const api = {
   getInlineWindowMenuItems: () => ipcRenderer.invoke(IPC.getInlineWindowMenuItems) as Promise<import('@core/ipc').InlineWindowMenuItem[]>,
   popupInlineWindowMenu: (menuId: string, bounds: import('@core/ipc').InlineWindowMenuBounds) =>
     ipcRenderer.invoke(IPC.popupInlineWindowMenu, menuId, bounds) as Promise<void>,
-  updateAppMenuState: (state: import('@core/ipc').AppMenuState) =>
+  updateAppMenuState: (state: import('@lumacast/commands').AppMenuState) =>
     ipcRenderer.invoke(IPC.updateAppMenuState, state) as Promise<void>,
   checkForAppUpdates: (manual = false) =>
     ipcRenderer.invoke(IPC.checkForAppUpdates, manual) as Promise<void>,
@@ -205,8 +205,8 @@ const api = {
   setItemCollection: (input: CollectionAssignmentInput) => ipcRenderer.invoke(IPC.setItemCollection, input),
   restoreProjectBackup: (backup: ProjectBackup) =>
     ipcRenderer.invoke(IPC.restoreProjectBackup, backup) as Promise<ProjectRestoreResult>,
-  onAppMenuCommand: (callback: (commandId: import('@core/ipc').AppMenuCommandId) => void) => {
-    const handler = (_event: IpcRendererEvent, commandId: import('@core/ipc').AppMenuCommandId) => callback(commandId);
+  onAppMenuCommand: (callback: (commandId: import('@lumacast/commands').AppMenuCommandId) => void) => {
+    const handler = (_event: IpcRendererEvent, commandId: import('@lumacast/commands').AppMenuCommandId) => callback(commandId);
     ipcRenderer.on(APP_MENU_EVENTS.command, handler);
     return () => { ipcRenderer.removeListener(APP_MENU_EVENTS.command, handler); };
   },

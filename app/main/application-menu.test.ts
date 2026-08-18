@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MenuItemConstructorOptions } from 'electron';
-import type { AppMenuState } from '@core/ipc';
+import type { AppMenuState } from '@lumacast/commands';
 
 vi.mock('electron', () => {
   const buildFromTemplate = vi.fn((template: unknown) => template);

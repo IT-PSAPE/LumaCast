@@ -5,12 +5,12 @@ import {
   IPC,
   NDI_EVENTS,
   NDI_FRAME_CHANNEL_NAMES,
-  type AppMenuState,
   type DeckItemCreateWithThemeInput,
   type InlineWindowMenuBounds,
   type InlineWindowMenuItem,
   type RpcOperations,
 } from '@core/ipc';
+import type { AppMenuState } from '@lumacast/commands';
 import type { Id } from '@lumacast/kernel';
 import type {
   CollectionAssignmentInput,

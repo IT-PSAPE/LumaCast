@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AppMenuCommandId, AppMenuState } from '@core/ipc';
+import type { AppMenuCommandId, AppMenuState } from '@lumacast/commands';
 import { useCast, useNdi } from '../contexts/app-context';
 import { useElements } from '../contexts/canvas/canvas-context';
 import { useNavigation } from '../contexts/navigation-context';
