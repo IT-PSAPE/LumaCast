@@ -54,6 +54,11 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // the persistence-purity rule below, which is not expressible as a
   // package-name allow list).
   'persistence-sqlite': ['kernel', 'composition', 'automation', 'protocol'],
+  // The native NDI addon (@lumacast/ndi-native) is not a dependency-direction
+  // entry here — it is resolved via classifyExternal's 'native' kind, not a
+  // pkg:* zone, and is governed by the engine-session rule below instead.
+  // Listed for documentation parity with issue #219's target map.
+  engine: ['kernel', 'composition', 'protocol', 'ndi-native'],
 };
 
 // Rules reported as warning-level "refactor debt" (exit 0) until the feature
@@ -82,7 +87,7 @@ const RULE_TITLES = {
   'observability-port':
     'Observability is consumed through a port; only screens, the shell, and the observability feature itself may reference it directly.',
   'engine-session':
-    'Only the NDI engine-session boundary (app/main/ndi) may touch the native module or reference raw NDI host commands; ndi-service-proxy.ts is the sole command writer.',
+    'Only the NDI engine-session boundary (app/main/ndi and packages/engine) may touch the native module or reference raw NDI host commands; ndi-service-proxy.ts is the sole command writer.',
   'public-entry':
     'Feature imports must go through the feature public entry point when one exists; deep internal imports fail.',
   'allow-list':
@@ -594,8 +599,8 @@ export function check(options = {}) {
       if (isRendererZone(fromZone) && k === 'electron') {
         add('renderer-isolation', `imports ${e.specifier}`);
       }
-      if (k === 'native' && fromZone !== 'mainNdi') {
-        add('engine-session', `imports native module ${e.specifier} outside app/main/ndi`);
+      if (k === 'native' && fromZone !== 'mainNdi' && fromZone !== 'pkg:engine') {
+        add('engine-session', `imports native module ${e.specifier} outside the NDI engine-session boundary (app/main/ndi or packages/engine)`);
       }
       if (fromZone?.startsWith('pkg:') && (k === 'react' || k === 'electron')) {
         add('package-purity', `imports ${e.specifier}`);
@@ -644,7 +649,20 @@ export function check(options = {}) {
     ) {
       add('observability-port', `imports observability implementation ${toRel} outside a port`);
     }
-    if (toRel === 'app/main/ndi/ndi-protocol.ts' && fromZone !== 'mainNdi') {
+    // NdiHostCommand/NdiHostEvent are the main<->utility-process wire
+    // protocol. Historically this checked only the literal pre-extraction
+    // path app/main/ndi/ndi-protocol.ts; now that the types live in
+    // packages/engine (re-exported from its public index.ts), also catch
+    // any import whose resolved target is inside that package — covering
+    // both a deep import (blocked separately by package-public-entry) and
+    // the normal barrel import `from '@lumacast/engine'`. Only the
+    // app/main/ndi shims (ndi-host.ts, ndi-service-proxy.ts) and the
+    // package's own internals may reference these names.
+    if (
+      (toRel === 'app/main/ndi/ndi-protocol.ts' || toZone === 'pkg:engine') &&
+      fromZone !== 'mainNdi' &&
+      fromZone !== 'pkg:engine'
+    ) {
       const cmdNames = e.names.filter((n) => NDI_HOST_COMMAND_EXPORTS.has(n));
       if (cmdNames.length > 0) {
         add('engine-session', `references raw NDI host commands (${cmdNames.join(', ')}) outside the NDI engine-session boundary`);

@@ -19,7 +19,8 @@
       "@lumacast/automation": ["packages/automation/src/index.ts"],
       "@lumacast/commands": ["packages/commands/src/index.ts"],
       "@lumacast/protocol": ["packages/protocol/src/index.ts"],
-      "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"]
+      "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"],
+      "@lumacast/engine": ["packages/engine/src/index.ts"]
     }
   },
   "include": [

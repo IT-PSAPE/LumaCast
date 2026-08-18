@@ -75,7 +75,7 @@ vi.mock('./security', () => ({
 import { IPC, NDI_FRAME_CHANNEL_NAMES } from '@lumacast/protocol';
 import { registerIpcHandlers } from './ipc';
 import type { CastRepository } from '@lumacast/persistence-sqlite';
-import type { NdiServiceLike } from './ndi/ndi-protocol';
+import type { NdiServiceLike } from '@lumacast/engine';
 import type { AppUpdater } from './app-updater';
 
 const FRAME_CHANNEL_NAME_SET = new Set<string>(NDI_FRAME_CHANNEL_NAMES);

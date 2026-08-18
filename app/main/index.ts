@@ -7,9 +7,7 @@ import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';
 import { initializeLogger, getLogFilePath } from './logger';
 import { NdiServiceProxy } from './ndi/ndi-service-proxy';
-import { NoopNdiService } from './ndi/ndi-noop-service';
-import { NdiConfigStore } from './ndi/ndi-config-store';
-import type { NdiServiceLike } from './ndi/ndi-protocol';
+import { NoopNdiService, NdiConfigStore, type NdiServiceLike } from '@lumacast/engine';
 import {
   createForbiddenResponse,
   createNotFoundResponse,
@@ -62,7 +60,7 @@ const repository = new CastRepository({
   userDataPath,
   documentsPath: documentsDataDir,
 });
-const ndiConfigStore = new NdiConfigStore();
+const ndiConfigStore = new NdiConfigStore(userDataPath);
 let ndiService: NdiServiceLike | null = null;
 let isShuttingDown = false;
 const appUpdater = new AppUpdater({

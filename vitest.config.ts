@@ -23,6 +23,7 @@ export default defineConfig({
       '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
       '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
       '@lumacast/persistence-sqlite': path.resolve(__dirname, 'packages/persistence-sqlite/src/index.ts'),
+      '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts'),
     },
   },
 });

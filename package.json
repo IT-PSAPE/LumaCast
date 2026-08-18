@@ -58,6 +58,7 @@
     "@lumacast/automation": "file:packages/automation",
     "@lumacast/commands": "file:packages/commands",
     "@lumacast/composition": "file:packages/composition",
+    "@lumacast/engine": "file:packages/engine",
     "@lumacast/kernel": "file:packages/kernel",
     "@lumacast/ndi-native": "file:packages/ndi-native",
     "@lumacast/persistence-sqlite": "file:packages/persistence-sqlite",

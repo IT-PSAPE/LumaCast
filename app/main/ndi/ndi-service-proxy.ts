@@ -5,7 +5,7 @@ import type {
   NdiHostCommand,
   NdiHostEvent,
   NdiServiceLike,
-} from './ndi-protocol';
+} from '@lumacast/engine';
 
 type StateChangeCallback = (state: NdiOutputState) => void;
 type DiagnosticsChangeCallback = (diagnostics: NdiDiagnostics) => void;

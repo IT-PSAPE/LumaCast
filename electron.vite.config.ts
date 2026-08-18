@@ -41,7 +41,8 @@ function buildNdiHostBundlePlugin(): Plugin {
               '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
               '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
               '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
-              '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts')
+              '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
+              '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts')
             }
           }
         });
@@ -60,7 +61,7 @@ export default defineConfig({
     // loader cannot parse that raw ESM TypeScript source. Exclude it so
     // Rollup inlines it via the alias below instead.
     plugins: [
-      externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation', '@lumacast/commands', '@lumacast/protocol', '@lumacast/persistence-sqlite'] }),
+      externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation', '@lumacast/commands', '@lumacast/protocol', '@lumacast/persistence-sqlite', '@lumacast/engine'] }),
       buildNdiHostBundlePlugin()
     ],
     build: {
@@ -76,7 +77,8 @@ export default defineConfig({
         '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
         '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
         '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
-        '@lumacast/persistence-sqlite': path.resolve(__dirname, 'packages/persistence-sqlite/src/index.ts')
+        '@lumacast/persistence-sqlite': path.resolve(__dirname, 'packages/persistence-sqlite/src/index.ts'),
+        '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts')
       }
     }
   },

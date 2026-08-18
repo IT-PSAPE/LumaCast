@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app } from 'electron';
 import type { NdiOutputConfigMap } from '@lumacast/protocol';
 import {
   createDefaultNdiOutputConfigs,
@@ -28,8 +27,11 @@ function ndiConfigContext(operation: string, fieldPath = 'outputs'): CodecContex
 export class NdiConfigStore {
   private filePath: string;
 
-  constructor() {
-    this.filePath = path.join(app.getPath('userData'), CONFIG_FILE);
+  // `configDir` is the directory the config file lives in (the app's
+  // Electron `userData` directory in production); injected by the caller
+  // so this package has no Electron dependency.
+  constructor(configDir: string) {
+    this.filePath = path.join(configDir, CONFIG_FILE);
   }
 
   /**

@@ -1,5 +1,4 @@
-import { NdiService } from './ndi-service';
-import type { NdiHostCommand, NdiHostEvent } from './ndi-protocol';
+import { NdiService, type NdiHostCommand, type NdiHostEvent } from '@lumacast/engine';
 
 const parentPort = process.parentPort;
 if (!parentPort) {

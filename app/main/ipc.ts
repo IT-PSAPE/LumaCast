@@ -98,9 +98,9 @@ import {
   resolveManagedMediaArgs,
   revokeAllManagedMedia,
 } from './media-capability';
-import type { NdiServiceLike } from './ndi/ndi-protocol';
+import type { NdiServiceLike } from '@lumacast/engine';
+import { sampleSystemMetrics } from '@lumacast/engine';
 import { assertTrustedIpcSender } from './security';
-import { sampleSystemMetrics } from './system-metrics';
 
 // `sendNdiFrame`/`sendNdiAudio` (the two ipcMain.on frame channels near the
 // bottom of this file) are the only consumers of this set; their inline
