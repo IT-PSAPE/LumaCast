@@ -79,8 +79,14 @@ function userElement(id: string, overrides: Partial<SlideElement> = {}): SlideEl
   });
 }
 
-function withoutUpdatedAt(elements: SlideElement[]): Array<Omit<SlideElement, 'updatedAt'>> {
-  return elements.map(({ updatedAt: _updatedAt, ...rest }) => rest);
+function withoutUpdatedAt(elements: SlideElement[]): unknown[] {
+  // Strips timestamps recursively: group children carry their own updatedAt,
+  // which can straddle a millisecond boundary between two sync passes.
+  return elements.map(({ updatedAt: _updatedAt, ...rest }) =>
+    'children' in rest.payload
+      ? { ...rest, payload: { ...rest.payload, children: withoutUpdatedAt(rest.payload.children) } }
+      : rest,
+  );
 }
 
 describe('syncThemeToElements', () => {

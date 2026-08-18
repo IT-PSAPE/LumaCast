@@ -15,14 +15,20 @@ import {
   collapseOverlayPlaybackToSingle,
   getNextOverlayPlaybackDelay,
   getOverlayRenderLayers,
+  resolveAdjacentAssetAllowingUnset,
+  resolveAdjacentAssetRequiringCurrent,
+  resolveLayerClearPlan,
+  resolveMediaLayerTarget,
+  resolveStageArmedAt,
   type ActiveOverlayEntry,
   type OverlayPlaybackMode,
   type OverlayPlaybackState,
-} from './overlay-playback';
+  type PresentationLayerKey,
+} from '@lumacast/playback';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-export type PresentationLayerKey = 'media' | 'video' | 'content' | 'overlay';
+export type { PresentationLayerKey };
 
 export interface ActiveOverlayPlayback {
   overlayId: Id;
@@ -254,7 +260,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const setMediaLayerAsset = useCallback((assetId: Id) => {
     const asset = mediaAssetsById.get(assetId);
     if (!asset) return;
-    if (asset.type === 'video') {
+    if (resolveMediaLayerTarget(asset.type) === 'video') {
       setVideoLayerAssetId(asset.id);
       setStatusText(`Video layer: ${asset.name}`);
       recordObsEvent('layer', 'Video layer set', { assetId: asset.id, name: asset.name });
@@ -309,27 +315,18 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearLayer = useCallback((layer: PresentationLayerKey) => {
+    const plan = resolveLayerClearPlan(layer);
     recordObsEvent('layer', 'Layer cleared', { layer });
-    if (layer === 'media') {
-      setMediaLayerAssetId(null);
-      setStatusText('Media layer cleared');
-      return;
+    if (plan.clearsMediaLayer) setMediaLayerAssetId(null);
+    if (plan.clearsVideoLayer) setVideoLayerAssetId(null);
+    if (plan.hidesContentLayer) setContentLayerVisible(false);
+    if (plan.clearsOutputDeckItem) clearOutputDeckItem();
+    if (plan.clearsOverlays) {
+      const now = Date.now();
+      setPlaybackNow(now);
+      setOverlayEntries((current) => clearAllOverlayPlayback(current, overlaysById, now));
     }
-    if (layer === 'video') {
-      setVideoLayerAssetId(null);
-      setStatusText('Video layer cleared');
-      return;
-    }
-    if (layer === 'content') {
-      setContentLayerVisible(false);
-      clearOutputDeckItem();
-      setStatusText('Content layer cleared');
-      return;
-    }
-    const now = Date.now();
-    setPlaybackNow(now);
-    setOverlayEntries((current) => clearAllOverlayPlayback(current, overlaysById, now));
-    setStatusText('Overlay layer cleared');
+    setStatusText(plan.statusText);
   }, [clearOutputDeckItem, overlaysById, setStatusText]);
 
   const clearAllLayers = useCallback(() => {
@@ -573,11 +570,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   }, [currentAudioAssetId]);
 
   const playAdjacent = useCallback((direction: 1 | -1) => {
-    if (!currentAudioAssetId || audioAssets.length === 0) return;
-    const currentIndex = audioAssets.findIndex((asset) => asset.id === currentAudioAssetId);
-    if (currentIndex < 0) return;
-    const nextIndex = (currentIndex + direction + audioAssets.length) % audioAssets.length;
-    const nextAsset = audioAssets[nextIndex];
+    const nextAsset = resolveAdjacentAssetRequiringCurrent(audioAssets, currentAudioAssetId, direction);
     if (!nextAsset) return;
     setCurrentAudioAssetId(nextAsset.id);
     setRequestedPlay(true);
@@ -800,13 +793,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   }, [layerVideoElement]);
 
   const playAdjacentVideo = useCallback((direction: 1 | -1) => {
-    if (videoAssets.length === 0) return;
-    const currentIndex = videoLayerAssetId
-      ? videoAssets.findIndex((a) => a.id === videoLayerAssetId)
-      : -1;
-    const baseIndex = currentIndex < 0 ? (direction === 1 ? -1 : 0) : currentIndex;
-    const nextIndex = (baseIndex + direction + videoAssets.length) % videoAssets.length;
-    const nextAsset = videoAssets[nextIndex];
+    const nextAsset = resolveAdjacentAssetAllowingUnset(videoAssets, videoLayerAssetId, direction);
     if (!nextAsset) return;
     setVideoLayerAssetId(nextAsset.id);
     setVideoRequestedPlay(true);
@@ -843,7 +830,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [armedAtMs, setArmedAtMs] = useState<number | null>(null);
 
   useEffect(() => {
-    setArmedAtMs(currentStageId ? Date.now() : null);
+    setArmedAtMs(resolveStageArmedAt(currentStageId, Date.now()));
   }, [currentStageId]);
 
   const stage = useMemo<StageValue>(() => ({

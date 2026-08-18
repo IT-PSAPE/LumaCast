@@ -24,6 +24,7 @@ export default defineConfig({
       '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
       '@lumacast/persistence-sqlite': path.resolve(__dirname, 'packages/persistence-sqlite/src/index.ts'),
       '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts'),
+      '@lumacast/playback': path.resolve(__dirname, 'packages/playback/src/index.ts'),
     },
   },
 });

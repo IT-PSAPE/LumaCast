@@ -48,7 +48,7 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // Commands stays platform-independent at its core.
   commands: ['kernel'],
   automation: ['kernel', 'composition'],
-  playback: ['kernel', 'project', 'composition', 'commands'],
+  playback: ['kernel', 'composition', 'protocol'],
   protocol: ['kernel', 'composition', 'automation', 'commands'],
   // Persistence never depends on renderer packages (enforced separately by
   // the persistence-purity rule below, which is not expressible as a
