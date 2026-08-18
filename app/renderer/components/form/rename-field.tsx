@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
 import { cn } from "../../utils/cn"
 
 type RenameFieldProps = {
@@ -78,7 +78,19 @@ export const RenameField = forwardRef<RenameFieldHandle, RenameFieldProps>(funct
         if (!isEditing) event.preventDefault()
     }
 
+    const handlePointerDown = (event: PointerEvent<HTMLInputElement>): void => {
+        // The surrounding row may be a drag activator (SortableList). While
+        // editing, the pointer belongs to the text field — otherwise dragging
+        // across the text to select it would start a reorder. dnd-kit listens
+        // on pointerdown, so the mousedown handler above does not cover this.
+        if (isEditing) event.stopPropagation()
+    }
+
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+        // Space and Enter are dnd-kit's keyboard drag activators, and they
+        // reach the row by bubbling out of this input. While editing they are
+        // text input (and Enter is a commit), never a lift.
+        if (isEditing && (event.key === " " || event.key === "Enter")) event.stopPropagation()
         if (event.key === "Enter") {
             event.preventDefault()
             commit()
@@ -101,6 +113,7 @@ export const RenameField = forwardRef<RenameFieldHandle, RenameFieldProps>(funct
             onDoubleClick={handleDoubleClick}
             onKeyDown={handleKeyDown}
             onMouseDown={handleMouseDown}
+            onPointerDown={handlePointerDown}
         />
     )
 })

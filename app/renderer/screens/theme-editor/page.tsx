@@ -1,4 +1,4 @@
-import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import type { ThemeOwnerType } from '@lumacast/composition';
 import { FileText, Layers, Music, Plus, Presentation as PresentationIcon } from 'lucide-react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
@@ -16,6 +16,7 @@ import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useThemeEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
+import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
 import { ThemeEditorInspectorPanel } from './inspector-panel';
 import { ThemeEditorLayersPanel } from './layers-panel';
 import { ThemeEditorScreenProvider, useThemeEditorScreen } from './screen-context';
@@ -90,11 +91,7 @@ function ThemeEditorScreenContent() {
                   ) : (
                     <ScrollArea.Root scrollPadding={8}>
                       <ScrollArea.Viewport className="p-2">
-                        <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Themes">
-                          {state.themes.map((theme, index) => (
-                            <ThemeListItem key={theme.id} theme={theme} index={index} isActive={theme.id === state.currentThemeId} />
-                          ))}
-                        </div>
+                        <ThemeList />
                       </ScrollArea.Viewport>
                       <ScrollArea.Scrollbar>
                         <ScrollArea.Thumb />
@@ -127,6 +124,37 @@ function ThemeEditorScreenContent() {
   );
 }
 
+const themeId = (theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number]) => theme.id;
+
+function ThemeList() {
+  const { state } = useThemeEditorScreen();
+  const { reorderTheme } = useThemeEditor();
+
+  const commitReorder = useCallback(
+    // Unguarded: a rejection is what reverts the optimistic order. Order is
+    // per-family (#219 decision D2) — reorderTheme writes to whichever of the
+    // four theme tables is active, and the list only ever shows one family.
+    ({ id, toIndex }: SortableOrderCommit) => reorderTheme(id, toIndex),
+    [reorderTheme],
+  );
+
+  const { items: themes, dnd } = useSortableOrder({
+    items: state.themes,
+    getId: themeId,
+    commit: commitReorder,
+  });
+
+  return (
+    <SortableList.Root {...dnd}>
+      <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Themes">
+        {themes.map((theme, index) => (
+          <ThemeListItem key={theme.id} theme={theme} index={index} isActive={theme.id === state.currentThemeId} />
+        ))}
+      </div>
+    </SortableList.Root>
+  );
+}
+
 function ThemeListItem(props: {
   theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number];
   index: number;
@@ -154,6 +182,7 @@ function ThemeListItemBody({
   const scene = useMemo(() => buildRenderScene({ width: theme.width, height: theme.height, background: theme.background ?? null }, theme.elements), [theme.background, theme.elements, theme.height, theme.width]);
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
+  const { containerRef, containerStyle, handleProps } = useSortableItem(theme.id);
 
   function handleSelect() {
     actions.selectTheme(theme.id);
@@ -183,10 +212,14 @@ function ThemeListItemBody({
     <>
       <Thumbnail.Tile
         {...triggerHandlers}
+        {...handleProps}
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          containerRef(node);
         }}
+        style={containerStyle}
+        className="cursor-grab active:cursor-grabbing"
         onContextMenu={handleContextMenu}
         onClick={handleSelect}
         selected={isActive}

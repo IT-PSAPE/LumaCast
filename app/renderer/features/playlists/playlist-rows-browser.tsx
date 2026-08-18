@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { PlaylistItemEntry, PlaylistRow, PlaylistSeparator } from '@lumacast/composition';
@@ -9,6 +9,7 @@ import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/co
 import { useConfirm } from '../../components/overlays/confirm-dialog';
 import { ItemIcon } from '../../components/display/entity-icon';
 import { ScrollArea } from '../../components/layout/scroll-area';
+import { SortableList, useSortableItem, useSortableOrder } from '../../components/layout/sortable-list';
 import { EmptyState } from '../../components/display/empty-state';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Label } from '@renderer/components/display/text';
@@ -56,9 +57,29 @@ export function PlaylistRowsBrowser() {
   );
 }
 
-function PlaylistRowList({ rows, playlistId }: { rows: PlaylistRow[]; playlistId: Id }) {
-  const { addItemToPlaylist } = useNavigation();
+const playlistRowId = (row: PlaylistRow) => row.id;
+
+function PlaylistRowList({ rows: persistedRows, playlistId }: { rows: PlaylistRow[]; playlistId: Id }) {
+  const { addItemToPlaylist, movePlaylistRow } = useNavigation();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+
+  // Separators are ordinary rows in the flat list (#219 decision D5), so a
+  // reorder is one op for either kind and any drop index is legal — there is no
+  // container to fall outside of.
+  const commitReorder = useCallback(
+    // Unguarded on purpose: useSortableOrder reverts on rejection.
+    ({ id, toIndex }: { id: Id; toIndex: number }) => movePlaylistRow(id, toIndex),
+    [movePlaylistRow],
+  );
+
+  const { items: rows, dnd } = useSortableOrder({
+    items: persistedRows,
+    getId: playlistRowId,
+    commit: commitReorder,
+    // An in-progress drag from the bin owns the pointer; reordering during it
+    // would fight the insertion indicator for the same gesture.
+    disabled: dropIndex !== null,
+  });
 
   // Container handlers (empty content, end-of-list gap) only seed an initial
   // dropIndex when nothing is set yet — they never overwrite a value a
@@ -141,9 +162,11 @@ function PlaylistRowList({ rows, playlistId }: { rows: PlaylistRow[]; playlistId
   if (dropIndex === rows.length) nodes.push(<DropIndicator key="drop-end" />);
 
   return (
-    <div className="flex flex-col gap-0.5 p-1" onDragOver={handleContainerDragOver} onDrop={handleDrop} onDragLeave={handleDragLeave}>
-      {nodes}
-    </div>
+    <SortableList.Root {...dnd}>
+      <div className="flex flex-col gap-0.5 p-1" onDragOver={handleContainerDragOver} onDrop={handleDrop} onDragLeave={handleDragLeave}>
+        {nodes}
+      </div>
+    </SortableList.Root>
   );
 }
 
@@ -173,6 +196,7 @@ function SeparatorRowBody({ row, onDragOver, onDrop }: { row: PlaylistSeparator 
   const confirm = useConfirm();
   const renameRef = useRef<RenameFieldHandle>(null);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { containerRef, containerStyle, handleProps } = useSortableItem(row.id);
   const colors = getSeparatorColors(row.id, row.colorKey);
 
   const index = currentPlaylistRows.findIndex((candidate) => candidate.id === row.id);
@@ -204,15 +228,18 @@ function SeparatorRowBody({ row, onDragOver, onDrop }: { row: PlaylistSeparator 
 
   return (
     <>
-      <div
-        {...triggerHandlers}
-        ref={triggerRef}
-        className="flex h-7 shrink-0 items-center gap-1 rounded-xs px-2"
-        style={{ backgroundColor: colors.backgroundColor, color: colors.textColor }}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-      >
-        <RenameField ref={renameRef} value={row.label} onValueChange={handleRename} className="label-xs flex-1" />
+      <div ref={containerRef} style={containerStyle}>
+        <div
+          {...triggerHandlers}
+          {...handleProps}
+          ref={triggerRef}
+          className="flex h-7 shrink-0 cursor-grab items-center gap-1 rounded-xs px-2 active:cursor-grabbing"
+          style={{ backgroundColor: colors.backgroundColor, color: colors.textColor }}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+        >
+          <RenameField ref={renameRef} value={row.label} onValueChange={handleRename} className="label-xs flex-1" />
+        </div>
       </div>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
@@ -275,6 +302,7 @@ function PlaylistItemRowBody({ row, onDragOver, onDrop }: { row: PlaylistItemEnt
   const itemRef = getPlaylistEntryItemRef(row);
   const item = resolveItemRef(itemRef);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleRemove(); } });
+  const { containerRef, containerStyle, handleProps } = useSortableItem(row.id);
 
   const isSelected = row.id === currentPlaylistEntryId;
   const index = currentPlaylistRows.findIndex((candidate) => candidate.id === row.id);
@@ -307,18 +335,21 @@ function PlaylistItemRowBody({ row, onDragOver, onDrop }: { row: PlaylistItemEnt
 
   return (
     <>
-      <LumaCastPanel.MenuItem
-        {...triggerHandlers}
-        ref={triggerRef}
-        active={isSelected}
-        onClick={handleSelect}
-        onDragOver={onDragOver}
-        onDrop={onDrop}
-        className='my-0.5 focus-visible:ring-2 focus-visible:ring-brand'
-      >
-        <ItemIcon entity={itemRef} className="shrink-0" />
-        <RenameField ref={renameRef} value={item.title} onValueChange={handleRename} className="label-xs" />
-      </LumaCastPanel.MenuItem>
+      <div ref={containerRef} style={containerStyle}>
+        <LumaCastPanel.MenuItem
+          {...triggerHandlers}
+          {...handleProps}
+          ref={triggerRef}
+          active={isSelected}
+          onClick={handleSelect}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+          className='my-0.5 cursor-grab focus-visible:ring-2 focus-visible:ring-brand active:cursor-grabbing'
+        >
+          <ItemIcon entity={itemRef} className="shrink-0" />
+          <RenameField ref={renameRef} value={item.title} onValueChange={handleRename} className="label-xs" />
+        </LumaCastPanel.MenuItem>
+      </div>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
           <ContextMenu.Item disabled={isFirst} onSelect={() => {

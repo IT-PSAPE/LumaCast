@@ -1,9 +1,10 @@
-import { useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { Plus, Workflow } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
+import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
 import { Label } from '@renderer/components/display/text';
 import { Dropdown } from '@renderer/components/form/dropdown';
 import { EmptyState } from '@renderer/components/display/empty-state';
@@ -94,19 +95,13 @@ function MacroEditorScreenContent() {
                   ) : (
                     <ScrollArea.Root scrollPadding={8}>
                       <ScrollArea.Viewport className="p-2">
-                        <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Macros">
-                          {macros.map((macro, index) => (
-                            <MacroListItem
-                              key={macro.id}
-                              macro={macro}
-                              index={index}
-                              isActive={currentMacro?.id === macro.id}
-                              onSelect={selectMacro}
-                              onDuplicate={() => { void duplicateMacro(macro.id); }}
-                              onDelete={() => { void handleDelete(macro); }}
-                            />
-                          ))}
-                        </div>
+                        <MacroList
+                          macros={macros}
+                          currentMacroId={currentMacro?.id ?? null}
+                          onSelect={selectMacro}
+                          onDuplicate={(id) => { void duplicateMacro(id); }}
+                          onDelete={(macro) => { void handleDelete(macro); }}
+                        />
                       </ScrollArea.Viewport>
                       <ScrollArea.Scrollbar>
                         <ScrollArea.Thumb />
@@ -139,6 +134,54 @@ function MacroEditorScreenContent() {
   );
 }
 
+const macroId = (macro: Macro) => macro.id;
+
+function MacroList({
+  macros,
+  currentMacroId,
+  onSelect,
+  onDuplicate,
+  onDelete,
+}: {
+  macros: Macro[];
+  currentMacroId: Macro['id'] | null;
+  onSelect: (id: Macro['id']) => void;
+  onDuplicate: (id: Macro['id']) => void;
+  onDelete: (macro: Macro) => void;
+}) {
+  const { actions: { reorderMacro } } = useAutomation();
+
+  const commitReorder = useCallback(
+    // Unguarded: a rejection is what reverts the optimistic order.
+    ({ id, toIndex }: SortableOrderCommit) => reorderMacro(id, toIndex),
+    [reorderMacro],
+  );
+
+  const { items: orderedMacros, dnd } = useSortableOrder({
+    items: macros,
+    getId: macroId,
+    commit: commitReorder,
+  });
+
+  return (
+    <SortableList.Root {...dnd}>
+      <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Macros">
+        {orderedMacros.map((macro, index) => (
+          <MacroListItem
+            key={macro.id}
+            macro={macro}
+            index={index}
+            isActive={currentMacroId === macro.id}
+            onSelect={onSelect}
+            onDuplicate={() => onDuplicate(macro.id)}
+            onDelete={() => onDelete(macro)}
+          />
+        ))}
+      </div>
+    </SortableList.Root>
+  );
+}
+
 interface MacroListItemProps {
   macro: Macro;
   index: number;
@@ -159,16 +202,21 @@ function MacroListItem(props: MacroListItemProps) {
 function MacroListItemBody({ macro, index, isActive, onSelect, onDuplicate, onDelete }: MacroListItemProps) {
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { containerRef, containerStyle, handleProps } = useSortableItem(macro.id);
   const cueCountLabel = `${macro.cues.length} ${macro.cues.length === 1 ? 'cue' : 'cues'}`;
 
   return (
     <>
       <Thumbnail.Tile
         {...triggerHandlers}
+        {...handleProps}
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          containerRef(node);
         }}
+        style={containerStyle}
+        className="cursor-grab active:cursor-grabbing"
         onClick={() => onSelect(macro.id)}
         selected={isActive}
       >

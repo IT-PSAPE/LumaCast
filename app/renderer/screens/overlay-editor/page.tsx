@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/composition';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
@@ -17,6 +17,7 @@ import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useOverlayEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { OverlayEditorInspectorPanel } from './inspector-panel';
 import { OverlayEditorLayersPanel } from './layers-panel';
+import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
 import { OverlayEditorScreenProvider, useOverlayEditorScreen } from './screen-context';
 
 export function OverlayEditorScreen() {
@@ -62,11 +63,7 @@ function OverlayEditorScreenContent() {
                   ) : (
                     <ScrollArea.Root scrollPadding={8}>
                       <ScrollArea.Viewport className="p-2">
-                        <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Library overlays">
-                          {state.overlays.map((overlay, index) => (
-                            <OverlayListItem key={overlay.id} overlay={overlay} index={index} isActive={state.currentOverlayId === overlay.id} />
-                          ))}
-                        </div>
+                        <OverlayList />
                       </ScrollArea.Viewport>
                       <ScrollArea.Scrollbar>
                         <ScrollArea.Thumb />
@@ -99,6 +96,35 @@ function OverlayEditorScreenContent() {
   );
 }
 
+const overlayId = (overlay: ReturnType<typeof useOverlayEditorScreen>['state']['overlays'][number]) => overlay.id;
+
+function OverlayList() {
+  const { state } = useOverlayEditorScreen();
+  const { reorderOverlay } = useOverlayEditor();
+
+  const commitReorder = useCallback(
+    // Unguarded: a rejection is what reverts the optimistic order.
+    ({ id, toIndex }: SortableOrderCommit) => reorderOverlay(id, toIndex),
+    [reorderOverlay],
+  );
+
+  const { items: overlays, dnd } = useSortableOrder({
+    items: state.overlays,
+    getId: overlayId,
+    commit: commitReorder,
+  });
+
+  return (
+    <SortableList.Root {...dnd}>
+      <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Library overlays">
+        {overlays.map((overlay, index) => (
+          <OverlayListItem key={overlay.id} overlay={overlay} index={index} isActive={state.currentOverlayId === overlay.id} />
+        ))}
+      </div>
+    </SortableList.Root>
+  );
+}
+
 function OverlayListItem(props: {
   overlay: ReturnType<typeof useOverlayEditorScreen>['state']['overlays'][number];
   index: number;
@@ -126,6 +152,7 @@ function OverlayListItemBody({
   const scene = buildRenderScene({ width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null }, overlayToLayerElements(overlay));
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
+  const { containerRef, containerStyle, handleProps } = useSortableItem(overlay.id);
 
   function handleSelect() {
     actions.selectOverlay(overlay.id);
@@ -150,10 +177,14 @@ function OverlayListItemBody({
     <>
       <Thumbnail.Tile
         {...triggerHandlers}
+        {...handleProps}
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          containerRef(node);
         }}
+        style={containerStyle}
+        className="cursor-grab active:cursor-grabbing"
         onContextMenu={handleContextMenu}
         onClick={handleSelect}
         selected={isActive}

@@ -1,44 +1,37 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SlideElement, TextElementPayload } from '@lumacast/composition';
 import { Box, Eye, EyeOff, Film, Image, Lock, LockOpen, Square, Type } from 'lucide-react';
-import { closestCenter, DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { SelectableRow, selectableRowStyles } from '@renderer/components/display/selectable-row';
+import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { cn } from '@renderer/utils/cn';
 import { compactText } from '@renderer/utils/slides';
 
+const elementId = (element: SlideElement) => element.id;
+
 export function ElementLayersPanel({ emptyMessage }: { emptyMessage: string }) {
   const { effectiveElements, selectedElementId, selectElement, reorderElements, renameElement, toggleElementVisibility, toggleElementLock } = useElements();
   const { setInspectorTab } = useInspector();
 
-  // A 4px activation distance means a plain click never starts a drag, so the
-  // whole row stays clickable for selection while still being draggable.
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+  // Top of the list is front-most (highest layer, then highest zIndex), so the
+  // panel order is the reverse of the paint order `reorderElements` takes.
+  const frontToBack = effectiveElements.slice().reverse();
+
+  const commitReorder = useCallback(
+    // Not guarded with .catch here (unlike the one-shot element ops): a
+    // reorderElements rejection — #214, an element deleted mid-drag — is what
+    // tells useSortableOrder to put the row back.
+    ({ orderedIds }: SortableOrderCommit) => reorderElements(orderedIds.slice().reverse()),
+    [reorderElements],
   );
 
-  // Top of the list is front-most (highest layer, then highest zIndex).
-  const orderedElements = effectiveElements
-    .slice()
-    .reverse();
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = orderedElements.findIndex((el) => el.id === active.id);
-    const newIndex = orderedElements.findIndex((el) => el.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    const frontToBack = arrayMove(orderedElements, oldIndex, newIndex);
-    // reorderElements expects back→front order.
-    // reorderElements → updateElementsBatch rejects when an element no longer
-    // exists (#214), which a layer reorder can race with a concurrent delete.
-    // mutatePatch has already reported the failure, so absorb the rethrow here.
-    void reorderElements(frontToBack.map((el) => el.id).reverse()).catch(() => undefined);
-  }
+  const { items: orderedElements, dnd } = useSortableOrder({
+    items: frontToBack,
+    getId: elementId,
+    commit: commitReorder,
+  });
 
   function handleSelect(element: SlideElement) {
     selectElement(element.id);
@@ -54,23 +47,21 @@ export function ElementLayersPanel({ emptyMessage }: { emptyMessage: string }) {
   }
 
   return (
-    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={orderedElements.map((el) => el.id)} strategy={verticalListSortingStrategy}>
-        <div data-ui-region="object-list-panel" className="flex w-full flex-col gap-1.5">
-          {orderedElements.map((element) => (
-            <SortableLayerRow
-              key={element.id}
-              element={element}
-              isSelected={element.id === selectedElementId}
-              onSelect={handleSelect}
-              onRename={renameElement}
-              onToggleVisibility={toggleElementVisibility}
-              onToggleLock={toggleElementLock}
-            />
-          ))}
-        </div>
-      </SortableContext>
-    </DndContext>
+    <SortableList.Root {...dnd}>
+      <div data-ui-region="object-list-panel" className="flex w-full flex-col gap-1.5">
+        {orderedElements.map((element) => (
+          <SortableLayerRow
+            key={element.id}
+            element={element}
+            isSelected={element.id === selectedElementId}
+            onSelect={handleSelect}
+            onRename={renameElement}
+            onToggleVisibility={toggleElementVisibility}
+            onToggleLock={toggleElementLock}
+          />
+        ))}
+      </div>
+    </SortableList.Root>
   );
 }
 
@@ -89,13 +80,15 @@ function SortableLayerRow({
   onToggleVisibility: (id: SlideElement['id'], visible: boolean) => void | Promise<void>;
   onToggleLock: (id: SlideElement['id'], locked: boolean) => void | Promise<void>;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: element.id });
   const [isEditing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isHidden = element.payload.visible === false;
   const isLocked = element.payload.locked === true;
+  // Editing suspends dragging outright: the name field lives inside the drag
+  // activator, so a text selection would otherwise lift the row.
+  const { containerRef, containerStyle, handleProps } = useSortableItem(element.id, isEditing);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -115,20 +108,13 @@ function SortableLayerRow({
     if (draftName !== (element.payload.name ?? '')) void onRename(element.id, draftName);
   }
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.6 : undefined,
-  };
-
   // Rendered as a div with role=button (not a real <button>) so the trailing
   // lock/hide controls — which are actual <button>s — aren't nested inside
   // another <button>, which would be invalid HTML.
   return (
-    <div ref={setNodeRef} style={style} className="group">
+    <div ref={containerRef} style={containerStyle} className="group">
       <div
-        {...attributes}
-        {...(isEditing ? {} : listeners)}
+        {...handleProps}
         aria-pressed={isSelected}
         onClick={() => { if (!isEditing) onSelect(element); }}
         onKeyDown={(event) => {

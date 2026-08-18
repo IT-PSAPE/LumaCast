@@ -8,6 +8,7 @@ import type {
   MediaAsset,
   Overlay,
   OverlayTheme,
+  Playlist,
   Presentation,
   PresentationTheme,
   Slide,
@@ -50,6 +51,8 @@ interface ProjectContent {
   cues: Cue[];
   macros: Macro[];
   triggerBindings: TriggerBinding[];
+  /** Playlists in their persisted order — the show view's playlist panel order. */
+  playlists: Playlist[];
   presentationsById: ReadonlyMap<Id, Presentation>;
   lyricsById: ReadonlyMap<Id, Lyric>;
   talksById: ReadonlyMap<Id, Talk>;
@@ -69,6 +72,19 @@ interface ProjectContent {
   resolveItemRef: (ref: ItemRef | null | undefined) => Presentation | Lyric | Talk | null;
   /** Slides owned by one item, looked up by typed reference. */
   slidesForItemRef: (ref: ItemRef | null | undefined) => Slide[];
+}
+
+/**
+ * Puts a snapshot table in its persisted list order. `applyPatch` merges
+ * upserts positionally — a row keeps the array slot it already had — so a
+ * reorder patch changes each record's `order` without moving anything in the
+ * array. Every consumer of an orderable table therefore has to sort, and doing
+ * it here means the whole app sees one order (and the same array identity).
+ */
+function sortByOrder<T extends { id: Id; order: number; createdAt: string }>(rows: T[]): T[] {
+  return rows
+    .slice()
+    .sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id));
 }
 
 function stableArray<T extends { id: Id; updatedAt: string }>(prev: T[] | null, next: T[]): T[] {
@@ -101,6 +117,7 @@ export function useProjectContent(): ProjectContent {
     cues: Cue[];
     macros: Macro[];
     triggerBindings: TriggerBinding[];
+    playlists: Playlist[];
   } | null>(null);
 
   const stableInputs = useMemo(() => {
@@ -112,15 +129,16 @@ export function useProjectContent(): ProjectContent {
       talkScriptBlocks: snapshot?.talkScriptBlocks ?? [],
       slideElements: snapshot?.slideElements ?? [],
       mediaAssets: snapshot?.mediaAssets ?? [],
-      overlays: snapshot?.overlays ?? [],
-      presentationThemes: snapshot?.presentationThemes ?? [],
-      lyricThemes: snapshot?.lyricThemes ?? [],
-      talkThemes: snapshot?.talkThemes ?? [],
-      overlayThemes: snapshot?.overlayThemes ?? [],
-      stages: snapshot?.stages ?? [],
+      overlays: sortByOrder(snapshot?.overlays ?? []),
+      presentationThemes: sortByOrder(snapshot?.presentationThemes ?? []),
+      lyricThemes: sortByOrder(snapshot?.lyricThemes ?? []),
+      talkThemes: sortByOrder(snapshot?.talkThemes ?? []),
+      overlayThemes: sortByOrder(snapshot?.overlayThemes ?? []),
+      stages: sortByOrder(snapshot?.stages ?? []),
       cues: snapshot?.cues ?? [],
-      macros: snapshot?.macros ?? [],
+      macros: sortByOrder(snapshot?.macros ?? []),
       triggerBindings: snapshot?.triggerBindings ?? [],
+      playlists: sortByOrder(snapshot?.playlists ?? []),
     };
 
     const prev = prevRef.current;
@@ -141,6 +159,7 @@ export function useProjectContent(): ProjectContent {
       cues: stableArray(prev?.cues ?? null, raw.cues),
       macros: stableArray(prev?.macros ?? null, raw.macros),
       triggerBindings: stableArray(prev?.triggerBindings ?? null, raw.triggerBindings),
+      playlists: stableArray(prev?.playlists ?? null, raw.playlists),
     };
     prevRef.current = result;
     return result;
@@ -156,6 +175,7 @@ export function useProjectContent(): ProjectContent {
     const {
       presentations, lyrics, talks, slides, talkScriptBlocks, slideElements, mediaAssets, overlays,
       presentationThemes, lyricThemes, talkThemes, overlayThemes, stages, cues, macros, triggerBindings,
+      playlists,
     } = stableInputs;
 
     const presentationsById = new Map<Id, Presentation>();
@@ -261,6 +281,7 @@ export function useProjectContent(): ProjectContent {
       cues,
       macros,
       triggerBindings,
+      playlists,
       presentationsById,
       lyricsById,
       talksById,

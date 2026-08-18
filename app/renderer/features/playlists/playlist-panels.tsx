@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { List, Plus } from 'lucide-react';
 import type { Playlist } from '@lumacast/composition';
 import { useNavigation } from '@renderer/contexts/navigation-context';
+import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useCast } from '@renderer/contexts/app-context';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Label } from '@renderer/components/display/text';
@@ -10,6 +11,7 @@ import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { RenameField, RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
+import { SortableList, useSortableItem, useSortableOrder } from '@renderer/components/layout/sortable-list';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { PlaylistRowsBrowser } from './playlist-rows-browser';
 import { usePlaylistPanelManagement } from './use-playlist-panel-management';
@@ -18,15 +20,29 @@ import { usePlaylistPanelManagement } from './use-playlist-panel-management';
 // library hierarchy above them any more, so this panel is just "the list of
 // playlists" plus the rows of whichever one is selected. No back-to-libraries
 // chevron, no library name header.
+const playlistId = (playlist: Playlist) => playlist.id;
+
 export function PlaylistPanels() {
-  const { createPlaylist } = useNavigation();
+  const { createPlaylist, reorderPlaylist } = useNavigation();
   const { snapshot } = useCast();
+  const { playlists: orderedPlaylists } = useProjectContent();
+
+  const commitReorder = useCallback(
+    // Deliberately unguarded: useSortableOrder needs the rejection to know it
+    // must put the playlist back where it came from.
+    ({ id, toIndex }: { id: string; toIndex: number }) => reorderPlaylist(id, toIndex),
+    [reorderPlaylist],
+  );
+
+  const { items: playlists, dnd } = useSortableOrder({
+    items: orderedPlaylists,
+    getId: playlistId,
+    commit: commitReorder,
+  });
 
   function handleCreate() { void createPlaylist(); }
 
   if (!snapshot) return null;
-
-  const playlists = snapshot.playlists;
 
   return (
     <LumaCastPanel.Root className='h-full'>
@@ -44,7 +60,9 @@ export function PlaylistPanels() {
           <LumaCastPanel.GroupContent className="py-1.5 space-y-1">
             <ScrollArea.Root>
               <ScrollArea.Viewport role="list" aria-label="Playlists">
-                {playlists.map((playlist) => <PlaylistRow key={playlist.id} playlist={playlist} />)}
+                <SortableList.Root {...dnd}>
+                  {playlists.map((playlist) => <PlaylistRow key={playlist.id} playlist={playlist} />)}
+                </SortableList.Root>
               </ScrollArea.Viewport>
               <ScrollArea.Scrollbar>
                 <ScrollArea.Thumb />
@@ -74,6 +92,7 @@ function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
   const confirm = useConfirm();
   const renameRef = useRef<RenameFieldHandle>(null);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { containerRef, containerStyle, handleProps } = useSortableItem(playlist.id);
 
   const isSelected = playlist.id === currentPlaylistId;
   const isEditing = playlist.id === recentlyCreatedId;
@@ -104,16 +123,19 @@ function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
 
   return (
     <>
-      <LumaCastPanel.MenuItem
-        {...triggerHandlers}
-        ref={triggerRef}
-        active={isSelected}
-        onClick={handleSelect}
-        className="focus-visible:ring-2 focus-visible:ring-brand"
-      >
-        <List className='size-4' />
-        <RenameField ref={renameRef} value={playlist.name} onValueChange={handleRename} className="label-xs" />
-      </LumaCastPanel.MenuItem>
+      <div ref={containerRef} style={containerStyle}>
+        <LumaCastPanel.MenuItem
+          {...triggerHandlers}
+          {...handleProps}
+          ref={triggerRef}
+          active={isSelected}
+          onClick={handleSelect}
+          className="cursor-grab focus-visible:ring-2 focus-visible:ring-brand active:cursor-grabbing"
+        >
+          <List className='size-4' />
+          <RenameField ref={renameRef} value={playlist.name} onValueChange={handleRename} className="label-xs" />
+        </LumaCastPanel.MenuItem>
+      </div>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
           <ContextMenu.Item onSelect={() => { void movePlaylist(playlist.id, 'up'); }}>Move up</ContextMenu.Item>

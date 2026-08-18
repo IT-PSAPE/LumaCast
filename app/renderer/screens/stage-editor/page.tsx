@@ -1,4 +1,4 @@
-import { type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, type MouseEvent as ReactMouseEvent } from 'react';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Thumbnail } from '../../components/display/thumbnail';
@@ -14,6 +14,7 @@ import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useStageEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
+import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
 import { StageEditorInspectorPanel } from './inspector-panel';
 import { StageEditorLayersPanel } from './layers-panel';
 import { StageEditorScreenProvider, useStageEditorScreen } from './screen-context';
@@ -61,11 +62,7 @@ function StageEditorScreenContent() {
                   ) : (
                     <ScrollArea.Root scrollPadding={8}>
                       <ScrollArea.Viewport className="p-2">
-                        <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Stages">
-                          {state.stages.map((stage, index) => (
-                            <StageListItem key={stage.id} stage={stage} index={index} isActive={state.currentStageId === stage.id} />
-                          ))}
-                        </div>
+                        <StageList />
                       </ScrollArea.Viewport>
                       <ScrollArea.Scrollbar>
                         <ScrollArea.Thumb />
@@ -98,6 +95,35 @@ function StageEditorScreenContent() {
   );
 }
 
+const stageId = (stage: ReturnType<typeof useStageEditorScreen>['state']['stages'][number]) => stage.id;
+
+function StageList() {
+  const { state } = useStageEditorScreen();
+  const { reorderStage } = useStageEditor();
+
+  const commitReorder = useCallback(
+    // Unguarded: a rejection is what reverts the optimistic order.
+    ({ id, toIndex }: SortableOrderCommit) => reorderStage(id, toIndex),
+    [reorderStage],
+  );
+
+  const { items: stages, dnd } = useSortableOrder({
+    items: state.stages,
+    getId: stageId,
+    commit: commitReorder,
+  });
+
+  return (
+    <SortableList.Root {...dnd}>
+      <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Stages">
+        {stages.map((stage, index) => (
+          <StageListItem key={stage.id} stage={stage} index={index} isActive={state.currentStageId === stage.id} />
+        ))}
+      </div>
+    </SortableList.Root>
+  );
+}
+
 function StageListItem(props: {
   stage: ReturnType<typeof useStageEditorScreen>['state']['stages'][number];
   index: number;
@@ -125,6 +151,7 @@ function StageListItemBody({
   const scene = buildRenderScene({ width: stage.width, height: stage.height, background: stage.background ?? null }, stage.elements);
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
+  const { containerRef, containerStyle, handleProps } = useSortableItem(stage.id);
 
   function handleSelect() {
     actions.selectStage(stage.id);
@@ -149,10 +176,14 @@ function StageListItemBody({
     <>
       <Thumbnail.Tile
         {...triggerHandlers}
+        {...handleProps}
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          containerRef(node);
         }}
+        style={containerStyle}
+        className="cursor-grab active:cursor-grabbing"
         onContextMenu={handleContextMenu}
         onClick={handleSelect}
         selected={isActive}

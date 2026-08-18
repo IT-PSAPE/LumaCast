@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Play, Plus, Search } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import type { Id } from '@lumacast/kernel';
@@ -19,6 +19,7 @@ import type { RenderScene } from '@lumacast/composition';
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
+import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '@renderer/components/layout/sortable-list';
 import { Label } from '@renderer/components/display/text';
 import { ItemEditorInspectorPanel } from './inspector-panel';
 import { ItemEditorLayersPanel } from './layers-panel';
@@ -84,11 +85,7 @@ function ItemEditorScreenContent() {
                     ) : (
                       <ScrollArea.Root scrollPadding={8}>
                         <ScrollArea.Viewport className="p-2">
-                          <div className="grid min-w-0 grid-cols-1 content-start gap-3" role="grid" aria-label={`Current ${state.currentItemRef?.type === 'lyric' ? 'lyrics' : 'slides'}`}>
-                            {state.slides.map((slide, index) => (
-                              <ItemEditorSlideListItem key={slide.id} slide={slide} index={index} />
-                            ))}
-                          </div>
+                          <ItemEditorSlideList />
                         </ScrollArea.Viewport>
                         <ScrollArea.Scrollbar>
                           <ScrollArea.Thumb />
@@ -152,6 +149,39 @@ function ItemEditorScreenContent() {
           <ItemEditorInspectorPanel />
         </SplitPanel.Segment>
       </SplitPanel.Panel>
+  );
+}
+
+const slideId = (slide: ReturnType<typeof useItemEditorScreen>['state']['slides'][number]) => slide.id;
+
+function ItemEditorSlideList() {
+  const { state, actions } = useItemEditorScreen();
+
+  const commitReorder = useCallback(
+    // Unguarded: a rejection (slide deleted mid-drag, #214) is what reverts the
+    // optimistic order in useSortableOrder.
+    ({ id, toIndex }: SortableOrderCommit) => actions.reorderSlide(id, toIndex),
+    [actions],
+  );
+
+  const { items: slides, dnd } = useSortableOrder({
+    items: state.slides,
+    getId: slideId,
+    commit: commitReorder,
+  });
+
+  return (
+    <SortableList.Root {...dnd}>
+      <div
+        className="grid min-w-0 grid-cols-1 content-start gap-3"
+        role="grid"
+        aria-label={`Current ${state.currentItemRef?.type === 'lyric' ? 'lyrics' : 'slides'}`}
+      >
+        {slides.map((slide, index) => (
+          <ItemEditorSlideListItem key={slide.id} slide={slide} index={index} />
+        ))}
+      </div>
+    </SortableList.Root>
   );
 }
 
@@ -222,6 +252,7 @@ function SlideTileBody({ slideId, scene, index, isActive, isLive, isEmpty, textP
   const isLast = index === state.slides.length - 1;
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
+  const { containerRef, containerStyle, handleProps } = useSortableItem(slideId);
 
   async function handleDelete() {
     const ok = await confirm({
@@ -237,10 +268,14 @@ function SlideTileBody({ slideId, scene, index, isActive, isLive, isEmpty, textP
     <>
       <Thumbnail.Tile
         {...triggerHandlers}
+        {...handleProps}
         ref={(node) => {
           activeRef.current = node;
           triggerRef(node);
+          containerRef(node);
         }}
+        style={containerStyle}
+        className="cursor-grab active:cursor-grabbing"
         onClick={onSelect}
         onDoubleClick={onSelect}
         selected={isActive}

@@ -1,13 +1,11 @@
-import { closestCenter, DndContext, KeyboardSensor, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
-import { SortableContext, sortableKeyboardCoordinates, useSortable, rectSortingStrategy, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import type { ComponentProps } from 'react';
+import { useCallback, type ComponentProps } from 'react';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useSlides } from '../../contexts/slide-context';
 import { EmptyState } from '../../components/display/empty-state';
 import { ThumbnailGrid } from '../../components/layout/thumbnail-grid';
 import { ScrollArea } from '../../components/layout/scroll-area';
+import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '../../components/layout/sortable-list';
 import { getSlideVisualState, slideTextPreview } from '../../utils/slides';
 import { itemRefsEqual } from '../../utils/navigation-context-utils';
 import { useDeckBrowser } from './deck-browser-context';
@@ -16,6 +14,7 @@ import { SlideOutlineRow } from './slide-list-row';
 import { useOutlineView } from './use-slide-list-view';
 import type { SlideBrowserContentVariant } from './use-deck-browser-view';
 import type { Id } from '@lumacast/kernel';
+import type { Slide } from '@lumacast/composition';
 
 interface SlideBrowserContentProps {
   variant: SlideBrowserContentVariant;
@@ -28,43 +27,40 @@ export function SlideBrowserContent({ variant }: SlideBrowserContentProps) {
 
 function SingleSlideGrid() {
   const { currentItemRef, currentOutputItemRef, isDetachedDeckBrowser } = useNavigation();
-  const { slides, currentSlideIndex, liveSlideIndex, slideElementsById, activateSlide, setCurrentSlideIndex, reorderSlide } = useSlides();
+  const { slides: persistedSlides, currentSlideIndex, liveSlideIndex, slideElementsById, activateSlide, setCurrentSlideIndex, reorderSlide } = useSlides();
   const { getThumbnailScene } = useRenderScenes();
   const { gridItemSize } = useDeckBrowser();
   const showLiveState = !isDetachedDeckBrowser && itemRefsEqual(currentItemRef, currentOutputItemRef);
-  const sensors = useSlideReorderSensors();
-  const handleDragEnd = useSlideReorderHandler(slides.map((slide) => slide.id), reorderSlide);
+  const { items: slides, dnd } = useSlideReorder(persistedSlides, reorderSlide);
 
   return (
     <ScrollArea.Root scrollPadding={16}>
       <ScrollArea.Viewport className="p-2">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={slides.map((slide) => slide.id)} strategy={rectSortingStrategy}>
-            <ThumbnailGrid columns={gridItemSize} className="auto-rows-max content-start isolate" role="grid" aria-label="Slides">
-              {slides.map((slide, idx) => {
-                const elements = slideElementsById.get(slide.id) ?? [];
-                const scene = getThumbnailScene(slide.id, 'show');
-                if (!scene) return null;
-                const state = getSlideVisualState(idx, showLiveState ? liveSlideIndex : -1, currentSlideIndex, elements);
+        <SortableList.Root {...dnd} layout="grid">
+          <ThumbnailGrid columns={gridItemSize} className="auto-rows-max content-start isolate" role="grid" aria-label="Slides">
+            {slides.map((slide, idx) => {
+              const elements = slideElementsById.get(slide.id) ?? [];
+              const scene = getThumbnailScene(slide.id, 'show');
+              if (!scene) return null;
+              const state = getSlideVisualState(idx, showLiveState ? liveSlideIndex : -1, currentSlideIndex, elements);
 
-                return (
-                  <SortableSlideGridTile
-                    key={slide.id}
-                    slideId={slide.id}
-                    index={idx}
-                    scene={scene}
-                    selected={idx === currentSlideIndex}
-                    isLive={state === 'live'}
-                    isEmpty={state === 'warning'}
-                    textPreview={slideTextPreview(elements)}
-                    onActivate={activateSlide}
-                    onFocus={setCurrentSlideIndex}
-                  />
-                );
-              })}
-            </ThumbnailGrid>
-          </SortableContext>
-        </DndContext>
+              return (
+                <SortableSlideGridTile
+                  key={slide.id}
+                  slideId={slide.id}
+                  index={idx}
+                  scene={scene}
+                  selected={idx === currentSlideIndex}
+                  isLive={state === 'live'}
+                  isEmpty={state === 'warning'}
+                  textPreview={slideTextPreview(elements)}
+                  onActivate={activateSlide}
+                  onFocus={setCurrentSlideIndex}
+                />
+              );
+            })}
+          </ThumbnailGrid>
+        </SortableList.Root>
       </ScrollArea.Viewport>
       <ScrollArea.Scrollbar>
         <ScrollArea.Thumb />
@@ -74,11 +70,14 @@ function SingleSlideGrid() {
 }
 
 function SingleSlideList() {
-  const { rows, currentSlideIndex, selectSlide, openSlide, updateText } = useOutlineView();
+  const { rows: persistedRows, currentSlideIndex, selectSlide, openSlide, updateText } = useOutlineView();
   const { reorderSlide } = useSlides();
   const { getThumbnailScene } = useRenderScenes();
-  const sensors = useSlideReorderSensors();
-  const handleDragEnd = useSlideReorderHandler(rows.map((row) => row.slide.id), reorderSlide);
+  const { items: rows, dnd } = useSortableOrder({
+    items: persistedRows,
+    getId: outlineRowId,
+    commit: useSlideReorderCommit(reorderSlide),
+  });
 
   function renderRow(row: (typeof rows)[number]) {
     const scene = getThumbnailScene(row.slide.id, 'list');
@@ -107,13 +106,11 @@ function SingleSlideList() {
   return (
     <ScrollArea.Root>
       <ScrollArea.Viewport className="p-2">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={rows.map((row) => row.slide.id)} strategy={verticalListSortingStrategy}>
-            <div className="isolate flex flex-col gap-3" role="list" aria-label="Slide outline">
-              {rows.map(renderRow)}
-            </div>
-          </SortableContext>
-        </DndContext>
+        <SortableList.Root {...dnd}>
+          <div className="isolate flex flex-col gap-3" role="list" aria-label="Slide outline">
+            {rows.map(renderRow)}
+          </div>
+        </SortableList.Root>
       </ScrollArea.Viewport>
       <ScrollArea.Scrollbar>
         <ScrollArea.Thumb />
@@ -122,56 +119,47 @@ function SingleSlideList() {
   );
 }
 
-function useSlideReorderSensors() {
-  return useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+const slideId = (slide: Slide) => slide.id;
+const outlineRowId = (row: { slide: Slide }) => row.slide.id;
+
+/**
+ * `reorderSlide` already ignores an out-of-range or unchanged target and
+ * rejects when the slide is gone (#214) — that rejection is what reverts the
+ * optimistic order, so it is deliberately not swallowed here.
+ */
+function useSlideReorderCommit(reorderSlide: (slideId: Id, newOrder: number) => Promise<void>) {
+  return useCallback(
+    ({ id, toIndex }: SortableOrderCommit) => reorderSlide(id, toIndex),
+    [reorderSlide],
   );
 }
 
-function useSlideReorderHandler(slideIds: Id[], reorderSlide: (slideId: Id, newOrder: number) => Promise<void>) {
-  return async ({ active, over }: DragEndEvent) => {
-    if (!over || active.id === over.id) return;
-    const currentIndex = slideIds.findIndex((id) => id === active.id);
-    const nextIndex = slideIds.findIndex((id) => id === over.id);
-    if (currentIndex < 0 || nextIndex < 0 || currentIndex === nextIndex) return;
-    await reorderSlide(String(active.id), nextIndex);
-  };
+function useSlideReorder(slides: Slide[], reorderSlide: (slideId: Id, newOrder: number) => Promise<void>) {
+  return useSortableOrder({ items: slides, getId: slideId, commit: useSlideReorderCommit(reorderSlide) });
 }
 
 function SortableSlideGridTile(props: ComponentProps<typeof SlideGridTile>) {
-  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.slideId });
+  const { containerRef, containerStyle, isDragging, handleProps } = useSortableItem(props.slideId);
   return (
     <SlideGridTile
       {...props}
-      containerRef={setNodeRef}
-      containerStyle={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 9999 : undefined,
-        position: isDragging ? 'relative' : undefined,
-      }}
+      containerRef={containerRef}
+      containerStyle={containerStyle}
       dragging={isDragging}
-      dragHandleProps={listeners}
+      dragHandleProps={handleProps}
     />
   );
 }
 
 function SortableSlideOutlineRow(props: ComponentProps<typeof SlideOutlineRow>) {
-  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.row.slide.id });
+  const { containerRef, containerStyle, isDragging, handleProps } = useSortableItem(props.row.slide.id);
   return (
     <SlideOutlineRow
       {...props}
-      containerRef={setNodeRef}
-      containerStyle={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 9999 : undefined,
-        position: isDragging ? 'relative' : undefined,
-      }}
+      containerRef={containerRef}
+      containerStyle={containerStyle}
       dragging={isDragging}
-      dragHandleProps={listeners}
+      dragHandleProps={handleProps}
     />
   );
 }
