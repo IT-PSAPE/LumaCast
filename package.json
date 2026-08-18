@@ -60,6 +60,7 @@
     "@lumacast/composition": "file:packages/composition",
     "@lumacast/kernel": "file:packages/kernel",
     "@lumacast/ndi-native": "file:packages/ndi-native",
+    "@lumacast/persistence-sqlite": "file:packages/persistence-sqlite",
     "@lumacast/protocol": "file:packages/protocol",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-virtual": "^3.13.24",

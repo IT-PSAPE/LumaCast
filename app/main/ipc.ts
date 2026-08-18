@@ -1,5 +1,5 @@
 import { BrowserWindow, clipboard, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
-import { CastRepository } from '@database/store';
+import { CastRepository } from '@lumacast/persistence-sqlite';
 import { validateProjectBackup } from '@lumacast/protocol';
 import {
   IPC,

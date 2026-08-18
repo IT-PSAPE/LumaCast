@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 // security.ts imports BrowserWindow and net from 'electron' (used by
 // assertTrustedIpcSender / fetchLocalFileResponse, which this file does not
-// exercise) and resolveLocalMediaSourcePath from '@database/media-source-utils'
+// exercise) and resolveLocalMediaSourcePath from '@lumacast/persistence-sqlite'
 // (a plain Node module with no Electron dependency, so it needs no mock).
 // Only the electron members actually referenced at module scope need stubs
 // so the import doesn't crash — following the pattern in

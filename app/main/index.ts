@@ -1,7 +1,7 @@
 import { app, BrowserWindow, Menu, nativeImage, protocol, shell, type BrowserWindowConstructorOptions } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CastRepository } from '@database/store';
+import { CastRepository } from '@lumacast/persistence-sqlite';
 import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';

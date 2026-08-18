@@ -4,7 +4,7 @@
 // so it runs under the Node environment rather than the config-wide jsdom one,
 // the same way app/database/migrations/schema-equivalence.test.ts does.
 import { describe, expect, it } from 'vitest';
-import { LATEST_SCHEMA_VERSION } from '@database/migrations';
+import { LATEST_SCHEMA_VERSION } from '@lumacast/persistence-sqlite';
 import { defaultSeedFor, generateFixture } from './generator';
 import { FIXTURE_CLASSES, isManifestCurrent, type FixtureClass } from './manifest';
 

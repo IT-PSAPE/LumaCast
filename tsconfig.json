@@ -13,13 +13,13 @@
     "types": ["node", "electron"],
     "baseUrl": ".",
     "paths": {
-      "@database/*": ["app/database/*"],
       "@renderer/*": ["app/renderer/*"],
       "@lumacast/kernel": ["packages/kernel/src/index.ts"],
       "@lumacast/composition": ["packages/composition/src/index.ts"],
       "@lumacast/automation": ["packages/automation/src/index.ts"],
       "@lumacast/commands": ["packages/commands/src/index.ts"],
-      "@lumacast/protocol": ["packages/protocol/src/index.ts"]
+      "@lumacast/protocol": ["packages/protocol/src/index.ts"],
+      "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"]
     }
   },
   "include": [

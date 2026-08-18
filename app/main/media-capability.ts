@@ -35,7 +35,7 @@
 // leaves and why closing it is separate work.
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { resolveLocalMediaSourcePath } from '@database/media-source-utils';
+import { resolveLocalMediaSourcePath } from '@lumacast/persistence-sqlite';
 import type { MediaAsset, Slide, SlideBackground, SlideElement } from '@lumacast/composition';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import type { AppSnapshot } from '@lumacast/protocol';

@@ -1,6 +1,5 @@
-import type { CastRepository } from '@database/store';
-import { createTestRepository, withDeterministicRuntime } from '@database/test-support';
-import { LATEST_SCHEMA_VERSION } from '@database/migrations';
+import { createTestRepository, withDeterministicRuntime, LATEST_SCHEMA_VERSION } from '@lumacast/persistence-sqlite';
+import type { CastRepository } from '@lumacast/persistence-sqlite';
 import type { Id } from '@lumacast/kernel';
 import type { MediaAssetType } from '@lumacast/composition';
 import type { CueKind, CuePayload } from '@lumacast/automation';

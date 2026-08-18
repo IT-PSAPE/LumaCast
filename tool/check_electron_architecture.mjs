@@ -24,7 +24,6 @@ const REPO_ROOT = path.resolve(TOOL_DIR, '..');
 const FIXTURES_ROOT = path.join(TOOL_DIR, 'fixtures', 'electron-architecture');
 
 const ALIASES = {
-  '@database': 'app/database',
   '@renderer': 'app/renderer',
   '@rendering': 'app/rendering',
 };
@@ -54,7 +53,7 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // Persistence never depends on renderer packages (enforced separately by
   // the persistence-purity rule below, which is not expressible as a
   // package-name allow list).
-  'persistence-sqlite': ['kernel'],
+  'persistence-sqlite': ['kernel', 'composition', 'automation', 'protocol'],
 };
 
 // Rules reported as warning-level "refactor debt" (exit 0) until the feature

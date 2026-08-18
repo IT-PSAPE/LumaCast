@@ -16,7 +16,7 @@ import {
   readProjectBackupArchive,
   writeDeckBundleArchive,
   writeProjectBackupArchive,
-} from '../main/deck-bundle-archive';
+} from '../../../app/main/deck-bundle-archive';
 import { LATEST_SCHEMA_VERSION } from './migrations';
 import { CastRepository } from './store';
 import type { SqliteDatabase } from './sqlite';
@@ -976,7 +976,7 @@ describe('project backup archive (#145)', () => {
 
     // Simulate a foreign single-entry archive by writing the backup payload
     // under the deck-bundle entry name via the deck-bundle writer.
-    const { writeDeckBundleArchive } = await import('../main/deck-bundle-archive');
+    const { writeDeckBundleArchive } = await import('../../../app/main/deck-bundle-archive');
     await writeDeckBundleArchive(wrongEntryPath, manifestEntry as never);
 
     await expect(readProjectBackupArchive(wrongEntryPath)).rejects.toThrow(/Invalid backup entry/);
