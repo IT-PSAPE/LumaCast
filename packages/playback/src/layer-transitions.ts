@@ -1,7 +1,7 @@
 // Pure decisions for presentation-layer bookkeeping: which layer an armed
 // media asset belongs on, and what a "clear this layer" / "clear everything"
 // request implies. The provider executes the resulting state writes and
-// side effects (setState, recordObsEvent, clearOutputDeckItem); this module
+// side effects (setState, recordObsEvent, clearOutputItem); this module
 // only decides what those effects should be.
 
 export type PresentationLayerKey = 'media' | 'video' | 'content' | 'overlay';
@@ -18,7 +18,7 @@ export interface LayerClearPlan {
   clearsMediaLayer: boolean;
   clearsVideoLayer: boolean;
   hidesContentLayer: boolean;
-  clearsOutputDeckItem: boolean;
+  clearsOutputItem: boolean;
   clearsOverlays: boolean;
   statusText: string;
 }
@@ -30,7 +30,7 @@ export function resolveLayerClearPlan(layer: PresentationLayerKey): LayerClearPl
         clearsMediaLayer: true,
         clearsVideoLayer: false,
         hidesContentLayer: false,
-        clearsOutputDeckItem: false,
+        clearsOutputItem: false,
         clearsOverlays: false,
         statusText: 'Media layer cleared',
       };
@@ -39,7 +39,7 @@ export function resolveLayerClearPlan(layer: PresentationLayerKey): LayerClearPl
         clearsMediaLayer: false,
         clearsVideoLayer: true,
         hidesContentLayer: false,
-        clearsOutputDeckItem: false,
+        clearsOutputItem: false,
         clearsOverlays: false,
         statusText: 'Video layer cleared',
       };
@@ -48,7 +48,7 @@ export function resolveLayerClearPlan(layer: PresentationLayerKey): LayerClearPl
         clearsMediaLayer: false,
         clearsVideoLayer: false,
         hidesContentLayer: true,
-        clearsOutputDeckItem: true,
+        clearsOutputItem: true,
         clearsOverlays: false,
         statusText: 'Content layer cleared',
       };
@@ -58,7 +58,7 @@ export function resolveLayerClearPlan(layer: PresentationLayerKey): LayerClearPl
         clearsMediaLayer: false,
         clearsVideoLayer: false,
         hidesContentLayer: false,
-        clearsOutputDeckItem: false,
+        clearsOutputItem: false,
         clearsOverlays: true,
         statusText: 'Overlay layer cleared',
       };

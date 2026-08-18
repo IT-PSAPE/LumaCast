@@ -19,7 +19,6 @@ function makeOverlay(id: string, overrides: Partial<Overlay> = {}): Overlay {
     enabled: true,
     elements: [],
     animation: { kind: 'none', durationMs: 0, autoClearDurationMs: null },
-    collectionId: 'collection-1',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,

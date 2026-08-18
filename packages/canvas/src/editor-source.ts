@@ -1,7 +1,28 @@
 import type { Id } from '@lumacast/kernel';
-import type { DeckItemType, Overlay, Slide, SlideElement, Stage, Theme, ThemeKind } from '@lumacast/composition';
+import type { ItemType, Overlay, Slide, SlideBackground, SlideElement, Stage, ThemeOwnerType } from '@lumacast/composition';
 
-export type EditorWorkbenchMode = 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor';
+export type EditorWorkbenchMode = 'item-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor';
+
+/**
+ * Structural shape shared by the four per-owner theme entities
+ * (PresentationTheme/LyricTheme/TalkTheme/OverlayTheme in
+ * @lumacast/composition) that this generic theme-editor source needs.
+ * Importing one shared local shape rather than a union (there is no `Theme`
+ * union entity — see #219 decision D2) keeps this editor contract decoupled
+ * from which owner type is currently being edited; `themeType` says that.
+ */
+export interface EditorThemeSource {
+  id: Id;
+  slideId: Id;
+  name: string;
+  width: number;
+  height: number;
+  background?: SlideBackground | null;
+  elements: SlideElement[];
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface EditorSourceFrame {
   width: number;
@@ -29,10 +50,10 @@ interface EditorSourceBase<TMode extends string, TMeta> {
   meta: TMeta;
 }
 
-export interface DeckEditorSource extends EditorSourceBase<'deck-editor', {
+export interface ItemEditorSource extends EditorSourceBase<'item-editor', {
   slide: Slide | null;
   slideId: Id | null;
-  deckItemType: DeckItemType | null;
+  itemType: ItemType | null;
 }> {}
 
 export interface OverlayEditorSource extends EditorSourceBase<'overlay-editor', {
@@ -40,8 +61,8 @@ export interface OverlayEditorSource extends EditorSourceBase<'overlay-editor', 
 }> {}
 
 export interface ThemeEditorSource extends EditorSourceBase<'theme-editor', {
-  theme: Theme | null;
-  themeKind: ThemeKind | null;
+  theme: EditorThemeSource | null;
+  themeType: ThemeOwnerType | null;
 }> {}
 
 export interface StageEditorSource extends EditorSourceBase<'stage-editor', {
@@ -49,24 +70,24 @@ export interface StageEditorSource extends EditorSourceBase<'stage-editor', {
 }> {}
 
 // The app owns the full workbench-mode vocabulary (WorkbenchMode in
-// app/renderer/types/ui.ts: 'show' | 'deck-editor' | 'overlay-editor' |
+// app/renderer/types/ui.ts: 'show' | 'item-editor' | 'overlay-editor' |
 // 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings'). This
 // package only renders for the four editor modes above, so the
 // "everything else" branch is spelled out as the residual literals here
 // rather than importing the app-shell type and excluding from it — that
 // keeps discriminated-union narrowing on `.mode` exact (a plain `string`
-// field would make every branch's `mode === 'deck-editor'` check
+// field would make every branch's `mode === 'item-editor'` check
 // ambiguous). If WorkbenchMode ever grows a mode beyond these seven, this
 // literal set needs a matching update.
 export interface InactiveEditorSource extends EditorSourceBase<'show' | 'macro-editor' | 'settings', {}> {}
 
 export type ActiveEditorSource =
-  | DeckEditorSource
+  | ItemEditorSource
   | OverlayEditorSource
   | ThemeEditorSource
   | StageEditorSource
   | InactiveEditorSource;
 
 export function isEditorWorkbenchMode(mode: string): mode is EditorWorkbenchMode {
-  return mode === 'deck-editor' || mode === 'overlay-editor' || mode === 'theme-editor' || mode === 'stage-editor';
+  return mode === 'item-editor' || mode === 'overlay-editor' || mode === 'theme-editor' || mode === 'stage-editor';
 }

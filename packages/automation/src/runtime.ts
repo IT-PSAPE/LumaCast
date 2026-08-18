@@ -10,6 +10,7 @@
 // used throughout: Macro, Cue, Cue step (MacroCue), Scope, Macro Run, Scope
 // exit, Cancel, Revert.
 import type { Id } from '@lumacast/kernel';
+import type { ItemRef } from '@lumacast/composition';
 import type {
   Cue,
   CueClearLayer,
@@ -82,7 +83,8 @@ export interface MacroRun {
   runId: string;
   macroId: Id;
   scope: ScopeLevel;
-  boundContextId: Id | null;
+  /** A bare slide id for `'slide'` scope; a typed `ItemRef` for `'item'` scope; `null` for `'global'`. */
+  boundContextId: Id | ItemRef | null;
   onScopeExit: OnScopeExit;
   appliedCues: Cue[];
   aborters: Set<() => void>;
@@ -94,8 +96,15 @@ export type MacroRunRegistry = ReadonlyMap<string, MacroRun>;
 /** The Scope a Macro Run is bound to, resolved from a trigger by `resolveMacroScope`. */
 export interface MacroScopeContext {
   scope: ScopeLevel;
-  boundContextId: Id | null;
+  boundContextId: Id | ItemRef | null;
   onScopeExit: OnScopeExit;
+}
+
+/** `'item'` scope binds to an `ItemRef`, which is a fresh object per resolution — compare by
+ * type+id rather than reference identity. */
+function itemRefsEqual(left: ItemRef | null, right: ItemRef | null): boolean {
+  if (left === null || right === null) return left === right;
+  return left.type === right.type && left.id === right.id;
 }
 
 // A delay that can be aborted mid-flight. Aborting resolves the promise so the
@@ -129,24 +138,24 @@ function cancelRun(run: MacroRun): void {
 /**
  * Resolve the Scope a Macro Run should bind to for a given trigger. The
  * Scope *level* is authored on the Macro; the concrete bound context (which
- * slide / deck item) is captured from the trigger, falling back to global
+ * slide / item) is captured from the trigger, falling back to global
  * when there is no slide context (manual run / app.startup).
  */
 export function resolveMacroScope(
   macro: Macro,
   triggerType: TriggerType | null,
   sourceId: Id | null,
-  resolveDeckItemId: (slideId: Id) => Id | null,
+  resolveItemRef: (slideId: Id) => ItemRef | null,
 ): MacroScopeContext {
   const isSlideTrigger = sourceId !== null && (triggerType === 'slide.take' || triggerType === 'slide.activate');
   let scope: ScopeLevel = macro.scopeLevel;
-  let boundContextId: Id | null = null;
+  let boundContextId: Id | ItemRef | null = null;
   if (scope === 'slide') {
     if (isSlideTrigger) boundContextId = sourceId;
     else scope = 'global';
-  } else if (scope === 'deckItem') {
-    const deckItemId = isSlideTrigger ? resolveDeckItemId(sourceId) : null;
-    if (deckItemId) boundContextId = deckItemId;
+  } else if (scope === 'item') {
+    const itemRef = isSlideTrigger ? resolveItemRef(sourceId) : null;
+    if (itemRef) boundContextId = itemRef;
     else scope = 'global';
   }
   return { scope, boundContextId, onScopeExit: macro.onScopeExit };
@@ -157,7 +166,7 @@ export interface AutomationTriggerData {
   triggerBindings: TriggerBinding[];
   resolveCue: (cueId: Id) => Cue | undefined;
   resolveMacro: (macroId: Id) => Macro | undefined;
-  resolveDeckItemId: (slideId: Id) => Id | null;
+  resolveItemRef: (slideId: Id) => ItemRef | null;
 }
 
 export interface AutomationRuntime {
@@ -168,7 +177,7 @@ export interface AutomationRuntime {
   /** Start a tracked Macro Run bound to `scopeContext`; loops per `macro.loopEnabled`/`loopCount`, applying each Cue step's before/after delay. */
   startMacroRun(macro: Macro, resolveCue: (cueId: Id) => Cue | undefined, scopeContext: MacroScopeContext): Promise<void>;
   /** Scope exit sweep: expire Runs whose bound context no longer matches, applying each Run's authored on-exit behavior (Cancel, Revert, or none). Global Runs never exit. */
-  handleScopeChange(newSlideId: Id | null, resolveDeckItemId: (slideId: Id) => Id | null): void;
+  handleScopeChange(newSlideId: Id | null, resolveItemRef: (slideId: Id) => ItemRef | null): void;
   /** Cancel or Revert every Run matching `target` (a macro id, or `'*'` for all), excluding `selfRunId`. */
   applyLifecycle(action: LifecycleAction, target: LifecycleTarget, selfRunId: string | null): void;
   /** Resolve trigger bindings for `(triggerType, sourceId)` and fire each match (fire-and-forget; stacks Runs, never dedupes). */
@@ -390,12 +399,12 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
   // context no longer matches, applying each Run's authored on-exit
   // behavior. Global Runs and Runs whose context still matches are left
   // alone; 'none' Runs keep going.
-  function handleScopeChange(newSlideId: Id | null, resolveDeckItemId: (slideId: Id) => Id | null): void {
-    const newDeckItemId = newSlideId ? resolveDeckItemId(newSlideId) : null;
+  function handleScopeChange(newSlideId: Id | null, resolveItemRef: (slideId: Id) => ItemRef | null): void {
+    const newItemRef = newSlideId ? resolveItemRef(newSlideId) : null;
     for (const run of [...runs.values()]) {
       let exited = false;
       if (run.scope === 'slide') exited = run.boundContextId !== newSlideId;
-      else if (run.scope === 'deckItem') exited = run.boundContextId !== newDeckItemId;
+      else if (run.scope === 'item') exited = !itemRefsEqual(run.boundContextId as ItemRef | null, newItemRef);
       if (!exited) continue;
       if (run.onScopeExit === 'cancel') {
         cancelRun(run);
@@ -412,7 +421,7 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
     // the slide we're leaving are expired; Runs bound to the incoming slide
     // survive.
     if (triggerType === 'slide.activate') {
-      handleScopeChange(sourceId, data.resolveDeckItemId);
+      handleScopeChange(sourceId, data.resolveItemRef);
     }
 
     const matches = data.triggerBindings.filter((binding) => binding.triggerType === triggerType && binding.sourceId === sourceId && binding.enabled);
@@ -429,7 +438,7 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
       } else {
         const macro = data.resolveMacro(binding.targetId);
         if (!macro) continue;
-        const scopeContext = resolveMacroScope(macro, triggerType, sourceId, data.resolveDeckItemId);
+        const scopeContext = resolveMacroScope(macro, triggerType, sourceId, data.resolveItemRef);
         void startMacroRun(macro, data.resolveCue, scopeContext);
       }
     }

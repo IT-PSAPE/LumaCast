@@ -18,7 +18,7 @@ describe('resolveLayerClearPlan', () => {
       clearsMediaLayer: true,
       clearsVideoLayer: false,
       hidesContentLayer: false,
-      clearsOutputDeckItem: false,
+      clearsOutputItem: false,
       clearsOverlays: false,
       statusText: 'Media layer cleared',
     });
@@ -29,18 +29,18 @@ describe('resolveLayerClearPlan', () => {
       clearsMediaLayer: false,
       clearsVideoLayer: true,
       hidesContentLayer: false,
-      clearsOutputDeckItem: false,
+      clearsOutputItem: false,
       clearsOverlays: false,
       statusText: 'Video layer cleared',
     });
   });
 
-  it('clearing the content layer also releases the armed output deck item', () => {
+  it('clearing the content layer also releases the armed output item', () => {
     expect(resolveLayerClearPlan('content')).toEqual({
       clearsMediaLayer: false,
       clearsVideoLayer: false,
       hidesContentLayer: true,
-      clearsOutputDeckItem: true,
+      clearsOutputItem: true,
       clearsOverlays: false,
       statusText: 'Content layer cleared',
     });
@@ -51,7 +51,7 @@ describe('resolveLayerClearPlan', () => {
       clearsMediaLayer: false,
       clearsVideoLayer: false,
       hidesContentLayer: false,
-      clearsOutputDeckItem: false,
+      clearsOutputItem: false,
       clearsOverlays: true,
       statusText: 'Overlay layer cleared',
     });

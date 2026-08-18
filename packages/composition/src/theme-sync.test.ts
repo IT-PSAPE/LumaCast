@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { cloneElement } from './clone';
 import { syncThemeToElements } from './themes';
 import type { SlideElement } from './domain/slide-elements';
-import type { Theme } from './domain/theme';
+import type { PresentationTheme } from './domain/theme';
 
 const T0 = '2024-01-01T00:00:00.000Z';
 
@@ -47,16 +47,14 @@ function groupElement(id: string, children: SlideElement[]): SlideElement {
   return baseElement(id, 'group', { payload: { children } });
 }
 
-function themeWith(elements: SlideElement[]): Theme {
+function themeWith(elements: SlideElement[]): PresentationTheme {
   return {
     id: 'theme-1',
     slideId: 'theme-slide',
     name: 'Theme',
-    kind: 'slides',
     width: 1920,
     height: 1080,
     elements,
-    collectionId: 'collection-1',
     order: 0,
     createdAt: T0,
     updatedAt: T0,

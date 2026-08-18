@@ -1,25 +1,31 @@
-// Domain primitive (#153, split from app/core/types.ts): the theme entity.
-// #219 decision 2: ThemeOwnerKind and the owner-kind capability matrix answer
-// a project rule (which DeckItemType accepts which theme), not a composition
-// concern, so they live in ./decks.ts and ./ (see app/core/theme-capabilities.ts)
-// instead of here. This module imports no project domain module.
+// Domain primitive (#153, split from app/core/types.ts; #219 item-model
+// refactor decision D2): the four per-owner theme entities. Presentation,
+// lyric, talk, and overlay themes each have their own table and their own
+// domain type — there is no `kind` discriminant and no union used as an
+// entity. Which table/map a theme came from says what it can theme, by
+// construction, so there is nothing left for a capability matrix to check
+// (compare the old app/core/theme-capabilities.ts, now deleted). The four
+// types share a structural shape (that's fine — see #219 decision D2) via an
+// unexported base; this module imports no project domain module other than
+// the slide/element shapes theme content is built from.
 import type { Id } from '@lumacast/kernel';
 import type { SlideBackground } from './slides';
 import type { SlideElement } from './slide-elements';
 
-export type ThemeKind = 'slides' | 'lyrics' | 'overlays';
-
-export interface Theme {
+interface ThemeBase {
   id: Id;
   slideId: Id;
   name: string;
-  kind: ThemeKind;
   width: number;
   height: number;
   background?: SlideBackground | null;
   elements: SlideElement[];
-  collectionId: Id;
   order: number;
   createdAt: string;
   updatedAt: string;
 }
+
+export type PresentationTheme = ThemeBase;
+export type LyricTheme = ThemeBase;
+export type TalkTheme = ThemeBase;
+export type OverlayTheme = ThemeBase;

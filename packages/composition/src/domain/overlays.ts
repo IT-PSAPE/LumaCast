@@ -20,7 +20,6 @@ export interface Overlay {
   background?: SlideBackground | null;
   elements: SlideElement[];
   animation: OverlayAnimation;
-  collectionId: Id;
   createdAt: string;
   updatedAt: string;
 }

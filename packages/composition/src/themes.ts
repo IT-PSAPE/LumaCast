@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { Theme, ThemeKind } from './domain/theme';
+import type { ThemeOwnerType } from './domain/items';
 import type {
   SlideElement,
   SlideElementPayload,
@@ -8,6 +8,16 @@ import type {
 } from './domain/slide-elements';
 import { cloneElement } from './clone';
 import { createId } from '@lumacast/kernel';
+
+/**
+ * Structural shape the theme->element algorithms below need. Any of the
+ * four per-owner theme entities (see ./domain/theme.ts) satisfies this —
+ * this is a typing convenience for these kind-agnostic algorithms, not a
+ * domain entity in its own right.
+ */
+interface ThemeElementsSource {
+  elements: SlideElement[];
+}
 
 function readTextValues(elements: SlideElement[]): string[] {
   return elements
@@ -71,7 +81,7 @@ function materializeThemeElement(
  * Apply theme to elements (destructive rebuild).
  * Creates new materialized elements with collision-free IDs and explicit provenance.
  */
-export function applyThemeToElements(theme: Theme, contentElements: SlideElement[], slideId: Id): SlideElement[] {
+export function applyThemeToElements(theme: ThemeElementsSource, contentElements: SlideElement[], slideId: Id): SlideElement[] {
   const textValues = readTextValues(contentElements);
   const now = new Date().toISOString();
   return materializeThemeElements(theme.elements, slideId, textValues, now);
@@ -103,7 +113,7 @@ export function applyThemeToElements(theme: Theme, contentElements: SlideElement
  * (idempotent).
  */
 export function syncThemeToElements(
-  theme: Theme,
+  theme: ThemeElementsSource,
   contentElements: SlideElement[],
   slideId: Id
 ): SlideElement[] {
@@ -247,8 +257,8 @@ function preserveTextContent(themeElement: SlideElement, existingElement: SlideE
   return cloneElement(themeElement).payload;
 }
 
-export function createDefaultThemeElements(kind: ThemeKind, ownerId: Id, now: string): SlideElement[] {
-  if (kind === 'lyrics') {
+export function createDefaultThemeElements(ownerType: ThemeOwnerType, ownerId: Id, now: string): SlideElement[] {
+  if (ownerType === 'lyric') {
     return [{
       id: `${ownerId}-text`,
       slideId: ownerId,
@@ -296,7 +306,7 @@ export function createDefaultThemeElements(kind: ThemeKind, ownerId: Id, now: st
     zIndex: 10,
     layer: 'content',
     payload: {
-      text: kind === 'overlays' ? 'Overlay Title' : 'Slide Title',
+      text: ownerType === 'overlay' ? 'Overlay Title' : 'Slide Title',
       fontFamily: 'Helvetica',
       fontSize: 64,
       color: '#FFFFFF',

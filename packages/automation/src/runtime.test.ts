@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Id } from '@lumacast/kernel';
+import type { ItemRef } from '@lumacast/composition';
 import type { Cue, Macro, MacroCue, OnScopeExit, ScopeLevel, TriggerBinding } from './model';
 import {
   createAutomationRuntime,
@@ -42,7 +43,6 @@ function makeMacro(id: string, cues: MacroCue[], overrides: Partial<Macro> = {})
     id,
     name: `Macro ${id}`,
     description: '',
-    collectionId: 'coll-1',
     cues,
     scopeLevel: 'global',
     onScopeExit: 'none',
@@ -118,7 +118,7 @@ describe('resolveMacroScope', () => {
   });
 
   it('falls back to global for a scoped macro with no slide context (manual run / app.startup)', () => {
-    const macro = makeMacro('m1', [], { scopeLevel: 'deckItem' });
+    const macro = makeMacro('m1', [], { scopeLevel: 'item' });
     const scope = resolveMacroScope(macro, null, null, () => null);
     expect(scope).toEqual({ scope: 'global', boundContextId: null, onScopeExit: 'none' });
   });
@@ -200,13 +200,13 @@ describe('trigger stacking', () => {
       triggerBindings: [binding],
       resolveCue: (id) => cues.get(id),
       resolveMacro: (id) => macros.get(id),
-      resolveDeckItemId: () => null,
+      resolveItemRef: () => null,
     });
     runtime.fireTrigger('slide.take', 'slide-1', {
       triggerBindings: [binding],
       resolveCue: (id) => cues.get(id),
       resolveMacro: (id) => macros.get(id),
-      resolveDeckItemId: () => null,
+      resolveItemRef: () => null,
     });
 
     await vi.advanceTimersByTimeAsync(0);
@@ -282,7 +282,7 @@ describe('Revert', () => {
 });
 
 describe('Scope exit', () => {
-  function startScoped(runtime: AutomationRuntime, onScopeExit: OnScopeExit, scope: ScopeLevel, boundContextId: Id | null) {
+  function startScoped(runtime: AutomationRuntime, onScopeExit: OnScopeExit, scope: ScopeLevel, boundContextId: Id | ItemRef | null) {
     const overlayCue = makeCue('cue-o', 'overlay.activate', { overlayId: 'ov-1' });
     const videoCue = makeCue('cue-v', 'video.arm', { assetId: 'asset-1' });
     const cues = new Map([[overlayCue.id, overlayCue], [videoCue.id, videoCue]]);
@@ -339,7 +339,7 @@ describe('Scope exit', () => {
     const { runPromise } = startScoped(runtime, 'cancel', 'global', null);
 
     runtime.handleScopeChange('slide-1', () => null);
-    runtime.handleScopeChange('slide-2', () => 'deck-item-1');
+    runtime.handleScopeChange('slide-2', () => ({ type: 'presentation', id: 'item-1' }));
     runtime.handleScopeChange(null, () => null);
     expect(runtime.runs.size).toBe(1); // untouched by any scope change
 
@@ -347,12 +347,13 @@ describe('Scope exit', () => {
     await runPromise;
   });
 
-  it('a run scoped to a deck item exits when the new slide belongs to a different deck item', async () => {
+  it('a run scoped to an item exits when the new slide belongs to a different item', async () => {
     const playback = makePlaybackPort();
     const runtime = makeRuntime(playback);
-    const { runPromise } = startScoped(runtime, 'cancel', 'deckItem', 'deck-item-1');
+    const { runPromise } = startScoped(runtime, 'cancel', 'item', { type: 'presentation', id: 'item-1' });
 
-    runtime.handleScopeChange('slide-in-other-deck-item', (slideId) => (slideId === 'slide-in-other-deck-item' ? 'deck-item-2' : null));
+    runtime.handleScopeChange('slide-in-other-item', (slideId) =>
+      (slideId === 'slide-in-other-item' ? { type: 'presentation', id: 'item-2' } : null));
     await runPromise;
 
     expect(runtime.runs.size).toBe(0);

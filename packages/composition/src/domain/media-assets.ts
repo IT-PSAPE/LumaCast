@@ -9,7 +9,6 @@ export interface MediaAsset {
   name: string;
   type: MediaAssetType;
   src: string;
-  collectionId: Id;
   order: number;
   createdAt: string;
   updatedAt: string;

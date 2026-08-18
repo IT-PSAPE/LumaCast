@@ -1,8 +1,12 @@
-// Public entry point for @lumacast/composition (issue #219, wave W1). This
-// package is the visual-document domain model: the deck/library hierarchy,
-// slide/element/theme/overlay/stage entities, rich text, and the headless
-// scene-normalization contract (RenderScene / ResolvedRenderScene) every
-// rendering surface — editor preview, NDI capture, thumbnails — shares.
+// Public entry point for @lumacast/composition (issue #219; item-model
+// refactor wave A). This package is the visual-document domain model: the
+// three independent item entities (Presentation/Lyric/Talk) and the global
+// playlists built from them, slide/element/theme/overlay/stage entities,
+// rich text, and the headless scene-normalization contract (RenderScene /
+// ResolvedRenderScene) every rendering surface — editor preview, NDI
+// capture, thumbnails — shares. There is no unified "deck item" concept, no
+// collections, and no library grouping playlists — see #219 decisions
+// D1/D3/D4 for why.
 //
 // Every export below is re-exported whole-module (`export *`) rather than
 // individually named, per the package convention: none of the modules below
@@ -13,11 +17,10 @@
 // ---------------------------------------------------------------------------
 // Domain primitives (the entity model).
 // ---------------------------------------------------------------------------
-export * from './domain/collections';
-export * from './domain/decks';
-export * from './domain/library';
+export * from './domain/items';
 export * from './domain/media-assets';
 export * from './domain/overlays';
+export * from './domain/playlists';
 export * from './domain/slide-elements';
 export * from './domain/slides';
 export * from './domain/stages';
@@ -37,11 +40,10 @@ export * from './rich-text/measure';
 // ---------------------------------------------------------------------------
 export * from './binding-values';
 export * from './clone';
-export * from './deck-items';
 export * from './element-payload';
+export * from './items';
 export * from './playlist-item-reference';
 export * from './presentation-layers';
-export * from './theme-capabilities';
 export * from './themes';
 
 // ---------------------------------------------------------------------------

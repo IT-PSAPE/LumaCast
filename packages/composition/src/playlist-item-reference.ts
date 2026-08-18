@@ -31,6 +31,12 @@ export interface PlaylistItemOwnerColumns {
   talkId: Id | null;
 }
 
+// #219 item-model refactor decision D5: a playlist row can also be a
+// separator (../domain/playlists PlaylistSeparator), which owns no item and
+// has none of these columns populated. Every function below assumes it is
+// only ever handed the owner columns of a `kind: 'item'` row — discriminate
+// on `kind` before calling in, never after.
+
 export class PlaylistItemReferenceError extends Error {
   constructor(message: string) {
     super(message);

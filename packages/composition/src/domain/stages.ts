@@ -11,7 +11,6 @@ export interface Stage {
   height: number;
   background?: SlideBackground | null;
   elements: SlideElement[];
-  collectionId: Id;
   order: number;
   createdAt: string;
   updatedAt: string;

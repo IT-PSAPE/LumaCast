@@ -24,7 +24,7 @@ export type TriggerType = 'slide.take' | 'slide.activate' | 'app.startup';
 export type TriggerBindingTargetType = 'cue' | 'macro';
 
 /** Level a macro's lifetime is bound to. The concrete context is captured from the trigger. */
-export type ScopeLevel = 'global' | 'deckItem' | 'slide';
+export type ScopeLevel = 'global' | 'item' | 'slide';
 /** What happens to a macro run when its bound scope context stops being live. */
 export type OnScopeExit = 'cancel' | 'revert' | 'none';
 /** Lifecycle action a `flow.lifecycle` cue performs against targeted runs. */
@@ -67,7 +67,6 @@ export interface Macro {
   id: Id;
   name: string;
   description: string;
-  collectionId: Id;
   cues: MacroCue[];
   scopeLevel: ScopeLevel;
   onScopeExit: OnScopeExit;
