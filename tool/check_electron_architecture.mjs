@@ -49,7 +49,6 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // Everything may depend on kernel; it depends on nothing.
   kernel: [],
   composition: ['kernel'],
-  project: ['kernel', 'composition'],
   canvas: ['kernel', 'composition', 'protocol'],
   // Commands stays platform-independent at its core.
   commands: ['kernel'],

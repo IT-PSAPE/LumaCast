@@ -6,8 +6,8 @@ defined in the codebase:
 - `app/main/application-menu.ts` — the native OS application menu
   (`Menu.buildFromTemplate`), whose `accelerator` strings are Electron
   accelerators.
-- `app/core/shortcuts.ts` — the in-app (renderer) keyboard handler consumed by
-  `app/renderer/hooks/use-keyboard-shortcuts.ts`.
+- `packages/commands/src/shortcuts.ts` — the in-app (renderer) keyboard handler
+  consumed by `app/renderer/hooks/use-keyboard-shortcuts.ts`.
 
 If either file changes, update this document in the same change.
 
@@ -80,7 +80,7 @@ Check for Updates…, and an external website link.
 
 ## In-App Shortcuts
 
-Defined in `app/core/shortcuts.ts` and dispatched by
+Defined in `packages/commands/src/shortcuts.ts` and dispatched by
 `use-keyboard-shortcuts.ts`. All entries are suppressed when the focused
 element is an `<input>`, `<textarea>`, a `contenteditable` region, or is
 inside an element marked `data-shortcuts-scope="ignore"`.

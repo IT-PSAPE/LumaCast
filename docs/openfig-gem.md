@@ -1,6 +1,6 @@
 # OpenFIG Gem: Storage Model And Entity Relationships
 
-This file documents the current persistence model used by LumaCast, based on the domain types in `app/core/types.ts` and the SQLite schema and repository behavior in `app/database/store.ts`.
+This file documents the current persistence model used by LumaCast, based on the domain types in `@lumacast/composition`/`@lumacast/automation` and the SQLite schema and repository behavior in `packages/persistence-sqlite/src/store.ts`.
 
 ## Domain Relationship Summary
 

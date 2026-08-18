@@ -117,9 +117,18 @@ Installed builds now check GitHub Releases for updates on startup and expose a m
 
 - `app/main/`: Electron main process, IPC, and NDI integration
 - `app/renderer/`: React workbench and editor surfaces
-- `app/core/`: shared domain types and IPC contracts
-- `app/database/`: SQLite schema and data access
+- `packages/kernel/`: dependency-free primitives shared by every package
+- `packages/composition/`: the visual-document domain model and headless scene contract
+- `packages/automation/`: the cue/macro/trigger model and deterministic runtime
+- `packages/commands/`: shortcut and app-menu command vocabulary
+- `packages/protocol/`: the versioned IPC surface, codecs, and snapshot patches
+- `packages/persistence-sqlite/`: SQLite schema, migrations, and the `CastRepository` store
+- `packages/engine/`: the NDI output-engine runtime and diagnostics
+- `packages/playback/`: headless playback decisions
+- `packages/canvas/`: the Konva render/editing layer
 - `packages/ndi-native/`: native Node-API bridge for NDI
+
+See [AGENTS.md](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layering rules and per-package charters.
 
 ## Notes
 
