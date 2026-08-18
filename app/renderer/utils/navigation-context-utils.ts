@@ -1,90 +1,123 @@
-import { isLyricDeckItem } from '@lumacast/composition';
+import { getPlaylistEntryItemRef } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
-import type { DeckItem, PlaylistTree } from '@lumacast/composition';
+import type { ItemRef, PlaylistItemEntry, PlaylistRow } from '@lumacast/composition';
 
-interface PlaylistEntryLookup {
-  entryId: Id;
-  itemId: Id;
+// #219 item-model refactor decision D9: no `PlaylistTree.groups` to walk —
+// a playlist's `rows` are already a flat, ordered list. These helpers walk
+// that flat list directly (separators included), discriminating on
+// `row.kind` before ever touching item-only fields — never after.
+
+export function itemRefsEqual(left: ItemRef | null, right: ItemRef | null): boolean {
+  if (!left || !right) return left === right;
+  return left.type === right.type && left.id === right.id;
 }
 
-export function resolveCurrentDeckItemId(currentDeckItemId: Id | null, itemIds: Iterable<Id>): Id | null {
-  if (!currentDeckItemId) return null;
+interface PlaylistRowLookup {
+  rowId: Id;
+  itemRef: ItemRef;
+}
 
-  for (const itemId of itemIds) {
-    if (itemId === currentDeckItemId) return currentDeckItemId;
+function isItemRow(row: PlaylistRow): row is PlaylistItemEntry {
+  return row.kind === 'item';
+}
+
+export function findPlaylistRowById(rows: PlaylistRow[], rowId: Id | null): PlaylistRowLookup | null {
+  if (!rowId) return null;
+
+  for (const row of rows) {
+    if (row.id !== rowId || !isItemRow(row)) continue;
+    return { rowId: row.id, itemRef: getPlaylistEntryItemRef(row) };
   }
 
   return null;
 }
 
-export function resolveCurrentPlaylistDeckItemId(currentDeckItemId: Id | null, selectedTree: PlaylistTree | null): Id | null {
-  const itemIds = extractPlaylistDeckItemIds(selectedTree);
-  if (!currentDeckItemId) return null;
-  if (itemIds.includes(currentDeckItemId)) return currentDeckItemId;
-  return null;
-}
+export function findFirstPlaylistRowByItemRef(rows: PlaylistRow[], itemRef: ItemRef | null): PlaylistRowLookup | null {
+  if (!itemRef) return null;
 
-export function findPlaylistEntryById(selectedTree: PlaylistTree | null, entryId: Id | null): PlaylistEntryLookup | null {
-  if (!selectedTree || !entryId) return null;
-
-  for (const group of selectedTree.groups) {
-    for (const entry of group.entries) {
-      if (entry.entry.id === entryId) {
-        return { entryId: entry.entry.id, itemId: entry.item.id };
-      }
-    }
+  for (const row of rows) {
+    if (!isItemRow(row)) continue;
+    const rowRef = getPlaylistEntryItemRef(row);
+    if (rowRef.type === itemRef.type && rowRef.id === itemRef.id) return { rowId: row.id, itemRef: rowRef };
   }
 
   return null;
 }
 
-export function findFirstPlaylistEntryByDeckItemId(selectedTree: PlaylistTree | null, deckItemId: Id | null): PlaylistEntryLookup | null {
-  if (!selectedTree || !deckItemId) return null;
-
-  for (const group of selectedTree.groups) {
-    for (const entry of group.entries) {
-      if (entry.item.id === deckItemId) {
-        return { entryId: entry.entry.id, itemId: entry.item.id };
-      }
-    }
-  }
-
-  return null;
+export function resolveCurrentItemRef(currentItemRef: ItemRef | null, itemExists: (ref: ItemRef) => boolean): ItemRef | null {
+  if (!currentItemRef) return null;
+  return itemExists(currentItemRef) ? currentItemRef : null;
 }
 
-export function resolveCurrentPlaylistEntryId(
-  currentEntryId: Id | null,
-  selectedTree: PlaylistTree | null,
-  currentDeckItemId: Id | null,
+export function resolveCurrentPlaylistItemRef(currentItemRef: ItemRef | null, rows: PlaylistRow[]): ItemRef | null {
+  if (!currentItemRef) return null;
+  return findFirstPlaylistRowByItemRef(rows, currentItemRef) ? currentItemRef : null;
+}
+
+export function resolveCurrentPlaylistRowId(
+  currentRowId: Id | null,
+  rows: PlaylistRow[],
+  currentItemRef: ItemRef | null,
 ): Id | null {
-  const matchingEntry = findPlaylistEntryById(selectedTree, currentEntryId);
-  if (matchingEntry && matchingEntry.itemId === currentDeckItemId) return matchingEntry.entryId;
-  return findFirstPlaylistEntryByDeckItemId(selectedTree, currentDeckItemId)?.entryId ?? null;
+  const matchingRow = findPlaylistRowById(rows, currentRowId);
+  if (matchingRow && itemRefsEqual(matchingRow.itemRef, currentItemRef)) return matchingRow.rowId;
+  return findFirstPlaylistRowByItemRef(rows, currentItemRef)?.rowId ?? null;
 }
 
-export function resolvePinnedLyricDeckItemId(
-  currentDeckItemId: Id | null,
-  selectedTree: PlaylistTree | null,
-  deckItemsById: ReadonlyMap<Id, DeckItem>,
-): Id | null {
-  if (currentDeckItemId && isLyricDeckItem(deckItemsById.get(currentDeckItemId) ?? null)) {
-    return resolveCurrentDeckItemId(currentDeckItemId, deckItemsById.keys());
+/**
+ * Pins a lyric selection across playlist changes (a lyric can be browsed
+ * independent of which playlist row currently references it); any other
+ * item type must resolve against the current playlist's own rows.
+ */
+export function resolvePinnedLyricItemRef(
+  currentItemRef: ItemRef | null,
+  rows: PlaylistRow[],
+  itemExists: (ref: ItemRef) => boolean,
+): ItemRef | null {
+  if (currentItemRef && currentItemRef.type === 'lyric' && itemExists(currentItemRef)) {
+    return currentItemRef;
   }
 
-  return resolveCurrentPlaylistDeckItemId(currentDeckItemId, selectedTree);
+  return resolveCurrentPlaylistItemRef(currentItemRef, rows);
 }
 
-export function extractPlaylistDeckItemIds(selectedTree: PlaylistTree | null): Id[] {
-  if (!selectedTree) return [];
+export function extractPlaylistItemRefs(rows: PlaylistRow[]): ItemRef[] {
+  const refs: ItemRef[] = [];
+  for (const row of rows) {
+    if (!isItemRow(row)) continue;
+    refs.push(getPlaylistEntryItemRef(row));
+  }
+  return refs;
+}
 
-  const itemIds: Id[] = [];
-  for (const group of selectedTree.groups) {
-    for (const entry of group.entries) {
-      itemIds.push(entry.item.id);
-    }
+/** Item rows only, in playlist order — separators never count as a "next"/"previous" stop for output advance. */
+function itemRowsOf(rows: PlaylistRow[]): PlaylistItemEntry[] {
+  return rows.filter(isItemRow);
+}
+
+export function nextItemRow(rows: PlaylistRow[], currentRowId: Id | null): PlaylistRowLookup | null {
+  const itemRows = itemRowsOf(rows);
+  if (itemRows.length === 0) return null;
+
+  if (!currentRowId) {
+    const first = itemRows[0];
+    return { rowId: first.id, itemRef: getPlaylistEntryItemRef(first) };
   }
 
-  return itemIds;
+  const index = itemRows.findIndex((row) => row.id === currentRowId);
+  if (index === -1 || index >= itemRows.length - 1) return null;
+  const next = itemRows[index + 1];
+  return { rowId: next.id, itemRef: getPlaylistEntryItemRef(next) };
+}
+
+export function previousItemRow(rows: PlaylistRow[], currentRowId: Id | null): PlaylistRowLookup | null {
+  const itemRows = itemRowsOf(rows);
+  if (itemRows.length === 0 || !currentRowId) return null;
+
+  const index = itemRows.findIndex((row) => row.id === currentRowId);
+  if (index <= 0) return null;
+  const previous = itemRows[index - 1];
+  return { rowId: previous.id, itemRef: getPlaylistEntryItemRef(previous) };
 }
 
 export function findCreatedId(previousIds: Set<Id>, currentIds: Id[]): Id | null {

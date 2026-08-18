@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { GroupElementPayload, SlideElement, Theme, ThemeKind } from '@lumacast/composition';
+import type { GroupElementPayload, SlideBackground, SlideElement } from '@lumacast/composition';
 import type { AppSnapshot } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import { applyPatch } from '@lumacast/protocol';
@@ -91,17 +91,30 @@ function makeGroupElement(id: Id, children: SlideElement[], slideId = ''): Slide
   };
 }
 
-function makeTheme(id: Id, kind: ThemeKind, name: string, partial: Partial<Theme> = {}): Theme {
+// #219 item-model refactor decision D2: the four theme families share one
+// structural row shape — there is no `kind` discriminant on the row itself.
+interface ThemeFixture {
+  id: Id;
+  slideId: Id;
+  name: string;
+  width: number;
+  height: number;
+  order: number;
+  background?: SlideBackground | null;
+  elements: SlideElement[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+function makeTheme(id: Id, name: string, partial: Partial<ThemeFixture> = {}): ThemeFixture {
   const now = new Date().toISOString();
   return {
     id,
     slideId: `${id}:slide`,
     name,
-    kind,
     width: 1920,
     height: 1080,
     order: 0,
-    collectionId: 'theme-col',
     createdAt: now,
     updatedAt: now,
     elements: [makeTextElement(`${id}:title`, name, `${id}:slide`)],
@@ -111,8 +124,6 @@ function makeTheme(id: Id, kind: ThemeKind, name: string, partial: Partial<Theme
 
 function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
   return {
-    libraries: [],
-    libraryBundles: [],
     presentations: [],
     lyrics: [],
     talks: [],
@@ -121,9 +132,13 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
     slideElements: [],
     mediaAssets: [],
     overlays: [],
-    themes: [],
+    presentationThemes: [],
+    lyricThemes: [],
+    talkThemes: [],
+    overlayThemes: [],
     stages: [],
-    collections: [],
+    playlists: [],
+    playlistEntries: [],
     cues: [],
     macros: [],
     triggerBindings: [],
@@ -133,34 +148,49 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makeProjectContent(snapshot: AppSnapshot): any {
+  const presentationsById = new Map(snapshot.presentations.map((p) => [p.id, p]));
+  const lyricsById = new Map(snapshot.lyrics.map((l) => [l.id, l]));
+  const talksById = new Map(snapshot.talks.map((t) => [t.id, t]));
+
   return {
     presentations: snapshot.presentations,
     lyrics: snapshot.lyrics,
     talks: snapshot.talks,
-    deckItems: [],
     slides: snapshot.slides,
     talkScriptBlocks: [],
     slideElements: snapshot.slideElements,
     mediaAssets: [],
     overlays: snapshot.overlays,
-    themes: snapshot.themes,
+    presentationThemes: snapshot.presentationThemes,
+    lyricThemes: snapshot.lyricThemes,
+    talkThemes: snapshot.talkThemes,
+    overlayThemes: snapshot.overlayThemes,
     stages: snapshot.stages,
-    collections: snapshot.collections,
     cues: [],
     macros: [],
     triggerBindings: [],
-    deckItemsById: new Map(),
-    slidesByDeckItemId: new Map(),
+    presentationsById,
+    lyricsById,
+    talksById,
+    slidesByItem: new Map(),
     talkScriptBlocksBySlideId: new Map(),
     slideElementsBySlideId: new Map(),
     mediaAssetsById: new Map(),
-    overlaysById: new Map(),
-    themesById: new Map(snapshot.themes.map((theme) => [theme.id, theme])),
-    stagesById: new Map(),
-    collectionsByBinKind: new Map(),
-    collectionsById: new Map(),
+    overlaysById: new Map(snapshot.overlays.map((o) => [o.id, o])),
+    presentationThemesById: new Map(snapshot.presentationThemes.map((t) => [t.id, t])),
+    lyricThemesById: new Map(snapshot.lyricThemes.map((t) => [t.id, t])),
+    talkThemesById: new Map(snapshot.talkThemes.map((t) => [t.id, t])),
+    overlayThemesById: new Map(snapshot.overlayThemes.map((t) => [t.id, t])),
+    stagesById: new Map(snapshot.stages.map((s) => [s.id, s])),
     cuesById: new Map(),
     macrosById: new Map(),
+    resolveItemRef: (ref: { type: string; id: Id } | null | undefined) => {
+      if (!ref) return null;
+      if (ref.type === 'presentation') return presentationsById.get(ref.id) ?? null;
+      if (ref.type === 'lyric') return lyricsById.get(ref.id) ?? null;
+      return talksById.get(ref.id) ?? null;
+    },
+    slidesForItemRef: () => [],
   };
 }
 
@@ -196,9 +226,9 @@ function setCastApi(overrides: Record<string, any>): void {
     createTheme: vi.fn(),
     updateTheme: vi.fn(),
     deleteTheme: vi.fn(),
-    applyThemeToDeckItem: vi.fn(),
+    applyThemeToItem: vi.fn(),
     applyThemeToOverlay: vi.fn(),
-    createDeckItemWithTheme: vi.fn(),
+    createItem: vi.fn(),
     ...overrides,
   };
 }
@@ -207,36 +237,36 @@ afterEach(() => {
   cleanup();
 });
 
-function duplicateOf(themes: Theme[], sourceId: Id): Theme {
+function duplicateOf(themes: ThemeFixture[], sourceId: Id): ThemeFixture {
   const duplicate = themes.find((t) => t.id !== sourceId);
   if (!duplicate) throw new Error('expected a duplicate theme distinct from the source');
-  return duplicate;
+  return duplicate as ThemeFixture;
 }
 
 // ─── Identity independence ───────────────────────────────────────────
 
 describe('duplicateTheme — identity independence', () => {
   it('assigns a new theme id and a new backing slide id, distinct from the source', () => {
-    const source = makeTheme('T1', 'slides', 'Slide Theme');
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Slide Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
 
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.id).not.toBe(source.id);
     expect(duplicate.slideId).not.toBe(source.slideId);
     expect(duplicate.slideId).toBe(`${duplicate.id}:slide`);
   });
 
   it('gives every top-level element a new id owned by the new slide', () => {
-    const source = makeTheme('T1', 'slides', 'Slide Theme', {
+    const source = makeTheme('T1', 'Slide Theme', {
       elements: [makeTextElement('e-1', 'One', 'T1:slide'), makeTextElement('e-2', 'Two', 'T1:slide')],
     });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
 
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.elements).toHaveLength(2);
     const sourceIds = new Set(source.elements.map((e) => e.id));
     for (const element of duplicate.elements) {
@@ -251,12 +281,12 @@ describe('duplicateTheme — identity independence', () => {
     const child1 = makeTextElement('child-1', 'Child One', 'T1:slide');
     const child2 = makeTextElement('child-2', 'Child Two', 'T1:slide');
     const group = makeGroupElement('group-1', [child1, child2], 'T1:slide');
-    const source = makeTheme('T1', 'slides', 'Grouped Theme', { elements: [group] });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Grouped Theme', { elements: [group] });
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
 
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.elements).toHaveLength(1);
     const duplicateGroup = duplicate.elements[0];
     expect(duplicateGroup.id).not.toBe('group-1');
@@ -272,22 +302,21 @@ describe('duplicateTheme — identity independence', () => {
     expect(duplicateChildren[0].id).not.toBe(duplicateChildren[1].id);
   });
 
-  it('retains the source theme kind, dimensions, and collection', () => {
-    const source = makeTheme('T1', 'lyrics', 'Lyric Theme', { width: 1280, height: 720, collectionId: 'col-123' });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+  it('retains the source theme dimensions', () => {
+    const source = makeTheme('T1', 'Lyric Theme', { width: 1280, height: 720 });
+    const harness = renderThemeHarness(makeSnapshot({ lyricThemes: [source] }));
 
+    act(() => harness.current.theme.setThemeType('lyric'));
     act(() => harness.current.theme.duplicateTheme('T1'));
 
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
-    expect(duplicate.kind).toBe('lyrics');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.width).toBe(1280);
     expect(duplicate.height).toBe(720);
-    expect(duplicate.collectionId).toBe('col-123');
   });
 
   it('is a no-op when the source theme id does not exist', () => {
-    const source = makeTheme('T1', 'slides', 'Slide Theme');
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Slide Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('does-not-exist'));
 
@@ -299,61 +328,61 @@ describe('duplicateTheme — identity independence', () => {
 
 describe('duplicateTheme — background deep copy', () => {
   it('deep-copies a color background so mutating the duplicate does not affect the source', () => {
-    const source = makeTheme('T1', 'slides', 'Theme', { background: { type: 'color', color: '#123456' } });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Theme', { background: { type: 'color', color: '#123456' } });
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.background).toEqual({ type: 'color', color: '#123456' });
 
     act(() => harness.current.theme.updateThemeDraft({ id: duplicate.id, background: { type: 'color', color: '#ffffff' } }));
 
-    const sourceAfter = harness.current.theme.themes.find((t) => t.id === 'T1')!;
+    const sourceAfter = (harness.current.theme.themes as ThemeFixture[]).find((t) => t.id === 'T1')!;
     expect(sourceAfter.background).toEqual({ type: 'color', color: '#123456' });
   });
 
   it('deep-copies gradient stops into an independent array', () => {
     const stops = [{ color: '#000000', position: 0 }, { color: '#ffffff', position: 100 }];
-    const source = makeTheme('T1', 'slides', 'Theme', {
+    const source = makeTheme('T1', 'Theme', {
       background: { type: 'gradient', gradient: { kind: 'linear', angle: 45, stops } },
     });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     const duplicateBackground = duplicate.background as { type: 'gradient'; gradient: { stops: unknown[] } };
     expect(duplicateBackground.gradient.stops).toEqual(stops);
     expect(duplicateBackground.gradient.stops).not.toBe(stops);
   });
 
   it('reuses managed media ids for an image background without duplicating them', () => {
-    const source = makeTheme('T1', 'slides', 'Theme', {
+    const source = makeTheme('T1', 'Theme', {
       background: { type: 'image', mediaAssetId: 'media-1', src: 'file:///bg.png', fit: 'cover' },
     });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.background).toEqual({ type: 'image', mediaAssetId: 'media-1', src: 'file:///bg.png', fit: 'cover' });
   });
 
   it('reuses managed media ids for a video background without duplicating them', () => {
-    const source = makeTheme('T1', 'slides', 'Theme', {
+    const source = makeTheme('T1', 'Theme', {
       background: { type: 'video', mediaAssetId: 'media-2', src: 'file:///bg.mp4', fit: 'contain' },
     });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.background).toEqual({ type: 'video', mediaAssetId: 'media-2', src: 'file:///bg.mp4', fit: 'contain' });
   });
 
   it('produces no background on the duplicate when the source has none', () => {
-    const source = makeTheme('T1', 'slides', 'Theme');
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
     expect(duplicate.background ?? null).toBeNull();
   });
 });
@@ -362,35 +391,35 @@ describe('duplicateTheme — background deep copy', () => {
 
 describe('duplicateTheme — deterministic collision-free naming', () => {
   it('names the first duplicate "<name> Copy"', () => {
-    const source = makeTheme('T1', 'slides', 'Slide Theme');
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Slide Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    expect(duplicateOf(harness.current.theme.themes, 'T1').name).toBe('Slide Theme Copy');
+    expect(duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1').name).toBe('Slide Theme Copy');
   });
 
   it('numbers subsequent duplicates sequentially', () => {
-    const source = makeTheme('T1', 'slides', 'Slide Theme');
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Slide Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
     act(() => harness.current.theme.duplicateTheme('T1'));
     act(() => harness.current.theme.duplicateTheme('T1'));
 
-    const names = harness.current.theme.themes.map((t) => t.name).sort();
+    const names = (harness.current.theme.themes as ThemeFixture[]).map((t) => t.name).sort();
     expect(names).toEqual(['Slide Theme', 'Slide Theme Copy', 'Slide Theme Copy 2', 'Slide Theme Copy 3']);
   });
 
-  it('checks for collisions case-insensitively across all themes, regardless of kind or collection', () => {
-    const source = makeTheme('T1', 'slides', 'Slide Theme', { collectionId: 'col-a' });
-    // A differently-kinded, differently-collectioned theme already occupies the
-    // lowercase form of the name the duplicate would otherwise take.
-    const collider = makeTheme('T2', 'lyrics', 'slide theme copy', { collectionId: 'col-b' });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source, collider] }));
+  it('checks for collisions case-insensitively within the same theme family', () => {
+    const source = makeTheme('T1', 'Slide Theme');
+    // A theme in the same family already occupies the lowercase form of the
+    // name the duplicate would otherwise take.
+    const collider = makeTheme('T2', 'slide theme copy');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source, collider] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
 
-    const duplicate = harness.current.theme.themes.find((t) => t.id !== 'T1' && t.id !== 'T2')!;
+    const duplicate = (harness.current.theme.themes as ThemeFixture[]).find((t) => t.id !== 'T1' && t.id !== 'T2')!;
     expect(duplicate.name).toBe('Slide Theme Copy 2');
   });
 });
@@ -399,33 +428,33 @@ describe('duplicateTheme — deterministic collision-free naming', () => {
 
 describe('duplicateTheme — source isolation after duplication', () => {
   it('does not mutate the source when the duplicate elements are edited', () => {
-    const source = makeTheme('T1', 'slides', 'Theme', { elements: [makeTextElement('e-1', 'Original', 'T1:slide')] });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Theme', { elements: [makeTextElement('e-1', 'Original', 'T1:slide')] });
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
 
     act(() => harness.current.theme.updateThemeDraft({
       id: duplicate.id,
       elements: [makeTextElement(duplicate.elements[0].id, 'Edited', duplicate.slideId)],
     }));
 
-    const sourceAfter = harness.current.theme.themes.find((t) => t.id === 'T1')!;
+    const sourceAfter = (harness.current.theme.themes as ThemeFixture[]).find((t) => t.id === 'T1')!;
     expect(sourceAfter.elements[0].payload).toMatchObject({ text: 'Original' });
   });
 
   it('does not mutate the source when the duplicate background is edited', () => {
-    const source = makeTheme('T1', 'slides', 'Theme', { background: { type: 'color', color: '#000000' } });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Theme', { background: { type: 'color', color: '#000000' } });
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     act(() => harness.current.theme.duplicateTheme('T1'));
-    const duplicate = duplicateOf(harness.current.theme.themes, 'T1');
+    const duplicate = duplicateOf(harness.current.theme.themes as ThemeFixture[], 'T1');
 
     act(() => harness.current.theme.updateThemeDraft({ id: duplicate.id, background: null }));
 
-    const sourceAfter = harness.current.theme.themes.find((t) => t.id === 'T1')!;
+    const sourceAfter = (harness.current.theme.themes as ThemeFixture[]).find((t) => t.id === 'T1')!;
     expect(sourceAfter.background).toEqual({ type: 'color', color: '#000000' });
-    const duplicateAfter = harness.current.theme.themes.find((t) => t.id === duplicate.id)!;
+    const duplicateAfter = (harness.current.theme.themes as ThemeFixture[]).find((t) => t.id === duplicate.id)!;
     expect(duplicateAfter.background).toBeNull();
   });
 });
@@ -434,14 +463,14 @@ describe('duplicateTheme — source isolation after duplication', () => {
 
 describe('duplicateTheme — persistence includes the full background', () => {
   it('sends the deep-copied background through createTheme when the unsaved duplicate is first pushed', async () => {
-    const source = makeTheme('T1', 'slides', 'Theme', { background: { type: 'color', color: '#654321' } });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const source = makeTheme('T1', 'Theme', { background: { type: 'color', color: '#654321' } });
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     const persistedId = 'persisted-duplicate';
-    const createTheme = vi.fn().mockImplementation(async (input: { name: string; kind: ThemeKind; elements?: SlideElement[]; background?: unknown }) => ({
+    const createTheme = vi.fn().mockImplementation(async (input: { name: string; themeType: string; elements?: SlideElement[]; background?: unknown }) => ({
       version: 1,
       upserts: {
-        themes: [{ ...makeTheme(persistedId, input.kind, input.name), elements: input.elements ?? [], background: input.background }],
+        presentationThemes: [{ ...makeTheme(persistedId, input.name), elements: input.elements ?? [], background: input.background }],
       },
       deletes: {},
     }));
@@ -461,30 +490,30 @@ describe('duplicateTheme — persistence includes the full background', () => {
   });
 
   it('persists the duplicate background before applying the resolved database id', async () => {
-    const source = makeTheme('T1', 'slides', 'Theme', {
+    const source = makeTheme('T1', 'Theme', {
       background: { type: 'gradient', gradient: { kind: 'linear', angle: 30, stops: [{ color: '#000000', position: 0 }, { color: '#ffffff', position: 100 }] } },
     });
-    const harness = renderThemeHarness(makeSnapshot({ themes: [source] }));
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [source] }));
 
     const persistedId = 'persisted-duplicate';
-    const createTheme = vi.fn().mockImplementation(async (input: { name: string; kind: ThemeKind; elements?: SlideElement[]; background?: unknown }) => ({
+    const createTheme = vi.fn().mockImplementation(async (input: { name: string; themeType: string; elements?: SlideElement[]; background?: unknown }) => ({
       version: 1,
       upserts: {
-        themes: [{ ...makeTheme(persistedId, input.kind, input.name), elements: input.elements ?? [], background: input.background }],
+        presentationThemes: [{ ...makeTheme(persistedId, input.name), elements: input.elements ?? [], background: input.background }],
       },
       deletes: {},
     }));
-    const applyThemeToDeckItem = vi.fn().mockResolvedValue({ version: 2, upserts: {}, deletes: {} });
-    setCastApi({ createTheme, applyThemeToDeckItem });
+    const applyThemeToItem = vi.fn().mockResolvedValue({ version: 2, upserts: {}, deletes: {} });
+    setCastApi({ createTheme, applyThemeToItem });
 
     act(() => harness.current.theme.duplicateTheme('T1'));
     const temporaryId = harness.current.theme.currentThemeId!;
 
     await act(async () => {
-      await harness.current.theme.applyThemeToTarget(temporaryId, { type: 'deck-item', itemId: 'D1' });
+      await harness.current.theme.applyThemeToTarget(temporaryId, { type: 'item', itemRef: { type: 'presentation', id: 'D1' } });
     });
 
     expect(createTheme).toHaveBeenCalledWith(expect.objectContaining({ background: source.background }));
-    expect(applyThemeToDeckItem).toHaveBeenCalledWith(persistedId, 'D1');
+    expect(applyThemeToItem).toHaveBeenCalledWith(persistedId, { type: 'presentation', id: 'D1' });
   });
 });

@@ -2,7 +2,7 @@ import { createContext, useContext, useMemo, useState, useCallback, useEffect, u
 import type { Id } from '@lumacast/kernel';
 import type { MediaAsset, Overlay, Slide, SlideElement } from '@lumacast/composition';
 import type { ElementUpdateInput } from '@lumacast/protocol';
-import { isLyricDeckItem, applyVisualPayload, readVisualPayload } from '@lumacast/composition';
+import { applyVisualPayload, readVisualPayload } from '@lumacast/composition';
 import { sortElements } from '../../utils/slides';
 import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
@@ -60,14 +60,14 @@ export function selectThumbnailElements(policy: SceneSourcePolicy, effectiveElem
 
 export function CanvasProvider({ children }: { children: ReactNode }) {
   const { mutatePatch, setStatusText } = useCast();
-  const { currentDeckItem } = useNavigation();
+  const { currentItemRef } = useNavigation();
   const { currentSlide, liveSlide, liveElements, slideElementsById } = useSlides();
   const { slides: projectSlides, slideElementsBySlideId: projectSlideElementsBySlideId } = useProjectContent();
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
   const { mediaLayerAsset, videoLayerAsset, videoLayerPlayback, activeOverlays, contentLayerVisible } = usePresentationRenderLayer();
   const { state: { workbenchMode } } = useWorkbench();
   const activeEditorSource = useActiveEditorSource();
-  const isDeckEdit = activeEditorSource.mode === 'deck-editor';
+  const isDeckEdit = activeEditorSource.mode === 'item-editor';
   const isOverlayEdit = activeEditorSource.mode === 'overlay-editor';
   const isThemeEdit = activeEditorSource.mode === 'theme-editor';
 
@@ -91,7 +91,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     const previousSlideId = previousSlideIdRef.current;
     const previousSlideElements = previousSlideElementsRef.current;
 
-    const currentDeckSlideId = activeEditorSource.mode === 'deck-editor' ? activeEditorSource.meta.slideId : null;
+    const currentDeckSlideId = activeEditorSource.mode === 'item-editor' ? activeEditorSource.meta.slideId : null;
 
     if (previousSlideId && (!isDeckEdit || previousSlideId !== currentDeckSlideId)) {
       replaceSlideElements(previousSlideId, previousSlideElements);
@@ -171,7 +171,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const deleteSelected = useCallback(async () => {
     const protectedLyricTextIds = new Set(getProtectedLyricTextSelectionIds(
       effectiveElements, selection.selectedElementIds,
-      isThemeEdit ? activeEditorSource.meta.themeKind === 'lyrics' : isDeckEdit && isLyricDeckItem(currentDeckItem),
+      isThemeEdit ? activeEditorSource.meta.themeType === 'lyric' : isDeckEdit && currentItemRef?.type === 'lyric',
     ));
     const targetIds = getUnlockedSelectedElementIds(effectiveElements, selection.selectedElementIds)
       .filter((id) => !protectedLyricTextIds.has(id));
@@ -189,7 +189,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     setStatusText('Deleted selected object(s)');
     selection.selectElements(selection.selectedElementIds.filter((id) => protectedLyricTextIds.has(id)));
     setDraftElements({});
-  }, [activeEditorSource, currentDeckItem, effectiveElements, history, isDeckEdit, isThemeEdit, mutatePatch, selection, setStatusText]);
+  }, [activeEditorSource, currentItemRef, effectiveElements, history, isDeckEdit, isThemeEdit, mutatePatch, selection, setStatusText]);
 
   const toggleElementVisibility = useCallback(async (id: Id, visible: boolean) => {
     const target = effectiveElements.find((el) => el.id === id);
@@ -236,7 +236,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   }, [effectiveElements, history]);
 
   const { createText, createShape, createFromMedia, createOverlay, toggleOverlay, importMedia, deleteMedia, changeMediaSrc } = useElementCommands({
-    activeEditorSource, currentDeckItem, mutatePatch, setStatusText, pushHistorySnapshot: history.pushHistorySnapshot,
+    activeEditorSource, currentItemRef, mutatePatch, setStatusText, pushHistorySnapshot: history.pushHistorySnapshot,
   });
 
   const cutSelection = useCallback(async () => {

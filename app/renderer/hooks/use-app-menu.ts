@@ -8,7 +8,7 @@ import { useSlides } from '../contexts/slide-context';
 import { useWorkbench } from '../contexts/workbench-context';
 import { hasClipboardContent } from '../contexts/element/use-element-history';
 import { useCommandPalette } from '../features/command-palette/command-palette-context';
-import { useDeckBrowser } from '../features/deck/deck-browser-context';
+import { useDeckBrowser } from '../features/items/deck-browser-context';
 
 function getEditableTarget(target: HTMLElement | null): HTMLElement | null {
   if (!target) return null;
@@ -45,23 +45,23 @@ export function useAppMenu(): void {
   const elements = useElements();
   const workbench = useWorkbench();
   const deckBrowser = useDeckBrowser();
-  const { deckItems } = useProjectContent();
+  const { presentations, lyrics, talks } = useProjectContent();
   const { open: openCommandPalette } = useCommandPalette();
 
   const isEditableTargetFocused = Boolean(getEditableTarget(document.activeElement as HTMLElement | null));
-  const isEditWorkbench = workbench.state.workbenchMode === 'deck-editor'
+  const isEditWorkbench = workbench.state.workbenchMode === 'item-editor'
     || workbench.state.workbenchMode === 'overlay-editor'
     || workbench.state.workbenchMode === 'theme-editor'
     || workbench.state.workbenchMode === 'stage-editor';
   const hasElementSelection = elements.selectedElementIds.length > 0;
+  const itemCount = presentations.length + lyrics.length + talks.length;
 
   const menuState = useMemo<AppMenuState>(() => ({
     workbenchMode: workbench.state.workbenchMode,
     slideBrowserMode: deckBrowser.slideBrowserMode,
     playlistBrowserMode: deckBrowser.playlistBrowserMode,
-    hasCurrentLibrary: navigation.currentLibraryId !== null,
     hasCurrentPlaylist: navigation.currentPlaylistId !== null,
-    hasCurrentDeckItem: navigation.currentDeckItem !== null,
+    hasCurrentItem: navigation.currentItem !== null,
     hasCurrentSlide: slides.currentSlide !== null,
     hasMultipleSlides: slides.slides.length > 1,
     hasEditableSelection: hasElementSelection,
@@ -80,7 +80,7 @@ export function useAppMenu(): void {
     canTakeSlide: slides.currentSlide !== null,
     canGoToPreviousSlide: slides.currentSlideIndex > 0,
     canGoToNextSlide: slides.currentSlideIndex >= 0 && slides.currentSlideIndex < slides.slides.length - 1,
-    canExportWorkspace: deckItems.length > 0,
+    canExportWorkspace: itemCount > 0,
     audienceOutputEnabled: ndi.state.outputState.audience,
     stageOutputEnabled: ndi.state.outputState.stage,
   }), [
@@ -88,13 +88,12 @@ export function useAppMenu(): void {
     cast.canUndo,
     deckBrowser.playlistBrowserMode,
     deckBrowser.slideBrowserMode,
-    deckItems.length,
+    itemCount,
     editableVersion,
     hasElementSelection,
     isEditWorkbench,
     isEditableTargetFocused,
-    navigation.currentDeckItem,
-    navigation.currentLibraryId,
+    navigation.currentItem,
     navigation.currentPlaylistId,
     ndi.state.outputState.audience,
     ndi.state.outputState.stage,
@@ -123,24 +122,25 @@ export function useAppMenu(): void {
   }, [menuState]);
 
   const exportCurrentItem = useCallback(async () => {
-    if (!navigation.currentDeckItem) return;
-    const filePath = await window.castApi.chooseDeckBundleExportPath(navigation.currentDeckItem.title);
+    if (!navigation.currentItemRef || !navigation.currentItem) return;
+    const filePath = await window.castApi.chooseBundleExportPath(navigation.currentItem.title);
     if (!filePath) return;
-    const result = await window.castApi.exportDeckBundle([navigation.currentDeckItem.id], filePath);
+    const result = await window.castApi.exportBundle([navigation.currentItemRef.id], filePath);
     cast.setStatusText(`Exported ${result.itemCount} item${result.itemCount === 1 ? '' : 's'}.`);
-  }, [cast, navigation.currentDeckItem]);
+  }, [cast, navigation.currentItem, navigation.currentItemRef]);
 
   const exportWorkspace = useCallback(async () => {
-    if (deckItems.length === 0) return;
-    const filePath = await window.castApi.chooseDeckBundleExportPath('cast-workspace');
+    if (itemCount === 0) return;
+    const filePath = await window.castApi.chooseBundleExportPath('cast-workspace');
     if (!filePath) return;
-    const result = await window.castApi.exportDeckBundle(
-      deckItems.map((item) => item.id),
+    const allItemIds = [...presentations, ...lyrics, ...talks].map((item) => item.id);
+    const result = await window.castApi.exportBundle(
+      allItemIds,
       filePath,
       { includeAllThemes: true, includeOverlays: true, includeStages: true },
     );
     cast.setStatusText(`Exported ${result.itemCount} item${result.itemCount === 1 ? '' : 's'} plus workspace assets.`);
-  }, [cast, deckItems]);
+  }, [cast, itemCount, lyrics, presentations, talks]);
 
   const handleMenuCommand = useCallback(async (commandId: AppMenuCommandId) => {
     switch (commandId) {
@@ -150,14 +150,11 @@ export function useAppMenu(): void {
       case 'file.newLyric':
         await navigation.createEmptyLyric();
         return;
-      case 'file.newLibrary':
-        await navigation.createLibrary();
-        return;
       case 'file.newPlaylist':
         await navigation.createPlaylist();
         return;
-      case 'file.newGroup':
-        await navigation.createGroup();
+      case 'file.newSeparator':
+        await navigation.createSeparator();
         return;
       case 'file.newSlide':
         await slides.createSlide();
@@ -231,7 +228,7 @@ export function useAppMenu(): void {
         workbench.actions.setWorkbenchMode('show');
         return;
       case 'view.mode.deckEditor':
-        workbench.actions.setWorkbenchMode('deck-editor');
+        workbench.actions.setWorkbenchMode('item-editor');
         return;
       case 'view.mode.overlayEditor':
         workbench.actions.setWorkbenchMode('overlay-editor');

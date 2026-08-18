@@ -1,108 +1,102 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { getSlideDeckItemId } from '@lumacast/composition';
+import { getSlideItemRef } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
-import type { LibraryPlaylistBundle } from '@lumacast/composition';
+import type { ItemRef, PlaylistRow } from '@lumacast/composition';
 import { useCast } from './app-context';
-import { useProjectContent } from './use-project-content';
+import { itemRefKey, useProjectContent } from './use-project-content';
 import { useThemeEditor } from './asset-editor/asset-editor-context';
-import type { NavigationActionsValue, NavigationContextValue, NavigationStateValue } from '../types/navigation-context-types';
-import { findCreatedId, findFirstPlaylistEntryByDeckItemId, findPlaylistEntryById, resolveCurrentDeckItemId, resolveCurrentPlaylistEntryId, resolvePinnedLyricDeckItemId } from '../utils/navigation-context-utils';
+import type { ItemCreateOptions, NavigationActionsValue, NavigationContextValue, NavigationStateValue } from '../types/navigation-context-types';
+import {
+  findCreatedId,
+  findFirstPlaylistRowByItemRef,
+  findPlaylistRowById,
+  itemRefsEqual,
+  resolveCurrentItemRef,
+  resolveCurrentPlaylistRowId,
+  resolvePinnedLyricItemRef,
+} from '../utils/navigation-context-utils';
+
+// #219 item-model refactor decision D9: no libraries, no `PlaylistTree`
+// hierarchy — a playlist's rows come straight off the flat snapshot
+// (`playlists` + `playlistEntries`), and selection is keyed on a typed
+// `ItemRef` rather than a bare id drawn from a merged deck-item id space.
 
 type ContentBrowseSource = 'playlist' | 'project';
-
-function getGroupEntryIds(snapshot: { libraryBundles: LibraryPlaylistBundle[] } | null | undefined, groupId: Id): Id[] {
-  for (const bundle of snapshot?.libraryBundles ?? []) {
-    for (const playlist of bundle.playlists) {
-      const group = playlist.groups.find((entry) => entry.group.id === groupId);
-      if (group) return group.entries.map((entry) => entry.entry.id);
-    }
-  }
-
-  return [];
-}
 
 const NavigationStateContext = createContext<NavigationStateValue | null>(null);
 const NavigationActionsContext = createContext<NavigationActionsValue | null>(null);
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const { snapshot, mutatePatch, runOperation, setStatusText } = useCast();
-  const { deckItems, deckItemsById, slides } = useProjectContent();
+  const { presentationsById, lyricsById, talksById, slides, resolveItemRef } = useProjectContent();
   const { resolveThemeIdForMutation } = useThemeEditor();
 
-  const [currentLibraryId, setCurrentLibraryId] = useState<Id | null>(null);
   const [currentPlaylistId, setCurrentPlaylistIdState] = useState<Id | null>(null);
   const [currentPlaylistEntryId, setCurrentPlaylistEntryId] = useState<Id | null>(null);
-  const [currentPlaylistDeckItemId, setCurrentPlaylistDeckItemId] = useState<Id | null>(null);
-  const [currentDrawerDeckItemId, setCurrentDrawerDeckItemId] = useState<Id | null>(null);
+  const [currentPlaylistItemRef, setCurrentPlaylistItemRef] = useState<ItemRef | null>(null);
+  const [currentDrawerItemRef, setCurrentDrawerItemRef] = useState<ItemRef | null>(null);
   const [currentOutputPlaylistEntryId, setCurrentOutputPlaylistEntryId] = useState<Id | null>(null);
-  const [currentOutputDeckItemId, setCurrentOutputDeckItemId] = useState<Id | null>(null);
+  const [currentOutputItemRef, setCurrentOutputItemRef] = useState<ItemRef | null>(null);
   const [deckBrowseSource, setContentBrowseSource] = useState<ContentBrowseSource>('playlist');
   const [outputArmVersion, setOutputArmVersion] = useState(0);
   const [recentlyCreatedId, setRecentlyCreatedId] = useState<Id | null>(null);
   // Holds in-flight create operations keyed by their resolved input so a
   // repeated invocation awaits the same promise instead of creating twice.
-  const createDeckItemPromiseRef = useRef(new Map<string, Promise<void>>());
+  const createItemPromiseRef = useRef(new Map<string, Promise<void>>());
 
+  const itemExists = useCallback((ref: ItemRef): boolean => {
+    if (ref.type === 'presentation') return presentationsById.has(ref.id);
+    if (ref.type === 'lyric') return lyricsById.has(ref.id);
+    return talksById.has(ref.id);
+  }, [presentationsById, lyricsById, talksById]);
+
+  const currentPlaylistRows = useMemo<PlaylistRow[]>(() => {
+    if (!snapshot || !currentPlaylistId) return [];
+    return snapshot.playlistEntries
+      .filter((row) => row.playlistId === currentPlaylistId)
+      .slice()
+      .sort((left, right) => left.order - right.order);
+  }, [snapshot, currentPlaylistId]);
+
+  // Fresh-install / no-selection recovery: picks the first playlist and, once
+  // one is selected, the first still-valid item reference for drawer/playlist
+  // browsing — safely on an empty database (no playlists, no items yet).
   useEffect(() => {
-    if (!snapshot || snapshot.libraries.length === 0) return;
-    if (!currentLibraryId || !snapshot.libraries.some((library) => library.id === currentLibraryId)) {
-      setCurrentLibraryId(snapshot.libraries[0].id);
+    if (!snapshot) return;
+
+    if (!currentPlaylistId || !snapshot.playlists.some((playlist) => playlist.id === currentPlaylistId)) {
+      const firstPlaylistId = snapshot.playlists[0]?.id ?? null;
+      if (firstPlaylistId !== currentPlaylistId) {
+        setCurrentPlaylistIdState(firstPlaylistId);
+      }
       return;
     }
 
-    const bundle = snapshot.libraryBundles.find((entry) => entry.library.id === currentLibraryId);
-    if (!bundle) return;
+    const rows = snapshot.playlistEntries
+      .filter((row) => row.playlistId === currentPlaylistId)
+      .slice()
+      .sort((left, right) => left.order - right.order);
 
-    const nextPlaylistId = (!currentPlaylistId || !bundle.playlists.some((tree) => tree.playlist.id === currentPlaylistId))
-      ? bundle.playlists[0]?.playlist.id ?? null
-      : currentPlaylistId;
-    if (nextPlaylistId !== currentPlaylistId) {
-      setCurrentPlaylistIdState(nextPlaylistId);
+    const nextDrawerItemRef = resolveCurrentItemRef(currentDrawerItemRef, itemExists);
+    if (!itemRefsEqual(nextDrawerItemRef, currentDrawerItemRef)) {
+      setCurrentDrawerItemRef(nextDrawerItemRef);
     }
 
-    const selectedTree = nextPlaylistId
-      ? bundle.playlists.find((tree) => tree.playlist.id === nextPlaylistId) ?? null
-      : null;
-
-    const nextDrawerDeckItemId = resolveCurrentDeckItemId(
-      currentDrawerDeckItemId,
-      deckItems.map((item) => item.id),
-    );
-    if (nextDrawerDeckItemId !== currentDrawerDeckItemId) {
-      setCurrentDrawerDeckItemId(nextDrawerDeckItemId);
-    }
-
-    const nextPlaylistDeckItemId = resolvePinnedLyricDeckItemId(
-      currentPlaylistDeckItemId,
-      selectedTree,
-      deckItemsById,
-    );
-    const nextPlaylistEntryId = resolveCurrentPlaylistEntryId(
-      currentPlaylistEntryId,
-      selectedTree,
-      nextPlaylistDeckItemId,
-    );
+    const nextPlaylistItemRef = resolvePinnedLyricItemRef(currentPlaylistItemRef, rows, itemExists);
+    const nextPlaylistEntryId = resolveCurrentPlaylistRowId(currentPlaylistEntryId, rows, nextPlaylistItemRef);
     if (nextPlaylistEntryId !== currentPlaylistEntryId) {
       setCurrentPlaylistEntryId(nextPlaylistEntryId);
     }
-    if (nextPlaylistDeckItemId !== currentPlaylistDeckItemId) {
-      setCurrentPlaylistDeckItemId(nextPlaylistDeckItemId);
+    if (!itemRefsEqual(nextPlaylistItemRef, currentPlaylistItemRef)) {
+      setCurrentPlaylistItemRef(nextPlaylistItemRef);
     }
 
-    if (currentOutputDeckItemId !== null) {
-      const nextOutputDeckItemId = resolvePinnedLyricDeckItemId(
-        currentOutputDeckItemId,
-        selectedTree,
-        deckItemsById,
-      );
-      if (nextOutputDeckItemId !== currentOutputDeckItemId) {
-        setCurrentOutputDeckItemId(nextOutputDeckItemId);
+    if (currentOutputItemRef !== null) {
+      const nextOutputItemRef = resolvePinnedLyricItemRef(currentOutputItemRef, rows, itemExists);
+      if (!itemRefsEqual(nextOutputItemRef, currentOutputItemRef)) {
+        setCurrentOutputItemRef(nextOutputItemRef);
       }
-      const nextOutputEntryId = resolveCurrentPlaylistEntryId(
-        currentOutputPlaylistEntryId,
-        selectedTree,
-        nextOutputDeckItemId,
-      );
+      const nextOutputEntryId = resolveCurrentPlaylistRowId(currentOutputPlaylistEntryId, rows, nextOutputItemRef);
       if (nextOutputEntryId !== currentOutputPlaylistEntryId) {
         setCurrentOutputPlaylistEntryId(nextOutputEntryId);
       }
@@ -110,48 +104,35 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
       setCurrentOutputPlaylistEntryId(null);
     }
 
-    if (deckBrowseSource === 'project' && nextDrawerDeckItemId === null) {
+    if (deckBrowseSource === 'project' && nextDrawerItemRef === null) {
       setContentBrowseSource('playlist');
     }
   }, [
     deckBrowseSource,
-    deckItems,
-    deckItemsById,
-    currentDrawerDeckItemId,
-    currentLibraryId,
+    itemExists,
+    currentDrawerItemRef,
     currentOutputPlaylistEntryId,
-    currentOutputDeckItemId,
+    currentOutputItemRef,
     currentPlaylistEntryId,
-    currentPlaylistDeckItemId,
+    currentPlaylistItemRef,
     currentPlaylistId,
     snapshot,
   ]);
 
-  const currentDeckItemId = useMemo(() => (
-    deckBrowseSource === 'project' ? currentDrawerDeckItemId : currentPlaylistDeckItemId
-  ), [deckBrowseSource, currentDrawerDeckItemId, currentPlaylistDeckItemId]);
+  const currentItemRef = useMemo(() => (
+    deckBrowseSource === 'project' ? currentDrawerItemRef : currentPlaylistItemRef
+  ), [deckBrowseSource, currentDrawerItemRef, currentPlaylistItemRef]);
 
-  const currentLibraryBundle = useMemo<LibraryPlaylistBundle | null>(
-    () => (!snapshot || !currentLibraryId ? null : snapshot.libraryBundles.find((bundle) => bundle.library.id === currentLibraryId) ?? null),
-    [currentLibraryId, snapshot],
-  );
+  const currentItem = useMemo(() => resolveItemRef(currentItemRef), [resolveItemRef, currentItemRef]);
+  const currentPlaylistItem = useMemo(() => resolveItemRef(currentPlaylistItemRef), [resolveItemRef, currentPlaylistItemRef]);
 
-  const currentDeckItem = useMemo(
-    () => (currentDeckItemId ? deckItemsById.get(currentDeckItemId) ?? null : null),
-    [deckItemsById, currentDeckItemId],
-  );
-
-  const currentPlaylistDeckItem = useMemo(
-    () => (currentPlaylistDeckItemId ? deckItemsById.get(currentPlaylistDeckItemId) ?? null : null),
-    [deckItemsById, currentPlaylistDeckItemId],
-  );
-
-  const slideCountByDeckItem = useMemo(() => {
-    const counts = new Map<Id, number>();
+  const slideCountByItem = useMemo(() => {
+    const counts = new Map<string, number>();
     for (const slide of slides) {
-      const itemId = getSlideDeckItemId(slide);
-      if (!itemId) continue;
-      counts.set(itemId, (counts.get(itemId) ?? 0) + 1);
+      const ref = getSlideItemRef(slide);
+      if (!ref) continue;
+      const key = itemRefKey(ref);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
     }
     return counts;
   }, [slides]);
@@ -160,24 +141,12 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
 
   const clearContentBrowser = useCallback(() => {
     setCurrentPlaylistEntryId(null);
-    setCurrentPlaylistDeckItemId(null);
-    setCurrentDrawerDeckItemId(null);
+    setCurrentPlaylistItemRef(null);
+    setCurrentDrawerItemRef(null);
     setCurrentOutputPlaylistEntryId(null);
-    setCurrentOutputDeckItemId(null);
+    setCurrentOutputItemRef(null);
     setContentBrowseSource('playlist');
   }, []);
-
-  const selectLibrary = useCallback((libraryId: Id) => {
-    if (!snapshot) return;
-    const bundle = snapshot.libraryBundles.find((entry) => entry.library.id === libraryId);
-    if (!bundle) return;
-    if (libraryId !== currentLibraryId) {
-      clearContentBrowser();
-    }
-    setCurrentLibraryId(libraryId);
-    setCurrentPlaylistIdState(bundle.playlists[0]?.playlist.id ?? null);
-    setStatusText(`Switched to ${bundle.library.name}`);
-  }, [clearContentBrowser, currentLibraryId, setStatusText, snapshot]);
 
   const setCurrentPlaylistId = useCallback((playlistId: Id | null) => {
     if (playlistId !== currentPlaylistId) {
@@ -186,140 +155,74 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setCurrentPlaylistIdState(playlistId);
   }, [clearContentBrowser, currentPlaylistId]);
 
-  const selectPlaylistEntry = useCallback((entryId: Id) => {
-    const entry = findPlaylistEntryById(
-      currentLibraryBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId) ?? null,
-      entryId,
-    );
-    if (!entry) return;
-    setCurrentPlaylistEntryId(entry.entryId);
-    setCurrentPlaylistDeckItemId(entry.itemId);
+  const selectPlaylistEntry = useCallback((rowId: Id) => {
+    const found = findPlaylistRowById(currentPlaylistRows, rowId);
+    if (!found) return;
+    setCurrentPlaylistEntryId(found.rowId);
+    setCurrentPlaylistItemRef(found.itemRef);
     setContentBrowseSource('playlist');
     setStatusText('Opened item');
-  }, [currentLibraryBundle, currentPlaylistId, setStatusText]);
+  }, [currentPlaylistRows, setStatusText]);
 
-  const selectPlaylistDeckItem = useCallback((itemId: Id) => {
-    const entry = findFirstPlaylistEntryByDeckItemId(
-      currentLibraryBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId) ?? null,
-      itemId,
-    );
-    setCurrentPlaylistEntryId(entry?.entryId ?? null);
-    setCurrentPlaylistDeckItemId(itemId);
+  const selectPlaylistItem = useCallback((itemRef: ItemRef) => {
+    const found = findFirstPlaylistRowByItemRef(currentPlaylistRows, itemRef);
+    setCurrentPlaylistEntryId(found?.rowId ?? null);
+    setCurrentPlaylistItemRef(itemRef);
     setContentBrowseSource('playlist');
     setStatusText('Opened item');
-  }, [currentLibraryBundle, currentPlaylistId, setStatusText]);
+  }, [currentPlaylistRows, setStatusText]);
 
-  const browseDeckItem = useCallback((itemId: Id) => {
-    setCurrentDrawerDeckItemId(itemId);
+  const browseItem = useCallback((itemRef: ItemRef) => {
+    setCurrentDrawerItemRef(itemRef);
     setContentBrowseSource('project');
     setStatusText('Browsing item');
   }, [setStatusText]);
 
-  const armOutputDeckItem = useCallback((itemId: Id) => {
-    const entry = findFirstPlaylistEntryByDeckItemId(
-      currentLibraryBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId) ?? null,
-      itemId,
-    );
-    setCurrentOutputPlaylistEntryId(entry?.entryId ?? null);
-    setCurrentOutputDeckItemId(itemId);
+  const armOutputItem = useCallback((itemRef: ItemRef) => {
+    const found = findFirstPlaylistRowByItemRef(currentPlaylistRows, itemRef);
+    setCurrentOutputPlaylistEntryId(found?.rowId ?? null);
+    setCurrentOutputItemRef(itemRef);
     setOutputArmVersion((current) => current + 1);
-  }, [currentLibraryBundle, currentPlaylistId]);
+  }, [currentPlaylistRows]);
 
-  const armOutputPlaylistEntry = useCallback((entryId: Id) => {
-    const entry = findPlaylistEntryById(
-      currentLibraryBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId) ?? null,
-      entryId,
-    );
-    if (!entry) return;
-    setCurrentOutputPlaylistEntryId(entry.entryId);
-    setCurrentOutputDeckItemId(entry.itemId);
+  const armOutputPlaylistEntry = useCallback((rowId: Id) => {
+    const found = findPlaylistRowById(currentPlaylistRows, rowId);
+    if (!found) return;
+    setCurrentOutputPlaylistEntryId(found.rowId);
+    setCurrentOutputItemRef(found.itemRef);
     setOutputArmVersion((current) => current + 1);
-  }, [currentLibraryBundle, currentPlaylistId]);
+  }, [currentPlaylistRows]);
 
-  const clearOutputDeckItem = useCallback(() => {
+  const clearOutputItem = useCallback(() => {
     setCurrentOutputPlaylistEntryId(null);
-    setCurrentOutputDeckItemId(null);
+    setCurrentOutputItemRef(null);
   }, []);
 
-  const createLibrary = useCallback(async () => {
-    const previousIds = new Set(snapshot?.libraries.map((library) => library.id) ?? []);
-    const next = await mutatePatch(() => window.castApi.createLibrary('New Library'));
-    setStatusText('Created library');
-    const createdId = findCreatedId(previousIds, next.libraries.map((library) => library.id));
-    if (createdId) setRecentlyCreatedId(createdId);
-  }, [mutatePatch, setStatusText, snapshot]);
-
   const createPlaylist = useCallback(async () => {
-    if (!currentLibraryId) return;
-    const previousIds = new Set(currentLibraryBundle?.playlists.map((tree) => tree.playlist.id) ?? []);
-    const next = await mutatePatch(() => window.castApi.createPlaylist(currentLibraryId, 'New Playlist'));
+    const previousIds = new Set(snapshot?.playlists.map((playlist) => playlist.id) ?? []);
+    const next = await mutatePatch(() => window.castApi.createPlaylist('New Playlist'));
     setStatusText('Created playlist');
-    const updatedBundle = next.libraryBundles.find((bundle) => bundle.library.id === currentLibraryId);
-    const createdId = findCreatedId(previousIds, updatedBundle?.playlists.map((tree) => tree.playlist.id) ?? []);
+    const createdId = findCreatedId(previousIds, next.playlists.map((playlist) => playlist.id));
     if (createdId) {
       setCurrentPlaylistId(createdId);
       setRecentlyCreatedId(createdId);
     }
-  }, [currentLibraryBundle, currentLibraryId, mutatePatch, setCurrentPlaylistId, setStatusText]);
+  }, [mutatePatch, setCurrentPlaylistId, setStatusText, snapshot]);
 
-  // Legacy app-menu creation (File > New Presentation/Lyric) routes through
-  // the same atomic createDeckItemWithTheme operation as the create dialog,
-  // with explicit nulls for collection/theme/group — no separate
-  // owner-then-slide sequence.
-  const createPresentation = useCallback(async () => {
-    await runOperation('Creating deck...', async () => {
-      const result = await window.castApi.createDeckItemWithTheme({
-        type: 'presentation',
-        title: 'New Presentation',
-        collectionId: null,
-        themeId: null,
-        groupId: null,
-      });
-      await mutatePatch(async () => result.patch);
-      setCurrentDrawerDeckItemId(result.itemId);
-      setContentBrowseSource('project');
-      setRecentlyCreatedId(result.itemId);
-      setStatusText('Created deck');
-    });
-  }, [mutatePatch, runOperation, setStatusText]);
-
-  const createEmptyLyric = useCallback(async () => {
-    await runOperation('Creating lyric...', async () => {
-      const result = await window.castApi.createDeckItemWithTheme({
-        type: 'lyric',
-        title: 'New Lyric',
-        collectionId: null,
-        themeId: null,
-        groupId: null,
-      });
-      await mutatePatch(async () => result.patch);
-      setCurrentDrawerDeckItemId(result.itemId);
-      setContentBrowseSource('project');
-      setRecentlyCreatedId(result.itemId);
-      setStatusText('Created lyric');
-    });
-  }, [mutatePatch, runOperation, setStatusText]);
-
-  // Granular create flow used by the create-deck-item dialog. Creates the deck item
-  // with a chosen name, then optionally applies a theme and adds it to a group
-  // — all atomic from the user's perspective (one click of the dialog's New button).
-  const createDeckItem = useCallback(async (input: {
-    kind: 'presentation' | 'lyric' | 'talk';
-    name: string;
-    themeId?: Id;
-    groupId?: Id;
-  }) => {
-    const dedupeKey = JSON.stringify([input.kind, input.name, input.themeId ?? null, input.groupId ?? null]);
-    const inFlight = createDeckItemPromiseRef.current.get(dedupeKey);
+  // Atomic item creation used by both the legacy app-menu commands (File >
+  // New Presentation/Lyric) and the create-item dialog: resolves any staged
+  // theme first, then creates via the single `createItem` operation, which
+  // returns the created id directly (never inferred by diffing arrays).
+  const createItem = useCallback(async (input: ItemCreateOptions) => {
+    const dedupeKey = JSON.stringify([input.type, input.name, input.themeId ?? null, input.playlistId ?? null, input.position ?? null]);
+    const inFlight = createItemPromiseRef.current.get(dedupeKey);
     if (inFlight) return inFlight;
 
     const run = (async () => {
-      const trimmedName = input.name.trim() || (input.kind === 'lyric' ? 'New Lyric' : input.kind === 'talk' ? 'New Talk' : 'New Presentation');
-      const labelKind = input.kind === 'lyric' ? 'lyric' : input.kind === 'talk' ? 'talk' : 'deck';
+      const trimmedName = input.name.trim() || (input.type === 'lyric' ? 'New Lyric' : input.type === 'talk' ? 'New Talk' : 'New Presentation');
+      const labelType = input.type === 'lyric' ? 'lyric' : input.type === 'talk' ? 'talk' : 'deck';
 
-      await runOperation(`Creating ${labelKind}...`, async () => {
-        // Resolve the theme ID before creating the deck item to ensure
-        // any pending staged changes are persisted and temporary IDs are resolved.
+      await runOperation(`Creating ${labelType}...`, async () => {
         let resolvedThemeId: Id | null = null;
         if (input.themeId) {
           resolvedThemeId = await resolveThemeIdForMutation(input.themeId);
@@ -328,84 +231,79 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        // Use the atomic createDeckItemWithTheme operation. It returns the
-        // created owner's id directly, so it never needs to be inferred by
-        // diffing entity arrays before/after the mutation.
-        const result = await window.castApi.createDeckItemWithTheme({
-          type: input.kind,
+        const result = await window.castApi.createItem({
+          type: input.type,
           title: trimmedName,
-          collectionId: null,
           themeId: resolvedThemeId,
-          groupId: input.groupId ?? null,
+          playlistId: input.playlistId ?? null,
+          position: input.position,
         });
         await mutatePatch(async () => result.patch);
 
-        setCurrentDrawerDeckItemId(result.itemId);
+        setCurrentDrawerItemRef({ type: input.type, id: result.itemId });
         setContentBrowseSource('project');
         setRecentlyCreatedId(result.itemId);
-        setStatusText(`Created ${labelKind}`);
+        setStatusText(`Created ${labelType}`);
       });
     })();
 
-    createDeckItemPromiseRef.current.set(dedupeKey, run);
+    createItemPromiseRef.current.set(dedupeKey, run);
     try {
       await run;
     } finally {
-      createDeckItemPromiseRef.current.delete(dedupeKey);
+      createItemPromiseRef.current.delete(dedupeKey);
     }
   }, [mutatePatch, resolveThemeIdForMutation, runOperation, setStatusText]);
 
-  const createGroup = useCallback(async () => {
+  const createPresentation = useCallback(async () => {
+    await createItem({ type: 'presentation', name: 'New Presentation' });
+  }, [createItem]);
+
+  const createEmptyLyric = useCallback(async () => {
+    await createItem({ type: 'lyric', name: 'New Lyric' });
+  }, [createItem]);
+
+  const createSeparator = useCallback(async () => {
     if (!currentPlaylistId) return;
-    const currentTree = currentLibraryBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId);
-    const previousIds = new Set(currentTree?.groups.map((group) => group.group.id) ?? []);
-    const next = await mutatePatch(() => window.castApi.createPlaylistGroup(currentPlaylistId, 'New Group'));
-    setStatusText('Created group');
-    const updatedBundle = next.libraryBundles.find((bundle) => bundle.library.id === currentLibraryId);
-    const updatedTree = updatedBundle?.playlists.find((tree) => tree.playlist.id === currentPlaylistId);
-    const createdId = findCreatedId(previousIds, updatedTree?.groups.map((group) => group.group.id) ?? []);
+    const previousIds = new Set(currentPlaylistRows.filter((row) => row.kind === 'separator').map((row) => row.id));
+    const next = await mutatePatch(() => window.castApi.createSeparator(currentPlaylistId, 'New Separator'));
+    setStatusText('Created separator');
+    const nextIds = next.playlistEntries
+      .filter((row) => row.playlistId === currentPlaylistId && row.kind === 'separator')
+      .map((row) => row.id);
+    const createdId = findCreatedId(previousIds, nextIds);
     if (createdId) setRecentlyCreatedId(createdId);
-  }, [currentLibraryBundle, currentLibraryId, currentPlaylistId, mutatePatch, setStatusText]);
+  }, [currentPlaylistId, currentPlaylistRows, mutatePatch, setStatusText]);
 
-  const addDeckItemToGroup = useCallback(async (groupId: Id) => {
-    if (!currentDeckItemId || !currentPlaylistId) return;
-    await mutatePatch(() => window.castApi.addDeckItemToGroup(currentPlaylistId, groupId, currentDeckItemId));
-    setStatusText('Added item to group');
-  }, [currentDeckItemId, currentPlaylistId, mutatePatch, setStatusText]);
-
-  const addDeckItemToGroupAt = useCallback(async (groupId: Id, itemId: Id, newOrder: number) => {
-    if (!currentPlaylistId || !deckItemsById.has(itemId)) return null;
-
-    const previousEntryIds = new Set(getGroupEntryIds(snapshot, groupId));
-    const afterAdd = await mutatePatch(() => window.castApi.addDeckItemToGroup(currentPlaylistId, groupId, itemId));
-    const createdEntryId = findCreatedId(previousEntryIds, getGroupEntryIds(afterAdd, groupId));
-    if (!createdEntryId) {
-      setStatusText('Added item to group');
-      return null;
-    }
-
-    await mutatePatch(() => window.castApi.movePlaylistEntryTo(createdEntryId, groupId, newOrder));
-    setCurrentPlaylistEntryId(createdEntryId);
-    setCurrentPlaylistDeckItemId(itemId);
-    setContentBrowseSource('playlist');
-    setStatusText('Added item to group');
-    return createdEntryId;
-  }, [currentPlaylistId, deckItemsById, mutatePatch, setStatusText, snapshot]);
-
-  const moveCurrentDeckItemToGroup = useCallback(async (groupId: Id | null) => {
-    if (!currentDeckItemId || !currentPlaylistId) return;
-    await mutatePatch(() => window.castApi.moveDeckItemToGroup(currentPlaylistId, currentDeckItemId, groupId));
-    setStatusText(groupId ? 'Moved item to group' : 'Removed item from playlist');
-  }, [currentDeckItemId, currentPlaylistId, mutatePatch, setStatusText]);
-
-  const renameLibrary = useCallback(async (id: Id, name: string) => {
-    await mutatePatch(() => window.castApi.renameLibrary(id, name));
-    setStatusText(`Renamed library: ${name}`);
+  const renameSeparator = useCallback(async (id: Id, label: string) => {
+    await mutatePatch(() => window.castApi.renameSeparator(id, label));
+    setStatusText(`Renamed separator: ${label}`);
   }, [mutatePatch, setStatusText]);
 
-  const reorderLibrary = useCallback(async (libraryId: Id, newOrder: number) => {
-    await mutatePatch(() => window.castApi.setLibraryOrder(libraryId, newOrder));
-    setStatusText('Reordered library');
+  const setSeparatorColor = useCallback(async (id: Id, colorKey: string | null) => {
+    await mutatePatch(() => window.castApi.setSeparatorColor(id, colorKey));
+    setStatusText('Updated separator color');
+  }, [mutatePatch, setStatusText]);
+
+  const addItemToPlaylist = useCallback(async (playlistId: Id, itemRef: ItemRef, position?: number): Promise<Id | null> => {
+    const previousIds = new Set(
+      snapshot?.playlistEntries.filter((row) => row.playlistId === playlistId).map((row) => row.id) ?? [],
+    );
+    const next = await mutatePatch(() => window.castApi.addItemToPlaylist(playlistId, itemRef, position));
+    const nextIds = next.playlistEntries.filter((row) => row.playlistId === playlistId).map((row) => row.id);
+    const createdId = findCreatedId(previousIds, nextIds);
+    setStatusText('Added item to playlist');
+    if (createdId && playlistId === currentPlaylistId) {
+      setCurrentPlaylistEntryId(createdId);
+      setCurrentPlaylistItemRef(itemRef);
+      setContentBrowseSource('playlist');
+    }
+    return createdId;
+  }, [currentPlaylistId, mutatePatch, setStatusText, snapshot]);
+
+  const renamePlaylist = useCallback(async (id: Id, name: string) => {
+    await mutatePatch(() => window.castApi.renamePlaylist(id, name));
+    setStatusText(`Renamed playlist: ${name}`);
   }, [mutatePatch, setStatusText]);
 
   const reorderPlaylist = useCallback(async (playlistId: Id, newOrder: number) => {
@@ -413,134 +311,129 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     setStatusText('Reordered playlist');
   }, [mutatePatch, setStatusText]);
 
-  const reorderGroup = useCallback(async (groupId: Id, newOrder: number) => {
-    await mutatePatch(() => window.castApi.setPlaylistGroupOrder(groupId, newOrder));
-    setStatusText('Reordered group');
-  }, [mutatePatch, setStatusText]);
-
-  const movePlaylistEntry = useCallback(async (entryId: Id, groupId: Id, newOrder: number) => {
-    await mutatePatch(() => window.castApi.movePlaylistEntryTo(entryId, groupId, newOrder));
+  const movePlaylistRow = useCallback(async (rowId: Id, newOrder: number) => {
+    await mutatePatch(() => window.castApi.movePlaylistRow(rowId, newOrder));
     setStatusText('Moved item');
   }, [mutatePatch, setStatusText]);
 
-  const movePlaylistEntryDirection = useCallback(async (entryId: Id, direction: 'up' | 'down') => {
-    await mutatePatch(() => window.castApi.movePlaylistEntry(entryId, direction));
+  const removePlaylistRow = useCallback(async (rowId: Id) => {
+    await mutatePatch(() => window.castApi.removePlaylistRow(rowId));
+    setStatusText('Removed item from playlist');
+  }, [mutatePatch, setStatusText]);
+
+  const renameItem = useCallback(async (itemRef: ItemRef, title: string) => {
+    if (itemRef.type === 'presentation') {
+      await mutatePatch(() => window.castApi.renamePresentation(itemRef.id, title));
+    } else if (itemRef.type === 'talk') {
+      await mutatePatch(() => window.castApi.renameTalk(itemRef.id, title));
+    } else {
+      await mutatePatch(() => window.castApi.renameLyric(itemRef.id, title));
+    }
+    setStatusText(`Renamed item: ${title}`);
+  }, [mutatePatch, setStatusText]);
+
+  const deleteItem = useCallback(async (itemRef: ItemRef) => {
+    if (itemRef.type === 'presentation') {
+      await mutatePatch(() => window.castApi.deletePresentation(itemRef.id));
+    } else if (itemRef.type === 'talk') {
+      await mutatePatch(() => window.castApi.deleteTalk(itemRef.id));
+    } else {
+      await mutatePatch(() => window.castApi.deleteLyric(itemRef.id));
+    }
+    setStatusText('Deleted item');
+  }, [mutatePatch, setStatusText]);
+
+  const moveItem = useCallback(async (itemRef: ItemRef, direction: 'up' | 'down') => {
+    if (itemRef.type === 'presentation') {
+      await mutatePatch(() => window.castApi.movePresentation(itemRef.id, direction));
+    } else if (itemRef.type === 'talk') {
+      await mutatePatch(() => window.castApi.moveTalk(itemRef.id, direction));
+    } else {
+      await mutatePatch(() => window.castApi.moveLyric(itemRef.id, direction));
+    }
     setStatusText(direction === 'up' ? 'Moved item up' : 'Moved item down');
   }, [mutatePatch, setStatusText]);
 
-  const removePlaylistEntry = useCallback(async (entryId: Id) => {
-    await mutatePatch(() => window.castApi.movePlaylistEntryToGroup(entryId, null));
-    setStatusText('Removed item from group');
-  }, [mutatePatch, setStatusText]);
-
-  const renamePlaylist = useCallback(async (id: Id, name: string) => {
-    await mutatePatch(() => window.castApi.renamePlaylist(id, name));
-    setStatusText(`Renamed playlist: ${name}`);
-  }, [mutatePatch, setStatusText]);
-
-  const renameDeckItem = useCallback(async (id: Id, title: string) => {
-    const item = deckItemsById.get(id);
-    if (!item) return;
-    if (item.type === 'presentation') {
-      await mutatePatch(() => window.castApi.renamePresentation(id, title));
-    } else if (item.type === 'talk') {
-      await mutatePatch(() => window.castApi.renameTalk(id, title));
-    } else {
-      await mutatePatch(() => window.castApi.renameLyric(id, title));
-    }
-    setStatusText(`Renamed item: ${title}`);
-  }, [deckItemsById, mutatePatch, setStatusText]);
-
   const stateValue = useMemo<NavigationStateValue>(() => ({
-    currentLibraryId,
     currentPlaylistId,
+    currentPlaylistRows,
     currentPlaylistEntryId,
-    currentDeckItemId,
-    currentPlaylistDeckItemId,
-    currentDrawerDeckItemId,
+    currentItemRef,
+    currentPlaylistItemRef,
+    currentDrawerItemRef,
     currentOutputPlaylistEntryId,
-    currentOutputDeckItemId,
-    currentLibraryBundle,
-    currentDeckItem,
-    currentPlaylistDeckItem,
+    currentOutputItemRef,
+    currentItem,
+    currentPlaylistItem,
     isDetachedDeckBrowser: deckBrowseSource === 'project',
     outputArmVersion,
-    slideCountByDeckItem,
+    slideCountByItem,
     recentlyCreatedId,
   }), [
-    deckBrowseSource,
-    currentDeckItem,
-    currentDeckItemId,
-    currentDrawerDeckItemId,
-    currentLibraryBundle,
-    currentLibraryId,
+    currentDrawerItemRef,
+    currentItem,
+    currentItemRef,
+    currentOutputItemRef,
     currentOutputPlaylistEntryId,
-    currentOutputDeckItemId,
-    currentPlaylistDeckItem,
     currentPlaylistEntryId,
-    currentPlaylistDeckItemId,
     currentPlaylistId,
+    currentPlaylistItem,
+    currentPlaylistItemRef,
+    currentPlaylistRows,
+    deckBrowseSource,
     outputArmVersion,
     recentlyCreatedId,
-    slideCountByDeckItem,
+    slideCountByItem,
   ]);
 
   const actionsValue = useMemo<NavigationActionsValue>(() => ({
-    selectLibrary,
     selectPlaylistEntry,
-    selectPlaylistDeckItem,
-    browseDeckItem,
+    selectPlaylistItem,
+    browseItem,
     armOutputPlaylistEntry,
-    armOutputDeckItem,
-    clearOutputDeckItem,
+    armOutputItem,
+    clearOutputItem,
     setCurrentPlaylistId,
     clearRecentlyCreated,
-    createLibrary,
     createPlaylist,
     createPresentation,
     createEmptyLyric,
-    createDeckItem,
-    createGroup,
-    addDeckItemToGroup,
-    addDeckItemToGroupAt,
-    moveCurrentDeckItemToGroup,
-    renameLibrary,
+    createItem,
+    createSeparator,
+    renameSeparator,
+    setSeparatorColor,
+    addItemToPlaylist,
     renamePlaylist,
-    renameDeckItem,
-    reorderLibrary,
+    renameItem,
+    deleteItem,
+    moveItem,
     reorderPlaylist,
-    reorderGroup,
-    movePlaylistEntry,
-    movePlaylistEntryDirection,
-    removePlaylistEntry,
+    movePlaylistRow,
+    removePlaylistRow,
   }), [
-    addDeckItemToGroup,
-    addDeckItemToGroupAt,
+    addItemToPlaylist,
+    armOutputItem,
     armOutputPlaylistEntry,
-    armOutputDeckItem,
-    browseDeckItem,
-    clearOutputDeckItem,
+    browseItem,
+    clearOutputItem,
     clearRecentlyCreated,
-    createPresentation,
     createEmptyLyric,
-    createDeckItem,
-    createLibrary,
+    createItem,
     createPlaylist,
-    createGroup,
-    moveCurrentDeckItemToGroup,
-    renameDeckItem,
-    renameLibrary,
+    createPresentation,
+    createSeparator,
+    deleteItem,
+    moveItem,
+    movePlaylistRow,
+    removePlaylistRow,
+    renameItem,
     renamePlaylist,
-    reorderLibrary,
+    renameSeparator,
     reorderPlaylist,
-    reorderGroup,
-    movePlaylistEntry,
-    movePlaylistEntryDirection,
-    removePlaylistEntry,
-    selectLibrary,
     selectPlaylistEntry,
-    selectPlaylistDeckItem,
+    selectPlaylistItem,
     setCurrentPlaylistId,
+    setSeparatorColor,
   ]);
 
   return (

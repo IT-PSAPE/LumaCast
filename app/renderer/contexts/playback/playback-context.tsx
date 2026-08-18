@@ -184,7 +184,7 @@ const StagePlaybackContext = createContext<StageValue | null>(null);
 
 export function PlaybackProvider({ children }: { children: ReactNode }) {
   const { setStatusText } = useCast();
-  const { currentOutputDeckItemId, outputArmVersion, clearOutputDeckItem } = useNavigation();
+  const { currentOutputItemRef, outputArmVersion, clearOutputItem } = useNavigation();
   const { mediaAssets, mediaAssetsById, overlaysById } = useProjectContent();
 
   // ── Presentation layers ──
@@ -197,9 +197,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [playbackNow, setPlaybackNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!currentOutputDeckItemId) return;
+    if (!currentOutputItemRef) return;
     setContentLayerVisible(true);
-  }, [currentOutputDeckItemId, outputArmVersion]);
+  }, [currentOutputItemRef, outputArmVersion]);
 
   useEffect(() => {
     const hasMedia = mediaLayerAssetId ? mediaAssetsById.has(mediaLayerAssetId) : false;
@@ -320,24 +320,24 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     if (plan.clearsMediaLayer) setMediaLayerAssetId(null);
     if (plan.clearsVideoLayer) setVideoLayerAssetId(null);
     if (plan.hidesContentLayer) setContentLayerVisible(false);
-    if (plan.clearsOutputDeckItem) clearOutputDeckItem();
+    if (plan.clearsOutputItem) clearOutputItem();
     if (plan.clearsOverlays) {
       const now = Date.now();
       setPlaybackNow(now);
       setOverlayEntries((current) => clearAllOverlayPlayback(current, overlaysById, now));
     }
     setStatusText(plan.statusText);
-  }, [clearOutputDeckItem, overlaysById, setStatusText]);
+  }, [clearOutputItem, overlaysById, setStatusText]);
 
   const clearAllLayers = useCallback(() => {
     setMediaLayerAssetId(null);
     setVideoLayerAssetId(null);
     setContentLayerVisible(false);
     setOverlayEntries([]);
-    clearOutputDeckItem();
+    clearOutputItem();
     setStatusText('All layers cleared');
     recordObsEvent('layer', 'All layers cleared');
-  }, [clearOutputDeckItem, setStatusText]);
+  }, [clearOutputItem, setStatusText]);
 
   const layers = useMemo<LayersValue>(() => ({
     mediaLayerAssetId,

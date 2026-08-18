@@ -1,4 +1,4 @@
-import type { MediaAsset, MediaAssetType, DeckItem, DeckItemType } from '@lumacast/composition';
+import type { ItemRef, ItemType, MediaAsset, MediaAssetType } from '@lumacast/composition';
 import { FileText, Film, Image, Mic, Music, Presentation } from 'lucide-react';
 
 // ─── Media Asset Icon ────────────────────────────────
@@ -26,14 +26,14 @@ export function MediaAssetIcon({ asset, size = 14, strokeWidth = 1.75, className
 
 // ─── Content Item Icon ───────────────────────────────
 
-interface DeckItemIconProps {
-  entity: Pick<DeckItem, 'type'> | DeckItemType;
+interface ItemIconProps {
+  entity: Pick<ItemRef, 'type'> | ItemType;
   size?: number;
   strokeWidth?: number;
   className?: string;
 }
 
-export function DeckItemIcon({ entity, size = 14, strokeWidth = 1.75, className = '' }: DeckItemIconProps) {
+export function ItemIcon({ entity, size = 14, strokeWidth = 1.75, className = '' }: ItemIconProps) {
   const entityType = typeof entity === 'string' ? entity : entity.type;
 
   if (entityType === 'lyric') {

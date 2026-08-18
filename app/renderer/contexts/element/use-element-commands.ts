@@ -1,7 +1,6 @@
 import { useCallback } from 'react';
-import { isLyricDeckItem } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
-import type { DeckItem, MediaAsset, SlideElement } from '@lumacast/composition';
+import type { ItemRef, MediaAsset, SlideElement } from '@lumacast/composition';
 import type { ElementCreateInput } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import { castMediaSrc, getOverlayDefaults, typeFromFile } from '../../utils/slides';
@@ -19,15 +18,15 @@ import {
 
 interface CommandsParams {
   activeEditorSource: ActiveEditorSource;
-  currentDeckItem: DeckItem | null;
+  currentItemRef: ItemRef | null;
   mutatePatch: (action: () => Promise<SnapshotPatch>) => Promise<unknown>;
   setStatusText: (text: string) => void;
   pushHistorySnapshot: () => void;
 }
 
-export function useElementCommands({ activeEditorSource, currentDeckItem, mutatePatch, setStatusText, pushHistorySnapshot }: CommandsParams) {
+export function useElementCommands({ activeEditorSource, currentItemRef, mutatePatch, setStatusText, pushHistorySnapshot }: CommandsParams) {
   const { state: { overlayDefaults } } = useWorkbench();
-  const isLyricItem = isLyricDeckItem(currentDeckItem);
+  const isLyricItem = currentItemRef?.type === 'lyric';
   const { slideElementsBySlideId } = useProjectContent();
 
   function resolvePersistentMediaSource(file: File): string | null {
@@ -47,7 +46,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
   }
 
   function resolveSlideIdForDirectCreate(): Id | null {
-    if (activeEditorSource.mode === 'deck-editor') return activeEditorSource.meta.slideId;
+    if (activeEditorSource.mode === 'item-editor') return activeEditorSource.meta.slideId;
     return null;
   }
 
@@ -66,7 +65,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     if (activeEditorSource.mode === 'theme-editor') {
       const currentTheme = activeEditorSource.meta.theme;
       if (!currentTheme) return;
-      if (currentTheme.kind === 'lyrics' && activeEditorSource.elements.some((element) => element.type === 'text')) {
+      if (activeEditorSource.meta.themeType === 'lyric' && activeEditorSource.elements.some((element) => element.type === 'text')) {
         setStatusText('Lyric themes only support the existing lyric text element.');
         return;
       }
@@ -85,7 +84,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
 
     const currentSlideId = resolveSlideIdForDirectCreate();
     if (!currentSlideId) return;
-    if (activeEditorSource.mode === 'deck-editor' && isLyricItem) {
+    if (activeEditorSource.mode === 'item-editor' && isLyricItem) {
       const existingLyricsText = (slideElementsBySlideId.get(currentSlideId) ?? []).find((element) => {
         return element.slideId === currentSlideId && element.type === 'text' && 'text' in element.payload;
       });
@@ -95,7 +94,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
       }
     }
 
-    if (activeEditorSource.mode === 'deck-editor') {
+    if (activeEditorSource.mode === 'item-editor') {
       addToSource(createTextElement(currentSlideId));
       setStatusText('Added text element');
       return;
@@ -144,7 +143,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     const currentSlideId = resolveSlideIdForDirectCreate();
     if (!currentSlideId) return;
 
-    if (activeEditorSource.mode === 'deck-editor') {
+    if (activeEditorSource.mode === 'item-editor') {
       addToSource(newSlideShapeElement(currentSlideId));
       setStatusText('Added shape element');
       return;
@@ -198,7 +197,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     const currentSlideId = resolveSlideIdForDirectCreate();
     if (!currentSlideId) return;
 
-    if (activeEditorSource.mode === 'deck-editor') {
+    if (activeEditorSource.mode === 'item-editor') {
       addToSource(newSlideMediaElement(currentSlideId, asset, x, y));
       setStatusText(`Added ${asset.type} element`);
       return;

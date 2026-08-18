@@ -1,40 +1,74 @@
 import { useMemo, useRef } from 'react';
-import { getSlideDeckItemId } from '@lumacast/composition';
+import { getSlideItemRef } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
-import type { Collection, CollectionBinKind, DeckItem, Presentation, Lyric, MediaAsset, Overlay, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from '@lumacast/composition';
+import type {
+  ItemRef,
+  Lyric,
+  LyricTheme,
+  MediaAsset,
+  Overlay,
+  OverlayTheme,
+  Presentation,
+  PresentationTheme,
+  Slide,
+  SlideElement,
+  Stage,
+  Talk,
+  TalkTheme,
+  TalkScriptBlock,
+} from '@lumacast/composition';
 import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import type { AppSnapshot } from '@lumacast/protocol';
 import { sortElements, sortSlides } from '../utils/slides';
 import { useCast } from './app-context';
 
+// #219 item-model refactor decision D9: no merged `deckItems` array and no
+// merged `themesById` — Presentation/Lyric/Talk stay three independent
+// arrays/maps, and the four theme families stay four independent
+// arrays/maps. `resolveItemRef`/`slidesForItemRef` are the only "resolve one
+// of the three" helpers this hub offers; nothing here reconstructs a union.
+
+/** Canonical key for an `ItemRef`-keyed map — see `slidesByItem` below. */
+export function itemRefKey(ref: ItemRef): string {
+  return `${ref.type}:${ref.id}`;
+}
+
 interface ProjectContent {
   presentations: Presentation[];
   lyrics: Lyric[];
   talks: Talk[];
-  deckItems: DeckItem[];
   slides: Slide[];
   talkScriptBlocks: TalkScriptBlock[];
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
-  themes: Theme[];
+  presentationThemes: PresentationTheme[];
+  lyricThemes: LyricTheme[];
+  talkThemes: TalkTheme[];
+  overlayThemes: OverlayTheme[];
   stages: Stage[];
-  collections: Collection[];
   cues: Cue[];
   macros: Macro[];
   triggerBindings: TriggerBinding[];
-  deckItemsById: ReadonlyMap<Id, DeckItem>;
-  slidesByDeckItemId: ReadonlyMap<Id, Slide[]>;
+  presentationsById: ReadonlyMap<Id, Presentation>;
+  lyricsById: ReadonlyMap<Id, Lyric>;
+  talksById: ReadonlyMap<Id, Talk>;
+  slidesByItem: ReadonlyMap<string, Slide[]>;
   talkScriptBlocksBySlideId: ReadonlyMap<Id, TalkScriptBlock[]>;
   slideElementsBySlideId: ReadonlyMap<Id, SlideElement[]>;
   mediaAssetsById: ReadonlyMap<Id, MediaAsset>;
   overlaysById: ReadonlyMap<Id, Overlay>;
-  themesById: ReadonlyMap<Id, Theme>;
+  presentationThemesById: ReadonlyMap<Id, PresentationTheme>;
+  lyricThemesById: ReadonlyMap<Id, LyricTheme>;
+  talkThemesById: ReadonlyMap<Id, TalkTheme>;
+  overlayThemesById: ReadonlyMap<Id, OverlayTheme>;
   stagesById: ReadonlyMap<Id, Stage>;
-  collectionsByBinKind: ReadonlyMap<CollectionBinKind, Collection[]>;
-  collectionsById: ReadonlyMap<Id, Collection>;
   cuesById: ReadonlyMap<Id, Cue>;
   macrosById: ReadonlyMap<Id, Macro>;
+  /** Resolves a typed reference to its owning entity, across all three item tables. */
+  resolveItemRef: (ref: ItemRef | null | undefined) => Presentation | Lyric | Talk | null;
+  /** Slides owned by one item, looked up by typed reference. */
+  slidesForItemRef: (ref: ItemRef | null | undefined) => Slide[];
 }
 
 function stableArray<T extends { id: Id; updatedAt: string }>(prev: T[] | null, next: T[]): T[] {
@@ -59,9 +93,11 @@ export function useProjectContent(): ProjectContent {
     slideElements: SlideElement[];
     mediaAssets: MediaAsset[];
     overlays: Overlay[];
-    themes: Theme[];
+    presentationThemes: PresentationTheme[];
+    lyricThemes: LyricTheme[];
+    talkThemes: TalkTheme[];
+    overlayThemes: OverlayTheme[];
     stages: Stage[];
-    collections: Collection[];
     cues: Cue[];
     macros: Macro[];
     triggerBindings: TriggerBinding[];
@@ -77,9 +113,11 @@ export function useProjectContent(): ProjectContent {
       slideElements: snapshot?.slideElements ?? [],
       mediaAssets: snapshot?.mediaAssets ?? [],
       overlays: snapshot?.overlays ?? [],
-      themes: snapshot?.themes ?? [],
+      presentationThemes: snapshot?.presentationThemes ?? [],
+      lyricThemes: snapshot?.lyricThemes ?? [],
+      talkThemes: snapshot?.talkThemes ?? [],
+      overlayThemes: snapshot?.overlayThemes ?? [],
       stages: snapshot?.stages ?? [],
-      collections: snapshot?.collections ?? [],
       cues: snapshot?.cues ?? [],
       macros: snapshot?.macros ?? [],
       triggerBindings: snapshot?.triggerBindings ?? [],
@@ -95,9 +133,11 @@ export function useProjectContent(): ProjectContent {
       slideElements: stableArray(prev?.slideElements ?? null, raw.slideElements),
       mediaAssets: stableArray(prev?.mediaAssets ?? null, raw.mediaAssets),
       overlays: stableArray(prev?.overlays ?? null, raw.overlays),
-      themes: stableArray(prev?.themes ?? null, raw.themes),
+      presentationThemes: stableArray(prev?.presentationThemes ?? null, raw.presentationThemes),
+      lyricThemes: stableArray(prev?.lyricThemes ?? null, raw.lyricThemes),
+      talkThemes: stableArray(prev?.talkThemes ?? null, raw.talkThemes),
+      overlayThemes: stableArray(prev?.overlayThemes ?? null, raw.overlayThemes),
       stages: stableArray(prev?.stages ?? null, raw.stages),
-      collections: stableArray(prev?.collections ?? null, raw.collections),
       cues: stableArray(prev?.cues ?? null, raw.cues),
       macros: stableArray(prev?.macros ?? null, raw.macros),
       triggerBindings: stableArray(prev?.triggerBindings ?? null, raw.triggerBindings),
@@ -113,24 +153,34 @@ export function useProjectContent(): ProjectContent {
       if (cached) return cached;
     }
 
-    const { presentations, lyrics, talks, slides, talkScriptBlocks, slideElements, mediaAssets, overlays, themes, stages, collections, cues, macros, triggerBindings } = stableInputs;
+    const {
+      presentations, lyrics, talks, slides, talkScriptBlocks, slideElements, mediaAssets, overlays,
+      presentationThemes, lyricThemes, talkThemes, overlayThemes, stages, cues, macros, triggerBindings,
+    } = stableInputs;
 
-    const deckItems = [...presentations, ...lyrics, ...talks].sort((left, right) => left.order - right.order || left.createdAt.localeCompare(right.createdAt));
+    const presentationsById = new Map<Id, Presentation>();
+    for (const item of presentations) presentationsById.set(item.id, item);
 
-    const deckItemsById = new Map<Id, DeckItem>();
-    for (const item of deckItems) deckItemsById.set(item.id, item);
+    const lyricsById = new Map<Id, Lyric>();
+    for (const item of lyrics) lyricsById.set(item.id, item);
 
-    const slidesByDeckItemId = new Map<Id, Slide[]>();
-    for (const item of deckItems) slidesByDeckItemId.set(item.id, []);
+    const talksById = new Map<Id, Talk>();
+    for (const item of talks) talksById.set(item.id, item);
+
+    const slidesByItem = new Map<string, Slide[]>();
+    for (const item of presentations) slidesByItem.set(itemRefKey({ type: 'presentation', id: item.id }), []);
+    for (const item of lyrics) slidesByItem.set(itemRefKey({ type: 'lyric', id: item.id }), []);
+    for (const item of talks) slidesByItem.set(itemRefKey({ type: 'talk', id: item.id }), []);
     for (const slide of slides) {
-      const itemId = getSlideDeckItemId(slide);
-      if (!itemId) continue;
-      const existing = slidesByDeckItemId.get(itemId) ?? [];
+      const ref = getSlideItemRef(slide);
+      if (!ref) continue;
+      const key = itemRefKey(ref);
+      const existing = slidesByItem.get(key) ?? [];
       existing.push(slide);
-      slidesByDeckItemId.set(itemId, existing);
+      slidesByItem.set(key, existing);
     }
-    slidesByDeckItemId.forEach((contentSlides, itemId) => {
-      slidesByDeckItemId.set(itemId, sortSlides(contentSlides));
+    slidesByItem.forEach((contentSlides, key) => {
+      slidesByItem.set(key, sortSlides(contentSlides));
     });
 
     const talkScriptBlocksBySlideId = new Map<Id, TalkScriptBlock[]>();
@@ -161,26 +211,20 @@ export function useProjectContent(): ProjectContent {
     const overlaysById = new Map<Id, Overlay>();
     for (const overlay of overlays) overlaysById.set(overlay.id, overlay);
 
-    const themesById = new Map<Id, Theme>();
-    for (const theme of themes) themesById.set(theme.id, theme);
+    const presentationThemesById = new Map<Id, PresentationTheme>();
+    for (const theme of presentationThemes) presentationThemesById.set(theme.id, theme);
+
+    const lyricThemesById = new Map<Id, LyricTheme>();
+    for (const theme of lyricThemes) lyricThemesById.set(theme.id, theme);
+
+    const talkThemesById = new Map<Id, TalkTheme>();
+    for (const theme of talkThemes) talkThemesById.set(theme.id, theme);
+
+    const overlayThemesById = new Map<Id, OverlayTheme>();
+    for (const theme of overlayThemes) overlayThemesById.set(theme.id, theme);
 
     const stagesById = new Map<Id, Stage>();
     for (const stage of stages) stagesById.set(stage.id, stage);
-
-    const collectionsById = new Map<Id, Collection>();
-    for (const collection of collections) collectionsById.set(collection.id, collection);
-
-    const collectionsByBinKind = new Map<CollectionBinKind, Collection[]>();
-    for (const bin of ['deck', 'image', 'video', 'audio', 'theme', 'overlay', 'stage', 'macro'] as const) {
-      collectionsByBinKind.set(bin, []);
-    }
-    for (const collection of collections) {
-      const bucket = collectionsByBinKind.get(collection.binKind);
-      if (bucket) bucket.push(collection);
-    }
-    collectionsByBinKind.forEach((list) => {
-      list.sort((a, b) => a.order - b.order || a.createdAt.localeCompare(b.createdAt));
-    });
 
     const cuesById = new Map<Id, Cue>();
     for (const cue of cues) cuesById.set(cue.id, cue);
@@ -188,34 +232,52 @@ export function useProjectContent(): ProjectContent {
     const macrosById = new Map<Id, Macro>();
     for (const macro of macros) macrosById.set(macro.id, macro);
 
+    const resolveItemRef = (ref: ItemRef | null | undefined): Presentation | Lyric | Talk | null => {
+      if (!ref) return null;
+      if (ref.type === 'presentation') return presentationsById.get(ref.id) ?? null;
+      if (ref.type === 'lyric') return lyricsById.get(ref.id) ?? null;
+      return talksById.get(ref.id) ?? null;
+    };
+
+    const slidesForItemRef = (ref: ItemRef | null | undefined): Slide[] => {
+      if (!ref) return [];
+      return slidesByItem.get(itemRefKey(ref)) ?? [];
+    };
+
     const content = {
       presentations,
       lyrics,
       talks,
-      deckItems,
       slides,
       talkScriptBlocks,
       slideElements,
       mediaAssets,
       overlays,
-      themes,
+      presentationThemes,
+      lyricThemes,
+      talkThemes,
+      overlayThemes,
       stages,
-      collections,
       cues,
       macros,
       triggerBindings,
-      deckItemsById,
-      slidesByDeckItemId,
+      presentationsById,
+      lyricsById,
+      talksById,
+      slidesByItem,
       talkScriptBlocksBySlideId,
       slideElementsBySlideId,
       mediaAssetsById,
       overlaysById,
-      themesById,
+      presentationThemesById,
+      lyricThemesById,
+      talkThemesById,
+      overlayThemesById,
       stagesById,
-      collectionsByBinKind,
-      collectionsById,
       cuesById,
       macrosById,
+      resolveItemRef,
+      slidesForItemRef,
     } satisfies ProjectContent;
 
     if (cacheKey) {

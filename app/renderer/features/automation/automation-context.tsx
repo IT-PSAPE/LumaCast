@@ -18,7 +18,8 @@ import {
   type TriggerBindingTargetType,
   type TriggerType,
 } from '@lumacast/automation';
-import { getSlideDeckItemId } from '@lumacast/composition';
+import { getSlideItemRef } from '@lumacast/composition';
+import type { ItemRef } from '@lumacast/composition';
 import { useCast } from '@renderer/contexts/app-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { usePlaybackCommands } from '@renderer/contexts/playback/playback-context';
@@ -86,14 +87,14 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
   // fresh cue — leaving an orphan duplicate.
   const inFlightCuesRef = useRef<Map<string, Promise<Cue>>>(new Map());
 
-  // slideId -> owning deck item id, refreshed each render for use inside handlers.
-  const slideDeckItemByIdRef = useRef<Map<Id, Id | null>>(new Map());
-  slideDeckItemByIdRef.current = useMemo(() => {
-    const map = new Map<Id, Id | null>();
-    for (const slide of slides) map.set(slide.id, getSlideDeckItemId(slide));
+  // slideId -> owning item ref, refreshed each render for use inside handlers.
+  const slideItemRefByIdRef = useRef<Map<Id, ItemRef | null>>(new Map());
+  slideItemRefByIdRef.current = useMemo(() => {
+    const map = new Map<Id, ItemRef | null>();
+    for (const slide of slides) map.set(slide.id, getSlideItemRef(slide));
     return map;
   }, [slides]);
-  const resolveDeckItemId = useCallback((slideId: Id) => slideDeckItemByIdRef.current.get(slideId) ?? null, []);
+  const resolveItemRef = useCallback((slideId: Id) => slideItemRefByIdRef.current.get(slideId) ?? null, []);
 
   // The deterministic macro/cue runtime core (issue #219 W8, @lumacast/automation):
   // run bookkeeping, delays, Cancel/Revert, scope-exit sweeps, loop iteration,
@@ -132,9 +133,9 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
   const runMacro = useCallback(async (macroId: Id) => {
     const macro = macrosById.get(macroId);
     if (!macro) return;
-    const scopeContext = resolveMacroScope(macro, null, null, resolveDeckItemId);
+    const scopeContext = resolveMacroScope(macro, null, null, resolveItemRef);
     await runtime.startMacroRun(macro, (cueId) => cuesById.get(cueId), scopeContext);
-  }, [macrosById, cuesById, resolveDeckItemId, runtime]);
+  }, [macrosById, cuesById, resolveItemRef, runtime]);
 
   const ensureCue = useCallback(async (input: { kind: CueKind; payload: CuePayload; failurePolicy?: CueFailurePolicy }) => {
     const payloadKey = JSON.stringify(input.payload);
@@ -253,9 +254,9 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
       triggerBindings,
       resolveCue: (cueId) => cuesById.get(cueId),
       resolveMacro: (macroId) => macrosById.get(macroId),
-      resolveDeckItemId,
+      resolveItemRef,
     });
-  }, [triggerBindings, cuesById, macrosById, resolveDeckItemId, runtime]);
+  }, [triggerBindings, cuesById, macrosById, resolveItemRef, runtime]);
 
   useEffect(() => {
     function handleTrigger(event: Event) {

@@ -18,17 +18,22 @@ const NOOP_CREATE_CAPABILITIES: EditorCreateCapabilities = {
 function noopReplaceElements(_elements: SlideElement[]) {}
 
 export function useActiveEditorSource(): ActiveEditorSource {
-  const { currentDeckItem } = useNavigation();
+  const { currentItemRef } = useNavigation();
   const { currentSlide } = useSlides();
   const { currentOverlay, updateOverlayDraft } = useOverlayEditor();
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
-  const { currentTheme, replaceThemeElements } = useThemeEditor();
+  const { themeType, currentTheme, replaceThemeElements } = useThemeEditor();
   const { currentStage, replaceStageElements } = useStageEditor();
-  const { themesById, overlaysById, stagesById } = useProjectContent();
+  const { presentationThemesById, lyricThemesById, talkThemesById, overlayThemesById, overlaysById, stagesById } = useProjectContent();
   const { state: { workbenchMode } } = useWorkbench();
 
+  const themesById = themeType === 'lyric' ? lyricThemesById
+    : themeType === 'talk' ? talkThemesById
+    : themeType === 'overlay' ? overlayThemesById
+    : presentationThemesById;
+
   return useMemo<ActiveEditorSource>(() => {
-    if (workbenchMode === 'deck-editor') {
+    if (workbenchMode === 'item-editor') {
       return {
         mode: workbenchMode,
         entityId: currentSlide?.id ?? null,
@@ -43,7 +48,7 @@ export function useActiveEditorSource(): ActiveEditorSource {
         emptyStateLabel: 'No slide selected.',
         editable: true,
         createCapabilities: {
-          text: currentDeckItem?.type !== 'lyric',
+          text: currentItemRef?.type !== 'lyric',
           shape: true,
           image: true,
           video: true,
@@ -51,7 +56,7 @@ export function useActiveEditorSource(): ActiveEditorSource {
         meta: {
           slide: currentSlide,
           slideId: currentSlide?.id ?? null,
-          deckItemType: currentDeckItem?.type ?? null,
+          itemType: currentItemRef?.type ?? null,
         },
       };
     }
@@ -106,14 +111,14 @@ export function useActiveEditorSource(): ActiveEditorSource {
         emptyStateLabel: 'No theme selected.',
         editable: true,
         createCapabilities: {
-          text: currentTheme?.kind !== 'lyrics',
+          text: themeType !== 'lyric',
           shape: true,
           image: true,
           video: true,
         },
         meta: {
           theme: currentTheme,
-          themeKind: currentTheme?.kind ?? null,
+          themeType: currentTheme ? themeType : null,
         },
       };
     }
@@ -159,11 +164,12 @@ export function useActiveEditorSource(): ActiveEditorSource {
       meta: {},
     };
   }, [
-    currentDeckItem?.type,
+    currentItemRef?.type,
     currentOverlay,
     currentSlide,
     currentStage,
     currentTheme,
+    themeType,
     themesById,
     overlaysById,
     stagesById,
