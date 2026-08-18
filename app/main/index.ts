@@ -280,13 +280,18 @@ app.whenReady().then(() => {
     app.setAppUserModelId(APP_ID);
   }
 
+  // Managed media only (issue #159): the URL carries an opaque capability id
+  // that `resolveTrustedCastMediaRequest` resolves through the main-owned
+  // registry. Denials log the reason code alone — never the URL, which for the
+  // pre-#159 encoded-path form would be an absolute filesystem path.
   protocol.handle('cast-media', (request) => {
-    const filePath = resolveTrustedCastMediaRequest(request);
-    if (!filePath) {
+    const resolved = resolveTrustedCastMediaRequest(request);
+    if (!resolved.ok) {
+      console.warn('[cast-media] denied media request', { reason: resolved.reason });
       return createForbiddenResponse();
     }
 
-    return fetchLocalFileResponse(filePath, request).catch((error: unknown) => {
+    return fetchLocalFileResponse(resolved.filePath, request).catch((error: unknown) => {
       console.error('[cast-media] Failed to fetch local media', error);
       return createNotFoundResponse();
     });

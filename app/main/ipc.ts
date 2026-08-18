@@ -92,6 +92,12 @@ import {
   listLogSessions,
   readLogSession,
 } from './logger';
+import {
+  maskManagedMediaResult,
+  resolveManagedMedia,
+  resolveManagedMediaArgs,
+  revokeAllManagedMedia,
+} from './media-capability';
 import type { NdiServiceLike } from './ndi/ndi-protocol';
 import { assertTrustedIpcSender } from './security';
 import { sampleSystemMetrics } from './system-metrics';
@@ -177,11 +183,34 @@ const NDI_FRAME_CHANNEL_NAME_SET = new Set<string>(NDI_FRAME_CHANNEL_NAMES);
  */
 type AnyRpcHandler = (event: IpcMainInvokeEvent, ...args: never[]) => unknown;
 
+// Operations that resolve their own managed-media arguments and must therefore
+// see the raw capability id rather than the pre-resolved stored source (issue
+// #159). `getAudioCoverArt` is the only one: it asserts the *declared use* of
+// the id it is given ('audio'), which the generic argument transform
+// deliberately does not do — a background or element may legitimately
+// reference any granted media, while cover art may not.
+const SELF_RESOLVING_MEDIA_OPERATIONS: ReadonlySet<RpcChannelName> = new Set<RpcChannelName>([
+  'getAudioCoverArt',
+]);
+
+// The managed-media translation boundary (issue #159): every operation's
+// arguments have managed media ids resolved back to stored sources on the way
+// in, and every result has stored sources replaced by managed ids on the way
+// out. Wrapping here rather than per handler means no operation can be added
+// that accidentally hands the renderer a filesystem path, and no repository
+// method has to know that managed ids exist at all.
 function registerRpcHandlers(handlers: RpcHandlerMap): void {
   for (const key of Object.keys(IPC) as (keyof typeof IPC)[]) {
     if (NDI_FRAME_CHANNEL_NAME_SET.has(key)) continue;
     const operation = key as RpcChannelName;
-    safeHandle(IPC[key], handlers[operation] as AnyRpcHandler);
+    const handler = handlers[operation] as AnyRpcHandler;
+    const resolvesOwnMedia = SELF_RESOLVING_MEDIA_OPERATIONS.has(operation);
+
+    safeHandle(IPC[key], async (event: IpcMainInvokeEvent, ...args: unknown[]) => {
+      const resolvedArgs = resolvesOwnMedia ? args : resolveManagedMediaArgs(args);
+      const result = await handler(event, ...(resolvedArgs as never[]));
+      return maskManagedMediaResult(result);
+    });
   }
 }
 
@@ -541,11 +570,16 @@ export const registerIpcHandlers = (
       );
       return repo.updateMediaAssetSrc(id, src);
     },
+    // `src` is a managed media id (issue #159), resolved here with an explicit
+    // declared use: cover art is only ever read off a grant issued for audio.
+    // An unknown, revoked, malformed or wrong-use reference returns null — the
+    // same "no cover art" result an unreadable file already produced, with no
+    // path and no reason disclosed to the renderer.
     getAudioCoverArt: async (_event, src: string) => {
       expectRpcPrimitiveArgs([src], [{ name: 'src', kind: 'string' }], rpcContext('getAudioCoverArt'));
-      const { resolveLocalMediaSourcePath } = await import('@database/media-source-utils');
-      const filePath = resolveLocalMediaSourcePath(src);
-      if (!filePath) return null;
+      const resolved = resolveManagedMedia(src, 'audio');
+      if (!resolved.ok) return null;
+      const filePath = resolved.filePath;
       try {
         const { parseFile } = await import('music-metadata');
         const metadata = await parseFile(filePath);
@@ -714,7 +748,15 @@ export const registerIpcHandlers = (
         const message = error instanceof Error ? error.message : String(error);
         throw new CodecError(rpcContext('restoreProjectBackup'), message);
       }
-      return repo.restoreProjectBackup(backup);
+      const result = repo.restoreProjectBackup(backup);
+      // Recovery swaps the entire database out from under the renderer, so
+      // every managed-media capability minted from the pre-recovery project
+      // stops resolving here (issue #159). The result this returns is masked
+      // on the way out, which re-mints grants for the restored project — the
+      // renderer's new snapshot is complete, and any id it still holds from
+      // the replaced project now fails as `revoked-id`.
+      revokeAllManagedMedia();
+      return result;
     },
     setNdiOutputEnabled: (_event, name: NdiOutputName, enabled: boolean) => {
       const ctx = rpcContext('setNdiOutputEnabled');

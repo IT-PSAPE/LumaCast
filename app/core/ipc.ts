@@ -57,6 +57,18 @@ export interface RpcError {
 // deliberately excludes events/subscriptions (`NdiEventPayloads`,
 // `AppMenuEventPayloads`) and frame/message channels (`NdiFrameChannels`)
 // below — those are separate maps and must never be folded into this one.
+//
+// Managed media (issue #159): every `src` field crossing this contract — on
+// `MediaAsset`, on a `SlideBackground`, on an image/video element payload, and
+// the `src` argument of `getAudioCoverArt` — carries an opaque **managed media
+// id** in the form `cast-media://<id>`, never a filesystem path. Main mints
+// those ids on the way out and resolves them on the way in
+// (`app/main/media-capability.ts`); the renderer treats them as opaque URLs it
+// may render or hand back, and never constructs or parses one. The single
+// exception is a file the user just selected in a native dialog or dropped on
+// the window: that short-lived import capability travels inbound as a raw
+// `cast-media://<encoded path>` string and is deliberately not generalized
+// into the managed-id mechanism.
 interface RpcMethodSignatures {
   readClipboardText: () => Promise<string>;
   writeClipboardText: (text: string) => Promise<void>;

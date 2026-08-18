@@ -126,11 +126,47 @@ code exercises them yet.
 - The `cast-media:` privileged scheme (registered in `app/main/index.ts`,
   gated by `resolveTrustedCastMediaRequest`) is a resource-fetch boundary for
   `<audio>`/`<video>` elements, not a navigation/window-open target, and is
-  intentionally not part of either allow-list above.
+  intentionally not part of either allow-list above. What it resolves is
+  described below (issue #159, ADR-0008).
 - Renderer process sandboxing (`webPreferences.sandbox`) stays `false`; see
   ADR-0007 for the prerequisites (preload sandboxed-environment audit,
   renderer dependency verification, packaging/signing checks) that would need
   to be satisfied before enabling it.
+
+## Managed Media Capabilities (issue #159, ADR-0008)
+
+- The renderer never holds a filesystem path for managed media. Every media
+  source crossing IPC outbound is replaced by an opaque **managed media id** —
+  `cast-media://m<32 hex>` — that main mints and resolves
+  (`app/main/media-capability.ts`). The renderer treats it as an opaque URL it
+  may render or hand back, and never constructs or parses one.
+- Translation is wired once at the RPC dispatch loop in `registerRpcHandlers`
+  (`app/main/ipc.ts`), not per handler: arguments have managed ids resolved back
+  to stored sources on the way in (`resolveManagedMediaArgs`) and results have
+  stored sources replaced by managed ids on the way out
+  (`maskManagedMediaResult`). No repository method knows managed ids exist.
+- **Storage is unchanged.** The database still stores
+  `cast-media://<encodeURIComponent(absolutePath)>`, because that stored path is
+  the asset's identity for broken-source detection, deck-bundle export/relink,
+  import dedupe, and the v22 migration. Managed ids are session-scoped
+  capabilities, not durable identifiers. Inbound resolution returns the
+  byte-identical stored string, which is what keeps `restoreFromSnapshot` from
+  seeing a spurious change on every media row.
+- Grants carry a **declared use** taken from the entity that carried the source
+  outbound, never from renderer input. `image` and timed media (`video`/`audio`)
+  are separate families and cross-family use is denied; within timed media the
+  distinction is deliberately not enforced. The protocol handler takes intended
+  use from `Sec-Fetch-Dest`, which the renderer cannot forge.
+- The id pattern admits no separator, `%`, or `.`, so traversal and encoded
+  separators fail the pattern rather than being normalized away. Failures are a
+  closed set of reason codes carrying no path, id, or offending string;
+  `restoreProjectBackup` calls `revokeAllManagedMedia()` because it swaps the
+  database out from under the renderer.
+- **Not generalized:** a file the user just picked in a native dialog or dropped
+  on the window travels inbound as a raw `cast-media://<encoded path>` string
+  (`castMediaSrc` in `app/renderer/utils/slides.ts`). These are short-lived
+  import capabilities, are not renderable, and pass the inbound transform
+  untouched — pass one to an IPC mutation and render the `src` that comes back.
 
 ## Staged Theme Resolution
 

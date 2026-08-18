@@ -3,7 +3,11 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BrowserWindow, net, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
-import { resolveLocalMediaSourcePath } from '@database/media-source-utils';
+import {
+  resolveManagedMedia,
+  type ManagedMediaFailure,
+  type ManagedMediaUse,
+} from './media-capability';
 
 const DEV_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -181,9 +185,46 @@ function extractTrustedReferrer(request: CastMediaRequest): string {
   return candidate ?? '';
 }
 
-export function resolveTrustedCastMediaRequest(request: CastMediaRequest): string | null {
+export type CastMediaDenialReason = 'method-not-allowed' | 'untrusted-referrer' | ManagedMediaFailure;
+
+export type CastMediaResolution =
+  | { ok: true; filePath: string }
+  | { ok: false; reason: CastMediaDenialReason };
+
+/**
+ * The intended media use, as the platform reports it. Chromium sets
+ * `Sec-Fetch-Dest` from the element that issued the fetch (`image` for
+ * `<img>`/`new Image()`, `video` for `<video>`, `audio` for `<audio>`), which
+ * is the only trustworthy statement of intent available here — the renderer
+ * cannot forge it and main cannot infer it from the id.
+ *
+ * Anything else (`empty` for `fetch()`, or the header being absent, which
+ * happens for cross-scheme fetches) yields null, meaning "resolve as
+ * declared": the grant's own use applies and no cross-family check runs.
+ * Failing closed on an absent header would break media loading on every
+ * platform where Chromium omits it for this non-standard scheme.
+ */
+function intendedUseFromRequest(request: CastMediaRequest): ManagedMediaUse | null {
+  const destination = readHeaderValue(request, 'sec-fetch-dest');
+  if (destination === 'image' || destination === 'video' || destination === 'audio') {
+    return destination;
+  }
+  return null;
+}
+
+/**
+ * Resolves a `cast-media:` request to a filesystem path (issue #159).
+ *
+ * The URL now carries a managed media id, never a path: the renderer can only
+ * fetch a file main has already granted it a capability for, and the id space
+ * is checked (shape, revocation, declared use) before any filesystem access.
+ * Requests whose URL still carries an encoded path — the pre-#159 form, and
+ * the shape a compromised renderer would construct to read an arbitrary file —
+ * fail as `malformed-id`.
+ */
+export function resolveTrustedCastMediaRequest(request: CastMediaRequest): CastMediaResolution {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return null;
+    return { ok: false, reason: 'method-not-allowed' };
   }
 
   // Chromium strips Referer for cross-scheme fetches by default (e.g. file:// →
@@ -193,25 +234,15 @@ export function resolveTrustedCastMediaRequest(request: CastMediaRequest): strin
   // from issuing cast-media:// requests.
   const referrer = extractTrustedReferrer(request);
   if (referrer && !isTrustedAppUrl(referrer)) {
-    return null;
+    return { ok: false, reason: 'untrusted-referrer' };
   }
 
-  const source = request.url;
-  if (!source.startsWith('cast-media://')) {
-    return null;
+  const resolved = resolveManagedMedia(request.url, intendedUseFromRequest(request));
+  if (!resolved.ok) {
+    return { ok: false, reason: resolved.reason };
   }
 
-  const filePath = resolveLocalMediaSourcePath(source);
-  if (!filePath) {
-    return null;
-  }
-
-  const normalizedPath = path.normalize(path.resolve(filePath));
-  if (!path.isAbsolute(normalizedPath)) {
-    return null;
-  }
-
-  return normalizedPath;
+  return { ok: true, filePath: resolved.filePath };
 }
 
 export function createForbiddenResponse(message = 'Forbidden'): Response {

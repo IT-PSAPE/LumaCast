@@ -6,7 +6,7 @@ import { cn } from '@renderer/utils/cn';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { FileTrigger } from '../form/file-trigger';
-import { castMediaSrc, typeFromFile } from '../../utils/slides';
+import { typeFromFile } from '../../utils/slides';
 import { Dialog } from './dialog';
 import { MediaAssetIcon } from '../display/entity-icon';
 import { useVideoPoster } from '../../hooks/use-video-poster';
@@ -49,19 +49,6 @@ function buildAcceptedFileList(files: Iterable<File>, kind: MediaPickerAssetKind
   return transfer.files;
 }
 
-function expectedAssetSources(files: Iterable<File>, kind: MediaPickerAssetKind): Set<string> {
-  const sources = new Set<string>();
-  for (const file of files) {
-    const type = typeFromFile(file);
-    if (kind === 'image' && type !== 'image') continue;
-    if (kind === 'video' && type !== 'video') continue;
-    const filePath = window.castApi.getPathForFile(file);
-    if (!filePath) continue;
-    sources.add(castMediaSrc(filePath));
-  }
-  return sources;
-}
-
 function MediaThumbnail({ asset }: { asset: MediaAsset }) {
   const { posterSrc } = useVideoPoster(asset.type === 'video' ? asset.src : null);
   if (asset.type === 'image') {
@@ -83,7 +70,7 @@ function MediaThumbnail({ asset }: { asset: MediaAsset }) {
 export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAssets }: MediaPickerDialogProps) {
   const [selectedIds, setSelectedIds] = useState<Set<Id>>(new Set());
   const [showUploadDialog, setShowUploadDialog] = useState(false);
-  const [pendingUploadedSources, setPendingUploadedSources] = useState<Set<string> | null>(null);
+  const [preUploadAssetIds, setPreUploadAssetIds] = useState<Set<Id> | null>(null);
 
   const filteredAssets = useMemo(
     () => assets.filter((asset) => isAssetAllowed(kind, asset)),
@@ -95,17 +82,17 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
   }, [kind]);
 
   useEffect(() => {
-    if (!pendingUploadedSources || pendingUploadedSources.size === 0) return;
+    if (!preUploadAssetIds) return;
     setSelectedIds((current) => {
       const next = new Set(current);
       for (const asset of filteredAssets) {
-        if (!pendingUploadedSources.has(asset.src)) continue;
+        if (preUploadAssetIds.has(asset.id)) continue;
         next.add(asset.id);
       }
       return next;
     });
-    setPendingUploadedSources(null);
-  }, [filteredAssets, pendingUploadedSources]);
+    setPreUploadAssetIds(null);
+  }, [filteredAssets, preUploadAssetIds]);
 
   function toggleAsset(id: Id) {
     setSelectedIds((prev) => {
@@ -121,10 +108,15 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
     if (selected.length > 0) onConfirm(selected);
   }
 
+  // Newly uploaded assets are identified by *id*, not by source string (issue
+  // #159): a media source that reaches the renderer is an opaque managed media
+  // id minted by main, so it can no longer be predicted here from the selected
+  // file's path. Record what the bin held before the upload; whatever is new
+  // once the import resolves is what the upload produced.
   async function handleImport(files: FileList) {
-    const expectedSources = expectedAssetSources(Array.from(files), kind);
+    const knownAssetIds = new Set(filteredAssets.map((asset) => asset.id));
     await onImportAssets(files);
-    setPendingUploadedSources(expectedSources);
+    setPreUploadAssetIds(knownAssetIds);
     setShowUploadDialog(false);
   }
 

@@ -128,6 +128,16 @@ future or injected code, exercising the same deny-by-default posture as
   satisfy either check because neither allow-list lists that scheme, so
   navigating the top-level frame to a `cast-media:` URL (as opposed to
   fetching a resource from it) is correctly denied too.
+
+  **Superseded in part by ADR-0008 (issue #159), on the resolution mechanism
+  only.** The parenthetical above described `resolveTrustedCastMediaRequest` as
+  resolving "through `resolveLocalMediaSourcePath`" — that is, decoding an
+  absolute filesystem path out of the URL the renderer supplied. It no longer
+  does: the URL now carries an opaque managed media id resolved against a
+  main-owned registry, and a URL carrying an encoded path is denied. The
+  referrer check is retained. The conclusion of this bullet is unchanged —
+  `cast-media:` remains a resource-fetch boundary belonging to neither
+  navigation allow-list.
 - **Sandboxing (`webPreferences.sandbox`) stays `false` in this slice**,
   unchanged from the existing `createRendererWindowOptions`. This issue only
   closes the navigation/window-open gap; enabling the Chromium OS sandbox for

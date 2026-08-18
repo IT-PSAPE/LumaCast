@@ -92,6 +92,17 @@ export function fileSrc(file: File): string {
   return castMediaSrc(fileWithPath.path);
 }
 
+/**
+ * Builds the *import capability* form of a media source: the encoded path of a
+ * file the user just selected in a dialog or dropped on the window, addressed
+ * to main so it can be persisted.
+ *
+ * This is not a renderable URL (issue #159). The `cast-media:` protocol handler
+ * only serves opaque managed media ids minted by main, so fetching this string
+ * is denied; the renderable source for a persisted asset is the `src` main
+ * returns on the asset itself. Pass the result of this function to an IPC
+ * mutation and render what comes back.
+ */
 export function castMediaSrc(filePath: string): string {
   return `cast-media://${encodeURIComponent(filePath)}`;
 }

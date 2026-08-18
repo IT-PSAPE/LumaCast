@@ -15,6 +15,7 @@ import { usePresentationMediaLayer, useVideo } from '../../../contexts/playback/
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useGridSize } from '../../../hooks/use-grid-size';
 import { useVideoPoster } from '../../../hooks/use-video-poster';
+import { castMediaSrc } from '../../../utils/slides';
 import { BinShell } from '../../workbench/bin-shell';
 import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
 import { useMediaTypeBin, type MediaBinKind } from './use-media-type-bin';
@@ -98,7 +99,9 @@ function useMediaContextActions(asset: MediaAsset) {
   async function handleReplaceSource() {
     const filePath = await window.castApi.chooseImportReplacementMediaPath();
     if (!filePath) return;
-    const nextSrc = `cast-media://${encodeURIComponent(filePath)}`;
+    // Import capability, not a renderable URL: main persists it and returns the
+    // managed media id the bin actually renders (issue #159).
+    const nextSrc = castMediaSrc(filePath);
     await mutatePatch(() => window.castApi.updateMediaAssetSrc(asset.id, nextSrc));
     setStatusText(`Replaced source for ${asset.name}`);
   }
