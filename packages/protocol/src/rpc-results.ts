@@ -1,8 +1,7 @@
 import type { Id } from '@lumacast/kernel';
 import type {
-  Library,
-  LibraryPlaylistBundle,
-  DeckItemType,
+  ItemType,
+  ThemeOwnerType,
   Presentation,
   Lyric,
   Talk,
@@ -12,13 +11,16 @@ import type {
   MediaAsset,
   OverlayType,
   Overlay,
-  ThemeKind,
-  Theme,
+  PresentationTheme,
+  LyricTheme,
+  TalkTheme,
+  OverlayTheme,
   Stage,
-  Collection,
+  Playlist,
+  PlaylistRow,
 } from '@lumacast/composition';
 import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
-import type { DeckBundleMediaReference } from './deck-bundle-manifest';
+import type { BundleMediaReference } from './deck-bundle-manifest';
 
 // ---------------------------------------------------------------------------
 // RPC query/result shapes (issue #154, parent #116): the return-value side of
@@ -45,10 +47,15 @@ import type { DeckBundleMediaReference } from './deck-bundle-manifest';
  * Its wire use is what forces the shape (hence its home here), but changing
  * this type also changes the database layer's undo representation and the
  * renderer's cache — treat it accordingly.
+ *
+ * #219 item-model refactor decisions D3/D4/D2/D5: `libraries`,
+ * `libraryBundles`, and `collections` are gone (no library or collection
+ * concept survives anywhere on the wire); `themes` splits into four
+ * per-owner arrays; playlists ship as flat, ordinary tables
+ * (`playlists`/`playlistEntries`) instead of a derived tree — any tree the
+ * renderer needs is derived client-side, not carried on the wire.
  */
 export interface AppSnapshot {
-  libraries: Library[];
-  libraryBundles: LibraryPlaylistBundle[];
   presentations: Presentation[];
   lyrics: Lyric[];
   talks: Talk[];
@@ -57,48 +64,51 @@ export interface AppSnapshot {
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
-  themes: Theme[];
+  presentationThemes: PresentationTheme[];
+  lyricThemes: LyricTheme[];
+  talkThemes: TalkTheme[];
+  overlayThemes: OverlayTheme[];
   stages: Stage[];
-  collections: Collection[];
+  playlists: Playlist[];
+  playlistEntries: PlaylistRow[];
   cues: Cue[];
   macros: Macro[];
   triggerBindings: TriggerBinding[];
 }
 
-export interface DeckBundleInspectionItem {
+export interface BundleInspectionItem {
   id: Id;
   title: string;
-  type: DeckItemType;
+  type: ItemType;
   slideCount: number;
   themeId: Id | null;
 }
 
-export interface DeckBundleInspectionTheme {
+export interface BundleInspectionTheme {
   id: Id;
   name: string;
-  kind: ThemeKind;
+  themeType: ThemeOwnerType;
 }
 
-export interface DeckBundleInspectionOverlay {
+export interface BundleInspectionOverlay {
   id: Id;
   name: string;
   type: OverlayType;
 }
 
-export interface DeckBundleInspectionStage {
+export interface BundleInspectionStage {
   id: Id;
   name: string;
 }
 
-export interface DeckBundleInspectionPlaylist {
+export interface BundleInspectionPlaylist {
   id: Id;
   name: string;
-  libraryName: string;
-  groupCount: number;
+  separatorCount: number;
   entryCount: number;
 }
 
-export interface BrokenDeckBundleReference {
+export interface BrokenBundleReference {
   source: string;
   elementTypes: Array<'image' | 'video'>;
   occurrenceCount: number;
@@ -108,7 +118,7 @@ export interface BrokenDeckBundleReference {
   stageNames: string[];
 }
 
-export interface DeckBundleInspection {
+export interface BundleInspection {
   exportedAt: string;
   itemCount: number;
   themeCount: number;
@@ -116,19 +126,19 @@ export interface DeckBundleInspection {
   overlayCount: number;
   stageCount: number;
   playlistCount: number;
-  items: DeckBundleInspectionItem[];
-  themes: DeckBundleInspectionTheme[];
-  overlays: DeckBundleInspectionOverlay[];
-  stages: DeckBundleInspectionStage[];
-  playlists: DeckBundleInspectionPlaylist[];
-  mediaReferences: DeckBundleMediaReference[];
-  brokenReferences: BrokenDeckBundleReference[];
+  items: BundleInspectionItem[];
+  themes: BundleInspectionTheme[];
+  overlays: BundleInspectionOverlay[];
+  stages: BundleInspectionStage[];
+  playlists: BundleInspectionPlaylist[];
+  mediaReferences: BundleMediaReference[];
+  brokenReferences: BrokenBundleReference[];
 }
 
-export type DeckBundleBrokenReferenceAction = 'replace' | 'remove' | 'leave';
+export type BundleBrokenReferenceAction = 'replace' | 'remove' | 'leave';
 
-export interface DeckBundleBrokenReferenceDecision {
+export interface BundleBrokenReferenceDecision {
   source: string;
-  action: DeckBundleBrokenReferenceAction;
+  action: BundleBrokenReferenceAction;
   replacementPath?: string;
 }

@@ -107,8 +107,8 @@ describe('ipc contract: RPC operations invoke, never send', () => {
   });
 
   it('routes a multi-arg RPC operation through ipcRenderer.invoke with positional args preserved', async () => {
-    await (exposedApi().createPlaylist as (libraryId: string, name: string) => Promise<unknown>)('lib-1', 'New Playlist');
-    expect(invoke).toHaveBeenCalledWith(IPC.createPlaylist, 'lib-1', 'New Playlist');
+    await (exposedApi().renamePlaylist as (id: string, name: string) => Promise<unknown>)('playlist-1', 'New Playlist');
+    expect(invoke).toHaveBeenCalledWith(IPC.renamePlaylist, 'playlist-1', 'New Playlist');
   });
 });
 

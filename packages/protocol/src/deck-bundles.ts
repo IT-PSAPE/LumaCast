@@ -4,7 +4,6 @@ import type {
   SlideElement,
   SlideElementType,
   SlideKind,
-  ThemeKind,
 } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
@@ -15,29 +14,36 @@ import type {
   TriggerType,
 } from '@lumacast/automation';
 import type {
-  DeckBundleItem,
-  DeckBundleManifest,
-  DeckBundleMediaReference,
-  DeckBundleOverlay,
-  DeckBundlePlaylist,
-  DeckBundlePlaylistEntry,
-  DeckBundleStage,
-  DeckBundleTheme,
+  BundleItem,
+  BundleManifest,
+  BundleMediaReference,
+  BundleOverlay,
+  BundlePlaylist,
+  BundlePlaylistItemEntry,
+  BundleStage,
+  BundleTheme,
 } from './deck-bundle-manifest';
 import {
   parsePlaylistItemReference,
   type PlaylistItemReference,
 } from '@lumacast/composition';
-import { decodeDeckBundleManifest, type CodecContext } from './codecs';
+import { decodeBundleManifest, type CodecContext } from './codecs';
 import type { ProjectBackup, ProjectBackupTables } from './project-backup';
+import type {
+  ProjectBackupV1,
+  ProjectBackupV1ScopeLevel,
+  ProjectBackupV1SlideKind,
+  ProjectBackupV1Tables,
+  ProjectBackupV1ThemeKind,
+} from './project-backup';
 
 interface MediaReferenceAccumulator {
   elementTypes: Set<'image' | 'video'>;
   occurrenceCount: number;
 }
 
-export function cloneDeckBundleManifest(manifest: DeckBundleManifest): DeckBundleManifest {
-  return JSON.parse(JSON.stringify(manifest)) as DeckBundleManifest;
+export function cloneBundleManifest(manifest: BundleManifest): BundleManifest {
+  return JSON.parse(JSON.stringify(manifest)) as BundleManifest;
 }
 
 export function readElementMediaReference(element: SlideElement): { source: string; elementType: 'image' | 'video' } | null {
@@ -49,12 +55,12 @@ export function readElementMediaReference(element: SlideElement): { source: stri
   return { source, elementType: element.type };
 }
 
-export function collectDeckBundleMediaReferences(
-  items: DeckBundleItem[],
-  themes: DeckBundleTheme[],
-  overlays: DeckBundleOverlay[] = [],
-  stages: DeckBundleStage[] = [],
-): DeckBundleMediaReference[] {
+export function collectBundleMediaReferences(
+  items: BundleItem[],
+  themes: BundleTheme[],
+  overlays: BundleOverlay[] = [],
+  stages: BundleStage[] = [],
+): BundleMediaReference[] {
   const references = new Map<string, MediaReferenceAccumulator>();
 
   function collect(elements: SlideElement[]) {
@@ -98,10 +104,10 @@ export function collectDeckBundleMediaReferences(
     .sort((left, right) => left.source.localeCompare(right.source));
 }
 
-export function normalizeDeckBundleManifest(manifest: DeckBundleManifest): DeckBundleManifest {
+export function normalizeBundleManifest(manifest: BundleManifest): BundleManifest {
   return {
     ...manifest,
-    mediaReferences: collectDeckBundleMediaReferences(
+    mediaReferences: collectBundleMediaReferences(
       manifest.items,
       manifest.themes,
       manifest.overlays ?? [],
@@ -114,65 +120,68 @@ export function normalizeDeckBundleManifest(manifest: DeckBundleManifest): DeckB
  * The single named validation entry point for the deck-bundle wire contract.
  * Delegates to the structural codec in app/contracts (the authoritative
  * boundary), then applies the domain referential rules this module owns:
- * playlist entries must reference exactly one owner. Pure: never mutates.
+ * playlist item-entry rows must reference exactly one owner. Pure: never
+ * mutates. Separator rows own no item and are skipped (decision D5) —
+ * `getBundlePlaylistEntryReference` must never be called on one.
  */
-export function validateDeckBundleManifest(input: unknown, context?: CodecContext): DeckBundleManifest {
-  const ctx: CodecContext = context ?? { boundary: 'bundle-import', operation: 'validateDeckBundleManifest', path: 'manifest' };
-  const manifest = decodeDeckBundleManifest(input, ctx);
+export function validateBundleManifest(input: unknown, context?: CodecContext): BundleManifest {
+  const ctx: CodecContext = context ?? { boundary: 'bundle-import', operation: 'validateBundleManifest', path: 'manifest' };
+  const manifest = decodeBundleManifest(input, ctx);
   for (const playlist of manifest.playlists ?? []) {
-    for (const group of playlist.groups) {
-      for (const entry of group.entries) {
-        // Rejects zero or multiple populated owner columns instead of the
-        // `presentationId ?? lyricId` chain that previously accepted (and
-        // then silently mis-imported) a Talk-only entry.
-        getDeckBundlePlaylistEntryReference(entry);
-      }
+    for (const row of playlist.rows) {
+      if (row.kind !== 'item') continue;
+      // Rejects zero or multiple populated owner columns instead of the
+      // `presentationId ?? lyricId` chain that previously accepted (and
+      // then silently mis-imported) a Talk-only entry.
+      getBundlePlaylistEntryReference(row);
     }
   }
   return manifest;
 }
 
 /**
- * Parses a bundle playlist entry's legacy owner columns into the canonical
- * reference, rejecting entries with zero or multiple populated owners. This
- * is the single interpretation point for `DeckBundlePlaylistEntry` — callers
- * must not re-derive the referenced item id with an inline `??` chain, which
- * previously dropped Talk entries whenever the chain stopped short of
- * `talkId`.
+ * Parses a bundle playlist item-entry row's legacy owner columns into the
+ * canonical reference, rejecting entries with zero or multiple populated
+ * owners. This is the single interpretation point for
+ * `BundlePlaylistItemEntry` — callers must not re-derive the referenced
+ * item id with an inline `??` chain, which previously dropped Talk entries
+ * whenever the chain stopped short of `talkId`. Never call this on a
+ * separator row — discriminate on `kind` first.
  */
-export function getDeckBundlePlaylistEntryReference(entry: DeckBundlePlaylistEntry): PlaylistItemReference {
+export function getBundlePlaylistEntryReference(entry: BundlePlaylistItemEntry): PlaylistItemReference {
   return parsePlaylistItemReference(
-    { presentationId: entry.presentationId, lyricId: entry.lyricId, talkId: entry.talkId ?? null },
+    { presentationId: entry.presentationId, lyricId: entry.lyricId, talkId: entry.talkId },
     `playlist entry ${entry.id}`,
   );
 }
 
-/** Collects every distinct item id referenced by any entry across the given playlists. */
-export function collectDeckBundlePlaylistItemIds(playlists: DeckBundlePlaylist[]): Set<Id> {
+/** Collects every distinct item id referenced by any item-entry row across the given playlists. */
+export function collectBundlePlaylistItemIds(playlists: BundlePlaylist[]): Set<Id> {
   const ids = new Set<Id>();
   for (const playlist of playlists) {
-    for (const group of playlist.groups) {
-      for (const entry of group.entries) {
-        ids.add(getDeckBundlePlaylistEntryReference(entry).itemId);
-      }
+    for (const row of playlist.rows) {
+      if (row.kind !== 'item') continue;
+      ids.add(getBundlePlaylistEntryReference(row).itemId);
     }
   }
   return ids;
 }
 
-/** Filters each playlist's entries down to those referencing an included item id, preserving entry and group identity/order. */
-export function filterDeckBundlePlaylistsToIncludedItems(
-  playlists: DeckBundlePlaylist[],
+/**
+ * Filters each playlist's rows down to item entries referencing an included
+ * item id, preserving row identity and order. Separator rows are structural,
+ * not item-referencing, so they are never subject to this filter — they are
+ * always kept.
+ */
+export function filterBundlePlaylistsToIncludedItems(
+  playlists: BundlePlaylist[],
   includedItemIds: ReadonlySet<Id>,
-): DeckBundlePlaylist[] {
+): BundlePlaylist[] {
   return playlists.map((playlist) => ({
     ...playlist,
-    groups: playlist.groups.map((group) => ({
-      ...group,
-      entries: group.entries.filter((entry) =>
-        includedItemIds.has(getDeckBundlePlaylistEntryReference(entry).itemId),
-      ),
-    })),
+    rows: playlist.rows.filter((row) =>
+      row.kind === 'separator' || includedItemIds.has(getBundlePlaylistEntryReference(row).itemId),
+    ),
   }));
 }
 
@@ -186,13 +195,27 @@ export function filterDeckBundlePlaylistsToIncludedItems(
 // ---------------------------------------------------------------------------
 
 export const PROJECT_BACKUP_FORMAT = 'cast-project-backup' as const;
-export const PROJECT_BACKUP_VERSION = 1 as const;
+export const PROJECT_BACKUP_VERSION = 2 as const;
+// The one prior format version, superseded by the #219 item-model refactor
+// (decision D8). `validateProjectBackup` rejects it explicitly rather than
+// folding it into the generic "unsupported version" branch — it validates a
+// v2 document, full stop. `isLegacyProjectBackup`/`validateLegacyProjectBackup`
+// below are the deliberate, separate opt-in for a caller that wants to
+// import a v1 document instead (see @lumacast/persistence-sqlite's
+// `restoreProjectBackup`, wave K).
+export const PROJECT_BACKUP_LEGACY_VERSION = 1 as const;
 // The exact `PRAGMA user_version` this build's backup contract serializes.
 // The database layer's authoritative LATEST_SCHEMA_VERSION (ADR-0005) must
 // match; the focused lockstep test in project-backup.test.ts fails on drift.
 // Core keeps its own copy because the migrations module is unreachable here
 // (core may not import the database layer).
-export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 22 as const;
+export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 27 as const;
+// The one and only schema version a v1-format backup was ever exported at
+// (PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION was hardcoded to 22 for the whole
+// lifetime of format version 1). `validateLegacyProjectBackup` rejects any
+// other schemaVersion on a version-1 document as unsupported, rather than
+// guessing at an earlier historical table set.
+export const PROJECT_BACKUP_LEGACY_SCHEMA_VERSION = 22 as const;
 
 export type ProjectBackupTableKey = keyof ProjectBackupTables;
 
@@ -206,11 +229,15 @@ export class ProjectBackupValidationError extends Error {
 // Validation mirrors of the type unions in @core/types. TypeScript cannot
 // derive a value-level list from a union, so these arrays are the runtime
 // domains the validator enforces; keep each in step with its union.
-const SLIDE_KINDS: readonly SlideKind[] = ['presentation', 'lyric', 'talk', 'theme', 'overlay', 'stage'];
+const SLIDE_KINDS: readonly SlideKind[] = [
+  'presentation', 'lyric', 'talk',
+  'presentationTheme', 'lyricTheme', 'talkTheme', 'overlayTheme',
+  'overlay', 'stage',
+];
 const SLIDE_ELEMENT_TYPES: readonly SlideElementType[] = ['text', 'image', 'video', 'shape', 'group'];
 const SLIDE_ELEMENT_LAYERS: readonly SlideElement['layer'][] = ['background', 'media', 'content'];
 const SLIDE_BACKGROUND_SOURCES: readonly SlideBackgroundSource[] = ['theme', 'local'];
-const THEME_KINDS: readonly ThemeKind[] = ['slides', 'lyrics', 'overlays'];
+const PLAYLIST_ENTRY_KINDS = ['item', 'separator'] as const;
 const CUE_KINDS: readonly CueKind[] = [
   'overlay.activate',
   'overlay.clear',
@@ -227,7 +254,7 @@ const CUE_KINDS: readonly CueKind[] = [
   'flow.lifecycle',
 ];
 const CUE_FAILURE_POLICIES: readonly CueFailurePolicy[] = ['continue', 'abort'];
-const SCOPE_LEVELS: readonly ScopeLevel[] = ['global', 'deckItem', 'slide'];
+const SCOPE_LEVELS: readonly ScopeLevel[] = ['global', 'item', 'slide'];
 const ON_SCOPE_EXITS: readonly OnScopeExit[] = ['cancel', 'revert', 'none'];
 const TRIGGER_TYPES: readonly TriggerType[] = ['slide.take', 'slide.activate', 'app.startup'];
 const TRIGGER_TARGET_TYPES: readonly TriggerBindingTargetType[] = ['cue', 'macro'];
@@ -243,47 +270,47 @@ interface ProjectBackupColumnSpec {
   nullable?: boolean;
 }
 
+const ITEM_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
+  { name: 'id', type: 'string' },
+  { name: 'title', type: 'string' },
+  { name: 'theme_id', type: 'string', nullable: true },
+  { name: 'order_index', type: 'number' },
+  { name: 'created_at', type: 'string' },
+  { name: 'updated_at', type: 'string' },
+];
+
+const MEDIA_ASSET_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
+  { name: 'id', type: 'string' },
+  { name: 'name', type: 'string' },
+  { name: 'src', type: 'string' },
+  { name: 'order_index', type: 'number' },
+  { name: 'created_at', type: 'string' },
+  { name: 'updated_at', type: 'string' },
+];
+
+const THEME_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
+  { name: 'id', type: 'string' },
+  { name: 'name', type: 'string' },
+  { name: 'width', type: 'number' },
+  { name: 'height', type: 'number' },
+  { name: 'order_index', type: 'number' },
+  { name: 'created_at', type: 'string' },
+  { name: 'updated_at', type: 'string' },
+];
+
 const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly ProjectBackupColumnSpec[]> = {
-  libraries: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  presentations: [
-    { name: 'id', type: 'string' },
-    { name: 'title', type: 'string' },
-    { name: 'theme_id', type: 'string', nullable: true },
-    { name: 'collection_id', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  lyrics: [
-    { name: 'id', type: 'string' },
-    { name: 'title', type: 'string' },
-    { name: 'theme_id', type: 'string', nullable: true },
-    { name: 'collection_id', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  talks: [
-    { name: 'id', type: 'string' },
-    { name: 'title', type: 'string' },
-    { name: 'theme_id', type: 'string', nullable: true },
-    { name: 'collection_id', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
+  presentations: ITEM_ROW_SPEC,
+  lyrics: ITEM_ROW_SPEC,
+  talks: ITEM_ROW_SPEC,
   slides: [
     { name: 'id', type: 'string' },
     { name: 'presentation_id', type: 'string', nullable: true },
     { name: 'lyric_id', type: 'string', nullable: true },
     { name: 'talk_id', type: 'string', nullable: true },
-    { name: 'theme_id', type: 'string', nullable: true },
+    { name: 'presentation_theme_id', type: 'string', nullable: true },
+    { name: 'lyric_theme_id', type: 'string', nullable: true },
+    { name: 'talk_theme_id', type: 'string', nullable: true },
+    { name: 'overlay_theme_id', type: 'string', nullable: true },
     { name: 'overlay_id', type: 'string', nullable: true },
     { name: 'stage_id', type: 'string', nullable: true },
     { name: 'kind', type: 'enum', enum: SLIDE_KINDS },
@@ -323,85 +350,45 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
   ],
   playlists: [
     { name: 'id', type: 'string' },
-    { name: 'library_id', type: 'string' },
     { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  playlist_groups: [
-    { name: 'id', type: 'string' },
-    { name: 'playlist_id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'color_key', type: 'string', nullable: true },
     { name: 'order_index', type: 'number' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
   playlist_entries: [
     { name: 'id', type: 'string' },
-    { name: 'group_id', type: 'string' },
+    { name: 'playlist_id', type: 'string' },
+    { name: 'kind', type: 'enum', enum: PLAYLIST_ENTRY_KINDS },
     { name: 'presentation_id', type: 'string', nullable: true },
     { name: 'lyric_id', type: 'string', nullable: true },
     { name: 'talk_id', type: 'string', nullable: true },
+    { name: 'label', type: 'string', nullable: true },
+    { name: 'color_key', type: 'string', nullable: true },
     { name: 'order_index', type: 'number' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
-  image_assets: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'src', type: 'string' },
-    { name: 'collection_id', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  video_assets: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'src', type: 'string' },
-    { name: 'collection_id', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  audio_assets: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'src', type: 'string' },
-    { name: 'collection_id', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
+  image_assets: MEDIA_ASSET_ROW_SPEC,
+  video_assets: MEDIA_ASSET_ROW_SPEC,
+  audio_assets: MEDIA_ASSET_ROW_SPEC,
   overlays: [
     { name: 'id', type: 'string' },
     { name: 'name', type: 'string' },
     { name: 'enabled', type: 'flag' },
     { name: 'animation_json', type: 'json-string' },
-    { name: 'collection_id', type: 'string' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
-  themes: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'kind', type: 'enum', enum: THEME_KINDS },
-    { name: 'width', type: 'number' },
-    { name: 'height', type: 'number' },
-    { name: 'order_index', type: 'number' },
-    { name: 'collection_id', type: 'string' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
+  presentation_themes: THEME_ROW_SPEC,
+  lyric_themes: THEME_ROW_SPEC,
+  talk_themes: THEME_ROW_SPEC,
+  overlay_themes: THEME_ROW_SPEC,
   stages: [
     { name: 'id', type: 'string' },
     { name: 'name', type: 'string' },
     { name: 'width', type: 'number' },
     { name: 'height', type: 'number' },
     { name: 'order_index', type: 'number' },
-    { name: 'collection_id', type: 'string' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
@@ -417,7 +404,6 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'id', type: 'string' },
     { name: 'name', type: 'string' },
     { name: 'description', type: 'string' },
-    { name: 'collection_id', type: 'string' },
     { name: 'scope_level', type: 'enum', enum: SCOPE_LEVELS },
     { name: 'on_scope_exit', type: 'enum', enum: ON_SCOPE_EXITS },
     { name: 'loop_enabled', type: 'flag' },
@@ -436,7 +422,7 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'kind', type: 'enum', enum: CUE_KINDS },
     { name: 'payload_json', type: 'json-string' },
     { name: 'failure_policy', type: 'enum', enum: CUE_FAILURE_POLICIES },
-    // The v22 physical column carries no NOT NULL constraint, so direct,
+    // The physical column carries no NOT NULL constraint, so direct,
     // legacy, or externally maintained database state may legally contain
     // null here.
     { name: 'cue_id', type: 'string', nullable: true },
@@ -454,70 +440,6 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'target_id', type: 'string' },
     { name: 'config_json', type: 'json-string' },
     { name: 'enabled', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  deck_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  image_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  video_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  audio_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  theme_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  overlay_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  stage_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  macro_collections: [
-    { name: 'id', type: 'string' },
-    { name: 'name', type: 'string' },
-    { name: 'order_index', type: 'number' },
-    { name: 'is_default', type: 'flag' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
@@ -609,14 +531,19 @@ function assertProjectBackupRow(
 
 /**
  * The single named validation entry point for the project-backup contract.
- * Rejects documents with an unsupported (including future) format/version,
- * a `schemaVersion` other than the exact supported version, an envelope that
+ * Rejects documents with an unsupported (including future) format/version, a
+ * `schemaVersion` other than the exact supported version, an envelope that
  * is not exactly the four keys `format`/`version`/`schemaVersion`/`tables`,
  * missing or extra tables, or rows that violate the per-column contract —
  * including JSON columns that do not parse and the slide owner-exclusivity
  * rule the schema CHECK enforces. Cross-table referential integrity is a
  * restore-side concern (#146), not part of this validation. Pure: never
  * mutates anything.
+ *
+ * Version 1 (the pre-#219 format) is rejected explicitly, before the generic
+ * version check, with a message naming it as an older app version rather
+ * than folding it into "unsupported version" — see the module-level TODO for
+ * where a real v1→v2 transform hooks in.
  */
 export function validateProjectBackup(input: unknown): ProjectBackup {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
@@ -627,6 +554,12 @@ export function validateProjectBackup(input: unknown): ProjectBackup {
   if (candidate.format !== PROJECT_BACKUP_FORMAT) {
     throw new ProjectBackupValidationError(
       `Unsupported backup format: ${describeProjectBackupValue(candidate.format)}.`,
+    );
+  }
+
+  if (candidate.version === PROJECT_BACKUP_LEGACY_VERSION) {
+    throw new ProjectBackupValidationError(
+      'This backup is from an older app version and can no longer be restored directly; a converter will be added in a future release.',
     );
   }
 
@@ -689,15 +622,391 @@ export function validateProjectBackup(input: unknown): ProjectBackup {
       (row.presentation_id !== null ? 1 : 0) +
       (row.lyric_id !== null ? 1 : 0) +
       (row.talk_id !== null ? 1 : 0) +
-      (row.theme_id !== null ? 1 : 0) +
+      (row.presentation_theme_id !== null ? 1 : 0) +
+      (row.lyric_theme_id !== null ? 1 : 0) +
+      (row.talk_theme_id !== null ? 1 : 0) +
+      (row.overlay_theme_id !== null ? 1 : 0) +
       (row.overlay_id !== null ? 1 : 0) +
       (row.stage_id !== null ? 1 : 0);
     if (ownerCount !== 1) {
       throw new ProjectBackupValidationError(
-        `Invalid project backup: tables.slides[${rowIndex}] must have exactly one owner id (presentation/lyric/talk/theme/overlay/stage), got ${ownerCount}.`,
+        `Invalid project backup: tables.slides[${rowIndex}] must have exactly one owner id (presentation/lyric/talk/presentationTheme/lyricTheme/talkTheme/overlayTheme/overlay/stage), got ${ownerCount}.`,
       );
     }
   });
 
   return input as ProjectBackup;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy (v1) project backup import (#219 item-model refactor, wave K).
+// `validateProjectBackup` above validates a v2 document, full stop, and
+// keeps rejecting version 1 outright — that behavior (and its tests) is
+// unchanged. This section is a separate, deliberate opt-in: a caller that
+// wants to import an old file, rather than reject it, first calls
+// `isLegacyProjectBackup` to decide whether a document is even worth trying
+// as legacy, then `validateLegacyProjectBackup` to fully structurally
+// validate it against the frozen v22 schema (mirroring the pre-#219
+// `validateProjectBackup` this module used to have, verbatim). A document
+// that fails structural validation is rejected explicitly — it is never
+// silently accepted or partially imported — with a message that always
+// names it as coming from an older app version, whether the failure is a
+// wrong schema version, a missing table, or a malformed row. The actual
+// v1→v2 transform (materializing to schema 22, replaying migrations 23–27,
+// reading the result back out) is @lumacast/persistence-sqlite's job — it
+// owns the database this module may not import.
+// ---------------------------------------------------------------------------
+
+function legacyBackupError(message: string): never {
+  throw new ProjectBackupValidationError(
+    `This project backup is from an older app version (format version ${PROJECT_BACKUP_LEGACY_VERSION}): ${message}`,
+  );
+}
+
+/**
+ * Cheap, non-throwing classification: does this document even claim to be a
+ * v1 project backup? Used by a caller to decide whether to attempt the
+ * legacy import path (`validateLegacyProjectBackup`) instead of the normal
+ * v2 `validateProjectBackup`. Does not check `schemaVersion` or the table
+ * shape — a document that passes this but fails `validateLegacyProjectBackup`
+ * is legacy-labeled garbage, still rejected explicitly.
+ */
+export function isLegacyProjectBackup(input: unknown): input is { format: 'cast-project-backup'; version: 1 } {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) return false;
+  const candidate = input as Record<string, unknown>;
+  return candidate.format === PROJECT_BACKUP_FORMAT && candidate.version === PROJECT_BACKUP_LEGACY_VERSION;
+}
+
+const LEGACY_SLIDE_KINDS: readonly ProjectBackupV1SlideKind[] = ['presentation', 'lyric', 'talk', 'theme', 'overlay', 'stage'];
+const LEGACY_THEME_KINDS: readonly ProjectBackupV1ThemeKind[] = ['slides', 'lyrics', 'overlays'];
+const LEGACY_SCOPE_LEVELS: readonly ProjectBackupV1ScopeLevel[] = ['global', 'deckItem', 'slide'];
+
+const LEGACY_ITEM_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
+  { name: 'id', type: 'string' },
+  { name: 'title', type: 'string' },
+  { name: 'theme_id', type: 'string', nullable: true },
+  { name: 'collection_id', type: 'string' },
+  { name: 'order_index', type: 'number' },
+  { name: 'created_at', type: 'string' },
+  { name: 'updated_at', type: 'string' },
+];
+
+const LEGACY_MEDIA_ASSET_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
+  { name: 'id', type: 'string' },
+  { name: 'name', type: 'string' },
+  { name: 'src', type: 'string' },
+  { name: 'collection_id', type: 'string' },
+  { name: 'order_index', type: 'number' },
+  { name: 'created_at', type: 'string' },
+  { name: 'updated_at', type: 'string' },
+];
+
+const LEGACY_COLLECTION_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
+  { name: 'id', type: 'string' },
+  { name: 'name', type: 'string' },
+  { name: 'order_index', type: 'number' },
+  { name: 'is_default', type: 'flag' },
+  { name: 'created_at', type: 'string' },
+  { name: 'updated_at', type: 'string' },
+];
+
+const LEGACY_PROJECT_BACKUP_COLUMN_SPECS: Record<keyof ProjectBackupV1Tables, readonly ProjectBackupColumnSpec[]> = {
+  libraries: [
+    { name: 'id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  presentations: LEGACY_ITEM_ROW_SPEC,
+  lyrics: LEGACY_ITEM_ROW_SPEC,
+  talks: LEGACY_ITEM_ROW_SPEC,
+  slides: [
+    { name: 'id', type: 'string' },
+    { name: 'presentation_id', type: 'string', nullable: true },
+    { name: 'lyric_id', type: 'string', nullable: true },
+    { name: 'talk_id', type: 'string', nullable: true },
+    { name: 'theme_id', type: 'string', nullable: true },
+    { name: 'overlay_id', type: 'string', nullable: true },
+    { name: 'stage_id', type: 'string', nullable: true },
+    { name: 'kind', type: 'enum', enum: LEGACY_SLIDE_KINDS },
+    { name: 'width', type: 'number' },
+    { name: 'height', type: 'number' },
+    { name: 'notes', type: 'string' },
+    { name: 'background_json', type: 'json-string', nullable: true },
+    { name: 'background_source', type: 'enum', enum: SLIDE_BACKGROUND_SOURCES, nullable: true },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  slide_elements: [
+    { name: 'id', type: 'string' },
+    { name: 'slide_id', type: 'string' },
+    { name: 'type', type: 'enum', enum: SLIDE_ELEMENT_TYPES },
+    { name: 'x', type: 'number' },
+    { name: 'y', type: 'number' },
+    { name: 'width', type: 'number' },
+    { name: 'height', type: 'number' },
+    { name: 'rotation', type: 'number' },
+    { name: 'opacity', type: 'number' },
+    { name: 'z_index', type: 'number' },
+    { name: 'layer', type: 'enum', enum: SLIDE_ELEMENT_LAYERS },
+    { name: 'payload_json', type: 'json-string' },
+    { name: 'source_theme_element_id', type: 'string', nullable: true },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  talk_script_blocks: [
+    { name: 'id', type: 'string' },
+    { name: 'slide_id', type: 'string' },
+    { name: 'text', type: 'string' },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  playlists: [
+    { name: 'id', type: 'string' },
+    { name: 'library_id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  playlist_groups: [
+    { name: 'id', type: 'string' },
+    { name: 'playlist_id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'color_key', type: 'string', nullable: true },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  playlist_entries: [
+    { name: 'id', type: 'string' },
+    { name: 'group_id', type: 'string' },
+    { name: 'presentation_id', type: 'string', nullable: true },
+    { name: 'lyric_id', type: 'string', nullable: true },
+    { name: 'talk_id', type: 'string', nullable: true },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  image_assets: LEGACY_MEDIA_ASSET_ROW_SPEC,
+  video_assets: LEGACY_MEDIA_ASSET_ROW_SPEC,
+  audio_assets: LEGACY_MEDIA_ASSET_ROW_SPEC,
+  overlays: [
+    { name: 'id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'enabled', type: 'flag' },
+    { name: 'animation_json', type: 'json-string' },
+    { name: 'collection_id', type: 'string' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  themes: [
+    { name: 'id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'kind', type: 'enum', enum: LEGACY_THEME_KINDS },
+    { name: 'width', type: 'number' },
+    { name: 'height', type: 'number' },
+    { name: 'order_index', type: 'number' },
+    { name: 'collection_id', type: 'string' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  stages: [
+    { name: 'id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'width', type: 'number' },
+    { name: 'height', type: 'number' },
+    { name: 'order_index', type: 'number' },
+    { name: 'collection_id', type: 'string' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  cues: [
+    { name: 'id', type: 'string' },
+    { name: 'kind', type: 'enum', enum: CUE_KINDS },
+    { name: 'payload_json', type: 'json-string' },
+    { name: 'failure_policy', type: 'enum', enum: CUE_FAILURE_POLICIES },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  actions: [
+    { name: 'id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'description', type: 'string' },
+    { name: 'collection_id', type: 'string' },
+    { name: 'scope_level', type: 'enum', enum: LEGACY_SCOPE_LEVELS },
+    { name: 'on_scope_exit', type: 'enum', enum: ON_SCOPE_EXITS },
+    { name: 'loop_enabled', type: 'flag' },
+    { name: 'loop_count', type: 'number', nullable: true },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  action_steps: [
+    { name: 'id', type: 'string' },
+    { name: 'action_id', type: 'string' },
+    { name: 'kind', type: 'enum', enum: CUE_KINDS },
+    { name: 'payload_json', type: 'json-string' },
+    { name: 'failure_policy', type: 'enum', enum: CUE_FAILURE_POLICIES },
+    { name: 'cue_id', type: 'string', nullable: true },
+    { name: 'order_index', type: 'number' },
+    { name: 'delay_before_ms', type: 'number' },
+    { name: 'delay_after_ms', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  trigger_bindings: [
+    { name: 'id', type: 'string' },
+    { name: 'trigger_type', type: 'enum', enum: TRIGGER_TYPES },
+    { name: 'source_id', type: 'string', nullable: true },
+    { name: 'target_type', type: 'enum', enum: TRIGGER_TARGET_TYPES },
+    { name: 'target_id', type: 'string' },
+    { name: 'config_json', type: 'json-string' },
+    { name: 'enabled', type: 'flag' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  deck_collections: LEGACY_COLLECTION_ROW_SPEC,
+  image_collections: LEGACY_COLLECTION_ROW_SPEC,
+  video_collections: LEGACY_COLLECTION_ROW_SPEC,
+  audio_collections: LEGACY_COLLECTION_ROW_SPEC,
+  theme_collections: LEGACY_COLLECTION_ROW_SPEC,
+  overlay_collections: LEGACY_COLLECTION_ROW_SPEC,
+  stage_collections: LEGACY_COLLECTION_ROW_SPEC,
+  macro_collections: LEGACY_COLLECTION_ROW_SPEC,
+};
+
+const LEGACY_PROJECT_BACKUP_TABLE_KEYS = Object.keys(LEGACY_PROJECT_BACKUP_COLUMN_SPECS) as (keyof ProjectBackupV1Tables)[];
+
+function assertLegacyProjectBackupRow(
+  row: unknown,
+  tableName: keyof ProjectBackupV1Tables,
+  rowIndex: number,
+): void {
+  const path = `tables.${tableName}[${rowIndex}]`;
+  if (typeof row !== 'object' || row === null || Array.isArray(row)) {
+    legacyBackupError(`${path} must be a row object.`);
+  }
+  const record = row as Record<string, unknown>;
+  const specs = LEGACY_PROJECT_BACKUP_COLUMN_SPECS[tableName];
+  const actualKeys = Object.keys(record).sort();
+  const expectedKeys = specs.map((spec) => spec.name).sort();
+  if (actualKeys.length !== expectedKeys.length || expectedKeys.some((key, index) => key !== actualKeys[index])) {
+    legacyBackupError(`${path} must have exactly the columns [${expectedKeys.join(', ')}], got [${actualKeys.join(', ')}].`);
+  }
+  for (const spec of specs) {
+    const value = record[spec.name];
+    const columnPath = `${path}.${spec.name}`;
+    if (value === null) {
+      if (!spec.nullable) legacyBackupError(`${columnPath} must not be null.`);
+      continue;
+    }
+    switch (spec.type) {
+      case 'string':
+        if (typeof value !== 'string') legacyBackupError(`${columnPath} must be a string, got ${describeProjectBackupValue(value)}.`);
+        break;
+      case 'number':
+        if (typeof value !== 'number' || !Number.isFinite(value)) legacyBackupError(`${columnPath} must be a finite number, got ${describeProjectBackupValue(value)}.`);
+        break;
+      case 'json-string':
+        if (typeof value !== 'string') {
+          legacyBackupError(`${columnPath} must be a JSON string, got ${describeProjectBackupValue(value)}.`);
+        }
+        try {
+          JSON.parse(value as string);
+        } catch (error) {
+          legacyBackupError(`${columnPath} is not valid JSON (${(error as Error).message}).`);
+        }
+        break;
+      case 'enum':
+        if (typeof value !== 'string' || !spec.enum?.includes(value)) {
+          legacyBackupError(`${columnPath} must be one of [${spec.enum?.join(', ')}], got ${describeProjectBackupValue(value)}.`);
+        }
+        break;
+      case 'flag':
+        if (value !== 0 && value !== 1) legacyBackupError(`${columnPath} must be 0 or 1, got ${describeProjectBackupValue(value)}.`);
+        break;
+    }
+  }
+}
+
+/**
+ * Full structural validation of a v1/schema-22 project backup — the single
+ * named entry point a caller uses to classify a v1 document as "legacy but
+ * structurally plausible" (returns normally) versus garbage (throws). Mirrors
+ * the pre-#219 `validateProjectBackup` verbatim: exact envelope keys, exact
+ * v22 table set (28 tables — libraries, the eight per-bin collection tables,
+ * the single kind-tagged `themes` table, `playlist_groups`, and
+ * `playlist_entries.group_id`), per-column type/nullability/enum contracts,
+ * and the six-owner slide exclusivity rule. Cross-table referential
+ * integrity is, as with the v2 validator, a restore-side concern. Every
+ * rejection names this as an older-app-version document. Pure: never
+ * mutates anything.
+ */
+export function validateLegacyProjectBackup(input: unknown): ProjectBackupV1 {
+  if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+    legacyBackupError('must be an object.');
+  }
+  const candidate = input as Record<string, unknown>;
+
+  if (candidate.format !== PROJECT_BACKUP_FORMAT) {
+    legacyBackupError(`unsupported backup format ${describeProjectBackupValue(candidate.format)}.`);
+  }
+  if (candidate.version !== PROJECT_BACKUP_LEGACY_VERSION) {
+    legacyBackupError(`expected format version ${PROJECT_BACKUP_LEGACY_VERSION}, got ${describeProjectBackupValue(candidate.version)}.`);
+  }
+  if (candidate.schemaVersion !== PROJECT_BACKUP_LEGACY_SCHEMA_VERSION) {
+    legacyBackupError(
+      `unsupported legacy schema version ${describeProjectBackupValue(candidate.schemaVersion)}; the only supported legacy schema version is ${PROJECT_BACKUP_LEGACY_SCHEMA_VERSION}.`,
+    );
+  }
+
+  const actualEnvelopeKeys = Object.keys(candidate).sort();
+  const expectedEnvelopeKeys = ['format', 'version', 'schemaVersion', 'tables'].sort();
+  if (
+    actualEnvelopeKeys.length !== expectedEnvelopeKeys.length ||
+    expectedEnvelopeKeys.some((key, index) => key !== actualEnvelopeKeys[index])
+  ) {
+    legacyBackupError(`envelope must have exactly the keys [${expectedEnvelopeKeys.join(', ')}], got [${actualEnvelopeKeys.join(', ')}].`);
+  }
+
+  const tables = candidate.tables;
+  if (typeof tables !== 'object' || tables === null || Array.isArray(tables)) {
+    legacyBackupError('tables must be an object.');
+  }
+  const tablesRecord = tables as Record<string, unknown>;
+  const actualTableKeys = Object.keys(tablesRecord).sort();
+  const expectedTableKeys = LEGACY_PROJECT_BACKUP_TABLE_KEYS.slice().sort();
+  if (
+    actualTableKeys.length !== expectedTableKeys.length ||
+    expectedTableKeys.some((key, index) => key !== actualTableKeys[index])
+  ) {
+    legacyBackupError(`tables must have exactly [${expectedTableKeys.join(', ')}], got [${actualTableKeys.join(', ')}].`);
+  }
+
+  for (const tableName of LEGACY_PROJECT_BACKUP_TABLE_KEYS) {
+    const rows = tablesRecord[tableName];
+    if (!Array.isArray(rows)) {
+      legacyBackupError(`tables.${tableName} must be an array.`);
+    }
+    (rows as unknown[]).forEach((row, rowIndex) => assertLegacyProjectBackupRow(row, tableName, rowIndex));
+  }
+
+  const slides = tablesRecord.slides as ProjectBackupV1Tables['slides'];
+  slides.forEach((row, rowIndex) => {
+    const ownerCount =
+      (row.presentation_id !== null ? 1 : 0) +
+      (row.lyric_id !== null ? 1 : 0) +
+      (row.talk_id !== null ? 1 : 0) +
+      (row.theme_id !== null ? 1 : 0) +
+      (row.overlay_id !== null ? 1 : 0) +
+      (row.stage_id !== null ? 1 : 0);
+    if (ownerCount !== 1) {
+      legacyBackupError(`tables.slides[${rowIndex}] must have exactly one owner id (presentation/lyric/talk/theme/overlay/stage), got ${ownerCount}.`);
+    }
+  });
+
+  return input as ProjectBackupV1;
 }

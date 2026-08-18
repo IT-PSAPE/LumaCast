@@ -1,5 +1,21 @@
 import type { Id } from '@lumacast/kernel';
-import type { Collection, Library, LibraryPlaylistBundle, Lyric, MediaAsset, Overlay, Presentation, Slide, SlideElement, Stage, Talk, TalkScriptBlock, Theme } from '@lumacast/composition';
+import type {
+  Lyric,
+  LyricTheme,
+  MediaAsset,
+  Overlay,
+  OverlayTheme,
+  Playlist,
+  PlaylistRow,
+  Presentation,
+  PresentationTheme,
+  Slide,
+  SlideElement,
+  Stage,
+  Talk,
+  TalkScriptBlock,
+  TalkTheme,
+} from '@lumacast/composition';
 import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import type { AppSnapshot } from './rpc-results';
 
@@ -18,14 +34,18 @@ import type { AppSnapshot } from './rpc-results';
  * corresponding array in AppSnapshot. Missing keys mean "no change".
  * Upserts carry full records; deletes carry just the ids.
  *
- * `libraryBundles` is a derived structure. When it appears in a patch
- * it is a full replacement (rebuilt main-side from the underlying
- * libraries/playlists/groups/entries).
+ * #219 item-model refactor decision D4: `libraries`/`libraryBundles` are
+ * gone along with the library concept — `playlists`/`playlistEntries` are
+ * ordinary flat tables now, patched with the same upsert/delete semantics
+ * as every other table. The special-cased full-replacement
+ * `libraryBundles` key (and its six parallel hand-written per-table sites)
+ * is deleted outright, not replaced by an equivalent — this is a
+ * deliberate simplification of the patch vocabulary; any tree the renderer
+ * needs is derived client-side (`use-project-content`), not carried here.
  */
 export interface SnapshotPatch {
   version: number;
   upserts: {
-    libraries?: Library[];
     presentations?: Presentation[];
     lyrics?: Lyric[];
     talks?: Talk[];
@@ -34,16 +54,18 @@ export interface SnapshotPatch {
     slideElements?: SlideElement[];
     mediaAssets?: MediaAsset[];
     overlays?: Overlay[];
-    themes?: Theme[];
+    presentationThemes?: PresentationTheme[];
+    lyricThemes?: LyricTheme[];
+    talkThemes?: TalkTheme[];
+    overlayThemes?: OverlayTheme[];
     stages?: Stage[];
-    collections?: Collection[];
+    playlists?: Playlist[];
+    playlistEntries?: PlaylistRow[];
     cues?: Cue[];
     macros?: Macro[];
     triggerBindings?: TriggerBinding[];
-    libraryBundles?: LibraryPlaylistBundle[];
   };
   deletes: {
-    libraries?: Id[];
     presentations?: Id[];
     lyrics?: Id[];
     talks?: Id[];
@@ -52,9 +74,13 @@ export interface SnapshotPatch {
     slideElements?: Id[];
     mediaAssets?: Id[];
     overlays?: Id[];
-    themes?: Id[];
+    presentationThemes?: Id[];
+    lyricThemes?: Id[];
+    talkThemes?: Id[];
+    overlayThemes?: Id[];
     stages?: Id[];
-    collections?: Id[];
+    playlists?: Id[];
+    playlistEntries?: Id[];
     cues?: Id[];
     macros?: Id[];
     triggerBindings?: Id[];
@@ -62,7 +88,6 @@ export interface SnapshotPatch {
 }
 
 type SnapshotTableKey =
-  | 'libraries'
   | 'presentations'
   | 'lyrics'
   | 'talks'
@@ -71,15 +96,18 @@ type SnapshotTableKey =
   | 'slideElements'
   | 'mediaAssets'
   | 'overlays'
-  | 'themes'
+  | 'presentationThemes'
+  | 'lyricThemes'
+  | 'talkThemes'
+  | 'overlayThemes'
   | 'stages'
-  | 'collections'
+  | 'playlists'
+  | 'playlistEntries'
   | 'cues'
   | 'macros'
   | 'triggerBindings';
 
 type SnapshotTableRecordMap = {
-  libraries: Library;
   presentations: Presentation;
   lyrics: Lyric;
   talks: Talk;
@@ -88,9 +116,13 @@ type SnapshotTableRecordMap = {
   slideElements: SlideElement;
   mediaAssets: MediaAsset;
   overlays: Overlay;
-  themes: Theme;
+  presentationThemes: PresentationTheme;
+  lyricThemes: LyricTheme;
+  talkThemes: TalkTheme;
+  overlayThemes: OverlayTheme;
   stages: Stage;
-  collections: Collection;
+  playlists: Playlist;
+  playlistEntries: PlaylistRow;
   cues: Cue;
   macros: Macro;
   triggerBindings: TriggerBinding;
@@ -111,7 +143,6 @@ export function createEmptyPatch(version: number): SnapshotPatch {
 export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnapshot {
   const next: AppSnapshot = {
     ...snapshot,
-    libraries: mergeTable(snapshot.libraries, patch.upserts.libraries, patch.deletes.libraries),
     presentations: mergeTable(snapshot.presentations, patch.upserts.presentations, patch.deletes.presentations),
     lyrics: mergeTable(snapshot.lyrics, patch.upserts.lyrics, patch.deletes.lyrics),
     talks: mergeTable(snapshot.talks, patch.upserts.talks, patch.deletes.talks),
@@ -120,13 +151,16 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
     slideElements: mergeTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements),
     mediaAssets: mergeTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets),
     overlays: mergeTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays),
-    themes: mergeTable(snapshot.themes, patch.upserts.themes, patch.deletes.themes),
+    presentationThemes: mergeTable(snapshot.presentationThemes, patch.upserts.presentationThemes, patch.deletes.presentationThemes),
+    lyricThemes: mergeTable(snapshot.lyricThemes, patch.upserts.lyricThemes, patch.deletes.lyricThemes),
+    talkThemes: mergeTable(snapshot.talkThemes, patch.upserts.talkThemes, patch.deletes.talkThemes),
+    overlayThemes: mergeTable(snapshot.overlayThemes, patch.upserts.overlayThemes, patch.deletes.overlayThemes),
     stages: mergeTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages),
-    collections: mergeTable(snapshot.collections, patch.upserts.collections, patch.deletes.collections),
+    playlists: mergeTable(snapshot.playlists, patch.upserts.playlists, patch.deletes.playlists),
+    playlistEntries: mergeTable(snapshot.playlistEntries, patch.upserts.playlistEntries, patch.deletes.playlistEntries),
     cues: mergeTable(snapshot.cues, patch.upserts.cues, patch.deletes.cues),
     macros: mergeTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros),
     triggerBindings: mergeTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings),
-    libraryBundles: patch.upserts.libraryBundles ?? snapshot.libraryBundles,
   };
   return next;
 }
@@ -140,7 +174,6 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
 export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): SnapshotPatch {
   const inverse: SnapshotPatch = createEmptyPatch(patch.version);
 
-  invertTable(snapshot.libraries, patch.upserts.libraries, patch.deletes.libraries, inverse, 'libraries');
   invertTable(snapshot.presentations, patch.upserts.presentations, patch.deletes.presentations, inverse, 'presentations');
   invertTable(snapshot.lyrics, patch.upserts.lyrics, patch.deletes.lyrics, inverse, 'lyrics');
   invertTable(snapshot.talks, patch.upserts.talks, patch.deletes.talks, inverse, 'talks');
@@ -149,16 +182,16 @@ export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): Snapsh
   invertTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements, inverse, 'slideElements');
   invertTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets, inverse, 'mediaAssets');
   invertTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays, inverse, 'overlays');
-  invertTable(snapshot.themes, patch.upserts.themes, patch.deletes.themes, inverse, 'themes');
+  invertTable(snapshot.presentationThemes, patch.upserts.presentationThemes, patch.deletes.presentationThemes, inverse, 'presentationThemes');
+  invertTable(snapshot.lyricThemes, patch.upserts.lyricThemes, patch.deletes.lyricThemes, inverse, 'lyricThemes');
+  invertTable(snapshot.talkThemes, patch.upserts.talkThemes, patch.deletes.talkThemes, inverse, 'talkThemes');
+  invertTable(snapshot.overlayThemes, patch.upserts.overlayThemes, patch.deletes.overlayThemes, inverse, 'overlayThemes');
   invertTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages, inverse, 'stages');
-  invertTable(snapshot.collections, patch.upserts.collections, patch.deletes.collections, inverse, 'collections');
+  invertTable(snapshot.playlists, patch.upserts.playlists, patch.deletes.playlists, inverse, 'playlists');
+  invertTable(snapshot.playlistEntries, patch.upserts.playlistEntries, patch.deletes.playlistEntries, inverse, 'playlistEntries');
   invertTable(snapshot.cues, patch.upserts.cues, patch.deletes.cues, inverse, 'cues');
   invertTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros, inverse, 'macros');
   invertTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings, inverse, 'triggerBindings');
-
-  if (patch.upserts.libraryBundles) {
-    inverse.upserts.libraryBundles = snapshot.libraryBundles;
-  }
 
   return inverse;
 }
@@ -228,9 +261,6 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
   value: SnapshotTableRecordMap[K],
 ): void {
   switch (key) {
-    case 'libraries':
-      inverse.upserts.libraries = [...(inverse.upserts.libraries ?? []), value as Library];
-      return;
     case 'presentations':
       inverse.upserts.presentations = [...(inverse.upserts.presentations ?? []), value as Presentation];
       return;
@@ -255,14 +285,26 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'overlays':
       inverse.upserts.overlays = [...(inverse.upserts.overlays ?? []), value as Overlay];
       return;
-    case 'themes':
-      inverse.upserts.themes = [...(inverse.upserts.themes ?? []), value as Theme];
+    case 'presentationThemes':
+      inverse.upserts.presentationThemes = [...(inverse.upserts.presentationThemes ?? []), value as PresentationTheme];
+      return;
+    case 'lyricThemes':
+      inverse.upserts.lyricThemes = [...(inverse.upserts.lyricThemes ?? []), value as LyricTheme];
+      return;
+    case 'talkThemes':
+      inverse.upserts.talkThemes = [...(inverse.upserts.talkThemes ?? []), value as TalkTheme];
+      return;
+    case 'overlayThemes':
+      inverse.upserts.overlayThemes = [...(inverse.upserts.overlayThemes ?? []), value as OverlayTheme];
       return;
     case 'stages':
       inverse.upserts.stages = [...(inverse.upserts.stages ?? []), value as Stage];
       return;
-    case 'collections':
-      inverse.upserts.collections = [...(inverse.upserts.collections ?? []), value as Collection];
+    case 'playlists':
+      inverse.upserts.playlists = [...(inverse.upserts.playlists ?? []), value as Playlist];
+      return;
+    case 'playlistEntries':
+      inverse.upserts.playlistEntries = [...(inverse.upserts.playlistEntries ?? []), value as PlaylistRow];
       return;
     case 'cues':
       inverse.upserts.cues = [...(inverse.upserts.cues ?? []), value as Cue];
@@ -278,9 +320,6 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
 
 function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: Id): void {
   switch (key) {
-    case 'libraries':
-      inverse.deletes.libraries = [...(inverse.deletes.libraries ?? []), id];
-      return;
     case 'presentations':
       inverse.deletes.presentations = [...(inverse.deletes.presentations ?? []), id];
       return;
@@ -305,14 +344,26 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
     case 'overlays':
       inverse.deletes.overlays = [...(inverse.deletes.overlays ?? []), id];
       return;
-    case 'themes':
-      inverse.deletes.themes = [...(inverse.deletes.themes ?? []), id];
+    case 'presentationThemes':
+      inverse.deletes.presentationThemes = [...(inverse.deletes.presentationThemes ?? []), id];
+      return;
+    case 'lyricThemes':
+      inverse.deletes.lyricThemes = [...(inverse.deletes.lyricThemes ?? []), id];
+      return;
+    case 'talkThemes':
+      inverse.deletes.talkThemes = [...(inverse.deletes.talkThemes ?? []), id];
+      return;
+    case 'overlayThemes':
+      inverse.deletes.overlayThemes = [...(inverse.deletes.overlayThemes ?? []), id];
       return;
     case 'stages':
       inverse.deletes.stages = [...(inverse.deletes.stages ?? []), id];
       return;
-    case 'collections':
-      inverse.deletes.collections = [...(inverse.deletes.collections ?? []), id];
+    case 'playlists':
+      inverse.deletes.playlists = [...(inverse.deletes.playlists ?? []), id];
+      return;
+    case 'playlistEntries':
+      inverse.deletes.playlistEntries = [...(inverse.deletes.playlistEntries ?? []), id];
       return;
     case 'cues':
       inverse.deletes.cues = [...(inverse.deletes.cues ?? []), id];

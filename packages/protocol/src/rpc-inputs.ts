@@ -7,9 +7,7 @@ import type {
   SlideElement,
   MediaAssetType,
   OverlayAnimation,
-  ThemeKind,
-  CollectionBinKind,
-  CollectionItemType,
+  ThemeOwnerType,
 } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
@@ -31,38 +29,15 @@ import type {
 // #150). Grouped here as one module (not one file per type) because they
 // share exactly one concern: "what the renderer is allowed to send for a
 // given mutation."
+//
+// #219 item-model refactor: there is no collection concept and no library
+// concept left on the wire (decisions D3/D4) — every `collectionId` field
+// that used to appear here is gone, not renamed.
 // ---------------------------------------------------------------------------
 
 export interface SlideBackgroundUpdateInput {
   slideId: Id;
   background: SlideBackground | null;
-}
-
-export interface CollectionCreateInput {
-  binKind: CollectionBinKind;
-  name: string;
-}
-
-export interface CollectionRenameInput {
-  binKind: CollectionBinKind;
-  id: Id;
-  name: string;
-}
-
-export interface CollectionDeleteInput {
-  binKind: CollectionBinKind;
-  id: Id;
-}
-
-export interface CollectionReorderInput {
-  binKind: CollectionBinKind;
-  ids: Id[];
-}
-
-export interface CollectionAssignmentInput {
-  itemType: CollectionItemType;
-  itemId: Id;
-  collectionId: Id;
 }
 
 export interface CueCreateInput {
@@ -81,7 +56,6 @@ export interface CueUpdateInput {
 export interface MacroCreateInput {
   name: string;
   description?: string;
-  collectionId?: Id;
   scopeLevel?: ScopeLevel;
   onScopeExit?: OnScopeExit;
   loopEnabled?: boolean;
@@ -187,7 +161,6 @@ export interface OverlayCreateInput {
   name: string;
   elements?: SlideElement[];
   animation?: OverlayAnimation;
-  collectionId?: Id;
 }
 
 export interface OverlayUpdateInput {
@@ -197,20 +170,28 @@ export interface OverlayUpdateInput {
   animation?: OverlayAnimation;
 }
 
+// #219 item-model refactor decision D2: `kind: ThemeKind` is gone along with
+// the single `themes` table — `themeType` says which of the four per-owner
+// theme tables (`presentation_themes`/`lyric_themes`/`talk_themes`/
+// `overlay_themes`) this theme belongs to. Kept as a single wire input
+// (not quadrupled per owner type) per D2's explicit wire decision; storage
+// and domain stay per-table.
 export interface ThemeCreateInput {
   name: string;
-  kind: ThemeKind;
+  themeType: ThemeOwnerType;
   width?: number;
   height?: number;
   background?: SlideBackground | null;
   elements?: SlideElement[];
-  collectionId?: Id;
 }
 
 export interface ThemeUpdateInput {
   id: Id;
+  // Required (unlike the other optional update fields): the four theme
+  // tables are independent id spaces, so the table an update targets cannot
+  // be inferred from `id` alone.
+  themeType: ThemeOwnerType;
   name?: string;
-  kind?: ThemeKind;
   width?: number;
   height?: number;
   background?: SlideBackground | null;
@@ -222,7 +203,6 @@ export interface StageCreateInput {
   width?: number;
   height?: number;
   elements?: SlideElement[];
-  collectionId?: Id;
 }
 
 export interface StageUpdateInput {
@@ -237,10 +217,9 @@ export interface MediaAssetCreateInput {
   name: string;
   type: MediaAssetType;
   src: string;
-  collectionId?: Id;
 }
 
-export interface DeckBundleExportOptions {
+export interface BundleExportOptions {
   includeAllThemes?: boolean;
   includeOverlays?: boolean;
   includeStages?: boolean;

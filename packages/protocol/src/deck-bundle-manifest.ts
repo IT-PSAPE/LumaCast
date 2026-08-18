@@ -1,10 +1,10 @@
 import type { Id } from '@lumacast/kernel';
-import type { DeckItemType, SlideBackground, SlideBackgroundSource, SlideElement, OverlayType, OverlayAnimation, ThemeKind } from '@lumacast/composition';
+import type { ItemType, SlideBackground, SlideBackgroundSource, SlideElement, OverlayType, OverlayAnimation, ThemeOwnerType } from '@lumacast/composition';
 
 // ---------------------------------------------------------------------------
 // Deck bundle manifest (issue #154, parent #116): the on-disk `.cst` archive
 // file format for deck export/import (issue #147-family), decoded by
-// `decodeDeckBundleManifest` in app/contracts/codecs.ts and read/written via
+// `decodeBundleManifest` in app/contracts/codecs.ts and read/written via
 // `app/main/deck-bundle-archive.ts`. This is an APPLICATION contract, not an
 // IPC contract: unlike the `rpc-inputs.ts`/`rpc-results.ts` shapes, none of
 // these types are ever named in `RpcMethodSignatures` (app/core/ipc.ts) —
@@ -20,19 +20,29 @@ import type { DeckItemType, SlideBackground, SlideBackgroundSource, SlideElement
 // Kept in its own module, separate from the RPC wire-payload shapes in
 // `rpc-inputs.ts`/`rpc-results.ts`, so the file-format vs wire-payload
 // distinction is visible in the import path.
+//
+// #219 item-model refactor (decision D8): manifest version 2. Playlists are
+// flat rows (item entries interleaved with separators) instead of entries
+// nested inside groups; items are typed by `ItemType` (there is no unified
+// deck-item concept); themes are tagged by `themeType` (which of the four
+// per-owner theme tables they belong to) instead of `kind`; there is no
+// `libraryName` (the library concept is gone). Version 1 manifests are
+// rejected with an explicit version error by `decodeBundleManifest`
+// (codecs.ts) — a v1 reader (groups → separator+entries, `kind` → per-owner
+// theme table) is a later compatibility wave's job.
 // ---------------------------------------------------------------------------
 
-export interface DeckBundleTheme {
+export interface BundleTheme {
   id: Id;
   name: string;
-  kind: ThemeKind;
+  themeType: ThemeOwnerType;
   width: number;
   height: number;
   order: number;
   elements: SlideElement[];
 }
 
-export interface DeckBundleSlide {
+export interface BundleSlide {
   id: Id;
   width: number;
   height: number;
@@ -41,31 +51,31 @@ export interface DeckBundleSlide {
   background?: SlideBackground | null;
   backgroundSource?: SlideBackgroundSource;
   elements: SlideElement[];
-  scriptBlocks?: DeckBundleTalkScriptBlock[];
+  scriptBlocks?: BundleTalkScriptBlock[];
 }
 
-export interface DeckBundleTalkScriptBlock {
+export interface BundleTalkScriptBlock {
   id: Id;
   text: string;
   order: number;
 }
 
-export interface DeckBundleItem {
+export interface BundleItem {
   id: Id;
-  type: DeckItemType;
+  type: ItemType;
   title: string;
   themeId: Id | null;
   order: number;
-  slides: DeckBundleSlide[];
+  slides: BundleSlide[];
 }
 
-export interface DeckBundleMediaReference {
+export interface BundleMediaReference {
   source: string;
   elementTypes: Array<'image' | 'video'>;
   occurrenceCount: number;
 }
 
-export interface DeckBundleStage {
+export interface BundleStage {
   id: Id;
   name: string;
   width: number;
@@ -74,7 +84,7 @@ export interface DeckBundleStage {
   elements: SlideElement[];
 }
 
-export interface DeckBundleOverlay {
+export interface BundleOverlay {
   id: Id;
   name: string;
   type: OverlayType;
@@ -93,7 +103,78 @@ export interface DeckBundleOverlay {
 // the legacy owner-column shape (not `PlaylistItemReference`) so exported
 // bundles keep a stable, versioned on-disk schema; interpret and construct
 // these columns only via @core/playlist-item-reference and @core/deck-bundles.
-export interface DeckBundlePlaylistEntry {
+export interface BundlePlaylistItemEntry {
+  id: Id;
+  kind: 'item';
+  presentationId: Id | null;
+  lyricId: Id | null;
+  talkId: Id | null;
+  order: number;
+}
+
+// The divider row (decision D5): keeps its own label and color, owns no
+// item, and never nests other rows — it is a row *in* the flat playlist row
+// list, not a container *around* a subset of entries.
+export interface BundlePlaylistSeparator {
+  id: Id;
+  kind: 'separator';
+  label: string;
+  colorKey: string | null;
+  order: number;
+}
+
+/**
+ * One row of a bundle playlist's flat, ordered row list, discriminated on
+ * `kind`. `@core/deck-bundles`'s `getBundlePlaylistEntryReference` must
+ * only ever see a `kind: 'item'` row — discriminate on `kind` before parsing
+ * a reference, never call it on a separator.
+ */
+export type BundlePlaylistRow = BundlePlaylistItemEntry | BundlePlaylistSeparator;
+
+export interface BundlePlaylist {
+  id: Id;
+  name: string;
+  order: number;
+  rows: BundlePlaylistRow[];
+}
+
+export interface BundleManifest {
+  format: 'cast-deck-bundle';
+  version: 2;
+  exportedAt: string;
+  items: BundleItem[];
+  themes: BundleTheme[];
+  mediaReferences: BundleMediaReference[];
+  overlays?: BundleOverlay[];
+  stages?: BundleStage[];
+  playlists?: BundlePlaylist[];
+}
+
+// ---------------------------------------------------------------------------
+// Legacy (v1) bundle manifest shapes — the pre-#219 on-disk `.cst` shape:
+// entries nested inside groups, themes tagged by `kind`, and a `libraryName`
+// on every playlist. `BundleItem`/`BundleOverlay`/`BundleStage`/`BundleSlide`
+// are unchanged between v1 and v2, so they are reused as-is below. Kept so
+// `codecs.ts`'s `decodeBundleManifest` can still decode an old file and
+// `normalizeBundleManifestV1` can convert it to the current v2 shape — never
+// construct one of these by hand outside that import path.
+// ---------------------------------------------------------------------------
+
+/** The v1 single-table theme `kind` domain, pre-per-owner-table split. */
+export type BundleThemeKindV1 = 'slides' | 'lyrics' | 'overlays';
+
+export interface BundleThemeV1 {
+  id: Id;
+  name: string;
+  kind: BundleThemeKindV1;
+  width: number;
+  height: number;
+  order: number;
+  elements: SlideElement[];
+}
+
+/** The v1 playlist-entry shape: `talkId` was added later and stayed optional. */
+export interface BundlePlaylistEntryV1 {
   id: Id;
   presentationId: Id | null;
   lyricId: Id | null;
@@ -101,30 +182,30 @@ export interface DeckBundlePlaylistEntry {
   order: number;
 }
 
-export interface DeckBundlePlaylistGroup {
+export interface BundlePlaylistGroupV1 {
   id: Id;
   name: string;
   colorKey: string | null;
   order: number;
-  entries: DeckBundlePlaylistEntry[];
+  entries: BundlePlaylistEntryV1[];
 }
 
-export interface DeckBundlePlaylist {
+export interface BundlePlaylistV1 {
   id: Id;
   name: string;
   libraryName: string;
   order: number;
-  groups: DeckBundlePlaylistGroup[];
+  groups: BundlePlaylistGroupV1[];
 }
 
-export interface DeckBundleManifest {
+export interface BundleManifestV1 {
   format: 'cast-deck-bundle';
   version: 1;
   exportedAt: string;
-  items: DeckBundleItem[];
-  themes: DeckBundleTheme[];
-  mediaReferences: DeckBundleMediaReference[];
-  overlays?: DeckBundleOverlay[];
-  stages?: DeckBundleStage[];
-  playlists?: DeckBundlePlaylist[];
+  items: BundleItem[];
+  themes: BundleThemeV1[];
+  mediaReferences: BundleMediaReference[];
+  overlays?: BundleOverlay[];
+  stages?: BundleStage[];
+  playlists?: BundlePlaylistV1[];
 }

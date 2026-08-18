@@ -1,22 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   CodecError,
-  DECK_BUNDLE_FORMAT,
-  DECK_BUNDLE_VERSION,
+  BUNDLE_FORMAT,
+  BUNDLE_VERSION,
   decodeAppSnapshotShape,
-  decodeCollectionCreateInput,
-  decodeCollectionReorderInput,
   decodeCueCreateInput,
   decodeCuePayload,
   decodeCuePayloadJson,
   decodeCueUpdateInput,
-  decodeDeckBundleBrokenReferenceDecision,
-  decodeDeckBundleExportOptions,
-  decodeDeckBundleManifest,
-  decodeDeckItemCreateWithThemeInput,
+  decodeBundleBrokenReferenceDecision,
+  decodeBundleExportOptions,
+  decodeBundleManifest,
   decodeElementCreateInput,
   decodeElementUpdateInput,
   decodeInlineWindowMenuBounds,
+  decodeItemCreateInput,
+  decodeItemDuplicateInput,
   decodeMacroCreateInput,
   decodeMediaAssetCreateInput,
   decodeNdiOutputConfigInput,
@@ -37,7 +36,7 @@ import {
   expectRpcPrimitiveArgs,
   type CodecContext,
 } from './codecs';
-import type { DeckBundleManifest } from './deck-bundle-manifest';
+import type { BundleManifest } from './deck-bundle-manifest';
 import type { SlideElement } from '@lumacast/composition';
 
 const CONTEXT: CodecContext = { boundary: 'test', operation: 'unit', path: '' };
@@ -77,8 +76,8 @@ function textElement(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
-function decodeDeckBundleManifestWith(value: unknown): DeckBundleManifest {
-  return decodeDeckBundleManifest(value, CONTEXT);
+function decodeBundleManifestWith(value: unknown): BundleManifest {
+  return decodeBundleManifest(value, CONTEXT);
 }
 
 function expectCodecError(action: () => unknown, pathPart: string): void {
@@ -96,8 +95,8 @@ function expectCodecError(action: () => unknown, pathPart: string): void {
 
 function buildValidManifest(): Record<string, unknown> {
   return {
-    format: DECK_BUNDLE_FORMAT,
-    version: DECK_BUNDLE_VERSION,
+    format: BUNDLE_FORMAT,
+    version: BUNDLE_VERSION,
     exportedAt: '2024-01-01T00:00:00.000Z',
     items: [
       {
@@ -116,6 +115,100 @@ function buildValidManifest(): Record<string, unknown> {
             background: { type: 'color', color: '#000000' },
             backgroundSource: 'theme',
             elements: [textElement()],
+          },
+        ],
+      },
+    ],
+    themes: [
+      {
+        id: 'theme-1',
+        name: 'Theme',
+        themeType: 'presentation',
+        width: 1920,
+        height: 1080,
+        order: 0,
+        elements: [textElement({ id: 't-1', slideId: 'theme-1:slide' })],
+      },
+    ],
+    mediaReferences: [{ source: 'asset://logo', elementTypes: ['image'], occurrenceCount: 1 }],
+    overlays: [
+      {
+        id: 'ov-1',
+        name: 'Overlay',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        opacity: 1,
+        zIndex: 10,
+        enabled: true,
+        elements: [],
+        animation: { kind: 'none', durationMs: 0, autoClearDurationMs: null },
+      },
+    ],
+    stages: [{ id: 'stage-1', name: 'Stage', width: 1920, height: 1080, order: 0, elements: [] }],
+    playlists: [
+      {
+        id: 'playlist-1',
+        name: 'Sunday',
+        order: 0,
+        rows: [
+          { id: 'sep-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+          { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+        ],
+      },
+    ],
+  };
+}
+
+// Golden v1 fixture (pre-#219): entries nested inside groups, themes tagged
+// by `kind`, and a `libraryName` on every playlist. Kept as a legacy-import
+// regression fixture — `decodeBundleManifest` now decodes it and converts it
+// to the current v2 shape via `normalizeBundleManifestV1` (see "decodes and
+// normalizes a v1 manifest" below). The `theme-1` ('slides' kind) is
+// referenced by BOTH the presentation and the talk, exercising the
+// talk-family clone (decision D8); `group-2` is empty, exercising "every
+// group yields a separator, including an empty one".
+function buildLegacyV1Manifest(): Record<string, unknown> {
+  return {
+    format: BUNDLE_FORMAT,
+    version: 1,
+    exportedAt: '2024-01-01T00:00:00.000Z',
+    items: [
+      {
+        id: 'pres-1',
+        type: 'presentation',
+        title: 'Deck',
+        themeId: 'theme-1',
+        order: 0,
+        slides: [
+          {
+            id: 'slide-1',
+            width: 1920,
+            height: 1080,
+            notes: '',
+            order: 0,
+            background: { type: 'color', color: '#000000' },
+            backgroundSource: 'theme',
+            elements: [textElement()],
+          },
+        ],
+      },
+      {
+        id: 'talk-1',
+        type: 'talk',
+        title: 'Sermon',
+        themeId: 'theme-1',
+        order: 0,
+        slides: [
+          {
+            id: 'slide-2',
+            width: 1920,
+            height: 1080,
+            notes: '',
+            order: 0,
+            elements: [],
           },
         ],
       },
@@ -157,8 +250,15 @@ function buildValidManifest(): Record<string, unknown> {
         order: 0,
         groups: [
           {
+            id: 'group-2',
+            name: 'Closing',
+            colorKey: 'red',
+            order: 1,
+            entries: [],
+          },
+          {
             id: 'group-1',
-            name: 'Group',
+            name: 'Opening',
             colorKey: null,
             order: 0,
             entries: [{ id: 'entry-1', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 }],
@@ -351,36 +451,83 @@ describe('decodeCuePayload', () => {
   });
 });
 
-describe('decodeDeckBundleManifest', () => {
-  it('decodes a valid current manifest', () => {
-    const manifest = decodeDeckBundleManifestWith(buildValidManifest());
+describe('decodeBundleManifest', () => {
+  it('decodes a valid current (v2) manifest, including flat playlist rows', () => {
+    const manifest = decodeBundleManifestWith(buildValidManifest());
     expect(manifest.items).toHaveLength(1);
     expect(manifest.themes[0].elements[0].payload).toMatchObject({ text: 'Hello' });
+    expect(manifest.themes[0]).toMatchObject({ themeType: 'presentation' });
     expect(manifest.overlays?.[0].animation).toEqual({ kind: 'none', durationMs: 0, autoClearDurationMs: null });
+    expect(manifest.playlists?.[0].rows).toEqual([
+      { id: 'sep-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+    ]);
   });
 
   it('rejects an unsupported format explicitly', () => {
     const manifest = buildValidManifest();
     manifest.format = 'cast-backup';
-    expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'unsupported bundle format');
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'unsupported bundle format');
+  });
+
+  // Regression (#219 item-model refactor decision D8): a real v1 file on
+  // disk (nested groups, `kind`-tagged themes, `libraryName`) decodes and is
+  // converted to the current v2 shape by `normalizeBundleManifestV1`.
+  it('decodes and normalizes a v1 manifest: separators synthesized in canonical order, entry ids preserved, and a talk-theme clone', () => {
+    const manifest = decodeBundleManifestWith(buildLegacyV1Manifest());
+
+    expect(manifest.format).toBe(BUNDLE_FORMAT);
+    expect(manifest.version).toBe(BUNDLE_VERSION);
+
+    // The presentation keeps referencing the original ('slides' -> presentation
+    // family) theme; the talk is repointed to a fresh talk-family clone.
+    const presentation = manifest.items.find((item) => item.id === 'pres-1')!;
+    const talk = manifest.items.find((item) => item.id === 'talk-1')!;
+    expect(presentation.themeId).toBe('theme-1');
+    expect(talk.themeId).not.toBe('theme-1');
+    expect(typeof talk.themeId).toBe('string');
+
+    expect(manifest.themes).toHaveLength(2);
+    const presentationTheme = manifest.themes.find((theme) => theme.id === 'theme-1')!;
+    const talkTheme = manifest.themes.find((theme) => theme.id === talk.themeId)!;
+    expect(presentationTheme).toMatchObject({ themeType: 'presentation', name: 'Theme', width: 1920, height: 1080 });
+    expect(talkTheme).toMatchObject({ themeType: 'talk', name: 'Theme', width: 1920, height: 1080 });
+    expect(talkTheme.elements).toEqual(presentationTheme.elements);
+
+    // group-1 (order 0, "Opening") sorts before group-2 (order 1, "Closing")
+    // despite appearing second in the source array; every group -- including
+    // the empty one -- yields a separator, and the whole row list is
+    // renumbered 0..n. The item entry keeps its original id.
+    expect(manifest.playlists?.[0].rows).toEqual([
+      { id: 'group-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+      { id: 'group-2', kind: 'separator', label: 'Closing', colorKey: 'red', order: 2 },
+    ]);
+    expect(manifest.playlists?.[0]).not.toHaveProperty('libraryName');
+  });
+
+  it('rejects a structurally invalid v1 manifest with a field path (not silently misparsed)', () => {
+    const manifest = buildLegacyV1Manifest();
+    (manifest.themes as Record<string, unknown>[])[0].kind = 'bogus';
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'themes[0].kind');
   });
 
   it('rejects a future version explicitly without partial results', () => {
     const manifest = buildValidManifest();
-    manifest.version = 2;
-    expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'future bundle version 2');
+    manifest.version = 3;
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'future bundle version 3');
   });
 
   it('rejects an unsupported version', () => {
     const manifest = buildValidManifest();
     manifest.version = 0;
-    expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'unsupported bundle version');
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'unsupported bundle version');
   });
 
   it('rejects a corrupt item with a field path', () => {
     const manifest = buildValidManifest();
     delete (manifest.items as Record<string, unknown>[])[0].title;
-    expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'items[0].title');
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'items[0].title');
   });
 
   it('rejects a corrupt nested slide element with a field path', () => {
@@ -388,7 +535,7 @@ describe('decodeDeckBundleManifest', () => {
     ((manifest.items as Record<string, unknown>[])[0].slides as Record<string, unknown>[])[0].elements = [
       textElement({ type: 'bogus' }),
     ];
-    expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'items[0].slides[0].elements[0].type');
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'items[0].slides[0].elements[0].type');
   });
 
   it('rejects a corrupt slide background with a field path', () => {
@@ -397,27 +544,25 @@ describe('decodeDeckBundleManifest', () => {
       type: 'gradient',
       gradient: { kind: 'linear', stops: [{ color: '#000000', position: 0 }] },
     };
-    expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'items[0].slides[0].background.gradient.stops');
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'items[0].slides[0].background.gradient.stops');
   });
 
-  it('preserves an omitted talkId on playlist entries', () => {
+  it('rejects a playlist row with an invalid kind', () => {
     const manifest = buildValidManifest();
-    const entry = ((manifest.playlists as Record<string, unknown>[])[0].groups as Record<string, unknown>[])[0]
-      .entries as Record<string, unknown>[];
-    delete entry[0].talkId;
-    const decoded = decodeDeckBundleManifestWith(manifest);
-    const decodedEntry = (
-      (decoded.playlists?.[0].groups[0] as unknown as { entries: Array<Record<string, unknown>> }).entries as Array<
-        Record<string, unknown>
-      >
-    )[0];
-    expect(decodedEntry).not.toHaveProperty('talkId');
+    ((manifest.playlists as Record<string, unknown>[])[0].rows as Record<string, unknown>[])[0].kind = 'group';
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'playlists[0].rows[0].kind');
+  });
+
+  it('rejects a separator row missing its label', () => {
+    const manifest = buildValidManifest();
+    delete ((manifest.playlists as Record<string, unknown>[])[0].rows as Record<string, unknown>[])[0].label;
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'playlists[0].rows[0].label');
   });
 
   it('rejects an invalid media reference', () => {
     const manifest = buildValidManifest();
     (manifest.mediaReferences as Record<string, unknown>[])[0].elementTypes = ['gif'];
-    expectCodecError(() => decodeDeckBundleManifestWith(manifest), 'mediaReferences[0].elementTypes[0]');
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'mediaReferences[0].elementTypes[0]');
   });
 });
 
@@ -641,14 +786,14 @@ describe('decodeOverlayCreateInput / decodeThemeCreateInput / decodeStageCreateI
 
   it('decodes theme background via decodeSlideBackground', () => {
     const theme = decodeThemeCreateInput(
-      { name: 'Theme', kind: 'slides', background: { type: 'color', color: '#000' } },
+      { name: 'Theme', themeType: 'presentation', background: { type: 'color', color: '#000' } },
       CONTEXT,
     );
-    expect(theme).toMatchObject({ kind: 'slides' });
+    expect(theme).toMatchObject({ themeType: 'presentation' });
   });
 
-  it('rejects an invalid theme kind', () => {
-    expectCodecError(() => decodeThemeCreateInput({ name: 'Theme', kind: 'bogus' }, CONTEXT), 'kind');
+  it('rejects an invalid theme type', () => {
+    expectCodecError(() => decodeThemeCreateInput({ name: 'Theme', themeType: 'bogus' }, CONTEXT), 'themeType');
   });
 
   it('decodes a minimal stage create input', () => {
@@ -679,7 +824,7 @@ describe('decodeSlideCreateInput / decodeSlideBackgroundUpdateInput', () => {
   });
 });
 
-describe('decodeMediaAssetCreateInput / decodeDeckItemCreateWithThemeInput', () => {
+describe('decodeMediaAssetCreateInput / decodeItemCreateInput / decodeItemDuplicateInput', () => {
   it('decodes a valid media asset input', () => {
     const asset = decodeMediaAssetCreateInput({ name: 'Logo', type: 'image', src: 'asset://logo.png' }, CONTEXT);
     expect(asset).toMatchObject({ type: 'image' });
@@ -696,57 +841,57 @@ describe('decodeMediaAssetCreateInput / decodeDeckItemCreateWithThemeInput', () 
     );
   });
 
-  it('decodes a valid deck-item-with-theme input', () => {
-    const input = decodeDeckItemCreateWithThemeInput({ type: 'presentation', title: 'New', themeId: null }, CONTEXT);
+  it('decodes a valid item create input with no collection/group fields', () => {
+    const input = decodeItemCreateInput({ type: 'presentation', title: 'New', themeId: null }, CONTEXT);
     expect(input).toMatchObject({ type: 'presentation', title: 'New' });
   });
+
+  it('decodes a minimal item create input (title, themeId, playlistId, position all optional)', () => {
+    expect(decodeItemCreateInput({ type: 'talk' }, CONTEXT)).toEqual({ type: 'talk' });
+  });
+
+  it('decodes an item create input placed into a playlist at a position', () => {
+    const input = decodeItemCreateInput({ type: 'lyric', playlistId: 'pl-1', position: 2 }, CONTEXT);
+    expect(input).toMatchObject({ playlistId: 'pl-1', position: 2 });
+  });
+
+  it('rejects an unknown field on item create (no collectionId/groupId survive)', () => {
+    expectCodecError(
+      () => decodeItemCreateInput({ type: 'presentation', collectionId: 'col-1' }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('decodes a valid item duplicate input for presentation/lyric', () => {
+    expect(decodeItemDuplicateInput({ type: 'lyric', id: 'lyr-1' }, CONTEXT)).toEqual({ type: 'lyric', id: 'lyr-1' });
+  });
+
+  it('rejects talk on item duplicate (decision D1: there is no duplicateTalk)', () => {
+    expectCodecError(() => decodeItemDuplicateInput({ type: 'talk', id: 'tk-1' }, CONTEXT), 'type');
+  });
 });
 
-describe('decodeCollectionCreateInput / decodeCollectionReorderInput', () => {
-  it('decodes a valid collection create input', () => {
-    expect(decodeCollectionCreateInput({ binKind: 'image', name: 'Backgrounds' }, CONTEXT)).toEqual({
-      binKind: 'image',
-      name: 'Backgrounds',
-    });
-  });
-
-  it('rejects an invalid bin kind', () => {
-    expectCodecError(() => decodeCollectionCreateInput({ binKind: 'bogus', name: 'X' }, CONTEXT), 'binKind');
-  });
-
-  it('decodes and validates a reorder input as a string array', () => {
-    expect(decodeCollectionReorderInput({ binKind: 'deck', ids: ['a', 'b'] }, CONTEXT)).toEqual({
-      binKind: 'deck',
-      ids: ['a', 'b'],
-    });
-  });
-
-  it('rejects a non-string entry in the reorder ids array', () => {
-    expectCodecError(() => decodeCollectionReorderInput({ binKind: 'deck', ids: ['a', 7] }, CONTEXT), 'ids.1');
-  });
-});
-
-describe('decodeDeckBundleExportOptions / decodeDeckBundleBrokenReferenceDecision', () => {
+describe('decodeBundleExportOptions / decodeBundleBrokenReferenceDecision', () => {
   it('decodes valid export options', () => {
-    expect(decodeDeckBundleExportOptions({ includeAllThemes: true, playlistIds: ['p-1'] }, CONTEXT)).toEqual({
+    expect(decodeBundleExportOptions({ includeAllThemes: true, playlistIds: ['p-1'] }, CONTEXT)).toEqual({
       includeAllThemes: true,
       playlistIds: ['p-1'],
     });
   });
 
   it('rejects an unknown export option (filesystem export boundary)', () => {
-    expectCodecError(() => decodeDeckBundleExportOptions({ includeAllThemes: true, bogus: 1 }, CONTEXT), 'unknown field');
+    expectCodecError(() => decodeBundleExportOptions({ includeAllThemes: true, bogus: 1 }, CONTEXT), 'unknown field');
   });
 
   it('decodes a valid broken-reference decision', () => {
     expect(
-      decodeDeckBundleBrokenReferenceDecision({ source: 'asset://x', action: 'replace', replacementPath: '/tmp/y.png' }, CONTEXT),
+      decodeBundleBrokenReferenceDecision({ source: 'asset://x', action: 'replace', replacementPath: '/tmp/y.png' }, CONTEXT),
     ).toMatchObject({ action: 'replace' });
   });
 
   it('rejects an invalid decision action', () => {
     expectCodecError(
-      () => decodeDeckBundleBrokenReferenceDecision({ source: 'asset://x', action: 'ignore' }, CONTEXT),
+      () => decodeBundleBrokenReferenceDecision({ source: 'asset://x', action: 'ignore' }, CONTEXT),
       'action',
     );
   });
@@ -800,10 +945,15 @@ describe('NDI RPC input vs. persisted config file: unknown-field policy contrast
 });
 
 describe('decodeAppSnapshotShape', () => {
+  // #219 item-model refactor decisions D3/D4/D2: no libraries, libraryBundles,
+  // or collections; `themes` splits into four per-owner arrays; playlists
+  // ship as two ordinary flat-row families (playlists/playlistEntries), not
+  // a derived tree.
   const EMPTY_SNAPSHOT_FIELDS = [
-    'libraries', 'libraryBundles', 'presentations', 'lyrics', 'talks', 'slides',
-    'talkScriptBlocks', 'slideElements', 'mediaAssets', 'overlays', 'themes',
-    'stages', 'collections', 'cues', 'macros', 'triggerBindings',
+    'presentations', 'lyrics', 'talks', 'slides',
+    'talkScriptBlocks', 'slideElements', 'mediaAssets', 'overlays',
+    'presentationThemes', 'lyricThemes', 'talkThemes', 'overlayThemes',
+    'stages', 'playlists', 'playlistEntries', 'cues', 'macros', 'triggerBindings',
   ];
 
   function emptySnapshot(): Record<string, unknown> {
@@ -816,7 +966,7 @@ describe('decodeAppSnapshotShape', () => {
 
   it('decodes a snapshot with well-formed entity rows', () => {
     const snapshot = emptySnapshot();
-    snapshot.libraries = [{ id: 'lib-1', name: 'Main' }];
+    snapshot.presentations = [{ id: 'pres-1', title: 'Deck', order: 0 }];
     expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
   });
 
@@ -834,78 +984,32 @@ describe('decodeAppSnapshotShape', () => {
 
   it('rejects a row missing a string id', () => {
     const snapshot = emptySnapshot();
-    snapshot.themes = [{ name: 'Theme without id' }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'themes[0].id');
+    snapshot.presentationThemes = [{ name: 'Theme without id' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'presentationThemes[0].id');
   });
 
-  // --- issue #224: libraryBundles is a tree, not a flat row list -----------
+  // --- issue #219: playlists are ordinary flat-row families now ------------
 
-  function libraryBundle(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-    return {
-      library: { id: 'lib-1', name: 'Main', order: 0, createdAt: 'now', updatedAt: 'now' },
-      playlists: [
-        {
-          playlist: { id: 'pl-1', libraryId: 'lib-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' },
-          groups: [
-            {
-              group: { id: 'grp-1', playlistId: 'pl-1', name: 'Opening', colorKey: null, order: 0, createdAt: 'now', updatedAt: 'now' },
-              entries: [
-                {
-                  entry: {
-                    id: 'ent-1',
-                    groupId: 'grp-1',
-                    reference: { kind: 'presentation', itemId: 'pres-1' },
-                    presentationId: 'pres-1',
-                    lyricId: null,
-                    talkId: null,
-                    order: 0,
-                    createdAt: 'now',
-                    updatedAt: 'now',
-                  },
-                  item: { id: 'pres-1', type: 'presentation', title: 'Deck', collectionId: 'col-1', order: 0, createdAt: 'now', updatedAt: 'now' },
-                },
-              ],
-            },
-          ],
-        },
-      ],
-      ...overrides,
-    };
-  }
-
-  it('accepts a populated libraryBundles tree (regression: bundles carry no id of their own)', () => {
-    // The shallow pass required a string `id` on every row of every array,
-    // including libraryBundles — whose entries are `{ library, playlists }`.
-    // Any project with at least one library therefore failed validation, which
-    // took restoreFromSnapshot (undo/redo) out entirely.
+  it('decodes a well-formed playlist with an item entry and a separator row', () => {
     const snapshot = emptySnapshot();
-    snapshot.libraryBundles = [libraryBundle()];
+    snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
+    snapshot.playlistEntries = [
+      { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+    ];
     expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
   });
 
-  it('rejects a bundle whose library is not an object', () => {
+  it('rejects a playlist entry row missing a string id', () => {
     const snapshot = emptySnapshot();
-    snapshot.libraryBundles = [libraryBundle({ library: 'Main' })];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'libraryBundles[0].library');
+    snapshot.playlistEntries = [{ playlistId: 'pl-1', kind: 'separator', label: 'Opening' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playlistEntries[0].id');
   });
 
-  it('rejects a wrong-typed field deep inside a bundle tree, naming the path', () => {
+  it('rejects a separator row whose label is the wrong type', () => {
     const snapshot = emptySnapshot();
-    const bundle = libraryBundle();
-    const playlists = bundle.playlists as Record<string, unknown>[];
-    const groups = playlists[0].groups as Record<string, unknown>[];
-    (groups[0].group as Record<string, unknown>).order = 'first';
-    snapshot.libraryBundles = [bundle];
-    expectCodecError(
-      () => decodeAppSnapshotShape(snapshot, CONTEXT),
-      'libraryBundles[0].playlists[0].groups[0].group.order',
-    );
-  });
-
-  it('rejects a bundle whose playlists is not an array', () => {
-    const snapshot = emptySnapshot();
-    snapshot.libraryBundles = [libraryBundle({ playlists: {} })];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'libraryBundles[0].playlists');
+    snapshot.playlistEntries = [{ id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 7, colorKey: null, order: 0 }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playlistEntries[0].label');
   });
 
   // --- issue #224: wrong-typed fields on otherwise well-shaped rows --------
@@ -914,8 +1018,8 @@ describe('decodeAppSnapshotShape', () => {
     // SQLite INTEGER affinity would coerce this silently and it would survive
     // the restore transaction as a corrupt row.
     const snapshot = emptySnapshot();
-    snapshot.collections = [{ id: 'col-1', name: 'Default', order: '3', isDefault: true }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'collections[0].order');
+    snapshot.presentationThemes = [{ id: 'pt-1', name: 'Theme', order: '3' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'presentationThemes[0].order');
   });
 
   it('rejects a string field supplied as a number', () => {
@@ -926,8 +1030,8 @@ describe('decodeAppSnapshotShape', () => {
 
   it('rejects a boolean field supplied as a string', () => {
     const snapshot = emptySnapshot();
-    snapshot.collections = [{ id: 'col-1', name: 'Default', isDefault: 'yes' }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'collections[0].isDefault');
+    snapshot.macros = [{ id: 'm-1', name: 'M', loopEnabled: 'yes', cues: [] }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'macros[0].loopEnabled');
   });
 
   it('rejects a non-finite number where a number is expected', () => {
@@ -938,8 +1042,8 @@ describe('decodeAppSnapshotShape', () => {
 
   it('rejects an object where a primitive field is expected', () => {
     const snapshot = emptySnapshot();
-    snapshot.libraries = [{ id: 'lib-1', name: { first: 'Main' } }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'libraries[0].name');
+    snapshot.presentations = [{ id: 'pres-1', title: { first: 'Deck' } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'presentations[0].title');
   });
 
   it('accepts null and undefined for any recognized field, and ignores unknown field names', () => {
@@ -951,7 +1055,7 @@ describe('decodeAppSnapshotShape', () => {
       presentationId: null,
       lyricId: null,
       talkId: null,
-      themeId: undefined,
+      presentationThemeId: undefined,
       order: 0,
       // Not in the field-kind map: not this boundary's business.
       somethingNewFromAFutureMigration: { nested: true },
@@ -981,18 +1085,18 @@ describe('decodeAppSnapshotShape', () => {
 
   it('rejects a theme whose owned element is malformed', () => {
     const snapshot = emptySnapshot();
-    snapshot.themes = [{
+    snapshot.lyricThemes = [{
       id: 'th-1',
       name: 'Theme',
       elements: [{ ...textElement(), id: 'el-1', type: 'text', payload: { text: 'hi' } }],
     }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'themes[0].elements[0].payload');
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'lyricThemes[0].elements[0].payload');
   });
 
   it('rejects a theme whose elements array is missing', () => {
     const snapshot = emptySnapshot();
-    snapshot.themes = [{ id: 'th-1', name: 'Theme' }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'themes[0].elements');
+    snapshot.talkThemes = [{ id: 'th-1', name: 'Theme' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'talkThemes[0].elements');
   });
 
   it('rejects a malformed cue payload', () => {
@@ -1027,11 +1131,17 @@ describe('decodeAppSnapshotShape', () => {
 
   it('accepts a well-formed populated snapshot across every structured family', () => {
     const snapshot = emptySnapshot();
-    snapshot.libraryBundles = [libraryBundle()];
-    snapshot.collections = [{ id: 'col-1', binKind: 'deck', name: 'Default', order: 0, isDefault: true, createdAt: 'now', updatedAt: 'now' }];
+    snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
+    snapshot.playlistEntries = [
+      { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: 'blue', order: 0 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+    ];
     snapshot.slides = [{ id: 's-1', background: { type: 'color', color: '#000' }, order: 0, notes: '', width: 1920, height: 1080 }];
     snapshot.slideElements = [{ ...textElement(), id: 'el-1', type: 'shape', payload: { fillColor: '#fff' } }];
-    snapshot.themes = [{ id: 'th-1', name: 'Theme', kind: 'slides', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.presentationThemes = [{ id: 'pt-1', name: 'Theme', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.lyricThemes = [{ id: 'lt-1', name: 'Lyric Theme', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.talkThemes = [{ id: 'tt-1', name: 'Talk Theme', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.overlayThemes = [{ id: 'ot-1', name: 'Overlay Theme', elements: [], background: null, width: 1920, height: 1080 }];
     snapshot.overlays = [{ id: 'ov-1', name: 'Lower third', enabled: true, elements: [], animation: { kind: 'fade', durationMs: 250 } }];
     snapshot.stages = [{ id: 'st-1', name: 'Stage', elements: [], width: 1920, height: 1080 }];
     snapshot.cues = [{ id: 'cue-1', kind: 'overlay.activate', payload: { overlayId: 'ov-1' }, failurePolicy: 'continue' }];
