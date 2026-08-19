@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useWorkbench } from './contexts/workbench-context';
 import { useKeyboardShortcuts } from './hooks/use-keyboard-shortcuts';
+import type { WorkbenchMode } from './types/ui';
 
 // Show screen is the most common landing surface — keep it eagerly loaded so
 // cold open lands on a visible UI without a Suspense flash.
@@ -28,6 +29,21 @@ const SettingsScreen = lazy(() =>
   import('./screens/settings/page').then((m) => ({ default: m.SettingsScreen })),
 );
 
+type EditorWorkbenchMode = Exclude<WorkbenchMode, 'show'>;
+
+// Exhaustive by construction: a new WorkbenchMode value must be mapped here
+// before it can render, so an unhandled mode is a compile error instead of a
+// blank shell. Every editor screen is a zero-prop lazy component, so they
+// share the ItemEditorScreen's component type.
+const EDITOR_SCREENS: Record<EditorWorkbenchMode, typeof ItemEditorScreen> = {
+  'item-editor': ItemEditorScreen,
+  'overlay-editor': OverlayEditorScreen,
+  'theme-editor': ThemeEditorScreen,
+  'stage-editor': StageEditorScreen,
+  'macro-editor': MacroEditorScreen,
+  settings: SettingsScreen,
+};
+
 export function WorkbenchScreenRouter() {
   const { state: { workbenchMode } } = useWorkbench();
 
@@ -37,14 +53,11 @@ export function WorkbenchScreenRouter() {
     return <ShowScreen />;
   }
 
+  const Screen = EDITOR_SCREENS[workbenchMode];
+
   return (
     <Suspense fallback={null}>
-      {workbenchMode === 'item-editor' ? <ItemEditorScreen /> : null}
-      {workbenchMode === 'overlay-editor' ? <OverlayEditorScreen /> : null}
-      {workbenchMode === 'theme-editor' ? <ThemeEditorScreen /> : null}
-      {workbenchMode === 'stage-editor' ? <StageEditorScreen /> : null}
-      {workbenchMode === 'macro-editor' ? <MacroEditorScreen /> : null}
-      {workbenchMode === 'settings' ? <SettingsScreen /> : null}
+      <Screen />
     </Suspense>
   );
 }
