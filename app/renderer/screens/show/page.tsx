@@ -1,12 +1,10 @@
 import { ResourceDrawer } from '../../features/workbench/resource-drawer';
-import { ContinuousSlideBrowser } from '../../features/items/continuous-slide-browser';
 import { ProgramPanel } from '../../features/playback/program-panel';
 import { DeckBrowserToolbar } from '../../features/items/deck-browser-toolbar';
-import { SlideBrowserContent } from '../../features/items/slide-browser-content';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { PlaylistPanels } from '@renderer/features/playlists/playlist-panels';
-import { Logo } from '@renderer/components/assets';
 import { ShowScreenProvider, useShowScreen } from './screen-context';
+import { ShowBrowserContent } from './browser-content';
 
 export function ShowScreen() {
   return (
@@ -29,13 +27,7 @@ function ShowScreenContent() {
           <SplitPanel.Segment id="show-middle" defaultSize={600} minSize={360} className="flex flex-col">
             <DeckBrowserToolbar items={browser.items} headerVariant={browser.headerVariant} />
             <div className="min-h-0 flex-1">
-              {browser.contentVariant === 'empty' && (
-                <div className="flex h-full min-h-0 items-center justify-center p-2">
-                  <Logo className="size-60 opacity-10" />
-                </div>
-              )}
-              <SlideBrowserContent variant={browser.contentVariant} />
-              <ContinuousSlideBrowser variant={browser.contentVariant} items={browser.items} />
+              <ShowBrowserContent variant={browser.contentVariant} items={browser.items} />
             </div>
           </SplitPanel.Segment>
           <SplitPanel.Segment id="show-bottom" defaultSize={260} minSize={96} collapsible>

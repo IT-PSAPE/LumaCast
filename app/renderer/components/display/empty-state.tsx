@@ -1,9 +1,7 @@
 import type { HTMLAttributes } from 'react';
 import { cn } from '@renderer/utils/cn';
 
-function Root({ className, hide, ...props }: HTMLAttributes<HTMLDivElement> & { hide?: boolean }) {
-  if (hide) return null;
-  
+function Root({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div className={cn('flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center', className)} {...props} />
   );

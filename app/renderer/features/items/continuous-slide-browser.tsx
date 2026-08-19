@@ -5,6 +5,7 @@ import type { Slide } from '@lumacast/composition';
 import { Label } from '@renderer/components/display/text';
 import { EmptyState } from '../../components/display/empty-state';
 import { ScrollArea } from '../../components/layout/scroll-area';
+import { ThumbnailGrid } from '../../components/layout/thumbnail-grid';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { getSlideVisualState, slideTextDetails, slideTextPreview } from '../../utils/slides';
 import type { RenderScene, SceneSurface } from '@lumacast/composition';
@@ -17,9 +18,11 @@ import type { OutlineSlideRow } from './use-slide-list-view';
 import { SlideOutlineRow } from './slide-list-row';
 import type { SlideBrowserContentVariant } from './use-deck-browser-view';
 
+type ContinuousSlideContentVariant = Extract<SlideBrowserContentVariant, 'continuous-grid' | 'continuous-list'>;
+
 interface ContinuousSlideBrowserProps {
   items: PlaylistDeckSequenceItem[];
-  variant: SlideBrowserContentVariant;
+  variant: ContinuousSlideContentVariant;
 }
 
 // ─── Row models for the virtualized lists ──────────────────────────
@@ -45,8 +48,6 @@ const GRID_ROW_ESTIMATE = 160;
 const VIRTUAL_OVERSCAN = 6;
 
 export function ContinuousSlideBrowser({ items, variant }: ContinuousSlideBrowserProps) {
-  if (variant !== 'continuous-grid' && variant !== 'continuous-list') return null;
-
   if (items.length === 0) {
     return (
       <EmptyState.Root>
@@ -151,9 +152,9 @@ function GridSlideRow({ row, sections, gridItemSize, getThumbnailScene }: GridSl
   const isCurrentPresentation = row.item.entryId === sections.currentPlaylistEntryId;
   const isLivePresentation = row.item.entryId === sections.currentOutputPlaylistEntryId;
   return (
-    <div
-      className="grid gap-1.5 px-2 py-1"
-      style={{ gridTemplateColumns: `repeat(${gridItemSize}, minmax(0, 1fr))` }}
+    <ThumbnailGrid
+      columns={gridItemSize}
+      className="gap-1.5 px-2 py-1"
       role="grid"
       aria-label={`${row.item.item.title} slides`}
     >
@@ -183,7 +184,7 @@ function GridSlideRow({ row, sections, gridItemSize, getThumbnailScene }: GridSl
           />
         );
       })}
-    </div>
+    </ThumbnailGrid>
   );
 }
 

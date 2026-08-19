@@ -16,12 +16,13 @@ import type { SlideBrowserContentVariant } from './use-deck-browser-view';
 import type { Id } from '@lumacast/kernel';
 import type { Slide } from '@lumacast/composition';
 
+type SingleSlideContentVariant = Extract<SlideBrowserContentVariant, 'single-grid' | 'single-list'>;
+
 interface SlideBrowserContentProps {
-  variant: SlideBrowserContentVariant;
+  variant: SingleSlideContentVariant;
 }
 
 export function SlideBrowserContent({ variant }: SlideBrowserContentProps) {
-  if (variant !== 'single-grid' && variant !== 'single-list') return null;
   return variant === 'single-grid' ? <SingleSlideGrid /> : <SingleSlideList />;
 }
 
