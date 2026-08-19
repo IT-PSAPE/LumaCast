@@ -39,15 +39,15 @@ function FieldIcon({ children, className, ...rest }: HTMLAttributes<HTMLSpanElem
   );
 }
 
-function FieldInput({ children, disabled = false, type = 'text', value, onChange, onBlur, min, max, step, label, wide, inputRef }: { children?: ReactNode; disabled?: boolean; type?: 'number' | 'text'; value: string | number; onChange: (value: string) => void; onBlur?: () => void; min?: number; max?: number; step?: number; label?: string; wide?: boolean; inputRef?: Ref<HTMLInputElement> }) {
+function FieldInput({ children, disabled = false, type = 'text', value, onChange, onBlur, onKeyDown, placeholder, min, max, step, label, wide, inputRef, wrapperClassName, iconClassName, inputClassName, ariaLabel }: { children?: ReactNode; disabled?: boolean; type?: 'number' | 'text'; value: string | number; onChange: (value: string) => void; onBlur?: () => void; onKeyDown?: KeyboardEventHandler<HTMLInputElement>; placeholder?: string; min?: number; max?: number; step?: number; label?: string; wide?: boolean; inputRef?: Ref<HTMLInputElement>; wrapperClassName?: string; iconClassName?: string; inputClassName?: string; ariaLabel?: string }) {
   function handleValueChange(event: React.ChangeEvent<HTMLInputElement>) {
     onChange(event.target.value);
   }
 
   const icon = extractFieldIcon(children);
   const input = (
-    <div className="flex min-w-0 w-full items-center min-h-8 rounded bg-tertiary text-sm text-primary transition-colors focus-within:border-brand">
-      {icon ? <span className="flex justify-center items-center shrink-0 size-6 ml-1 text-secondary">{icon}</span> : null}
+    <div className={cn('flex min-w-0 w-full items-center min-h-8 rounded bg-tertiary text-sm text-primary transition-colors focus-within:border-brand', wrapperClassName)}>
+      {icon ? <span className={cn('flex justify-center items-center shrink-0 size-6 ml-1 text-secondary', iconClassName)}>{icon}</span> : null}
       <input
         ref={inputRef}
         type={type}
@@ -55,10 +55,13 @@ function FieldInput({ children, disabled = false, type = 'text', value, onChange
         disabled={disabled}
         onChange={handleValueChange}
         onBlur={onBlur}
+        onKeyDown={onKeyDown}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
         min={min}
         max={max}
         step={step}
-        className={cn('min-w-0 w-full bg-transparent py-1 pr-2 outline-none disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none', icon ? 'pl-1' : 'pl-2')}
+        className={cn('min-w-0 w-full bg-transparent py-1 pr-2 outline-none disabled:cursor-not-allowed disabled:opacity-50 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none', icon ? 'pl-1' : 'pl-2', inputClassName)}
       />
     </div>
   );

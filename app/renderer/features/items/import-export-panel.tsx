@@ -9,6 +9,7 @@ import { EmptyState } from '@renderer/components/display/empty-state';
 import { SelectableRow } from '@renderer/components/display/selectable-row';
 import { Tabs } from '@renderer/components/display/tabs';
 import { Checkbox } from '@renderer/components/form/checkbox';
+import { FieldIcon, FieldInput } from '@renderer/components/form/field';
 import { BrokenReferenceReviewList } from './broken-reference-review-list';
 import { useDeckImportExport, type ExportableItem } from './use-deck-import-export';
 
@@ -117,16 +118,17 @@ export function ImportExportPanel() {
                 <SegmentedControl.Label value="talk">Talks</SegmentedControl.Label>
               </SegmentedControl>
             </div>
-            <label className="flex h-8 w-full items-center gap-2 rounded bg-tertiary px-2 text-sm text-primary transition-colors focus-within:ring-1 focus-within:ring-brand">
-              <Search size={14} className="shrink-0 text-tertiary" />
-              <input
-                type="text"
-                value={state.filterText}
-                onChange={(event) => actions.setFilterText(event.target.value)}
-                placeholder="Filter by name…"
-                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-tertiary"
-              />
-            </label>
+            <FieldInput
+              value={state.filterText}
+              onChange={actions.setFilterText}
+              placeholder="Filter by name…"
+              ariaLabel="Filter by name"
+              wrapperClassName="h-8 px-2 focus-within:ring-1 focus-within:ring-brand"
+              iconClassName="ml-0 mr-2 size-auto"
+              inputClassName="pl-0 pr-0 placeholder:text-tertiary"
+            >
+              <FieldIcon><Search size={14} className="shrink-0 text-tertiary" /></FieldIcon>
+            </FieldInput>
 
             <RowList
               rows={filteredRows}

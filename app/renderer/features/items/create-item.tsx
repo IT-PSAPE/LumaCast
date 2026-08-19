@@ -4,7 +4,7 @@ import type { ItemType, PlaylistRow } from '@lumacast/composition';
 import { getPlaylistEntryItemRef } from '@lumacast/composition';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '../../components/overlays/dialog';
-import { FieldSelect } from '../../components/form/field';
+import { FieldInput, FieldSelect } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useNavigation } from '../../contexts/navigation-context';
@@ -161,19 +161,16 @@ function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProps) {
               <Dialog.CloseButton />
             </Dialog.Header>
             <Dialog.Body className="flex flex-col gap-3 p-4">
-              <label className="flex min-w-0 flex-col gap-0.5 text-sm text-secondary">
-                <span className="truncate">Name</span>
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={placeholder}
-                  disabled={busy}
-                  className="min-h-8 min-w-0 rounded bg-tertiary px-2 py-1 text-sm text-primary outline-none transition-colors focus:ring-1 focus:ring-brand"
-                />
-              </label>
+              <FieldInput
+                label="Name"
+                value={name}
+                onChange={setName}
+                onKeyDown={handleKeyDown}
+                placeholder={placeholder}
+                disabled={busy}
+                inputRef={inputRef}
+                wrapperClassName="focus-within:ring-1 focus-within:ring-brand"
+              />
               {compatibleThemes.length > 0 ? (
                 <FieldSelect
                   label="Theme"

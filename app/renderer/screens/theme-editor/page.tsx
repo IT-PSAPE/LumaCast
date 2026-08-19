@@ -72,12 +72,11 @@ function ThemeEditorScreenContent() {
                     </Dropdown.Panel>
                   </Dropdown>
                 </LumaCastPanel.GroupTitle>
-                <div className="px-2 pt-2">
+                <div className="px-2 pt-2 w-full">
                   <SegmentedControl fill value={state.themeType} onValueChange={handleFamilyChange} label="Theme family">
                     {FAMILY_OPTIONS.map(({ value, label, Icon }) => (
-                      <SegmentedControl.Label key={value} value={value} fill className="flex items-center justify-center gap-1.5">
+                      <SegmentedControl.Label key={value} value={value} fill aria-label={label} className="flex items-center justify-center gap-1.5">
                         <Icon size={12} strokeWidth={1.75} />
-                        {label}
                       </SegmentedControl.Label>
                     ))}
                   </SegmentedControl>

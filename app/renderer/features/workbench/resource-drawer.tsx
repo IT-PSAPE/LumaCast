@@ -156,10 +156,10 @@ function Header() {
     <div className="flex h-8 items-end border-b border-primary px-1">
       <Tabs.List label="Resource tabs" className="min-w-0 flex-1" tabsClassName="gap-0.5">
         <Tabs.Trigger value="deck">Deck</Tabs.Trigger>
+        <Tabs.Trigger value="themes">Themes</Tabs.Trigger>
         <Tabs.Trigger value="image">Images</Tabs.Trigger>
         <Tabs.Trigger value="video">Videos</Tabs.Trigger>
         <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
-        <Tabs.Trigger value="themes">Themes</Tabs.Trigger>
       </Tabs.List>
       <Toolbar />
     </div>

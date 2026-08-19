@@ -78,8 +78,8 @@ export function AppToolbar() {
         <SegmentedControl value={workbenchMode} onValueChange={handleWorkbenchModeChange} label="Application views">
           <SegmentedControl.Label value="show">Show</SegmentedControl.Label>
           <SegmentedControl.Label value="item-editor">Edit</SegmentedControl.Label>
-          <SegmentedControl.Label value="overlay-editor">Overlay</SegmentedControl.Label>
           <SegmentedControl.Label value="theme-editor">Themes</SegmentedControl.Label>
+          <SegmentedControl.Label value="overlay-editor">Overlay</SegmentedControl.Label>
           <SegmentedControl.Label value="stage-editor">Stage</SegmentedControl.Label>
           <SegmentedControl.Label value="macro-editor">Macros</SegmentedControl.Label>
         </SegmentedControl>
