@@ -45,24 +45,27 @@ export function MediaBinPanel({ binKind }: MediaBinPanelProps) {
       searchPlaceholder={`Search ${binKind}…`}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      gridSize={gridSize}
-      gridSizeMin={min}
-      gridSizeMax={max}
-      gridSizeStep={step}
-      onGridSizeChange={setGridSize}
+      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
     >
-      <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
-        {mediaAssets.map((asset) => (
-          <MediaBinItem
-            key={asset.id}
-            asset={asset}
-            isActive={mediaLayerAssetId === asset.id || videoLayerAssetId === asset.id}
-            mode={viewMode}
-            onAssignLayer={setMediaLayerAsset}
-            onArmVideo={armVideo}
-          />
-        ))}
-      </BinPanelLayout>
+      <BinShell.Content>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+          {mediaAssets.map((asset) => (
+            <MediaBinItem
+              key={asset.id}
+              asset={asset}
+              isActive={mediaLayerAssetId === asset.id || videoLayerAssetId === asset.id}
+              mode={viewMode}
+              onAssignLayer={setMediaLayerAsset}
+              onArmVideo={armVideo}
+            />
+          ))}
+        </BinPanelLayout>
+      </BinShell.Content>
+      <BinShell.Footer>
+        <BinShell.Search />
+        <BinShell.GridSize />
+        <BinShell.ViewToggle />
+      </BinShell.Footer>
     </BinShell>
   );
 }

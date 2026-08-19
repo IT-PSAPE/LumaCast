@@ -52,32 +52,35 @@ export function ThemeBinPanel() {
       searchPlaceholder="Search themes…"
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      gridSize={gridSize}
-      gridSizeMin={min}
-      gridSizeMax={max}
-      gridSizeStep={step}
-      onGridSizeChange={setGridSize}
+      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
     >
-      <SegmentedControl fill value={themeType} onValueChange={handleFamilyChange} label="Theme family" className="mb-2">
-        {FAMILY_OPTIONS.map(({ value, label, Icon }) => (
-          <SegmentedControl.Label key={value} value={value} fill className="flex items-center justify-center gap-1.5">
-            <Icon size={12} strokeWidth={1.75} />
-            {label}
-          </SegmentedControl.Label>
-        ))}
-      </SegmentedControl>
-      <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
-        {filteredThemes.map((theme, index) => (
-          <ThemeBinItem
-            key={theme.id}
-            theme={theme}
-            index={index}
-            mode={viewMode}
-            themeType={themeType}
-            onApply={handleApplyTheme}
-          />
-        ))}
-      </BinPanelLayout>
+      <BinShell.Content>
+        <SegmentedControl fill value={themeType} onValueChange={handleFamilyChange} label="Theme family" className="mb-2">
+          {FAMILY_OPTIONS.map(({ value, label, Icon }) => (
+            <SegmentedControl.Label key={value} value={value} fill className="flex items-center justify-center gap-1.5">
+              <Icon size={12} strokeWidth={1.75} />
+              {label}
+            </SegmentedControl.Label>
+          ))}
+        </SegmentedControl>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+          {filteredThemes.map((theme, index) => (
+            <ThemeBinItem
+              key={theme.id}
+              theme={theme}
+              index={index}
+              mode={viewMode}
+              themeType={themeType}
+              onApply={handleApplyTheme}
+            />
+          ))}
+        </BinPanelLayout>
+      </BinShell.Content>
+      <BinShell.Footer>
+        <BinShell.Search />
+        <BinShell.GridSize />
+        <BinShell.ViewToggle />
+      </BinShell.Footer>
     </BinShell>
   );
 }

@@ -39,28 +39,31 @@ export function StageBinPanel() {
       searchPlaceholder="Search stages…"
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      gridSize={gridSize}
-      gridSizeMin={min}
-      gridSizeMax={max}
-      gridSizeStep={step}
-      onGridSizeChange={setGridSize}
+      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
     >
-      <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
-        {stages.map((stage, index) => (
-          <StageCard
-            key={stage.id}
-            stage={stage}
-            index={index}
-            isActive={stage.id === currentStageId}
-            onActivate={setCurrentStageId}
-            onEdit={(id) => {
-              setEditorStageId(id);
-              setCurrentStageId(id);
-              setWorkbenchMode('stage-editor');
-            }}
-          />
-        ))}
-      </BinPanelLayout>
+      <BinShell.Content>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+          {stages.map((stage, index) => (
+            <StageCard
+              key={stage.id}
+              stage={stage}
+              index={index}
+              isActive={stage.id === currentStageId}
+              onActivate={setCurrentStageId}
+              onEdit={(id) => {
+                setEditorStageId(id);
+                setCurrentStageId(id);
+                setWorkbenchMode('stage-editor');
+              }}
+            />
+          ))}
+        </BinPanelLayout>
+      </BinShell.Content>
+      <BinShell.Footer>
+        <BinShell.Search />
+        <BinShell.GridSize />
+        <BinShell.ViewToggle />
+      </BinShell.Footer>
     </BinShell>
   );
 }

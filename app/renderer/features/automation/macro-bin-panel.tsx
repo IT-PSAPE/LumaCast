@@ -60,33 +60,36 @@ export function MacroBinPanel() {
       searchPlaceholder="Search macros…"
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      gridSize={gridSize}
-      gridSizeMin={min}
-      gridSizeMax={max}
-      gridSizeStep={step}
-      onGridSizeChange={setGridSize}
+      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
     >
-      <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
-        {filteredMacros.map((macro, index) => (
-          <MacroCard
-            key={macro.id}
-            macro={macro}
-            index={index}
-            isSelected={macro.id === currentMacroId}
-            runsOnStartup={startupBindingsByMacro.has(macro.id)}
-            onSelect={setCurrentMacroId}
-            onOpen={handleOpenMacro}
-            onRunMacro={runMacro}
-            onDeleteMacro={deleteMacro}
-            onDuplicateMacro={duplicateMacro}
-            onToggleRunOnStartup={toggleRunOnStartup}
-            // updateMacroFields → updateMacro rejects when the macro no longer
-            // exists (#214); mutatePatch has already reported the failure (#221),
-            // so absorb the rethrow here.
-            onRename={(name) => { void updateMacroFields(macro.id, { name }).catch(() => undefined); }}
-          />
-        ))}
-      </BinPanelLayout>
+      <BinShell.Content>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+          {filteredMacros.map((macro, index) => (
+            <MacroCard
+              key={macro.id}
+              macro={macro}
+              index={index}
+              isSelected={macro.id === currentMacroId}
+              runsOnStartup={startupBindingsByMacro.has(macro.id)}
+              onSelect={setCurrentMacroId}
+              onOpen={handleOpenMacro}
+              onRunMacro={runMacro}
+              onDeleteMacro={deleteMacro}
+              onDuplicateMacro={duplicateMacro}
+              onToggleRunOnStartup={toggleRunOnStartup}
+              // updateMacroFields → updateMacro rejects when the macro no longer
+              // exists (#214); mutatePatch has already reported the failure (#221),
+              // so absorb the rethrow here.
+              onRename={(name) => { void updateMacroFields(macro.id, { name }).catch(() => undefined); }}
+            />
+          ))}
+        </BinPanelLayout>
+      </BinShell.Content>
+      <BinShell.Footer>
+        <BinShell.Search />
+        <BinShell.GridSize />
+        <BinShell.ViewToggle />
+      </BinShell.Footer>
     </BinShell>
   );
 }

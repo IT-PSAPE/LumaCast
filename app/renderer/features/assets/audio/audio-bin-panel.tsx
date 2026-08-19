@@ -29,29 +29,30 @@ export function AudioBinPanel() {
       searchPlaceholder="Search audio…"
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      gridSize={1}
-      gridSizeMin={1}
-      gridSizeMax={1}
-      onGridSizeChange={() => {}}
-      showGridSlider={false}
     >
-      {audioAssets.length === 0 ? (
-        <EmptyState.Root>
-          <EmptyState.Title>No audio files</EmptyState.Title>
-          <EmptyState.Description>Import audio to build a reusable app-wide audio list.</EmptyState.Description>
-        </EmptyState.Root>
-      ) : (
-        <BinPanelLayout gridItemSize={1} mode={viewMode}>
-          {audioAssets.map((asset) => (
-            <AudioRow
-              key={asset.id}
-              asset={asset}
-              isActive={currentAudioAssetId === asset.id}
-              onArm={armAudio}
-            />
-          ))}
-        </BinPanelLayout>
-      )}
+      <BinShell.Content>
+        {audioAssets.length === 0 ? (
+          <EmptyState.Root>
+            <EmptyState.Title>No audio files</EmptyState.Title>
+            <EmptyState.Description>Import audio to build a reusable app-wide audio list.</EmptyState.Description>
+          </EmptyState.Root>
+        ) : (
+          <BinPanelLayout gridItemSize={1} mode={viewMode}>
+            {audioAssets.map((asset) => (
+              <AudioRow
+                key={asset.id}
+                asset={asset}
+                isActive={currentAudioAssetId === asset.id}
+                onArm={armAudio}
+              />
+            ))}
+          </BinPanelLayout>
+        )}
+      </BinShell.Content>
+      <BinShell.Footer>
+        <BinShell.Search />
+        <BinShell.ViewToggle />
+      </BinShell.Footer>
     </BinShell>
   );
 }

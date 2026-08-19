@@ -38,25 +38,28 @@ export function OverlayBinPanel() {
       searchPlaceholder="Search overlays…"
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      gridSize={gridSize}
-      gridSizeMin={min}
-      gridSizeMax={max}
-      gridSizeStep={step}
-      onGridSizeChange={setGridSize}
+      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
     >
-      <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
-        {overlays.map((overlay, index) => (
-          <OverlayCard
-            key={overlay.id}
-            overlay={overlay}
-            index={index}
-            isActive={activeOverlayIds.includes(overlay.id)}
-            onActivate={activateOverlay}
-            onEdit={setCurrentOverlayId}
-            setWorkbenchMode={setWorkbenchMode}
-          />
-        ))}
-      </BinPanelLayout>
+      <BinShell.Content>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+          {overlays.map((overlay, index) => (
+            <OverlayCard
+              key={overlay.id}
+              overlay={overlay}
+              index={index}
+              isActive={activeOverlayIds.includes(overlay.id)}
+              onActivate={activateOverlay}
+              onEdit={setCurrentOverlayId}
+              setWorkbenchMode={setWorkbenchMode}
+            />
+          ))}
+        </BinPanelLayout>
+      </BinShell.Content>
+      <BinShell.Footer>
+        <BinShell.Search />
+        <BinShell.GridSize />
+        <BinShell.ViewToggle />
+      </BinShell.Footer>
     </BinShell>
   );
 }

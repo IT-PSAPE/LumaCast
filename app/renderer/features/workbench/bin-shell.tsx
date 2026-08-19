@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { useMemo, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@renderer/utils/cn';
 import type { ResourceDrawerViewMode } from '../../types/ui';
-import { BinFooter } from './bin-footer';
+import { BinShellContext, Footer, GridSize, Search, ViewToggle, type BinGridConfig } from './bin-footer';
 
 interface BinShellProps {
   children: ReactNode;
@@ -10,50 +10,43 @@ interface BinShellProps {
   searchPlaceholder?: string;
   viewMode: ResourceDrawerViewMode;
   onViewModeChange: (mode: ResourceDrawerViewMode) => void;
-  gridSize: number;
-  gridSizeMin: number;
-  gridSizeMax: number;
-  gridSizeStep?: number;
-  onGridSizeChange: (size: number) => void;
-  showGridSlider?: boolean;
-  contentClassName?: string;
+  grid?: BinGridConfig | null;
   className?: string;
 }
 
-export function BinShell({
+function Root({
   children,
   searchValue,
   onSearchChange,
-  searchPlaceholder,
+  searchPlaceholder = 'Search…',
   viewMode,
   onViewModeChange,
-  gridSize,
-  gridSizeMin,
-  gridSizeMax,
-  gridSizeStep,
-  onGridSizeChange,
-  showGridSlider,
-  contentClassName,
+  grid = null,
   className,
 }: BinShellProps) {
+  const value = useMemo(
+    () => ({
+      state: { searchValue, viewMode, grid },
+      actions: { onSearchChange, onViewModeChange },
+      meta: { searchPlaceholder },
+    }),
+    [grid, onSearchChange, onViewModeChange, searchPlaceholder, searchValue, viewMode],
+  );
+
   return (
-    <div className={cn('flex h-full min-h-0 w-full flex-col', className)}>
-      <div className={cn('flex-1 min-h-0 overflow-auto px-2 py-1.5', contentClassName)}>
+    <BinShellContext.Provider value={value}>
+      <div className={cn('flex h-full min-h-0 w-full flex-col', className)}>
         {children}
       </div>
-      <BinFooter
-        searchValue={searchValue}
-        onSearchChange={onSearchChange}
-        searchPlaceholder={searchPlaceholder}
-        viewMode={viewMode}
-        onViewModeChange={onViewModeChange}
-        gridSize={gridSize}
-        gridSizeMin={gridSizeMin}
-        gridSizeMax={gridSizeMax}
-        gridSizeStep={gridSizeStep}
-        onGridSizeChange={onGridSizeChange}
-        showGridSlider={showGridSlider}
-      />
-    </div>
+    </BinShellContext.Provider>
   );
 }
+
+function Content({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div className={cn('flex-1 min-h-0 overflow-auto px-2 py-1.5', className)} {...props} />
+  );
+}
+
+export const BinShell = Object.assign(Root, { Content, Footer, Search, ViewToggle, GridSize });
+export type { BinGridConfig };

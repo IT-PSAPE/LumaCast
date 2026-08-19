@@ -50,29 +50,32 @@ export function DeckBinPanel() {
       searchPlaceholder="Search…"
       viewMode={viewMode}
       onViewModeChange={setViewMode}
-      gridSize={gridSize}
-      gridSizeMin={min}
-      gridSizeMax={max}
-      gridSizeStep={step}
-      onGridSizeChange={setGridSize}
+      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
     >
-      <div className="flex flex-col gap-3">
-        {sections.map((section) => (
-          <ItemBinSectionBody
-            key={section.type}
-            section={section}
-            gridSize={gridSize}
-            viewMode={viewMode}
-            isDetachedDeckBrowser={isDetachedDeckBrowser}
-            currentDrawerItemRef={currentDrawerItemRef}
-            editingItemRef={editingItemRef}
-            slidesByItem={slidesByItem}
-            onOpen={browseItem}
-            onRename={handleRename}
-            onMove={handleMove}
-          />
-        ))}
-      </div>
+      <BinShell.Content>
+        <div className="flex flex-col gap-3">
+          {sections.map((section) => (
+            <ItemBinSectionBody
+              key={section.type}
+              section={section}
+              gridSize={gridSize}
+              viewMode={viewMode}
+              isDetachedDeckBrowser={isDetachedDeckBrowser}
+              currentDrawerItemRef={currentDrawerItemRef}
+              editingItemRef={editingItemRef}
+              slidesByItem={slidesByItem}
+              onOpen={browseItem}
+              onRename={handleRename}
+              onMove={handleMove}
+            />
+          ))}
+        </div>
+      </BinShell.Content>
+      <BinShell.Footer>
+        <BinShell.Search />
+        <BinShell.GridSize />
+        <BinShell.ViewToggle />
+      </BinShell.Footer>
     </BinShell>
   );
 }
