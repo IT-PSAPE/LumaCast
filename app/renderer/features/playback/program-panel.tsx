@@ -4,7 +4,9 @@ import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@lumacast/protocol';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '../../components/display/tabs';
+import { SceneFrame } from '../../components/display/scene-frame';
 import { Dropdown } from '../../components/form/dropdown';
+import { ThumbnailGrid } from '../../components/layout/thumbnail-grid';
 import { GridSizeSlider } from '../../components/form/grid-size-slider';
 import { IconGroup } from '@renderer/components/icon-group';
 import { useNdi } from '../../contexts/app-context';
@@ -138,53 +140,51 @@ export function ProgramPanel() {
           </LumaCastPanel.GroupTitle>
           <div className="w-full flex shrink-0 items-center gap-1 border-b border-secondary px-1.5 py-1">
             <div className="ml-auto flex items-center gap-1">
-              {bottomTab === 'overlays' ? (
-                <>
-                  <ReacstButton.Icon label={overlayModeLabel} variant="ghost" onClick={handleOverlayModeToggle}>
-                    {overlayMode === 'single' ? <Layers /> : <Layers2 />}
-                  </ReacstButton.Icon>
-                  <span aria-hidden className="mx-1 h-5 w-px bg-secondary" />
-                  <ReacstButton.Icon label="Edit overlays" variant="ghost" onClick={handleEditOverlays}>
-                    <Pencil />
-                  </ReacstButton.Icon>
-                  <ReacstButton.Icon label="Add overlay" onClick={handleCreateOverlay}>
-                    <Plus />
-                  </ReacstButton.Icon>
-                </>
-              ) : bottomTab === 'stage' ? (
-                <>
-                  <ReacstButton.Icon label="Edit stages" variant="ghost" onClick={handleEditStages}>
-                    <Pencil />
-                  </ReacstButton.Icon>
-                  <ReacstButton.Icon label="Add stage" onClick={handleCreateStage}>
-                    <Plus />
-                  </ReacstButton.Icon>
-                </>
-              ) : (
-                <>
-                  <ReacstButton.Icon label="Edit macros" variant="ghost" onClick={handleEditMacros}>
-                    <Pencil />
-                  </ReacstButton.Icon>
-                  <ReacstButton.Icon label="Add macro" onClick={handleCreateMacro}>
-                    <Plus />
-                  </ReacstButton.Icon>
-                </>
-              )}
+              <Tabs.Panel value="overlays" className="flex items-center gap-1">
+                <ReacstButton.Icon label={overlayModeLabel} variant="ghost" onClick={handleOverlayModeToggle}>
+                  {overlayMode === 'single' ? <Layers /> : <Layers2 />}
+                </ReacstButton.Icon>
+                <span aria-hidden className="mx-1 h-5 w-px bg-secondary" />
+                <ReacstButton.Icon label="Edit overlays" variant="ghost" onClick={handleEditOverlays}>
+                  <Pencil />
+                </ReacstButton.Icon>
+                <ReacstButton.Icon label="Add overlay" onClick={handleCreateOverlay}>
+                  <Plus />
+                </ReacstButton.Icon>
+              </Tabs.Panel>
+              <Tabs.Panel value="stage" className="flex items-center gap-1">
+                <ReacstButton.Icon label="Edit stages" variant="ghost" onClick={handleEditStages}>
+                  <Pencil />
+                </ReacstButton.Icon>
+                <ReacstButton.Icon label="Add stage" onClick={handleCreateStage}>
+                  <Plus />
+                </ReacstButton.Icon>
+              </Tabs.Panel>
+              <Tabs.Panel value="macros" className="flex items-center gap-1">
+                <ReacstButton.Icon label="Edit macros" variant="ghost" onClick={handleEditMacros}>
+                  <Pencil />
+                </ReacstButton.Icon>
+                <ReacstButton.Icon label="Add macro" onClick={handleCreateMacro}>
+                  <Plus />
+                </ReacstButton.Icon>
+              </Tabs.Panel>
             </div>
           </div>
-          {bottomTab === 'macros' ? (
+          <Tabs.Panel value="overlays" className="flex flex-1 min-h-0 w-full">
+            <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
+              <OverlayBinPanel />
+            </LumaCastPanel.Content>
+          </Tabs.Panel>
+          <Tabs.Panel value="stage" className="flex flex-1 min-h-0 w-full">
+            <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
+              <StageBinPanel />
+            </LumaCastPanel.Content>
+          </Tabs.Panel>
+          <Tabs.Panel value="macros" className="flex flex-1 min-h-0 w-full">
             <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
               <MacroBinPanel />
             </LumaCastPanel.Content>
-          ) : (
-            <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
-              {bottomTab === 'overlays' ? (
-                <OverlayBinPanel />
-              ) : (
-                <StageBinPanel />
-              )}
-            </LumaCastPanel.Content>
-          )}
+          </Tabs.Panel>
         </Tabs.Root>
       </LumaCastPanel.Group>
     </LumaCastPanel.Root>
@@ -199,23 +199,17 @@ const SURFACE_LABELS: Record<ProgramSurfaceKind, string> = {
 
 const SURFACE_ORDER: ProgramSurfaceKind[] = ['program', 'monitor', 'stage'];
 
+// The single and all program views each get their own header controls. The
+// shared mode toggle stays in the dispatcher; the per-mode controls are
+// explicit variants so each tree owns its own state shape.
 function ProgramModeHeader() {
   const {
-    state: { programMode, programSingleSurface, programGridDensity },
-    actions: { setProgramMode, setProgramSingleSurface, setProgramGridDensity },
+    state: { programMode },
+    actions: { setProgramMode },
   } = useWorkbench();
 
   function handleModeToggle() {
     setProgramMode(programMode === 'single' ? 'all' : 'single');
-  }
-
-  function handleSurfacePick(surface: ProgramSurfaceKind) {
-    setProgramSingleSurface(surface);
-  }
-
-  function handleDensityChange(next: number) {
-    if (next !== 1 && next !== 2) return;
-    setProgramGridDensity(next);
   }
 
   return (
@@ -227,26 +221,53 @@ function ProgramModeHeader() {
       >
         {programMode === 'single' ? <RectangleHorizontal /> : <LayoutGrid />}
       </ReacstButton.Icon>
-      {programMode === 'single' ? (
-        <Dropdown className="ml-auto">
-          <Dropdown.Trigger className="flex min-w-0 items-center gap-1 rounded-sm bg-tertiary px-2 py-1 text-sm text-primary transition-colors hover:bg-quaternary">
-            <span className="truncate">{SURFACE_LABELS[programSingleSurface]}</span>
-            <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
-          </Dropdown.Trigger>
-          <Dropdown.Panel placement="bottom-end">
-            {SURFACE_ORDER.map((kind) => (
-              <Dropdown.Item key={kind} onClick={() => handleSurfacePick(kind)}>
-                {SURFACE_LABELS[kind]}
-              </Dropdown.Item>
-            ))}
-          </Dropdown.Panel>
-        </Dropdown>
-      ) : (
-        <span className="ml-auto">
-          <GridSizeSlider value={programGridDensity} min={1} max={2} onChange={handleDensityChange} />
-        </span>
-      )}
+      {programMode === 'single' ? <SingleSurfacePicker /> : <GridDensityControl />}
     </LumaCastPanel.GroupTitle>
+  );
+}
+
+function SingleSurfacePicker() {
+  const {
+    state: { programSingleSurface },
+    actions: { setProgramSingleSurface },
+  } = useWorkbench();
+
+  function handleSurfacePick(surface: ProgramSurfaceKind) {
+    setProgramSingleSurface(surface);
+  }
+
+  return (
+    <Dropdown className="ml-auto">
+      <Dropdown.Trigger className="flex min-w-0 items-center gap-1 rounded-sm bg-tertiary px-2 py-1 text-sm text-primary transition-colors hover:bg-quaternary">
+        <span className="truncate">{SURFACE_LABELS[programSingleSurface]}</span>
+        <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
+      </Dropdown.Trigger>
+      <Dropdown.Panel placement="bottom-end">
+        {SURFACE_ORDER.map((kind) => (
+          <Dropdown.Item key={kind} onClick={() => handleSurfacePick(kind)}>
+            {SURFACE_LABELS[kind]}
+          </Dropdown.Item>
+        ))}
+      </Dropdown.Panel>
+    </Dropdown>
+  );
+}
+
+function GridDensityControl() {
+  const {
+    state: { programGridDensity },
+    actions: { setProgramGridDensity },
+  } = useWorkbench();
+
+  function handleDensityChange(next: number) {
+    if (next !== 1 && next !== 2) return;
+    setProgramGridDensity(next);
+  }
+
+  return (
+    <span className="ml-auto">
+      <GridSizeSlider value={programGridDensity} min={1} max={2} onChange={handleDensityChange} />
+    </span>
   );
 }
 
@@ -256,9 +277,11 @@ function SurfacesArea() {
   } = useWorkbench();
 
   if (programMode === 'single') {
+    // Single mode names the surface in the header dropdown, so the cell
+    // composes no label badge.
     return (
       <div className="flex w-full justify-center">
-        <Surface kind={programSingleSurface} showBadge={false} />
+        <Surface kind={programSingleSurface} />
       </div>
     );
   }
@@ -268,31 +291,28 @@ function SurfacesArea() {
   // heights regardless of which surface (Program/Monitor/Stage) lands in them.
   const columnCount = programGridDensity;
   return (
-    <div
-      className="grid w-full gap-1"
-      style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
-    >
+    <ThumbnailGrid columns={columnCount} className="w-full gap-1">
       {SURFACE_ORDER.map((kind) => (
-        <Surface key={kind} kind={kind} showBadge />
+        <Surface key={kind} kind={kind} label={SURFACE_LABELS[kind]} />
       ))}
-    </div>
+    </ThumbnailGrid>
   );
 }
 
-function Surface({ kind, showBadge }: { kind: ProgramSurfaceKind; showBadge: boolean }) {
-  if (kind === 'program') return <ProgramSurface showBadge={showBadge} />;
-  if (kind === 'monitor') return <MonitorSurface showBadge={showBadge} />;
-  return <StageSurface showBadge={showBadge} />;
+function Surface({ kind, label }: { kind: ProgramSurfaceKind; label?: React.ReactNode }) {
+  if (kind === 'program') return <ProgramSurface label={label} />;
+  if (kind === 'monitor') return <MonitorSurface label={label} />;
+  return <StageSurface label={label} />;
 }
 
-function ProgramSurface({ showBadge }: { showBadge: boolean }) {
+function ProgramSurface({ label }: { label?: React.ReactNode }) {
   const { scene, background } = useProgramOutput();
   const bindingValue = useProgramBindingValue();
   const checkerboard = background === 'transparent';
 
   return (
     <BindingProvider value={bindingValue}>
-      <SurfaceFrame label="Program" showLabel={showBadge} checkerboard={checkerboard}>
+      <SurfaceFrame label={label} checkerboard={checkerboard}>
         <SceneStage
           scene={scene}
           surface="show"
@@ -305,7 +325,7 @@ function ProgramSurface({ showBadge }: { showBadge: boolean }) {
   );
 }
 
-function MonitorSurface({ showBadge }: { showBadge: boolean }) {
+function MonitorSurface({ label }: { label?: React.ReactNode }) {
   const { showScene } = useRenderScenes();
   const bindingValue = useProgramBindingValue();
   // Monitor mirrors what's about to go to the audience NDI feed, so its
@@ -317,14 +337,14 @@ function MonitorSurface({ showBadge }: { showBadge: boolean }) {
 
   return (
     <BindingProvider value={bindingValue}>
-      <SurfaceFrame label="Monitor" showLabel={showBadge} checkerboard={checkerboard}>
+      <SurfaceFrame label={label} checkerboard={checkerboard}>
         <SceneStage scene={showScene} surface="monitor" className="h-full w-full" />
       </SurfaceFrame>
     </BindingProvider>
   );
 }
 
-function StageSurface({ showBadge }: { showBadge: boolean }) {
+function StageSurface({ label }: { label?: React.ReactNode }) {
   const stageScene = useStageScene();
   const bindingValue = useStageBindingValue();
 
@@ -335,7 +355,7 @@ function StageSurface({ showBadge }: { showBadge: boolean }) {
 
   return (
     <BindingProvider value={bindingValue}>
-      <SurfaceFrame label="Stage" showLabel={showBadge} checkerboard={checkerboard}>
+      <SurfaceFrame label={label} checkerboard={checkerboard}>
         <SceneStage
           scene={stageScene}
           surface="stage"
@@ -349,20 +369,23 @@ function StageSurface({ showBadge }: { showBadge: boolean }) {
 }
 
 // Single 16:9 frame used by every surface so grid rows auto-size to identical
-// heights and the panel label (in all-mode only) can float on top instead of
-// stealing a row above. In single mode the dropdown already names the surface,
-// so the floating badge would be redundant.
-function SurfaceFrame({ label, showLabel, checkerboard = false, children }: { label: string; showLabel: boolean; checkerboard?: boolean; children: React.ReactNode }) {
+// heights and the optional panel label can float on top instead of stealing a
+// row above. The label is an explicit slot decision: the caller supplies it
+// only when the mode needs one (all-mode grid);
+// in single mode the header dropdown already names the surface, so no label
+// is composed and the badge is absent.
+function SurfaceFrame({ label, checkerboard = false, children }: { label?: React.ReactNode; checkerboard?: boolean; children: React.ReactNode }) {
   return (
-    <div
-      className="relative max-h-full max-w-full w-full overflow-hidden bg-black"
-      style={{ aspectRatio: `${NDI_OUTPUT_WIDTH} / ${NDI_OUTPUT_HEIGHT}` }}
-    >
-      {checkerboard ? (
-        <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--color-background-tertiary)_0%_25%,var(--color-background-quaternary)_0%_50%)] bg-[length:24px_24px]" />
-      ) : null}
-      <div className="absolute inset-0">{children}</div>
-      {showLabel ? (
+    <div className="relative max-h-full max-w-full w-full">
+      <SceneFrame
+        width={NDI_OUTPUT_WIDTH}
+        height={NDI_OUTPUT_HEIGHT}
+        className="max-h-full max-w-full bg-black"
+        checkerboard={checkerboard}
+      >
+        {children}
+      </SceneFrame>
+      {label ? (
         <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded-sm bg-black/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white backdrop-blur-sm">
           {label}
         </span>
