@@ -73,10 +73,6 @@ function SlideOutlineRowBody({
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isFocused);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: !slideOwned });
 
-  const rowStateClass = isFocused
-    ? 'border-brand-400/80 bg-brand-400/8'
-    : 'border-primary bg-primary/40';
-
   function handleSelect() {
     onSelect(row.index);
   }
@@ -127,9 +123,11 @@ function SlideOutlineRowBody({
         onClick={handleSelect}
         onContextMenu={handleContextMenu}
         onDoubleClick={row.textEditable ? undefined : handleOpen}
-        className={cn(rowStateClass, dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab')}
+        variant="slide"
+        selected={isFocused}
+        className={cn('bg-transparent', dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab')}
       >
-        <Thumbnail.Preview>
+        <Thumbnail.Preview className="border-secondary">
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0">
             {row.elements.length === 0 ? (
               <div className="absolute inset-0 grid place-items-center text-sm uppercase tracking-wider text-tertiary">
@@ -142,7 +140,7 @@ function SlideOutlineRowBody({
         <Thumbnail.Body className={row.textEditable ? 'content-start' : 'content-center'}>
           <>
             <div className={cn('flex gap-2', row.textEditable ? 'items-start' : 'items-center')}>
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{row.index + 1}.</span>
+              <span className="shrink-0 text-sm font-normal tabular-nums text-tertiary">{row.index + 1}.</span>
               {renderRowText()}
             </div>
 

@@ -33,7 +33,7 @@ function ContinuousSlideGridTileImpl({ entryId, itemRef, index, scene, selected,
   }
 
   return (
-    <Thumbnail.Tile ref={ref} onClick={handleClick} onDoubleClick={handleDoubleClick} selected={selected}>
+    <Thumbnail.Tile ref={ref} onClick={handleClick} onDoubleClick={handleDoubleClick} selected={selected} variant="slide">
       <Thumbnail.Body>
         <SceneFrame
           width={scene.width}
@@ -57,9 +57,9 @@ function ContinuousSlideGridTileImpl({ entryId, itemRef, index, scene, selected,
           </span>
         </Thumbnail.Overlay>
       ) : null}
-      <Thumbnail.Caption>
+      <Thumbnail.Caption className="border-secondary bg-transparent py-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
+          <span className="shrink-0 text-sm font-normal tabular-nums text-tertiary">{index + 1}</span>
           <span className="min-w-0 truncate text-sm text-tertiary">{textPreview}</span>
         </div>
       </Thumbnail.Caption>

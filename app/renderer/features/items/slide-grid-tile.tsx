@@ -101,6 +101,7 @@ function SlideGridTileBody({
         onContextMenu={handleContextMenu}
         onDoubleClick={handleDoubleClick}
         selected={selected}
+        variant="slide"
         className={dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab'}
       >
         <Thumbnail.Body>
@@ -129,9 +130,9 @@ function SlideGridTileBody({
         <Thumbnail.Overlay position="top-right">
           <SlideBindingsBadge slideId={slideId} />
         </Thumbnail.Overlay>
-        <Thumbnail.Caption>
+        <Thumbnail.Caption className="border-secondary bg-transparent py-0.5">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
+            <span className="shrink-0 text-sm font-normal tabular-nums text-tertiary">{index + 1}</span>
             <span className="min-w-0 truncate text-sm text-tertiary">{textPreview}</span>
           </div>
         </Thumbnail.Caption>

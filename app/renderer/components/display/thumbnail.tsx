@@ -9,9 +9,26 @@ const thumbnailStyles = cv({
       true: ['border-brand-400/70 bg-brand-400/15'],
       false: ['border-primary hover:border-secondary'],
     },
+    variant: {
+      slide: ['ring-1 ring-transparent transition-[color,background-color,border-color,box-shadow]'],
+      default: [],
+    },
   },
+  compoundVariants: [
+    {
+      variant: 'slide',
+      selected: true,
+      className: ['border-transparent bg-primary ring-2 ring-brand-400'],
+    },
+    {
+      variant: 'slide',
+      selected: false,
+      className: ['border-secondary hover:ring-border-secondary'],
+    },
+  ],
   defaultVariants: {
     selected: false,
+    variant: 'default',
   },
 });
 
@@ -21,6 +38,7 @@ interface ThumbnailRootProps extends Omit<HTMLAttributes<HTMLDivElement>, 'child
   children: ReactNode;
   onDoubleClick?: () => void;
   selected?: boolean;
+  variant?: 'default' | 'slide';
   ref?: Ref<HTMLDivElement>;
 }
 
@@ -55,7 +73,7 @@ function Overlay(_props: ThumbnailOverlayProps) {
   return null;
 }
 
-function Row({ children, className, onClick, onDoubleClick, selected = false, ref, ...rest }: ThumbnailRootProps) {
+function Row({ children, className, onClick, onDoubleClick, selected = false, variant = 'default', ref, ...rest }: ThumbnailRootProps) {
   const slots = collectThumbnailSlots(children);
 
   return (
@@ -64,7 +82,7 @@ function Row({ children, className, onClick, onDoubleClick, selected = false, re
       {...rest}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      className={cn(thumbnailStyles({ selected }), 'flex', className)}
+      className={cn(thumbnailStyles({ selected, variant }), 'flex', className)}
     >
       <div className={cn('relative min-w-0 max-w-3xs flex-1 overflow-hidden border-r border-primary bg-tertiary', slots.preview?.props.className)}>
         {slots.preview?.props.children ?? null}
@@ -77,7 +95,7 @@ function Row({ children, className, onClick, onDoubleClick, selected = false, re
   );
 }
 
-function Tile({ children, className, onClick, onDoubleClick, selected = false, ref, ...rest }: ThumbnailRootProps) {
+function Tile({ children, className, onClick, onDoubleClick, selected = false, variant = 'default', ref, ...rest }: ThumbnailRootProps) {
   const slots = collectThumbnailSlots(children);
 
   return (
@@ -86,7 +104,7 @@ function Tile({ children, className, onClick, onDoubleClick, selected = false, r
       {...rest}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      className={cn(thumbnailStyles({ selected }), className)}
+      className={cn(thumbnailStyles({ selected, variant }), className)}
     >
       <div className={cn('relative aspect-video min-w-0 overflow-hidden bg-primary', slots.body?.props.className)}>
         {slots.body?.props.children ?? null}
