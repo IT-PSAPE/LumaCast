@@ -46,6 +46,8 @@ export interface ThemeEditorValue {
   themeType: ThemeOwnerType;
   setThemeType: (themeType: ThemeOwnerType) => void;
   themes: EditorThemeSource[];
+  /** Every family's themes, for consumers that render all four families at once. */
+  themesByType: Record<ThemeOwnerType, EditorThemeSource[]>;
   currentThemeId: Id | null;
   currentTheme: EditorThemeSource | null;
   hasPendingChanges: boolean;
@@ -64,7 +66,7 @@ export interface ThemeEditorValue {
   duplicateTheme: (themeId: Id) => void;
   renameTheme: (themeId: Id, name: string) => void;
   /**
-   * Persists a drag-reorder of the theme list for the active family. Unlike the
+   * Persists a drag-reorder of the theme list for the owning family. Unlike the
    * staged create/rename/delete actions this writes through immediately —
    * `pushChanges` has no vocabulary for position, so a staged-only reorder
    * would be discarded the moment the buffer cleared.
@@ -695,21 +697,47 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   }, [resolveThemeIdForMutation, mutatePatch, setStatusText]);
 
   const deleteThemeAction = useCallback((themeIdToDelete: Id) => {
-    activeFamily.deleteTheme(themeIdToDelete);
-  }, [activeFamily]);
+    const family = findFamilyForThemeId(themeIdToDelete);
+    if (family) {
+      family.deleteTheme(themeIdToDelete);
+      return;
+    }
+    // Unknown id — no family owns it, so there is nothing to delete.
+  }, [findFamilyForThemeId]);
 
   const duplicateThemeAction = useCallback((themeIdToDuplicate: Id) => {
-    activeFamily.duplicateTheme(themeIdToDuplicate);
-  }, [activeFamily]);
+    const family = findFamilyForThemeId(themeIdToDuplicate);
+    if (family) {
+      family.duplicateTheme(themeIdToDuplicate);
+    }
+  }, [findFamilyForThemeId]);
 
   const renameThemeAction = useCallback((themeIdToRename: Id, name: string) => {
-    activeFamily.renameTheme(themeIdToRename, name);
-  }, [activeFamily]);
+    const family = findFamilyForThemeId(themeIdToRename);
+    if (family) {
+      family.renameTheme(themeIdToRename, name);
+    }
+  }, [findFamilyForThemeId]);
+
+  const reorderThemeAction = useCallback(async (themeIdToReorder: Id, newOrder: number) => {
+    const family = findFamilyForThemeId(themeIdToReorder);
+    if (family) {
+      await family.reorderTheme(themeIdToReorder, newOrder);
+    }
+  }, [findFamilyForThemeId]);
+
+  const themesByType = useMemo<Record<ThemeOwnerType, EditorThemeSource[]>>(() => ({
+    presentation: presentationThemeFamily.themes,
+    lyric: lyricThemeFamily.themes,
+    talk: talkThemeFamily.themes,
+    overlay: overlayThemeFamily.themes,
+  }), [lyricThemeFamily.themes, overlayThemeFamily.themes, presentationThemeFamily.themes, talkThemeFamily.themes]);
 
   const themeValue = useMemo<ThemeEditorValue>(() => ({
     themeType,
     setThemeType,
     themes: activeFamily.themes,
+    themesByType,
     currentThemeId: activeFamily.currentThemeId,
     currentTheme: activeFamily.currentTheme,
     hasPendingChanges: activeFamily.hasPendingChanges,
@@ -727,13 +755,13 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     deleteTheme: deleteThemeAction,
     duplicateTheme: duplicateThemeAction,
     renameTheme: renameThemeAction,
-    reorderTheme: activeFamily.reorderTheme,
+    reorderTheme: reorderThemeAction,
     requestNameFocus: requestThemeNameFocus,
     pushChanges: activeFamily.pushChanges,
   }), [
     activeFamily, applyThemeToTarget, createThemeAction, deleteThemeAction, detachThemeFromItem,
-    duplicateThemeAction, openThemeEditor, renameThemeAction, requestThemeNameFocus,
-    resolveThemeIdForMutation, syncLinkedItems, themeNameFocusRequest, themeType,
+    duplicateThemeAction, openThemeEditor, renameThemeAction, reorderThemeAction, requestThemeNameFocus,
+    resolveThemeIdForMutation, syncLinkedItems, themesByType, themeNameFocusRequest, themeType,
   ]);
 
   // ── Stage editor ──

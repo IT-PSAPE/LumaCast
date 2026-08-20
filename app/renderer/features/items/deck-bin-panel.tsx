@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, Slide } from '@lumacast/composition';
+import type { ItemRef, ItemType, Slide } from '@lumacast/composition';
+import { Plus } from 'lucide-react';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
@@ -15,9 +16,10 @@ import { itemRefKey, useProjectContent } from '../../contexts/use-project-conten
 import { buildThumbnailScene } from '../canvas/build-render-scene';
 import { SceneStage } from '../canvas/scene-stage';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
-import { useGridSize } from '../../hooks/use-grid-size';
-import { BinShell } from '../workbench/bin-shell';
+import { BinShell } from '@renderer/components/layout/bin-shell';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 import { useDeckBin, type ItemBinSection } from './use-deck-bin';
+import { useCreateItem } from './create-item';
 import { writeItemDragData } from '../../utils/item-drag';
 import type { ResourceDrawerViewMode } from '../../types/ui';
 
@@ -27,6 +29,7 @@ interface ItemLike {
 }
 
 export function DeckBinPanel() {
+  const { open: openCreateItem } = useCreateItem();
   const {
     sections,
     editingItemRef,
@@ -36,22 +39,12 @@ export function DeckBinPanel() {
     handleRename,
     handleMove,
     slidesByItem,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
   } = useDeckBin();
-  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.deck-bin', 6, 4, 8);
+  const { state: { viewMode, grid } } = useBinControls();
+  const gridSize = grid?.value ?? 6;
 
   return (
-    <BinShell
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      searchPlaceholder="Search…"
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
-    >
+    <BinShell>
       <BinShell.Content>
         <div className="flex flex-col gap-3">
           {sections.map((section) => (
@@ -67,15 +60,11 @@ export function DeckBinPanel() {
               onOpen={browseItem}
               onRename={handleRename}
               onMove={handleMove}
+              onCreate={() => openCreateItem(section.type)}
             />
           ))}
         </div>
       </BinShell.Content>
-      <BinShell.Footer>
-        <BinShell.Search />
-        <BinShell.GridSize />
-        <BinShell.ViewToggle />
-      </BinShell.Footer>
     </BinShell>
   );
 }
@@ -91,6 +80,7 @@ interface ItemBinSectionBodyProps<T extends ItemLike> {
   onOpen: (itemRef: ItemRef) => void;
   onRename: (itemRef: ItemRef, title: string) => void;
   onMove: (itemRef: ItemRef, direction: 'up' | 'down') => void;
+  onCreate: () => void;
 }
 
 function ItemBinSectionBody<T extends ItemLike>({
@@ -104,12 +94,13 @@ function ItemBinSectionBody<T extends ItemLike>({
   onOpen,
   onRename,
   onMove,
+  onCreate,
 }: ItemBinSectionBodyProps<T>) {
   return (
     <div className="flex flex-col gap-1.5">
       <Label.xs className="px-1 text-tertiary">{section.label}</Label.xs>
       {section.items.length === 0 ? (
-        <div className="px-1 text-xs text-tertiary">No {section.label.toLowerCase()} yet.</div>
+        <CreateItemDropZone itemType={section.type} onActivate={onCreate} />
       ) : (
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
           {section.items.map((item, index) => {
@@ -134,6 +125,21 @@ function ItemBinSectionBody<T extends ItemLike>({
         </BinPanelLayout>
       )}
     </div>
+  );
+}
+
+function CreateItemDropZone({ itemType, onActivate }: { itemType: ItemType; onActivate: () => void }) {
+  const label = `Create ${itemType}`;
+  return (
+    <button
+      type="button"
+      onClick={onActivate}
+      aria-label={label}
+      className="flex w-full items-center justify-center gap-1.5 rounded-xs border border-dashed border-tertiary/70 px-2 py-2.5 min-h-48 text-tertiary transition-colors hover:border-secondary hover:text-secondary bg-secondaryOnce you're done, I'd like you to commit all changes in logical groups. focus-visible:ring-2 focus-visible:ring-brand"
+    >
+      <Plus size={14} strokeWidth={1.75} />
+      <span className="text-xs">{label}</span>
+    </button>
   );
 }
 

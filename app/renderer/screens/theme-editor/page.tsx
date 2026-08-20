@@ -1,16 +1,14 @@
 import { useCallback, useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import type { ThemeOwnerType } from '@lumacast/composition';
-import { FileText, Layers, Music, Plus, Presentation as PresentationIcon } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { Dropdown } from '../../components/form/dropdown';
-import { SegmentedControl } from '../../components/controls/segmented-control';
 import { buildRenderScene } from '../../features/canvas/build-render-scene';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { EmptyState } from '@renderer/components/display/empty-state';
 import { Label } from '@renderer/components/display/text';
 import { ScrollArea, useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
@@ -21,16 +19,15 @@ import { ThemeEditorInspectorPanel } from './inspector-panel';
 import { ThemeEditorLayersPanel } from './layers-panel';
 import { ThemeEditorScreenProvider, useThemeEditorScreen } from './screen-context';
 
-// #219 item-model refactor decision D2: the four theme families are
-// independent tables, and useThemeEditor() only ever holds one 'active'
-// family's staged draft state at a time — so the screen shows one family's
-// list at once behind this selector, matching the same family-selector
-// pattern the theme resource bin uses (features/assets/themes/theme-bin-panel.tsx).
-const FAMILY_OPTIONS: ReadonlyArray<{ value: ThemeOwnerType; label: string; Icon: typeof PresentationIcon }> = [
-  { value: 'presentation', label: 'Presentation', Icon: PresentationIcon },
-  { value: 'lyric', label: 'Lyric', Icon: Music },
-  { value: 'talk', label: 'Talk', Icon: FileText },
-  { value: 'overlay', label: 'Overlay', Icon: Layers },
+function singular(label: string): string {
+  return label.replace(/s$/, '').toLowerCase();
+}
+
+const THEME_SECTIONS: ReadonlyArray<{ type: ThemeOwnerType; label: string }> = [
+  { type: 'presentation', label: 'Presentations' },
+  { type: 'lyric', label: 'Lyrics' },
+  { type: 'talk', label: 'Talks' },
+  { type: 'overlay', label: 'Overlays' },
 ];
 
 export function ThemeEditorScreen() {
@@ -42,12 +39,8 @@ export function ThemeEditorScreen() {
 }
 
 function ThemeEditorScreenContent() {
-  const { state, actions } = useThemeEditorScreen();
-
-  function handleFamilyChange(next: string | string[]) {
-    if (Array.isArray(next) || !next) return;
-    actions.setThemeType(next as ThemeOwnerType);
-  }
+  const { actions, state } = useThemeEditorScreen();
+  const allEmpty = THEME_SECTIONS.every(({ type }) => state.themesByType[type].length === 0);
 
   return (
     <SplitPanel.Panel splitId="editor-main" orientation="horizontal" className="h-full" data-ui-region="editor-layout">
@@ -66,37 +59,30 @@ function ThemeEditorScreenContent() {
                       <Plus />
                     </Dropdown.Trigger>
                     <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={actions.createTheme}>
-                        New theme
-                      </Dropdown.Item>
+                      {THEME_SECTIONS.map(({ type, label }) => (
+                        <Dropdown.Item key={type} onClick={() => actions.createTheme(type)}>
+                          New {singular(label)} theme
+                        </Dropdown.Item>
+                      ))}
                     </Dropdown.Panel>
                   </Dropdown>
                 </LumaCastPanel.GroupTitle>
-                <div className="px-2 pt-2 w-full">
-                  <SegmentedControl fill value={state.themeType} onValueChange={handleFamilyChange} label="Theme family">
-                    {FAMILY_OPTIONS.map(({ value, label, Icon }) => (
-                      <SegmentedControl.Label key={value} value={value} fill aria-label={label} className="flex items-center justify-center gap-1.5">
-                        <Icon size={12} strokeWidth={1.75} />
-                      </SegmentedControl.Label>
-                    ))}
-                  </SegmentedControl>
-                </div>
                 <LumaCastPanel.Content>
-                  {state.themes.length === 0 ? (
-                    <EmptyState.Root>
-                      <EmptyState.Title>No themes yet</EmptyState.Title>
-                      <EmptyState.Description>Click the + button to create your first theme.</EmptyState.Description>
-                    </EmptyState.Root>
-                  ) : (
-                    <ScrollArea.Root scrollPadding={8}>
-                      <ScrollArea.Viewport className="p-2">
-                        <ThemeList />
-                      </ScrollArea.Viewport>
-                      <ScrollArea.Scrollbar>
-                        <ScrollArea.Thumb />
-                      </ScrollArea.Scrollbar>
-                    </ScrollArea.Root>
-                  )}
+                  <ScrollArea.Root scrollPadding={8}>
+                    <ScrollArea.Viewport className="p-2">
+                      <div className="flex flex-col gap-4">
+                        {allEmpty ? (
+                          <p className="px-1 text-xs text-tertiary">No themes yet.</p>
+                        ) : null}
+                        {THEME_SECTIONS.map(({ type, label }) => (
+                          <ThemeFamilySection key={type} themeType={type} label={label} />
+                        ))}
+                      </div>
+                    </ScrollArea.Viewport>
+                    <ScrollArea.Scrollbar>
+                      <ScrollArea.Thumb />
+                    </ScrollArea.Scrollbar>
+                  </ScrollArea.Root>
                 </LumaCastPanel.Content>
               </LumaCastPanel.Group>
             </SplitPanel.Segment>
@@ -123,31 +109,58 @@ function ThemeEditorScreenContent() {
   );
 }
 
+function ThemeFamilySection({ themeType, label }: { themeType: ThemeOwnerType; label: string }) {
+  const { state, actions } = useThemeEditorScreen();
+  const themes = state.themesByType[themeType];
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label.xs className="px-1 text-tertiary">{label}</Label.xs>
+      {themes.length === 0 ? (
+        <button
+          type="button"
+          onClick={() => actions.createTheme(themeType)}
+          aria-label={`Create ${singular(label)} theme`}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xs border border-dashed border-tertiary/70 px-2 py-2.5 text-tertiary transition-colors hover:border-secondary hover:text-secondary focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          <Plus size={14} strokeWidth={1.75} aria-hidden />
+          <span className="text-xs">Create {singular(label)} theme</span>
+        </button>
+      ) : (
+        <ThemeFamilyList themeType={themeType} themes={themes} />
+      )}
+    </div>
+  );
+}
+
 const themeId = (theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number]) => theme.id;
 
-function ThemeList() {
+function ThemeFamilyList({
+  themeType,
+  themes: sourceThemes,
+}: {
+  themeType: ThemeOwnerType;
+  themes: ReturnType<typeof useThemeEditorScreen>['state']['themesByType'][ThemeOwnerType];
+}) {
   const { state } = useThemeEditorScreen();
   const { reorderTheme } = useThemeEditor();
 
   const commitReorder = useCallback(
-    // Unguarded: a rejection is what reverts the optimistic order. Order is
-    // per-family (#219 decision D2) — reorderTheme writes to whichever of the
-    // four theme tables is active, and the list only ever shows one family.
     ({ id, toIndex }: SortableOrderCommit) => reorderTheme(id, toIndex),
     [reorderTheme],
   );
 
   const { items: themes, dnd } = useSortableOrder({
-    items: state.themes,
+    items: sourceThemes as ReturnType<typeof useThemeEditorScreen>['state']['themes'],
     getId: themeId,
     commit: commitReorder,
   });
 
   return (
     <SortableList.Root {...dnd}>
-      <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label="Themes">
+      <div className="grid min-w-0 grid-cols-1 content-start gap-1" role="grid" aria-label={themeType}>
         {themes.map((theme, index) => (
-          <ThemeListItem key={theme.id} theme={theme} index={index} isActive={theme.id === state.currentThemeId} />
+          <ThemeListItem key={theme.id} theme={theme} themeType={themeType} index={index} isActive={theme.id === state.currentThemeId} />
         ))}
       </div>
     </SortableList.Root>
@@ -156,6 +169,7 @@ function ThemeList() {
 
 function ThemeListItem(props: {
   theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number];
+  themeType: ThemeOwnerType;
   index: number;
   isActive: boolean;
 }) {
@@ -168,10 +182,12 @@ function ThemeListItem(props: {
 
 function ThemeListItemBody({
   theme,
+  themeType,
   index,
   isActive,
 }: {
   theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number];
+  themeType: ThemeOwnerType;
   index: number;
   isActive: boolean;
 }) {
@@ -184,7 +200,7 @@ function ThemeListItemBody({
   const { containerRef, containerStyle, handleProps } = useSortableItem(theme.id);
 
   function handleSelect() {
-    actions.selectTheme(theme.id);
+    actions.selectTheme(themeType, theme.id);
   }
 
   function handleCaptionDoubleClick(event: React.MouseEvent) {
@@ -193,7 +209,7 @@ function ThemeListItemBody({
   }
 
   function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
-    if (!isActive) actions.selectTheme(theme.id);
+    if (!isActive) actions.selectTheme(themeType, theme.id);
     triggerContextMenu(event);
   }
 

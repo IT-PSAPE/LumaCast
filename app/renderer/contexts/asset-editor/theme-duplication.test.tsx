@@ -459,6 +459,39 @@ describe('duplicateTheme — source isolation after duplication', () => {
   });
 });
 
+// ─── Family-aware duplication (resolves owning family) ─────────────
+
+describe('duplicateTheme — family-aware resolution', () => {
+  it('duplicates a lyric theme while presentation is active, without touching presentation', () => {
+    const lyric = makeTheme('L1', 'Lyric Theme');
+    const pres = makeTheme('P1', 'Pres Theme');
+    const harness = renderThemeHarness(makeSnapshot({ lyricThemes: [lyric], presentationThemes: [pres] }));
+    expect(harness.current.theme.themeType).toBe('presentation');
+    act(() => harness.current.theme.duplicateTheme('L1'));
+    expect((harness.current.theme.themesByType.lyric as ThemeFixture[])).toHaveLength(2);
+    expect((harness.current.theme.themesByType.presentation as ThemeFixture[])).toHaveLength(1);
+    const duplicate = (harness.current.theme.themesByType.lyric as ThemeFixture[]).find((t) => t.id !== 'L1')!;
+    expect(duplicate.name).toBe('Lyric Theme Copy');
+  });
+
+  it('duplicates an overlay theme while talk is active', () => {
+    const overlay = makeTheme('O1', 'Overlay Theme');
+    const harness = renderThemeHarness(makeSnapshot({ overlayThemes: [overlay], talkThemes: [] }));
+    // talk is not active by default; switch active to talk then duplicate overlay
+    act(() => harness.current.theme.setThemeType('talk'));
+    act(() => harness.current.theme.duplicateTheme('O1'));
+    expect((harness.current.theme.themesByType.overlay as ThemeFixture[])).toHaveLength(2);
+    expect((harness.current.theme.themesByType.talk as ThemeFixture[])).toHaveLength(0);
+  });
+
+  it('does not duplicate when id belongs to no family', () => {
+    const pres = makeTheme('P1', 'Pres Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [pres] }));
+    act(() => harness.current.theme.duplicateTheme('does-not-exist'));
+    expect(harness.current.theme.themesByType.presentation).toHaveLength(1);
+  });
+});
+
 // ─── Immediate apply through #101 carries the full background ───────
 
 describe('duplicateTheme — persistence includes the full background', () => {

@@ -399,6 +399,96 @@ describe('applyThemeToTarget ("Apply" and "Reset to Theme")', () => {
   });
 });
 
+// ─── themesByType: every family's themes visible at once ────────────
+
+describe('themesByType', () => {
+  it('exposes every family through themesByType while themes stays active-family only', () => {
+    const pTheme = makeTheme('P1', 'Pres Theme');
+    const lTheme = makeTheme('L1', 'Lyric Theme');
+    const tTheme = makeTheme('T1', 'Talk Theme');
+    const oTheme = makeTheme('O1', 'Overlay Theme');
+    const harness = renderThemeHarness(makeSnapshot({
+      presentationThemes: [pTheme],
+      lyricThemes: [lTheme],
+      talkThemes: [tTheme],
+      overlayThemes: [oTheme],
+    }));
+
+    expect(harness.current.themesByType.presentation).toHaveLength(1);
+    expect(harness.current.themesByType.lyric).toHaveLength(1);
+    expect(harness.current.themesByType.talk).toHaveLength(1);
+    expect(harness.current.themesByType.overlay).toHaveLength(1);
+    // themes still means the active family'sthemes
+    expect(harness.current.themes).toHaveLength(1);
+    expect(harness.current.themes[0].id).toBe('P1');
+  });
+
+  it('reflects a staged create in the correct family in themesByType', async () => {
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [], lyricThemes: [] }));
+    await act(async () => {
+      harness.current.createTheme('lyric');
+    });
+    expect(harness.current.themesByType.lyric).toHaveLength(1);
+    expect(harness.current.themesByType.presentation).toHaveLength(0);
+    // creating a lyric theme makes lyric the active family
+    expect(harness.current.themeType).toBe('lyric');
+  });
+});
+
+// ─── Family-aware mutations (resolve owning family from id) ────────
+
+describe('family-aware theme mutations', () => {
+  it('deleteTheme resolves the owning family, not the active one', () => {
+    const pTheme = makeTheme('P1', 'Pres Theme');
+    const lTheme = makeTheme('L1', 'Lyric Theme');
+    const harness = renderThemeHarness(makeSnapshot({
+      presentationThemes: [pTheme],
+      lyricThemes: [lTheme],
+    }));
+    // active is presentation by default
+    expect(harness.current.themeType).toBe('presentation');
+    act(() => harness.current.deleteTheme('L1'));
+    expect(harness.current.themesByType.lyric).toHaveLength(0);
+    expect(harness.current.themesByType.presentation).toHaveLength(1);
+  });
+
+  it('duplicateTheme resolves the owning family, not the active one', () => {
+    const lTheme = makeTheme('L1', 'Lyric Theme');
+    const harness = renderThemeHarness(makeSnapshot({ lyricThemes: [lTheme], presentationThemes: [] }));
+    // active is presentation, but duplicate a lyric theme
+    expect(harness.current.themeType).toBe('presentation');
+    act(() => harness.current.duplicateTheme('L1'));
+    expect(harness.current.themesByType.lyric).toHaveLength(2);
+    expect(harness.current.themesByType.presentation).toHaveLength(0);
+  });
+
+  it('renameTheme resolves the owning family, not the active one', async () => {
+    const lTheme = makeTheme('L1', 'Lyric Theme');
+    const harness = renderThemeHarness(makeSnapshot({ lyricThemes: [lTheme] }));
+    act(() => harness.current.renameTheme('L1', 'Renamed Lyric'));
+    expect(harness.current.themesByType.lyric[0].name).toBe('Renamed Lyric');
+  });
+
+  it('reorderTheme writes to the owning family, not the active one', async () => {
+    const l1 = makeTheme('L1', 'Lyric One', { order: 0 });
+    const l2 = makeTheme('L2', 'Lyric Two', { order: 1 });
+    const harness = renderThemeHarness(makeSnapshot({ lyricThemes: [l1, l2] }));
+    const setOrder = vi.fn().mockResolvedValue(createEmptyPatch(2));
+    setCastApi({ setThemeOrder: setOrder });
+    await act(async () => {
+      await harness.current.reorderTheme('L1', 1);
+    });
+    expect(setOrder).toHaveBeenCalledWith('L1', 'lyric', 1);
+  });
+
+  it('is a no-op for unknown id without mutating any family', () => {
+    const pTheme = makeTheme('P1', 'Pres Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [pTheme] }));
+    act(() => harness.current.deleteTheme('does-not-exist'));
+    expect(harness.current.themesByType.presentation).toHaveLength(1);
+  });
+});
+
 // ─── Regression: no direct IPC outside the authoritative command ─────
 
 describe('call-site boundary — no UI module reimplements or bypasses the provenance commands', () => {

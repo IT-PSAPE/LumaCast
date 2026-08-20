@@ -485,6 +485,63 @@ describe('createItem theme resolution', () => {
   });
 });
 
+// ─── Family-aware mutations (delete/rename/reorder resolve owner) ──
+
+describe('family-aware theme mutations', () => {
+  function makeThemeForFamily(id: string, name: string) {
+    return makeTheme(id, name);
+  }
+
+  it('deleteTheme resolves owning family even when active differs', () => {
+    const p = makeThemeForFamily('P1', 'Pres Theme');
+    const l = makeThemeForFamily('L1', 'Lyric Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [p], lyricThemes: [l] }));
+    // active is presentation
+    harness.current.theme.deleteTheme('L1');
+    expect(harness.current.theme.themesByType.lyric).toHaveLength(0);
+    expect(harness.current.theme.themesByType.presentation).toHaveLength(1);
+  });
+
+  it('renameTheme resolves owning family even when active differs', () => {
+    const t = makeThemeForFamily('T1', 'Talk Theme');
+    const harness = renderThemeHarness(makeSnapshot({ talkThemes: [t] }));
+    harness.current.theme.renameTheme('T1', 'Renamed Talk');
+    expect(harness.current.theme.themesByType.talk[0].name).toBe('Renamed Talk');
+  });
+
+  it('reorderTheme resolves owning family and passes correct themeType', async () => {
+    const o1 = makeThemeForFamily('O1', 'Overlay One');
+    const o2 = makeThemeForFamily('O2', 'Overlay Two');
+    const harness = renderThemeHarness(makeSnapshot({ overlayThemes: [o1, o2] }));
+    const setOrder = vi.fn().mockResolvedValue(createEmptyPatch(2));
+    setCastApi({ setThemeOrder: setOrder });
+    await act(async () => {
+      await harness.current.theme.reorderTheme('O1', 1);
+    });
+    expect(setOrder).toHaveBeenCalledWith('O1', 'overlay', 1);
+  });
+
+  it('openThemeEditor switches active family so staged draft follows selection', () => {
+    const p = makeThemeForFamily('P1', 'Pres Theme');
+    const l = makeThemeForFamily('L1', 'Lyric Theme');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [p], lyricThemes: [l] }));
+    expect(harness.current.theme.themeType).toBe('presentation');
+    act(() => harness.current.theme.openThemeEditor('lyric', 'L1'));
+    expect(harness.current.theme.themeType).toBe('lyric');
+    expect(harness.current.theme.currentThemeId).toBe('L1');
+  });
+
+  it('themesByType contains all four families', () => {
+    const p = makeThemeForFamily('P1', 'Pres');
+    const l = makeThemeForFamily('L1', 'Lyric');
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [p], lyricThemes: [l], talkThemes: [], overlayThemes: [] }));
+    expect(harness.current.theme.themesByType.presentation).toHaveLength(1);
+    expect(harness.current.theme.themesByType.lyric).toHaveLength(1);
+    expect(harness.current.theme.themesByType.talk).toHaveLength(0);
+    expect(harness.current.theme.themesByType.overlay).toHaveLength(0);
+  });
+});
+
 // ─── Regression: no direct IPC outside the authoritative command ─────
 
 describe('applyThemeToItem call-site boundary', () => {

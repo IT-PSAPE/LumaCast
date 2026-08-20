@@ -5,7 +5,7 @@ import { useNavigation } from '../../contexts/navigation-context';
 import { itemRefKey, useProjectContent } from '../../contexts/use-project-content';
 import { filterByText } from '../../utils/filter-by-text';
 import { useDeckBinSort, compareByKey, type BinSort, type DeckBinSortKey } from '../workbench/use-bin-sort';
-import type { ResourceDrawerViewMode } from '../../types/ui';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 // #219 item-model refactor decision D9: the bin shows three independently-
 // ordered sections (Presentations / Lyrics / Talks), each filtered/sorted
@@ -29,8 +29,7 @@ export function useDeckBin() {
   const { presentations, lyrics, talks, slidesByItem } = useProjectContent();
   const [editingItemRef, setEditingItemRef] = useState<ItemRef | null>(null);
   const { sort } = useDeckBinSort();
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
+  const { state: { searchValue } } = useBinControls();
 
   const filteredPresentations = useMemo(
     () => filterAndSort(presentations, 'presentation', searchValue, sort, slidesByItem),
@@ -76,10 +75,6 @@ export function useDeckBin() {
     handleRename,
     handleMove,
     slidesByItem,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
   };
 }
 

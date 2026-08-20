@@ -21,10 +21,10 @@ import type { AppSnapshot } from '@lumacast/protocol';
 // #219 item-model refactor decision D2: themes are four independent
 // per-owner families (presentation/lyric/talk/overlay) rather than one
 // `kind`-tagged table, so every theme lookup below is keyed by family. The
-// Theme Editor screen's own theme list only ever shows the *currently
-// selected* family (a "Theme family" segmented control), so switching
-// families explicitly before clicking a theme in that list is required, not
-// cosmetic — the theme just isn't in the DOM otherwise.
+// Theme Editor screen's theme list and the resource drawer's Theme bin both
+// render all four families at once as labelled sections, so a theme is
+// reachable by name without selecting its family first — the fixture theme
+// names below are distinct across families to keep those lookups unambiguous.
 //
 // This intentionally overlaps in spirit (not in mechanism) with
 // packages/persistence-sqlite/src/theme-apply.test.ts, theme-sync-integration.test.ts
@@ -96,8 +96,9 @@ function getSnapshot(page: Page): Promise<AppSnapshot> {
   return page.evaluate(() => window.castApi.getSnapshot());
 }
 
-// The "Application views" segmented control (Show / Edit / Overlay / Themes /
-// Stage / Macros) — the top-level screen switcher.
+// The "Application views" segmented control (Show / Edit / Themes, with
+// Overlay / Stage / Macros behind an overflow menu) — the top-level screen
+// switcher.
 async function selectView(page: Page, name: 'Show' | 'Edit' | 'Themes') {
   await page.getByRole('group', { name: 'Application views' }).getByRole('button', { name, exact: true }).click();
 }
@@ -105,15 +106,6 @@ async function selectView(page: Page, name: 'Show' | 'Edit' | 'Themes') {
 // The resource drawer's Deck/Images/Themes tabs (only present on the Show screen).
 async function openDrawerTab(page: Page, name: 'Deck' | 'Themes') {
   await page.getByRole('tab', { name }).click();
-}
-
-// The "Theme family" segmented control — shared between the Theme Editor
-// screen's own theme list and the resource drawer's Theme bin: both render
-// only the currently-selected family's themes (decision D2), so switching
-// families is required before a theme belonging to a different family can
-// be seen or clicked at all.
-async function selectThemeFamily(page: Page, name: 'Presentation' | 'Lyric' | 'Talk' | 'Overlay') {
-  await page.getByRole('group', { name: 'Theme family' }).getByRole('button', { name, exact: true }).click();
 }
 
 // Bin tiles/rows (theme bin, deck bin) render their name through a
@@ -266,7 +258,6 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
     // ── Step 1: edit an existing theme without manually saving it. ──
     await test.step('step 1: edit an existing theme without saving', async () => {
       await selectView(page, 'Themes');
-      await selectThemeFamily(page, 'Presentation');
       await clickThemeInEditorList(page, THEME_SLIDES_NAME);
       await setBackgroundColorHex(page, COLOR_C1);
 
@@ -285,7 +276,6 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       await openDrawerTab(page, 'Deck');
       await clickTileByRenameValue(page, RESOURCE_DRAWER_REGION, TARGET_PRESENTATION_TITLE);
       await openDrawerTab(page, 'Themes');
-      await selectThemeFamily(page, 'Presentation');
       await clickTileByRenameValue(page, RESOURCE_DRAWER_REGION, THEME_SLIDES_NAME);
 
       await expect
@@ -303,10 +293,8 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
     // staged version. ──
     await test.step('step 3: create Presentation + Lyric with staged themes', async () => {
       await selectView(page, 'Themes');
-      await selectThemeFamily(page, 'Presentation');
       await clickThemeInEditorList(page, THEME_SLIDES_NAME);
       await setBackgroundColorHex(page, COLOR_C2);
-      await selectThemeFamily(page, 'Lyric');
       await clickThemeInEditorList(page, THEME_LYRICS_NAME);
       await setBackgroundColorHex(page, COLOR_D2);
 
@@ -376,7 +364,6 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       // item, so a naive "rebuild from latest theme" duplicate would diverge
       // from the true source-slide color (C2).
       await selectView(page, 'Themes');
-      await selectThemeFamily(page, 'Presentation');
       await clickThemeInEditorList(page, THEME_SLIDES_NAME);
       await setBackgroundColorHex(page, COLOR_C3);
       await saveChanges(page);
@@ -458,7 +445,6 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       expect(customShape, 'custom shape element should exist before sync').toBeTruthy();
 
       await selectView(page, 'Themes');
-      await selectThemeFamily(page, 'Presentation');
       await clickThemeInEditorList(page, THEME_SLIDES_NAME);
       await setBackgroundColorHex(page, COLOR_C4);
       // The Sync button is disabled while the theme itself has pending
@@ -498,7 +484,6 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
     // identical but independently editable. ──
     await test.step('step 8: duplicate the theme', async () => {
       await selectView(page, 'Themes');
-      await selectThemeFamily(page, 'Presentation');
       await clickThemeInEditorList(page, THEME_SLIDES_NAME, { button: 'right' });
       await page.getByRole('menuitem', { name: 'Duplicate' }).click();
       await saveChanges(page);

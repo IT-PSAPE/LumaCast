@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef } from 'react';
 import type { ItemType, Lyric, Overlay, Presentation, Talk, ThemeOwnerType } from '@lumacast/composition';
 import type { EditorThemeSource } from '@lumacast/canvas';
-import { FileText, Layers, Music, Presentation as PresentationIcon } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
@@ -9,79 +9,94 @@ import { RenameField, type RenameFieldHandle } from '../../../components/form/re
 import { SelectableRow } from '../../../components/display/selectable-row';
 import { Thumbnail } from '../../../components/display/thumbnail';
 import { SceneFrame } from '../../../components/display/scene-frame';
-import { SegmentedControl } from '../../../components/controls/segmented-control';
+import { Label } from '../../../components/display/text';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useCast } from '../../../contexts/app-context';
 import { useProjectContent } from '../../../contexts/use-project-content';
+import { useWorkbench } from '../../../contexts/workbench-context';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
-import { useGridSize } from '../../../hooks/use-grid-size';
+import { BinShell } from '@renderer/components/layout/bin-shell';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
+import { useThemeBin, type ThemeBinSection } from './use-theme-bin';
 import type { ResourceDrawerViewMode } from '../../../types/ui';
-import { BinShell } from '../../workbench/bin-shell';
-import { useThemeBin } from './use-theme-bin';
-
-const FAMILY_OPTIONS: ReadonlyArray<{ value: ThemeOwnerType; label: string; Icon: typeof PresentationIcon }> = [
-  { value: 'presentation', label: 'Presentation', Icon: PresentationIcon },
-  { value: 'lyric', label: 'Lyric', Icon: Music },
-  { value: 'talk', label: 'Talk', Icon: FileText },
-  { value: 'overlay', label: 'Overlay', Icon: Layers },
-];
 
 export function ThemeBinPanel() {
-  const {
-    themeType,
-    setThemeType,
-    filteredThemes,
-    handleApplyTheme,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
-  } = useThemeBin();
-  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.theme-bin', 6, 4, 8);
+  const { sections, handleApplyTheme } = useThemeBin();
+  const { createTheme } = useThemeEditor();
+  const { actions: { setWorkbenchMode } } = useWorkbench();
+  const { state: { viewMode, grid } } = useBinControls();
+  const gridSize = grid?.value ?? 6;
 
-  function handleFamilyChange(next: string | string[]) {
-    if (Array.isArray(next) || !next) return;
-    setThemeType(next as ThemeOwnerType);
+  function handleCreateTheme(themeType: ThemeOwnerType) {
+    createTheme(themeType);
+    setWorkbenchMode('theme-editor');
   }
 
   return (
-    <BinShell
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      searchPlaceholder="Search themes…"
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
-    >
+    <BinShell>
       <BinShell.Content>
-        <SegmentedControl fill value={themeType} onValueChange={handleFamilyChange} label="Theme family" className="mb-2">
-          {FAMILY_OPTIONS.map(({ value, label, Icon }) => (
-            <SegmentedControl.Label key={value} value={value} fill className="flex items-center justify-center gap-1.5">
-              <Icon size={12} strokeWidth={1.75} />
-              {label}
-            </SegmentedControl.Label>
+        <div className="flex flex-col gap-3">
+          {sections.map((section) => (
+            <ThemeBinSectionBody
+              key={section.type}
+              section={section}
+              gridSize={gridSize}
+              viewMode={viewMode}
+              onCreate={() => handleCreateTheme(section.type)}
+              onApply={handleApplyTheme}
+            />
           ))}
-        </SegmentedControl>
+        </div>
+      </BinShell.Content>
+    </BinShell>
+  );
+}
+
+interface ThemeBinSectionBodyProps {
+  section: ThemeBinSection;
+  gridSize: number;
+  viewMode: ResourceDrawerViewMode;
+  onCreate: () => void;
+  onApply: (theme: EditorThemeSource) => void;
+}
+
+function ThemeBinSectionBody({ section, gridSize, viewMode, onCreate, onApply }: ThemeBinSectionBodyProps) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label.xs className="px-1 text-tertiary">{section.label}</Label.xs>
+      {section.themes.length === 0 ? (
+        <CreateThemeDropZone themeType={section.type} onActivate={onCreate} />
+      ) : (
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
-          {filteredThemes.map((theme, index) => (
+          {section.themes.map((theme, index) => (
             <ThemeBinItem
               key={theme.id}
               theme={theme}
               index={index}
               mode={viewMode}
-              themeType={themeType}
-              onApply={handleApplyTheme}
+              themeType={section.type}
+              onApply={onApply}
             />
           ))}
         </BinPanelLayout>
-      </BinShell.Content>
-      <BinShell.Footer>
-        <BinShell.Search />
-        <BinShell.GridSize />
-        <BinShell.ViewToggle />
-      </BinShell.Footer>
-    </BinShell>
+      )}
+    </div>
+  );
+}
+
+function CreateThemeDropZone({ themeType, onActivate }: { themeType: ThemeOwnerType; onActivate: () => void }) {
+  const label = `Create ${themeType} theme`;
+  return (
+    <button
+      type="button"
+      onClick={onActivate}
+      aria-label={label}
+      className="flex w-full items-center justify-center gap-1.5 rounded-xs border border-dashed border-tertiary/70 px-2 py-2.5 text-tertiary transition-colors hover:border-secondary hover:text-secondary focus-visible:ring-2 focus-visible:ring-brand"
+    >
+      <Plus size={14} strokeWidth={1.75} />
+      <span className="text-xs">{label}</span>
+    </button>
   );
 }
 
@@ -92,7 +107,7 @@ interface ThemeItemProps {
   onApply: (theme: EditorThemeSource) => void;
 }
 
-function ThemeBinItem({ mode, ...props }: ThemeItemProps & { mode: ResourceDrawerViewMode }) {
+function ThemeBinItem({ mode, ...props }: ThemeItemProps & { mode: 'grid' | 'list' }) {
   if (mode === 'list') return <ThemeRow {...props} />;
   return <ThemeTile {...props} />;
 }

@@ -10,6 +10,7 @@ interface ThemeEditorScreenContextValue {
   state: {
     themeType: ThemeOwnerType;
     themes: ReturnType<typeof useThemeEditor>['themes'];
+    themesByType: ReturnType<typeof useThemeEditor>['themesByType'];
     currentThemeId: ReturnType<typeof useThemeEditor>['currentThemeId'];
     currentTheme: ReturnType<typeof useThemeEditor>['currentTheme'];
     hasPendingChanges: boolean;
@@ -19,9 +20,9 @@ interface ThemeEditorScreenContextValue {
   };
   actions: {
     setThemeType: (themeType: ThemeOwnerType) => void;
-    selectTheme: (id: string) => void;
+    selectTheme: (themeType: ThemeOwnerType, id: string) => void;
     requestThemeNameFocus: (id: string) => void;
-    createTheme: () => void;
+    createTheme: (themeType: ThemeOwnerType) => void;
     saveChanges: () => Promise<void>;
     syncLinkedItems: () => Promise<void>;
   };
@@ -34,6 +35,7 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     themeType,
     setThemeType,
     themes,
+    themesByType,
     currentThemeId,
     currentTheme,
     hasPendingChanges,
@@ -84,6 +86,7 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     state: {
       themeType,
       themes,
+      themesByType,
       currentThemeId,
       currentTheme,
       hasPendingChanges,
@@ -93,9 +96,9 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     },
     actions: {
       setThemeType,
-      selectTheme: (id) => openThemeEditor(themeType, id),
+      selectTheme: (nextThemeType, id) => openThemeEditor(nextThemeType, id),
       requestThemeNameFocus: requestNameFocus,
-      createTheme: () => createTheme(themeType),
+      createTheme: (nextThemeType) => createTheme(nextThemeType),
       saveChanges: handleSaveChanges,
       syncLinkedItems: handleSyncLinkedItems,
     },
@@ -103,8 +106,8 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     createTheme,
     currentTheme,
     currentThemeId,
-    hasPendingChanges,
     handleSaveChanges,
+    hasPendingChanges,
     isPushingChanges,
     isSyncing,
     linkedItemCount,
@@ -113,6 +116,7 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     setThemeType,
     themeType,
     themes,
+    themesByType,
   ]);
 
   return <ThemeEditorScreenContextProvider value={value}>{children}</ThemeEditorScreenContextProvider>;
