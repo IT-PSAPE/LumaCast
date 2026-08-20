@@ -220,7 +220,7 @@ function Panel({ children, className, placement }: PanelProps) {
         // Match the trigger's width. The `min-w-30` floor means a narrow trigger
         // still gets a usable panel: the used width is max(triggerWidth, 7.5rem).
         style={{ width: ctx.triggerWidth }}
-        className={cn('min-w-30 rounded-md border border-primary bg-primary shadow-lg max-h-60 overflow-y-auto p-1', className)}
+        className={cn('min-w-30 rounded-md border border-primary bg-primary shadow-lg max-h-[min(32rem,70vh)] overflow-y-auto p-1', className)}
       >
         {children}
       </div>
