@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { Stage } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
@@ -14,18 +14,16 @@ import { useStageEditor } from '../../../contexts/asset-editor/asset-editor-cont
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
-import { useGridSize } from '../../../hooks/use-grid-size';
-import type { ResourceDrawerViewMode } from '../../../types/ui';
-import { BinShell } from '../../workbench/bin-shell';
+import { BinShell } from '@renderer/components/layout/bin-shell';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 export function StageBinPanel() {
   const { stages: allStages } = useProjectContent();
   const { currentStageId, setCurrentStageId } = useStagePlayback();
   const { setCurrentStageId: setEditorStageId } = useStageEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
-  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.stage-bin', 3, 2, 4);
+  const { state: { searchValue, viewMode, grid } } = useBinControls();
+  const gridSize = grid?.value ?? 3;
 
   const stages = useMemo(
     () => filterByText(allStages, searchValue, (stage: Stage) => [stage.name]),
@@ -33,14 +31,7 @@ export function StageBinPanel() {
   );
 
   return (
-    <BinShell
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      searchPlaceholder="Search stages…"
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
-    >
+    <BinShell>
       <BinShell.Content>
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
           {stages.map((stage, index) => (
@@ -59,11 +50,6 @@ export function StageBinPanel() {
           ))}
         </BinPanelLayout>
       </BinShell.Content>
-      <BinShell.Footer>
-        <BinShell.Search />
-        <BinShell.GridSize />
-        <BinShell.ViewToggle />
-      </BinShell.Footer>
     </BinShell>
   );
 }

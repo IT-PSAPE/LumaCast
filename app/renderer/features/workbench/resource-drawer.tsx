@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Ellipsis } from 'lucide-react';
 import type { ThemeOwnerType } from '@lumacast/composition';
 import { Tabs } from '../../components/display/tabs';
@@ -22,6 +22,8 @@ import {
   useThemeBinSort,
   type BinSort,
 } from './use-bin-sort';
+import { useGridSize } from '../../hooks/use-grid-size';
+import { BinControlsProvider, BinControlsSearchField, BinControlsViewOptions, type BinGridConfig } from '@renderer/components/controls/bin-controls';
 import { cn } from '@renderer/utils/cn';
 
 const DECK_SORT_OPTIONS = [
@@ -50,6 +52,14 @@ const IMPORT_TYPE_PREFIXES_BY_TAB = {
   video: ['video/'],
   audio: ['audio/'],
 } as const;
+
+const SEARCH_PLACEHOLDER_BY_TAB: Record<DrawerTab, string> = {
+  deck: 'Search…',
+  themes: 'Search themes…',
+  image: 'Search image…',
+  video: 'Search video…',
+  audio: 'Search audio…',
+};
 
 interface ResourceDrawerContextValue {
   state: { drawerTab: DrawerTab };
@@ -85,11 +95,44 @@ function hasImportableFiles(transfer: DataTransfer, tab: DrawerTab): boolean {
 // ─── Root ─────────────────────────────────────────────────
 // Owns drag/drop, the drawer context, and Tabs.Root. Holds the outer footer
 // element so siblings (Header, Body) sit at one level below.
+// Also owns bin-controls state (search, view mode, grid) so the single header
+// row can host the search field and view options.
 
 function Root({ children }: { children: ReactNode }) {
-  const { drawerTab, setDrawerTab } = useResourceDrawer();
+  const { drawerTab, setDrawerTab, drawerViewMode, setDrawerViewMode } = useResourceDrawer();
   const { importMedia } = useElements();
   const [isDragOver, setIsDragOver] = useState(false);
+  const [searchValue, setSearchValue] = useState('');
+
+  // useGridSize is a useState over localStorage, so each key must be read
+  // in exactly one place. Call once per grid key unconditionally and select
+  // the active one below (precedent: asset-editor-context useThemeFamily).
+  const deckGrid = useGridSize('lumacast.grid-size.deck-bin', 6, 4, 8);
+  const themeGrid = useGridSize('lumacast.grid-size.theme-bin', 6, 4, 8);
+  const imageGrid = useGridSize('lumacast.grid-size.image-bin', 6, 4, 8);
+  const videoGrid = useGridSize('lumacast.grid-size.video-bin', 3, 2, 4);
+
+  // Search is transient: clear when host switches tabs
+  useEffect(() => {
+    setSearchValue('');
+  }, [drawerTab]);
+
+  const searchPlaceholder = SEARCH_PLACEHOLDER_BY_TAB[drawerTab];
+
+  const grid: BinGridConfig | null = useMemo(() => {
+    switch (drawerTab) {
+      case 'deck':
+        return { value: deckGrid.gridSize, min: deckGrid.min, max: deckGrid.max, step: deckGrid.step, onChange: deckGrid.setGridSize };
+      case 'themes':
+        return { value: themeGrid.gridSize, min: themeGrid.min, max: themeGrid.max, step: themeGrid.step, onChange: themeGrid.setGridSize };
+      case 'image':
+        return { value: imageGrid.gridSize, min: imageGrid.min, max: imageGrid.max, step: imageGrid.step, onChange: imageGrid.setGridSize };
+      case 'video':
+        return { value: videoGrid.gridSize, min: videoGrid.min, max: videoGrid.max, step: videoGrid.step, onChange: videoGrid.setGridSize };
+      case 'audio':
+        return null;
+    }
+  }, [deckGrid.gridSize, deckGrid.min, deckGrid.max, deckGrid.step, deckGrid.setGridSize, themeGrid.gridSize, themeGrid.min, themeGrid.max, themeGrid.step, themeGrid.setGridSize, imageGrid.gridSize, imageGrid.min, imageGrid.max, imageGrid.step, imageGrid.setGridSize, videoGrid.gridSize, videoGrid.min, videoGrid.max, videoGrid.step, videoGrid.setGridSize, drawerTab]);
 
   function handleImport(event: ChangeEvent<HTMLInputElement>) {
     if (!event.target.files || event.target.files.length === 0) return;
@@ -131,44 +174,58 @@ function Root({ children }: { children: ReactNode }) {
   return (
     <ResourceDrawerContext.Provider value={value}>
       <Tabs.Root value={drawerTab} onValueChange={handleTabChange}>
-        <footer
-          data-ui-region="resource-drawer"
-          className={cn(
-            'grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden border-t bg-primary',
-            isDragOver ? 'border-t-focus' : 'border-t-primary',
-          )}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
+        <BinControlsProvider
+          searchValue={searchValue}
+          onSearchChange={setSearchValue}
+          searchPlaceholder={searchPlaceholder}
+          viewMode={drawerViewMode}
+          onViewModeChange={setDrawerViewMode}
+          grid={grid}
         >
-          {children}
-        </footer>
+          <footer
+            data-ui-region="resource-drawer"
+            className={cn(
+              'grid h-full min-h-0 grid-rows-[auto_1fr] overflow-hidden border-t bg-primary',
+              isDragOver ? 'border-t-focus' : 'border-t-primary',
+            )}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {children}
+          </footer>
+        </BinControlsProvider>
       </Tabs.Root>
     </ResourceDrawerContext.Provider>
   );
 }
 
 // ─── Header ───────────────────────────────────────────────
-// Single flex row: tab list on the left, toolbar controls on the right.
+// Single row: tab list, search field taking remaining width, and the
+// Ellipsis options menu (which now holds view + size controls).
 
 function Header() {
   return (
-    <div className="flex h-8 items-end border-b border-primary px-1">
-      <Tabs.List label="Resource tabs" className="min-w-0 flex-1" tabsClassName="gap-0.5">
+    <div className="flex h-8 items-center gap-1.5 border-b border-primary px-1">
+      {/* w-auto shrink-0 overrides Tabs.List's own `w-full`, which would
+          otherwise act as a flex basis of 100% and starve the search field. */}
+      <Tabs.List label="Resource tabs" className="w-auto shrink-0" tabsClassName="gap-0.5">
         <Tabs.Trigger value="deck">Deck</Tabs.Trigger>
         <Tabs.Trigger value="themes">Themes</Tabs.Trigger>
         <Tabs.Trigger value="image">Images</Tabs.Trigger>
         <Tabs.Trigger value="video">Videos</Tabs.Trigger>
         <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
       </Tabs.List>
+      <div className="ml-auto min-w-0 w-full max-w-xs">
+        <BinControlsSearchField />
+      </div>
       <Toolbar />
     </div>
   );
 }
 
 // ─── Toolbar ──────────────────────────────────────────────
-// Right-side controls: import file picker, more actions. View mode and grid
-// size live in each panel's own footer.
+// Right-side controls: import file picker, more actions.
 
 function Toolbar() {
   const { actions, state } = useDrawer();
@@ -198,6 +255,7 @@ function Toolbar() {
 
 // ─── More-actions dropdown ────────────────────────────────
 // Per-tab content lives here so each tab's actions stay co-located.
+// Appended at the end: view-mode choices and (when applicable) the size slider.
 
 function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
   const { state } = useDrawer();
@@ -219,7 +277,7 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
       <Dropdown.Trigger aria-label="More actions" className={TRIGGER_CLASS}>
         <Ellipsis />
       </Dropdown.Trigger>
-      <Dropdown.Panel placement="bottom-end">
+      <Dropdown.Panel placement="bottom-end" className="min-w-64">
         {state.drawerTab === 'deck' && (
           <>
             <Dropdown.Item onClick={() => openCreateItem('presentation')}>New presentation</Dropdown.Item>
@@ -260,6 +318,8 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
             <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={themeSort.sort} onChange={themeSort.setSort} />
           </>
         )}
+        <Dropdown.Separator />
+        <BinControlsViewOptions />
       </Dropdown.Panel>
     </Dropdown>
   );

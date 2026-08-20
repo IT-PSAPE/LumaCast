@@ -1,14 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useAudio } from '../../../contexts/playback/playback-context';
 import { filterByText } from '../../../utils/filter-by-text';
 import { compareByKey, useAudioBinSort } from '../../workbench/use-bin-sort';
-import type { ResourceDrawerViewMode } from '../../../types/ui';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 export function useAudioBin() {
   const { audioAssets: allAudioAssets, currentAudioAssetId, armAudio } = useAudio();
   const { sort } = useAudioBinSort();
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('list');
+  const { state: { searchValue } } = useBinControls();
 
   const audioAssets = useMemo(() => {
     const filtered = filterByText(allAudioAssets, searchValue, (asset) => [asset.name]);
@@ -20,9 +19,5 @@ export function useAudioBin() {
     audioAssets,
     currentAudioAssetId,
     armAudio,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
   };
 }

@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { Check, Play, Workflow } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { Macro, TriggerBinding } from '@lumacast/automation';
@@ -9,9 +9,8 @@ import { RenameField, type RenameFieldHandle } from '../../components/form/renam
 import { Thumbnail } from '../../components/display/thumbnail';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
 import { filterByText } from '../../utils/filter-by-text';
-import { useGridSize } from '../../hooks/use-grid-size';
-import type { ResourceDrawerViewMode } from '../../types/ui';
-import { BinShell } from '../workbench/bin-shell';
+import { BinShell } from '@renderer/components/layout/bin-shell';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 import { useAutomation } from './automation-context';
 
 export function MacroBinPanel() {
@@ -20,9 +19,8 @@ export function MacroBinPanel() {
     state: { macros, bindings, currentMacroId },
     actions: { setCurrentMacroId, runMacro, deleteMacro, duplicateMacro, updateMacroFields, createBinding, deleteBinding },
   } = useAutomation();
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
-  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.macro-bin', 3, 2, 4);
+  const { state: { searchValue, viewMode, grid } } = useBinControls();
+  const gridSize = grid?.value ?? 3;
 
   const filteredMacros = useMemo(
     () => filterByText(macros, searchValue, (macro: Macro) => [macro.name, macro.description]),
@@ -54,14 +52,7 @@ export function MacroBinPanel() {
   }
 
   return (
-    <BinShell
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      searchPlaceholder="Search macros…"
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
-    >
+    <BinShell>
       <BinShell.Content>
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
           {filteredMacros.map((macro, index) => (
@@ -85,11 +76,6 @@ export function MacroBinPanel() {
           ))}
         </BinPanelLayout>
       </BinShell.Content>
-      <BinShell.Footer>
-        <BinShell.Search />
-        <BinShell.GridSize />
-        <BinShell.ViewToggle />
-      </BinShell.Footer>
     </BinShell>
   );
 }

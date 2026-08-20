@@ -14,39 +14,25 @@ import { useElements } from '../../../contexts/canvas/canvas-context';
 import { useCast } from '../../../contexts/app-context';
 import { usePresentationMediaLayer, useVideo } from '../../../contexts/playback/playback-context';
 import { useWorkbench } from '../../../contexts/workbench-context';
-import { useGridSize } from '../../../hooks/use-grid-size';
 import { useVideoPoster } from '../../../hooks/use-video-poster';
 import { castMediaSrc } from '../../../utils/slides';
-import { BinShell } from '../../workbench/bin-shell';
+import { BinShell } from '@renderer/components/layout/bin-shell';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 import { useMediaTypeBin, type MediaBinKind } from './use-media-type-bin';
 
 interface MediaBinPanelProps {
   binKind: MediaBinKind;
 }
 
-const GRID_CONFIG: Record<MediaBinKind, { default: number; min: number; max: number }> = {
-  image: { default: 6, min: 4, max: 8 },
-  video: { default: 3, min: 2, max: 4 },
-  audio: { default: 3, min: 2, max: 4 },
-};
-
 export function MediaBinPanel({ binKind }: MediaBinPanelProps) {
-  const { mediaAssets, searchValue, setSearchValue, viewMode, setViewMode } = useMediaTypeBin(binKind);
+  const { mediaAssets } = useMediaTypeBin(binKind);
   const { mediaLayerAssetId, videoLayerAssetId, setMediaLayerAsset } = usePresentationMediaLayer();
   const { armVideo } = useVideo();
-  const gridStorageKey = `lumacast.grid-size.${binKind}-bin`;
-  const gridConfig = GRID_CONFIG[binKind];
-  const { gridSize, setGridSize, min, max, step } = useGridSize(gridStorageKey, gridConfig.default, gridConfig.min, gridConfig.max);
+  const { state: { viewMode, grid } } = useBinControls();
+  const gridSize = grid?.value ?? (binKind === 'image' ? 6 : 3);
 
   return (
-    <BinShell
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      searchPlaceholder={`Search ${binKind}…`}
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
-    >
+    <BinShell>
       <BinShell.Content>
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
           {mediaAssets.map((asset) => (
@@ -61,11 +47,6 @@ export function MediaBinPanel({ binKind }: MediaBinPanelProps) {
           ))}
         </BinPanelLayout>
       </BinShell.Content>
-      <BinShell.Footer>
-        <BinShell.Search />
-        <BinShell.GridSize />
-        <BinShell.ViewToggle />
-      </BinShell.Footer>
     </BinShell>
   );
 }

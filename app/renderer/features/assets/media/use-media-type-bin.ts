@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { MediaAsset } from '@lumacast/composition';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
 import { compareByKey, useMediaBinSort } from '../../workbench/use-bin-sort';
-import type { ResourceDrawerViewMode } from '../../../types/ui';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 export type MediaBinKind = 'image' | 'video' | 'audio';
 
@@ -15,13 +15,10 @@ const TYPE_FILTERS: Record<MediaBinKind, (asset: MediaAsset) => boolean> = {
 
 export function useMediaTypeBin(
   binKind: MediaBinKind,
-  defaultViewMode: ResourceDrawerViewMode = 'grid',
 ) {
   const { mediaAssets: allMediaAssets } = useProjectContent();
   const { sort } = useMediaBinSort();
-
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>(defaultViewMode);
+  const { state: { searchValue } } = useBinControls();
 
   const filteredByType = useMemo(
     () => allMediaAssets.filter(TYPE_FILTERS[binKind]),
@@ -40,9 +37,5 @@ export function useMediaTypeBin(
 
   return {
     mediaAssets,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
   };
 }

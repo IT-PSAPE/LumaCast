@@ -8,7 +8,8 @@ import { SelectableRow } from '../../../components/display/selectable-row';
 import { useAudioCoverArt } from '../../../hooks/use-audio-cover-art';
 import { useElements } from '../../../contexts/canvas/canvas-context';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
-import { BinShell } from '../../workbench/bin-shell';
+import { BinShell } from '@renderer/components/layout/bin-shell';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 import { useAudioBin } from './use-audio-bin';
 
 export function AudioBinPanel() {
@@ -16,20 +17,11 @@ export function AudioBinPanel() {
     audioAssets,
     currentAudioAssetId,
     armAudio,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
   } = useAudioBin();
+  const { state: { viewMode } } = useBinControls();
 
   return (
-    <BinShell
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      searchPlaceholder="Search audio…"
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-    >
+    <BinShell>
       <BinShell.Content>
         {audioAssets.length === 0 ? (
           <EmptyState.Root>
@@ -49,10 +41,6 @@ export function AudioBinPanel() {
           </BinPanelLayout>
         )}
       </BinShell.Content>
-      <BinShell.Footer>
-        <BinShell.Search />
-        <BinShell.ViewToggle />
-      </BinShell.Footer>
     </BinShell>
   );
 }

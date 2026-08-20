@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { Overlay } from '@lumacast/composition';
 import { useWorkbench } from '../../../contexts/workbench-context';
@@ -14,17 +14,15 @@ import { SceneFrame } from '../../../components/display/scene-frame';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
 import { filterByText } from '../../../utils/filter-by-text';
-import { useGridSize } from '../../../hooks/use-grid-size';
-import type { ResourceDrawerViewMode } from '../../../types/ui';
-import { BinShell } from '../../workbench/bin-shell';
+import { BinShell } from '@renderer/components/layout/bin-shell';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
 export function OverlayBinPanel() {
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const { overlays: allOverlays, setCurrentOverlayId } = useOverlayEditor();
   const { activeOverlayIds, activateOverlay } = usePresentationOverlayLayer();
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
-  const { gridSize, setGridSize, min, max, step } = useGridSize('lumacast.grid-size.overlay-bin', 3, 2, 4);
+  const { state: { searchValue, viewMode, grid } } = useBinControls();
+  const gridSize = grid?.value ?? 3;
 
   const overlays = useMemo(
     () => filterByText(allOverlays, searchValue, (overlay: Overlay) => [overlay.name]),
@@ -32,14 +30,7 @@ export function OverlayBinPanel() {
   );
 
   return (
-    <BinShell
-      searchValue={searchValue}
-      onSearchChange={setSearchValue}
-      searchPlaceholder="Search overlays…"
-      viewMode={viewMode}
-      onViewModeChange={setViewMode}
-      grid={{ value: gridSize, min, max, step, onChange: setGridSize }}
-    >
+    <BinShell>
       <BinShell.Content>
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
           {overlays.map((overlay, index) => (
@@ -55,11 +46,6 @@ export function OverlayBinPanel() {
           ))}
         </BinPanelLayout>
       </BinShell.Content>
-      <BinShell.Footer>
-        <BinShell.Search />
-        <BinShell.GridSize />
-        <BinShell.ViewToggle />
-      </BinShell.Footer>
     </BinShell>
   );
 }
