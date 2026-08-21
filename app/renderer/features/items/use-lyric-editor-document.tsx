@@ -1,15 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { SlideElement } from '@lumacast/composition';
+import type { ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
 import type { Block } from '../../components/form/doc-editor';
 import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useSlides } from '../../contexts/slide-context';
-import { slideTextDetails } from '../../utils/slides';
-import { buildLyricTextElement } from './lyric-text-utils';
-import { groupSegmentsForSlides, joinSegments } from './lyric-slide-grouping';
-import type { LyricLayoutConfig } from './lyric-layout-config';
+import { slideTextDetails, sortSlides } from '../../utils/slides';
+import { buildLyricTextElement, normalizeLyricText } from './lyric-text-utils';
+import { groupBlocksForSlides } from './lyric-slide-grouping';
+import { loadMeasureFont, type LyricLayoutConfig } from './lyric-layout-config';
 
 function findTextElement(elements: SlideElement[]): SlideElement | null {
   return elements.find((element) => element.type === 'text' && 'text' in element.payload) ?? null;
@@ -37,32 +38,6 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
     }));
   }, [isOpen, currentItem, isLyric, slideElementsBySlideId, slides]);
 
-  const writeSlideText = useCallback(async (slideId: Id, text: string, currentElements: SlideElement[]) => {
-    const textElement = findTextElement(currentElements);
-    if (textElement && 'text' in textElement.payload) {
-      const currentText = String(textElement.payload.text ?? '');
-      if (currentText === text) return;
-      await mutatePatch(() => window.castApi.updateElement({
-        id: textElement.id,
-        payload: { ...textElement.payload, text },
-      }));
-      return;
-    }
-    await mutatePatch(() => window.castApi.createElement(buildLyricTextElement(slideId, text)));
-  }, [mutatePatch]);
-
-  const createSlideWithText = useCallback(async (lyricId: Id, text: string): Promise<Id> => {
-    const snapshot = await mutatePatch(() => window.castApi.createSlide({ lyricId }));
-    const nextSlide = snapshot.slides
-      .filter((slide) => slide.lyricId === lyricId)
-      .sort((left, right) => right.order - left.order)
-      .at(0);
-    if (!nextSlide) throw new Error('Unable to create lyric slide.');
-    const nextSlideElements = snapshot.slideElements.filter((element) => element.slideId === nextSlide.id);
-    await writeSlideText(nextSlide.id, text, nextSlideElements);
-    return nextSlide.id;
-  }, [mutatePatch, writeSlideText]);
-
   const saveBlocks = useCallback(async (blocks: Block[], options?: { skipGrouping?: boolean }) => {
     if (!currentItem || !isLyric) return;
 
@@ -70,37 +45,76 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
 
     try {
       await runOperation('Saving lyrics...', async () => {
-        const segments = blocks
-          .map((block) => block.content.replace(/^[ \t\n]+|[ \t\n]+$/g, ''))
-          .filter((content) => content.length > 0);
+        await loadMeasureFont(config);
 
-        const slideTexts = options?.skipGrouping
-          ? segments
-          : groupSegmentsForSlides(segments, config).map((group) => joinSegments(group));
+        const lyricId = currentItem.id;
+        const knownSlideIds = new Set(slides.map((slide) => slide.id));
+        const currentOrderIds = slides.map((slide) => slide.id);
+        const grouped = (options?.skipGrouping ? blocks : groupBlocksForSlides(blocks, { config }))
+          .map((block) => ({ id: block.id, content: normalizeLyricText(block.content) }));
 
-        const orderedSlideIds: Id[] = [];
-        const reusableSlideIds = slides.map((slide) => slide.id);
+        const createdSlideIds: Id[] = [];
+        const resolvedSlideIds: Id[] = [];
+        const elementUpdates: ElementUpdateInput[] = [];
+        const elementCreates: ElementCreateInput[] = [];
 
-        for (let i = 0; i < slideTexts.length; i += 1) {
-          const text = slideTexts[i];
-          const reuseId = reusableSlideIds[i];
-          if (reuseId) {
-            const elements = slideElementsBySlideId.get(reuseId) ?? [];
-            await writeSlideText(reuseId, text, elements);
-            orderedSlideIds.push(reuseId);
-          } else {
-            const created = await createSlideWithText(currentItem.id, text);
-            orderedSlideIds.push(created);
+        const planWrites = (slideId: Id, text: string, elements: SlideElement[]) => {
+          const textElement = findTextElement(elements);
+          if (!textElement || !('text' in textElement.payload)) {
+            if (text.length > 0) elementCreates.push(buildLyricTextElement(slideId, text, config));
+            return;
           }
+          const currentText = String(textElement.payload.text ?? '');
+          if (currentText === text) return;
+          elementUpdates.push({ id: textElement.id, payload: { ...textElement.payload, text } });
+        };
+
+        for (const block of grouped) {
+          if (knownSlideIds.has(block.id)) {
+            resolvedSlideIds.push(block.id);
+            planWrites(block.id, block.content, slideElementsBySlideId.get(block.id) ?? []);
+            continue;
+          }
+          const snapshot = await mutatePatch(() => window.castApi.createSlide({ lyricId }));
+          const freshCandidates = sortSlides(snapshot.slides.filter((slide) =>
+            slide.lyricId === lyricId
+            && !knownSlideIds.has(slide.id)
+            && !createdSlideIds.includes(slide.id),
+          ));
+          const nextSlide = freshCandidates[0]
+            ?? snapshot.slides
+              .filter((slide) => slide.lyricId === lyricId)
+              .sort((left, right) => right.order - left.order)
+              .at(0);
+          if (!nextSlide) throw new Error('Unable to create lyric slide.');
+          createdSlideIds.push(nextSlide.id);
+          resolvedSlideIds.push(nextSlide.id);
+          planWrites(
+            nextSlide.id,
+            block.content,
+            snapshot.slideElements.filter((element) => element.slideId === nextSlide.id),
+          );
         }
 
-        const removedSlideIds = reusableSlideIds.slice(slideTexts.length);
+        const finalSlideIds = new Set(resolvedSlideIds);
+        const removedSlideIds = currentOrderIds.filter((id) => !finalSlideIds.has(id));
+
+        const reorderNeeded = resolvedSlideIds.length !== currentOrderIds.length
+          || resolvedSlideIds.some((id, index) => id !== currentOrderIds[index]);
+
+        if (elementUpdates.length > 0) {
+          await mutatePatch(() => window.castApi.updateElementsBatch(elementUpdates));
+        }
+        if (elementCreates.length > 0) {
+          await mutatePatch(() => window.castApi.createElementsBatch(elementCreates));
+        }
         for (const slideId of removedSlideIds) {
           await mutatePatch(() => window.castApi.deleteSlide(slideId));
         }
-
-        for (const [index, slideId] of orderedSlideIds.entries()) {
-          await mutatePatch(() => window.castApi.setSlideOrder({ slideId, newOrder: index }));
+        if (reorderNeeded) {
+          for (const [index, slideId] of resolvedSlideIds.entries()) {
+            await mutatePatch(() => window.castApi.setSlideOrder({ slideId, newOrder: index }));
+          }
         }
 
         setStatusText('Saved lyrics');
@@ -112,7 +126,7 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
     } finally {
       setIsSaving(false);
     }
-  }, [config, createSlideWithText, currentItem, isLyric, mutatePatch, onClose, runOperation, setStatusText, slideElementsBySlideId, slides, writeSlideText]);
+  }, [config, currentItem, isLyric, mutatePatch, onClose, runOperation, setStatusText, slideElementsBySlideId, slides]);
 
   return { initialBlocks, saveBlocks, isSaving };
 }
