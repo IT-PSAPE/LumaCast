@@ -1,40 +1,20 @@
 import { useMemo, useState } from 'react';
-import type { Id } from '@lumacast/kernel';
-import type { Playlist } from '@lumacast/composition';
-import { Check, ChevronDown, ListMusic, Search } from 'lucide-react';
+import { ListMusic, Search } from 'lucide-react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
-import { ItemIcon } from '@renderer/components/display/entity-icon';
 import { EmptyState } from '@renderer/components/display/empty-state';
-import { SelectableRow } from '@renderer/components/display/selectable-row';
 import { Tabs } from '@renderer/components/display/tabs';
-import { Checkbox } from '@renderer/components/form/checkbox';
 import { FieldIcon, FieldInput } from '@renderer/components/form/field';
 import { BrokenReferenceReviewList } from './broken-reference-review-list';
-import { useDeckImportExport, type ExportableItem } from './use-deck-import-export';
+import { useDeckImportExport } from './use-deck-import-export';
+import { pluralize, type ItemRow, type PlaylistRow, type Row } from './import-export-shared';
+import { WorkspaceCard } from './workspace-card';
+import { RowList } from './row-list';
+import { AdvancedDisclosure } from './advanced-disclosure';
+import { SelectionFooter } from './selection-footer';
 
 type TransferTab = 'export' | 'import';
 type TypeFilter = 'all' | 'presentation' | 'lyric' | 'talk' | 'playlist';
-
-interface ItemRow {
-  kind: 'item';
-  id: Id;
-  title: string;
-  item: ExportableItem;
-}
-
-interface PlaylistRow {
-  kind: 'playlist';
-  id: Id;
-  title: string;
-  playlist: Playlist;
-}
-
-type Row = ItemRow | PlaylistRow;
-
-function pluralize(count: number, singular: string, plural: string): string {
-  return `${count} ${count === 1 ? singular : plural}`;
-}
 
 export function ImportExportPanel() {
   const [activeTab, setActiveTab] = useState<TransferTab>('export');
@@ -257,166 +237,6 @@ export function ImportExportPanel() {
           {state.message}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function WorkspaceCard({
-  itemCount,
-  playlistCount,
-  onExport,
-  disabled,
-  inFlight,
-}: {
-  itemCount: number;
-  playlistCount: number;
-  onExport: () => void;
-  disabled: boolean;
-  inFlight: boolean;
-}) {
-  const summaryParts = [pluralize(itemCount, 'item', 'items')];
-  if (playlistCount > 0) summaryParts.push(pluralize(playlistCount, 'playlist', 'playlists'));
-  return (
-    <div className="flex items-center justify-between gap-3 rounded border border-primary bg-tertiary/25 p-3">
-      <div className="flex flex-col gap-0.5">
-        <div className="text-sm font-medium text-primary">Export entire workspace</div>
-        <div className="text-xs text-tertiary">
-          {summaryParts.join(' · ')} · includes themes, overlays, page layouts, and referenced media.
-        </div>
-      </div>
-      <ReacstButton onClick={onExport} disabled={disabled}>
-        {inFlight ? 'Exporting…' : 'Export workspace'}
-      </ReacstButton>
-    </div>
-  );
-}
-
-function RowList({
-  rows,
-  isSelected,
-  onToggle,
-  emptyMessage,
-}: {
-  rows: Row[];
-  isSelected: (row: Row) => boolean;
-  onToggle: (row: Row) => void;
-  emptyMessage: string;
-}) {
-  if (rows.length === 0) {
-    return (
-      <EmptyState.Root className="rounded border border-dashed border-primary bg-tertiary/15 py-8">
-        <EmptyState.Title>{emptyMessage}</EmptyState.Title>
-      </EmptyState.Root>
-    );
-  }
-
-  return (
-    <div className="flex max-h-96 flex-col gap-0.5 overflow-y-auto rounded border border-primary bg-tertiary/15 p-1">
-      {rows.map((row) => (
-        <SelectableRow.Root
-          key={`${row.kind}:${row.id}`}
-          selected={isSelected(row)}
-          onClick={() => onToggle(row)}
-        >
-          <SelectableRow.Leading>
-            {row.kind === 'playlist' ? (
-              <ListMusic size={14} strokeWidth={1.75} className="text-tertiary" />
-            ) : (
-              <ItemIcon entity={row.item.type} size={14} strokeWidth={1.75} className="text-tertiary" />
-            )}
-          </SelectableRow.Leading>
-          <SelectableRow.Label>{row.title}</SelectableRow.Label>
-          <SelectableRow.Trailing>
-            <span className="text-xs uppercase tracking-wide text-tertiary">
-              {row.kind === 'item' ? row.item.type : 'playlist'}
-            </span>
-            {isSelected(row) ? <Check size={12} strokeWidth={2.5} className="text-brand_solid" /> : null}
-          </SelectableRow.Trailing>
-        </SelectableRow.Root>
-      ))}
-    </div>
-  );
-}
-
-function AdvancedDisclosure({
-  open,
-  onToggle,
-  extras,
-  onChange,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  extras: { includeAllThemes: boolean; includeOverlays: boolean; includeStages: boolean };
-  onChange: (flag: 'includeAllThemes' | 'includeOverlays' | 'includeStages', value: boolean) => void;
-}) {
-  return (
-    <div className="rounded border border-primary bg-tertiary/15">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs uppercase tracking-wide text-tertiary"
-      >
-        <span>Advanced</span>
-        <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open ? (
-        <div className="flex flex-col gap-2 border-t border-primary/60 px-3 py-2">
-          <p className="text-xs text-tertiary">
-            By default, only themes used by selected items are bundled. Toggle on to include unused workspace assets.
-          </p>
-          <Checkbox.Root checked={extras.includeAllThemes} onCheckedChange={(v) => onChange('includeAllThemes', v)}>
-            <Checkbox.Indicator />
-            <Checkbox.Label>Include all themes</Checkbox.Label>
-          </Checkbox.Root>
-          <Checkbox.Root checked={extras.includeOverlays} onCheckedChange={(v) => onChange('includeOverlays', v)}>
-            <Checkbox.Indicator />
-            <Checkbox.Label>Include overlays</Checkbox.Label>
-          </Checkbox.Root>
-          <Checkbox.Root checked={extras.includeStages} onCheckedChange={(v) => onChange('includeStages', v)}>
-            <Checkbox.Indicator />
-            <Checkbox.Label>Include page layouts (stages)</Checkbox.Label>
-          </Checkbox.Root>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SelectionFooter({
-  selectedCount,
-  preview,
-  hasSelection,
-  onClear,
-  onExport,
-  inFlight,
-}: {
-  selectedCount: number;
-  preview: string[];
-  hasSelection: boolean;
-  onClear: () => void;
-  onExport: () => void;
-  inFlight: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded border border-primary bg-tertiary/25 px-3 py-2">
-      <div className="flex flex-col gap-0.5 text-xs text-tertiary">
-        <span className="text-sm text-primary">
-          {selectedCount === 0 ? 'Nothing selected' : `${selectedCount} selected`}
-        </span>
-        {preview.length > 0 ? (
-          <span className="truncate">
-            {preview.slice(0, 3).join(', ')}{preview.length > 3 ? `, +${preview.length - 3} more` : ''}
-          </span>
-        ) : (
-          <span>Pick items above.</span>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        <ReacstButton variant="ghost" onClick={onClear} disabled={!hasSelection}>Clear</ReacstButton>
-        <ReacstButton onClick={onExport} disabled={!hasSelection || inFlight}>
-          {inFlight ? 'Exporting…' : `Export${hasSelection ? ` (${selectedCount})` : ''}`}
-        </ReacstButton>
-      </div>
     </div>
   );
 }

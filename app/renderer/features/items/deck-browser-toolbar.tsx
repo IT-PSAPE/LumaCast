@@ -1,36 +1,18 @@
 import { AppWindow, LayoutGrid, List, RectangleHorizontal, Rows3, SlidersHorizontal } from 'lucide-react';
 import { Dropdown } from '../../components/form/dropdown';
 import { InspectorSlider } from '../../components/form/inspector-slider';
-import { Tabs } from '../../components/display/tabs';
 import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useDeckBrowser } from './deck-browser-context';
 import { useLyricEditor } from './lyric-editor';
+import { PlaylistTabItem } from './playlist-tab-item';
 import type { SlideBrowserHeaderVariant } from './use-deck-browser-view';
 import type { PlaylistDeckSequenceItem } from './use-playlist-deck-sequence';
 
 interface DeckBrowserToolbarProps {
   items: PlaylistDeckSequenceItem[];
   headerVariant: SlideBrowserHeaderVariant;
-}
-
-function PlaylistTabItem({ items }: { items: PlaylistDeckSequenceItem[] }) {
-  const { currentPlaylistEntryId } = useNavigation();
-  const { selectPlaylistEntry } = useSlides();
-
-  function getLabel(item: PlaylistDeckSequenceItem) {
-    const duplicateSuffix = item.occurrenceIndex > 1 ? ` (${item.occurrenceIndex})` : '';
-    return `${item.item.title}${duplicateSuffix}`;
-  }
-
-  return (
-    <Tabs.Root value={currentPlaylistEntryId ?? undefined} onValueChange={selectPlaylistEntry}>
-      <Tabs.List label="Playlist items">
-        {items.map((item) => <Tabs.Trigger value={item.entryId}>{getLabel(item)}</Tabs.Trigger>)}
-      </Tabs.List>
-    </Tabs.Root>
-  );
 }
 
 export function DeckBrowserToolbar({ items, headerVariant }: DeckBrowserToolbarProps) {
