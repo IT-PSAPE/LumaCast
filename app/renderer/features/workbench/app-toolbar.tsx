@@ -1,14 +1,14 @@
 import { useMemo, type CSSProperties } from 'react';
-import { Ellipsis, PanelBottom, PanelLeft, PanelRight, Search, Settings } from 'lucide-react';
+import { PanelBottom, PanelLeft, PanelRight, Search, Settings } from 'lucide-react';
 import { useWorkbench } from '../../contexts/workbench-context';
 import type { WorkbenchMode } from '../../types/ui';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
-import { Dropdown } from '@renderer/components/form/dropdown';
 import { cv } from '@renderer/utils/cv';
 import { useWorkbenchPanelToggles } from './use-workbench-panel-toggles';
 import { useNdi } from '@renderer/contexts/app-context';
 import { useCommandPalette } from '../command-palette/command-palette-context';
+import { OverflowViewMenu } from './overflow-view-menu';
 
 const isMac = window.castApi.platform === 'darwin';
 
@@ -33,19 +33,6 @@ const outputBorderStyles = cv({
       false: ['border-red-500/40'],
     },
   },
-});
-
-// Matches the SegmentedControl label-segment treatment so the overflow trigger
-// is indistinguishable from a real segment.
-const overflowTriggerStyles = cv({
-  base: 'inline-flex items-center justify-center rounded-sm transition-colors px-3 py-1 label-xs',
-  variants: {
-    active: {
-      true: 'bg-primary text-primary',
-      false: 'text-tertiary hover:text-secondary',
-    },
-  },
-  defaultVariants: { active: false },
 });
 
 export interface PanelToggleButton {
@@ -162,35 +149,6 @@ function renderPanelToggleItem(toggle: PanelToggleButton) {
       {panelToggleIcon(toggle.id)}
       <span className="sr-only">{toggle.label}</span>
     </SegmentedControl.Icon>
-  );
-}
-
-const OVERFLOW_SCREENS: ReadonlyArray<{ label: string; mode: WorkbenchMode }> = [
-  { label: 'Overlay', mode: 'overlay-editor' },
-  { label: 'Stage', mode: 'stage-editor' },
-  { label: 'Macros', mode: 'macro-editor' },
-];
-
-function OverflowViewMenu({ value, onSelect }: { value: WorkbenchMode; onSelect: (mode: WorkbenchMode) => void }) {
-  const isActive = OVERFLOW_SCREENS.some((screen) => screen.mode === value);
-
-  return (
-    <Dropdown>
-      <Dropdown.Trigger
-        aria-label="More views"
-        aria-pressed={isActive}
-        className={overflowTriggerStyles({ active: isActive })}
-      >
-        <Ellipsis className="size-3.5" aria-hidden="true" />
-      </Dropdown.Trigger>
-      <Dropdown.Panel placement="bottom-end">
-        {OVERFLOW_SCREENS.map((screen) => (
-          <Dropdown.Item key={screen.mode} onClick={() => onSelect(screen.mode)}>
-            {screen.label}
-          </Dropdown.Item>
-        ))}
-      </Dropdown.Panel>
-    </Dropdown>
   );
 }
 

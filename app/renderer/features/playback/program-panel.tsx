@@ -1,32 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, AlignLeft, Ellipsis, Film, Image, Layers, Layers2, LayoutGrid, Pencil, Plus, RectangleHorizontal, VolumeX, XCircle } from 'lucide-react';
-import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@lumacast/protocol';
+import { AlignLeft, Ellipsis, Film, Image, Layers, Layers2, Pencil, Plus, VolumeX, XCircle } from 'lucide-react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '../../components/display/tabs';
-import { SceneFrame } from '../../components/display/scene-frame';
 import { Dropdown } from '../../components/form/dropdown';
-import { ThumbnailGrid } from '../../components/layout/thumbnail-grid';
-import { InspectorSlider } from '../../components/form/inspector-slider';
 import { IconGroup } from '@renderer/components/icon-group';
-import { useNdi } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useOverlayEditor, useStageEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useAudio, usePresentationLayers, useStagePlayback } from '../../contexts/playback/playback-context';
-import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useWorkbench } from '../../contexts/workbench-context';
-import type { ProgramSurfaceKind, ResourceDrawerViewMode } from '../../types/ui';
-import { BindingProvider } from '@lumacast/canvas';
+import type { ResourceDrawerViewMode } from '../../types/ui';
 import { OverlayBinPanel } from '../assets/overlays/overlay-bin-panel';
 import { StageBinPanel } from '../assets/stages/stage-bin-panel';
 import { MacroBinPanel } from '../automation/macro-bin-panel';
 import { useAutomation } from '../automation/automation-context';
 import { dispatchAutomationTriggerEvent } from '../automation/automation-events';
-import { useProgramOutput } from './use-program-output';
-import { useProgramBindingValue, useStageBindingValue, useStageScene } from './use-stage-scene';
-import { SceneStage } from '../canvas/scene-stage';
 import { useGridSize } from '../../hooks/use-grid-size';
 import { BinControlsProvider, BinControlsSearchField, BinControlsViewOptions, type BinGridConfig } from '@renderer/components/controls/bin-controls';
+import { ProgramModeHeader } from './program-mode-header';
+import { SurfacesArea } from './surfaces-area';
 
 type BottomTab = 'overlays' | 'stage' | 'macros';
 
@@ -251,215 +243,5 @@ export function ProgramPanel() {
         </Tabs.Root>
       </LumaCastPanel.Group>
     </LumaCastPanel.Root>
-  );
-}
-
-const SURFACE_LABELS: Record<ProgramSurfaceKind, string> = {
-  program: 'Program',
-  monitor: 'Monitor',
-  stage: 'Stage',
-};
-
-const SURFACE_ORDER: ProgramSurfaceKind[] = ['program', 'monitor', 'stage'];
-
-// The single and all program views each get their own header controls. The
-// shared mode toggle stays in the dispatcher; the per-mode controls are
-// explicit variants so each tree owns its own state shape.
-function ProgramModeHeader() {
-  const {
-    state: { programMode },
-    actions: { setProgramMode },
-  } = useWorkbench();
-
-  function handleModeToggle() {
-    setProgramMode(programMode === 'single' ? 'all' : 'single');
-  }
-
-  return (
-    <LumaCastPanel.GroupTitle>
-      <ReacstButton.Icon
-        variant="ghost"
-        label={programMode === 'single' ? 'Switch to all program views' : 'Switch to single program view'}
-        onClick={handleModeToggle}
-      >
-        {programMode === 'single' ? <RectangleHorizontal /> : <LayoutGrid />}
-      </ReacstButton.Icon>
-      {programMode === 'single' ? <SingleSurfacePicker /> : <GridDensityControl />}
-    </LumaCastPanel.GroupTitle>
-  );
-}
-
-function SingleSurfacePicker() {
-  const {
-    state: { programSingleSurface },
-    actions: { setProgramSingleSurface },
-  } = useWorkbench();
-
-  function handleSurfacePick(surface: ProgramSurfaceKind) {
-    setProgramSingleSurface(surface);
-  }
-
-  return (
-    <Dropdown className="ml-auto">
-      <Dropdown.Trigger className="flex min-w-0 items-center gap-1 rounded-sm bg-tertiary px-2 py-1 text-sm text-primary transition-colors hover:bg-quaternary">
-        <span className="truncate">{SURFACE_LABELS[programSingleSurface]}</span>
-        <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
-      </Dropdown.Trigger>
-      <Dropdown.Panel placement="bottom-end">
-        {SURFACE_ORDER.map((kind) => (
-          <Dropdown.Item key={kind} onClick={() => handleSurfacePick(kind)}>
-            {SURFACE_LABELS[kind]}
-          </Dropdown.Item>
-        ))}
-      </Dropdown.Panel>
-    </Dropdown>
-  );
-}
-
-function GridDensityControl() {
-  const {
-    state: { programGridDensity },
-    actions: { setProgramGridDensity },
-  } = useWorkbench();
-
-  function handleDensityChange(next: number) {
-    if (next !== 1 && next !== 2) return;
-    setProgramGridDensity(next);
-  }
-
-  return (
-    <span className="ml-auto w-32 shrink-0">
-      <InspectorSlider
-        value={programGridDensity}
-        min={1}
-        max={2}
-        onChange={handleDensityChange}
-        label="Columns"
-        ariaLabel="Grid columns"
-      />
-    </span>
-  );
-}
-
-function SurfacesArea() {
-  const {
-    state: { programMode, programSingleSurface, programGridDensity },
-  } = useWorkbench();
-
-  if (programMode === 'single') {
-    // Single mode names the surface in the header dropdown, so the cell
-    // composes no label badge.
-    return (
-      <div className="flex w-full justify-center">
-        <Surface kind={programSingleSurface} />
-      </div>
-    );
-  }
-
-  // All-mode grid: slider value IS the column count. 1 = stacked vertically,
-  // 2 = two columns. Each cell is a 16:9 frame so rows auto-size to identical
-  // heights regardless of which surface (Program/Monitor/Stage) lands in them.
-  const columnCount = programGridDensity;
-  return (
-    <ThumbnailGrid columns={columnCount} className="w-full gap-1">
-      {SURFACE_ORDER.map((kind) => (
-        <Surface key={kind} kind={kind} label={SURFACE_LABELS[kind]} />
-      ))}
-    </ThumbnailGrid>
-  );
-}
-
-function Surface({ kind, label }: { kind: ProgramSurfaceKind; label?: React.ReactNode }) {
-  if (kind === 'program') return <ProgramSurface label={label} />;
-  if (kind === 'monitor') return <MonitorSurface label={label} />;
-  return <StageSurface label={label} />;
-}
-
-function ProgramSurface({ label }: { label?: React.ReactNode }) {
-  const { scene, background } = useProgramOutput();
-  const bindingValue = useProgramBindingValue();
-  const checkerboard = background === 'transparent';
-
-  return (
-    <BindingProvider value={bindingValue}>
-      <SurfaceFrame label={label} checkerboard={checkerboard}>
-        <SceneStage
-          scene={scene}
-          surface="show"
-          className="h-full w-full"
-          fixedViewport={{ width: NDI_OUTPUT_WIDTH, height: NDI_OUTPUT_HEIGHT }}
-          ndiCaptureSource="audience"
-        />
-      </SurfaceFrame>
-    </BindingProvider>
-  );
-}
-
-function MonitorSurface({ label }: { label?: React.ReactNode }) {
-  const { showScene } = useRenderScenes();
-  const bindingValue = useProgramBindingValue();
-  // Monitor mirrors what's about to go to the audience NDI feed, so its
-  // transparent-background indicator follows the audience output's alpha
-  // config. With alpha on, the checker shows through wherever the scene
-  // lacks an opaque fill — easier to spot transparent text/elements.
-  const { state: { outputConfigs } } = useNdi();
-  const checkerboard = outputConfigs.audience.withAlpha;
-
-  return (
-    <BindingProvider value={bindingValue}>
-      <SurfaceFrame label={label} checkerboard={checkerboard}>
-        <SceneStage scene={showScene} surface="monitor" className="h-full w-full" />
-      </SurfaceFrame>
-    </BindingProvider>
-  );
-}
-
-function StageSurface({ label }: { label?: React.ReactNode }) {
-  const stageScene = useStageScene();
-  const bindingValue = useStageBindingValue();
-
-  // Mirrors the configured alpha for the stage NDI sender so the operator
-  // sees exactly what the stage feed would look like over a transparent base.
-  const { state: { outputConfigs } } = useNdi();
-  const checkerboard = outputConfigs.stage.withAlpha;
-
-  return (
-    <BindingProvider value={bindingValue}>
-      <SurfaceFrame label={label} checkerboard={checkerboard}>
-        <SceneStage
-          scene={stageScene}
-          surface="stage"
-          className="h-full w-full"
-          fixedViewport={{ width: NDI_OUTPUT_WIDTH, height: NDI_OUTPUT_HEIGHT }}
-          ndiCaptureSource="stage"
-        />
-      </SurfaceFrame>
-    </BindingProvider>
-  );
-}
-
-// Single 16:9 frame used by every surface so grid rows auto-size to identical
-// heights and the optional panel label can float on top instead of stealing a
-// row above. The label is an explicit slot decision: the caller supplies it
-// only when the mode needs one (all-mode grid);
-// in single mode the header dropdown already names the surface, so no label
-// is composed and the badge is absent.
-function SurfaceFrame({ label, checkerboard = false, children }: { label?: React.ReactNode; checkerboard?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="relative max-h-full max-w-full w-full">
-      <SceneFrame
-        width={NDI_OUTPUT_WIDTH}
-        height={NDI_OUTPUT_HEIGHT}
-        className="max-h-full max-w-full bg-black"
-        checkerboard={checkerboard}
-      >
-        {children}
-      </SceneFrame>
-      {label ? (
-        <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded-sm bg-black/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white backdrop-blur-sm">
-          {label}
-        </span>
-      ) : null}
-    </div>
   );
 }
