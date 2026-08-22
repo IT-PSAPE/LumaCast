@@ -15,6 +15,21 @@ const mocks = vi.hoisted(() => ({
   navigation: { value: null as unknown },
 }));
 
+const virtualizerMocks = vi.hoisted(() => ({
+  virtualItems: Array.from({ length: 8 }, (_, index) => ({ index, key: `row-${index}`, start: index * 40 })),
+  measureElement: vi.fn(),
+  scrollToIndex: vi.fn(),
+}));
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: vi.fn(() => ({
+    getVirtualItems: () => virtualizerMocks.virtualItems,
+    getTotalSize: () => 320,
+    measureElement: virtualizerMocks.measureElement,
+    scrollToIndex: virtualizerMocks.scrollToIndex,
+  })),
+}));
+
 vi.mock('../../../contexts/asset-editor/asset-editor-context', () => ({
   useThemeEditor: () => mocks.theme.value,
 }));

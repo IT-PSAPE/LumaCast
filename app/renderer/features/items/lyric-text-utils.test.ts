@@ -63,6 +63,7 @@ describe('buildLyricTextElement', () => {
 
   it('centers the box horizontally and anchors its bottom edge at y=1030 with defaults', () => {
     const input = buildLyricTextElement('slide-1', 'hello');
+    expect(input.x).toBe(76.5);
     expect(input.x + input.width / 2).toBe(960);
     expect(input.y + input.height).toBe(1030);
     expect(input.width).toBe(DEFAULT_LYRIC_LAYOUT_CONFIG.boxWidth);

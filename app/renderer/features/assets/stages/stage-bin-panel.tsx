@@ -26,7 +26,7 @@ export function StageBinPanel() {
   return (
     <BinShell>
       <BinShell.Content>
-        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode} virtualize>
           {stages.map((stage, index) => (
             <StageCard
               key={stage.id}

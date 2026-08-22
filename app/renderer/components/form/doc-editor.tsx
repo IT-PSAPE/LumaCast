@@ -86,6 +86,7 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
     const redoStackRef = useRef<HistoryEntry[]>([])
     const typingRef = useRef<{ blockId: string; timer: ReturnType<typeof setTimeout> } | null>(null)
     const findInputRef = useRef<HTMLInputElement | null>(null)
+    const dragCleanupRef = useRef<(() => void) | null>(null)
 
     useEffect(() => { blocksRef.current = blocks }, [blocks])
     useEffect(() => { selectedRef.current = selectedBlockIds }, [selectedBlockIds])
@@ -110,11 +111,14 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
     // ── Selection ───────────────────────────────────────────────────
 
     const clearSelection = useCallback(() => {
+        selectedRef.current = new Set()
         setSelectedBlockIds(prev => (prev.size === 0 ? prev : new Set()))
     }, [])
 
     const selectAllBlocks = useCallback(() => {
-        setSelectedBlockIds(new Set(blocksRef.current.map(b => b.id)))
+        const nextSelection = new Set(blocksRef.current.map(b => b.id))
+        selectedRef.current = nextSelection
+        setSelectedBlockIds(nextSelection)
     }, [])
 
     // ── History ─────────────────────────────────────────────────────
@@ -445,7 +449,7 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
     }, [gotoMatch])
 
     const findPrev = useCallback(() => {
-        gotoMatch(activeMatchIdxRef.current - 1)
+        gotoMatch(activeMatchIdxRef.current < 0 ? -1 : activeMatchIdxRef.current - 1)
     }, [gotoMatch])
 
     const closeFind = useCallback(() => {
@@ -708,8 +712,7 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
         }
 
         const onUp = () => {
-            window.removeEventListener('pointermove', onMove)
-            window.removeEventListener('pointerup', onUp)
+            dragCleanupRef.current?.()
             const drag = dragRef.current
             dragRef.current = null
             setMarquee(null)
@@ -719,9 +722,22 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
             }
         }
 
+        dragCleanupRef.current?.()
+        dragCleanupRef.current = () => {
+            window.removeEventListener('pointermove', onMove)
+            window.removeEventListener('pointerup', onUp)
+            if (dragCleanupRef.current) dragCleanupRef.current = null
+        }
         window.addEventListener('pointermove', onMove)
         window.addEventListener('pointerup', onUp)
     }, [clearSelection, selectBlocksInRect])
+
+    useEffect(() => {
+        return () => {
+            dragCleanupRef.current?.()
+            dragRef.current = null
+        }
+    }, [])
 
     // ── Imperative handle ───────────────────────────────────────────
 

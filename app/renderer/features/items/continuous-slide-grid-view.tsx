@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Slide } from '@lumacast/composition';
 import { ScrollArea } from '../../components/layout/scroll-area';
-import { useRenderScenes } from '../../contexts/canvas/canvas-context';
+import { useThumbnailScene } from '../../contexts/canvas/canvas-context';
 import { useContinuousSlideSections } from './use-continuous-slide-sections';
 import { useDeckBrowser } from './deck-browser-context';
 import type { PlaylistDeckSequenceItem } from './use-playlist-deck-sequence';
@@ -24,7 +24,7 @@ const VIRTUAL_OVERSCAN = 6;
 export function ContinuousSlideGridView({ items }: { items: PlaylistDeckSequenceItem[] }) {
   const sections = useContinuousSlideSections();
   const { gridItemSize } = useDeckBrowser();
-  const { getThumbnailScene } = useRenderScenes();
+  const getThumbnailScene = useThumbnailScene();
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const rows = useMemo<GridRow[]>(() => {

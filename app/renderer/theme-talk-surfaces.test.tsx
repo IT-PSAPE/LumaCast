@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import type { Id } from '@lumacast/kernel';
 import type { EditorThemeSource } from '@lumacast/canvas';
 import type { ItemRef, Lyric, Overlay, Presentation, Talk } from '@lumacast/composition';
@@ -24,6 +24,21 @@ const mocks = vi.hoisted(() => ({
   project: { value: null as unknown },
   themeEditor: { value: null as unknown },
   confirm: { fn: null as unknown },
+}));
+
+const virtualizerMocks = vi.hoisted(() => ({
+  virtualItems: Array.from({ length: 8 }, (_, index) => ({ index, key: `row-${index}`, start: index * 40 })),
+  measureElement: vi.fn(),
+  scrollToIndex: vi.fn(),
+}));
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: vi.fn(() => ({
+    getVirtualItems: () => virtualizerMocks.virtualItems,
+    getTotalSize: () => 320,
+    measureElement: virtualizerMocks.measureElement,
+    scrollToIndex: virtualizerMocks.scrollToIndex,
+  })),
 }));
 
 // ThemeBinPanel's grid view mounts a live scene preview per tile via
@@ -212,7 +227,7 @@ describe('ThemeBinPanel "Apply to" targets (per-family, no capability matrix)', 
     fireEvent.contextMenu(screen.getByDisplayValue(options.theme.name));
   }
 
-  it('offers only talks as apply targets for the talk theme family, excluding presentations and lyrics', () => {
+  it('offers only talks as apply targets for the talk theme family, excluding presentations and lyrics', async () => {
     const theme = makeTheme('theme-1', 'Talk Theme');
     renderPanel({
       themeType: 'talk',
@@ -222,7 +237,8 @@ describe('ThemeBinPanel "Apply to" targets (per-family, no capability matrix)', 
       talks: [makeTalk('t1', 'My Talk')],
     });
 
-    act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'Apply to' })); });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Apply to' }));
+    await waitFor(() => expect(screen.getAllByRole('menu')).toHaveLength(2));
     const menus = screen.getAllByRole('menu');
     const submenu = menus[menus.length - 1];
 
@@ -231,7 +247,7 @@ describe('ThemeBinPanel "Apply to" targets (per-family, no capability matrix)', 
     expect(within(submenu).queryByRole('menuitem', { name: 'My Lyric' })).toBeNull();
   });
 
-  it('offers only overlays as apply targets for the overlay theme family, never items', () => {
+  it('offers only overlays as apply targets for the overlay theme family, never items', async () => {
     const theme = makeTheme('theme-2', 'Overlay Theme');
     renderPanel({
       themeType: 'overlay',
@@ -241,7 +257,8 @@ describe('ThemeBinPanel "Apply to" targets (per-family, no capability matrix)', 
       overlays: [makeOverlay('o1', 'Lower Third')],
     });
 
-    act(() => { fireEvent.click(screen.getByRole('menuitem', { name: 'Apply to' })); });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Apply to' }));
+    await waitFor(() => expect(screen.getAllByRole('menu')).toHaveLength(2));
     const menus = screen.getAllByRole('menu');
     const submenu = menus[menus.length - 1];
 

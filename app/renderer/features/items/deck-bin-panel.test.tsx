@@ -13,6 +13,21 @@ const mocks = vi.hoisted(() => ({
   createItem: { value: null as unknown },
 }));
 
+const virtualizerMocks = vi.hoisted(() => ({
+  virtualItems: Array.from({ length: 6 }, (_, index) => ({ index, key: `row-${index}`, start: index * 40 })),
+  measureElement: vi.fn(),
+  scrollToIndex: vi.fn(),
+}));
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useVirtualizer: vi.fn(() => ({
+    getVirtualItems: () => virtualizerMocks.virtualItems,
+    getTotalSize: () => 240,
+    measureElement: virtualizerMocks.measureElement,
+    scrollToIndex: virtualizerMocks.scrollToIndex,
+  })),
+}));
+
 vi.mock('./use-deck-bin', () => ({
   useDeckBin: () => mocks.deckBin.value,
 }));

@@ -50,7 +50,7 @@ export function MacroBinPanel() {
   return (
     <BinShell>
       <BinShell.Content>
-        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode} virtualize>
           {filteredMacros.map((macro, index) => (
             <MacroCard
               key={macro.id}

@@ -187,6 +187,35 @@ describe('automation playback boundary (#222)', () => {
     expect(mocks.playbackCommands.clearOverlay).toHaveBeenCalledWith('ov-1');
   });
 
+  it('exposes a cancel-active-macros action that cancels runs across scopes', async () => {
+    const overlayCue = makeCue('cue-o1', 'overlay.activate', { overlayId: 'ov-1' });
+    const macro = makeMacro('macro-1', 'Test Macro', [
+      { cue: overlayCue, orderIndex: 0, delayAfterMs: 1000 },
+    ]);
+
+    mocks.project.cues = [overlayCue];
+    mocks.project.cuesById = new Map([[overlayCue.id, overlayCue]]);
+    mocks.project.macros = [macro];
+    mocks.project.macrosById = new Map([[macro.id, macro]]);
+
+    const { result } = renderHook(() => useAutomation(), { wrapper });
+
+    let macroPromise: Promise<void> | undefined;
+    await act(async () => {
+      macroPromise = result.current.actions.runMacro('macro-1');
+      await Promise.resolve();
+    });
+
+    expect(mocks.playbackCommands.activateOverlay).toHaveBeenCalledWith('ov-1');
+
+    await act(async () => {
+      result.current.actions.cancelActiveMacros();
+      await macroPromise;
+    });
+
+    expect(mocks.playbackCommands.clearOverlay).not.toHaveBeenCalled();
+  });
+
   // #222 acceptance criterion: prove automation and operator writes cannot
   // interleave into an inconsistent arm state, OR document precisely why they
   // still can and what #134 must do about it. They still can — this test pins

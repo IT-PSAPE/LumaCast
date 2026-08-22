@@ -3,7 +3,7 @@ import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import type { Id } from '@lumacast/kernel';
 import type { Slide } from '@lumacast/composition';
 import { ScrollArea } from '../../components/layout/scroll-area';
-import { useRenderScenes } from '../../contexts/canvas/canvas-context';
+import { useThumbnailScene } from '../../contexts/canvas/canvas-context';
 import { useContinuousSlideSections } from './use-continuous-slide-sections';
 import { useSlideOutlineTextEditing } from './use-slide-outline-text-editing';
 import type { OutlineSlideRow } from './use-slide-list-view';
@@ -26,7 +26,7 @@ const VIRTUAL_OVERSCAN = 6;
 
 export function ContinuousSlideListView({ items }: { items: PlaylistDeckSequenceItem[] }) {
   const sections = useContinuousSlideSections();
-  const { getThumbnailScene } = useRenderScenes();
+  const getThumbnailScene = useThumbnailScene();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const { updateText } = useSlideOutlineTextEditing();
 

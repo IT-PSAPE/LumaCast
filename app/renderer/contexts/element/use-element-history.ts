@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { SlideElement } from '@lumacast/composition';
 import type { AppSnapshot, ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
@@ -227,7 +227,25 @@ export function useElementHistory({
     setStatusText('Redo');
   }, [applySnapshot, baseElements, setStatusText]);
 
-  return { pushHistorySnapshot, commitElementUpdates, copySelection, pasteSelection, duplicateSelection, nudgeSelection, undo, redo };
+  return useMemo(() => ({
+    pushHistorySnapshot,
+    commitElementUpdates,
+    copySelection,
+    pasteSelection,
+    duplicateSelection,
+    nudgeSelection,
+    undo,
+    redo,
+  }), [
+    commitElementUpdates,
+    copySelection,
+    duplicateSelection,
+    nudgeSelection,
+    pasteSelection,
+    pushHistorySnapshot,
+    redo,
+    undo,
+  ]);
 }
 
 export function hasClipboardContent(): boolean {

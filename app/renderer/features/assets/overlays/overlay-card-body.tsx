@@ -10,6 +10,7 @@ import { Thumbnail } from '../../../components/display/thumbnail';
 import { SceneFrame } from '../../../components/display/scene-frame';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import { useOverlayEditor } from '../../../contexts/asset-editor/asset-editor-context';
+import { useMediaProxyMap } from '../../../hooks/use-media-proxy-map';
 
 export interface OverlayCardProps {
   overlay: Overlay;
@@ -22,9 +23,14 @@ export interface OverlayCardProps {
 
 export function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWorkbenchMode }: OverlayCardProps) {
   const { updateOverlayDraft, deleteOverlay, duplicateOverlay } = useOverlayEditor();
+  const mediaProxyBySource = useMediaProxyMap();
   const scene = useMemo(
-    () => buildRenderScene({ width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null }, overlayToLayerElements(overlay)),
-    [overlay],
+    () => buildRenderScene(
+      { width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null },
+      overlayToLayerElements(overlay),
+      { proxyMediaBySource: mediaProxyBySource },
+    ),
+    [mediaProxyBySource, overlay],
   );
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();

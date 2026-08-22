@@ -50,6 +50,7 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
         const lyricId = currentItem.id;
         const knownSlideIds = new Set(slides.map((slide) => slide.id));
         const currentOrderIds = slides.map((slide) => slide.id);
+        let workingOrderIds = [...currentOrderIds];
         const grouped = (options?.skipGrouping ? blocks : groupBlocksForSlides(blocks, { config }))
           .map((block) => ({ id: block.id, content: normalizeLyricText(block.content) }));
 
@@ -76,6 +77,8 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
             continue;
           }
           const snapshot = await mutatePatch(() => window.castApi.createSlide({ lyricId }));
+          workingOrderIds = sortSlides(snapshot.slides.filter((slide) => slide.lyricId === lyricId))
+            .map((slide) => slide.id);
           const freshCandidates = sortSlides(snapshot.slides.filter((slide) =>
             slide.lyricId === lyricId
             && !knownSlideIds.has(slide.id)
@@ -99,9 +102,6 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
         const finalSlideIds = new Set(resolvedSlideIds);
         const removedSlideIds = currentOrderIds.filter((id) => !finalSlideIds.has(id));
 
-        const reorderNeeded = resolvedSlideIds.length !== currentOrderIds.length
-          || resolvedSlideIds.some((id, index) => id !== currentOrderIds[index]);
-
         if (elementUpdates.length > 0) {
           await mutatePatch(() => window.castApi.updateElementsBatch(elementUpdates));
         }
@@ -109,12 +109,16 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
           await mutatePatch(() => window.castApi.createElementsBatch(elementCreates));
         }
         for (const slideId of removedSlideIds) {
-          await mutatePatch(() => window.castApi.deleteSlide(slideId));
+          const snapshot = await mutatePatch(() => window.castApi.deleteSlide(slideId));
+          workingOrderIds = sortSlides(snapshot.slides.filter((slide) => slide.lyricId === lyricId))
+            .map((slide) => slide.id);
         }
-        if (reorderNeeded) {
-          for (const [index, slideId] of resolvedSlideIds.entries()) {
-            await mutatePatch(() => window.castApi.setSlideOrder({ slideId, newOrder: index }));
-          }
+        for (const [index, slideId] of resolvedSlideIds.entries()) {
+          if (workingOrderIds[index] === slideId) continue;
+          await mutatePatch(() => window.castApi.setSlideOrder({ slideId, newOrder: index }));
+          const currentIndex = workingOrderIds.indexOf(slideId);
+          if (currentIndex >= 0) workingOrderIds.splice(currentIndex, 1);
+          workingOrderIds.splice(index, 0, slideId);
         }
 
         setStatusText('Saved lyrics');

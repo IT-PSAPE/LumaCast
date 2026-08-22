@@ -75,7 +75,7 @@ function renderThemeBin(options: HarnessOptions = {}) {
     actions: {},
     meta: {},
   };
-  mocks.sort.value = options.sort ?? { key: 'name', direction: 'asc' };
+  mocks.sort.value = { sort: options.sort ?? { key: 'name', direction: 'asc' }, setSort: vi.fn() };
 
   const { result } = renderHook(() => useThemeBin());
   return { result, applyThemeToTarget };

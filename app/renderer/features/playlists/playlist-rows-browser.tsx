@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import { ReacstButton } from '../../components/controls/button';
 import { EmptyState } from '../../components/display/empty-state';
@@ -13,6 +14,8 @@ import { PlaylistRowList } from './playlist-row-list';
 // never a container, and sits as a sibling of the item rows around it.
 export function PlaylistRowsBrowser() {
   const { currentPlaylistId, currentPlaylistRows, createSeparator } = useNavigation();
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const getScrollElement = useCallback(() => viewportRef.current, []);
 
   function handleNewSeparator() { void createSeparator(); }
 
@@ -33,8 +36,8 @@ export function PlaylistRowsBrowser() {
 
       <LumaCastPanel.Group className="flex-1 min-h-0">
         <ScrollArea.Root>
-          <ScrollArea.Viewport>
-            <PlaylistRowList rows={currentPlaylistRows} playlistId={currentPlaylistId} />
+          <ScrollArea.Viewport ref={viewportRef}>
+            <PlaylistRowList rows={currentPlaylistRows} playlistId={currentPlaylistId} getScrollElement={getScrollElement} />
           </ScrollArea.Viewport>
           <ScrollArea.Scrollbar>
             <ScrollArea.Thumb />

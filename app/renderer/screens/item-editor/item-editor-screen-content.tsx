@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
@@ -16,6 +17,8 @@ import { ItemEditorInspectorPanel } from './inspector-panel';
 
 export function ItemEditorScreenContent() {
   const { state, actions } = useItemEditorScreen();
+  const slideListViewportRef = useRef<HTMLDivElement | null>(null);
+  const getSlideListScrollElement = useCallback(() => slideListViewportRef.current, []);
 
   return (
     <SplitPanel.Panel splitId="edit-main" orientation="horizontal" className="h-full" data-ui-region="item-editor-layout">
@@ -64,8 +67,8 @@ export function ItemEditorScreenContent() {
                     </EmptyState.Root>
                   ) : (
                     <ScrollArea.Root scrollPadding={8}>
-                      <ScrollArea.Viewport className="p-2">
-                        <ItemEditorSlideList />
+                      <ScrollArea.Viewport ref={slideListViewportRef} className="p-2">
+                        <ItemEditorSlideList getScrollElement={getSlideListScrollElement} />
                       </ScrollArea.Viewport>
                       <ScrollArea.Scrollbar>
                         <ScrollArea.Thumb />

@@ -9,10 +9,19 @@ import { buildRenderScene } from '../../canvas/build-render-scene';
 import type { ThemeItemProps } from './theme-bin-types';
 import { ThemeContextMenuItems } from './theme-context-menu-items';
 import { useDeleteTheme } from './use-delete-theme';
+import { useMediaProxyMap } from '../../../hooks/use-media-proxy-map';
 
 export function ThemeTileBody({ theme, index, themeType, onApply }: ThemeItemProps) {
   const { renameTheme } = useThemeEditor();
-  const scene = useMemo(() => buildRenderScene({ width: theme.width, height: theme.height, background: theme.background ?? null }, theme.elements), [theme.background, theme.elements, theme.height, theme.width]);
+  const mediaProxyBySource = useMediaProxyMap();
+  const scene = useMemo(
+    () => buildRenderScene(
+      { width: theme.width, height: theme.height, background: theme.background ?? null },
+      theme.elements,
+      { proxyMediaBySource: mediaProxyBySource },
+    ),
+    [mediaProxyBySource, theme.background, theme.elements, theme.height, theme.width],
+  );
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteTheme(theme);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });

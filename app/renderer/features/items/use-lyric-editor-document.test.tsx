@@ -6,8 +6,8 @@ import type { SnapshotPatch } from '@lumacast/protocol';
 import { useLyricEditorSave } from './use-lyric-editor-document';
 
 // Identity-based save pipeline: blocks map to slides by id, so a no-op edit
-// must produce zero mutations, a reorder must only call setSlideOrder, and an
-// empty block must never destroy its slide.
+// must produce zero mutations, a reorder must issue only the moves required
+// to reach the target order, and an empty block must never destroy its slide.
 
 const mocks = vi.hoisted(() => ({
   cast: {
@@ -163,8 +163,14 @@ function setupHarness(initial: HarnessSnapshot) {
       calls.push({ method: 'setSlideOrder', args: input });
       applyToSnapshot((snapshot) => ({
         ...snapshot,
-        slides: snapshot.slides.map((slide) =>
-          slide.id === input.slideId ? { ...slide, order: input.newOrder } : slide),
+        slides: (() => {
+          const ordered = [...snapshot.slides].sort((left, right) => left.order - right.order);
+          const currentIndex = ordered.findIndex((slide) => slide.id === input.slideId);
+          if (currentIndex < 0) return snapshot.slides;
+          const [moved] = ordered.splice(currentIndex, 1);
+          ordered.splice(Math.max(0, Math.min(input.newOrder, ordered.length)), 0, moved);
+          return ordered.map((slide, order) => ({ ...slide, order }));
+        })(),
       }));
       return {} as SnapshotPatch;
     },
@@ -259,7 +265,6 @@ describe('useLyricEditorSave', () => {
 
     expect(calls).toEqual([
       { method: 'setSlideOrder', args: { slideId: 's2', newOrder: 0 } },
-      { method: 'setSlideOrder', args: { slideId: 's1', newOrder: 1 } },
     ]);
     const finalOrder = [...snapshotRef.current.slides]
       .sort((left, right) => left.order - right.order)
@@ -295,12 +300,8 @@ describe('useLyricEditorSave', () => {
     expect(updates.find((update) => update.id === 'created-1-text')?.payload.text).toBe('Alpha');
     expect(updates.find((update) => update.id === 'created-2-text')?.payload.text).toBe('Beta');
 
-    const orderCalls = calls.filter((call) => call.method === 'setSlideOrder').map((call) => call.args);
-    expect(orderCalls).toEqual([
-      { slideId: 's1', newOrder: 0 },
-      { slideId: 'created-1', newOrder: 1 },
-      { slideId: 'created-2', newOrder: 2 },
-    ]);
+    const orderCalls = calls.filter((call) => call.method === 'setSlideOrder');
+    expect(orderCalls).toEqual([]);
     const finalOrder = [...snapshotRef.current.slides]
       .sort((left, right) => left.order - right.order)
       .map((slide) => slide.id);
@@ -391,5 +392,32 @@ describe('useLyricEditorSave', () => {
     const seededElement = snapshotRef.current.slideElements.find((element) => element.id === 'created-1-text');
     expect((seededElement?.payload as { text?: string }).text).toBe('');
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves only a newly created slide that belongs between existing slides', async () => {
+    const { calls, snapshotRef } = setupHarness({
+      slides: [makeSlide('s1', 0), makeSlide('s2', 1)],
+      slideElements: [
+        makeTextElement('e1', 's1', 'First'),
+        makeTextElement('e2', 's2', 'Second'),
+      ],
+    });
+    const onClose = vi.fn();
+    const { result } = renderSaveHook(onClose);
+
+    await act(async () => {
+      await result.current.saveBlocks([
+        { id: 's1', content: 'First' },
+        { id: 'new-middle', content: 'Middle' },
+        { id: 's2', content: 'Second' },
+      ]);
+    });
+
+    expect(calls.filter((call) => call.method === 'setSlideOrder')).toEqual([
+      { method: 'setSlideOrder', args: { slideId: 'created-1', newOrder: 1 } },
+    ]);
+    expect([...snapshotRef.current.slides]
+      .sort((left, right) => left.order - right.order)
+      .map((slide) => slide.id)).toEqual(['s1', 'created-1', 's2']);
   });
 });

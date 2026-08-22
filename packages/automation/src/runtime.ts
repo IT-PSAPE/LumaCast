@@ -86,10 +86,12 @@ export interface MacroRun {
   /** A bare slide id for `'slide'` scope; a typed `ItemRef` for `'item'` scope; `null` for `'global'`. */
   boundContextId: Id | ItemRef | null;
   onScopeExit: OnScopeExit;
-  appliedCues: Cue[];
+  appliedCues: Set<Cue>;
   aborters: Set<() => void>;
   cancelled: boolean;
 }
+
+const MIN_LOOP_INTERVAL_MS = 16;
 
 export type MacroRunRegistry = ReadonlyMap<string, MacroRun>;
 
@@ -253,8 +255,9 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
   function revertRun(run: MacroRun): void {
     const { playback } = getPorts();
     cancelRun(run);
-    for (let i = run.appliedCues.length - 1; i >= 0; i -= 1) {
-      const cue = run.appliedCues[i];
+    const appliedCues = [...run.appliedCues];
+    for (let i = appliedCues.length - 1; i >= 0; i -= 1) {
+      const cue = appliedCues[i];
       switch (cue.kind) {
         case 'overlay.activate':
           playback.clearOverlay((cue.payload as { overlayId: Id }).overlayId);
@@ -295,7 +298,13 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
 
   // Delays are per-occurrence (a Cue step), passed in by the caller rather
   // than read off the shared Cue. Bare Cues run with no delay.
-  async function executeCue(cue: Cue, delayBeforeMs: number, delayAfterMs: number, run: MacroRun | null): Promise<void> {
+  async function executeCue(
+    cue: Cue,
+    delayBeforeMs: number,
+    delayAfterMs: number,
+    run: MacroRun | null,
+    recordCueEvents = true,
+  ): Promise<void> {
     const { observability, clock } = getPorts();
     if (run?.cancelled) return;
     if (delayBeforeMs > 0) {
@@ -303,16 +312,16 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
       if (run?.cancelled) return;
     }
 
-    observability?.record('playback', 'Cue started', { cueId: cue.id, kind: cue.kind });
+    if (recordCueEvents) observability?.record('playback', 'Cue started', { cueId: cue.id, kind: cue.kind });
     try {
       if (cue.kind === 'flow.lifecycle') {
         const { action, target } = cue.payload as { action: LifecycleAction; target: LifecycleTarget };
         applyLifecycle(action, target, run?.runId ?? null);
       } else {
         applyCueAction(cue);
-        if (run) run.appliedCues.push(cue);
+        if (run) run.appliedCues.add(cue);
       }
-      observability?.record('playback', 'Cue completed', { cueId: cue.id, kind: cue.kind });
+      if (recordCueEvents) observability?.record('playback', 'Cue completed', { cueId: cue.id, kind: cue.kind });
     } catch (error) {
       observability?.record('error', 'Cue failed', {
         cueId: cue.id,
@@ -344,7 +353,7 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
       scope: scopeContext.scope,
       boundContextId: scopeContext.boundContextId,
       onScopeExit: scopeContext.onScopeExit,
-      appliedCues: [],
+      appliedCues: new Set(),
       aborters: new Set(),
       cancelled: false,
     };
@@ -359,12 +368,13 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
     try {
       let iteration = 0;
       while (iteration < maxIterations && !run.cancelled) {
+        const iterationStartedAt = clock.now();
         for (const link of ordered) {
           if (run.cancelled) break;
           const cue = resolveCue(link.cueId);
           if (!cue) continue;
           try {
-            await executeCue(cue, link.delayBeforeMs, link.delayAfterMs, run);
+            await executeCue(cue, link.delayBeforeMs, link.delayAfterMs, run, !macro.loopEnabled || iteration === 0);
           } catch (error) {
             onStatusText?.(`Macro aborted: ${macro.name}`);
             observability?.record('playback', 'Macro aborted', {
@@ -379,9 +389,9 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
         if (aborted || run.cancelled) break;
         iteration += 1;
         if (macro.loopEnabled && iteration < maxIterations) {
-          // Yield a task between iterations so a delay-less loop can't block
-          // and remains interruptible by scope changes.
-          await cancellableDelay(0, run, clock);
+          const elapsedMs = clock.now() - iterationStartedAt;
+          const loopPadMs = Math.max(0, MIN_LOOP_INTERVAL_MS - elapsedMs);
+          await cancellableDelay(loopPadMs, run, clock);
         }
       }
 

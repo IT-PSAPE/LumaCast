@@ -27,6 +27,7 @@ export interface SlideOutlineRowProps {
   containerStyle?: CSSProperties;
   dragging?: boolean;
   dragHandleProps?: HTMLAttributes<HTMLElement>;
+  overlay?: boolean;
 }
 
 export function SlideOutlineRowBody({
@@ -40,6 +41,7 @@ export function SlideOutlineRowBody({
   containerStyle,
   dragging = false,
   dragHandleProps,
+  overlay = false,
 }: SlideOutlineRowProps) {
   // Gating: this row component is shared between single-mode and continuous-mode
   // browsers. Slide actions live on the slide-context for the *current* deck item;
@@ -62,8 +64,8 @@ export function SlideOutlineRowBody({
     if (ok) await deleteSlide(row.slide.id);
   }
 
-  const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isFocused);
-  const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: !slideOwned });
+  const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isFocused && !overlay);
+  const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: overlay || !slideOwned });
 
   function handleSelect() {
     onSelect(row.index);
@@ -112,9 +114,9 @@ export function SlideOutlineRowBody({
           else if (containerRef) containerRef.current = node;
         }}
         style={containerStyle}
-        onClick={handleSelect}
-        onContextMenu={handleContextMenu}
-        onDoubleClick={row.textEditable ? undefined : handleOpen}
+        onClick={overlay ? undefined : handleSelect}
+        onContextMenu={overlay ? undefined : handleContextMenu}
+        onDoubleClick={overlay || row.textEditable ? undefined : handleOpen}
         variant="slide"
         selected={isFocused}
         className={cn('bg-transparent', dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab')}
@@ -154,7 +156,7 @@ export function SlideOutlineRowBody({
           <SlideBindingsBadge slideId={row.slide.id} />
         </Thumbnail.Overlay>
       </Thumbnail.Row>
-      {slideOwned && (
+      {slideOwned && !overlay && (
         <ContextMenu.Portal>
           <ContextMenu.Menu>
             <ContextMenu.Item onSelect={() => { void duplicateSlide(row.slide.id); }}>Duplicate</ContextMenu.Item>

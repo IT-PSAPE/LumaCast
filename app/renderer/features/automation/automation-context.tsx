@@ -65,6 +65,7 @@ interface AutomationContextValue {
     setMacroCues: (macroId: Id, cues: Array<{ id?: Id; cueId: Id; orderIndex: number; delayBeforeMs?: number; delayAfterMs?: number }>) => Promise<void>;
     runCue: (cueId: Id) => Promise<void>;
     runMacro: (macroId: Id) => Promise<void>;
+    cancelActiveMacros: () => void;
     ensureCue: (input: { kind: CueKind; payload: CuePayload; failurePolicy?: CueFailurePolicy }) => Promise<Cue>;
     createBinding: (input: { triggerType: TriggerType; sourceId: Id | null; targetType: TriggerBindingTargetType; targetId: Id }) => Promise<void>;
     deleteBinding: (bindingId: Id) => Promise<void>;
@@ -138,6 +139,10 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     const scopeContext = resolveMacroScope(macro, null, null, resolveItemRef);
     await runtime.startMacroRun(macro, (cueId) => cuesById.get(cueId), scopeContext);
   }, [macrosById, cuesById, resolveItemRef, runtime]);
+
+  const cancelActiveMacros = useCallback(() => {
+    runtime.applyLifecycle('cancel', '*', null);
+  }, [runtime]);
 
   const ensureCue = useCallback(async (input: { kind: CueKind; payload: CuePayload; failurePolicy?: CueFailurePolicy }) => {
     const payloadKey = JSON.stringify(input.payload);
@@ -295,13 +300,14 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
       setMacroCues,
       runCue,
       runMacro,
+      cancelActiveMacros,
       ensureCue,
       createBinding,
       deleteBinding,
       getBindingsForSource,
       getBindingsForMacro,
     },
-  }), [triggerBindings, createBinding, createMacro, cues, currentMacroId, deleteBinding, deleteMacro, duplicateMacro, ensureCue, getBindingsForMacro, getBindingsForSource, isLoading, macros, reorderMacro, runCue, runMacro, setMacroCues, updateMacroFields]);
+  }), [cancelActiveMacros, triggerBindings, createBinding, createMacro, cues, currentMacroId, deleteBinding, deleteMacro, duplicateMacro, ensureCue, getBindingsForMacro, getBindingsForSource, isLoading, macros, reorderMacro, runCue, runMacro, setMacroCues, updateMacroFields]);
 
   return (
     <AutomationContext.Provider value={value}>

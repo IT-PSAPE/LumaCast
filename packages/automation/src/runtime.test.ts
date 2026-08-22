@@ -5,6 +5,7 @@ import type { Cue, Macro, MacroCue, OnScopeExit, ScopeLevel, TriggerBinding } fr
 import {
   createAutomationRuntime,
   resolveMacroScope,
+  type AutomationObservabilityPort,
   type AutomationClock,
   type AutomationPlaybackPort,
   type AutomationRuntime,
@@ -103,6 +104,18 @@ function makeRuntime(playback: AutomationPlaybackPort): AutomationRuntime {
   return createAutomationRuntime(() => ports);
 }
 
+function makeRuntimeWithPorts(
+  playback: AutomationPlaybackPort,
+  overrides: Partial<AutomationRuntimePorts> = {},
+): AutomationRuntime {
+  const ports: AutomationRuntimePorts = {
+    playback,
+    clock: testClock,
+    ...overrides,
+  };
+  return createAutomationRuntime(() => ports);
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -162,6 +175,42 @@ describe('startMacroRun: delays and ordering', () => {
     await runPromise;
 
     expect(playback.activateOverlay).toHaveBeenCalledTimes(3);
+  });
+
+  it('paces a zero-delay infinite loop to the floor interval instead of spinning', async () => {
+    const playback = makePlaybackPort();
+    const runtime = makeRuntime(playback);
+    const cue = makeCue('cue-o', 'overlay.activate', { overlayId: 'ov-1' });
+    const cues = new Map([[cue.id, cue]]);
+    const macro = makeMacro('macro-loop', [makeMacroCue(cue, 0)], { loopEnabled: true, loopCount: null });
+
+    const runPromise = runtime.startMacroRun(macro, (id) => cues.get(id), GLOBAL_SCOPE);
+    await vi.advanceTimersByTimeAsync(15);
+    expect(playback.activateOverlay).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(playback.activateOverlay).toHaveBeenCalledTimes(2);
+
+    runtime.applyLifecycle('cancel', '*', null);
+    await runPromise;
+  });
+
+  it('does not add extra delay when the cue-step delays already exceed the loop floor', async () => {
+    const playback = makePlaybackPort();
+    const runtime = makeRuntime(playback);
+    const cue = makeCue('cue-o', 'overlay.activate', { overlayId: 'ov-1' });
+    const cues = new Map([[cue.id, cue]]);
+    const macro = makeMacro('macro-loop', [makeMacroCue(cue, 0, 0, 30)], { loopEnabled: true, loopCount: 2 });
+
+    const runPromise = runtime.startMacroRun(macro, (id) => cues.get(id), GLOBAL_SCOPE);
+    await vi.advanceTimersByTimeAsync(29);
+    expect(playback.activateOverlay).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(2);
+    expect(playback.activateOverlay).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(30);
+    await runPromise;
   });
 });
 
@@ -266,6 +315,48 @@ describe('Revert', () => {
     expect(order).toEqual(['clearVideo', 'clearOverlay']);
   });
 
+  it('dedupes repeated cue applications so revert cost stays bounded without changing the end state', async () => {
+    const playback = makePlaybackPort();
+    const runtime = makeRuntime(playback);
+    const overlayCue = makeCue('cue-o', 'overlay.activate', { overlayId: 'ov-1' });
+    const cues = new Map([[overlayCue.id, overlayCue]]);
+    const macro = makeMacro('macro-loop', [makeMacroCue(overlayCue, 0)], { loopEnabled: true, loopCount: null });
+
+    const runPromise = runtime.startMacroRun(macro, (id) => cues.get(id), GLOBAL_SCOPE);
+    await vi.advanceTimersByTimeAsync(16 * 24);
+    runtime.applyLifecycle('revert', '*', null);
+    await runPromise;
+
+    expect(playback.activateOverlay).toHaveBeenCalledTimes(25);
+    expect(playback.clearOverlay).toHaveBeenCalledTimes(1);
+    expect(playback.clearOverlay).toHaveBeenCalledWith('ov-1');
+  });
+
+  it('reverts interleaved repeated cues in reverse first-application order', async () => {
+    const playback = makePlaybackPort();
+    const runtime = makeRuntime(playback);
+    const overlayCue = makeCue('cue-o', 'overlay.activate', { overlayId: 'ov-1' });
+    const videoCue = makeCue('cue-v', 'video.arm', { assetId: 'asset-1' });
+    const cues = new Map([[overlayCue.id, overlayCue], [videoCue.id, videoCue]]);
+    const macro = makeMacro('macro-1', [
+      makeMacroCue(overlayCue, 0),
+      makeMacroCue(videoCue, 1),
+      makeMacroCue(overlayCue, 2, 0, 1_000),
+    ]);
+    const order: string[] = [];
+    (playback.clearOverlay as ReturnType<typeof vi.fn>).mockImplementation(() => order.push('clearOverlay'));
+    (playback.clearVideo as ReturnType<typeof vi.fn>).mockImplementation(() => order.push('clearVideo'));
+
+    const runPromise = runtime.startMacroRun(macro, (id) => cues.get(id), GLOBAL_SCOPE);
+    await vi.advanceTimersByTimeAsync(0);
+
+    runtime.applyLifecycle('revert', '*', null);
+    await runPromise;
+
+    expect(playback.clearOverlay).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['clearVideo', 'clearOverlay']);
+  });
+
   it('does not revert Cue kinds with no static inverse (clears, lifecycle)', async () => {
     const playback = makePlaybackPort();
     const runtime = makeRuntime(playback);
@@ -279,6 +370,26 @@ describe('Revert', () => {
 
     expect(playback.clearOverlay).not.toHaveBeenCalled();
     expect(playback.clearAllOverlays).toHaveBeenCalledTimes(1); // the forward effect ran once; revert added no calls
+  });
+});
+
+describe('observability', () => {
+  it('records per-cue playback events only for the first iteration of a looping macro', async () => {
+    const playback = makePlaybackPort();
+    const observability: AutomationObservabilityPort = { record: vi.fn() };
+    const runtime = makeRuntimeWithPorts(playback, { observability });
+    const cue = makeCue('cue-o', 'overlay.activate', { overlayId: 'ov-1' });
+    const cues = new Map([[cue.id, cue]]);
+    const macro = makeMacro('macro-loop', [makeMacroCue(cue, 0)], { loopEnabled: true, loopCount: 3 });
+
+    const runPromise = runtime.startMacroRun(macro, (id) => cues.get(id), GLOBAL_SCOPE);
+    await vi.runAllTimersAsync();
+    await runPromise;
+
+    expect(observability.record).toHaveBeenCalledWith('playback', 'Cue started', { cueId: cue.id, kind: cue.kind });
+    expect(observability.record).toHaveBeenCalledWith('playback', 'Cue completed', { cueId: cue.id, kind: cue.kind });
+    expect((observability.record as ReturnType<typeof vi.fn>).mock.calls.filter((call) => call[1] === 'Cue started')).toHaveLength(1);
+    expect((observability.record as ReturnType<typeof vi.fn>).mock.calls.filter((call) => call[1] === 'Cue completed')).toHaveLength(1);
   });
 });
 

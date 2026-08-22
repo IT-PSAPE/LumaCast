@@ -9,6 +9,7 @@ import { Thumbnail } from '../../../components/display/thumbnail';
 import { SceneFrame } from '../../../components/display/scene-frame';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import { useStageEditor } from '../../../contexts/asset-editor/asset-editor-context';
+import { useMediaProxyMap } from '../../../hooks/use-media-proxy-map';
 
 export interface StageCardProps {
   stage: Stage;
@@ -20,9 +21,14 @@ export interface StageCardProps {
 
 export function StageCardBody({ stage, index, isActive, onActivate, onEdit }: StageCardProps) {
   const { updateStageDraft, deleteStage, duplicateStage } = useStageEditor();
+  const mediaProxyBySource = useMediaProxyMap();
   const scene = useMemo(
-    () => buildRenderScene({ width: stage.width, height: stage.height, background: stage.background ?? null }, stage.elements),
-    [stage.background, stage.elements, stage.height, stage.width],
+    () => buildRenderScene(
+      { width: stage.width, height: stage.height, background: stage.background ?? null },
+      stage.elements,
+      { proxyMediaBySource: mediaProxyBySource },
+    ),
+    [mediaProxyBySource, stage.background, stage.elements, stage.height, stage.width],
   );
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();

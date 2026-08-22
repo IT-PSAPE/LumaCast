@@ -7,49 +7,15 @@ import { useAppStore, useShallow } from './app-store';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-interface AppContextValue {
-  state: {
-    snapshot: AppSnapshot | null;
-    isLoadingSnapshot: boolean;
-    snapshotLoadError: string | null;
-    isRunningOperation: boolean;
-    operationText: string | null;
-    statusText: string;
-    canUndo: boolean;
-    canRedo: boolean;
-    themeMode: ThemeMode;
-    resolvedTheme: 'light' | 'dark';
-    ndiDiagnostics: NdiDiagnostics | null;
-    ndiOutputConfigs: NdiOutputConfigMap;
-    ndiOutputState: NdiOutputState;
-  };
-  actions: {
-    mutate: (action: () => Promise<AppSnapshot>) => Promise<AppSnapshot>;
-    mutatePatch: (action: () => Promise<SnapshotPatch>) => Promise<AppSnapshot>;
-    undo: () => Promise<void>;
-    redo: () => Promise<void>;
-    runOperation: <T>(text: string, action: () => Promise<T>) => Promise<T>;
-    setStatusText: (text: string) => void;
-    retrySnapshotLoad: () => Promise<void>;
-    setThemeMode: (mode: ThemeMode) => void;
-    setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) => void;
-    toggleAudienceOutput: () => void;
-    toggleStageOutput: () => void;
-    updateNdiOutputConfig: (name: NdiOutputName, config: Partial<NdiOutputConfig>) => void;
-  };
-}
-
 interface CastSlice {
   snapshot: AppSnapshot | null;
   isLoadingSnapshot: boolean;
   snapshotLoadError: string | null;
-  isRunningOperation: boolean;
-  operationText: string | null;
-  statusText: string;
   canUndo: boolean;
   canRedo: boolean;
   mutate: (action: () => Promise<AppSnapshot>) => Promise<AppSnapshot>;
   mutatePatch: (action: () => Promise<SnapshotPatch>) => Promise<AppSnapshot>;
+  applyPatchLocally: (patch: SnapshotPatch) => Promise<AppSnapshot | null>;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   runOperation: <T>(text: string, action: () => Promise<T>) => Promise<T>;
@@ -63,13 +29,24 @@ interface ThemeSlice {
 }
 
 interface NdiSlice {
-  state: { diagnostics: NdiDiagnostics | null; outputConfigs: NdiOutputConfigMap; outputState: NdiOutputState };
+  state: { outputConfigs: NdiOutputConfigMap; outputState: NdiOutputState };
   actions: {
     setOutputEnabled: (name: NdiOutputName, enabled: boolean) => void;
     toggleAudienceOutput: () => void;
     toggleStageOutput: () => void;
     updateOutputConfig: (name: NdiOutputName, config: Partial<NdiOutputConfig>) => void;
   };
+}
+
+interface StatusBarStateSlice {
+  isRunningOperation: boolean;
+  operationText: string | null;
+  statusText: string;
+}
+
+interface NdiLiveStateSlice {
+  audienceLive: boolean;
+  stageLive: boolean;
 }
 
 // ─── Provider (bootstrap-only; state lives in zustand store) ────────
@@ -80,8 +57,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setNdiDiagnostics = useAppStore((s) => s.setNdiDiagnostics);
   const setNdiOutputConfigsState = useAppStore((s) => s.setNdiOutputConfigsState);
   const setNdiOutputStateValue = useAppStore((s) => s.setNdiOutputStateValue);
+  const setMediaDerivativeStatusText = useAppStore((s) => s.setMediaDerivativeStatusText);
+  const applyPatchLocally = useAppStore((s) => s.applyPatchLocally);
+  const handlePersistenceProgress = useAppStore((s) => s.handlePersistenceProgress);
   const resolvedTheme = useAppStore((s) => s.resolvedTheme);
-
   // Initial snapshot load.
   useEffect(() => {
     void retrySnapshotLoad();
@@ -142,53 +121,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       lastErrorRef.current = diagnostics.lastError;
       setNdiDiagnostics(diagnostics);
     });
+    const unsubscribeDerivativeProgress = window.castApi.onMediaDerivativeProgress((progress) => {
+      if (progress.patch) {
+        void applyPatchLocally(progress.patch).catch((error) => {
+          console.error('[AppProvider] Failed to apply media derivative patch:', error);
+        });
+      }
+      setMediaDerivativeStatusText(progress.statusText);
+    });
+    const unsubscribePersistenceProgress = window.castApi.onPersistenceProgress(handlePersistenceProgress);
     return () => {
       unsubscribeOutput();
       unsubscribeDiagnostics();
+      unsubscribeDerivativeProgress();
+      unsubscribePersistenceProgress();
     };
-  }, [setNdiDiagnostics, setNdiOutputConfigsState, setNdiOutputStateValue]);
+  }, [applyPatchLocally, handlePersistenceProgress, setMediaDerivativeStatusText, setNdiDiagnostics, setNdiOutputConfigsState, setNdiOutputStateValue]);
 
   return <>{children}</>;
 }
 
 // ─── Hooks ──────────────────────────────────────────────────────────
-
-export function useApp(): AppContextValue {
-  const state = useAppStore(
-    useShallow((s) => ({
-      snapshot: s.snapshot,
-      isLoadingSnapshot: s.isLoadingSnapshot,
-      snapshotLoadError: s.snapshotLoadError,
-      isRunningOperation: s.isRunningOperation,
-      operationText: s.operationText,
-      statusText: s.statusText,
-      canUndo: s.canUndo,
-      canRedo: s.canRedo,
-      themeMode: s.themeMode,
-      resolvedTheme: s.resolvedTheme,
-      ndiDiagnostics: s.ndiDiagnostics,
-      ndiOutputConfigs: s.ndiOutputConfigs,
-      ndiOutputState: s.ndiOutputState,
-    })),
-  );
-  const actions = useAppStore(
-    useShallow((s) => ({
-      mutate: s.mutate,
-      mutatePatch: s.mutatePatch,
-      undo: s.undo,
-      redo: s.redo,
-      runOperation: s.runOperation,
-      setStatusText: s.setStatusText,
-      retrySnapshotLoad: s.retrySnapshotLoad,
-      setThemeMode: s.setThemeMode,
-      setNdiOutputEnabled: s.setNdiOutputEnabled,
-      toggleAudienceOutput: s.toggleAudienceOutput,
-      toggleStageOutput: s.toggleStageOutput,
-      updateNdiOutputConfig: s.updateNdiOutputConfig,
-    })),
-  );
-  return useMemo(() => ({ state, actions }), [state, actions]);
-}
 
 export function useCast(): CastSlice {
   return useAppStore(
@@ -196,13 +149,11 @@ export function useCast(): CastSlice {
       snapshot: s.snapshot,
       isLoadingSnapshot: s.isLoadingSnapshot,
       snapshotLoadError: s.snapshotLoadError,
-      isRunningOperation: s.isRunningOperation,
-      operationText: s.operationText,
-      statusText: s.statusText,
       canUndo: s.canUndo,
       canRedo: s.canRedo,
       mutate: s.mutate,
       mutatePatch: s.mutatePatch,
+      applyPatchLocally: s.applyPatchLocally,
       undo: s.undo,
       redo: s.redo,
       runOperation: s.runOperation,
@@ -226,7 +177,6 @@ export function useTheme(): ThemeSlice {
 }
 
 export function useNdi(): NdiSlice {
-  const diagnostics = useAppStore((s) => s.ndiDiagnostics);
   const outputConfigs = useAppStore((s) => s.ndiOutputConfigs);
   const outputState = useAppStore((s) => s.ndiOutputState);
   const setOutputEnabled = useAppStore((s) => s.setNdiOutputEnabled);
@@ -235,7 +185,7 @@ export function useNdi(): NdiSlice {
   const updateOutputConfig = useAppStore((s) => s.updateNdiOutputConfig);
   return useMemo(
     () => ({
-      state: { diagnostics, outputConfigs, outputState },
+      state: { outputConfigs, outputState },
       actions: {
         setOutputEnabled,
         toggleAudienceOutput,
@@ -243,8 +193,37 @@ export function useNdi(): NdiSlice {
         updateOutputConfig,
       },
     }),
-    [diagnostics, outputConfigs, outputState, setOutputEnabled, toggleAudienceOutput, toggleStageOutput, updateOutputConfig],
+    [outputConfigs, outputState, setOutputEnabled, toggleAudienceOutput, toggleStageOutput, updateOutputConfig],
   );
 }
 
 export { useAppStore } from './app-store';
+
+export function useStatusBarState(): StatusBarStateSlice {
+  return useAppStore(
+    useShallow((s) => ({
+      isRunningOperation: s.isRunningOperation,
+      operationText: s.operationText,
+      statusText: s.statusText,
+    })),
+  );
+}
+
+export function useNdiDiagnostics(): NdiDiagnostics | null {
+  return useAppStore((s) => s.ndiDiagnostics);
+}
+
+export function useNdiLiveState(): NdiLiveStateSlice {
+  return useAppStore(
+    useShallow((s) => ({
+      audienceLive: isSenderLive(s.ndiDiagnostics?.senders.audience ?? null),
+      stageLive: isSenderLive(s.ndiDiagnostics?.senders.stage ?? null),
+    })),
+  );
+}
+
+function isSenderLive(sender: NdiDiagnostics['senders']['audience'] | null): boolean {
+  if (!sender) return false;
+  if (sender.connectionCount === 0) return false;
+  return sender.performance.framesSent > 0;
+}

@@ -2,9 +2,10 @@ import { createContext, useCallback, useContext, useMemo, type ReactNode } from 
 import { getSlideItemRef } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, Slide, SlideBackground, SlideElement, TalkScriptBlock } from '@lumacast/composition';
-import type { AppSnapshot } from '@lumacast/protocol';
+import type { AppSnapshot, NdiTakeReason } from '@lumacast/protocol';
 import { clamp, sortSlides } from '../utils/slides';
 import { itemRefsEqual } from '../utils/navigation-context-utils';
+import { buildNdiTakeScopeKey, noteNdiTakeCorrelation } from '../utils/ndi-take-correlation';
 import { useIndexedSelection } from '../hooks/use-indexed-selection';
 import { useCast } from './app-context';
 import { useNavigation } from './navigation-context';
@@ -55,6 +56,40 @@ interface SlideContextValue {
 
 const SlideContext = createContext<SlideContextValue | null>(null);
 const NO_SLIDE_SELECTED = -1;
+
+function classifyTakeReason(params: {
+  targetEntryId: Id | null;
+  targetItemRef: ItemRef | null;
+  targetIndex: number;
+  currentOutputEntryId: Id | null;
+  currentOutputItemRef: ItemRef | null;
+  currentLiveIndex: number;
+}): NdiTakeReason {
+  const {
+    targetEntryId,
+    targetItemRef,
+    targetIndex,
+    currentOutputEntryId,
+    currentOutputItemRef,
+    currentLiveIndex,
+  } = params;
+  const sameOutputEntry = targetEntryId !== null && currentOutputEntryId === targetEntryId;
+  const sameOutputItem = itemRefsEqual(targetItemRef, currentOutputItemRef);
+  if (!sameOutputEntry || !sameOutputItem) return 'crossItem';
+  if (currentLiveIndex >= 0 && Math.abs(targetIndex - currentLiveIndex) === 1) return 'sequential';
+  return 'jump';
+}
+
+function noteOutputTakeIntent(params: {
+  kind: 'activate' | 'take';
+  slideId: Id | undefined;
+  outputScopeKey: string | null;
+  reason: NdiTakeReason;
+}): void {
+  const { kind, slideId, outputScopeKey, reason } = params;
+  if (!slideId) return;
+  noteNdiTakeCorrelation({ kind, slideId, outputScopeKey, reason });
+}
 
 export function SlideProvider({ children }: { children: ReactNode }) {
   const { mutatePatch, runOperation, setStatusText } = useCast();
@@ -221,6 +256,19 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     armOutputPlaylistEntry(currentPlaylistEntryId);
     const activatedSlideId = slides[nextIndex]?.id;
     if (activatedSlideId) {
+      noteOutputTakeIntent({
+        kind: 'activate',
+        slideId: activatedSlideId,
+        outputScopeKey: buildNdiTakeScopeKey(currentPlaylistEntryId, currentItemRef),
+        reason: classifyTakeReason({
+          targetEntryId: currentPlaylistEntryId,
+          targetItemRef: currentItemRef,
+          targetIndex: nextIndex,
+          currentOutputEntryId: currentOutputPlaylistEntryId,
+          currentOutputItemRef,
+          currentLiveIndex: liveSlideIndex,
+        }),
+      });
       dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
     }
     setStatusText(`Live slide ${nextIndex + 1}`);
@@ -229,7 +277,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     canDriveOutput,
     currentPlaylistEntryId,
     currentItemRef,
+    currentOutputItemRef,
+    currentOutputPlaylistEntryId,
     isDetachedDeckBrowser,
+    liveSlideIndex,
     setStatusText,
     setLiveTalkScriptIndexForSlide,
     slides.length,
@@ -245,6 +296,19 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     armOutputPlaylistEntry(currentPlaylistEntryId);
     const takenSlideId = slides[currentSlideIndex]?.id;
     if (takenSlideId) {
+      noteOutputTakeIntent({
+        kind: 'take',
+        slideId: takenSlideId,
+        outputScopeKey: buildNdiTakeScopeKey(currentPlaylistEntryId, currentItemRef),
+        reason: classifyTakeReason({
+          targetEntryId: currentPlaylistEntryId,
+          targetItemRef: currentItemRef,
+          targetIndex: currentSlideIndex,
+          currentOutputEntryId: currentOutputPlaylistEntryId,
+          currentOutputItemRef,
+          currentLiveIndex: liveSlideIndex,
+        }),
+      });
       dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: takenSlideId });
       dispatchAutomationTriggerEvent({ triggerType: 'slide.take', sourceId: takenSlideId });
     }
@@ -253,7 +317,11 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     armOutputPlaylistEntry,
     canDriveOutput,
     currentPlaylistEntryId,
+    currentItemRef,
     currentSlideIndex,
+    currentOutputItemRef,
+    currentOutputPlaylistEntryId,
+    liveSlideIndex,
     setStatusText,
     setLiveTalkScriptIndexForSlide,
     slides.length,
@@ -270,11 +338,35 @@ export function SlideProvider({ children }: { children: ReactNode }) {
       setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
       const activatedSlideId = contentSlides[nextIndex]?.id;
       if (activatedSlideId) {
+        noteOutputTakeIntent({
+          kind: 'activate',
+          slideId: activatedSlideId,
+          outputScopeKey: buildNdiTakeScopeKey(currentPlaylistEntryId, currentPlaylistItemRef),
+          reason: classifyTakeReason({
+            targetEntryId: currentPlaylistEntryId,
+            targetItemRef: currentPlaylistItemRef,
+            targetIndex: nextIndex,
+            currentOutputEntryId: currentOutputPlaylistEntryId,
+            currentOutputItemRef,
+            currentLiveIndex: liveSlideIndex,
+          }),
+        });
         dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
       }
     }
     armOutputPlaylistEntry(currentPlaylistEntryId);
-  }, [armOutputPlaylistEntry, currentPlaylistItemRef, currentPlaylistEntryId, playlistSelection.indices, setLiveTalkScriptIndexForSlide, slidesForItemRef, liveSelection.update]);
+  }, [
+    armOutputPlaylistEntry,
+    currentOutputItemRef,
+    currentOutputPlaylistEntryId,
+    currentPlaylistItemRef,
+    currentPlaylistEntryId,
+    liveSlideIndex,
+    playlistSelection.indices,
+    setLiveTalkScriptIndexForSlide,
+    slidesForItemRef,
+    liveSelection.update,
+  ]);
 
   const goNext = useCallback(() => {
     if (slides.length === 0) return;
@@ -421,10 +513,32 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     activatePlaylistEntry(entryId, nextIndex);
     const activatedSlideId = contentSlides[nextIndex]?.id;
     if (activatedSlideId) {
+      noteOutputTakeIntent({
+        kind: 'activate',
+        slideId: activatedSlideId,
+        outputScopeKey: buildNdiTakeScopeKey(entryId, itemRef),
+        reason: classifyTakeReason({
+          targetEntryId: entryId,
+          targetItemRef: itemRef,
+          targetIndex: nextIndex,
+          currentOutputEntryId: currentOutputPlaylistEntryId,
+          currentOutputItemRef,
+          currentLiveIndex: liveSlideIndex,
+        }),
+      });
       dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
     }
     setStatusText(`Live slide ${nextIndex + 1}`);
-  }, [activatePlaylistEntry, setLiveTalkScriptIndexForSlide, setStatusText, slidesForItemRef, playlistSelection.update]);
+  }, [
+    activatePlaylistEntry,
+    currentOutputItemRef,
+    currentOutputPlaylistEntryId,
+    liveSlideIndex,
+    setLiveTalkScriptIndexForSlide,
+    setStatusText,
+    slidesForItemRef,
+    playlistSelection.update,
+  ]);
 
   const value = useMemo<SlideContextValue>(() => ({
     slides,

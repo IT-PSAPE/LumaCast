@@ -38,7 +38,9 @@ export interface SortableOrderResult<T> {
   /** Spread onto SortableList.Root. */
   dnd: {
     ids: Id[];
+    activeId: Id | null;
     disabled: boolean;
+    onKeyboardMoveToIndex: (toIndex: number) => void;
     onDragStart: (event: DragStartEvent) => void;
     onDragEnd: (event: DragEndEvent) => void;
     onDragCancel: () => void;
@@ -74,12 +76,14 @@ export function useSortableOrder<T>({
   disabled = false,
 }: SortableOrderOptions<T>): SortableOrderResult<T> {
   const [overrideIds, setOverrideIds] = useState<Id[] | null>(null);
+  const [activeId, setActiveId] = useState<Id | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
   // Frozen for the duration of a drag; a ref (not state) because the freeze is
   // taken during the drag-start event, before the next render.
   const frozenIdsRef = useRef<Id[] | null>(null);
   const pendingCommitsRef = useRef(0);
+  const keyboardDropIndexRef = useRef<number | null>(null);
 
   const serverIds = useMemo(() => items.map(getId), [items, getId]);
 
@@ -109,28 +113,43 @@ export function useSortableOrder<T>({
 
   const visibleIds = useMemo(() => orderedItems.map(getId), [getId, orderedItems]);
 
-  const handleDragStart = useCallback((_event: DragStartEvent) => {
+  const handleDragStart = useCallback((event: DragStartEvent) => {
     frozenIdsRef.current = visibleIds;
+    keyboardDropIndexRef.current = null;
+    setActiveId(String(event.active.id));
     setIsDragging(true);
   }, [visibleIds]);
 
   const endDrag = useCallback(() => {
     frozenIdsRef.current = null;
+    keyboardDropIndexRef.current = null;
+    setActiveId(null);
     setIsDragging(false);
   }, []);
+
+  const handleKeyboardMoveToIndex = useCallback((toIndex: number) => {
+    if (activeId === null) return;
+    const currentIds = overrideIds ?? frozenIdsRef.current ?? visibleIds;
+    const fromIndex = currentIds.indexOf(activeId);
+
+    if (fromIndex === -1 || toIndex < 0 || toIndex >= currentIds.length || fromIndex === toIndex) return;
+
+    const nextIds = currentIds.slice();
+    nextIds.splice(fromIndex, 1);
+    nextIds.splice(toIndex, 0, activeId);
+    keyboardDropIndexRef.current = toIndex;
+    setOverrideIds(nextIds);
+  }, [activeId, overrideIds, visibleIds]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
     const baseIds = frozenIdsRef.current ?? visibleIds;
+    const keyboardDropIndex = keyboardDropIndexRef.current;
     endDrag();
 
-    // Dropped outside any sortable target, or back onto itself.
-    if (!over || active.id === over.id) return;
-
     const activeId = String(active.id);
-    const overId = String(over.id);
     const fromIndex = baseIds.indexOf(activeId);
-    const toIndex = baseIds.indexOf(overId);
+    const toIndex = keyboardDropIndex ?? (over ? baseIds.indexOf(String(over.id)) : -1);
     // The dragged row (or its target) was deleted mid-gesture: there is no
     // meaningful destination left, so the drop is dropped.
     if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
@@ -176,11 +195,13 @@ export function useSortableOrder<T>({
 
   const dnd = useMemo(() => ({
     ids: visibleIds,
+    activeId,
     disabled: disabled || visibleIds.length < 2,
+    onKeyboardMoveToIndex: handleKeyboardMoveToIndex,
     onDragStart: handleDragStart,
     onDragEnd: handleDragEnd,
     onDragCancel: endDrag,
-  }), [disabled, endDrag, handleDragEnd, handleDragStart, visibleIds]);
+  }), [activeId, disabled, endDrag, handleDragEnd, handleDragStart, handleKeyboardMoveToIndex, visibleIds]);
 
   return { items: orderedItems, isCommitting, dnd };
 }

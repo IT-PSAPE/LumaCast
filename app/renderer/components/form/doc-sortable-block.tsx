@@ -39,6 +39,10 @@ function normalizePastedNewlines(text: string) {
     return text.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n')
 }
 
+function hasBlankLineSeparator(text: string) {
+    return /\n[ \t]*\n/.test(text)
+}
+
 export function SortableBlock({ index, block, isSelected, rowRef, contentRef, accessory, onUpdate, onSplit, onDelete, onMergeWithPrev, onPaste, onCaretExit, onSelectAllBlocks, onTextareaFocus, onTextareaBlur }: SortableBlockProps) {
     const textareaRef = useRef<HTMLTextAreaElement | null>(null)
     const setContentRef = useCallback(
@@ -62,8 +66,7 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
             const { selectionStart, selectionEnd, value } = e.currentTarget
             void window.castApi.readClipboardText().then((text) => {
                 const normalized = normalizePastedNewlines(text)
-                const blocks = parseLyricImportText(normalized)
-                if (blocks.length <= 1) {
+                if (!hasBlankLineSeparator(normalized)) {
                     const nextValue = `${value.slice(0, selectionStart)}${normalized}${value.slice(selectionEnd)}`
                     onUpdate(nextValue, 'paste')
                     requestAnimationFrame(() => {
@@ -76,6 +79,7 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
                     return
                 }
 
+                const blocks = parseLyricImportText(normalized)
                 onPaste(value.slice(0, selectionStart), blocks, value.slice(selectionEnd))
             }).catch(() => {})
             return
@@ -139,13 +143,12 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
         const raw = e.clipboardData.getData('text')
         if (!raw) return
         const normalized = normalizePastedNewlines(raw)
-        const blocks = parseLyricImportText(normalized)
         // Prevent native insert — drive split-or-insert so multi-line text is
         // split into blocks. The keydown Cmd/Ctrl+V path's preventDefault
         // guarantees the two never both fire for one keyboard paste.
         e.preventDefault()
         const { selectionStart, selectionEnd, value } = e.currentTarget
-        if (blocks.length <= 1) {
+        if (!hasBlankLineSeparator(normalized)) {
             const nextValue = `${value.slice(0, selectionStart)}${normalized}${value.slice(selectionEnd)}`
             onUpdate(nextValue, 'paste')
             requestAnimationFrame(() => {
@@ -157,6 +160,7 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
             })
             return
         }
+        const blocks = parseLyricImportText(normalized)
         onPaste(value.slice(0, selectionStart), blocks, value.slice(selectionEnd))
     }
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

@@ -24,7 +24,7 @@ export function OverlayBinPanel() {
   return (
     <BinShell>
       <BinShell.Content>
-        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode} virtualize>
           {overlays.map((overlay, index) => (
             <OverlayCard
               key={overlay.id}

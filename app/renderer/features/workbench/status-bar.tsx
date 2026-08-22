@@ -1,7 +1,6 @@
 import { cv } from '@renderer/utils/cv';
 import { LoaderCircle } from 'lucide-react';
-import type { NdiActiveSenderDiagnostics } from '@lumacast/protocol';
-import { useCast, useNdi } from '../../contexts/app-context';
+import { useNdiLiveState, useStatusBarState } from '../../contexts/app-context';
 
 const indicatorStyles = cv({
   base: 'inline-block size-1.5 rounded-full',
@@ -14,10 +13,8 @@ const indicatorStyles = cv({
 });
 
 export function StatusBar() {
-  const { isRunningOperation, operationText, statusText } = useCast();
-  const { state: { diagnostics } } = useNdi();
-  const audienceLive = isSenderLive(diagnostics?.senders.audience ?? null);
-  const stageLive = isSenderLive(diagnostics?.senders.stage ?? null);
+  const { isRunningOperation, operationText, statusText } = useStatusBarState();
+  const { audienceLive, stageLive } = useNdiLiveState();
   const audienceStateLabel = audienceLive ? 'Audience live' : 'Audience idle';
   const stageStateLabel = stageLive ? 'Stage live' : 'Stage idle';
   const displayText = isRunningOperation ? operationText ?? 'Processing...' : statusText;
@@ -44,10 +41,4 @@ export function StatusBar() {
       </div>
     </div>
   );
-}
-
-function isSenderLive(sender: NdiActiveSenderDiagnostics | null): boolean {
-  if (!sender) return false;
-  if (sender.connectionCount === 0) return false;
-  return sender.performance.framesSent > 0;
 }

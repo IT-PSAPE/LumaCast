@@ -27,6 +27,7 @@ export interface SlideGridTileProps {
   containerStyle?: CSSProperties;
   dragging?: boolean;
   dragHandleProps?: HTMLAttributes<HTMLElement>;
+  overlay?: boolean;
 }
 
 export function SlideGridTileBody({
@@ -43,13 +44,14 @@ export function SlideGridTileBody({
   containerStyle,
   dragging = false,
   dragHandleProps,
+  overlay = false,
 }: SlideGridTileProps) {
   const { slides, duplicateSlide, deleteSlide, moveSlide } = useSlides();
   const confirm = useConfirm();
   const isFirst = index === 0;
   const isLast = index === slides.length - 1;
-  const activeRef = useScrollAreaActiveItem<HTMLDivElement>(selected);
-  const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
+  const activeRef = useScrollAreaActiveItem<HTMLDivElement>(selected && !overlay);
+  const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: overlay });
 
   function handleClick() {
     onActivate(index);
@@ -89,9 +91,9 @@ export function SlideGridTileBody({
           else if (containerRef) containerRef.current = node;
         }}
         style={containerStyle}
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        onDoubleClick={handleDoubleClick}
+        onClick={overlay ? undefined : handleClick}
+        onContextMenu={overlay ? undefined : handleContextMenu}
+        onDoubleClick={overlay ? undefined : handleDoubleClick}
         selected={selected}
         variant="slide"
         className={dragging ? 'cursor-grabbing opacity-70 shadow-lg' : 'cursor-grab'}
@@ -129,18 +131,20 @@ export function SlideGridTileBody({
           </div>
         </Thumbnail.Caption>
       </Thumbnail.Tile>
-      <ContextMenu.Portal>
-        <ContextMenu.Menu>
-          <ContextMenu.Item onSelect={() => { void duplicateSlide(slideId); }}>Duplicate</ContextMenu.Item>
-          <ContextMenu.Item disabled={isFirst} onSelect={() => { void moveSlide(slideId, 'up'); }}>Move up</ContextMenu.Item>
-          <ContextMenu.Item disabled={isLast} onSelect={() => { void moveSlide(slideId, 'down'); }}>Move down</ContextMenu.Item>
-          <ContextMenu.Separator />
-          <SlideAutomationMenu slideId={slideId} />
-          <SlideBindingsMenu slideId={slideId} />
-          <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
-        </ContextMenu.Menu>
-      </ContextMenu.Portal>
+      {!overlay ? (
+        <ContextMenu.Portal>
+          <ContextMenu.Menu>
+            <ContextMenu.Item onSelect={() => { void duplicateSlide(slideId); }}>Duplicate</ContextMenu.Item>
+            <ContextMenu.Item disabled={isFirst} onSelect={() => { void moveSlide(slideId, 'up'); }}>Move up</ContextMenu.Item>
+            <ContextMenu.Item disabled={isLast} onSelect={() => { void moveSlide(slideId, 'down'); }}>Move down</ContextMenu.Item>
+            <ContextMenu.Separator />
+            <SlideAutomationMenu slideId={slideId} />
+            <SlideBindingsMenu slideId={slideId} />
+            <ContextMenu.Separator />
+            <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          </ContextMenu.Menu>
+        </ContextMenu.Portal>
+      ) : null}
     </>
   );
 }

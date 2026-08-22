@@ -497,7 +497,7 @@ describe('family-aware theme mutations', () => {
     const l = makeThemeForFamily('L1', 'Lyric Theme');
     const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [p], lyricThemes: [l] }));
     // active is presentation
-    harness.current.theme.deleteTheme('L1');
+    act(() => harness.current.theme.deleteTheme('L1'));
     expect(harness.current.theme.themesByType.lyric).toHaveLength(0);
     expect(harness.current.theme.themesByType.presentation).toHaveLength(1);
   });
@@ -505,7 +505,7 @@ describe('family-aware theme mutations', () => {
   it('renameTheme resolves owning family even when active differs', () => {
     const t = makeThemeForFamily('T1', 'Talk Theme');
     const harness = renderThemeHarness(makeSnapshot({ talkThemes: [t] }));
-    harness.current.theme.renameTheme('T1', 'Renamed Talk');
+    act(() => harness.current.theme.renameTheme('T1', 'Renamed Talk'));
     expect(harness.current.theme.themesByType.talk[0].name).toBe('Renamed Talk');
   });
 

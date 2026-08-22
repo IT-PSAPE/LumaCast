@@ -24,7 +24,11 @@ function dragEnd(activeId: string, overId: string | null): DragEndEvent {
   } as unknown as DragEndEvent;
 }
 
-const DRAG_START = {} as unknown as DragStartEvent;
+function dragStart(activeId: string): DragStartEvent {
+  return {
+    active: { id: activeId },
+  } as unknown as DragStartEvent;
+}
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
@@ -124,11 +128,36 @@ describe('useSortableOrder', () => {
     expect(result.current.items.map(rowId)).toEqual(['a', 'b']);
   });
 
+  it('commits the last keyboard target when the drop ends without an over id', async () => {
+    const pending = deferred();
+    const commit = vi.fn(() => pending.promise);
+    const { result } = setup(rows('a', 'b', 'c', 'd'), commit);
+
+    act(() => {
+      result.current.dnd.onDragStart(dragStart('a'));
+    });
+    act(() => {
+      result.current.dnd.onKeyboardMoveToIndex(2);
+    });
+    await act(async () => {
+      result.current.dnd.onDragEnd(dragEnd('a', null));
+      await Promise.resolve();
+    });
+
+    expect(commit).toHaveBeenCalledWith({
+      id: 'a',
+      fromIndex: 0,
+      toIndex: 2,
+      orderedIds: ['b', 'c', 'a', 'd'],
+    });
+    expect(result.current.items.map(rowId)).toEqual(['b', 'c', 'a', 'd']);
+  });
+
   it('does not commit when the dragged row disappeared mid-gesture', () => {
     const commit = vi.fn();
     const { result, rerender } = setup(rows('a', 'b', 'c'), commit);
 
-    act(() => { result.current.dnd.onDragStart(DRAG_START); });
+    act(() => { result.current.dnd.onDragStart(dragStart('a')); });
     rerender({ items: rows('b', 'c') });
     act(() => { result.current.dnd.onDragEnd(dragEnd('a', 'c')); });
 
@@ -140,7 +169,7 @@ describe('useSortableOrder', () => {
     const commit = vi.fn();
     const { result, rerender } = setup(rows('a', 'b', 'c'), commit);
 
-    act(() => { result.current.dnd.onDragStart(DRAG_START); });
+    act(() => { result.current.dnd.onDragStart(dragStart('a')); });
     // Another window / an undo reorders the list under the cursor.
     rerender({ items: rows('c', 'b', 'a') });
 

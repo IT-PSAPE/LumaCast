@@ -1,6 +1,6 @@
 import { useItemEditorScreen } from './screen-context';
 import { getSlideVisualState, slideTextPreview } from '../../utils/slides';
-import { SlideTile } from './slide-tile';
+import { SortableSlideTile } from './slide-tile';
 
 export function ItemEditorSlideListItem({
   slide,
@@ -21,7 +21,7 @@ export function ItemEditorSlideListItem({
   }
 
   return (
-    <SlideTile
+    <SortableSlideTile
       slideId={slide.id}
       scene={scene}
       index={index}

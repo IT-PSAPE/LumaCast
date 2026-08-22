@@ -14,7 +14,7 @@ export function buildLyricTextElement(
   return {
     slideId,
     type: 'text',
-    x: Math.round((OUTPUT_FRAME_WIDTH - config.boxWidth) / 2),
+    x: (OUTPUT_FRAME_WIDTH - config.boxWidth) / 2,
     y: LYRIC_BOX_BOTTOM_Y - config.boxHeight,
     width: config.boxWidth,
     height: config.boxHeight,

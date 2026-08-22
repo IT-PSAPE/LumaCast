@@ -1,19 +1,33 @@
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { PlaylistRow } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
-import { SortableList, useSortableOrder } from '../../components/layout/sortable-list';
+import { SortableList, useSortableOrder, VIRTUALIZED_SORTABLE_MEASURING } from '../../components/layout/sortable-list';
 import { EmptyState } from '../../components/display/empty-state';
 import { hasItemDragData, readItemDragData } from '../../utils/item-drag';
 import { DropIndicator } from './drop-indicator';
 import { SeparatorRow } from './separator-row';
 import { PlaylistItemRow } from './playlist-item-row';
+import { VirtualizedList } from '../../components/layout/virtualized-list';
 
+const PLAYLIST_ROW_ESTIMATE = 32;
 const playlistRowId = (row: PlaylistRow) => row.id;
 
-export function PlaylistRowList({ rows: persistedRows, playlistId }: { rows: PlaylistRow[]; playlistId: Id }) {
+export function PlaylistRowList({
+  rows: persistedRows,
+  playlistId,
+  getScrollElement,
+}: {
+  rows: PlaylistRow[];
+  playlistId: Id;
+  getScrollElement: () => HTMLElement | null;
+}) {
   const { addItemToPlaylist, movePlaylistRow } = useNavigation();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const virtualScrollToIndexRef = useRef<((index: number) => void) | null>(null);
+  const scrollToIndex = useCallback((index: number) => {
+    virtualScrollToIndexRef.current?.(index);
+  }, []);
 
   // Separators are ordinary rows in the flat list (#219 decision D5), so a
   // reorder is one op for either kind and any drop index is legal — there is no
@@ -32,6 +46,8 @@ export function PlaylistRowList({ rows: persistedRows, playlistId }: { rows: Pla
     // would fight the insertion indicator for the same gesture.
     disabled: dropIndex !== null,
   });
+  const activeRowIndex = dnd.activeId ? rows.findIndex((row) => row.id === dnd.activeId) : -1;
+  const activeRow = activeRowIndex === -1 ? null : rows[activeRowIndex];
 
   // Container handlers (empty content, end-of-list gap) only seed an initial
   // dropIndex when nothing is set yet — they never overwrite a value a
@@ -114,10 +130,33 @@ export function PlaylistRowList({ rows: persistedRows, playlistId }: { rows: Pla
   if (dropIndex === rows.length) nodes.push(<DropIndicator key="drop-end" />);
 
   return (
-    <SortableList.Root {...dnd}>
-      <div className="flex flex-col gap-0.5 p-1" onDragOver={handleContainerDragOver} onDrop={handleDrop} onDragLeave={handleDragLeave}>
+    <SortableList.Root
+      {...dnd}
+      measuring={VIRTUALIZED_SORTABLE_MEASURING}
+      activeId={dnd.activeId}
+      virtualizedKeyboard={{
+        onMoveToIndex: dnd.onKeyboardMoveToIndex,
+        scrollToIndex,
+      }}
+      dragOverlay={activeRow ? (
+        activeRow.kind === 'separator'
+          ? <SeparatorRow row={activeRow} onDragOver={() => undefined} onDrop={() => undefined} overlay />
+          : <PlaylistItemRow row={activeRow} onDragOver={() => undefined} onDrop={() => undefined} overlay />
+      ) : null}
+    >
+      <VirtualizedList
+        getScrollElement={getScrollElement}
+        estimateSize={PLAYLIST_ROW_ESTIMATE}
+        retainedIndexes={activeRowIndex === -1 ? [] : [activeRowIndex]}
+        itemGap={2}
+        scrollToIndexRef={virtualScrollToIndexRef}
+        className="p-1"
+        onDragOver={handleContainerDragOver}
+        onDrop={handleDrop}
+        onDragLeave={handleDragLeave}
+      >
         {nodes}
-      </div>
+      </VirtualizedList>
     </SortableList.Root>
   );
 }

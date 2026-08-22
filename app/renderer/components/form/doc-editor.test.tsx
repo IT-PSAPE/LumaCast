@@ -573,6 +573,28 @@ describe('DocEditor undo/redo', () => {
         }
     })
 
+    it('removes window drag listeners when unmounted mid-drag', () => {
+        const addEventListenerSpy = vi.spyOn(window, 'addEventListener')
+        const removeEventListenerSpy = vi.spyOn(window, 'removeEventListener')
+
+        const { container, unmount } = render(<DocEditor initialBlocks={[{ id: 'a', content: 'alpha' }]} onChange={vi.fn()} />)
+        const root = getRoot(container)
+
+        fireEvent.pointerDown(root, { button: 0, clientX: 10, clientY: 10 })
+
+        const listenerCalls = addEventListenerSpy.mock.calls as Array<[string, EventListenerOrEventListenerObject, ...unknown[]]>
+        const pointerMoveCall = listenerCalls.find(([type]) => type === 'pointermove')
+        const pointerUpCall = listenerCalls.find(([type]) => type === 'pointerup')
+
+        expect(pointerMoveCall).toBeDefined()
+        expect(pointerUpCall).toBeDefined()
+
+        unmount()
+
+        expect(removeEventListenerSpy).toHaveBeenCalledWith('pointermove', pointerMoveCall?.[1])
+        expect(removeEventListenerSpy).toHaveBeenCalledWith('pointerup', pointerUpCall?.[1])
+    })
+
     it('undo/redo covers merge and duplicate', async () => {
         const initial: Block[] = [
             { id: 'a', content: 'alpha' },
