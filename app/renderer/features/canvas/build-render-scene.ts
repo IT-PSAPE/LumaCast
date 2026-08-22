@@ -17,6 +17,8 @@ import {
   type ResolvedMediaState,
   type ResolvedRenderNode,
   type ResolvedRenderNodeBase,
+  type RenderSceneBackground,
+  type RenderSceneSlide,
   type ResolvedRenderScene,
   type ResolvedTextVisual,
   type SceneSurface,
@@ -27,32 +29,79 @@ import { sortElements } from '../../utils/slides';
 
 interface SceneElementInput {
   element: SlideElement;
+  nodeId?: string;
   bindingOverride?: BindingOverride;
 }
 
-function toRenderNode({ element, bindingOverride }: SceneElementInput): RenderNode {
+type MediaProxyLookup =
+  | ReadonlyMap<string, string | null | undefined>
+  | ((mediaKey: string) => string | null | undefined);
+
+interface BuildRenderSceneOptions {
+  proxyMediaBySource?: MediaProxyLookup | null;
+}
+
+function resolveProxyMediaKey(proxyMediaBySource: MediaProxyLookup | null | undefined, mediaKey: string | null): string | null {
+  if (!proxyMediaBySource || !mediaKey) return null;
+  const next = typeof proxyMediaBySource === 'function'
+    ? proxyMediaBySource(mediaKey)
+    : proxyMediaBySource.get(mediaKey);
+  return next ?? null;
+}
+
+function toRenderNode(
+  { element, nodeId, bindingOverride }: SceneElementInput,
+  proxyMediaBySource: MediaProxyLookup | null | undefined,
+): RenderNode {
+  const mediaKey = (element.type === 'image' || element.type === 'video')
+    ? ((element.payload as { src?: string }).src ?? null)
+    : null;
   return {
-    id: element.id,
+    id: nodeId ?? element.id,
     element,
     visual: readVisualPayload(element.type, element.payload),
     isVideo: element.type === 'video',
+    proxyMediaKey: resolveProxyMediaKey(proxyMediaBySource, mediaKey),
     bindingOverride,
   };
 }
 
 type RenderSceneFrameInput =
-  | (Pick<Slide, 'width' | 'height'> & { background?: SlideBackground | null })
+  | (Pick<Slide, 'width' | 'height'> & { id?: Slide['id']; background?: SlideBackground | null })
   | Slide
   | null;
 
-function resolveSceneSlide(frame: RenderSceneFrameInput): Slide {
+function resolveRenderSceneBackground(
+  background: SlideBackground | null | undefined,
+  proxyMediaBySource: MediaProxyLookup | null | undefined,
+): RenderSceneBackground | null {
+  if (!background) return null;
+  if (background.type !== 'image' && background.type !== 'video') {
+    return background;
+  }
+  return {
+    ...background,
+    proxyMediaKey: resolveProxyMediaKey(proxyMediaBySource, background.src),
+  };
+}
+
+function resolveSceneSlide(
+  frame: RenderSceneFrameInput,
+  proxyMediaBySource: MediaProxyLookup | null | undefined,
+): RenderSceneSlide {
   if (!frame) return LAYER_PREVIEW_SLIDE;
-  if ('id' in frame && 'notes' in frame) return frame;
+  if ('id' in frame && 'notes' in frame) {
+    return {
+      ...frame,
+      background: resolveRenderSceneBackground(frame.background ?? null, proxyMediaBySource),
+    };
+  }
   return {
     ...LAYER_PREVIEW_SLIDE,
+    id: 'id' in frame && frame.id ? frame.id : LAYER_PREVIEW_SLIDE.id,
     width: frame.width,
     height: frame.height,
-    background: 'background' in frame ? frame.background ?? null : null,
+    background: 'background' in frame ? resolveRenderSceneBackground(frame.background ?? null, proxyMediaBySource) : null,
   };
 }
 
@@ -71,13 +120,28 @@ function toPresentationLayerElement(element: SlideElement): SlideElement {
   };
 }
 
-export function buildRenderScene(frame: RenderSceneFrameInput, elements: SlideElement[] | SceneElementInput[]): RenderScene {
-  const nextSlide = resolveSceneSlide(frame);
+function firstInputByElement(inputs: SceneElementInput[]): Map<SlideElement, SceneElementInput> {
+  const byElement = new Map<SlideElement, SceneElementInput>();
+  for (const entry of inputs) {
+    if (!byElement.has(entry.element)) {
+      byElement.set(entry.element, entry);
+    }
+  }
+  return byElement;
+}
+
+export function buildRenderScene(
+  frame: RenderSceneFrameInput,
+  elements: SlideElement[] | SceneElementInput[],
+  options: BuildRenderSceneOptions = {},
+): RenderScene {
+  const nextSlide = resolveSceneSlide(frame, options.proxyMediaBySource ?? null);
   const size = sceneSize(nextSlide);
   const normalizedInputs = elements.map((entry) => ('element' in entry ? entry : { element: entry }));
+  const inputsByElement = firstInputByElement(normalizedInputs);
   const sorted = sortElements(normalizedInputs.map((entry) => entry.element))
-    .map((element) => normalizedInputs.find((entry) => entry.element === element) ?? { element })
-    .map(toRenderNode);
+    .map((element) => inputsByElement.get(element) ?? { element })
+    .map((entry) => toRenderNode(entry, options.proxyMediaBySource ?? null));
   return { slide: nextSlide, width: size.width, height: size.height, nodes: sorted };
 }
 
@@ -104,6 +168,10 @@ interface LayeredSceneInput {
 const OVERLAY_LAYER_Z_INDEX_OFFSET = 10000;
 const OVERLAY_STACK_Z_INDEX_OFFSET = 1000;
 
+export function buildOverlayRenderNodeId(overlayId: string, stackOrder: number, elementId: string): string {
+  return `${overlayId}::${stackOrder}::${elementId}`;
+}
+
 export function buildLayeredRenderScene({
   slide,
   contentElements,
@@ -112,7 +180,7 @@ export function buildLayeredRenderScene({
   mediaAsset,
   overlays,
   includeContent,
-}: LayeredSceneInput): RenderScene {
+}: LayeredSceneInput, options: BuildRenderSceneOptions = {}): RenderScene {
   const merged: SceneElementInput[] = [];
   if (videoAsset) merged.push({ element: mediaAssetToLayerElement(videoAsset, {
     id: LAYER_VIDEO_NODE_ID,
@@ -125,6 +193,7 @@ export function buildLayeredRenderScene({
   for (const overlayLayer of overlays) {
     if (overlayLayer.opacityMultiplier <= 0) continue;
     merged.push(...overlayToLayerElements(overlayLayer.overlay).map((element) => ({
+      nodeId: buildOverlayRenderNodeId(overlayLayer.overlay.id, overlayLayer.stackOrder, element.id),
       element: {
         ...element,
         opacity: element.opacity * overlayLayer.opacityMultiplier,
@@ -133,11 +202,15 @@ export function buildLayeredRenderScene({
       bindingOverride: { armedAtMs: overlayLayer.startedAt },
     })));
   }
-  return buildRenderScene(slide, merged);
+  return buildRenderScene(slide, merged, options);
 }
 
-export function buildThumbnailScene(slide: Slide, slideElements: SlideElement[]): RenderScene {
-  return buildRenderScene(slide, slideElements);
+export function buildThumbnailScene(
+  slide: Slide,
+  slideElements: SlideElement[],
+  options: BuildRenderSceneOptions = {},
+): RenderScene {
+  return buildRenderScene(slide, slideElements, options);
 }
 
 // ── Resolved render-scene builder ──────────────────────────────────────
@@ -151,6 +224,7 @@ export interface ResolvedRenderSceneOptions {
   interactive?: boolean;
   selection?: SelectionState | null;
   media?: MediaHandleLookup | null;
+  proxyMediaBySource?: MediaProxyLookup | null;
 }
 
 function finiteNumber(value: number, fallback = 0): number {
@@ -218,6 +292,7 @@ function toResolvedNode(
   element: SlideElement | null | undefined,
   selection: SelectionState,
   media: MediaHandleLookup | null,
+  proxyMediaBySource: MediaProxyLookup | null | undefined,
 ): ResolvedRenderNode | null {
   if (!element || !element.id) return null;
   const visual = readVisualPayload(element.type, element.payload);
@@ -246,12 +321,20 @@ function toResolvedNode(
     case 'image':
     case 'video': {
       const src = (element.payload as { src?: string }).src ?? null;
-      return { ...base, kind: element.type, mediaKey: src, media: resolveMediaHandle(media, src) };
+      const proxyMediaKey = resolveProxyMediaKey(proxyMediaBySource, src);
+      return {
+        ...base,
+        kind: element.type,
+        mediaKey: src,
+        media: resolveMediaHandle(media, src),
+        proxyMediaKey,
+        proxyMedia: resolveMediaHandle(media, proxyMediaKey),
+      };
     }
     case 'group': {
       const payload = element.payload as GroupElementPayload;
       const children = (payload.children ?? [])
-        .map((child) => toResolvedNode(child, selection, media))
+        .map((child) => toResolvedNode(child, selection, media, proxyMediaBySource))
         .filter((node): node is ResolvedRenderNode => node !== null);
       return { ...base, kind: 'group', children };
     }
@@ -260,7 +343,11 @@ function toResolvedNode(
   }
 }
 
-function toResolvedBackground(background: SlideBackground | null | undefined, media: MediaHandleLookup | null): ResolvedBackground | null {
+function toResolvedBackground(
+  background: SlideBackground | null | undefined,
+  media: MediaHandleLookup | null,
+  proxyMediaBySource: MediaProxyLookup | null | undefined,
+): ResolvedBackground | null {
   if (!background) return null;
   if (background.type === 'color') return { type: 'color', color: background.color };
   if (background.type === 'gradient') {
@@ -279,6 +366,8 @@ function toResolvedBackground(background: SlideBackground | null | undefined, me
     fit: background.fit,
     mediaKey: background.src,
     media: resolveMediaHandle(media, background.src),
+    proxyMediaKey: resolveProxyMediaKey(proxyMediaBySource, background.src),
+    proxyMedia: resolveMediaHandle(media, resolveProxyMediaKey(proxyMediaBySource, background.src)),
   };
 }
 
@@ -287,19 +376,25 @@ export function buildResolvedRenderScene(
   elements: SlideElement[] | SceneElementInput[],
   options: ResolvedRenderSceneOptions = {},
 ): ResolvedRenderScene {
-  const nextSlide = resolveSceneSlide(frame);
+  const nextSlide = resolveSceneSlide(frame, options.proxyMediaBySource ?? null);
   const size = sceneSize(nextSlide);
   const selection = options.selection ?? { selectedIds: [], primarySelectedId: null };
   const media = options.media ?? null;
+  const proxyMediaBySource = options.proxyMediaBySource ?? null;
   const normalizedInputs = elements.map((entry) => ('element' in entry ? entry : { element: entry }));
   const nodes = sortElements(normalizedInputs.map((entry) => entry.element))
-    .map((element) => toResolvedNode((normalizedInputs.find((entry) => entry.element === element) ?? { element }).element, selection, media))
+    .map((element) => toResolvedNode(
+      (normalizedInputs.find((entry) => entry.element === element) ?? { element }).element,
+      selection,
+      media,
+      proxyMediaBySource,
+    ))
     .filter((node): node is ResolvedRenderNode => node !== null);
   return {
     surface: options.surface ?? 'show',
     width: size.width,
     height: size.height,
-    background: toResolvedBackground(nextSlide.background, media),
+    background: toResolvedBackground(nextSlide.background, media, proxyMediaBySource),
     nodes,
     interactive: options.interactive ?? false,
     selection,

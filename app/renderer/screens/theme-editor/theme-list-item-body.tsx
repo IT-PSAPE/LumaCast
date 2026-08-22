@@ -9,6 +9,7 @@ import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlay
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useThemeEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
+import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 import { useThemeEditorScreen } from './screen-context';
 
 export function ThemeListItemBody({
@@ -25,7 +26,15 @@ export function ThemeListItemBody({
   const { actions } = useThemeEditorScreen();
   const { duplicateTheme, deleteTheme, requestNameFocus } = useThemeEditor();
   const confirm = useConfirm();
-  const scene = useMemo(() => buildRenderScene({ width: theme.width, height: theme.height, background: theme.background ?? null }, theme.elements), [theme.background, theme.elements, theme.height, theme.width]);
+  const mediaProxyBySource = useMediaProxyMap();
+  const scene = useMemo(
+    () => buildRenderScene(
+      { width: theme.width, height: theme.height, background: theme.background ?? null },
+      theme.elements,
+      { proxyMediaBySource: mediaProxyBySource },
+    ),
+    [mediaProxyBySource, theme.background, theme.elements, theme.height, theme.width],
+  );
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
   const { containerRef, containerStyle, handleProps } = useSortableItem(theme.id);

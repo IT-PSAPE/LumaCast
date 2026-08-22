@@ -26,7 +26,10 @@ export function MediaPickerAssetTile({
         isSelected ? 'border-brand ring-1 ring-brand-400' : 'border-primary',
       )}
     >
-      <div className="grid aspect-square place-items-center overflow-hidden rounded-t">
+      <div
+        className="grid place-items-center overflow-hidden rounded-t bg-primary"
+        style={{ aspectRatio: String(asset.type === 'audio' ? 1 : (asset.width && asset.height ? asset.width / asset.height : 1)) }}
+      >
         <MediaThumbnail asset={asset} />
       </div>
       <p className="m-0 flex items-center gap-1.5 truncate px-1.5 py-1 text-sm text-secondary group-hover:text-primary">

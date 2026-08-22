@@ -1,18 +1,29 @@
 import { ContextMenu } from '../../components/overlays/context-menu';
+import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { SlideTileBody, type SlideTileProps } from './slide-tile-body';
 
-export function SlideTile({ slideId, scene, index, isActive, isLive, isEmpty, textPreview, onSelect }: SlideTileProps) {
+export function SlideTile(props: SlideTileProps) {
+  if (props.overlay) return <SlideTileBody {...props} />;
   return (
     <ContextMenu.Root>
       <SlideTileBody
-        slideId={slideId}
-        scene={scene}
-        index={index}
-        isActive={isActive}
-        isLive={isLive}
-        isEmpty={isEmpty}
-        textPreview={textPreview}
-        onSelect={onSelect}
+        {...props}
+      />
+    </ContextMenu.Root>
+  );
+}
+
+export function SortableSlideTile(props: SlideTileProps) {
+  const { containerRef, containerStyle, isDragging, handleProps } = useSortableItem(props.slideId);
+
+  return (
+    <ContextMenu.Root>
+      <SlideTileBody
+        {...props}
+        containerRef={containerRef}
+        containerStyle={containerStyle}
+        dragging={isDragging}
+        dragHandleProps={handleProps}
       />
     </ContextMenu.Root>
   );

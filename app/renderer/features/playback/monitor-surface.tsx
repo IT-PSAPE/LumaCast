@@ -1,13 +1,13 @@
 import type { ReactNode } from 'react';
 import { BindingProvider } from '@lumacast/canvas';
-import { useRenderScenes } from '../../contexts/canvas/canvas-context';
+import { useShowScene } from '../../contexts/canvas/canvas-context';
 import { useProgramBindingValue } from './use-stage-scene';
 import { useNdi } from '../../contexts/app-context';
-import { SceneStage } from '../canvas/scene-stage';
 import { SurfaceFrame } from './surface-frame';
+import { LazySceneStage } from './lazy-scene-stage';
 
 export function MonitorSurface({ label }: { label?: ReactNode }) {
-  const { showScene } = useRenderScenes();
+  const showScene = useShowScene();
   const bindingValue = useProgramBindingValue();
   // Monitor mirrors what's about to go to the audience NDI feed, so its
   // transparent-background indicator follows the audience output's alpha
@@ -19,7 +19,7 @@ export function MonitorSurface({ label }: { label?: ReactNode }) {
   return (
     <BindingProvider value={bindingValue}>
       <SurfaceFrame label={label} checkerboard={checkerboard}>
-        <SceneStage scene={showScene} surface="monitor" className="h-full w-full" />
+        <LazySceneStage scene={showScene} surface="monitor" className="h-full w-full" />
       </SurfaceFrame>
     </BindingProvider>
   );

@@ -22,7 +22,7 @@ export function AudioBinPanel() {
             <EmptyState.Description>Import audio to build a reusable app-wide audio list.</EmptyState.Description>
           </EmptyState.Root>
         ) : (
-          <BinPanelLayout gridItemSize={1} mode={viewMode}>
+          <BinPanelLayout gridItemSize={1} mode={viewMode} virtualize>
             {audioAssets.map((asset) => (
               <AudioRow
                 key={asset.id}

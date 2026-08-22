@@ -7,6 +7,7 @@ import type { RenderNode, ResolvedMediaState, SceneSurface } from '@lumacast/com
 import { resolveMediaCover } from './resolve-media-cover';
 import { useKImage } from './use-k-image';
 import { useKVideo } from './use-k-video';
+import { buildVideoNodeClaimKey } from './video-claim-keys';
 
 interface SceneNodeMediaProps {
   node: RenderNode;
@@ -90,36 +91,52 @@ function renderBrokenPlaceholder(node: RenderNode) {
 function resolveLoadedMedia(
   node: RenderNode,
   requestKey: string | null,
-  state: ResolvedMediaState,
+  primaryState: ResolvedMediaState,
+  proxyState: ResolvedMediaState,
 ): LoadedMedia | null {
-  if (state.status !== 'loaded' || !requestKey) return null;
-  if (node.element.type === 'image' && state.resource instanceof HTMLImageElement) {
-    return { key: requestKey, kind: 'image', resource: state.resource };
+  if (!requestKey) return null;
+  if (primaryState.status === 'loaded') {
+    if (node.element.type === 'image' && primaryState.resource instanceof HTMLImageElement) {
+      return { key: requestKey, kind: 'image', resource: primaryState.resource };
+    }
+    if (node.element.type === 'video' && primaryState.resource instanceof HTMLVideoElement) {
+      return { key: requestKey, kind: 'video', resource: primaryState.resource };
+    }
   }
-  if (node.element.type === 'video' && state.resource instanceof HTMLVideoElement) {
-    return { key: requestKey, kind: 'video', resource: state.resource };
+  if (proxyState.status === 'loaded' && proxyState.resource instanceof HTMLImageElement) {
+    return { key: requestKey, kind: 'image', resource: proxyState.resource };
   }
   return null;
 }
 
 export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMediaProps) {
   const imageRef = useRef<Konva.Image | null>(null);
+  const isThumbnailSurface = surface === 'list';
   const imageSrc = node.element.type === 'image' ? (node.element.payload as { src: string }).src ?? null : null;
   const videoPayload = node.element.type === 'video' ? node.element.payload as VideoElementPayload : null;
+  const videoSrc = videoPayload?.src ?? null;
+  const proxyImageSrc = node.proxyMediaKey && node.proxyMediaKey !== imageSrc && node.proxyMediaKey !== videoSrc
+    ? node.proxyMediaKey
+    : null;
   const videoOptions = resolveVideoOptions(videoPayload, surface);
-  const imageState = useKImage(imageSrc);
+  const imageState = useKImage(isThumbnailSurface ? null : imageSrc);
+  const proxyImageState = useKImage(proxyImageSrc);
   const isLayerVideoNode = node.element.id === LAYER_VIDEO_NODE_ID;
-  const videoState = useKVideo(videoPayload?.src ?? null, {
+  const videoState = useKVideo(isThumbnailSurface ? null : videoSrc, {
     autoplay: videoOptions.autoplay,
     loop: videoOptions.loop,
     muted: videoOptions.muted,
     playbackRate: videoOptions.playbackRate,
-  }, isLayerVideoNode);
+  }, isLayerVideoNode, isLayerVideoNode ? null : buildVideoNodeClaimKey(surface, node.element.id));
   const requestKey = getMediaRequestKey(node);
-  const resolvedState = node.element.type === 'image' ? imageState : videoState;
+  const primaryState = isThumbnailSurface
+    ? ({ status: 'loading' } satisfies ResolvedMediaState)
+    : node.element.type === 'image'
+      ? imageState
+      : videoState;
   const loadedMedia = useMemo<LoadedMedia | null>(() => {
-    return resolveLoadedMedia(node, requestKey, resolvedState);
-  }, [node, requestKey, resolvedState]);
+    return resolveLoadedMedia(node, requestKey, primaryState, proxyImageState);
+  }, [node, primaryState, proxyImageState, requestKey]);
   const [displayedMedia, setDisplayedMedia] = useState<LoadedMedia | null>(loadedMedia);
 
   useEffect(() => {
@@ -142,10 +159,12 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
     });
   }, [loadedMedia, requestKey]);
 
+  const isPrimaryBroken = primaryState.status === 'broken';
+
   useEffect(() => {
-    if (!requestKey || resolvedState.status !== 'broken') return;
+    if (!requestKey || !isPrimaryBroken || proxyImageState.status === 'loaded') return;
     setDisplayedMedia(null);
-  }, [requestKey, resolvedState.status]);
+  }, [isPrimaryBroken, proxyImageState.status, requestKey]);
 
   useEffect(() => {
     if (!loadedMedia || !onLoad) return;
@@ -201,7 +220,9 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   }, [displayedMedia]);
 
   const crop = displayedMedia ? resolveCrop(displayedMedia, node.element.width, node.element.height) : null;
-  const shouldRenderBrokenPlaceholder = resolvedState.status === 'broken' && surface === 'deck-editor';
+  const shouldRenderBrokenPlaceholder = isPrimaryBroken
+    && proxyImageState.status !== 'loaded'
+    && surface === 'deck-editor';
 
   return displayedMedia ? (
     <KonvaImage

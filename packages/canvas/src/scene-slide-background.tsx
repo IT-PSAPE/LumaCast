@@ -1,5 +1,5 @@
 import { Rect } from 'react-konva';
-import type { SlideBackground, SlideGradient } from '@lumacast/composition';
+import type { RenderSceneBackground, SlideBackground, SlideGradient } from '@lumacast/composition';
 import type { SceneSurface } from '@lumacast/composition';
 import { SceneSlideBackgroundMedia } from './scene-slide-background-media';
 
@@ -13,10 +13,12 @@ import { SceneSlideBackgroundMedia } from './scene-slide-background-media';
 // driven by resolved SlideBackground data passed in as props.
 
 interface SceneSlideBackgroundProps {
-  background: SlideBackground | null | undefined;
+  background: RenderSceneBackground | SlideBackground | null | undefined;
   width: number;
   height: number;
   surface: SceneSurface;
+  ownerId?: string | null;
+  onMediaLoad?: () => void;
 }
 
 // NDI-only alpha-compositing helper: an output frame with no alpha channel
@@ -49,7 +51,7 @@ function linearGradientPoints(angle: number, width: number, height: number) {
   };
 }
 
-export function SceneSlideBackground({ background, width, height, surface }: SceneSlideBackgroundProps) {
+export function SceneSlideBackground({ background, width, height, surface, ownerId, onMediaLoad }: SceneSlideBackgroundProps) {
   if (!background) return null;
 
   if (background.type === 'color') {
@@ -94,10 +96,13 @@ export function SceneSlideBackground({ background, width, height, surface }: Sce
     <SceneSlideBackgroundMedia
       kind={background.type}
       src={background.src}
+      proxySrc={'proxyMediaKey' in background ? background.proxyMediaKey : null}
+      ownerId={ownerId}
       fit={background.fit}
       width={width}
       height={height}
       surface={surface}
+      onLoad={onMediaLoad}
     />
   );
 }

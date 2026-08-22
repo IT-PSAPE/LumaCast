@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
+import { useEffect } from 'react';
 import { Thumbnail } from './thumbnail';
 
 afterEach(cleanup);
@@ -49,6 +50,18 @@ describe('Thumbnail default appearance (deck bin, theme bin, theme editor, …)'
     expect(caption.className).toContain('bg-tertiary');
     expect(caption.className).toContain('border-primary');
     expect(caption.className).toContain('py-1');
+  });
+
+  it('accepts an explicit aspect ratio instead of forcing aspect-video', () => {
+    const { getByText } = render(
+      <Thumbnail.Tile aspectRatio={4 / 3}>
+        <Thumbnail.Body>body</Thumbnail.Body>
+      </Thumbnail.Tile>,
+    );
+
+    const body = getByText('body');
+    expect(body.className).not.toContain('aspect-video');
+    expect(body.className).toContain('[aspect-ratio:var(--thumbnail-aspect-ratio)]');
   });
 });
 
@@ -108,5 +121,47 @@ describe('Thumbnail slide variant (opt-in, only slide components)', () => {
     expect(row.className).toContain('ring-brand-400');
     expect(row.className).toContain('border-transparent');
     expect(row.className).not.toContain('bg-brand-400/15');
+  });
+});
+
+describe('Thumbnail overlays', () => {
+  it('keeps overlay identity stable when overlays reorder between the same positions', () => {
+    const mounts: string[] = [];
+
+    function Marker({ id }: { id: string }) {
+      useEffect(() => {
+        mounts.push(id);
+      }, [id]);
+
+      return <span>{id}</span>;
+    }
+
+    const { rerender } = render(
+      <Thumbnail.Tile>
+        <Thumbnail.Body>body</Thumbnail.Body>
+        <Thumbnail.Overlay position="top-right" className="status">
+          <Marker id="first" />
+        </Thumbnail.Overlay>
+        <Thumbnail.Overlay position="top-right" className="actions">
+          <Marker id="second" />
+        </Thumbnail.Overlay>
+      </Thumbnail.Tile>,
+    );
+
+    expect(mounts).toEqual(['first', 'second']);
+
+    rerender(
+      <Thumbnail.Tile>
+        <Thumbnail.Body>body</Thumbnail.Body>
+        <Thumbnail.Overlay position="top-right" className="actions">
+          <Marker id="second" />
+        </Thumbnail.Overlay>
+        <Thumbnail.Overlay position="top-right" className="status">
+          <Marker id="first" />
+        </Thumbnail.Overlay>
+      </Thumbnail.Tile>,
+    );
+
+    expect(mounts).toEqual(['first', 'second']);
   });
 });

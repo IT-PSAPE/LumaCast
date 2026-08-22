@@ -5,6 +5,7 @@ import type { SlideBackgroundFit, SceneSurface } from '@lumacast/composition';
 import { resolveMediaFit } from './resolve-media-cover';
 import { useKImage } from './use-k-image';
 import { useKVideo } from './use-k-video';
+import { buildVideoBackgroundClaimKey } from './video-claim-keys';
 
 const LIVE_SURFACES: ReadonlySet<SceneSurface> = new Set<SceneSurface>([
   'show', 'monitor', 'stage', 'ndi-show', 'ndi-stage',
@@ -13,28 +14,50 @@ const LIVE_SURFACES: ReadonlySet<SceneSurface> = new Set<SceneSurface>([
 function SceneSlideBackgroundMedia({
   kind,
   src,
+  proxySrc,
+  ownerId,
   fit,
   width,
   height,
   surface,
+  onLoad,
 }: {
   kind: 'image' | 'video';
   src: string;
+  proxySrc?: string | null;
+  ownerId?: string | null;
   fit: SlideBackgroundFit;
   width: number;
   height: number;
   surface: SceneSurface;
+  onLoad?: () => void;
 }) {
   const imageRef = useRef<Konva.Image | null>(null);
   const isLive = LIVE_SURFACES.has(surface);
-  const imageState = useKImage(kind === 'image' ? src : null);
+  const isThumbnailSurface = surface === 'list';
+  const imageState = useKImage(kind === 'image' && !isThumbnailSurface ? src : null);
+  const proxyImageState = useKImage(proxySrc ?? null);
   const videoState = useKVideo(
-    kind === 'video' ? src : null,
+    kind === 'video' && !isThumbnailSurface ? src : null,
     { autoplay: isLive, loop: true, muted: true, playbackRate: 1 },
     false,
+    buildVideoBackgroundClaimKey(surface, ownerId ?? src),
   );
-  const state = kind === 'image' ? imageState : videoState;
-  const resource = state.status === 'loaded' ? state.resource : null;
+  const primaryState = isThumbnailSurface
+    ? ({ status: 'loading' } as const)
+    : kind === 'image'
+      ? imageState
+      : videoState;
+  const resource = primaryState.status === 'loaded'
+    ? primaryState.resource
+    : proxyImageState.status === 'loaded'
+      ? proxyImageState.resource
+      : null;
+
+  useEffect(() => {
+    if (!resource) return;
+    onLoad?.();
+  }, [onLoad, resource]);
 
   const naturalSize = useMemo(() => {
     if (!resource) return null;

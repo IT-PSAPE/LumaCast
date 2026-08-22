@@ -19,7 +19,7 @@ export function MediaBinPanel({ binKind }: MediaBinPanelProps) {
   return (
     <BinShell>
       <BinShell.Content>
-        <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
+        <BinPanelLayout gridItemSize={gridSize} mode={viewMode} virtualize>
           {mediaAssets.map((asset) => (
             <MediaBinItem
               key={asset.id}

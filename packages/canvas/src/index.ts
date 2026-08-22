@@ -16,8 +16,8 @@ export type {
 } from './editor-source';
 export { isEditorWorkbenchMode } from './editor-source';
 
-export type { ImageHandle, ImageCacheEntry } from './image-cache';
-export { peekImageEntry, retainImage, getImageCacheStats, subscribeImageCacheStats } from './image-cache';
+export type { ImageHandle, ImageCacheEntry, WarmImageHandle, WarmImageOptions, WarmImageTier } from './image-cache';
+export { warmImage, peekImageEntry, retainImage, getImageCacheStats, subscribeImageCacheStats } from './image-cache';
 
 export { resolveInlineTextAlign, measureInlineTextHeight } from './inline-text-editor-utils';
 
@@ -54,8 +54,9 @@ export { useImageCacheStats } from './use-image-cache-stats';
 
 export { useKImage } from './use-k-image';
 
-export type { VideoLayerHandle } from './use-k-video';
-export { subscribeToVideoPool, getLayerVideoElement, retainVideoSource, useKVideo } from './use-k-video';
+export type { VideoLayerHandle, VideoPoolStats, WarmVideoHandle } from './use-k-video';
+export { subscribeToVideoPool, getLayerVideoElement, getVideoPoolStats, retainVideoSource, warmVideoClaim, warmVideoSource, useKVideo } from './use-k-video';
+export { buildVideoBackgroundClaimKey, buildVideoNodeClaimKey } from './video-claim-keys';
 
 export { formatTimer, formatClock, useResolvedText } from './use-resolved-text';
 

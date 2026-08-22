@@ -1,14 +1,15 @@
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/composition';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { SceneFrame } from '../../components/display/scene-frame';
+import { LazySceneStage } from '../../components/display/lazy-scene-stage';
 import { buildRenderScene } from '../../features/canvas/build-render-scene';
-import { SceneStage } from '../../features/canvas/scene-stage';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { useOverlayEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
+import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 import { useOverlayEditorScreen } from './screen-context';
 
 export function OverlayListItemBody({
@@ -23,7 +24,15 @@ export function OverlayListItemBody({
   const { actions } = useOverlayEditorScreen();
   const { duplicateOverlay, deleteOverlay, requestNameFocus } = useOverlayEditor();
   const confirm = useConfirm();
-  const scene = buildRenderScene({ width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null }, overlayToLayerElements(overlay));
+  const mediaProxyBySource = useMediaProxyMap();
+  const scene = useMemo(
+    () => buildRenderScene(
+      { width: LAYER_PREVIEW_SLIDE.width, height: LAYER_PREVIEW_SLIDE.height, background: overlay.background ?? null },
+      overlayToLayerElements(overlay),
+      { proxyMediaBySource: mediaProxyBySource },
+    ),
+    [mediaProxyBySource, overlay.background, overlay.elements],
+  );
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
   const { containerRef, containerStyle, handleProps } = useSortableItem(overlay.id);
@@ -65,7 +74,7 @@ export function OverlayListItemBody({
       >
         <Thumbnail.Body>
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
-            <SceneStage scene={scene} surface="list" className="absolute inset-0 pointer-events-none" />
+            <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
           </SceneFrame>
         </Thumbnail.Body>
         <Thumbnail.Caption>

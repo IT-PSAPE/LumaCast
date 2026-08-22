@@ -46,6 +46,12 @@ interface WrapMetrics {
   maxLineWidth: number;
 }
 
+export interface MeasuredTextBlock {
+  lineCount: number;
+  contentHeight: number;
+  layoutHeight: number;
+}
+
 function measureWrappedText(text: string, width: number, context: CanvasRenderingContext2D): WrapMetrics {
   const paragraphs = text.split('\n');
   let lineCount = 0;
@@ -123,21 +129,30 @@ export function computeAutoFitFontSize({ text, width, height, fontFamily, fontSt
 }
 
 export function measureTextBlockHeight({ text, width, fontFamily, fontSize, fontStyle, lineHeight }: MeasureTextBlockInput): number {
-  const context = getMeasurementContext();
-  if (!context) return fontSize;
-
-  context.font = buildFontDeclaration(fontStyle, fontSize, fontFamily);
-  const lineCount = countWrappedLines(text, Math.max(1, width), context);
-  return measureTextLineStackHeight(lineCount, fontSize, lineHeight);
+  return measureTextBlockMetrics({ text, width, fontFamily, fontSize, fontStyle, lineHeight }).contentHeight;
 }
 
 export function measureTextLayoutHeight({ text, width, fontFamily, fontSize, fontStyle, lineHeight }: MeasureTextBlockInput): number {
+  return measureTextBlockMetrics({ text, width, fontFamily, fontSize, fontStyle, lineHeight }).layoutHeight;
+}
+
+export function measureTextBlockMetrics({ text, width, fontFamily, fontSize, fontStyle, lineHeight }: MeasureTextBlockInput): MeasuredTextBlock {
   const context = getMeasurementContext();
-  if (!context) return fontSize * lineHeight;
+  if (!context) {
+    return {
+      lineCount: 1,
+      contentHeight: fontSize,
+      layoutHeight: fontSize * lineHeight,
+    };
+  }
 
   context.font = buildFontDeclaration(fontStyle, fontSize, fontFamily);
   const lineCount = countWrappedLines(text, Math.max(1, width), context);
-  return measureTextLineLayoutHeight(lineCount, fontSize, lineHeight);
+  return {
+    lineCount,
+    contentHeight: measureTextLineStackHeight(lineCount, fontSize, lineHeight),
+    layoutHeight: measureTextLineLayoutHeight(lineCount, fontSize, lineHeight),
+  };
 }
 
 export function verticalTextOffset(verticalAlign: TextVerticalAlign, containerHeight: number, textHeight: number): number {

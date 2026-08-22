@@ -2,9 +2,11 @@ import type { ReactNode } from 'react';
 import { BindingProvider } from '@lumacast/canvas';
 import { useStageScene, useStageBindingValue } from './use-stage-scene';
 import { useNdi } from '../../contexts/app-context';
-import { SceneStage } from '../canvas/scene-stage';
 import { SurfaceFrame } from './surface-frame';
 import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@lumacast/protocol';
+import { LazySceneStage } from './lazy-scene-stage';
+
+const NDI_FIXED_VIEWPORT: { width: number; height: number } = { width: NDI_OUTPUT_WIDTH, height: NDI_OUTPUT_HEIGHT };
 
 export function StageSurface({ label }: { label?: ReactNode }) {
   const stageScene = useStageScene();
@@ -18,11 +20,11 @@ export function StageSurface({ label }: { label?: ReactNode }) {
   return (
     <BindingProvider value={bindingValue}>
       <SurfaceFrame label={label} checkerboard={checkerboard}>
-        <SceneStage
+        <LazySceneStage
           scene={stageScene}
           surface="stage"
           className="h-full w-full"
-          fixedViewport={{ width: NDI_OUTPUT_WIDTH, height: NDI_OUTPUT_HEIGHT }}
+          fixedViewport={NDI_FIXED_VIEWPORT}
           ndiCaptureSource="stage"
         />
       </SurfaceFrame>

@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { Slide, SlideBackgroundFit } from '../domain/slides';
+import type { Slide, SlideBackground, SlideBackgroundFit } from '../domain/slides';
 import type { SlideElement, StrokePosition } from '../domain/slide-elements';
 import type { VisualPayloadState } from '../element-payload';
 import type { BindingOverride } from '../binding-values';
@@ -18,11 +18,21 @@ export interface RenderNode {
   element: SlideElement;
   visual: VisualPayloadState;
   isVideo: boolean;
+  proxyMediaKey?: string | null;
   bindingOverride?: BindingOverride;
 }
 
+export type RenderSceneBackground =
+  | Exclude<SlideBackground, { type: 'image' | 'video' }>
+  | ({ type: 'image'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit; proxyMediaKey?: string | null })
+  | ({ type: 'video'; mediaAssetId: Id | null; src: string; fit: SlideBackgroundFit; proxyMediaKey?: string | null });
+
+export type RenderSceneSlide = Omit<Slide, 'background'> & {
+  background?: RenderSceneBackground | null;
+};
+
 export interface RenderScene {
-  slide: Slide;
+  slide: RenderSceneSlide;
   width: number;
   height: number;
   nodes: RenderNode[];
@@ -98,6 +108,8 @@ export interface ResolvedMediaRenderNode extends ResolvedRenderNodeBase {
   kind: 'image' | 'video';
   mediaKey: string | null;
   media: ResolvedMediaState;
+  proxyMediaKey: string | null;
+  proxyMedia: ResolvedMediaState;
 }
 
 export interface ResolvedShapeRenderNode extends ResolvedRenderNodeBase {
@@ -125,8 +137,8 @@ export type ResolvedRenderNode =
 export type ResolvedBackground =
   | { type: 'color'; color: string }
   | { type: 'gradient'; kind: 'linear' | 'radial'; angle: number; stops: Array<{ position: number; color: string }> }
-  | { type: 'image'; fit: SlideBackgroundFit; mediaKey: string; media: ResolvedMediaState }
-  | { type: 'video'; fit: SlideBackgroundFit; mediaKey: string; media: ResolvedMediaState };
+  | { type: 'image'; fit: SlideBackgroundFit; mediaKey: string; media: ResolvedMediaState; proxyMediaKey: string | null; proxyMedia: ResolvedMediaState }
+  | { type: 'video'; fit: SlideBackgroundFit; mediaKey: string; media: ResolvedMediaState; proxyMediaKey: string | null; proxyMedia: ResolvedMediaState };
 
 export interface ResolvedRenderScene {
   surface: SceneSurface;

@@ -23,12 +23,21 @@ import {
   type ActiveOverlayEntry,
   type OverlayPlaybackMode,
   type OverlayPlaybackState,
+  type OverlayRenderLayer,
   type PresentationLayerKey,
 } from '@lumacast/playback';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 export type { PresentationLayerKey };
+
+export interface ActiveOverlayLayer {
+  overlayId: Id;
+  overlay: Overlay;
+  name: string;
+  startedAt: number;
+  stackOrder: number;
+}
 
 export interface ActiveOverlayPlayback {
   overlayId: Id;
@@ -45,7 +54,7 @@ interface LayersValue {
   mediaLayerAssetId: Id | null;
   videoLayerAssetId: Id | null;
   overlayMode: OverlayPlaybackMode;
-  activeOverlays: ActiveOverlayPlayback[];
+  activeOverlays: ActiveOverlayLayer[];
   activeOverlayIds: Id[];
   contentLayerVisible: boolean;
   mediaLayerAsset: MediaAsset | null;
@@ -70,7 +79,7 @@ interface PresentationMediaLayerValue {
 
 interface PresentationOverlayLayerValue {
   overlayMode: OverlayPlaybackMode;
-  activeOverlays: ActiveOverlayPlayback[];
+  activeOverlays: ActiveOverlayLayer[];
   activeOverlayIds: Id[];
   activateOverlay: (overlayId: Id) => void;
   clearOverlay: (overlayId: Id) => void;
@@ -88,6 +97,10 @@ interface PresentationRenderLayerValue {
     muted: boolean;
     playbackRate: number;
   };
+  activeOverlays: ActiveOverlayLayer[];
+}
+
+interface ProgramOverlayPlaybackValue {
   activeOverlays: ActiveOverlayPlayback[];
 }
 
@@ -167,6 +180,18 @@ interface PlaybackContextValue {
   stage: StageValue;
 }
 
+interface OverlayPlaybackSnapshot {
+  entries: ActiveOverlayEntry[];
+  membershipEntries: ActiveOverlayMembershipEntry[];
+  renderLayers: OverlayRenderLayer[];
+}
+
+interface ActiveOverlayMembershipEntry {
+  overlayId: Id;
+  startedAt: number;
+  stackOrder: number;
+}
+
 // ─── Constants ──────────────────────────────────────────────────────
 
 const PlaybackContext = createContext<PlaybackContextValue | null>(null);
@@ -175,6 +200,7 @@ const PresentationLayersContext = createContext<LayersValue | null>(null);
 const PresentationMediaLayerContext = createContext<PresentationMediaLayerValue | null>(null);
 const PresentationOverlayLayerContext = createContext<PresentationOverlayLayerValue | null>(null);
 const PresentationRenderLayerContext = createContext<PresentationRenderLayerValue | null>(null);
+const ProgramOverlayPlaybackContext = createContext<ProgramOverlayPlaybackValue | null>(null);
 const PresentationLayerActionsContext = createContext<PresentationLayerActionsValue | null>(null);
 const AudioPlaybackContext = createContext<AudioValue | null>(null);
 const VideoPlaybackContext = createContext<VideoValue | null>(null);
@@ -193,8 +219,15 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [videoLayerAssetId, setVideoLayerAssetId] = useState<Id | null>(null);
   const [contentLayerVisible, setContentLayerVisible] = useState(true);
   const [overlayMode, setOverlayModeState] = useState<OverlayPlaybackMode>('single');
-  const [overlayEntries, setOverlayEntries] = useState<ActiveOverlayEntry[]>([]);
-  const [playbackNow, setPlaybackNow] = useState(() => Date.now());
+  const [overlayPlayback, setOverlayPlayback] = useState<OverlayPlaybackSnapshot>({
+    entries: [],
+    membershipEntries: [],
+    renderLayers: [],
+  });
+  const overlayEntriesRef = useRef(overlayPlayback.entries);
+  overlayEntriesRef.current = overlayPlayback.entries;
+  const overlayMembershipEntries = overlayPlayback.membershipEntries;
+  const activeOverlayLayers = overlayPlayback.renderLayers;
 
   useEffect(() => {
     if (!currentOutputItemRef) return;
@@ -211,21 +244,40 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     if (!hasVideo) setVideoLayerAssetId(null);
   }, [mediaAssetsById, videoLayerAssetId]);
 
-  useEffect(() => {
-    const delay = getNextOverlayPlaybackDelay(overlayEntries, overlaysById, playbackNow);
-    if (delay == null) return undefined;
-    const timeoutId = window.setTimeout(() => {
-      setPlaybackNow(Date.now());
-    }, Math.max(0, delay));
-    return () => { window.clearTimeout(timeoutId); };
-  }, [overlayEntries, overlaysById, playbackNow]);
+  const stepOverlayPlayback = useCallback((now: number) => {
+    setOverlayPlayback((current) => buildOverlayPlaybackSnapshot(
+      current,
+      advanceOverlayPlayback(current.entries, overlaysById, now),
+      overlaysById,
+      now,
+    ));
+  }, [overlaysById]);
 
   useEffect(() => {
-    setOverlayEntries((current) => {
-      const next = advanceOverlayPlayback(current, overlaysById, playbackNow);
-      return overlayEntriesEqual(current, next) ? current : next;
-    });
-  }, [overlaysById, playbackNow]);
+    const now = Date.now();
+    const delay = getNextOverlayPlaybackDelay(overlayEntriesRef.current, overlaysById, now);
+    if (delay == null) return undefined;
+    if (delay <= 33) {
+      const frameId = requestAnimationFrame(() => {
+        stepOverlayPlayback(Date.now());
+      });
+      return () => { cancelAnimationFrame(frameId); };
+    }
+    const timeoutId = window.setTimeout(() => {
+      stepOverlayPlayback(Date.now());
+    }, Math.max(0, delay));
+    return () => { window.clearTimeout(timeoutId); };
+  }, [activeOverlayLayers, overlaysById, stepOverlayPlayback]);
+
+  useEffect(() => {
+    const now = Date.now();
+    setOverlayPlayback((current) => buildOverlayPlaybackSnapshot(
+      current,
+      advanceOverlayPlayback(current.entries, overlaysById, now),
+      overlaysById,
+      now,
+    ));
+  }, [overlaysById]);
 
   const mediaLayerAsset = useMemo(() => {
     if (!mediaLayerAssetId) return null;
@@ -237,12 +289,21 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     return mediaAssetsById.get(videoLayerAssetId) ?? null;
   }, [mediaAssetsById, videoLayerAssetId]);
 
-  const activeOverlayLayers = useMemo(
-    () => getOverlayRenderLayers(overlayEntries, overlaysById, playbackNow),
-    [overlayEntries, overlaysById, playbackNow],
-  );
+  const activeOverlays = useMemo<ActiveOverlayLayer[]>(() => {
+    return overlayMembershipEntries.flatMap((entry) => {
+      const overlay = overlaysById.get(entry.overlayId);
+      if (!overlay) return [];
+      return [{
+        overlayId: overlay.id,
+        overlay,
+        name: overlay.name,
+        startedAt: entry.startedAt,
+        stackOrder: entry.stackOrder,
+      }];
+    });
+  }, [overlayMembershipEntries, overlaysById]);
 
-  const activeOverlays = useMemo<ActiveOverlayPlayback[]>(() => {
+  const activeOverlayPlayback = useMemo<ActiveOverlayPlayback[]>(() => {
     return activeOverlayLayers.map((layer) => ({
       overlayId: layer.overlayId,
       overlay: layer.overlay,
@@ -275,8 +336,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const overlay = overlaysById.get(overlayId);
     if (!overlay) return;
     const now = Date.now();
-    setPlaybackNow(now);
-    setOverlayEntries((current) => activateOverlayPlayback(current, overlaysById, overlayId, overlayMode, now));
+    setOverlayPlayback((current) => buildOverlayPlaybackSnapshot(
+      current,
+      activateOverlayPlayback(current.entries, overlaysById, overlayId, overlayMode, now),
+      overlaysById,
+      now,
+    ));
     setStatusText(`Overlay: ${overlay.name}`);
     recordObsEvent('overlay', 'Overlay activated', { overlayId, name: overlay.name, mode: overlayMode });
   }, [overlayMode, overlaysById, setStatusText]);
@@ -285,27 +350,39 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     const overlay = overlaysById.get(overlayId);
     if (!overlay) return;
     const now = Date.now();
-    setPlaybackNow(now);
-    setOverlayEntries((current) => clearOverlayPlayback(current, overlaysById, overlayId, now));
+    setOverlayPlayback((current) => buildOverlayPlaybackSnapshot(
+      current,
+      clearOverlayPlayback(current.entries, overlaysById, overlayId, now),
+      overlaysById,
+      now,
+    ));
     setStatusText(`Overlay cleared: ${overlay.name}`);
     recordObsEvent('overlay', 'Overlay cleared', { overlayId, name: overlay.name });
   }, [overlaysById, setStatusText]);
 
   const setOverlayMode = useCallback((mode: OverlayPlaybackMode) => {
     const now = Date.now();
-    setPlaybackNow(now);
     setOverlayModeState(mode);
-    if (mode === 'single') {
-      setOverlayEntries((current) => collapseOverlayPlaybackToSingle(current, overlaysById, now));
-    }
+    setOverlayPlayback((current) => buildOverlayPlaybackSnapshot(
+      current,
+      mode === 'single'
+        ? collapseOverlayPlaybackToSingle(current.entries, overlaysById, now)
+        : current.entries,
+      overlaysById,
+      now,
+    ));
     setStatusText(mode === 'single' ? 'Overlay mode: single' : 'Overlay mode: multiple');
     recordObsEvent('overlay', 'Overlay mode changed', { mode });
   }, [overlaysById, setStatusText]);
 
   const clearAllOverlays = useCallback(() => {
     const now = Date.now();
-    setPlaybackNow(now);
-    setOverlayEntries((current) => clearAllOverlayPlayback(current, overlaysById, now));
+    setOverlayPlayback((current) => buildOverlayPlaybackSnapshot(
+      current,
+      clearAllOverlayPlayback(current.entries, overlaysById, now),
+      overlaysById,
+      now,
+    ));
     setStatusText('All overlays cleared');
     recordObsEvent('overlay', 'All overlays cleared');
   }, [overlaysById, setStatusText]);
@@ -323,8 +400,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     if (plan.clearsOutputItem) clearOutputItem();
     if (plan.clearsOverlays) {
       const now = Date.now();
-      setPlaybackNow(now);
-      setOverlayEntries((current) => clearAllOverlayPlayback(current, overlaysById, now));
+      setOverlayPlayback((current) => buildOverlayPlaybackSnapshot(
+        current,
+        clearAllOverlayPlayback(current.entries, overlaysById, now),
+        overlaysById,
+        now,
+      ));
     }
     setStatusText(plan.statusText);
   }, [clearOutputItem, overlaysById, setStatusText]);
@@ -333,7 +414,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setMediaLayerAssetId(null);
     setVideoLayerAssetId(null);
     setContentLayerVisible(false);
-    setOverlayEntries([]);
+    setOverlayPlayback({ entries: [], membershipEntries: [], renderLayers: [] });
     clearOutputItem();
     setStatusText('All layers cleared');
     recordObsEvent('layer', 'All layers cleared');
@@ -846,6 +927,9 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     videoLayerPlayback,
     activeOverlays,
   }), [activeOverlays, contentLayerVisible, mediaLayerAsset, videoLayerAsset, videoLayerPlayback]);
+  const programOverlayPlayback = useMemo<ProgramOverlayPlaybackValue>(() => ({
+    activeOverlays: activeOverlayPlayback,
+  }), [activeOverlayPlayback]);
 
   // ── Authoritative command port ──
 
@@ -884,17 +968,19 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
       <PresentationMediaLayerContext.Provider value={mediaLayer}>
         <PresentationOverlayLayerContext.Provider value={overlayLayer}>
           <PresentationRenderLayerContext.Provider value={renderLayer}>
-            <PresentationLayerActionsContext.Provider value={layerActions}>
-              <AudioPlaybackContext.Provider value={audio}>
-                <VideoPlaybackContext.Provider value={video}>
-                  <StagePlaybackContext.Provider value={stage}>
-                    <PlaybackCommandsContext.Provider value={playbackCommands}>
-                      <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>
-                    </PlaybackCommandsContext.Provider>
-                  </StagePlaybackContext.Provider>
-                </VideoPlaybackContext.Provider>
-              </AudioPlaybackContext.Provider>
-            </PresentationLayerActionsContext.Provider>
+            <ProgramOverlayPlaybackContext.Provider value={programOverlayPlayback}>
+              <PresentationLayerActionsContext.Provider value={layerActions}>
+                <AudioPlaybackContext.Provider value={audio}>
+                  <VideoPlaybackContext.Provider value={video}>
+                    <StagePlaybackContext.Provider value={stage}>
+                      <PlaybackCommandsContext.Provider value={playbackCommands}>
+                        <PlaybackContext.Provider value={value}>{children}</PlaybackContext.Provider>
+                      </PlaybackCommandsContext.Provider>
+                    </StagePlaybackContext.Provider>
+                  </VideoPlaybackContext.Provider>
+                </AudioPlaybackContext.Provider>
+              </PresentationLayerActionsContext.Provider>
+            </ProgramOverlayPlaybackContext.Provider>
           </PresentationRenderLayerContext.Provider>
         </PresentationOverlayLayerContext.Provider>
       </PresentationMediaLayerContext.Provider>
@@ -940,6 +1026,12 @@ export function usePresentationRenderLayer(): PresentationRenderLayerValue {
   return ctx;
 }
 
+export function useProgramOverlayPlayback(): ProgramOverlayPlaybackValue {
+  const ctx = useContext(ProgramOverlayPlaybackContext);
+  if (!ctx) throw new Error('useProgramOverlayPlayback must be used within PlaybackProvider');
+  return ctx;
+}
+
 export function usePresentationLayerActions(): PresentationLayerActionsValue {
   const ctx = useContext(PresentationLayerActionsContext);
   if (!ctx) throw new Error('usePresentationLayerActions must be used within PlaybackProvider');
@@ -979,4 +1071,58 @@ function overlayEntriesEqual(left: ActiveOverlayEntry[], right: ActiveOverlayEnt
       && entry.stackOrder === other.stackOrder
       && entry.autoClearAt === other.autoClearAt;
   });
+}
+
+function overlayMembershipEntriesEqual(left: ActiveOverlayMembershipEntry[], right: ActiveOverlayMembershipEntry[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((entry, index) => {
+    const other = right[index];
+    return Boolean(other)
+      && entry.overlayId === other.overlayId
+      && entry.startedAt === other.startedAt
+      && entry.stackOrder === other.stackOrder;
+  });
+}
+
+function overlayRenderLayersEqual(left: OverlayRenderLayer[], right: OverlayRenderLayer[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((layer, index) => {
+    const other = right[index];
+    return Boolean(other)
+      && layer.overlayId === other.overlayId
+      && layer.overlay === other.overlay
+      && layer.opacityMultiplier === other.opacityMultiplier
+      && layer.state === other.state
+      && layer.startedAt === other.startedAt
+      && layer.remainingAutoClearMs === other.remainingAutoClearMs
+      && layer.stackOrder === other.stackOrder;
+  });
+}
+
+function overlayPlaybackSnapshotsEqual(left: OverlayPlaybackSnapshot, right: OverlayPlaybackSnapshot): boolean {
+  return overlayEntriesEqual(left.entries, right.entries)
+    && overlayMembershipEntriesEqual(left.membershipEntries, right.membershipEntries)
+    && overlayRenderLayersEqual(left.renderLayers, right.renderLayers);
+}
+
+function buildOverlayPlaybackSnapshot(
+  previous: OverlayPlaybackSnapshot,
+  entries: ActiveOverlayEntry[],
+  overlaysById: ReadonlyMap<Id, Overlay>,
+  now: number,
+): OverlayPlaybackSnapshot {
+  const membershipEntries = entries.map((entry) => ({
+    overlayId: entry.overlayId,
+    startedAt: entry.startedAt,
+    stackOrder: entry.stackOrder,
+  }));
+  const renderLayers = getOverlayRenderLayers(entries, overlaysById, now);
+  const nextSnapshot: OverlayPlaybackSnapshot = {
+    entries: overlayEntriesEqual(previous.entries, entries) ? previous.entries : entries,
+    membershipEntries: overlayMembershipEntriesEqual(previous.membershipEntries, membershipEntries)
+      ? previous.membershipEntries
+      : membershipEntries,
+    renderLayers: overlayRenderLayersEqual(previous.renderLayers, renderLayers) ? previous.renderLayers : renderLayers,
+  };
+  return overlayPlaybackSnapshotsEqual(previous, nextSnapshot) ? previous : nextSnapshot;
 }

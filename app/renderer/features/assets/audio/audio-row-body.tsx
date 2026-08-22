@@ -1,16 +1,52 @@
-import type { AudioRowProps } from './audio-bin-types';
-import { useAudioCoverArt } from '../../../hooks/use-audio-cover-art';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useBinScrollRoot } from '@renderer/components/layout/bin-shell';
+import { useMediaDerivative } from '../../../hooks/use-media-derivative';
 import { useElements } from '../../../contexts/canvas/canvas-context';
 import { useContextMenuTrigger, ContextMenu } from '../../../components/overlays/context-menu';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
 import { MediaAssetIcon } from '../../../components/display/entity-icon';
 import { SelectableRow } from '../../../components/display/selectable-row';
+import type { AudioRowProps } from './audio-bin-types';
 
 export function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
-  const coverArt = useAudioCoverArt(asset.src);
+  const [visible, setVisible] = useState(false);
+  const rowRef = useRef<HTMLElement | null>(null);
+  const scrollRootRef = useBinScrollRoot();
+  const { asset: resolvedAsset, displaySrc, status } = useMediaDerivative(asset, visible);
   const { deleteMedia } = useElements();
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
+
+  const setRowHostRef = useCallback((node: HTMLElement | null) => {
+    rowRef.current = node;
+    triggerRef(node);
+  }, [triggerRef]);
+
+  useEffect(() => {
+    const host = rowRef.current;
+    if (!host) return;
+
+    const mountObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) setVisible(true);
+      },
+      { root: scrollRootRef?.current ?? null, rootMargin: '240px' },
+    );
+    const releaseObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.every((entry) => !entry.isIntersecting)) setVisible(false);
+      },
+      { root: scrollRootRef?.current ?? null, rootMargin: '1200px' },
+    );
+
+    mountObserver.observe(host);
+    releaseObserver.observe(host);
+
+    return () => {
+      mountObserver.disconnect();
+      releaseObserver.disconnect();
+    };
+  }, [scrollRootRef]);
 
   function handleArm() {
     onArm(asset.id);
@@ -33,16 +69,21 @@ export function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
     <>
       <SelectableRow.Root
         {...triggerHandlers}
-        ref={triggerRef}
+        ref={setRowHostRef}
         selected={isActive}
         onClick={handleArm}
         className="h-9 focus-visible:ring-2 focus-visible:ring-brand"
       >
         <SelectableRow.Leading>
-          {coverArt ? (
-            <img src={coverArt} alt="" className="h-6 w-6 rounded object-cover" />
+          {displaySrc ? (
+            <img src={displaySrc} alt="" className="h-6 w-6 rounded object-cover" />
           ) : (
-            <MediaAssetIcon asset={asset} size={14} strokeWidth={1.75} className="shrink-0 text-tertiary" />
+            <MediaAssetIcon
+              asset={resolvedAsset}
+              size={14}
+              strokeWidth={1.75}
+              className={status === 'generating' || status === 'uploading' ? 'shrink-0 animate-pulse text-tertiary' : 'shrink-0 text-tertiary'}
+            />
           )}
         </SelectableRow.Leading>
         <SelectableRow.Label>{asset.name}</SelectableRow.Label>

@@ -72,6 +72,12 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   const nodeRefs = useRef<Map<Id, Konva.Group>>(new Map());
   const dragStartByIdRef = useRef<Map<Id, { x: number; y: number }>>(new Map());
   const dragSessionRef = useRef<DragSession | null>(null);
+  const effectiveElementsRef = useRef(effectiveElements);
+  const selectedElementIdsRef = useRef(selectedElementIds);
+  const baseElementsRef = useRef(baseElements);
+  effectiveElementsRef.current = effectiveElements;
+  selectedElementIdsRef.current = selectedElementIds;
+  baseElementsRef.current = baseElements;
 
   const [guideLines, setGuideLines] = useState<GuideLine[]>([]);
   const [editingTextId, setEditingTextId] = useState<Id | null>(null);
@@ -124,7 +130,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   const commitSelectionFromNodes = useCallback(async () => {
     flushDraftBuffer();
     try {
-      const updates = selectedElementIds
+      const updates = selectedElementIdsRef.current
         .map((id) => readNodeUpdate(id))
         .filter((update): update is ElementUpdateInput => Boolean(update));
       // commitElementUpdates → updateElementsBatch rejects when an element no
@@ -135,7 +141,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     } finally {
       setCanvasInteracting(false);
     }
-  }, [readNodeUpdate, commitElementUpdates, flushDraftBuffer, selectedElementIds, setCanvasInteracting]);
+  }, [readNodeUpdate, commitElementUpdates, flushDraftBuffer, setCanvasInteracting]);
 
   const handleNodeSelect = useCallback((id: Id, toggle: boolean) => {
     if (!editable) return;
@@ -145,11 +151,11 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
 
   const handleNodeDoubleClick = useCallback((id: Id) => {
     if (!editable) return;
-    const element = effectiveElements.find((el) => el.id === id);
+    const element = effectiveElementsRef.current.find((el) => el.id === id);
     if (!element || element.type !== 'text') return;
     selectElement(id);
     setEditingTextId(id);
-  }, [editable, effectiveElements, selectElement]);
+  }, [editable, selectElement]);
 
   // Drop the live-edit draft for an element so the canvas falls back to its
   // committed (base) payload.
@@ -167,19 +173,19 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   // own — there is one render path (the canvas), so nothing shifts on enter/exit.
   const liveUpdateTextEdit = useCallback((body: RichBody) => {
     if (!editingTextId) return;
-    const element = baseElements.find((el) => el.id === editingTextId);
+    const element = baseElementsRef.current.find((el) => el.id === editingTextId);
     if (!element || element.type !== 'text') return;
     const payload = element.payload as TextElementPayload;
     const nextPayload: TextElementPayload = { ...payload, format: 'rich', richBody: body, text: richBodyToText(body) };
     applyDraftPatch(editingTextId, { payload: nextPayload });
-  }, [editingTextId, baseElements, applyDraftPatch]);
+  }, [editingTextId, applyDraftPatch]);
 
   const commitTextEdit = useCallback(async (body: RichBody) => {
     if (!editingTextId) return;
     const targetId = editingTextId;
     // Compare against the BASE (persisted) payload, not the draft-merged one the
     // live edit already pushed, so we don't mistake the live preview for "no change".
-    const element = baseElements.find((el) => el.id === targetId);
+    const element = baseElementsRef.current.find((el) => el.id === targetId);
     if (!element || element.type !== 'text') {
       clearTextDraft(targetId);
       setEditingTextId(null);
@@ -202,7 +208,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     }
     clearTextDraft(targetId);
     setEditingTextId(null);
-  }, [editingTextId, baseElements, commitElementUpdates, clearTextDraft]);
+  }, [editingTextId, commitElementUpdates, clearTextDraft]);
 
   const cancelTextEdit = useCallback(() => {
     if (editingTextId) clearTextDraft(editingTextId);
@@ -212,8 +218,10 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   const handleNodeDragStart = useCallback((id: Id) => {
     if (!editable) return;
     setCanvasInteracting(true);
-    const nextSelection = selectedIdsSet.has(id) ? selectedElementIds : [id];
-    const session = createDragSession(effectiveElements, nextSelection);
+    const selectedIds = selectedElementIdsRef.current;
+    const selectedIdsSet = new Set(selectedIds);
+    const nextSelection = selectedIdsSet.has(id) ? selectedIds : [id];
+    const session = createDragSession(effectiveElementsRef.current, nextSelection);
     selectElements(nextSelection);
     dragStartByIdRef.current.clear();
     for (const selectedId of nextSelection) {
@@ -222,7 +230,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       dragStartByIdRef.current.set(selectedId, { x: element.x, y: element.y });
     }
     dragSessionRef.current = session;
-  }, [editable, effectiveElements, selectElements, selectedElementIds, selectedIdsSet, setCanvasInteracting]);
+  }, [editable, selectElements, setCanvasInteracting]);
 
   const handleNodeDragMove = useCallback((id: Id) => {
     if (!editable) return;
@@ -230,7 +238,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     if (!node) return;
     const session = dragSessionRef.current;
     const selectedIds = session?.selectedSet.has(id) ? session.selectedIds : [id];
-    const activeElement = session?.elementById.get(id) ?? effectiveElements.find((element) => element.id === id);
+    const activeElement = session?.elementById.get(id) ?? effectiveElementsRef.current.find((element) => element.id === id);
     if (!activeElement) return;
 
     const rawX = node.x();
@@ -238,7 +246,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
 
     const snap = resolveSnap(
       { id, x: rawX, y: rawY, width: activeElement.width, height: activeElement.height },
-      session?.snapBoxes ?? mapSnapBoxes(effectiveElements, new Set(selectedIds)),
+      session?.snapBoxes ?? mapSnapBoxes(effectiveElementsRef.current, new Set(selectedIds)),
       scene.width,
       scene.height,
     );
@@ -256,7 +264,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       if (!start) continue;
       applyDraftPatch(selectedId, { x: start.x + dx, y: start.y + dy });
     }
-  }, [applyDraftPatch, editable, effectiveElements, scene.height, scene.width, selectedElementIds, selectedIdsSet]);
+  }, [applyDraftPatch, editable, scene.height, scene.width]);
 
   const handleNodeDragEnd = useCallback(async () => {
     setGuideLines([]);
@@ -269,11 +277,12 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     let nextGuides: GuideLine[] = [];
     const activeAnchor = transformerRef.current?.getActiveAnchor() ?? null;
     const canSnapTransform = activeAnchor !== null && activeAnchor !== 'rotater';
+    const selectedIds = selectedElementIdsRef.current;
 
-    for (const id of selectedElementIds) {
+    for (const id of selectedIds) {
       const node = nodeRefs.current.get(id);
       if (!node) continue;
-      const activeElement = effectiveElements.find((element) => element.id === id);
+      const activeElement = effectiveElementsRef.current.find((element) => element.id === id);
       if (!activeElement) continue;
       const shouldSnapTransform = canSnapTransform;
 
@@ -287,7 +296,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       if (shouldSnapTransform) {
         const snap = resolveTransformSnap(
           { id, x, y, width, height },
-          mapSnapBoxes(effectiveElements, new Set(selectedElementIds)),
+          mapSnapBoxes(effectiveElementsRef.current, new Set(selectedIds)),
           scene.width,
           scene.height,
           activeAnchor,
@@ -327,7 +336,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       });
     }
     setGuideLines(nextGuides);
-  }, [applyDraftPatch, effectiveElements, scene.height, scene.width, selectedElementIds, setCanvasInteracting]);
+  }, [applyDraftPatch, scene.height, scene.width, setCanvasInteracting]);
 
   const handleNodeTransformEnd = useCallback(async () => {
     setGuideLines([]);

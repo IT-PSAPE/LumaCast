@@ -4,6 +4,7 @@ import { Thumbnail } from '../../components/display/thumbnail';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
 import { useContextMenuTrigger } from '../../components/overlays/context-menu';
 import { useProjectContent } from '../../contexts/use-project-content';
+import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 import { writeItemDragData } from '../../utils/item-drag';
 import { buildThumbnailScene } from '../canvas/build-render-scene';
 import type { ItemLike, ItemProps } from './item-bin-types';
@@ -14,9 +15,10 @@ import { useDuplicateItem } from './use-duplicate-item';
 
 export function ItemBinTileBody<T extends ItemLike>({ item, itemRef, slides, isSelected, isEditing, isFirst, isLast, onOpen, onRename, onMove }: ItemProps<T>) {
   const { slideElementsBySlideId } = useProjectContent();
+  const mediaProxyBySource = useMediaProxyMap();
   const firstSlide = slides[0] ?? null;
   const firstSlideElements = firstSlide ? slideElementsBySlideId.get(firstSlide.id) ?? [] : [];
-  const scene = firstSlide ? buildThumbnailScene(firstSlide, firstSlideElements) : null;
+  const scene = firstSlide ? buildThumbnailScene(firstSlide, firstSlideElements, { proxyMediaBySource: mediaProxyBySource }) : null;
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteItem(itemRef, item.title);
   const handleDuplicate = useDuplicateItem(itemRef, item.title);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlignLeft, Ellipsis, Film, Image, Layers, Layers2, Pencil, Plus, VolumeX, XCircle } from 'lucide-react';
+import { AlignLeft, Ellipsis, Film, Image, Layers, Layers2, Pencil, Plus, Square, VolumeX, XCircle } from 'lucide-react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { Tabs } from '../../components/display/tabs';
@@ -39,7 +39,7 @@ export function ProgramPanel() {
   const { setCurrentStageId: setPlaybackStageId } = useStagePlayback();
   const { actions: { setWorkbenchMode } } = useWorkbench();
   const [bottomTab, setBottomTab] = useState<BottomTab>('overlays');
-  const { actions: { createMacro } } = useAutomation();
+  const { actions: { createMacro, cancelActiveMacros } } = useAutomation();
   const mediaActive = Boolean(mediaLayerAsset);
   const videoActive = Boolean(videoLayerAsset);
   const contentActive = contentLayerVisible && Boolean(currentOutputItemRef);
@@ -207,6 +207,9 @@ export function ProgramPanel() {
                   </ReacstButton.Icon>
                 </Tabs.Panel>
                 <Tabs.Panel value="macros" className="flex items-center gap-1">
+                  <ReacstButton.Icon label="Cancel active macros" variant="ghost" onClick={cancelActiveMacros}>
+                    <Square />
+                  </ReacstButton.Icon>
                   <ReacstButton.Icon label="Edit macros" variant="ghost" onClick={handleEditMacros}>
                     <Pencil />
                   </ReacstButton.Icon>

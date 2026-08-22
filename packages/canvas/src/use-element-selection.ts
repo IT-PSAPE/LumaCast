@@ -62,7 +62,7 @@ export function useElementSelection({ effectiveElements }: UseElementSelectionIn
     setSelectedElementIds([]);
   }, []);
 
-  return {
+  return useMemo(() => ({
     selectedElementIds,
     primarySelectedElementId,
     selectedElement,
@@ -71,5 +71,14 @@ export function useElementSelection({ effectiveElements }: UseElementSelectionIn
     selectElements,
     toggleElementSelection,
     clearSelection,
-  };
+  }), [
+    clearSelection,
+    primarySelectedElementId,
+    selectElement,
+    selectElements,
+    selectedElement,
+    selectedElementIds,
+    setSelectedElementIds,
+    toggleElementSelection,
+  ]);
 }

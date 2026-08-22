@@ -14,6 +14,7 @@ const NOOP_CREATE_CAPABILITIES: EditorCreateCapabilities = {
   image: false,
   video: false,
 };
+const EMPTY_EDITOR_ELEMENTS: SlideElement[] = [];
 
 function noopReplaceElements(_elements: SlideElement[]) {}
 
@@ -155,7 +156,7 @@ export function useActiveEditorSource(): ActiveEditorSource {
       entityId: null,
       hasSource: false,
       frame: null,
-      elements: [],
+      elements: EMPTY_EDITOR_ELEMENTS,
       replaceElements: noopReplaceElements,
       historyKey: null,
       emptyStateLabel: 'No editable source selected.',

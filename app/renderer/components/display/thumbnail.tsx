@@ -1,4 +1,4 @@
-import { Children, isValidElement, type HTMLAttributes, type ReactElement, type ReactNode, type Ref } from 'react';
+import { Children, isValidElement, type CSSProperties, type HTMLAttributes, type ReactElement, type ReactNode, type Ref } from 'react';
 import { cn } from '@renderer/utils/cn';
 import { cv } from '@renderer/utils/cv';
 
@@ -39,6 +39,7 @@ interface ThumbnailRootProps extends Omit<HTMLAttributes<HTMLDivElement>, 'child
   onDoubleClick?: () => void;
   selected?: boolean;
   variant?: 'default' | 'slide';
+  aspectRatio?: number;
   ref?: Ref<HTMLDivElement>;
 }
 
@@ -95,8 +96,11 @@ function Row({ children, className, onClick, onDoubleClick, selected = false, va
   );
 }
 
-function Tile({ children, className, onClick, onDoubleClick, selected = false, variant = 'default', ref, ...rest }: ThumbnailRootProps) {
+function Tile({ children, className, onClick, onDoubleClick, selected = false, variant = 'default', aspectRatio, ref, style, ...rest }: ThumbnailRootProps) {
   const slots = collectThumbnailSlots(children);
+  const bodyStyle = aspectRatio
+    ? { ...style, '--thumbnail-aspect-ratio': String(aspectRatio) } as CSSProperties
+    : style;
 
   return (
     <div
@@ -106,7 +110,14 @@ function Tile({ children, className, onClick, onDoubleClick, selected = false, v
       onDoubleClick={onDoubleClick}
       className={cn(thumbnailStyles({ selected, variant }), className)}
     >
-      <div className={cn('relative aspect-video min-w-0 overflow-hidden bg-primary', slots.body?.props.className)}>
+      <div
+        className={cn(
+          'relative min-w-0 overflow-hidden bg-primary',
+          aspectRatio ? '[aspect-ratio:var(--thumbnail-aspect-ratio)]' : 'aspect-video',
+          slots.body?.props.className,
+        )}
+        style={bodyStyle}
+      >
         {slots.body?.props.children ?? null}
       </div>
       {slots.overlays.map(renderOverlay)}
@@ -144,18 +155,31 @@ function collectThumbnailSlots(children: ReactNode): ThumbnailSlots {
   return slots;
 }
 
-function renderOverlay(overlay: ReactElement<ThumbnailOverlayProps>, index: number) {
+function renderOverlay(overlay: ReactElement<ThumbnailOverlayProps>) {
   const position = overlay.props.position ?? 'top-right';
   const positionClassName = getOverlayPositionClassName(position);
+  const overlayKey = overlay.key ?? `${position}:${overlay.props.className ?? ''}:${getOverlayChildKey(overlay.props.children)}`;
 
   return (
     <div
-      key={`${position}-${index}`}
+      key={overlayKey}
       className={cn('absolute z-10', positionClassName, overlay.props.className)}
     >
       {overlay.props.children}
     </div>
   );
+}
+
+function getOverlayChildKey(children: ReactNode): string {
+  if (!isValidElement(children)) return typeof children === 'string' ? children : 'overlay';
+  const childType = typeof children.type === 'string'
+    ? children.type
+    : ('displayName' in children.type && typeof children.type.displayName === 'string')
+      ? children.type.displayName
+      : ('name' in children.type && typeof children.type.name === 'string')
+        ? children.type.name
+        : 'component';
+  return `${childType}:${children.key ?? ''}`;
 }
 
 function getOverlayPositionClassName(position: ThumbnailOverlayPosition): string {

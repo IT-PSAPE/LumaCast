@@ -1,19 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { ResolvedMediaState } from '@lumacast/composition';
-import { peekImageEntry, retainImage } from './image-cache';
+import { peekImageEntry, reserveImageEntry, retainImage } from './image-cache';
+import type { ImageCacheEntry } from './image-cache';
 
 interface TrackedImageState {
   src: string | null;
   media: ResolvedMediaState;
 }
 
-// What to paint for `src` before the retain effect has run. Reading the cache
-// during render keeps a warm remount — leaving a deck and coming back — on
-// screen from the first frame instead of flashing empty for a paint.
-function resolveFromCache(src: string | null): ResolvedMediaState {
-  if (!src) return { status: 'empty' };
-
-  const entry = peekImageEntry(src);
+function resolveFromEntry(entry: ImageCacheEntry | null): ResolvedMediaState {
   if (!entry || entry.status === 'loading') return { status: 'loading' };
   if (entry.status === 'error') return { status: 'broken' };
   return { status: 'loaded', resource: entry.image };
@@ -26,7 +21,18 @@ function isSameMedia(left: ResolvedMediaState, right: ResolvedMediaState): boole
 }
 
 export function useKImage(src: string | null): ResolvedMediaState {
-  const [tracked, setTracked] = useState<TrackedImageState>(() => ({ src, media: resolveFromCache(src) }));
+  const renderEntry = src ? peekImageEntry(src) : null;
+  const renderMedia = src ? resolveFromEntry(renderEntry) : { status: 'empty' } satisfies ResolvedMediaState;
+  const [tracked, setTracked] = useState<TrackedImageState>(() => ({ src, media: renderMedia }));
+
+  useLayoutEffect(() => {
+    if (!src || !renderEntry || renderEntry.status !== 'loaded') return;
+
+    const reservation = reserveImageEntry(renderEntry);
+    return () => {
+      reservation?.release();
+    };
+  }, [src, renderEntry]);
 
   useEffect(() => {
     if (!src) {
@@ -70,5 +76,5 @@ export function useKImage(src: string | null): ResolvedMediaState {
   // `tracked` runs a render behind, and SceneNodeMedia would otherwise tag the
   // outgoing element with the incoming request key — painting one slide's
   // media on another.
-  return tracked.src === src ? tracked.media : resolveFromCache(src);
+  return tracked.src === src ? tracked.media : renderMedia;
 }

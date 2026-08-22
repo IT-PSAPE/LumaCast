@@ -27,3 +27,13 @@ export {
 } from './layer-transitions';
 
 export { resolveStageArmedAt } from './stage-arming';
+
+export {
+  resolveMediaResidencyPlan,
+  type MediaResidencyPlan,
+  type MediaResidencyPlanEntry,
+  type MediaResidencyPredictionInput,
+  type MediaResidencySlide,
+  type MediaResidencyStage,
+  type MediaResidencyTier,
+} from './media-residency';

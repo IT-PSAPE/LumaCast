@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => {
       setWorkbenchMode: vi.fn(),
     },
     overlayStack: { register: vi.fn(), unregister: vi.fn(), stack: [] as string[], baseZIndex: 100 },
+    automationActions: {
+      createMacro: vi.fn().mockResolvedValue({}),
+      cancelActiveMacros: vi.fn(),
+    },
     programBackground: 'black',
     audienceWithAlpha: false,
     stageWithAlpha: false,
@@ -79,7 +83,7 @@ vi.mock('../../contexts/canvas/canvas-context', () => ({
 }));
 
 vi.mock('../automation/automation-context', () => ({
-  useAutomation: () => ({ actions: { createMacro: vi.fn().mockResolvedValue({}) } }),
+  useAutomation: () => ({ actions: mocks.automationActions }),
 }));
 
 vi.mock('./use-program-output', () => ({
@@ -106,10 +110,55 @@ vi.mock('./use-stage-scene', () => ({
   useStageScene: () => ({}),
 }));
 
-vi.mock('../canvas/scene-stage', () => ({
-  SceneStage: ({ surface, ndiCaptureSource }: { surface: string; ndiCaptureSource?: string }) => (
-    <div data-testid="scene-stage" data-surface={surface} data-ndi-capture={ndiCaptureSource ?? ''} />
+vi.mock('./program-mode-header', () => ({
+  ProgramModeHeader: () => (
+    <div>
+      <button
+        aria-label={mocks.workbenchState.programMode === 'single' ? 'Switch to all program views' : 'Switch to single program view'}
+        onClick={() => mocks.workbenchActions.setProgramMode(mocks.workbenchState.programMode === 'single' ? 'all' : 'single')}
+      />
+      {mocks.workbenchState.programMode === 'single' ? (
+        <div>
+          <button>{mocks.workbenchState.programSingleSurface === 'program' ? 'Program' : mocks.workbenchState.programSingleSurface === 'monitor' ? 'Monitor' : 'Stage'}</button>
+          <button role="menuitem" onClick={() => mocks.workbenchActions.setProgramSingleSurface('program')}>Program</button>
+          <button role="menuitem" onClick={() => mocks.workbenchActions.setProgramSingleSurface('monitor')}>Monitor</button>
+          <button role="menuitem" onClick={() => mocks.workbenchActions.setProgramSingleSurface('stage')}>Stage</button>
+        </div>
+      ) : (
+        <label aria-label="Grid columns" />
+      )}
+    </div>
   ),
+}));
+
+vi.mock('./surfaces-area', () => ({
+  SurfacesArea: () => {
+    const labels = { program: 'Program', monitor: 'Monitor', stage: 'Stage' } as const;
+    const surfaces = mocks.workbenchState.programMode === 'single'
+      ? [mocks.workbenchState.programSingleSurface]
+      : ['program', 'monitor', 'stage'];
+    return (
+      <div>
+        {surfaces.map((surface) => (
+          <div key={surface}>
+            {mocks.workbenchState.programMode === 'all' ? <span className="bg-black/60">{labels[surface as keyof typeof labels]}</span> : null}
+            <div
+              data-testid="scene-stage"
+              data-surface={surface === 'program' ? 'show' : surface}
+              data-ndi-capture={surface === 'program' ? 'audience' : surface === 'stage' ? 'stage' : ''}
+              className={(
+                surface === 'program' && mocks.programBackground === 'transparent'
+              ) || (
+                surface === 'monitor' && mocks.audienceWithAlpha
+              ) || (
+                surface === 'stage' && mocks.stageWithAlpha
+              ) ? 'repeating-conic-gradient' : ''}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 vi.mock('../assets/overlays/overlay-bin-panel', () => ({
@@ -241,6 +290,9 @@ describe('ProgramPanel bottom tabs', () => {
     fireEvent.click(getByRole('tab', { name: 'Macros' }));
     expect(getByLabelText('Add macro')).not.toBeNull();
     expect(getByLabelText('Edit macros')).not.toBeNull();
+    expect(getByLabelText('Cancel active macros')).not.toBeNull();
+    fireEvent.click(getByLabelText('Cancel active macros'));
+    expect(mocks.automationActions.cancelActiveMacros).toHaveBeenCalledTimes(1);
     expect(queryByLabelText('Add stage')).toBeNull();
     expect(getByTestId('macro-bin')).not.toBeNull();
     expect(queryByTestId('stage-bin')).toBeNull();

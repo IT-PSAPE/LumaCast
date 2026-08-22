@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { SceneStage } from '@renderer/features/canvas/scene-stage';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { useBinScrollRoot } from '@renderer/components/layout/bin-shell';
 import type { RenderScene, SceneSurface } from '@lumacast/composition';
+
+const SceneStage = lazy(() =>
+  import('@renderer/features/canvas/scene-stage').then((module) => ({ default: module.SceneStage })),
+);
 
 interface LazySceneStageProps {
   scene: RenderScene;
@@ -11,6 +15,7 @@ interface LazySceneStageProps {
 export function LazySceneStage({ scene, surface, className }: LazySceneStageProps) {
   const [visible, setVisible] = useState(false);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const scrollRootRef = useBinScrollRoot();
 
   useEffect(() => {
     const host = hostRef.current;
@@ -26,14 +31,14 @@ export function LazySceneStage({ scene, surface, className }: LazySceneStageProp
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) setVisible(true);
       },
-      { rootMargin: '240px' },
+      { root: scrollRootRef?.current ?? null, rootMargin: '240px' },
     );
 
     const releaseObserver = new IntersectionObserver(
       (entries) => {
         if (entries.every((entry) => !entry.isIntersecting)) setVisible(false);
       },
-      { rootMargin: '1200px' },
+      { root: scrollRootRef?.current ?? null, rootMargin: '1200px' },
     );
 
     mountObserver.observe(host);
@@ -43,11 +48,15 @@ export function LazySceneStage({ scene, surface, className }: LazySceneStageProp
       mountObserver.disconnect();
       releaseObserver.disconnect();
     };
-  }, []);
+  }, [scrollRootRef]);
 
   return (
     <div ref={hostRef} className={className}>
-      {visible ? <SceneStage scene={scene} surface={surface} className="absolute inset-0 pointer-events-none" /> : null}
+      {visible ? (
+        <Suspense fallback={null}>
+          <SceneStage scene={scene} surface={surface} className="absolute inset-0 pointer-events-none" />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

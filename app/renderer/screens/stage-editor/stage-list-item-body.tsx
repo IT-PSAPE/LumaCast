@@ -1,13 +1,14 @@
-import type { MouseEvent as ReactMouseEvent } from 'react';
+import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { SceneFrame } from '../../components/display/scene-frame';
+import { LazySceneStage } from '../../components/display/lazy-scene-stage';
 import { buildRenderScene } from '../../features/canvas/build-render-scene';
-import { SceneStage } from '../../features/canvas/scene-stage';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
 import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { useStageEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
+import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 import { useStageEditorScreen } from './screen-context';
 
 export function StageListItemBody({
@@ -22,7 +23,15 @@ export function StageListItemBody({
   const { actions } = useStageEditorScreen();
   const { duplicateStage, deleteStage, requestNameFocus } = useStageEditor();
   const confirm = useConfirm();
-  const scene = buildRenderScene({ width: stage.width, height: stage.height, background: stage.background ?? null }, stage.elements);
+  const mediaProxyBySource = useMediaProxyMap();
+  const scene = useMemo(
+    () => buildRenderScene(
+      { width: stage.width, height: stage.height, background: stage.background ?? null },
+      stage.elements,
+      { proxyMediaBySource: mediaProxyBySource },
+    ),
+    [mediaProxyBySource, stage.background, stage.elements, stage.height, stage.width],
+  );
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
   const { containerRef, containerStyle, handleProps } = useSortableItem(stage.id);
@@ -64,7 +73,7 @@ export function StageListItemBody({
       >
         <Thumbnail.Body>
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
-            <SceneStage scene={scene} surface="list" className="absolute inset-0 pointer-events-none" />
+            <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
           </SceneFrame>
         </Thumbnail.Body>
         <Thumbnail.Caption>

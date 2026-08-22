@@ -11,38 +11,48 @@ import { BundleDropImport } from './features/items/bundle-drop-import';
 import { CreateItemProvider } from './features/items/create-item';
 import { LyricEditorProvider } from './features/items/lyric-editor';
 import { AutomationProvider } from './features/automation/automation-context';
-import { NdiOutputs } from './features/playback/ndi-outputs';
+import { NdiOutputsGate } from './features/playback/ndi-outputs-gate';
+import { MediaResidencyBoundary } from './features/playback/media-residency-boundary';
+import { useObservabilityRuntime } from './features/observability/observability-runtime';
 import { ConfirmProvider } from './components/overlays/confirm-dialog';
 import { ErrorBoundary } from './components/feedback/error-boundary';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { AppLayoutContent } from './app-layout-content';
 
+function ObservabilityRuntime() {
+  useObservabilityRuntime();
+  return null;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
       <WorkbenchProvider>
+        <ObservabilityRuntime />
         <ConfirmProvider>
           <AppProvider>
             <AssetEditorProvider>
               <NavigationProvider>
                 <PlaybackProvider>
                   <SlideProvider>
-                    <AutomationProvider>
-                      <LyricEditorProvider>
-                        <CreateItemProvider>
-                          <CanvasProvider>
-                            <CommandPaletteProvider>
-                              <NdiOutputs />
-                              <SplitPanel>
-                                <AppLayoutContent />
-                              </SplitPanel>
-                              <CommandPalette />
-                              <BundleDropImport />
-                            </CommandPaletteProvider>
-                          </CanvasProvider>
-                        </CreateItemProvider>
-                      </LyricEditorProvider>
-                    </AutomationProvider>
+                    <MediaResidencyBoundary>
+                      <AutomationProvider>
+                        <LyricEditorProvider>
+                          <CreateItemProvider>
+                            <CanvasProvider>
+                              <CommandPaletteProvider>
+                                <NdiOutputsGate />
+                                <SplitPanel>
+                                  <AppLayoutContent />
+                                </SplitPanel>
+                                <CommandPalette />
+                                <BundleDropImport />
+                              </CommandPaletteProvider>
+                            </CanvasProvider>
+                          </CreateItemProvider>
+                        </LyricEditorProvider>
+                      </AutomationProvider>
+                    </MediaResidencyBoundary>
                   </SlideProvider>
                 </PlaybackProvider>
               </NavigationProvider>

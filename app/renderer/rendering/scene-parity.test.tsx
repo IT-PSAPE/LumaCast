@@ -212,6 +212,20 @@ describe('node-kind dispatch parity', () => {
     expect(resolvedScene.nodes[0].kind).toBe('group');
     expect((resolvedScene.nodes[0] as { children?: unknown[] }).children).toHaveLength(1);
   });
+
+  it('threads proxy media keys through both Konva and resolved scene builders', () => {
+    const image = imageElement('image-1', 'cast-media://full.png');
+    const scene = buildRenderScene(slide(), [image], {
+      proxyMediaBySource: new Map([['cast-media://full.png', 'cast-media://thumb.png']]),
+    });
+    const resolved = buildResolvedRenderScene(slide(), [image], {
+      proxyMediaBySource: new Map([['cast-media://full.png', 'cast-media://thumb.png']]),
+    });
+
+    expect(scene.nodes[0]?.proxyMediaKey).toBe('cast-media://thumb.png');
+    expect(resolved.nodes[0]?.kind).toBe('image');
+    expect((resolved.nodes[0] as { proxyMediaKey?: string | null }).proxyMediaKey).toBe('cast-media://thumb.png');
+  });
 });
 
 // ─── Frame geometry parity ─────────────────────────────────────────────
