@@ -2,11 +2,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildMediaLibraryReference,
   getMediaLibraryDirectory,
+  isBrokenMediaSource,
   isMediaLibraryReference,
   mediaLibraryFileName,
   resolveLocalMediaSourcePath,
   setMediaLibraryDirectory,
-} from './media-source-path';
+  toCastMediaSource,
+} from './media-source-utils';
 
 const VALID_HASH = 'a'.repeat(64);
 const VALID_REFERENCE = `cast-media://library/${VALID_HASH}.mp4`;
@@ -109,5 +111,38 @@ describe('media library references', () => {
     expect(buildMediaLibraryReference(`${VALID_HASH}.mp4`)).toBe(VALID_REFERENCE);
     expect(() => buildMediaLibraryReference('not-a-hash')).toThrow();
     expect(() => buildMediaLibraryReference(`${VALID_HASH}/../x`)).toThrow();
+  });
+});
+
+describe('toCastMediaSource', () => {
+  afterEach(() => {
+    setMediaLibraryDirectory(null);
+  });
+
+  it('passes a library reference through unchanged, with or without a configured directory', () => {
+    expect(toCastMediaSource(VALID_REFERENCE)).toBe(VALID_REFERENCE);
+    setMediaLibraryDirectory('/userData/media');
+    expect(toCastMediaSource(VALID_REFERENCE)).toBe(VALID_REFERENCE);
+  });
+
+  it('still wraps a plain absolute path as an encoded cast-media source (regression)', () => {
+    expect(toCastMediaSource('/tmp/clip.mp4')).toBe(`cast-media://${encodeURIComponent('/tmp/clip.mp4')}`);
+  });
+});
+
+describe('isBrokenMediaSource', () => {
+  afterEach(() => {
+    setMediaLibraryDirectory(null);
+  });
+
+  it('does not consider a library reference broken when no directory is configured', () => {
+    // Unresolvable right now is not the same as proven missing: see the
+    // comment on isBrokenMediaSource in media-source-utils.ts.
+    expect(isBrokenMediaSource(VALID_REFERENCE)).toBe(false);
+  });
+
+  it('considers a library reference broken when the configured directory does not contain the file', () => {
+    setMediaLibraryDirectory('/nonexistent-media-library-dir');
+    expect(isBrokenMediaSource(VALID_REFERENCE)).toBe(true);
   });
 });
