@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type Konva from 'konva';
 import { Group, Image as KonvaImage, Rect } from 'react-konva';
 import type { SlideBackgroundFit, SceneSurface } from '@lumacast/composition';
+import { MISSING_MEDIA_SURFACES, MissingMediaPlaceholder } from './missing-media-placeholder';
 import { resolveMediaFit } from './resolve-media-cover';
 import { useKImage } from './use-k-image';
 import { useKVideo } from './use-k-video';
@@ -99,6 +100,14 @@ function SceneSlideBackgroundMedia({
   }, [resource]);
 
   if (!resource || !naturalSize) {
+    // A background whose file cannot be read reports it on authoring surfaces
+    // instead of silently painting nothing. Thumbnail surfaces never decode the
+    // full source, so there only the proxy can report the fault.
+    const isMediaUnavailable = primaryState.status === 'broken'
+      || (isThumbnailSurface && proxyImageState.status === 'broken');
+    if (isMediaUnavailable && MISSING_MEDIA_SURFACES.has(surface)) {
+      return <MissingMediaPlaceholder width={width} height={height} listening={false} />;
+    }
     return <Rect x={0} y={0} width={width} height={height} fill="#00000000" listening={false} />;
   }
 

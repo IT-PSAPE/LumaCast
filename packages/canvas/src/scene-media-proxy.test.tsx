@@ -21,6 +21,7 @@ vi.mock('react-konva', () => ({
     lastRectProps = props;
     return null;
   },
+  Text: () => null,
 }));
 
 const useKImageMock = vi.fn((src: string | null) => src ? (imageStates.get(src) ?? { status: 'loading' }) : { status: 'empty' });

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
-import { Group, Image as KonvaImage, Line, Rect } from 'react-konva';
+import { Image as KonvaImage, Rect } from 'react-konva';
 import { LAYER_VIDEO_NODE_ID } from '@lumacast/composition';
 import type { VideoElementPayload } from '@lumacast/composition';
 import type { RenderNode, ResolvedMediaState, SceneSurface } from '@lumacast/composition';
+import { MISSING_MEDIA_SURFACES, MissingMediaPlaceholder } from './missing-media-placeholder';
 import { resolveMediaCover } from './resolve-media-cover';
 import { useKImage } from './use-k-image';
 import { useKVideo } from './use-k-video';
@@ -63,29 +64,6 @@ function resolveCrop(media: LoadedMedia, width: number, height: number) {
   }
 
   return resolveMediaCover(media.resource.videoWidth, media.resource.videoHeight, width, height);
-}
-
-function renderBrokenPlaceholder(node: RenderNode) {
-  const stripeSpacing = 28;
-  const stripes = Array.from({ length: Math.ceil((node.element.width + node.element.height) / stripeSpacing) }, (_value, index) => {
-    const offset = index * stripeSpacing;
-    return (
-      <Line
-        key={`stripe-${offset}`}
-        points={[offset, node.element.height, offset - node.element.height, 0]}
-        stroke="#050505"
-        strokeWidth={12}
-        opacity={0.9}
-      />
-    );
-  });
-
-  return (
-    <Group>
-      <Rect x={0} y={0} width={node.element.width} height={node.element.height} fill="#101114" />
-      {stripes}
-    </Group>
-  );
 }
 
 function resolveLoadedMedia(
@@ -220,9 +198,13 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   }, [displayedMedia]);
 
   const crop = displayedMedia ? resolveCrop(displayedMedia, node.element.width, node.element.height) : null;
-  const shouldRenderBrokenPlaceholder = isPrimaryBroken
+  // Thumbnail surfaces never decode the full source (ADR-0013 keeps them
+  // derivative-only), so there the proxy is the only thing that can report a
+  // missing file.
+  const isMediaUnavailable = isPrimaryBroken || (isThumbnailSurface && proxyImageState.status === 'broken');
+  const shouldRenderMissingPlaceholder = isMediaUnavailable
     && proxyImageState.status !== 'loaded'
-    && surface === 'deck-editor';
+    && MISSING_MEDIA_SURFACES.has(surface);
 
   return displayedMedia ? (
     <KonvaImage
@@ -234,8 +216,8 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
       height={node.element.height}
       crop={crop ?? undefined}
     />
-  ) : shouldRenderBrokenPlaceholder ? (
-    renderBrokenPlaceholder(node)
+  ) : shouldRenderMissingPlaceholder ? (
+    <MissingMediaPlaceholder width={node.element.width} height={node.element.height} />
   ) : (
     <Rect x={0} y={0} width={node.element.width} height={node.element.height} fill="#2b303900" />
   );

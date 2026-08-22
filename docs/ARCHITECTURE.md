@@ -130,6 +130,16 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   without blanking the scene once the full decode completes. Thumbnail / list
   (`T3`) surfaces stay derivative-only and never instantiate full-resolution
   image cache entries or full `HTMLVideoElement` decodes.
+- Media whose file cannot be read is reported, not silently dropped
+  (ADR-0018). `packages/canvas/src/missing-media-placeholder.tsx` is the single
+  painter for that state — a theme-adaptive muted-red field with a warning
+  glyph and a `MISSING MEDIA` label — used by both `SceneNodeMedia` and
+  `SceneSlideBackgroundMedia`. `MISSING_MEDIA_SURFACES` limits it to
+  `deck-editor`, `monitor`, and `list`: `show` (the surface NDI captures),
+  `stage`, and the `ndi-*` surfaces keep painting transparent so a fault report
+  never reaches a live output. A loaded proxy derivative always suppresses it.
+  The two DOM thumbnail components report the same condition with the theme's
+  error tokens and the same "Missing media" copy.
 
 `tool/check_electron_architecture.mjs` walks `packages/*` and enforces, as
 hard errors that are never allow-listable:
