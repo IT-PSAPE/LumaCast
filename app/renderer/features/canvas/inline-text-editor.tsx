@@ -19,6 +19,7 @@ import {
 import { Bold, Italic, List, ListOrdered, Strikethrough, Underline } from 'lucide-react';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { ColorPicker } from '@renderer/components/form/color-picker';
+import { FieldInput } from '@renderer/components/form/field';
 import { resolveInlineTextAlign, computeAutoFitFontSize } from '@lumacast/canvas';
 
 interface InlineTextEditorProps {
@@ -63,21 +64,46 @@ function escapeHtml(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function rangesEqual(a: RichRange | null, b: RichRange | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.start.block === b.start.block && a.start.offset === b.start.offset
+    && a.end.block === b.end.block && a.end.offset === b.end.offset;
+}
+
 function runSpanHtml(run: RichRun, box: RichBoxStyle): string {
   const resolved = resolveRun(run, box);
-  // Only weight/style affect layout (and thus caret/selection geometry). Color and
-  // decorations are intentionally omitted: the canvas draws the visible text, and
-  // the editor's own text is transparent — this is the single render path.
-  const style = [
+  // Only weight/style/size affect layout (and thus caret/selection geometry).
+  // Color and decorations are intentionally omitted: the canvas draws the visible
+  // text, and the editor's own text is transparent — this is the single render path.
+  // The visible size is an em ratio to the Box-level size, never absolute px: the
+  // container already carries the auto-fit size × scene scale, so an em ratio
+  // inherits both automatically and the caret geometry stays where the canvas draws.
+  // A run with no override emits no font-size and inherits the container at 1em.
+  const styleParts = [
     `font-weight:${resolved.weight}`,
     `font-style:${resolved.italic ? 'italic' : 'normal'}`,
-  ].join(';');
+  ];
+  if (run.fontSize !== undefined) {
+    // box.fontSize can be 0 or undefined (the persistence layer permits both),
+    // which would make the em ratio Infinity/NaN and silently drop the span's
+    // size. Fall back to an absolute px size so the caret/selection geometry
+    // still lands where the canvas draws.
+    if (box.fontSize && Number.isFinite(box.fontSize)) {
+      const ratio = resolved.fontSize / box.fontSize;
+      if (Number.isFinite(ratio)) styleParts.push(`font-size:${ratio}em`);
+    } else if (Number.isFinite(resolved.fontSize)) {
+      styleParts.push(`font-size:${resolved.fontSize}px`);
+    }
+  }
+  const style = styleParts.join(';');
   const data: string[] = [];
   if (run.color !== undefined) data.push(`data-c="${escapeHtml(run.color)}"`);
   if (run.weight !== undefined) data.push(`data-w="${run.weight}"`);
   if (run.italic !== undefined) data.push(`data-i="${run.italic ? 1 : 0}"`);
   if (run.underline !== undefined) data.push(`data-u="${run.underline ? 1 : 0}"`);
   if (run.strikethrough !== undefined) data.push(`data-s="${run.strikethrough ? 1 : 0}"`);
+  if (run.fontSize !== undefined) data.push(`data-fs="${run.fontSize}"`);
   return `<span style="${style}" ${data.join(' ')}>${escapeHtml(run.text)}</span>`;
 }
 
@@ -102,7 +128,8 @@ function coalesceSerialized(runs: RichRun[]): RichRun[] {
     const last = out[out.length - 1];
     const next = runs[i];
     const same = last.color === next.color && last.weight === next.weight && last.italic === next.italic
-      && last.underline === next.underline && last.strikethrough === next.strikethrough;
+      && last.underline === next.underline && last.strikethrough === next.strikethrough
+      && last.fontSize === next.fontSize;
     if (same) last.text += next.text;
     else out.push({ ...next });
   }
@@ -124,6 +151,7 @@ function collectRuns(node: Node, runs: RichRun[]): void {
       if (element.dataset.i !== undefined) run.italic = element.dataset.i === '1';
       if (element.dataset.u !== undefined) run.underline = element.dataset.u === '1';
       if (element.dataset.s !== undefined) run.strikethrough = element.dataset.s === '1';
+      if (element.dataset.fs !== undefined) run.fontSize = Number(element.dataset.fs);
       if (run.text.length > 0) runs.push(run);
       return;
     }
@@ -261,6 +289,16 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
   const committedRef = useRef(false);
   const [range, setRange] = useState<RichRange | null>(null);
   const [version, setVersion] = useState(0);
+  // Draft text for the font-size field. `null` means "not editing" — the field
+  // shows the resolved selection value. While focused it holds the raw text the
+  // user is typing, and is only committed on Enter/blur when it changed.
+  const [fontSizeDraft, setFontSizeDraft] = useState<string | null>(null);
+  const fontSizeStartRef = useRef<string>('');
+  // Synchronous mirror of the draft so the Enter/blur handlers never commit
+  // twice (React state is stale inside the same tick) and so a stale draft can
+  // be abandoned when the selection it was editing is no longer the selection.
+  const fontSizePendingRef = useRef<string | null>(null);
+  const fontSizeRangeRef = useRef<RichRange | null>(null);
 
   const element = effectiveElements.find((el) => el.id === editingTextId);
   const payload = element?.type === 'text' ? (element.payload as unknown as TextElementPayload) : null;
@@ -394,11 +432,44 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     syncRange();
   }, [isBound, range, renderBody, syncRange]);
 
+  // Apply a typed/stepped font size with the existing clamp and non-finite guard.
+  // Kept separate so the field can defer to it only on a real commit, never per
+  // keystroke.
+  const applyFontSize = useCallback((raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed === '') return;
+    const next = Number(trimmed);
+    if (!Number.isFinite(next)) return;
+    applyToggle({ fontSize: Math.max(1, Math.round(next)) });
+  }, [applyToggle]);
+
+  // Commit the size field's draft — the single path shared by Enter and blur, so
+  // Enter's own blur cannot apply twice. A draft is written only when it changed
+  // from the value it started at (so focus-then-blur writes nothing) and only
+  // while it still targets the selection it was started on.
+  const commitFontSizeDraft = useCallback(() => {
+    const pending = fontSizePendingRef.current;
+    fontSizePendingRef.current = null;
+    setFontSizeDraft(null);
+    if (pending === null || pending === fontSizeStartRef.current) return;
+    if (!rangesEqual(range, fontSizeRangeRef.current)) return;
+    applyFontSize(pending);
+  }, [applyFontSize, range]);
+
   const rangeStyle = useMemo(() => {
     if (!range) return null;
     return resolveRangeStyle(bodyRef.current, range, box);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range, box, version]);
+
+  // The display value is rounded (a size is an integer px on the canvas); a
+  // fractional box size therefore shows a rounded number. We only compare the
+  // committed draft against the value it STARTED at, so merely focusing and
+  // blurring never writes the rounded display back onto the selection.
+  const resolvedSize = rangeStyle?.fontSize.value ?? box.fontSize;
+  const fontSizeDisplay = rangeStyle?.fontSize.mixed || !Number.isFinite(resolvedSize)
+    ? ''
+    : String(Math.round(resolvedSize));
 
   if (!element || !payload) return null;
 
@@ -467,6 +538,63 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
             <SegmentedControl.Icon value="bullet" title="Bullet list"><List className="size-4" /></SegmentedControl.Icon>
             <SegmentedControl.Icon value="number" title="Numbered list"><ListOrdered className="size-4" /></SegmentedControl.Icon>
           </SegmentedControl>
+          {/* The wrapper stops the toolbar's `onMouseDown preventDefault` (which
+              protects the editor selection for the buttons) from firing on the
+              field itself, so the input can still receive focus. */}
+          <div onMouseDown={(event) => event.stopPropagation()}>
+            <FieldInput
+              type="number"
+              min={1}
+              ariaLabel="Font size"
+              placeholder="Size"
+              value={fontSizeDraft ?? fontSizeDisplay}
+              wrapperClassName="w-14"
+              onChange={(raw) => {
+                if (fontSizePendingRef.current === null) {
+                  fontSizeStartRef.current = fontSizeDisplay;
+                  fontSizeRangeRef.current = range;
+                }
+                fontSizePendingRef.current = raw;
+                setFontSizeDraft(raw);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  // Abandon the field draft without writing it, then cancel the
+                  // editor exactly as Escape on the editor body does — never
+                  // leave the user stuck inside the field.
+                  event.preventDefault();
+                  fontSizePendingRef.current = null;
+                  setFontSizeDraft(null);
+                  committedRef.current = true;
+                  onCancel();
+                  return;
+                }
+                if (event.key === 'Enter') {
+                  // Commit before blurring: commitFontSizeDraft clears the
+                  // pending ref, so the blur it triggers is a no-op rather than
+                  // a second apply.
+                  event.preventDefault();
+                  commitFontSizeDraft();
+                  (event.target as HTMLInputElement).blur();
+                } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                  // A step is a complete edit: apply immediately. Suppress the
+                  // native number-input step/change so only this one mechanism
+                  // handles the keypress.
+                  event.preventDefault();
+                  const base = Number(fontSizePendingRef.current ?? fontSizeDisplay);
+                  if (Number.isFinite(base)) {
+                    const stepped = Math.max(1, Math.round(base) + (event.key === 'ArrowUp' ? 1 : -1));
+                    applyFontSize(String(stepped));
+                    fontSizePendingRef.current = String(stepped);
+                    fontSizeStartRef.current = String(stepped);
+                    fontSizeRangeRef.current = range;
+                    setFontSizeDraft(String(stepped));
+                  }
+                }
+              }}
+              onBlur={commitFontSizeDraft}
+            />
+          </div>
           <div className="w-28">
             <ColorPicker
               showAlpha={false}

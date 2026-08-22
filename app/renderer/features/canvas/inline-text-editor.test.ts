@@ -35,6 +35,28 @@ describe('RichTextEditor DOM ⇄ model serialization', () => {
     expect(roundTrip(body)).toEqual(body);
   });
 
+  it('preserves a per-run font size override on a span', () => {
+    const body: RichBody = [
+      { runs: [{ text: 'sized', fontSize: 72 }], indent: 0 },
+    ];
+    expect(roundTrip(body)).toEqual(body);
+  });
+
+  it('preserves a sized run alongside the other overrides on one span', () => {
+    const body: RichBody = [
+      { runs: [{ text: 'x', color: '#ff0000', weight: 700, italic: true, underline: true, strikethrough: true, fontSize: 72 }], indent: 0 },
+    ];
+    expect(roundTrip(body)).toEqual(body);
+  });
+
+  it('does not coalesce adjacent runs of different sizes', () => {
+    const body: RichBody = [
+      { runs: [{ text: 'a', fontSize: 24 }, { text: 'b', fontSize: 96 }], indent: 0 },
+    ];
+    // Two differently-sized runs must survive the round-trip as separate runs.
+    expect(roundTrip(body)).toEqual(body);
+  });
+
   it('round-trips a numbered list', () => {
     const body: RichBody = [
       { runs: [{ text: 'one' }], listType: 'number', indent: 0 },
