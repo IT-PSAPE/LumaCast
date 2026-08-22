@@ -79,6 +79,6 @@ describe('MediaThumbnail derivative rendering', () => {
 
     render(<MediaThumbnail asset={videoAsset()} />);
 
-    expect(screen.getByText('Missing source')).not.toBeNull();
+    expect(screen.getByText('Missing media')).not.toBeNull();
   });
 });

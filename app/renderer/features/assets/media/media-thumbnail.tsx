@@ -54,9 +54,9 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
   if (showMissingSource) {
     return (
       <div ref={hostRef} className="absolute inset-0">
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-tertiary/80 text-tertiary">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 border border-error_subtle bg-error_primary text-error">
           <AlertTriangle size={16} strokeWidth={1.75} />
-          <span className="px-2 text-center text-xs uppercase tracking-wider">Missing source</span>
+          <span className="px-2 text-center text-xs uppercase tracking-wider">Missing media</span>
         </div>
       </div>
     );

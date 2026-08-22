@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Film } from 'lucide-react';
+import { AlertTriangle, Film } from 'lucide-react';
 import type { MediaAsset } from '@lumacast/composition';
 import { useBinScrollRoot } from '@renderer/components/layout/bin-shell';
 import { useMediaDerivative } from '../../hooks/use-media-derivative';
@@ -9,6 +9,8 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const scrollRootRef = useBinScrollRoot();
   const { asset: resolvedAsset, displaySrc, status } = useMediaDerivative(asset, visible);
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const showMissingSource = status === 'missing' || (brokenSrc !== null && brokenSrc === displaySrc);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -36,6 +38,17 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
     };
   }, [scrollRootRef]);
 
+  if (showMissingSource) {
+    return (
+      <div ref={hostRef} className="block h-full w-full">
+        <div className="flex h-full w-full flex-col items-center justify-center gap-1 border border-error_subtle bg-error_primary text-error">
+          <AlertTriangle size={16} strokeWidth={1.75} />
+          <span className="px-2 text-center text-xs uppercase tracking-wider">Missing media</span>
+        </div>
+      </div>
+    );
+  }
+
   if (displaySrc) {
     return (
       <div ref={hostRef} className="block h-full w-full">
@@ -45,6 +58,7 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
           loading="lazy"
           draggable={false}
           crossOrigin="anonymous"
+          onError={() => setBrokenSrc(displaySrc)}
           className="block h-full w-full object-cover"
         />
       </div>
