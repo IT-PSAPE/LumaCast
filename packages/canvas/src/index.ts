@@ -59,6 +59,7 @@ export { subscribeToVideoPool, getLayerVideoElement, getVideoPoolStats, retainVi
 export { buildVideoBackgroundClaimKey, buildVideoNodeClaimKey } from './video-claim-keys';
 
 export { formatTimer, formatClock, useResolvedText } from './use-resolved-text';
+export { useFontAvailabilityEpoch } from './use-font-availability-epoch';
 
 export { useSceneStageDraftBuffer } from './use-scene-stage-draft-buffer';
 

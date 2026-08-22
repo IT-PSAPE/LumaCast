@@ -19,7 +19,7 @@
 
 import type { ResolvedRunStyle, RichBoxStyle } from './resolve';
 import { resolveRun } from './resolve';
-import type { RichRun } from './types';
+import type { RichBody, RichRun } from './types';
 
 export type MeasureText = (text: string, font: string) => number;
 
@@ -42,7 +42,7 @@ export interface WrapOptions {
 // Quote multi-word family names exactly as Konva.Text's normalizeFontFamily does,
 // so the canvas font string this builds resolves to the identical face (and thus
 // identical metrics) as the Konva <Text> render we must stay pixel-identical to.
-function normalizeFontFamily(fontFamily: string): string {
+export function normalizeFontFamily(fontFamily: string): string {
   return fontFamily
     .split(',')
     .map((part) => {
@@ -274,4 +274,225 @@ function estimateWidth(text: string, font: string): number {
   const match = /(\d+(?:\.\d+)?)px/.exec(font);
   const size = match ? Number.parseFloat(match[1]) : 16;
   return text.length * size * 0.5;
+}
+
+// Line height helpers (mirrors canvas/text-layout.ts)
+export function measureTextLineLayoutHeight(lineCount: number, fontSize: number, lineHeight: number): number {
+  return Math.max(1, lineCount) * fontSize * lineHeight;
+}
+
+function buildBoxWithAutoFit(box: RichBoxStyle, fontSize: number, authoredFontSize: number): RichBoxStyle {
+  const scale = authoredFontSize ? fontSize / authoredFontSize : 1;
+  return { ...box, fontSize, fontScale: scale };
+}
+
+function richBodyHasRenderableText(body: RichBody): boolean {
+  return body.some((block) => block.runs.some((run) => run.text.trim().length > 0));
+}
+
+// Layout preparation for editor⇄renderer parity — exported so the inline editor
+// can generate DOM that matches the canvas line breaks exactly.
+export interface PreparedDrawSegment {
+  text: string;
+  width: number;
+  isSpace: boolean;
+}
+
+export interface PreparedDrawPiece {
+  text: string;
+  color: string;
+  font: string;
+  fontSize: number;
+  underline: boolean;
+  strike: boolean;
+  width: number;
+  spaceCount: number;
+  segments: PreparedDrawSegment[];
+}
+
+export interface PreparedDrawLine {
+  pieces: PreparedDrawPiece[];
+  width: number;
+  groupX: number;
+  startX: number;
+  indentX: number;
+  marker?: string;
+  markerColor?: string;
+  markerFont?: string;
+  lastInParagraph: boolean;
+  spaceCount: number;
+  maxFontSize: number;
+  lineHeightPx: number;
+  translateY: number;
+}
+
+export interface PreparedRichLayout {
+  width: number;
+  align: 'left' | 'center' | 'right' | 'justify';
+  contentHeight: number;
+  layoutHeight: number;
+  maxFontSize: number;
+  lines: PreparedDrawLine[];
+}
+
+export function prepareRichLayout(params: { body: RichBody; box: RichBoxStyle; width: number; lineHeight: number; align: 'left' | 'center' | 'right' | 'justify' }): PreparedRichLayout {
+  const { body, box, width, lineHeight, align } = params;
+  const boxFont = runFontString(box);
+  const lines: PreparedDrawLine[] = [];
+  let maxFontSize = box.fontSize;
+  let numberCounter = 0;
+  for (const block of body) {
+    const isNumber = block.listType === 'number';
+    const isBullet = block.listType === 'bullet';
+    numberCounter = isNumber ? numberCounter + 1 : 0;
+    const marker = isBullet ? '• ' : isNumber ? `${numberCounter}. ` : undefined;
+    const markerWidth = marker ? sharedMeasurer(marker, boxFont) : 0;
+    const wrapped = wrapRuns(block.runs, box, { width: Math.max(1, width - markerWidth), measure: sharedMeasurer });
+    wrapped.forEach((line, index) => {
+      const pieces = line.pieces.map((piece) => {
+        const prepared: PreparedDrawPiece = {
+          text: piece.text,
+          color: piece.style.color,
+          font: runFontString(piece.style),
+          fontSize: piece.style.fontSize,
+          underline: piece.style.underline,
+          strike: piece.style.strikethrough,
+          width: sharedMeasurer(piece.text, runFontString(piece.style)),
+          spaceCount: 0,
+          segments: [],
+        };
+        // Split into segments for justification
+        for (const segmentText of piece.text.split(/( )/)) {
+          if (!segmentText) continue;
+          const isSpace = segmentText === ' ';
+          if (isSpace) prepared.spaceCount += 1;
+          prepared.segments.push({
+            text: segmentText,
+            width: sharedMeasurer(segmentText, runFontString(piece.style)),
+            isSpace,
+          });
+        }
+        return prepared;
+      });
+      const contentWidth = markerWidth + line.width;
+      let groupX = 0;
+      if (align !== 'justify') {
+        if (align === 'right') groupX = width - contentWidth;
+        else if (align === 'center') groupX = (width - contentWidth) / 2;
+      }
+      const lineMarker = index === 0 ? marker : undefined;
+      const pieceMax = pieces.reduce((largest, piece) => Math.max(largest, piece.fontSize), 0);
+      const lineMax = pieces.length === 0 || lineMarker !== undefined
+        ? Math.max(pieceMax, box.fontSize)
+        : pieceMax;
+      const lineHeightPx = measureTextLineLayoutHeight(1, lineMax, lineHeight);
+      // Metrics come from the BOX font at the line's max size, not from the
+      // largest piece's own font: a line containing a bold run must not start
+      // measuring bold ascent/descent, or every render that exists today shifts.
+      const { ascent, descent } = measureFontMetrics(runFontString({ ...box, fontSize: lineMax }), lineMax);
+      maxFontSize = Math.max(maxFontSize, lineMax);
+      lines.push({
+        pieces,
+        width: line.width,
+        groupX,
+        startX: groupX + markerWidth,
+        indentX: markerWidth,
+        marker: lineMarker,
+        markerColor: index === 0 ? box.color : undefined,
+        markerFont: index === 0 ? boxFont : undefined,
+        lastInParagraph: line.lastInParagraph,
+        spaceCount: pieces.reduce((total, piece) => total + piece.spaceCount, 0),
+        maxFontSize: lineMax,
+        lineHeightPx,
+        translateY: (ascent - descent) / 2 + lineHeightPx / 2,
+      });
+    });
+  }
+
+  const lastLine = lines[lines.length - 1];
+  const layoutHeight = lastLine
+    ? lines.reduce((total, line) => total + line.lineHeightPx, 0)
+    : measureTextLineLayoutHeight(1, box.fontSize, lineHeight);
+  const contentHeight = lastLine
+    ? layoutHeight - lastLine.lineHeightPx + lastLine.maxFontSize
+    : measureTextLineLayoutHeight(1, box.fontSize, lineHeight);
+
+  return {
+    width,
+    align,
+    contentHeight,
+    layoutHeight,
+    maxFontSize,
+    lines,
+  };
+}
+
+// Shared measurer for layout preparation (uses the same canvas measurer)
+const sharedMeasurer = createCanvasMeasurer();
+let fontMetricsContext: CanvasRenderingContext2D | null | undefined;
+
+function getFontMetricsContext(): CanvasRenderingContext2D | null {
+  if (fontMetricsContext !== undefined) return fontMetricsContext;
+  if (typeof document === 'undefined') {
+    fontMetricsContext = null;
+    return fontMetricsContext;
+  }
+  fontMetricsContext = document.createElement('canvas').getContext('2d');
+  return fontMetricsContext;
+}
+
+function measureFontMetrics(font: string, fontSize: number): { ascent: number; descent: number } {
+  const context = getFontMetricsContext();
+  const scale = fontSize / 100;
+  if (!context) {
+    return {
+      ascent: 91 * scale,
+      descent: 21 * scale,
+    };
+  }
+  context.font = font;
+  const metrics = context.measureText('M');
+  return {
+    ascent: metrics.fontBoundingBoxAscent ?? metrics.actualBoundingBoxAscent ?? 91 * scale,
+    descent: metrics.fontBoundingBoxDescent ?? metrics.actualBoundingBoxDescent ?? 21 * scale,
+  };
+}
+
+export interface AutoFitRichTextInput {
+  body: RichBody;
+  box: RichBoxStyle;
+  width: number;
+  height: number;
+  lineHeight: number;
+  maxFontSize: number;
+}
+
+// Largest font size (capped at maxFontSize) at which the wrapped rich text fits
+// entirely within the box's width and height.
+export function computeAutoFitRichTextFontSize({ body, box, width, height, lineHeight, maxFontSize }: AutoFitRichTextInput): number {
+  const cap = Math.max(1, maxFontSize);
+  if (width <= 0 || height <= 0 || !richBodyHasRenderableText(body)) return cap;
+  const authoredFontSize = box.fontSize;
+
+  const fits = (fontSize: number): boolean => {
+    const layout = prepareRichLayout({
+      body,
+      box: buildBoxWithAutoFit(box, fontSize, authoredFontSize),
+      width: Math.max(1, width),
+      lineHeight,
+      align: 'left',
+    });
+    return layout.layoutHeight <= height;
+  };
+
+  if (fits(cap)) return cap;
+
+  let lo = 1;
+  let hi = cap;
+  for (let i = 0; i < 20; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) lo = mid;
+    else hi = mid;
+  }
+  return Math.max(1, Math.floor(lo * 100) / 100);
 }
