@@ -55,7 +55,7 @@ lazily-loaded screen in `app/renderer/workbench-screen-router.tsx`:
 | `theme-editor` | `theme-editor` | Theme editing. |
 | `stage-editor` | `stage-editor` | Stage layout editing. |
 | `macro-editor` | `macro-editor` | Macro/cue/trigger-binding editing (own `canvas-panel.tsx` alongside the shared layers/inspector pattern). |
-| `settings` | `settings` | Tabs: Appearance, Output, Overlays, Observability, Import & Export (`app/renderer/screens/settings/page.tsx`). |
+| `settings` | `settings` | Tabs: Appearance, Output, Overlays, Media, Observability, Import & Export (`app/renderer/screens/settings/page.tsx`). |
 | `shared` | (n/a) | Cross-screen pieces shared by the editors above, currently `element-layers-panel.tsx`. |
 
 Each editor screen (`item-editor`, `overlay-editor`, `theme-editor`,

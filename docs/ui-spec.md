@@ -64,7 +64,7 @@ element inspector.
 
 ### Settings (`data-ui-region="settings-layout"`)
 
-Tab list: Appearance, Output, Overlays, Observability, Import & Export.
+Tab list: Appearance, Output, Overlays, Media, Observability, Import & Export.
 
 ## 4. Keyboard Shortcuts
 
