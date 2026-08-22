@@ -13,9 +13,9 @@ shrink.
 ### App shell (`app/`)
 
 - `app/main` is the Electron main-process bootstrap (window/menu/IPC wiring,
-  security policy) plus the thin Electron-shaped shims (`app/main/ndi/`) that
-  connect `@lumacast/engine` to the utility process. It is the process
-  composition root and imports no renderer or feature code.
+  security policy) plus the thin Electron-shaped shims in `app/main/ndi/` and
+  `app/main/persistence/` that connect headless packages to utility processes.
+  It is the process composition root and imports no renderer or feature code.
 - `app/renderer` is the UI: screens, feature UI, shared components, and the
   contexts that wire package ports to concrete app state. It reaches main
   only through the typed `castApi` IPC contract (`@lumacast/protocol`); it
@@ -69,9 +69,67 @@ import each other with relative paths, never via the package's own
 | `@lumacast/protocol` | The versioned IPC surface, snapshot patches, the deck-bundle manifest, NDI observability and project-backup contracts, and the runtime codecs that decode them at trust boundaries. |
 | `@lumacast/persistence-sqlite` | SQLite-backed persistence: the `CastRepository` store, schema migrations, fixtures, and deterministic test-support helpers. |
 | `@lumacast/engine` | The authoritative NDI output runtime: sender lifecycle, frame/audio pipeline, and diagnostics. The Electron-shaped host process/IPC proxy stay as shims in `app/main/ndi`. |
-| `@lumacast/playback` | Headless playback decisions: overlay lifecycle, presentation-layer transitions, playlist adjacency, and stage-arming state. DOM media-element lifecycle and IPC/NDI wiring stay in the app-side provider. |
-| `@lumacast/canvas` | The Konva render/editing layer: scene-node components, stage editing/marquee/viewport interaction, image/video resolution, inline text editing. The only package permitted to import react/react-dom/konva/react-konva. |
+| `@lumacast/playback` | Headless playback decisions: overlay lifecycle, presentation-layer transitions, playlist adjacency, stage-arming state, and deterministic media-residency prediction (`resolveMediaResidencyPlan`). DOM media-element lifecycle, cache execution, and IPC/NDI wiring stay in the app-side provider. |
+| `@lumacast/canvas` | The Konva render/editing layer: scene-node components, stage editing/marquee/viewport interaction, image/video resolution, inline text editing, and the shared image-cache / video-pool residency mechanisms consumed by renderer surfaces. The only package permitted to import react/react-dom/konva/react-konva. |
 | `@lumacast/ndi-native` | The native NDI sender bridge (native addon), governed by the engine-session rule above rather than the headless-source rules below. |
+
+Rich text rendering inside `@lumacast/canvas` keeps Konva `sceneFunc`s paint-only.
+`SceneNodeText` precomputes wrapped lines, per-piece advances, and baseline
+metrics in React memos, then invalidates that prepared layout on content,
+geometry, style, auto-fit, and font-availability changes. Font availability is
+tracked by a renderer-side epoch sourced from `document.fonts.ready` plus the
+`loadingdone` event so text first measured against fallback fonts is laid out
+again once the real face resolves.
+
+Renderer playback/rendering splits responsibility at two narrow seams:
+
+- `SceneStage` has separate editable and read-only variants. Only the editable
+  variant subscribes to the element-editing context and `useSceneStageEditor`;
+  read-only thumbnail, monitor, and NDI capture surfaces render the same scene
+  tree without pulling in selection, marquee, transform, or inline-text state.
+- `CanvasProvider` consumes a stable presentation-layer set (content visibility,
+  media/video layer assets, and overlay membership/order) and builds the base
+  layered program scene from that discrete set only.
+- `MediaResidencyBoundary` sits below `SlideProvider` and above the renderer's
+  media consumers. It translates headless `@lumacast/playback` residency tiers
+  into renderer execution: mounted surfaces hold T0 hard refs through
+  `useKImage`, adjacent/armed image sources acquire advisory `warmImage`
+  handles with T1 grace / T2 priority, and predictable video paints acquire a
+  bounded set of dedicated `warmVideoClaim` prerolls plus a shared-layer
+  `warmVideoSource` pool. Plan replacement releases abandoned warms instead of
+  letting speculative work finish.
+- `PlaybackProvider` publishes dissolve timing and opacity through a separate
+  program-output-only context. `useProgramOutput()` applies per-element overlay
+  alpha at the final program monitor / audience-feed consumption point, so
+  overlay fades rerender only those consumers while preserving the existing
+  per-element compositing semantics.
+- `packages/canvas/src/image-cache.ts` now enforces two distinct residency
+  classes for images:
+  - hard/soft paint safety (`retainImage`, `reserveImageEntry`) that must never
+    blank mounted output;
+  - advisory T1/T2 speculative residency (`warmImage`) whose own candidate pool
+    has an independent 128-entry / 96 MB cap. Hard-pinned T0 output and T1
+    grace windows are exempt from that sub-budget; only the evictable T2 pool
+    reconciles under pressure.
+- `packages/canvas/src/use-k-video.ts` owns the renderer-side video pool. Live
+  transport video uses one shared `HTMLVideoElement` per `src`, retains it
+  across surface churn, and retires up to two released warm layer entries for
+  zero-seek re-adoption. Predictable non-transport video preroll uses up to two
+  one-shot dedicated warm claims keyed by surface + element identity; claims are
+  consumed in layout, never reused twice, and keep autoplay/mute/loop/rate
+  isolated from the eventual per-surface playback element.
+- Editable stage callbacks read current element geometry and selection from
+  render-body refs rather than effect-written refs so the rAF-batched draft
+  buffer stays same-frame fresh without re-churning handler identity on every
+  draft flush.
+- Scene-building stays provider-independent: `buildRenderScene`,
+  `buildThumbnailScene`, and `buildResolvedRenderScene` accept an optional
+  source→proxy lookup, and Konva media/background painters prefer the proxy
+  derivative while the full source is still loading. Arbitrary jumps therefore
+  paint the managed `thumbnailSrc` immediately and swap to the full source
+  without blanking the scene once the full decode completes. Thumbnail / list
+  (`T3`) surfaces stay derivative-only and never instantiate full-resolution
+  image cache entries or full `HTMLVideoElement` decodes.
 
 `tool/check_electron_architecture.mjs` walks `packages/*` and enforces, as
 hard errors that are never allow-listable:
@@ -103,14 +161,128 @@ Each rule is also proven by a committed fixture scenario under
 `tool/fixtures/electron-architecture/scenarios/packages/` and
 `scenarios/application/`, run via `npm run test:architecture`.
 
+## NDI Telemetry and Observability Contracts
+
+- The renderer's off-screen NDI capture loop in
+  `app/renderer/features/playback/ndi-frame-capture.tsx` is still a one-slot
+  backpressure boundary, but the slot is now keyed by a monotonic
+  per-attempt id. Main, the utility-process proxy/host, and
+  `@lumacast/engine` pass that id through unchanged on frame telemetry and the
+  `frameReleased` event, so only the matching host-side release can clear the
+  in-flight attempt. Watchdog expiry is local policy only; it never claims a
+  later attempt was released.
+- Renderer-supplied frame telemetry is advisory, not authoritative. Main IPC
+  sanitizes optional telemetry before stamping `mainReceivedAtMs`, and
+  `@lumacast/engine` sanitizes again before merging counters or pipeline
+  spans. Invalid enums are dropped, count fields must be bounded nonnegative
+  integers, duration/span samples are bounded before aggregation, and only
+  renderer-authored drop reasons are merged. Duplicate backpressure sources are
+  canonicalized to one count, and activate/take dedupe keys exist only for a
+  fully valid correlation tuple (`kind`, `reason`, `issuedAt`, `session`, and
+  `sequence`) whose intended sender-side span is actually aggregatable.
+  Malformed telemetry therefore cannot turn a successful native send into
+  `nativeSendFailed`, poison aggregates to `Infinity`, or suppress a later
+  valid activate/take frame with the same key.
+- Slide/take latency correlation is scoped by the target output item/playlist
+  entry, not by slide id alone. `SlideProvider` records the intended
+  `activate`/`take` plus the truthful reason available at that boundary today
+  (`sequential`, `jump`, or `crossItem`); `ndi-frame-capture.tsx` leases that
+  correlation to the first matching sender attempt and consumes it only after
+  the matching accepted `frameReleased`. Repeated takes on an already-live
+  slide therefore force one fresh send attempt even when the scene signature is
+  unchanged.
+- Renderer observability remains always-on through
+  `app/renderer/features/observability/observability-runtime.ts`. The canvas
+  collector records visible-only rAF cadence plus threshold events with the
+  context it can actually observe (visibility, mounted canvas/video counts, and
+  workbench mode). It does not claim element- or surface-level attribution it
+  does not have.
+- The "Source playback" and image-cache panels expose only counters backed by
+  current APIs: DOM video residency/ready-state/drop stats plus canvas
+  image-cache entry totals, evictable bytes, and warm-residency counters
+  (active T1/T2 entries, in-flight warms, retain hits, cancellations, and
+  wasted speculative decodes). The video pool reports shared-layer counts plus
+  warm resident / in-flight / issued / hit / miss / wasted counters. The
+  renderer still does not expose a global derivative-file registry view;
+  derivative generation remains a main-owned cache concern from issue #236.
+- Main-process system metrics are sampled lazily on first use and use a
+  monotonic event-loop-lag sampler. The reported p95/max are over the current
+  rolling window, not a lifetime wall-clock maximum.
+
+## Renderer Bootstrap and State Subscription Boundaries
+
+- The application shell renders before the initial project snapshot resolves.
+  `AppProvider` starts the asynchronous load and exposes loading/error state;
+  `AppLayoutContent` owns the loading, retry, and ready branches. Database open
+  or migration work therefore does not block creation of the Electron window.
+- NDI output capture is behind a lazy `NdiOutputsGate`. The capture tree and its
+  canvas/Konva dependencies mount only while an output is enabled, and disabling
+  all outputs releases the capture/audio resources again.
+- Scene-stage entry points are lazy boundaries. Production chunking keeps Konva
+  and React-Konva out of the initial renderer entry and loads them with editor,
+  preview, or output-capture surfaces that actually render a stage.
+- Root application state is selector-based. `AppProvider` wires IPC and system
+  subscriptions into the Zustand app store; `useCast`, `useNdi`, live-output,
+  diagnostics, theme, and status selectors expose narrow subscriptions rather
+  than a single changing provider value. See ADR-0010.
+- These startup boundaries are architectural, not loading decoration: shell UI
+  must remain usable while snapshot work is pending, and importing a stage or
+  NDI implementation eagerly from the renderer entry is a regression.
+
 ## Renderer / Main / Repository Mutation Boundary
 
 - **Renderer**: React context providers (`AssetEditorProvider`, `NavigationProvider`, etc.) handle UI state and staging.
 - **Preload**: `contextBridge.exposeInMainWorld('castApi', api)` exposes typed IPC methods.
-- **Main IPC**: `safeHandle` wrappers validate inputs and delegate to `CastRepository`.
-- **Repository**: `CastRepository` performs all SQLite operations transactionally and returns `SnapshotPatch`.
+- **Main IPC**: `safeHandle` wrappers validate inputs and delegate to the async
+  `PersistenceServiceLike` port or main-owned services such as media-derivative
+  generation.
+- **Persistence utility process**: `PersistenceHostDispatcher` accepts only the
+  explicit `CastRepository` method vocabulary, executes calls FIFO, and owns
+  repository construction, migrations, SQLite access, restore, and close.
+- **Repository**: `CastRepository` stays synchronous and Electron-free inside
+  `@lumacast/persistence-sqlite`; it performs SQLite operations transactionally
+  and returns `SnapshotPatch`.
 
 **Rule**: Only persisted database IDs may enter repository operations. The renderer must resolve temporary staged IDs via `resolveThemeIdForMutation` before calling any IPC method that consumes a theme ID.
+
+### Persistence Utility-Process Lifecycle (issue #241, ADR-0014)
+
+- `app/main/index.ts` forks `persistence-host.js` after Electron is ready, then
+  registers IPC and creates the window immediately. It does not await database
+  opening or migrations; `PersistenceServiceProxy` queues pre-ready calls in a
+  monotonic FIFO and sends them only after the host reports ready.
+- Commands use a closed, typed method vocabulary and structured-clone-safe
+  arguments/results. The host dispatcher runs one repository call at a time,
+  so no later call observes a transaction in progress. Calls are never replayed:
+  a send failure or unexpected utility-process exit rejects all queued/in-flight
+  work, enters a fatal state, and requires an application restart.
+- Initialization, migration, validation, and restore progress cross a one-way
+  preload event. Main retains the latest persistence progress and replays it
+  when preload subscribes, so work reported before window creation still resets
+  the renderer's 15-second snapshot inactivity watchdog. While `getSnapshot`
+  is pending, main emits a five-second heartbeat independently of synchronous
+  host-side snapshot assembly, preventing healthy large reads from appearing
+  inactive. Restore completion clears its status. Main performs
+  backup trust-boundary validation in bounded asynchronous row batches before
+  forwarding the validated document to the utility process.
+- Normal application quit stops accepting new calls, drains the dispatcher,
+  and calls the repository's idempotent `close()`. An active restore is part of
+  that FIFO drain. If acknowledgement takes more than two seconds, main hides
+  the application windows to preserve bounded UI quit behavior but keeps the
+  process alive until the host safely completes promotion, closes SQLite, and
+  acknowledges shutdown; it never force-kills an active restore.
+- Project backups and snapshots still cross the utility-process boundary as
+  structured-cloned values. This removes SQLite, migrations, and restore work
+  from the main event loop, but cloning a very large payload can still incur a
+  bounded main/host serialization cost; streaming is deferred.
+
+## Automation Runtime Guardrails
+
+- `@lumacast/automation` owns macro-run pacing, lifecycle, and revert bookkeeping in the headless runtime (`packages/automation/src/runtime.ts`); `AutomationProvider` in `app/renderer/features/automation/automation-context.tsx` remains the renderer composition boundary that supplies playback, clock, observability, and status-text ports.
+- Looping macros are paced to a minimum inter-iteration interval in the runtime itself. The floor is a deadline pad, not an added delay: authored cue-step delays still determine cadence when they already exceed the floor, but zero-delay infinite loops must yield often enough to stay cancellable and avoid monopolizing the renderer thread.
+- Run revert bookkeeping is bounded by canonical cue identity, not by every iteration. A run records the first application of each cue object and reverts static inverses in reverse first-application order. This preserves the existing end-state semantics (`Cancel` leaves applied effects live; `Revert` clears them via static inverses) without growing revert cost or memory with loop duration.
+- Global lifecycle cancellation is an app-level operator control, not a package concern. The renderer exposes `cancelActiveMacros()` from `useAutomation()` and wires it to the Program panel's macros toolbar. The control cancels active runs only; it does not revert already-applied effects.
+- Per-cue playback observability is sampled at the runtime boundary for looping macros: the first iteration still records cue start/completion events, later iterations do not. Failure events remain recorded so runaway loops cannot grow the session log without bound.
 
 ## Renderer Navigation and Window-Open Trust Boundary (issue #158, ADR-0007)
 
@@ -138,6 +310,12 @@ Each rule is also proven by a committed fixture scenario under
   `<audio>`/`<video>` elements, not a navigation/window-open target, and is
   intentionally not part of either allow-list above. What it resolves is
   described below (issue #159, ADR-0008).
+- `fetchLocalFileResponse()` in `app/main/security.ts` is also the media HTTP
+  validator boundary for `cast-media:`. It dedupes only concurrent
+  `fs.promises.stat()` calls, emits weak `ETag` / `Last-Modified` validators,
+  honours `If-None-Match` / `If-Range`, serves HEAD and byte ranges, and keeps
+  validators revalidated against the filesystem on later requests rather than
+  holding a stale lifetime cache.
 - Renderer process sandboxing (`webPreferences.sandbox`) stays `false`; see
   ADR-0007 for the prerequisites (preload sandboxed-environment audit,
   renderer dependency verification, packaging/signing checks) that would need
@@ -162,6 +340,31 @@ Each rule is also proven by a committed fixture scenario under
   capabilities, not durable identifiers. Inbound resolution returns the
   byte-identical stored string, which is what keeps `restoreFromSnapshot` from
   seeing a spurious change on every media row.
+- Media assets persist only truthful, nullable metadata: `width`, `height`,
+  `duration`, and `codec` live on the asset row in SQLite and in schema-version
+  30 project backups. Unknown or unsupported values stay `null`; they are never
+  inferred from file extensions or renderer guesses. `updateMediaAssetSrc`
+  clears those columns immediately, and background probes write them back only
+  when `WHERE id = ? AND src = ?` still matches so stale async work cannot
+  overwrite a replaced source.
+- Thumbnails are a **rebuildable main-process cache**, not durable project
+  state. `app/main/media-derivatives.ts` keeps a bounded (max 3) deduplicating
+  generation queue and a manifest under `userData/thumbs`, keyed by durable
+  asset id plus stored-source fingerprint. Cache entries are invalidated when
+  the source path, size, mtime, or decoded thumbnail no longer matches. Project
+  backups and deck bundles never include derivative files or the manifest.
+- The renderer requests derivatives through typed IPC (`ensureMediaDerivative`
+  and the bounded `uploadMediaDerivativeFallback` escape hatch) and receives an
+  optional `thumbnailSrc` only as another managed-media capability. Main mints a
+  fresh capability each session; the renderer never receives a filesystem path
+  for either the source or the cached thumbnail. Unsupported image/video
+  thumbnail generation on Linux falls back to a one-time renderer upload of
+  validated bytes; audio embedded artwork is normalized entirely in main.
+- Renderer bin/tile surfaces stay T3-only: they mount only managed
+  `thumbnailSrc` derivatives and never decode the full source or construct a
+  full `HTMLVideoElement`. Full-resolution warming happens only through the
+  renderer's playback-driven residency boundary for image sources that are
+  adjacent, armed, or about to cross an item boundary.
 - Grants carry a **declared use** taken from the entity that carried the source
   outbound, never from renderer input. `image` and timed media (`video`/`audio`)
   are separate families and cross-family use is denied; within timed media the
@@ -321,15 +524,15 @@ replaced it with the current per-type item model:
 
 All five run with `PRAGMA foreign_keys` off around their table rebuilds, like
 every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
-27.
+30.
 
 ## Migration System (one ordered transactional runner)
 
-- `packages/persistence-sqlite/src/migrations/definitions.ts` is the canonical dense ordered migration list, v1..v27; v1 is the bootstrap. Both a fresh v0 database and any historical database advance through the same `runMigrations` path (`packages/persistence-sqlite/src/migrations/runner.ts`); there is no separate fresh-install schema.
+- `packages/persistence-sqlite/src/migrations/definitions.ts` is the canonical dense ordered migration list, v1..v30; v1 is the bootstrap. Both a fresh v0 database and any historical database advance through the same `runMigrations` path (`packages/persistence-sqlite/src/migrations/runner.ts`); there is no separate fresh-install schema.
 - `PRAGMA user_version` is the sole schema cursor. A database whose `user_version` is newer than the highest supported version is refused (`FutureSchemaVersionError`) before any backup or write.
 - An existing database (any table, or a nonzero `user_version`) receives exactly one `VACUUM INTO` backup, `lumacast.bak-v<source>.sqlite`, before its first pending migration. The backup is opened read-only and verified with `integrity_check` and a matching source `user_version`; a failed or unverified backup aborts the migration (`MigrationBackupError`).
 - Each migration's `up` and its `user_version` bump commit in one SQLite transaction, so a crash rolls both back and the next start retries from the prior version. FK-off table rebuilds toggle `PRAGMA foreign_keys` around that transaction and restore its prior state afterward.
-- Fixtures `schema-v0`..`schema-v27` pin frozen structural fingerprints and convergence coverage for every historical version; they are regression evidence, not a second schema definition. Migrations v1–v22 and their fixtures are frozen and never edited; every schema change since is a new migration.
+- Fixtures `schema-v0`..`schema-v30` pin frozen structural fingerprints and convergence coverage for every historical version; they are regression evidence, not a second schema definition. Migrations v1–v22 and their fixtures are frozen and never edited; every schema change since is a new migration.
 - See ADR-0005 for the full contract and rationale.
 
 ## Snapshot / Bundle Persistence
@@ -342,9 +545,9 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 ## Project Backup (format v2)
 
 - A project backup is a separate, complete recovery artifact (issue #145), distinct from deck bundles: it serializes the entire application state, not a selection of items. Managed media files are never copied — only their `src` references are recorded.
-- Envelope (`ProjectBackup`): `{ format: 'cast-project-backup', version: 2, schemaVersion: 27, tables }`. `schemaVersion` is the source `PRAGMA user_version`, matched exactly (not a range); there are still no settings/preferences tables, so migration/schema metadata is carried by `schemaVersion` alone. The envelope carries no timestamp, so two exports of unchanged data are deeply and byte-for-byte identical.
+- Envelope (`ProjectBackup`): `{ format: 'cast-project-backup', version: 2, schemaVersion: 30, tables }`. `schemaVersion` is the source `PRAGMA user_version`, matched exactly (not a range); there are still no settings/preferences tables, so migration/schema metadata is carried by `schemaVersion` alone. The envelope carries no timestamp, so two exports of unchanged data are deeply and byte-for-byte identical.
 - `PROJECT_BACKUP_VERSION` is 2 (issue #219 item-model refactor, decision D8). `tables` now contains 21 application-owned tables — `presentations`, `lyrics`, `talks`, `slides`, `slide_elements`, `talk_script_blocks`, `playlists`, `playlist_entries`, `image_assets`, `video_assets`, `audio_assets`, `overlays`, `presentation_themes`, `lyric_themes`, `talk_themes`, `overlay_themes`, `stages`, `cues`, `actions`, `action_steps`, `trigger_bindings` — with no `libraries`, no `playlist_groups`, no `collection_id` anywhere, and no single `themes` table (the four per-owner theme tables each get their own key, sharing one structural `ProjectBackupThemeRow` shape). `playlist_entries` rows are flat and `kind`-discriminated (`'item' | 'separator'`): `kind='item'` populates exactly one of `presentation_id`/`lyric_id`/`talk_id` and leaves `label`/`color_key` null; `kind='separator'` leaves all three owner columns null and carries `label`/`color_key` instead — there is no `group_id`. Every row field is constructed explicitly from the SQL columns (snake_case, no object spread) in deterministic order (`ORDER BY created_at ASC, id ASC`); JSON-valued columns are serialized as raw JSON strings.
-- **Version 1 backups (schemaVersion exactly 22) are imported via migration replay**, not a hand-written transform: `restoreProjectBackup` dispatches on `isLegacyProjectBackup` first, validates the document against the frozen v1 contract (`validateLegacyProjectBackup`, reconstructed verbatim from the pre-#219 validator), then `migrateLegacyProjectBackup` materializes the rows into a throwaway SQLite database at schema 22 (`applyMigrationsThroughVersion`) and replays the real migrations v23–v27 over it — the same tested code path a live upgrade uses (groups → separator + entries with item-entry ids preserved, `themes.kind` → per-owner tables with talk-theme cloning, collection ids dropped, macro scope renamed) — before feeding the result through the ordinary v2 restore path. `validateProjectBackup` itself remains v2-only and still rejects version 1 with an "older app version" message; a version-1 document with any `schemaVersion` other than 22, or a future format version, is rejected explicitly.
+- **Version 1 backups (schemaVersion exactly 22) are imported via migration replay**, not a hand-written transform: `restoreProjectBackup` dispatches on `isLegacyProjectBackup` first, validates the document against the frozen v1 contract (`validateLegacyProjectBackup`, reconstructed verbatim from the pre-#219 validator), then `migrateLegacyProjectBackup` materializes the rows into a throwaway SQLite database at schema 22 (`applyMigrationsThroughVersion`) and replays the real migrations v23–v30 over it — the same tested code path a live upgrade uses (groups → separator + entries with item-entry ids preserved, `themes.kind` → per-owner tables with talk-theme cloning, collection ids dropped, macro scope renamed, media metadata columns added) — before feeding the result through the ordinary v2 restore path. `validateProjectBackup` itself remains v2-only and still rejects version 1 with an "older app version" message; a version-1 document with any `schemaVersion` other than 22, or a future format version, is rejected explicitly.
 - **Category decision (issue #215, parent #116/#153): this family is a serialization contract, not a persistence DTO**, and lives in `app/contracts/project-backup.ts` (`ProjectBackup`, `ProjectBackupTables`, and the seventeen `ProjectBackup*Row` interfaces). #153 classified it as the textbook persistence-DTO candidate on shape alone (snake_case fields mirroring SQL columns verbatim) and set out to move it to `app/database/dto/`. That is architecturally impossible: the family is consumed as a type-level dependency by `app/core/deck-bundles.ts` (`validateProjectBackup`, `ProjectBackupTableKey`) and by the IPC contract (`app/core/ipc.ts`, `app/main/ipc.ts`, `app/main/preload.ts`, `app/main/deck-bundle-archive.ts`) as well as by `app/database/store.ts`, and `core-purity` categorically forbids `app/core` from importing `app/database`. Shape alone does not decide the category — the deciding fact is which zones hold a type-level dependency on it; a shape mirroring SQL columns that only the database layer ever names would belong in `app/database/dto/` instead. `app/contracts/` is the correct home because it is the neutral runtime-decode boundary every zone may already import (issue #149), and it must not import `app/database`, `app/main`, `app/renderer`, React, Electron, or the native module (`contracts-purity`, issue #216) — so this move cannot relocate the original problem back through the database. `app/core/types.ts` keeps export-only re-exports of the family for existing `@core/types` importers, per the #153 facade convention; #155 is the exit condition that removes them. Record this decision here rather than relitigating it at the next split.
 - Core policy owns the contract: `validateProjectBackup` in `packages/protocol/src/deck-bundles.ts` (with `ProjectBackupValidationError`) rejects the legacy version 1 explicitly (see above), a future format version (> 2), a `schemaVersion` other than the exact supported version, wrong format string, an envelope that is not exactly the four keys `format`/`version`/`schemaVersion`/`tables`, missing or extra tables/columns, malformed types/enums/flags, and slide rows that break the single-owner invariant the schema CHECK enforces. Column lists are enumerated via `PROJECT_BACKUP_COLUMN_SPECS` in the same module. Cross-table referential/ownership integrity is restore-side and deferred to issue #146.
 - The repository produces and validates without mutating the active database: `exportProjectBackup()` refuses a `user_version` other than `LATEST_SCHEMA_VERSION` and gates every produced document through `validateProjectBackup` before returning; `validateProjectBackup(backup)` on `CastRepository`.
@@ -358,6 +561,8 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 - **Category decision (issue #154, parent #116): this is an application contract, not an IPC contract**, despite sitting alongside the RPC wire-payload shapes. None of its types is ever named in the RPC method signatures (`packages/protocol/src/ipc.ts`) — the manifest round-trips through a `.cst` file on disk, not through an IPC call's argument or return type. It is kept in its own module, separate from `rpc-inputs.ts`/`rpc-results.ts`, so the file-format versus wire-payload distinction is visible in the import path.
 - This applies the precedent #215 set for `ProjectBackup*` above, one level down. `deck-bundles.ts` type-depends directly on the manifest family, and `BundlePlaylistItemEntry` deliberately mirrors the legacy owner-column shape (nullable `presentationId`/`lyricId`/`talkId`, see its declaration comment) so exported bundles keep a stable versioned on-disk schema — exactly the shape that reads as a persistence DTO and is not one. Record this here rather than relitigating it at the next split.
 - The IPC surface moved in the same slice: RPC mutation inputs live in `packages/protocol/src/rpc-inputs.ts`, RPC results and query shapes in `packages/protocol/src/rpc-results.ts`, and the NDI plus observability surface in `packages/protocol/src/ndi-observability.ts`. `AppSnapshot` is classified as an IPC contract because its wire use forces its shape, but it is also the database layer's undo representation and the renderer's cached state; that dual role is recorded at its declaration, since changing it changes all three.
+- The NDI frame transport now has an explicit host-side release boundary: the renderer still sends video frames one-way over `sendNdiFrame`, but the backpressure slot is only freed when the utility-process host emits `frameReleased` back through main. Main no longer `finally`-acks receipt. The release event means "the host-side send attempt returned or was rejected", not "downstream receivers are ready".
+- Observability collection is always-on and owned by the app shell: `App.tsx` mounts an `ObservabilityRuntime` child inside `WorkbenchProvider`; that child runs `useObservabilityRuntime()` from `app/renderer/features/observability/observability-runtime.ts`, continuously sampling renderer memory/rAF/video/audio health and polling `obsGetSystemMetrics()` for main-process CPU/memory/event-loop lag. The observability panel is now display-only. Timeline-to-log mirroring is opt-in state in the observability store rather than an unconditional console side effect.
 - The `app/core/types.ts` facade described above was retired once every moved family had a real package owner (#155, folded into the #219 package split's W4). Its only two non-re-exported declarations, `PlaybackState` and `SlideBrowserMode`, were app-shell view state rather than shared domain/wire types, so they now live in `app/renderer/types/view-state.ts` instead of any package.
 
 ## Shared Scene Render Contract (issue #111)
@@ -365,7 +570,7 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 - Editor preview (`app/renderer/features/canvas/scene-stage.tsx`) and NDI output (`app/renderer/features/playback/ndi-frame-capture.tsx`) render through one shared, render-only contract: `scene-traversal.ts` (node visibility, frame geometry, back-to-front ordering — now `packages/composition/src/scene/scene-traversal.ts`), `scene-node-content.tsx` (per-kind Konva node content) and `scene-slide-background.tsx` (`SceneSlideBackground`, colour/gradient/image background painting and `needsOpaqueBackdrop`) — both now `packages/canvas/src/`. Both surfaces build their scene via `buildRenderScene`/`buildResolvedRenderScene` (`app/renderer/features/canvas/build-render-scene.ts`) and mount the shared traversal inside their own `react-konva` `Stage`/`Layer` tree; layer order is background first, then nodes back-to-front.
 - `app/renderer/rendering/scene-parity.test.tsx` is the structural parity test for this contract: it feeds identical fixtures through both the Konva traversal (`traverseSceneNodes`/`renderSceneNodeContent`) and the resolved-scene builder and asserts equivalent node identity, order, visibility, and geometry, including background kinds.
 - `app/renderer/rendering/scene-layer.tsx`, an earlier render-only DOM component from #147 (`<div>`/`<img>`/`<video>` with inline styles), never gained a production consumer — both real surfaces render via `react-konva`, not the DOM — and was removed in #207 rather than adopted, to avoid two parallel answers to "what is the shared scene layer."
-- NDI-only concerns (alpha/`withAlpha`, key/fill, scaling, frame timing, cancellation, ack watchdog, backpressure) remain solely in `ndi-frame-capture.tsx` and are not part of the shared contract.
+- NDI-only concerns (alpha/`withAlpha`, key/fill, scaling, frame timing, cancellation, frame-release watchdog, backpressure, corrective retries, and exact-once take-to-accepted-native-send correlation via `app/renderer/utils/ndi-take-correlation.ts`) remain solely in `ndi-frame-capture.tsx` and are not part of the shared contract.
 
 ## Project Restore / Promotion (issue #146)
 
@@ -375,13 +580,21 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 - Before promotion the temporary database must match the document's `schemaVersion` exactly, hold exactly the backup's declared row counts per table (`assertProjectBackupRowCounts` over all 21 tables), and pass `PRAGMA foreign_key_check` (`assertProjectBackupForeignKeys`).
 - Promotion (`promoteRestoredDatabase`): both connections are `wal_checkpoint(TRUNCATE)`-ed and closed, the active database is renamed to a retained `lumacast.sqlite.prerecovery-<stamp>.sqlite` sibling that the app never deletes, the temporary database is renamed into place, and the repository reopens on the promoted file (migrations re-run as a no-op; seeding is skipped so the restored state is reproduced faithfully). SQLite `-wal`/`-shm` sidecars are moved alongside their main files. Any failure after the retain step rolls the swap back so the previous project stays active; if even the rollback fails, the retained file still holds the full previous project.
 - Test-only failure-injection hooks (`ProjectRecoveryHooks`) cover every seam: before insert, after insert, before promotion, and after the active database is retained; production callers pass no hooks.
+- Main validates large backup tables asynchronously in bounded batches and
+  yields to the event loop between batches. The utility host reports the
+  repository's validation, preparation, migration, insertion, verification,
+  promotion, and completion phases; renderer loading status remains responsive
+  while the restore runs.
 - The IPC contract lives in `packages/protocol/src/ipc.ts` (`ProjectRestoreResult`, `IPC.restoreProjectBackup`), wired in `app/main/ipc.ts` and typed through the `app/main/preload.ts` bridge; recovery and export/validation share the `packages/persistence-sqlite/src/store.ts` implementation.
 
 ## Snapshot Restore (flat tables, no bin-identity reseeding — issue #219 supersedes #208)
 
-- Collections and libraries do not exist any more (issue #219, decisions D3/D4), so `CastRepository.restoreFromSnapshot(snapshot)` — the undo/redo primitive behind `cast:restoreFromSnapshot` — no longer needs the snapshot-authoritative collection-identity reseeding #208 built (clearing and re-seeding eight `*_collections` tables so that a restored snapshot's bin-default ids match the ids it was captured with). There are no bin defaults left to disagree.
+- Collections and libraries do not exist any more (issue #219, decisions D3/D4), so `CastRepository.restoreFromSnapshot(snapshot)` no longer needs the snapshot-authoritative collection-identity reseeding #208 built (clearing and re-seeding eight `*_collections` tables so that a restored snapshot's bin-default ids match the ids it was captured with). There are no bin defaults left to disagree.
 - `restoreFromSnapshot` clears every application-owned table and re-inserts the snapshot's rows in one transaction, child-before-parent on delete and parent-before-child on insert (the same discipline `clearProjectBackupTables`/`insertProjectBackupRows` use): the four theme tables and `presentations`/`lyrics`/`talks` are deleted after `slides` and re-inserted before it; `playlists` and `playlist_entries` are ordinary flat tables restored the same way as every other table — there is no special-cased tree-replacement machinery (the old `libraryBundles` full-replacement patch key is gone with it).
 - The two-owner ordering discipline still matters for a different reason than collections: presentations/lyrics/talks reference their theme table, and slides reference presentations/lyrics/talks — undoing a "creation + apply-theme" sequence deletes slides, then owners, then themes, and re-inserts themes, then owners, then slides, so no insert ever violates a not-yet-created FK target.
+- Routine patch-history undo/redo no longer uses `restoreFromSnapshot`. The hot path is `cast:applySnapshotPatch` → `CastRepository.applyPatch(patch)`: main validates only the tables present in the `SnapshotPatch`, then applies targeted deletes/upserts inside one transaction. The renderer already has the exact next `AppSnapshot`, so this IPC call returns success/failure only; it does not ship a full snapshot back.
+- `applyPatch` still follows the same canonical table order as full restore (child-before-parent deletes, parent-before-child upserts), but because a partial patch can mix "child row stops referencing parent" with "parent row is deleted" or "cue row is deleted" with "macro steps are rewritten", it defers FK enforcement to commit for that transaction. A failed commit or later write rolls the whole patch back.
+- Full-snapshot restore remains the right primitive for backup/recovery and for the smaller set of undo history entries that still store a whole snapshot rather than a patch. That split is structural in the IPC contract: `cast:applySnapshotPatch` is the incremental path, `cast:restoreFromSnapshot` is the whole-state fallback, and `cast:restoreProjectBackup` remains the distinct recovery channel.
 
 ## `AppSnapshot.slides` / `AppSnapshot.slideElements` scope (issue #211)
 
