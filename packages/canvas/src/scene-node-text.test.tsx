@@ -96,7 +96,8 @@ type RecordedOp =
   | { type: 'strokeText'; text: string; x: number; y: number; font: string; color: string; width: number }
   | { type: 'drawImage'; width: number; height: number; x: number; y: number }
   | { type: 'beginPath' | 'closePath' | 'stroke' | 'save' | 'restore' }
-  | { type: 'moveTo' | 'lineTo'; x: number; y: number };
+  | { type: 'moveTo'; x: number; y: number }
+  | { type: 'lineTo'; x: number; y: number };
 
 class RecordingCanvasContext {
   ops: RecordedOp[] = [];
@@ -601,5 +602,241 @@ describe('SceneNodeText', () => {
     const ctx = invokeSceneFunc(shapeProps);
 
     expect(fillTextStrings(ctx).join(' ')).toBe('Hello. Next sentence');
+  });
+
+  it('advances each line by its own largest resolved size', () => {
+    const { shapeProps } = renderScene(renderNode({
+      format: 'rich',
+      richBody: [
+        { indent: 0, runs: [{ text: 'first', fontSize: 64 }] },
+        { indent: 0, runs: [{ text: 'second' }] },
+      ],
+    }, {
+      element: {
+        ...renderNode().element,
+        height: 20,
+        payload: textPayload({
+          format: 'rich',
+          richBody: [
+            { indent: 0, runs: [{ text: 'first', fontSize: 64 }] },
+            { indent: 0, runs: [{ text: 'second' }] },
+          ],
+        }),
+      },
+    }));
+    const ctx = invokeSceneFunc(shapeProps);
+    const fillOps = ctx.ops.filter((op) => op.type === 'fillText') as Extract<RecordedOp, { type: 'fillText' }>[];
+    expect(fillOps).toHaveLength(2);
+    const y0 = fillOps[0].y;
+    const y1 = fillOps[1].y;
+    const delta = y1 - y0;
+    // First line max 64 => advance 80, so delta = advance0 + translateY1 - translateY0 = 80 + 31.2 - 62.4 = 48.8
+    // Uniform 32 would be 40, so mixed must be larger and equal to 80 + (0.35*32+20) - (0.35*64+40)
+    const lineHeight = 1.25;
+    const translate = (size: number) => 0.35 * size + (size * lineHeight) / 2;
+    const expectedDelta = 64 * lineHeight + translate(32) - translate(64);
+    expect(delta).toBeCloseTo(expectedDelta, 5);
+    // Layout height is sum of per-line advances, not uniform * count
+    expect(shapeProps.height).toBe(64 * lineHeight + 32 * lineHeight);
+  });
+
+  it('advances an all-shrunken line at its own resolved size, not the box size', () => {
+    const { shapeProps } = renderScene(renderNode({
+      format: 'rich',
+      richBody: [{ indent: 0, runs: [{ text: 'tiny', fontSize: 16 }] }],
+    }, {
+      element: {
+        ...renderNode().element,
+        height: 20,
+        payload: textPayload({
+          format: 'rich',
+          richBody: [{ indent: 0, runs: [{ text: 'tiny', fontSize: 16 }] }],
+        }),
+      },
+    }));
+    const ctx = invokeSceneFunc(shapeProps);
+    const fillOp = ctx.ops.find((op): op is Extract<RecordedOp, { type: 'fillText' }> => op.type === 'fillText')!;
+    // lineMax = 16 (not the box's 32): layoutHeight = 20, frame = max(20, 16, 20) = 20,
+    // alignY = 0, translateY = 0.35*16 + (16*1.25)/2 = 15.6
+    expect(fillOp.y).toBeCloseTo(0.35 * 16 + (16 * 1.25) / 2, 5);
+    expect(shapeProps.height).toBe(20);
+    expect(fillOp.font).toBe('400 16px Inter');
+  });
+
+  it('anchors a list-marker line at the box size even when all runs are shrunken', () => {
+    const { shapeProps } = renderScene(renderNode({
+      format: 'rich',
+      richBody: [{ indent: 0, listType: 'bullet', runs: [{ text: 'tiny', fontSize: 16 }] }],
+    }, {
+      element: {
+        ...renderNode().element,
+        height: 20,
+        payload: textPayload({
+          format: 'rich',
+          richBody: [{ indent: 0, listType: 'bullet', runs: [{ text: 'tiny', fontSize: 16 }] }],
+        }),
+      },
+    }));
+    const ctx = invokeSceneFunc(shapeProps);
+    const fillOps = ctx.ops.filter((op): op is Extract<RecordedOp, { type: 'fillText' }> => op.type === 'fillText');
+    expect(fillOps).toHaveLength(2);
+    // The marker draws at the box font, so lineMax stays 32:
+    // translateY = 0.35*32 + (32*1.25)/2 = 31.2 and both pieces share that baseline.
+    const expectedBaseline = 0.35 * 32 + (32 * 1.25) / 2;
+    expect(fillOps[0]).toEqual(expect.objectContaining({ text: '• ', font: '400 32px Inter' }));
+    expect(fillOps[1]).toEqual(expect.objectContaining({ text: 'tiny', font: '400 16px Inter' }));
+    expect(fillOps[0].y).toBeCloseTo(expectedBaseline, 5);
+    expect(fillOps[1].y).toBeCloseTo(expectedBaseline, 5);
+    expect(shapeProps.height).toBe(40);
+  });
+
+  it('keeps uniform-size layout pixel-identical to the single-size arithmetic', () => {
+    const payload = textPayload({ fontSize: 32, lineHeight: 1.25 });
+    const node = renderNode({}, {
+      element: {
+        ...renderNode().element,
+        width: 240,
+        height: 100,
+        payload,
+      },
+    });
+    const { shapeProps } = renderScene(node);
+    const ctx = invokeSceneFunc(shapeProps);
+    const fillOp = ctx.ops.find((op) => op.type === 'fillText') as Extract<RecordedOp, { type: 'fillText' }>;
+    // Single line uniform: layoutHeight = 40, contentHeight = 32, frame 100, alignY = 30
+    const ascent = 32 * 0.9;
+    const descent = 32 * 0.2;
+    const translateY = (ascent - descent) / 2 + (32 * 1.25) / 2;
+    const layoutHeight = 32 * 1.25;
+    const frameHeight = 100;
+    const alignY = (frameHeight - layoutHeight) / 2;
+    const expectedBaseline = alignY + translateY;
+    expect(fillOp.y).toBeCloseTo(expectedBaseline, 5);
+    expect(shapeProps.height).toBe(100);
+    expect(fillOp.font).toBe('400 32px Inter');
+
+    // Two uniform lines: use two plain blocks, each one line
+    const node2 = renderNode({
+      format: 'rich',
+      richBody: [
+        { indent: 0, runs: [{ text: 'a' }] },
+        { indent: 0, runs: [{ text: 'b' }] },
+      ],
+    }, {
+      element: {
+        ...renderNode().element,
+        width: 240,
+        height: 20,
+        payload: textPayload({
+          format: 'rich',
+          richBody: [
+            { indent: 0, runs: [{ text: 'a' }] },
+            { indent: 0, runs: [{ text: 'b' }] },
+          ],
+        }),
+      },
+    });
+    const { shapeProps: shapeProps2 } = renderScene(node2);
+    const ctx2 = invokeSceneFunc(shapeProps2);
+    const fills2 = ctx2.ops.filter((op) => op.type === 'fillText') as Extract<RecordedOp, { type: 'fillText' }>[];
+    const delta = fills2[1].y - fills2[0].y;
+    expect(delta).toBeCloseTo(32 * 1.25, 5);
+    // contentHeight = 32 + 40 =72, layoutHeight=80, max with element 20 =>80
+    expect(shapeProps2.height).toBe(80);
+  });
+
+  it('draws underline and strikethrough from each piece own size', () => {
+    const { shapeProps } = renderScene(renderNode({
+      format: 'rich',
+      richBody: [{
+        indent: 0,
+        runs: [
+          { text: 'aa', fontSize: 16, underline: true },
+          { text: 'bb', fontSize: 32, underline: true },
+        ],
+      }],
+    }));
+    const ctx = invokeSceneFunc(shapeProps);
+    const fills = ctx.ops.filter((op) => op.type === 'fillText') as Extract<RecordedOp, { type: 'fillText' }>[];
+    expect(fills).toHaveLength(2);
+    const baseline = fills[0].y;
+    expect(fills[1].y).toBe(baseline);
+    const moveTos = ctx.ops.filter((op): op is Extract<RecordedOp, { type: 'moveTo' }> => op.type === 'moveTo');
+    // Two underlines => two moveTos with different y = baseline + round(size/4)
+    expect(moveTos).toHaveLength(2);
+    const ySmall = baseline + Math.round(16 / 4);
+    const yLarge = baseline + Math.round(32 / 4);
+    const ys = moveTos.map((op) => op.y).sort((a, b) => a - b);
+    expect(ys[0]).toBeCloseTo(ySmall, 5);
+    expect(ys[1]).toBeCloseTo(yLarge, 5);
+
+    // Strikethrough offset is baseline - round(size/4) and must also be per-piece
+    const { shapeProps: shapeProps2 } = renderScene(renderNode({
+      format: 'rich',
+      richBody: [{
+        indent: 0,
+        runs: [
+          { text: 'aa', fontSize: 16, strikethrough: true },
+          { text: 'bb', fontSize: 48, strikethrough: true },
+        ],
+      }],
+    }));
+    const ctx2 = invokeSceneFunc(shapeProps2);
+    const fills2 = ctx2.ops.filter((op) => op.type === 'fillText') as Extract<RecordedOp, { type: 'fillText' }>[];
+    const base2 = fills2[0].y;
+    const moves2 = ctx2.ops.filter((op): op is Extract<RecordedOp, { type: 'moveTo' }> => op.type === 'moveTo');
+    expect(moves2).toHaveLength(2);
+    const ys2 = moves2.map((op) => op.y).sort((a, b) => a - b);
+    // Small strike higher (less negative) => larger y; large strike lower y
+    expect(ys2[0]).toBeCloseTo(base2 - Math.round(48 / 4), 5);
+    expect(ys2[1]).toBeCloseTo(base2 - Math.round(16 / 4), 5);
+  });
+
+  it('scales an explicit run size proportionally when auto-fitting', () => {
+    const authored = 40;
+    const explicit = 80;
+    const { shapeProps } = renderScene(renderNode({
+      autoFit: true,
+      autoFitMaxFontSize: authored,
+      fontSize: authored,
+      lineHeight: 1.1,
+      format: 'rich',
+      richBody: [{
+        indent: 0,
+        runs: [
+          { text: 'AA AA AA AA AA AA AA AA AA' },
+          { text: 'BB', fontSize: explicit },
+        ],
+      }],
+    }, {
+      element: {
+        ...renderNode().element,
+        width: 120,
+        height: 44,
+        payload: textPayload({
+          autoFit: true,
+          autoFitMaxFontSize: authored,
+          fontSize: authored,
+          lineHeight: 1.1,
+          format: 'rich',
+          richBody: [{
+            indent: 0,
+            runs: [
+              { text: 'AA AA AA AA AA AA AA AA AA' },
+              { text: 'BB', fontSize: explicit },
+            ],
+          }],
+        }),
+      },
+    }));
+    const ctx = invokeSceneFunc(shapeProps);
+    const fills = ctx.ops.filter((op) => op.type === 'fillText') as Extract<RecordedOp, { type: 'fillText' }>[];
+    // Find the two distinct font sizes
+    const sizes = fills.map((op) => Number.parseFloat(/(\d+(?:\.\d+)?)px/.exec(op.font)![1]));
+    expect(sizes.length).toBeGreaterThanOrEqual(2);
+    const boxSize = Math.min(...sizes);
+    const runSize = Math.max(...sizes);
+    expect(boxSize).toBeLessThan(authored);
+    expect(runSize / boxSize).toBeCloseTo(explicit / authored, 5);
   });
 });

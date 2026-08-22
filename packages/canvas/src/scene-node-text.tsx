@@ -83,6 +83,7 @@ interface DrawPiece {
   text: string;
   color: string;
   font: string;
+  fontSize: number;
   underline: boolean;
   strike: boolean;
 }
@@ -110,23 +111,27 @@ interface PreparedDrawLine {
   markerFont?: string;
   lastInParagraph: boolean;
   spaceCount: number;
+  maxFontSize: number;
+  lineHeightPx: number;
+  translateY: number;
 }
 
 interface PreparedRichLayout {
   width: number;
   align: 'left' | 'center' | 'right' | 'justify';
-  lineHeightPx: number;
-  translateY: number;
-  lineCount: number;
   contentHeight: number;
   layoutHeight: number;
-  decorationThickness: number;
-  decorationOffset: number;
+  maxFontSize: number;
   lines: PreparedDrawLine[];
 }
 
 function buildBoxWithFontSize(box: RichBoxStyle, fontSize: number): RichBoxStyle {
   return { ...box, fontSize };
+}
+
+function buildBoxWithAutoFit(box: RichBoxStyle, fontSize: number, authoredFontSize: number): RichBoxStyle {
+  const scale = authoredFontSize ? fontSize / authoredFontSize : 1;
+  return { ...box, fontSize, fontScale: scale };
 }
 
 function richBodyHasRenderableText(body: RichBody): boolean {
@@ -184,19 +189,23 @@ function prepareDrawPiece(piece: DrawPiece): PreparedDrawPiece {
 
 function prepareRichLayout(params: RichContentParams): PreparedRichLayout {
   const { body, box, width, lineHeight, align } = params;
-  const fontSize = box.fontSize;
-  const lineHeightPx = fontSize * lineHeight;
   const boxFont = runFontString(box);
-  const { ascent, descent } = measureFontMetrics(boxFont, fontSize);
-  const translateY = (ascent - descent) / 2 + lineHeightPx / 2;
 
+  // A line advances by the largest size actually resolved among its pieces; the
+  // box size anchors only empty paragraphs and list markers (the marker draws at
+  // the box font). Anchoring every line at the box size instead would leave an
+  // all-shrunken line spaced as if it were still box-sized. For content with no
+  // size override every piece resolves to the box size, so each line's max IS the
+  // box size and all the arithmetic below reduces to the uniform form the
+  // Konva-parity render has always used.
   const lines: PreparedDrawLine[] = [];
+  let maxFontSize = box.fontSize;
   let numberCounter = 0;
   for (const block of body) {
     const isNumber = block.listType === 'number';
     const isBullet = block.listType === 'bullet';
     numberCounter = isNumber ? numberCounter + 1 : 0;
-    const marker = isBullet ? '• ' : isNumber ? `${numberCounter}. ` : undefined;
+    const marker = isBullet ? '• ' : isNumber ? `${numberCounter}. ` : undefined;
     const markerWidth = marker ? sharedMeasurer(marker, boxFont) : 0;
     const wrapped = wrapRuns(block.runs, box, { width: Math.max(1, width - markerWidth), measure: sharedMeasurer });
     wrapped.forEach((line, index) => {
@@ -204,6 +213,7 @@ function prepareRichLayout(params: RichContentParams): PreparedRichLayout {
         text: piece.text,
         color: piece.style.color,
         font: runFontString(piece.style),
+        fontSize: piece.style.fontSize,
         underline: piece.style.underline,
         strike: piece.style.strikethrough,
       }));
@@ -213,52 +223,72 @@ function prepareRichLayout(params: RichContentParams): PreparedRichLayout {
         if (align === 'right') groupX = width - contentWidth;
         else if (align === 'center') groupX = (width - contentWidth) / 2;
       }
+      const lineMarker = index === 0 ? marker : undefined;
+      const pieceMax = pieces.reduce((largest, piece) => Math.max(largest, piece.fontSize), 0);
+      const lineMax = pieces.length === 0 || lineMarker !== undefined
+        ? Math.max(pieceMax, box.fontSize)
+        : pieceMax;
+      const lineHeightPx = measureTextLineLayoutHeight(1, lineMax, lineHeight);
+      // Metrics come from the BOX font at the line's max size, not from the
+      // largest piece's own font: a line containing a bold run must not start
+      // measuring bold ascent/descent, or every render that exists today shifts.
+      const { ascent, descent } = measureFontMetrics(runFontString({ ...box, fontSize: lineMax }), lineMax);
+      maxFontSize = Math.max(maxFontSize, lineMax);
       lines.push({
         pieces,
         width: line.width,
         groupX,
         startX: groupX + markerWidth,
         indentX: markerWidth,
-        marker: index === 0 ? marker : undefined,
+        marker: lineMarker,
         markerColor: index === 0 ? box.color : undefined,
         markerFont: index === 0 ? boxFont : undefined,
         lastInParagraph: line.lastInParagraph,
         spaceCount: pieces.reduce((total, piece) => total + piece.spaceCount, 0),
+        maxFontSize: lineMax,
+        lineHeightPx,
+        translateY: (ascent - descent) / 2 + lineHeightPx / 2,
       });
     });
   }
 
-  const lineCount = Math.max(1, lines.length);
+  // `layoutHeight` is the full stack of line boxes; `contentHeight` trades the
+  // last line's box for its glyph height - the per-line generalizations of the
+  // uniform `n * size * lineHeight` and `size + (n - 1) * size * lineHeight`.
+  const lastLine = lines[lines.length - 1];
+  const layoutHeight = lastLine
+    ? lines.reduce((total, line) => total + line.lineHeightPx, 0)
+    : measureTextLineLayoutHeight(1, box.fontSize, lineHeight);
+  const contentHeight = lastLine
+    ? layoutHeight - lastLine.lineHeightPx + lastLine.maxFontSize
+    : measureTextLineStackHeight(1, box.fontSize, lineHeight);
 
   return {
     width,
     align,
-    lineHeightPx,
-    translateY,
-    lineCount,
-    contentHeight: measureTextLineStackHeight(lineCount, fontSize, lineHeight),
-    layoutHeight: measureTextLineLayoutHeight(lineCount, fontSize, lineHeight),
-    decorationThickness: fontSize / 15,
-    decorationOffset: Math.round(fontSize / 4),
+    contentHeight,
+    layoutHeight,
+    maxFontSize,
     lines,
   };
 }
 
 function alignRichLayout(layout: PreparedRichLayout, frameHeight: number, verticalAlign: 'top' | 'middle' | 'bottom') {
   let alignY = 0;
-  if (verticalAlign === 'middle') alignY = (frameHeight - layout.lineCount * layout.lineHeightPx) / 2;
-  else if (verticalAlign === 'bottom') alignY = frameHeight - layout.lineCount * layout.lineHeightPx;
+  if (verticalAlign === 'middle') alignY = (frameHeight - layout.layoutHeight) / 2;
+  else if (verticalAlign === 'bottom') alignY = frameHeight - layout.layoutHeight;
   return { ...layout, alignY };
 }
 
 function computeAutoFitRichTextFontSize({ body, box, width, height, lineHeight, maxFontSize }: AutoFitRichTextInput): number {
   const cap = Math.max(1, maxFontSize);
   if (width <= 0 || height <= 0 || !richBodyHasRenderableText(body)) return cap;
+  const authoredFontSize = box.fontSize;
 
   const fits = (fontSize: number): boolean => {
     const layout = prepareRichLayout({
       body,
-      box: buildBoxWithFontSize(box, fontSize),
+      box: buildBoxWithAutoFit(box, fontSize, authoredFontSize),
       width: Math.max(1, width),
       lineHeight,
       align: 'left',
@@ -279,7 +309,7 @@ function computeAutoFitRichTextFontSize({ body, box, width, height, lineHeight, 
 }
 
 function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout & { alignY: number }, paintParams: RichPaintParams): void {
-  const { width, align, lineHeightPx, translateY, alignY, decorationThickness, decorationOffset, lines } = layout;
+  const { width, align, alignY, lines } = layout;
   const { fill, stroke } = paintParams;
   const totalLines = lines.length;
 
@@ -307,11 +337,11 @@ function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout 
     }
   };
 
-  const decorate = (from: number, to: number, y: number, color: string): void => {
+  const decorate = (from: number, to: number, y: number, color: string, thickness: number): void => {
     if (!fill) return;
     ctx.save();
     ctx.beginPath();
-    ctx.lineWidth = decorationThickness;
+    ctx.lineWidth = thickness;
     ctx.strokeStyle = color;
     ctx.moveTo(from, y);
     ctx.lineTo(from + Math.round(to - from), y);
@@ -319,9 +349,10 @@ function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout 
     ctx.restore();
   };
 
+  let yOffset = 0;
   for (let lineIndex = 0; lineIndex < totalLines; lineIndex += 1) {
     const line = lines[lineIndex];
-    const baselineY = alignY + translateY + lineIndex * lineHeightPx;
+    const baselineY = alignY + yOffset + line.translateY;
     const isJustify = align === 'justify' && !line.lastInParagraph;
     const extraPerSpace = isJustify && line.spaceCount > 0 ? (width - line.indentX - line.width) / line.spaceCount : 0;
     const startX = isJustify ? line.indentX : line.startX;
@@ -344,9 +375,12 @@ function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout 
           x += segment.width + (segment.isSpace ? extraPerSpace : 0);
         }
       }
-      if (piece.underline) decorate(pieceStartX, x, baselineY + decorationOffset, piece.color);
-      if (piece.strike) decorate(pieceStartX, x, baselineY - decorationOffset, piece.color);
+      const thickness = piece.fontSize / 15;
+      const offset = Math.round(piece.fontSize / 4);
+      if (piece.underline) decorate(pieceStartX, x, baselineY + offset, piece.color, thickness);
+      if (piece.strike) decorate(pieceStartX, x, baselineY - offset, piece.color, thickness);
     }
+    yOffset += line.lineHeightPx;
   }
 }
 
@@ -398,17 +432,17 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
     [autoFitEnabled, autoFitMaxFontSize, body, baseBox, element.width, element.height, lineHeight, payload.fontSize, fontEpoch],
   );
 
-  const box = useMemo<RichBoxStyle>(
-    () => buildBoxWithFontSize(baseBox, fontSize),
-    [baseBox, fontSize],
-  );
+  const box = useMemo<RichBoxStyle>(() => {
+    if (autoFitEnabled) return buildBoxWithAutoFit(baseBox, fontSize, baseBox.fontSize);
+    return buildBoxWithFontSize(baseBox, fontSize);
+  }, [autoFitEnabled, baseBox, fontSize]);
 
-  const textBleedPadding = textLineBleedPadding(fontSize, lineHeight);
   const align = textAlign(payload.alignment ?? 'left');
   const preparedRichContent = useMemo(
     () => prepareRichLayout({ body, box, width: element.width, lineHeight, align }),
     [body, box, element.width, lineHeight, align, fontEpoch],
   );
+  const textBleedPadding = textLineBleedPadding(preparedRichContent.maxFontSize, lineHeight);
   // autoFit shrinks the font to fit within element.height; lock the frame to
   // the element bounds so measurement overshoot at wrap boundaries doesn't
   // briefly expand and snap back while typing.
