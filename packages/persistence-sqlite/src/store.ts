@@ -56,8 +56,11 @@ import type {
   SlideBackgroundSource,
   TalkScriptBlock,
   SlideElement,
+  SlideElementType,
   SlideElementPayload,
   GroupElementPayload,
+  ImageElementPayload,
+  VideoElementPayload,
   MediaAsset,
   MediaAssetType,
   Overlay,
@@ -134,7 +137,7 @@ import type {
   ThemeUpdateInput,
   TriggerBindingCreateInput,
 } from '@lumacast/protocol';
-import { isBrokenMediaSource, toCastMediaSource } from './media-source-utils';
+import { isBrokenMediaSource, setMediaLibraryDirectory, toCastMediaSource } from './media-source-utils';
 import type { SnapshotPatch } from '@lumacast/protocol';
 
 const DEFAULT_W = 1920;
@@ -614,6 +617,51 @@ const normalizeLoopCount = (value: number | null | undefined): number | null => 
   return Math.round(parsed);
 };
 
+/**
+ * Rewrites `payload.src` on an image/video element from `previousSrc` to
+ * `nextSrc`, recursing into `group` children (a group can nest image/video
+ * elements arbitrarily deep — see `maskElement` in app/main/media-capability.ts
+ * for the sibling walk this mirrors). Returns the same `payload` reference
+ * when nothing matched, so callers can skip a write with `!==` — the same
+ * shortcut `applyBrokenReferenceDecisions` and `maskElement` already use.
+ */
+function rewriteElementPayloadMediaSource(
+  type: SlideElementType,
+  payload: SlideElementPayload,
+  previousSrc: string,
+  nextSrc: string,
+): SlideElementPayload {
+  if (type === 'group') {
+    const group = payload as GroupElementPayload;
+    let changed = false;
+    const children = group.children.map((childElement) => {
+      const nextChildPayload = rewriteElementPayloadMediaSource(childElement.type, childElement.payload, previousSrc, nextSrc);
+      if (nextChildPayload === childElement.payload) return childElement;
+      changed = true;
+      return { ...childElement, payload: nextChildPayload };
+    });
+    return changed ? { ...group, children } : payload;
+  }
+  if (type !== 'image' && type !== 'video') return payload;
+  const media = payload as ImageElementPayload | VideoElementPayload;
+  return media.src === previousSrc ? { ...media, src: nextSrc } : payload;
+}
+
+/**
+ * Rewrites an image/video background's `src` from `previousSrc` to
+ * `nextSrc`. Returns the same reference when nothing matched. Backgrounds
+ * are a known blind spot in `collectBundleMediaReferences` (it walks
+ * elements only) — this is the store's own scan, not a reuse of that helper.
+ */
+function rewriteBackgroundMediaSource(
+  background: SlideBackground,
+  previousSrc: string,
+  nextSrc: string,
+): SlideBackground {
+  if (background.type !== 'image' && background.type !== 'video') return background;
+  return background.src === previousSrc ? { ...background, src: nextSrc } : background;
+}
+
 // One-shot rename of a pre-rename Recast database (and its WAL/SHM/backups)
 // to the new LumaCast filename. Runs before the SQLite handle is opened so
 // existing user data carries over after the brand rename.
@@ -865,6 +913,10 @@ export class CastRepository {
 
   constructor(options: RepositoryOptions) {
     this.dbPath = options.dbPath;
+    // Lets `media-source-utils` resolve `cast-media://library/<hash>` refs
+    // (and detect broken ones) against this process's actual library
+    // directory — see media-source-utils.ts for the reference format.
+    setMediaLibraryDirectory(path.join(options.userDataPath, 'media'));
     migrateLegacyRecastDatabase(options.userDataPath, this.dbPath);
     this.db = new SqliteDatabase(this.dbPath);
     this.applyConnectionTuning();
@@ -3385,17 +3437,179 @@ export class CastRepository {
     throw new Error(`Media asset not found: ${id}`);
   }
 
-  updateMediaAssetSrc(id: Id, src: string): SnapshotPatch {
+  /**
+   * Replaces a media asset's `src` and repoints every stored reference to
+   * the *previous* source over to the new one, in one transaction. Fixes
+   * "Replace source" leaving every slide/theme/overlay/stage that already
+   * used the asset pointing at the missing file. References are matched by
+   * source string, not asset id — `ImageElementPayload` and
+   * `VideoElementPayload` copy `src` by value and carry no `assetId` FK, so
+   * string equality is the only way content can be repointed at all.
+   *
+   * `preserveMetadata` defaults to false, keeping the historical behaviour
+   * of clearing width/height/duration/codec on the asset row (ADR-0012: a
+   * genuinely different file must not inherit stale metadata). Pass `true`
+   * only when the caller knows the new source is a byte-identical copy of
+   * the old one (e.g. a repointed library migration), so the persisted
+   * metadata is still truthful.
+   */
+  updateMediaAssetSrc(id: Id, src: string, options?: { preserveMetadata?: boolean }): SnapshotPatch {
     this.assertMediaSource(src);
+    const preserveMetadata = options?.preserveMetadata ?? false;
+
+    let assetTable: (typeof MEDIA_ASSET_TABLES)[number] | undefined;
+    let previousSrc: string | undefined;
     for (const table of MEDIA_ASSET_TABLES) {
-      const result = this.db
-        .prepare(`UPDATE ${table} SET src = ?, width = NULL, height = NULL, duration = NULL, codec = NULL, updated_at = ? WHERE id = ?`)
-        .run(src, nowIso(), id);
-      if (result.changes > 0) {
-        return this.buildPatch({ upsertMediaAssetIds: [id] });
+      const row = this.db.prepare(`SELECT src FROM ${table} WHERE id = ?`).get(id) as { src: string } | undefined;
+      if (row) {
+        assetTable = table;
+        previousSrc = row.src;
+        break;
       }
     }
-    throw new Error(`Media asset not found: ${id}`);
+    if (!assetTable || previousSrc === undefined) throw new Error(`Media asset not found: ${id}`);
+
+    const now = nowIso();
+    const patchSpec: BuildPatchSpec = { upsertMediaAssetIds: [id] };
+
+    const tx = this.db.transaction(() => {
+      if (preserveMetadata) {
+        this.db.prepare(`UPDATE ${assetTable} SET src = ?, updated_at = ? WHERE id = ?`).run(src, now, id);
+      } else {
+        this.db
+          .prepare(`UPDATE ${assetTable} SET src = ?, width = NULL, height = NULL, duration = NULL, codec = NULL, updated_at = ? WHERE id = ?`)
+          .run(src, now, id);
+      }
+
+      // Only content is repointed by string match — sibling asset rows that
+      // happen to share the same old `src` are untouched: they are keyed by
+      // id, not by source string, and this call was only asked to replace
+      // the one asset identified by `id`.
+      if (previousSrc !== src) {
+        const touchedElementIds = this.repointElementMediaSources(previousSrc, src, now);
+        if (touchedElementIds.length > 0) patchSpec.upsertSlideElementIds = touchedElementIds;
+        this.mergeBuildPatchSpec(patchSpec, this.repointBackgroundMediaSources(previousSrc, src, now));
+      }
+    });
+    tx();
+
+    return this.buildPatch(patchSpec);
+  }
+
+  /** Merges a partial {@link BuildPatchSpec} into `target`, concatenating id arrays for keys present in both. */
+  private mergeBuildPatchSpec(target: BuildPatchSpec, additions: BuildPatchSpec): void {
+    for (const key of Object.keys(additions) as Array<keyof BuildPatchSpec>) {
+      const addedIds = additions[key];
+      if (!addedIds || addedIds.length === 0) continue;
+      const existingIds = target[key];
+      target[key] = (existingIds ? [...existingIds, ...addedIds] : [...addedIds]) as BuildPatchSpec[typeof key];
+    }
+  }
+
+  /**
+   * Scans every `image`/`video`/`group` element for `payload.src === previousSrc`
+   * (recursing into group children) and rewrites matches to `nextSrc`.
+   * Returns the ids of the top-level `slide_elements` rows that changed —
+   * matching `updateElement`'s own convention of reporting the row id
+   * regardless of which slide/theme/overlay/stage owns it.
+   *
+   * A background pass (`adoptExistingAssets`) can call this once per media
+   * asset across a whole project, so decoding every image/video/group row
+   * to compare its `src` would be O(assets × elements). The `LIKE` clause
+   * is a cheap SQL-side prefilter — it can only over-match (a coincidental
+   * substring hit), never under-match, since it's a superset check on the
+   * same raw JSON text the decoder will read. The decode-and-compare below
+   * stays the authoritative check; a `LIKE` hit that isn't a real structural
+   * match still results in no write.
+   */
+  private repointElementMediaSources(previousSrc: string, nextSrc: string, now: string): Id[] {
+    const likePattern = `%${escapeLikePattern(previousSrc)}%`;
+    const rows = this.db
+      .prepare(`SELECT id, type, payload_json FROM slide_elements WHERE type IN ('image', 'video', 'group') AND payload_json LIKE ? ESCAPE '\\'`)
+      .all(likePattern) as Array<{ id: string; type: SlideElementType; payload_json: string }>;
+    if (rows.length === 0) return [];
+
+    const update = this.db.prepare('UPDATE slide_elements SET payload_json = ?, updated_at = ? WHERE id = ?');
+    const touchedIds: Id[] = [];
+    for (const row of rows) {
+      const payload = decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('updateMediaAssetSrc', `slide_elements.${row.id}.payload_json`));
+      const nextPayload = rewriteElementPayloadMediaSource(row.type, payload, previousSrc, nextSrc);
+      if (nextPayload === payload) continue;
+      update.run(JSON.stringify(nextPayload), now, row.id);
+      touchedIds.push(row.id);
+    }
+    return touchedIds;
+  }
+
+  /**
+   * Scans every slide's `background_json` for an image/video `src === previousSrc`
+   * and rewrites matches to `nextSrc`. Slide/theme/overlay/stage backgrounds
+   * all live on the single `slides` table (theme/overlay/stage each own one
+   * container slide row, `${ownerId}:slide`) — `collectBundleMediaReferences`
+   * never walks backgrounds, so this scan exists independently of it.
+   *
+   * Mirrors `updateSlideBackground`'s patch convention: a plain item slide
+   * reports its own id, while a themed/overlay/stage container slide reports
+   * (and touches `updated_at` on) its owner row instead.
+   *
+   * Same `LIKE` prefilter rationale as `repointElementMediaSources`: a
+   * SQL-side substring check keeps a per-asset call from decoding every
+   * slide's background when only a handful can possibly match.
+   */
+  private repointBackgroundMediaSources(previousSrc: string, nextSrc: string, now: string): BuildPatchSpec {
+    const likePattern = `%${escapeLikePattern(previousSrc)}%`;
+    const rows = this.db
+      .prepare(
+        `SELECT id, background_json, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id
+         FROM slides WHERE background_json IS NOT NULL AND background_json LIKE ? ESCAPE '\\'`
+      )
+      .all(likePattern) as Array<{
+        id: string;
+        background_json: string;
+        presentation_theme_id: string | null;
+        lyric_theme_id: string | null;
+        talk_theme_id: string | null;
+        overlay_theme_id: string | null;
+        overlay_id: string | null;
+        stage_id: string | null;
+      }>;
+    if (rows.length === 0) return {};
+
+    const updateSlide = this.db.prepare('UPDATE slides SET background_json = ?, updated_at = ? WHERE id = ?');
+    const spec: BuildPatchSpec = {};
+    const appendId = (key: keyof BuildPatchSpec, id: Id) => {
+      spec[key] = [...(spec[key] ?? []), id] as BuildPatchSpec[typeof key];
+    };
+
+    for (const row of rows) {
+      const background = decodeSlideBackgroundJson(row.background_json, persistedContext('updateMediaAssetSrc', `slides.${row.id}.background_json`));
+      const nextBackground = rewriteBackgroundMediaSource(background, previousSrc, nextSrc);
+      if (nextBackground === background) continue;
+      updateSlide.run(JSON.stringify(nextBackground), now, row.id);
+
+      if (row.presentation_theme_id) {
+        this.db.prepare('UPDATE presentation_themes SET updated_at = ? WHERE id = ?').run(now, row.presentation_theme_id);
+        appendId('upsertPresentationThemeIds', row.presentation_theme_id);
+      } else if (row.lyric_theme_id) {
+        this.db.prepare('UPDATE lyric_themes SET updated_at = ? WHERE id = ?').run(now, row.lyric_theme_id);
+        appendId('upsertLyricThemeIds', row.lyric_theme_id);
+      } else if (row.talk_theme_id) {
+        this.db.prepare('UPDATE talk_themes SET updated_at = ? WHERE id = ?').run(now, row.talk_theme_id);
+        appendId('upsertTalkThemeIds', row.talk_theme_id);
+      } else if (row.overlay_theme_id) {
+        this.db.prepare('UPDATE overlay_themes SET updated_at = ? WHERE id = ?').run(now, row.overlay_theme_id);
+        appendId('upsertOverlayThemeIds', row.overlay_theme_id);
+      } else if (row.overlay_id) {
+        this.db.prepare('UPDATE overlays SET updated_at = ? WHERE id = ?').run(now, row.overlay_id);
+        appendId('upsertOverlayIds', row.overlay_id);
+      } else if (row.stage_id) {
+        this.db.prepare('UPDATE stages SET updated_at = ? WHERE id = ?').run(now, row.stage_id);
+        appendId('upsertStageIds', row.stage_id);
+      } else {
+        appendId('upsertSlideIds', row.id);
+      }
+    }
+    return spec;
   }
 
   getMediaAsset(id: Id): MediaAsset | null {
