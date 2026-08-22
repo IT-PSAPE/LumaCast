@@ -27,6 +27,16 @@ export type RunPatch = Partial<Pick<RichRun, RunAttribute>>;
 
 const RUN_ATTRIBUTES: RunAttribute[] = ['color', 'weight', 'italic', 'underline', 'strikethrough', 'fontSize'];
 
+// A body is "rich" once any run carries an override or any block is a list.
+// Multiple plain blocks (hard line breaks) are still plain — they round-trip
+// through the `text` string. Derived from RUN_ATTRIBUTES so a future
+// run-level attribute can't be missed here the way fontSize once was.
+export function isRichBody(body: RichBody): boolean {
+  return body.some(
+    (block) => block.listType !== undefined || block.runs.some((run) => RUN_ATTRIBUTES.some((key) => run[key] !== undefined)),
+  );
+}
+
 export const BOLD_THRESHOLD = 600;
 
 function blockText(block: RichBlock): string {

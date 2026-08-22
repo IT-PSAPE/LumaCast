@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RichBoxStyle } from './resolve';
-import { applyRunStyle, resolveRangeStyle, setListType, toggleList } from './edit';
+import { applyRunStyle, isRichBody, resolveRangeStyle, setListType, toggleList } from './edit';
 import type { RichBody } from './types';
 
 const BOX: RichBoxStyle = {
@@ -152,5 +152,55 @@ describe('resolveRangeStyle', () => {
   it('falls back to the box size when no run overrides size', () => {
     const body: RichBody = [{ runs: [{ text: 'Hi' }], indent: 0 }];
     expect(resolveRangeStyle(body, range(0, 0, 0, 2), BOX).fontSize).toEqual({ value: 48, mixed: false });
+  });
+});
+
+describe('isRichBody', () => {
+  it('is rich when a run overrides only fontSize (regression: resize-then-revert)', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', fontSize: 96 }], indent: 0 }];
+    expect(isRichBody(body)).toBe(true);
+  });
+
+  it('is rich when a run overrides color', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', color: '#ff0000' }], indent: 0 }];
+    expect(isRichBody(body)).toBe(true);
+  });
+
+  it('is rich when a run overrides weight', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', weight: 700 }], indent: 0 }];
+    expect(isRichBody(body)).toBe(true);
+  });
+
+  it('is rich when a run overrides italic', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', italic: true }], indent: 0 }];
+    expect(isRichBody(body)).toBe(true);
+  });
+
+  it('is rich when a run overrides underline', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', underline: true }], indent: 0 }];
+    expect(isRichBody(body)).toBe(true);
+  });
+
+  it('is rich when a run overrides strikethrough', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', strikethrough: true }], indent: 0 }];
+    expect(isRichBody(body)).toBe(true);
+  });
+
+  it('is rich when a block carries a list type, even with no run overrides', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi' }], listType: 'bullet', indent: 0 }];
+    expect(isRichBody(body)).toBe(true);
+  });
+
+  it('is not rich for a plain single-block body with no overrides', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hello world' }], indent: 0 }];
+    expect(isRichBody(body)).toBe(false);
+  });
+
+  it('is not rich for multiple plain blocks (hard line breaks round-trip through text)', () => {
+    const body: RichBody = [
+      { runs: [{ text: 'one' }], indent: 0 },
+      { runs: [{ text: 'two' }], indent: 0 },
+    ];
+    expect(isRichBody(body)).toBe(false);
   });
 });

@@ -4,7 +4,7 @@ import type { Id } from '@lumacast/kernel';
 import type { SlideElement, TextElementPayload } from '@lumacast/composition';
 import type { ElementUpdateInput } from '@lumacast/protocol';
 import { resolveSnap, resolveTransformSnap } from './snap-guides';
-import { type RichBody, richBodyToText, type GuideLine, type RenderScene } from '@lumacast/composition';
+import { type RichBody, richBodyToText, isRichBody, type GuideLine, type RenderScene } from '@lumacast/composition';
 import { createDragSession, type DragSession } from './scene-stage-drag-session';
 import { mapSnapBoxes } from './scene-stage-editor-utils';
 import { useSceneStageShift } from './use-scene-stage-shift';
@@ -33,24 +33,6 @@ interface UseSceneStageEditorParams {
   scene: RenderScene;
   editable: boolean;
   elements: SceneStageElementsPort;
-}
-
-// A body is "rich" once any run carries an override or any block is a list.
-// Multiple plain blocks (hard line breaks) are still plain — they round-trip
-// through the `text` string.
-function bodyIsRich(body: RichBody): boolean {
-  return body.some(
-    (block) =>
-      block.listType !== undefined ||
-      block.runs.some(
-        (run) =>
-          run.color !== undefined ||
-          run.weight !== undefined ||
-          run.italic !== undefined ||
-          run.underline !== undefined ||
-          run.strikethrough !== undefined,
-      ),
-  );
 }
 
 export function useSceneStageEditor({ scene, editable, elements }: UseSceneStageEditorParams) {
@@ -196,7 +178,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     // Write-on-first-rich-edit: only persist a rich body when the user actually
     // applied a run override or a list; otherwise keep the element plain (text
     // only) so it stays byte-identical to before and lazy read-tolerance handles it.
-    const rich = bodyIsRich(body);
+    const rich = isRichBody(body);
     const nextPayload: TextElementPayload = rich
       ? { ...payload, format: 'rich', richBody: body, text }
       : { ...payload, format: 'plain', richBody: undefined, text };
