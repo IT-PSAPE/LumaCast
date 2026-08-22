@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { IpcMainInvokeEvent } from 'electron';
+import type { IpcMainInvokeEvent, MessagePortMain } from 'electron';
 
 /**
  * Regression coverage for issue #152: main registers every RPC handler
@@ -10,7 +10,7 @@ import type { IpcMainInvokeEvent } from 'electron';
  * `app/main/ipc.ts` now builds a single `rpcHandlers` object literal typed
  * against `RpcHandlerMap` (a mapped type over `RpcOperations`) and registers
  * it in one call to `registerRpcHandlers`, which iterates the canonical `IPC`
- * map (skipping the two frame channels) and calls `ipcMain.handle` for each.
+ * map (skipping the three frame/control channels) and calls `ipcMain.handle` for each.
  * That gives a compile-time guarantee that `rpcHandlers` has exactly the
  * required keys — this file adds the runtime half: that the *actual*
  * `ipcMain.handle`/`ipcMain.on` registrations produced by
@@ -75,10 +75,14 @@ vi.mock('./security', () => ({
 import {
   IPC,
   MEDIA_DERIVATIVE_EVENTS,
+  NDI_FRAME_TRANSPORT_PORT_CHANNEL,
+  NDI_FRAME_TRANSPORT_VERSION,
+  NDI_FRAME_TRANSPORT_WINDOW_MESSAGE,
   NDI_FRAME_CHANNEL_NAMES,
   PERSISTENCE_CHANNELS,
   PERSISTENCE_EVENTS,
   type MediaDerivativeProgress,
+  type NdiOutputName,
   type PersistenceProgress,
 } from '@lumacast/protocol';
 import { registerIpcHandlers } from './ipc';
@@ -93,8 +97,9 @@ let repositoryMethods: Record<string, ReturnType<typeof vi.fn>>;
 let ndiService: NdiServiceLike;
 let latestPersistenceProgress: PersistenceProgress | null;
 let reportedPersistenceProgress: PersistenceProgress[];
+let createNdiFrameTransport = vi.fn<(name: NdiOutputName) => MessagePortMain | null>(() => null);
 
-// Every `IPC` key that is not one of the two frame channels: this is the set
+// Every `IPC` key that is not one of the three frame/control channels: this is the set
 // `registerRpcHandlers` is expected to register through `ipcMain.handle`,
 // mirroring `RpcChannelName` (`keyof RpcOperations`) in app/main/ipc.ts.
 const RPC_CHANNEL_NAMES = (Object.keys(IPC) as (keyof typeof IPC)[]).filter(
@@ -157,6 +162,7 @@ describe('main IPC registration (issue #152)', () => {
     repositoryMethods = {};
     latestPersistenceProgress = null;
     reportedPersistenceProgress = [];
+    createNdiFrameTransport = vi.fn<(name: NdiOutputName) => MessagePortMain | null>(() => null);
     const repo = repositoryMethods as unknown as PersistenceServiceLike;
     ndiService = makeFakeNdiService();
     const appUpdater = {} as unknown as AppUpdater;
@@ -164,6 +170,7 @@ describe('main IPC registration (issue #152)', () => {
     registerIpcHandlers(repo, ndiService, () => null, appUpdater, {
       onPersistenceProgress: (progress) => reportedPersistenceProgress.push(progress),
       getLatestPersistenceProgress: () => latestPersistenceProgress,
+      createNdiFrameTransport,
     });
   });
 
@@ -204,12 +211,57 @@ describe('main IPC registration (issue #152)', () => {
     await expect(invoke(bogusChannel)).rejects.toThrow(`No handler registered for '${bogusChannel}'`);
   });
 
-  it('registers the two NDI frame channels via ipcMain.on only, never through the RPC handle path', () => {
+  it('registers the three NDI frame channels via ipcMain.on only, never through the RPC handle path', () => {
     for (const frameChannelName of NDI_FRAME_CHANNEL_NAMES) {
       const channel = IPC[frameChannelName];
       expect(onRegistrations.has(channel), `expected ${frameChannelName} to be registered via ipcMain.on`).toBe(true);
       expect(handleRegistrations.has(channel), `${frameChannelName} must not be registered via ipcMain.handle`).toBe(false);
     }
+  });
+
+  it('creates and transfers a direct NDI frame port only for a valid trusted output request', () => {
+    const postMessage = vi.fn();
+    const close = vi.fn();
+    const port = { close } as unknown as MessagePortMain;
+    createNdiFrameTransport.mockReturnValue(port);
+    const listener = onRegistrations.get(IPC.requestNdiFrameTransport);
+    expect(listener).toBeDefined();
+
+    listener!({ senderFrame: { postMessage } }, { name: 'audience' });
+
+    expect(createNdiFrameTransport).toHaveBeenCalledWith('audience');
+    expect(postMessage).toHaveBeenCalledWith(
+      NDI_FRAME_TRANSPORT_PORT_CHANNEL,
+      {
+        type: NDI_FRAME_TRANSPORT_WINDOW_MESSAGE,
+        version: NDI_FRAME_TRANSPORT_VERSION,
+        name: 'audience',
+      },
+      [port],
+    );
+
+    createNdiFrameTransport.mockClear();
+    postMessage.mockClear();
+    listener!({ senderFrame: { postMessage } }, { name: 'preview' });
+    expect(createNdiFrameTransport).not.toHaveBeenCalled();
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not create a transport without a sender frame and closes a port when transfer fails', () => {
+    const listener = onRegistrations.get(IPC.requestNdiFrameTransport);
+    expect(listener).toBeDefined();
+
+    listener!({ senderFrame: null }, { name: 'audience' });
+    expect(createNdiFrameTransport).not.toHaveBeenCalled();
+
+    const close = vi.fn();
+    const port = { close } as unknown as MessagePortMain;
+    createNdiFrameTransport.mockReturnValue(port);
+    listener!(
+      { senderFrame: { postMessage: vi.fn(() => { throw new Error('transfer failed'); }) } },
+      { name: 'stage' },
+    );
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('replays the latest persistence progress when the preload subscribes after window creation', () => {

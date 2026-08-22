@@ -19,6 +19,7 @@ export function PipelineLatencyGroup({ pipeline }: { pipeline: NdiSenderPerforma
         <PipelineStat label="Renderer → main IPC" stats={pipeline.rendererToMainIpc} warnP95={10} />
         <PipelineStat label="Main handler" stats={pipeline.mainHandler} warnP95={5} />
         <PipelineStat label="Main → host IPC" stats={pipeline.mainToHostIpc} warnP95={10} />
+        <PipelineStat label="Worker → host direct IPC" stats={pipeline.directWorkerToHostIpc} warnP95={10} />
         <PipelineStat label="Host → native send return" stats={pipeline.hostToNative} warnP95={20} />
         <PipelineStat label="Sequential take → native send" stats={pipeline.takeReasonToNativeSend.sequential} warnP95={66} />
         <PipelineStat label="Jump take → native send" stats={pipeline.takeReasonToNativeSend.jump} warnP95={66} />

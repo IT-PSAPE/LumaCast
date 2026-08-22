@@ -29,6 +29,62 @@ function createService(options?: {
 }
 
 describe('NdiService diagnostics cloning', () => {
+  it('records direct worker-to-host IPC without attributing it to copy-path stages', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1_050);
+    const service = createService();
+    const frame = new Uint8Array(1920 * 1080 * 4);
+
+    service.setOutputEnabled('audience', true);
+    service.receiveFrame('audience', frame, 1920, 1080, {
+      attemptId: 'direct:1',
+      captureDurationMs: 1,
+      readbackDurationMs: 1,
+      skippedCaptures: 0,
+      framesDroppedBackpressure: 0,
+      correctiveFrameRetries: 0,
+      rendererSendAtMs: 1_000,
+      hostReceivedAtMs: 1_025,
+    });
+
+    const pipeline = service.getDiagnostics().senders.audience!.performance.pipeline;
+    expect(pipeline.directWorkerToHostIpc).toEqual({ p50: 25, p95: 25, lastMs: 25, count: 1 });
+    expect(pipeline.rendererToMainIpc.count).toBe(0);
+    expect(pipeline.mainHandler.count).toBe(0);
+    expect(pipeline.mainToHostIpc.count).toBe(0);
+
+    service.destroy();
+    now.mockRestore();
+  });
+
+  it('keeps copy-path IPC telemetry out of the direct worker-to-host stage', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(2_050);
+    const service = createService();
+    const frame = new Uint8Array(1920 * 1080 * 4);
+
+    service.setOutputEnabled('audience', true);
+    service.receiveFrame('audience', frame, 1920, 1080, {
+      attemptId: 'copy:1',
+      captureDurationMs: 1,
+      readbackDurationMs: 1,
+      skippedCaptures: 0,
+      framesDroppedBackpressure: 0,
+      correctiveFrameRetries: 0,
+      rendererSendAtMs: 2_000,
+      mainReceivedAtMs: 2_010,
+      proxyForwardedAtMs: 2_015,
+      hostReceivedAtMs: 2_025,
+    });
+
+    const pipeline = service.getDiagnostics().senders.audience!.performance.pipeline;
+    expect(pipeline.directWorkerToHostIpc.count).toBe(0);
+    expect(pipeline.rendererToMainIpc.lastMs).toBe(10);
+    expect(pipeline.mainHandler.lastMs).toBe(5);
+    expect(pipeline.mainToHostIpc.lastMs).toBe(10);
+
+    service.destroy();
+    now.mockRestore();
+  });
+
   it('deep-clones frame drop counters when exposing diagnostics snapshots', () => {
     const service = createService();
 

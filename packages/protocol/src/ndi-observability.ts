@@ -106,9 +106,11 @@ export interface NdiFrameTelemetry {
   correctiveFrameRetries: number;
   dropReasons?: Partial<NdiFrameDropReasonCounts>;
   // Cross-process Date.now() timestamps. Each stage stamps as the frame
-  // travels: renderer sets signature/capture/rendererSend; main sets
-  // mainReceived and proxyForwarded; utility sets hostReceived. The native
-  // send timestamp is computed inside the service and not echoed back.
+  // travels: the renderer side sets signature/capture/rendererSend; the
+  // copy path's main process sets mainReceived and proxyForwarded; utility
+  // sets hostReceived. Direct worker transport intentionally omits both main
+  // timestamps. The native send timestamp is computed inside the service and
+  // not echoed back.
   // Optional — older telemetry shapes still validate.
   signatureChangedAtMs?: number | null;
   takeKind?: NdiTakeKind;
@@ -145,6 +147,8 @@ export interface NdiPipelineLatencyDiagnostics {
   rendererToMainIpc: NdiPipelineStageStats;
   mainHandler: NdiPipelineStageStats;
   mainToHostIpc: NdiPipelineStageStats;
+  // Populated only by the direct renderer-worker → utility-process path.
+  directWorkerToHostIpc: NdiPipelineStageStats;
   hostToNative: NdiPipelineStageStats;
 }
 

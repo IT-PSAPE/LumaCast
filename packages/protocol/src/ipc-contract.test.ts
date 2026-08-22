@@ -24,6 +24,7 @@ import {
   MEDIA_DERIVATIVE_EVENTS,
   NDI_EVENTS,
   NDI_FRAME_CHANNEL_NAMES,
+  NDI_FRAME_TRANSPORT_PORT_CHANNEL,
   PERSISTENCE_CHANNELS,
   PERSISTENCE_EVENTS,
 } from './ipc';
@@ -32,6 +33,10 @@ import {
 // as a side effect; this is the only way to observe the bridge object it
 // actually builds, as opposed to what `MainApi` merely permits it to build.
 await import('../../../app/main/preload');
+
+const frameTransportPortRegistration = on.mock.calls.find(
+  ([channel]) => channel === NDI_FRAME_TRANSPORT_PORT_CHANNEL,
+);
 
 function exposedApi(): Record<string, unknown> {
   const call = exposeInMainWorld.mock.calls.find(([key]) => key === 'castApi');
@@ -86,6 +91,7 @@ describe('ipc contract: RPC/event/frame classification', () => {
     const allChannelStrings = [
       ...Object.values(IPC),
       ...Object.values(NDI_EVENTS),
+      NDI_FRAME_TRANSPORT_PORT_CHANNEL,
       ...Object.values(APP_MENU_EVENTS),
       ...Object.values(PERSISTENCE_EVENTS),
       ...Object.values(PERSISTENCE_CHANNELS),
@@ -94,8 +100,8 @@ describe('ipc contract: RPC/event/frame classification', () => {
     expect(new Set(allChannelStrings).size).toBe(allChannelStrings.length);
   });
 
-  it('keeps exactly two NDI frame channels, both real IPC channels', () => {
-    expect(NDI_FRAME_CHANNEL_NAMES).toEqual(['sendNdiFrame', 'sendNdiAudio']);
+  it('keeps exactly three NDI frame/control channels, all real IPC channels', () => {
+    expect(NDI_FRAME_CHANNEL_NAMES).toEqual(['requestNdiFrameTransport', 'sendNdiFrame', 'sendNdiAudio']);
     for (const name of NDI_FRAME_CHANNEL_NAMES) {
       expect(Object.keys(IPC)).toContain(name);
     }
@@ -150,6 +156,46 @@ describe('ipc contract: events subscribe/unsubscribe, never invoke', () => {
     expect(removeListener).toHaveBeenCalledWith(NDI_EVENTS.frameReleased, handler);
   });
 
+  it('forwards a validated direct-frame MessagePort from preload into the isolated renderer world', () => {
+    expect(frameTransportPortRegistration).toBeDefined();
+    const [, handler] = frameTransportPortRegistration as [string, (event: { ports: MessagePort[] }, payload: unknown) => void];
+    const postMessage = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+    const port = { close: vi.fn() } as unknown as MessagePort;
+    const announcement = {
+      type: 'lumacast:ndi-frame-transport-port',
+      version: 1,
+      name: 'audience',
+    };
+
+    handler({ ports: [port] }, announcement);
+
+    expect(postMessage).toHaveBeenCalledWith(announcement, '*', [port]);
+    expect(port.close).not.toHaveBeenCalled();
+    postMessage.mockRestore();
+  });
+
+  it('closes malformed or ambiguous direct-frame port deliveries in preload', () => {
+    expect(frameTransportPortRegistration).toBeDefined();
+    const [, handler] = frameTransportPortRegistration as [string, (event: { ports: MessagePort[] }, payload: unknown) => void];
+    const postMessage = vi.spyOn(window, 'postMessage').mockImplementation(() => {});
+    const first = { close: vi.fn() } as unknown as MessagePort;
+    const second = { close: vi.fn() } as unknown as MessagePort;
+
+    handler({ ports: [first] }, { type: 'wrong', version: 1, name: 'audience' });
+    expect(first.close).toHaveBeenCalledOnce();
+    expect(postMessage).not.toHaveBeenCalled();
+
+    handler({ ports: [first, second] }, {
+      type: 'lumacast:ndi-frame-transport-port',
+      version: 1,
+      name: 'audience',
+    });
+    expect(first.close).toHaveBeenCalledTimes(2);
+    expect(second.close).toHaveBeenCalledOnce();
+    expect(postMessage).not.toHaveBeenCalled();
+    postMessage.mockRestore();
+  });
+
   it('registers the app-menu command event on its declared channel', () => {
     const callback = vi.fn();
     (exposedApi().onAppMenuCommand as (cb: (id: string) => void) => () => void)(callback);
@@ -174,6 +220,12 @@ describe('ipc contract: frame channels send, never invoke', () => {
   beforeEach(() => {
     send.mockClear();
     invoke.mockClear();
+  });
+
+  it('requests a direct NDI frame transport without an invoke round trip', () => {
+    (exposedApi().requestNdiFrameTransport as (name: string) => void)('audience');
+    expect(send).toHaveBeenCalledWith(IPC.requestNdiFrameTransport, { name: 'audience' });
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it('sends an NDI video frame on its declared channel without an invoke round trip', () => {

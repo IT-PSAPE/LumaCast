@@ -5,6 +5,8 @@ type HostListener = (...args: unknown[]) => void;
 
 const mocks = vi.hoisted(() => {
   const listeners = new Map<string, HostListener>();
+  const rendererPort = { close: vi.fn() };
+  const hostPort = { close: vi.fn() };
   const host = {
     postMessage: vi.fn(),
     on: vi.fn((event: string, listener: HostListener) => {
@@ -17,12 +19,18 @@ const mocks = vi.hoisted(() => {
   return {
     listeners,
     host,
+    rendererPort,
+    hostPort,
     fork: vi.fn(() => host),
+    MessageChannelMain: vi.fn(function MockMessageChannelMain() {
+      return { port1: rendererPort, port2: hostPort };
+    }),
   };
 });
 
 vi.mock('electron', () => ({
   utilityProcess: { fork: mocks.fork },
+  MessageChannelMain: mocks.MessageChannelMain,
 }));
 
 import { NdiServiceProxy } from './ndi-service-proxy';
@@ -114,5 +122,40 @@ describe('NdiServiceProxy teardown lifecycle', () => {
     expect(mocks.host.postMessage).toHaveBeenCalledTimes(2);
     expect(mocks.host.kill).toHaveBeenCalledOnce();
     expect(onFrameReleased).not.toHaveBeenCalled();
+  });
+
+  it('creates a renderer-to-utility frame channel and transfers the utility port', () => {
+    const proxy = new NdiServiceProxy({
+      outputConfigs: createDefaultNdiOutputConfigs(),
+      onOutputConfigsChanged: vi.fn(),
+      hostModulePath: '/app/out/main/ndi-host.js',
+    });
+    mocks.host.postMessage.mockClear();
+
+    expect(proxy.createFrameTransport('audience')).toBe(mocks.rendererPort);
+    expect(mocks.host.postMessage).toHaveBeenCalledWith(
+      { type: 'attachFramePort', name: 'audience' },
+      [mocks.hostPort],
+    );
+  });
+
+  it('falls back when frame-channel transfer fails or teardown has started', () => {
+    const proxy = new NdiServiceProxy({
+      outputConfigs: createDefaultNdiOutputConfigs(),
+      onOutputConfigsChanged: vi.fn(),
+      hostModulePath: '/app/out/main/ndi-host.js',
+    });
+    mocks.host.postMessage.mockImplementationOnce(() => {
+      throw new Error('port transfer failed');
+    });
+
+    expect(proxy.createFrameTransport('stage')).toBeNull();
+    expect(mocks.rendererPort.close).toHaveBeenCalled();
+    expect(mocks.hostPort.close).toHaveBeenCalled();
+
+    proxy.destroy();
+    mocks.host.postMessage.mockClear();
+    expect(proxy.createFrameTransport('stage')).toBeNull();
+    expect(mocks.host.postMessage).not.toHaveBeenCalled();
   });
 });

@@ -367,6 +367,11 @@ app.whenReady().then(() => {
       {
         onPersistenceProgress: reportPersistenceProgress,
         getLatestPersistenceProgress: () => latestPersistenceProgress,
+        createNdiFrameTransport: (name) => (
+          ndiService instanceof NdiServiceProxy
+            ? ndiService.createFrameTransport(name)
+            : null
+        ),
       },
     ),
     createWindow: createMainWindow,

@@ -25,23 +25,42 @@ const mocks = vi.hoisted(() => {
   const rafCallbacks = new Map<number, FrameRequestCallback>();
   let nextRafId = 0;
 
-  class MockWorker {
-    onmessage: ((event: MessageEvent<{ type: 'captured'; requestId: number; buffer: Uint8Array; width: number; height: number; readbackDurationMs: number }>) => void) | null = null;
+  const workerInstances: MockWorker[] = [];
 
-    postMessage = vi.fn((request: { requestId: number }) => {
+  class MockWorker {
+    onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
+
+    constructor() {
+      workerInstances.push(this);
+    }
+
+    postMessage = vi.fn((request: Record<string, unknown>) => {
+      if (request.type === 'attach-transport' || request.type === 'reset-transport') return;
       queueMicrotask(() => {
-        this.onmessage?.({
-          data: {
-            type: 'captured',
+        if (request.type === 'capture') {
+          this.emit({
+            type: 'readback-complete',
             requestId: request.requestId,
-            buffer: new Uint8Array(16),
             width: 1920,
             height: 1080,
             readbackDurationMs: 2,
-          },
-        } as MessageEvent<{ type: 'captured'; requestId: number; buffer: Uint8Array; width: number; height: number; readbackDurationMs: number }>);
+          });
+        } else if (request.type === 'submit-frame') {
+          this.emit({
+            type: 'captured',
+            requestId: request.requestId,
+            buffer: new ArrayBuffer(16),
+            width: 1920,
+            height: 1080,
+            telemetry: request.telemetry,
+          });
+        }
       });
     });
+
+    emit(data: Record<string, unknown>) {
+      this.onmessage?.({ data } as MessageEvent<Record<string, unknown>>);
+    }
 
     terminate = vi.fn();
   }
@@ -86,11 +105,13 @@ const mocks = vi.hoisted(() => {
       createImageBitmap.mockClear();
       setPixelRatio.mockClear();
       stage.batchDraw.mockClear();
+      workerInstances.length = 0;
     },
     sendNdiFrame,
     setPixelRatio,
     stage,
     stageCanvas,
+    workerInstances,
   };
 });
 
@@ -212,6 +233,7 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame', mocks.requestAnimationFrame);
   vi.stubGlobal('cancelAnimationFrame', mocks.cancelAnimationFrame);
   const castApiStub = {
+    requestNdiFrameTransport: vi.fn(),
     sendNdiFrame: mocks.sendNdiFrame,
     onNdiFrameReleased: mocks.registerReleaseListener,
   };
@@ -324,6 +346,113 @@ describe('ndi-frame-capture helpers', () => {
 });
 
 describe('NdiFrameCapture integration', () => {
+  it('requests a direct transport and transfers only a trusted matching port to its worker', () => {
+    const requestNdiFrameTransport = vi.mocked(window.castApi.requestNdiFrameTransport);
+    render(
+      <NdiFrameCapture
+        senderName="audience"
+        scene={createScene() as never}
+        outputScopeKey="entry:playlist-1"
+        enabled
+      />,
+    );
+    expect(requestNdiFrameTransport).toHaveBeenCalledWith('audience');
+
+    const worker = mocks.workerInstances[0]!;
+    const foreignPort = { close: vi.fn() } as unknown as MessagePort;
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'lumacast:ndi-frame-transport-port', version: 1, name: 'audience' },
+      origin: 'https://foreign.invalid',
+      source: window,
+      ports: [foreignPort],
+    }));
+    expect(worker.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'attach-transport' }),
+      expect.anything(),
+    );
+    expect(foreignPort.close).toHaveBeenCalledTimes(1);
+
+    const otherOutputPort = { close: vi.fn() } as unknown as MessagePort;
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'lumacast:ndi-frame-transport-port', version: 1, name: 'stage' },
+      origin: window.location.origin,
+      source: window,
+      ports: [otherOutputPort],
+    }));
+    expect(otherOutputPort.close).not.toHaveBeenCalled();
+
+    const port = { close: vi.fn() } as unknown as MessagePort;
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'lumacast:ndi-frame-transport-port', version: 1, name: 'audience' },
+      origin: window.location.origin,
+      source: window,
+      ports: [port],
+    }));
+    expect(worker.postMessage).toHaveBeenCalledWith(
+      { type: 'attach-transport', name: 'audience', port },
+      [port],
+    );
+  });
+
+  it('requests a replacement transport when the worker reports fallback', () => {
+    vi.useFakeTimers();
+    const requestNdiFrameTransport = vi.mocked(window.castApi.requestNdiFrameTransport);
+    render(
+      <NdiFrameCapture
+        senderName="audience"
+        scene={createScene() as never}
+        outputScopeKey="entry:playlist-1"
+        enabled
+      />,
+    );
+    const worker = mocks.workerInstances[0]!;
+    expect(requestNdiFrameTransport).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      worker.emit({ type: 'transport-fallback', name: 'audience' });
+    });
+
+    expect(requestNdiFrameTransport).toHaveBeenCalledTimes(1);
+    act(() => vi.advanceTimersByTime(500));
+    expect(requestNdiFrameTransport).toHaveBeenCalledTimes(2);
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(requestNdiFrameTransport).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it('resets and replaces the direct transport when a frame release times out', async () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const requestNdiFrameTransport = vi.mocked(window.castApi.requestNdiFrameTransport);
+    render(
+      <NdiFrameCapture
+        senderName="audience"
+        scene={createScene() as never}
+        outputScopeKey="entry:playlist-1"
+        enabled
+      />,
+    );
+    const worker = mocks.workerInstances[0]!;
+    const port = { close: vi.fn() } as unknown as MessagePort;
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'lumacast:ndi-frame-transport-port', version: 1, name: 'audience' },
+      origin: window.location.origin,
+      source: window,
+      ports: [port],
+    }));
+    act(() => worker.emit({ type: 'transport-ready', name: 'audience' }));
+    await flushCapture(40);
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    now.mockReturnValue(300);
+    await flushCapture(80);
+
+    expect(worker.postMessage).toHaveBeenCalledWith({ type: 'reset-transport' });
+    act(() => vi.advanceTimersByTime(500));
+    expect(requestNdiFrameTransport).toHaveBeenCalledTimes(2);
+    now.mockRestore();
+    vi.useRealTimers();
+  });
+
   it('keeps the one-slot backpressure boundary across effect restarts and ignores stale releases', async () => {
     const firstScene = createScene();
     const secondScene = createScene({

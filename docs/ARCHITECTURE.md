@@ -163,26 +163,48 @@ Each rule is also proven by a committed fixture scenario under
 
 ## NDI Telemetry and Observability Contracts
 
+- Video frames normally travel over one versioned `MessagePort` from the
+  renderer readback worker directly to the NDI utility process. Main and
+  preload establish and forward the port, but the 1920x1080 RGBA/BGRA payload
+  bypasses both the renderer and main-process event loops. Electron 35 does not
+  preserve this `ArrayBuffer` with a transfer list, so the worker deliberately
+  performs one structured clone on that direct port. The utility host accepts
+  frames only after a matching version/name handshake and validates the output
+  name, attempt id, dimensions, exact byte length, and advisory telemetry.
+- The direct channel is optional. A handshake timeout, invalid handshake or
+  host response, closed port, unavailable host, or frame-release watchdog
+  resets it and requests a replacement with bounded exponential backoff;
+  frames use the existing renderer -> main -> proxy -> utility copy path until
+  a replacement is ready. The backoff resets only after a successful direct
+  handshake. A malformed frame with a valid attempt id receives a rejected
+  release without being mistaken for channel failure.
 - The renderer's off-screen NDI capture loop in
   `app/renderer/features/playback/ndi-frame-capture.tsx` is still a one-slot
   backpressure boundary, but the slot is now keyed by a monotonic
-  per-attempt id. Main, the utility-process proxy/host, and
-  `@lumacast/engine` pass that id through unchanged on frame telemetry and the
-  `frameReleased` event, so only the matching host-side release can clear the
+  per-attempt id. Both transport routes preserve that id through the utility
+  host and `@lumacast/engine`; the matching host-side `frameReleased` returns
+  on the originating route and is the only release that can clear the
   in-flight attempt. Watchdog expiry is local policy only; it never claims a
   later attempt was released.
 - Renderer-supplied frame telemetry is advisory, not authoritative. Main IPC
-  sanitizes optional telemetry before stamping `mainReceivedAtMs`, and
-  `@lumacast/engine` sanitizes again before merging counters or pipeline
-  spans. Invalid enums are dropped, count fields must be bounded nonnegative
-  integers, duration/span samples are bounded before aggregation, and only
-  renderer-authored drop reasons are merged. Duplicate backpressure sources are
-  canonicalized to one count, and activate/take dedupe keys exist only for a
-  fully valid correlation tuple (`kind`, `reason`, `issuedAt`, `session`, and
-  `sequence`) whose intended sender-side span is actually aggregatable.
-  Malformed telemetry therefore cannot turn a successful native send into
-  `nativeSendFailed`, poison aggregates to `Infinity`, or suppress a later
-  valid activate/take frame with the same key.
+  sanitizes optional copy-path telemetry before stamping `mainReceivedAtMs`;
+  the utility validates direct-path telemetry and strips timestamps owned by
+  bypassed boundaries. `@lumacast/engine` sanitizes again before merging
+  counters or pipeline spans. Invalid enums are dropped, count fields must be
+  bounded nonnegative integers, duration/span samples are bounded before
+  aggregation, and only renderer-authored drop reasons are merged. Duplicate
+  backpressure sources are canonicalized to one count, and activate/take
+  dedupe keys exist only for a fully valid correlation tuple (`kind`, `reason`,
+  `issuedAt`, `session`, and `sequence`) whose intended sender-side span is
+  actually aggregatable. Malformed telemetry therefore cannot turn a
+  successful native send into `nativeSendFailed`, poison aggregates to
+  `Infinity`, or suppress a later valid activate/take frame with the same key.
+- Pipeline diagnostics keep the routes distinct: the copy path populates
+  `rendererToMainIpc`, `mainHandler`, and `mainToHostIpc`; only the direct path
+  populates `directWorkerToHostIpc`. Both then populate `hostToNative`.
+- The native sender declares every video frame as 30000/1001 progressive and
+  creates NDI senders with `clock_video=false`. The renderer's one-frame loop
+  owns cadence; the native SDK must not add a second blocking video clock.
 - Slide/take latency correlation is scoped by the target output item/playlist
   entry, not by slide id alone. `SlideProvider` records the intended
   `activate`/`take` plus the truthful reason available at that boundary today
@@ -561,7 +583,11 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 - **Category decision (issue #154, parent #116): this is an application contract, not an IPC contract**, despite sitting alongside the RPC wire-payload shapes. None of its types is ever named in the RPC method signatures (`packages/protocol/src/ipc.ts`) — the manifest round-trips through a `.cst` file on disk, not through an IPC call's argument or return type. It is kept in its own module, separate from `rpc-inputs.ts`/`rpc-results.ts`, so the file-format versus wire-payload distinction is visible in the import path.
 - This applies the precedent #215 set for `ProjectBackup*` above, one level down. `deck-bundles.ts` type-depends directly on the manifest family, and `BundlePlaylistItemEntry` deliberately mirrors the legacy owner-column shape (nullable `presentationId`/`lyricId`/`talkId`, see its declaration comment) so exported bundles keep a stable versioned on-disk schema — exactly the shape that reads as a persistence DTO and is not one. Record this here rather than relitigating it at the next split.
 - The IPC surface moved in the same slice: RPC mutation inputs live in `packages/protocol/src/rpc-inputs.ts`, RPC results and query shapes in `packages/protocol/src/rpc-results.ts`, and the NDI plus observability surface in `packages/protocol/src/ndi-observability.ts`. `AppSnapshot` is classified as an IPC contract because its wire use forces its shape, but it is also the database layer's undo representation and the renderer's cached state; that dual role is recorded at its declaration, since changing it changes all three.
-- The NDI frame transport now has an explicit host-side release boundary: the renderer still sends video frames one-way over `sendNdiFrame`, but the backpressure slot is only freed when the utility-process host emits `frameReleased` back through main. Main no longer `finally`-acks receipt. The release event means "the host-side send attempt returned or was rejected", not "downstream receivers are ready".
+- The NDI frame transport has an explicit host-side release boundary. The
+  preferred worker-to-utility port returns `frameReleased` on that same port;
+  the copy fallback returns it through main. In either route the backpressure
+  slot is freed only for the matching attempt after the host-side send returns
+  or is rejected. A release is not a downstream-receiver capacity claim.
 - Observability collection is always-on and owned by the app shell: `App.tsx` mounts an `ObservabilityRuntime` child inside `WorkbenchProvider`; that child runs `useObservabilityRuntime()` from `app/renderer/features/observability/observability-runtime.ts`, continuously sampling renderer memory/rAF/video/audio health and polling `obsGetSystemMetrics()` for main-process CPU/memory/event-loop lag. The observability panel is now display-only. Timeline-to-log mirroring is opt-in state in the observability store rather than an unconditional console side effect.
 - The `app/core/types.ts` facade described above was retired once every moved family had a real package owner (#155, folded into the #219 package split's W4). Its only two non-re-exported declarations, `PlaybackState` and `SlideBrowserMode`, were app-shell view state rather than shared domain/wire types, so they now live in `app/renderer/types/view-state.ts` instead of any package.
 

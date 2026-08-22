@@ -1,4 +1,4 @@
-import { utilityProcess, type UtilityProcess } from 'electron';
+import { MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from 'electron';
 import type {
   NdiDiagnostics,
   NdiFrameRelease,
@@ -80,6 +80,20 @@ export class NdiServiceProxy implements NdiServiceLike {
 
   getDiagnostics(): NdiDiagnostics {
     return this.cachedDiagnostics;
+  }
+
+  createFrameTransport(name: NdiOutputName): MessagePortMain | null {
+    if (this.destroyed || this.teardownStarted) return null;
+    const { port1, port2 } = new MessageChannelMain();
+    try {
+      this.host.postMessage({ type: 'attachFramePort', name } satisfies NdiHostCommand, [port2]);
+      return port1;
+    } catch (error) {
+      port1.close();
+      port2.close();
+      console.error(`[NdiServiceProxy] Failed to attach ${name} frame transport:`, error);
+      return null;
+    }
   }
 
   setOutputEnabled(name: NdiOutputName, enabled: boolean): NdiOutputState {

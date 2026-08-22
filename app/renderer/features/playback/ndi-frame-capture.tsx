@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Stage, Layer, Group } from 'react-konva';
 import type Konva from 'konva';
-import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@lumacast/protocol';
+import {
+  isNdiFrameTransportPortAnnouncement,
+  NDI_OUTPUT_WIDTH,
+  NDI_OUTPUT_HEIGHT,
+  NDI_VIDEO_FRAME_INTERVAL_MS,
+  type NdiFrameDropReason,
+  type NdiFrameDropReasonCounts,
+  type NdiFrameRelease,
+  type NdiFrameTelemetry,
+  type NdiOutputName,
+} from '@lumacast/protocol';
 import type { TextBinding } from '@lumacast/composition';
-import type { NdiFrameDropReason, NdiFrameDropReasonCounts, NdiFrameRelease, NdiOutputName } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
 import { renderSceneNodeContent, needsOpaqueBackdrop, SceneSlideBackground, useBinding, type BindingValue, SceneNodeShape } from '@lumacast/canvas';
 import { traverseSceneNodes } from '@lumacast/composition';
 import type { RenderNode, RenderScene, SceneSurface } from '@lumacast/composition';
 import { useNdiCaptureSource } from './ndi-capture-source';
 import NdiReadbackWorker from './ndi-readback-worker?worker';
-import type { CaptureRequest, WorkerOutbound } from './ndi-readback-worker';
+import type {
+  AttachTransportRequest,
+  CaptureRequest,
+  ResetTransportRequest,
+  SubmitFrameRequest,
+  WorkerOutbound,
+} from './ndi-readback-worker';
 import {
   claimNdiTakeCorrelation,
   consumeNdiTakeCorrelation,
@@ -19,10 +34,12 @@ import {
   type NdiTakeCorrelationClaim,
 } from '../../utils/ndi-take-correlation';
 
-const FRAME_INTERVAL_MS = 1000 / 30;
+const FRAME_INTERVAL_MS = NDI_VIDEO_FRAME_INTERVAL_MS;
 // If we've been waiting on an ack longer than this, assume it was lost
 // and free up the back-pressure slot so capture can resume.
 const FRAME_RELEASE_WATCHDOG_MS = 250;
+const TRANSPORT_RETRY_INITIAL_MS = 500;
+const TRANSPORT_RETRY_MAX_MS = 8_000;
 let nextGlobalNdiCaptureAttemptId = 0;
 let nextCaptureRequestId = 0;
 const ndiCaptureAttemptSessionId = (() => {
@@ -214,6 +231,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
   const signatureChangedAtMsRef = useRef<number | null>(null);
   const acceptedFramesRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
+  const retryNdiFrameTransportRef = useRef<() => void>(() => {});
   const sharedCaptureSource = useNdiCaptureSource(senderName);
   const hasVideoNodes = useMemo(() => sceneHasVideoPlayback(scene), [scene]);
   const bindingSignature = useMemo(
@@ -226,15 +244,76 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
   );
   const withAlpha = outputConfigs[senderName].withAlpha;
 
+  const handleFrameRelease = useCallback((release: NdiFrameRelease) => {
+    if (release.name !== senderName) return;
+    const activeAttempt = inFlightAttemptRef.current;
+    if (!doesReleaseMatchAttempt(release, activeAttempt)) return;
+    inFlightAttemptRef.current = null;
+    if (shouldTrackRendererReleaseDropReason(release)) {
+      incrementFrameDropReason(pendingDropReasonsRef.current, release.reason);
+    }
+    if (release.accepted) {
+      acceptedFramesRef.current += 1;
+      const matchedAttempt = activeAttempt!;
+      if (matchedAttempt.takeCorrelation) {
+        consumeNdiTakeCorrelation(senderName, matchedAttempt.takeCorrelation.sequenceId);
+        if (leasedTakeCorrelationRef.current?.sequenceId === matchedAttempt.takeCorrelation.sequenceId) {
+          leasedTakeCorrelationRef.current = null;
+        }
+      }
+    }
+    if (shouldScheduleCorrectiveRetry(release)) {
+      forceCorrectiveCaptureRef.current = true;
+    }
+  }, [senderName]);
+
   // Spin up a dedicated worker that owns an OffscreenCanvas and performs the
-  // 8 MB pixel readback off the renderer main thread.
+  // 8 MB pixel readback off the renderer main thread. A validated port from
+  // preload is transferred onward so the same worker can clone each frame
+  // directly to the utility process without involving renderer/main JS.
   useEffect(() => {
     if (!enabled) return;
     const worker = new NdiReadbackWorker();
     workerRef.current = worker;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let retryDelayMs = TRANSPORT_RETRY_INITIAL_MS;
+    const clearTransportRetry = () => {
+      if (retryTimer === null) return;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+    };
+    const requestTransport = () => {
+      clearTransportRetry();
+      window.castApi.requestNdiFrameTransport(senderName);
+      const delay = retryDelayMs;
+      retryDelayMs = Math.min(retryDelayMs * 2, TRANSPORT_RETRY_MAX_MS);
+      retryTimer = setTimeout(requestTransport, delay);
+    };
+    const scheduleTransportRetry = () => {
+      if (retryTimer !== null) return;
+      const delay = retryDelayMs;
+      retryDelayMs = Math.min(retryDelayMs * 2, TRANSPORT_RETRY_MAX_MS);
+      retryTimer = setTimeout(requestTransport, delay);
+    };
+    retryNdiFrameTransportRef.current = scheduleTransportRetry;
     worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
       const data = event.data;
       if (!data) return;
+      if (data.type === 'released') {
+        handleFrameRelease(data.release);
+        return;
+      }
+      if (data.type === 'transport-fallback') {
+        if (data.name === senderName) scheduleTransportRetry();
+        return;
+      }
+      if (data.type === 'transport-ready') {
+        if (data.name === senderName) {
+          clearTransportRetry();
+          retryDelayMs = TRANSPORT_RETRY_INITIAL_MS;
+        }
+        return;
+      }
       const activeAttempt = inFlightAttemptRef.current;
       if (!activeAttempt || activeAttempt.requestId !== data.requestId) return;
       if (data.type === 'capture-failed') {
@@ -244,43 +323,92 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
         inFlightAttemptRef.current = null;
         return;
       }
-      if (data.type !== 'captured') return;
-      const captureDurationMs = performance.now() - captureStartedAtRef.current;
-      const signatureChangedAtMs = signatureChangedAtMsRef.current;
-      signatureChangedAtMsRef.current = null;
-      window.castApi.sendNdiFrame(
-        senderName,
-        data.buffer,
-        data.width,
-        data.height,
-        {
+      if (data.type === 'readback-complete') {
+        const telemetry: NdiFrameTelemetry = {
           attemptId: activeAttempt.attemptId,
-          captureDurationMs,
+          captureDurationMs: performance.now() - captureStartedAtRef.current,
           readbackDurationMs: data.readbackDurationMs,
           skippedCaptures: pendingSkippedCapturesRef.current,
           framesDroppedBackpressure: pendingDroppedBackpressureRef.current,
           correctiveFrameRetries: pendingCorrectiveRetriesRef.current,
           dropReasons: pendingDropReasonsRef.current,
-          signatureChangedAtMs,
+          signatureChangedAtMs: signatureChangedAtMsRef.current,
           takeKind: activeAttempt.takeCorrelation?.kind,
           takeReason: activeAttempt.takeCorrelation?.reason,
           takeSessionId: activeAttempt.takeCorrelation?.sessionId,
           takeSequenceId: activeAttempt.takeCorrelation?.sequenceId,
           takeIssuedAtMs: activeAttempt.takeCorrelation?.takeIssuedAtMs,
           captureStartedAtMs: captureStartedAtMsRef.current,
-        },
-      );
-      pendingSkippedCapturesRef.current = 0;
-      pendingDroppedBackpressureRef.current = 0;
-      pendingCorrectiveRetriesRef.current = 0;
-      pendingDropReasonsRef.current = createEmptyFrameDropReasons();
+        };
+        signatureChangedAtMsRef.current = null;
+        const submit: SubmitFrameRequest = {
+          type: 'submit-frame',
+          requestId: data.requestId,
+          name: senderName,
+          attemptId: activeAttempt.attemptId,
+          telemetry,
+        };
+        worker.postMessage(submit);
+        pendingSkippedCapturesRef.current = 0;
+        pendingDroppedBackpressureRef.current = 0;
+        pendingCorrectiveRetriesRef.current = 0;
+        pendingDropReasonsRef.current = createEmptyFrameDropReasons();
+        return;
+      }
+      if (data.type === 'captured') {
+        window.castApi.sendNdiFrame(
+          senderName,
+          data.buffer,
+          data.width,
+          data.height,
+          data.telemetry,
+        );
+      }
     };
+
+    const closePorts = (ports: readonly MessagePort[]) => {
+      for (const port of ports) port.close();
+    };
+    const handleTransportPort = (event: MessageEvent<unknown>) => {
+      if (event.source !== window || event.origin !== window.location.origin) {
+        closePorts(event.ports);
+        return;
+      }
+      if (!isNdiFrameTransportPortAnnouncement(event.data)) {
+        closePorts(event.ports);
+        return;
+      }
+      // Both output capture components receive the window event. Leave a
+      // valid port for the component whose output name actually matches it.
+      if (event.data.name !== senderName) return;
+      if (event.ports.length !== 1) {
+        closePorts(event.ports);
+        scheduleTransportRetry();
+        return;
+      }
+      clearTransportRetry();
+      const port = event.ports[0]!;
+      const attach: AttachTransportRequest = { type: 'attach-transport', name: senderName, port };
+      try {
+        worker.postMessage(attach, [port]);
+      } catch {
+        port.close();
+        scheduleTransportRetry();
+      }
+    };
+    window.addEventListener('message', handleTransportPort);
+    requestTransport();
     return () => {
+      window.removeEventListener('message', handleTransportPort);
+      clearTransportRetry();
+      retryNdiFrameTransportRef.current = () => {};
+      const reset: ResetTransportRequest = { type: 'reset-transport' };
+      worker.postMessage(reset);
       worker.terminate();
       if (workerRef.current === worker) workerRef.current = null;
       acceptedFramesRef.current = 0;
     };
-  }, [enabled, senderName]);
+  }, [enabled, handleFrameRelease, senderName]);
 
   useEffect(() => () => {
     inFlightAttemptRef.current = null;
@@ -339,36 +467,15 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
   // Listen for host-side frame releases to free up the back-pressure slot.
   useEffect(() => {
     if (!enabled) return;
-    return window.castApi.onNdiFrameReleased((release) => {
-      if (release.name !== senderName) return;
-      const activeAttempt = inFlightAttemptRef.current;
-      if (!doesReleaseMatchAttempt(release, activeAttempt)) return;
-      inFlightAttemptRef.current = null;
-      if (shouldTrackRendererReleaseDropReason(release)) {
-        incrementFrameDropReason(pendingDropReasonsRef.current, release.reason);
-      }
-      if (release.accepted) {
-        acceptedFramesRef.current += 1;
-        const matchedAttempt = activeAttempt!;
-        if (matchedAttempt.takeCorrelation) {
-          consumeNdiTakeCorrelation(senderName, matchedAttempt.takeCorrelation.sequenceId);
-          if (leasedTakeCorrelationRef.current?.sequenceId === matchedAttempt.takeCorrelation.sequenceId) {
-            leasedTakeCorrelationRef.current = null;
-          }
-        }
-      }
-      if (shouldScheduleCorrectiveRetry(release)) {
-        forceCorrectiveCaptureRef.current = true;
-      }
-    });
-  }, [enabled, senderName]);
+    return window.castApi.onNdiFrameReleased(handleFrameRelease);
+  }, [enabled, handleFrameRelease]);
 
   useEffect(() => {
     if (!enabled || sharedCaptureSource) return;
     pinFallbackCaptureStagePixelRatio(stageRef.current);
   }, [enabled, sharedCaptureSource]);
 
-  // Single RAF loop driving capture at ~30fps. Only captures when the scene
+  // Single RAF loop driving capture at 30000/1001 fps. Only captures when the scene
   // signature changed or there are video nodes; the main process replays the
   // last frame on its own heartbeat when this side stays idle.
   // Back-pressure: if a frame is in flight (no host-side release yet), skip — bursts piling
@@ -378,13 +485,18 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
 
     let rafId: number | null = null;
     let running = true;
-    let lastCaptureTime = 0;
+    let nextCaptureTime = 0;
     let lastSignature = '';
 
     function tick(timestamp: number) {
       if (!running) return;
-      if (timestamp - lastCaptureTime >= FRAME_INTERVAL_MS) {
-        lastCaptureTime = timestamp;
+      if (nextCaptureTime === 0) nextCaptureTime = timestamp;
+      if (timestamp >= nextCaptureTime) {
+        // Advance the deadline instead of resetting it to the current RAF
+        // timestamp, so display-refresh quantization cannot accumulate drift.
+        do {
+          nextCaptureTime += FRAME_INTERVAL_MS;
+        } while (nextCaptureTime <= timestamp);
 
         // Watchdog: if the host-side release never arrived, free the slot so we
         // don't stall forever after a dropped IPC message.
@@ -393,6 +505,9 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
           incrementFrameDropReason(pendingDropReasonsRef.current, 'ackTimeout');
           forceCorrectiveCaptureRef.current = true;
           inFlightAttemptRef.current = null;
+          const reset: ResetTransportRequest = { type: 'reset-transport' };
+          workerRef.current?.postMessage(reset);
+          retryNdiFrameTransportRef.current();
         }
 
         const currentSignature = sceneSignature(scene.nodes, withAlpha, bindingSignature);

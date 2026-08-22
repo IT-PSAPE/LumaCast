@@ -114,6 +114,7 @@ const castApi = {
   onMediaDerivativeProgress: noSubscription,
   onPersistenceProgress: noSubscription,
   onAppMenuCommand: noSubscription,
+  requestNdiFrameTransport: noopVoid,
   sendNdiFrame: noopVoid,
   sendNdiAudio: noopVoid,
 

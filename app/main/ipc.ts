@@ -1,9 +1,12 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type IpcMainInvokeEvent, type MessagePortMain } from 'electron';
 import { MEDIA_DERIVATIVE_EVENTS, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, validateProjectBackupAsync } from '@lumacast/protocol';
 import {
   IPC,
   NDI_EVENTS,
   NDI_FRAME_CHANNEL_NAMES,
+  NDI_FRAME_TRANSPORT_PORT_CHANNEL,
+  NDI_FRAME_TRANSPORT_VERSION,
+  NDI_FRAME_TRANSPORT_WINDOW_MESSAGE,
   type InlineWindowMenuBounds,
   type InlineWindowMenuItem,
   type ItemCreateInput,
@@ -107,8 +110,8 @@ import type { PersistenceServiceLike } from './persistence/persistence-service-p
 
 const SNAPSHOT_HEARTBEAT_INTERVAL_MS = 5_000;
 
-// `sendNdiFrame`/`sendNdiAudio` (the two ipcMain.on frame channels near the
-// bottom of this file) are the only consumers of this set; their inline
+// The three ipcMain.on frame channels near the bottom of this file are the
+// only consumers of this set; their inline
 // validation is deliberately left untouched by issue #150 (frame transport
 // is out of scope), so this stays exactly as it was rather than being
 // folded into the codec-based `decodeNdiOutputName` used by the RPC
@@ -280,11 +283,11 @@ const NDI_FRAME_CHANNEL_NAME_SET = new Set<string>(NDI_FRAME_CHANNEL_NAMES);
 /**
  * Registers every operation in `handlers` through `safeHandle`, driven by the
  * `IPC` map rather than a hand-maintained sequence of `safeHandle(IPC.x, ...)`
- * calls. Iterating `IPC` (skipping the two frame channels) rather than
+ * calls. Iterating `IPC` (skipping the three frame/control channels) rather than
  * `Object.keys(handlers)` means a rogue registration under a channel string
  * absent from `IPC` is structurally impossible from inside this function.
  * Frame channels are excluded by construction — `NDI_FRAME_CHANNEL_NAME_SET`
- * is checked before dispatch — so `sendNdiFrame`/`sendNdiAudio` can never
+ * is checked before dispatch — so the NDI frame/control channels can never
  * reach this path; they are registered directly via `ipcMain.on` below,
  * exactly as before.
  *
@@ -341,6 +344,7 @@ export const registerIpcHandlers = (
   options: {
     onPersistenceProgress?: (progress: PersistenceProgress) => void;
     getLatestPersistenceProgress?: () => PersistenceProgress | null;
+    createNdiFrameTransport?: (name: NdiOutputName) => MessagePortMain | null;
   } = {},
 ): void => {
   const mediaDerivatives = new MediaDerivativeService(repo, app.getPath('userData'));
@@ -1036,6 +1040,39 @@ export const registerIpcHandlers = (
     obsGetSystemMetrics: () => sampleSystemMetrics(),
   };
   registerRpcHandlers(rpcHandlers, (result) => mediaDerivatives.attachToResult(result));
+
+  ipcMain.on(IPC.requestNdiFrameTransport, (event, payload: unknown) => {
+    let port: MessagePortMain | null = null;
+    try {
+      assertTrustedIpcSender(event);
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw new Error('NDI frame transport request must be an object');
+      }
+      const name = (payload as { name?: unknown }).name;
+      if (typeof name !== 'string' || !NDI_OUTPUT_NAMES.has(name as NdiOutputName)) {
+        throw new Error(`Invalid NDI output name: ${String(name)}`);
+      }
+      const senderFrame = event.senderFrame;
+      if (!senderFrame) {
+        throw new Error('NDI frame transport request has no sender frame');
+      }
+      port = options.createNdiFrameTransport?.(name as NdiOutputName) ?? null;
+      if (!port) return;
+      senderFrame.postMessage(
+        NDI_FRAME_TRANSPORT_PORT_CHANNEL,
+        {
+          type: NDI_FRAME_TRANSPORT_WINDOW_MESSAGE,
+          version: NDI_FRAME_TRANSPORT_VERSION,
+          name,
+        },
+        [port],
+      );
+      port = null;
+    } catch (error) {
+      port?.close();
+      console.error(`[IPC ${IPC.requestNdiFrameTransport}]`, error);
+    }
+  });
 
   // Frame transport (issue #150 acceptance criterion): sendNdiFrame's inline
   // validation below is untouched — no codec, no refactor, exactly as it was.

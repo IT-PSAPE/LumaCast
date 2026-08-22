@@ -292,11 +292,13 @@ type PersistenceEventSurface = {
 // payloads above: these intentionally skip the request/response round trip
 // for latency, and their direction is the opposite of the event maps.
 export interface NdiFrameChannels {
+  requestNdiFrameTransport: { name: NdiOutputName };
   sendNdiFrame: { name: NdiOutputName; buffer: ArrayBuffer; width: number; height: number; telemetry?: NdiFrameTelemetry };
   sendNdiAudio: { name: NdiOutputName; buffer: ArrayBuffer; sampleRate: number; channels: number; samplesPerChannel: number };
 }
 
 type NdiFrameSurface = {
+  requestNdiFrameTransport: (name: NdiOutputName) => void;
   sendNdiFrame: (
     name: NdiOutputName,
     buffer: ArrayBuffer,
@@ -504,6 +506,7 @@ export const IPC = {
   getNdiOutputConfigs: 'ndi:getOutputConfigs',
   updateNdiOutputConfig: 'ndi:updateOutputConfig',
   getNdiDiagnostics: 'ndi:getDiagnostics',
+  requestNdiFrameTransport: 'ndi:requestFrameTransport',
   sendNdiFrame: 'ndi:sendFrame',
   sendNdiAudio: 'ndi:sendAudio',
   restoreProjectBackup: 'cast:restoreProjectBackup',
@@ -519,6 +522,8 @@ export const NDI_EVENTS = {
   diagnosticsChanged: 'ndi:diagnosticsChanged',
   frameReleased: 'ndi:frameReleased',
 } as const;
+
+export const NDI_FRAME_TRANSPORT_PORT_CHANNEL = 'ndi:frameTransportPort';
 
 export const APP_MENU_EVENTS = {
   command: 'app-menu:command',
@@ -549,7 +554,7 @@ export const PERSISTENCE_CHANNELS = {
 // this module exports, not just the RPC/frame split.
 // ---------------------------------------------------------------------------
 
-export const NDI_FRAME_CHANNEL_NAMES = ['sendNdiFrame', 'sendNdiAudio'] as const satisfies readonly (keyof typeof IPC)[];
+export const NDI_FRAME_CHANNEL_NAMES = ['requestNdiFrameTransport', 'sendNdiFrame', 'sendNdiAudio'] as const satisfies readonly (keyof typeof IPC)[];
 
 type FrameChannelName = (typeof NDI_FRAME_CHANNEL_NAMES)[number];
 type RpcChannelName = Exclude<keyof typeof IPC, FrameChannelName>;

@@ -5,6 +5,8 @@ dist
 .DS_Store
 *.db
 packages/ndi-native/build
+packages/ndi-native/test/fixtures/libndi_mock.dylib
+packages/ndi-native/test/fixtures/mock_report.json
 .electron-dev-dist
 .npm-cache
 .local

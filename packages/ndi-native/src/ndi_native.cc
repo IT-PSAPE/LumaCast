@@ -30,6 +30,12 @@ constexpr int64_t kTimecodeSynthesize = std::numeric_limits<int64_t>::max();
 constexpr int32_t kFrameFormatProgressive = 1;
 constexpr size_t kMaxVideoFrameBytes = static_cast<size_t>(1920) * static_cast<size_t>(1080) * 4U;
 
+// #246 pacing: every video frame is flagged at 29.97 fps (30000/1001) and
+// senders are created with clock_video disabled so the host drives timing.
+constexpr int32_t kVideoFrameRateN = 30000;
+constexpr int32_t kVideoFrameRateD = 1001;
+constexpr bool kSenderClockVideo = false;
+
 constexpr uint32_t MakeFourCC(char a, char b, char c, char d) {
   return static_cast<uint32_t>(static_cast<uint8_t>(a)) |
          (static_cast<uint32_t>(static_cast<uint8_t>(b)) << 8U) |
@@ -418,8 +424,8 @@ void DestroySenderInstanceUnlocked(SenderState& state, SenderInstance* sender) {
         frame.xres = sender->width;
         frame.yres = sender->height;
         frame.FourCC = kFourCCBgrx;
-        frame.frame_rate_N = 60000;
-        frame.frame_rate_D = 1001;
+        frame.frame_rate_N = kVideoFrameRateN;
+        frame.frame_rate_D = kVideoFrameRateD;
         frame.picture_aspect_ratio =
             static_cast<float>(sender->width) / static_cast<float>(sender->height);
         frame.frame_format_type = kFrameFormatProgressive;
@@ -500,7 +506,7 @@ void EnsureSender(SenderState& state,
   NDIlib_send_create_t createDesc{};
   createDesc.p_ndi_name = senderName.c_str();
   createDesc.p_groups = nullptr;
-  createDesc.clock_video = true;
+  createDesc.clock_video = kSenderClockVideo;
   createDesc.clock_audio = false;
 
   NDIlib_send_instance_t sender = state.symbols.sendCreate(&createDesc);
@@ -690,8 +696,8 @@ Napi::Value SendBgraFrame(const Napi::CallbackInfo& info) {
   frame.xres = width;
   frame.yres = height;
   frame.FourCC = sender.withAlpha ? kFourCCBgra : kFourCCBgrx;
-  frame.frame_rate_N = 60000;
-  frame.frame_rate_D = 1001;
+  frame.frame_rate_N = kVideoFrameRateN;
+  frame.frame_rate_D = kVideoFrameRateD;
   frame.picture_aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
   frame.frame_format_type = kFrameFormatProgressive;
   frame.timecode = kTimecodeSynthesize;
@@ -788,8 +794,8 @@ Napi::Value SendRgbaFrame(const Napi::CallbackInfo& info) {
   frame.xres = width;
   frame.yres = height;
   frame.FourCC = sender.withAlpha ? kFourCCRgba : kFourCCRgbx;
-  frame.frame_rate_N = 60000;
-  frame.frame_rate_D = 1001;
+  frame.frame_rate_N = kVideoFrameRateN;
+  frame.frame_rate_D = kVideoFrameRateD;
   frame.picture_aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
   frame.frame_format_type = kFrameFormatProgressive;
   frame.timecode = kTimecodeSynthesize;

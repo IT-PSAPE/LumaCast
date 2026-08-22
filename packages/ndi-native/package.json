@@ -9,7 +9,9 @@
   "scripts": {
     "build": "node-gyp rebuild",
     "clean": "node-gyp clean",
-    "rebuild": "npm run clean && npm run build"
+    "rebuild": "npm run clean && npm run build",
+    "build:mock-ndi": "node test/build-mock-runtime.mjs",
+    "test": "npm run build:mock-ndi && node test/run-pacing-test.mjs"
   },
   "dependencies": {
     "node-addon-api": "^8.3.1"

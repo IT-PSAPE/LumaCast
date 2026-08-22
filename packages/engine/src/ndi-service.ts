@@ -3,6 +3,7 @@ import {
   NDI_OUTPUT_HEIGHT,
   NDI_OUTPUT_ORDER,
   NDI_OUTPUT_WIDTH,
+  NDI_VIDEO_FRAME_INTERVAL_MS,
   sanitizeNdiFrameTelemetry,
 } from '@lumacast/protocol';
 import type {
@@ -27,7 +28,7 @@ import type {
 } from '@lumacast/protocol';
 import { defaultNdiModuleLoader, type NdiNativeModule } from './ndi-native-module';
 
-const HEARTBEAT_INTERVAL_MS = Math.round(1000 / 30);
+const HEARTBEAT_INTERVAL_MS = NDI_VIDEO_FRAME_INTERVAL_MS;
 const HEARTBEAT_STALL_THRESHOLD_MS = HEARTBEAT_INTERVAL_MS * 2;
 const DIAGNOSTICS_EMIT_INTERVAL_MS = 250;
 const BYTES_PER_PIXEL = 4;
@@ -83,6 +84,7 @@ interface PipelineSampleBuffers {
   rendererToMainIpc: RollingSampleBuffer;
   mainHandler: RollingSampleBuffer;
   mainToHostIpc: RollingSampleBuffer;
+  directWorkerToHostIpc: RollingSampleBuffer;
   hostToNative: RollingSampleBuffer;
 }
 
@@ -96,6 +98,7 @@ interface PipelineLastSamples {
   rendererToMainIpc: number;
   mainHandler: number;
   mainToHostIpc: number;
+  directWorkerToHostIpc: number;
   hostToNative: number;
 }
 
@@ -215,7 +218,8 @@ export class NdiService {
   private senders: Map<NdiOutputName, SenderState> = new Map();
   private sourceStatus: NdiSourceStatus = 'idle';
   private lastError: string | null = null;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatDeadlineMs = 0;
   private diagnosticsTimer: ReturnType<typeof setTimeout> | null = null;
   private lastDiagnosticsEmitAt = 0;
   private destroyed = false;
@@ -669,6 +673,7 @@ export class NdiService {
           rendererToMainIpc: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
           mainHandler: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
           mainToHostIpc: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+          directWorkerToHostIpc: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
           hostToNative: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
         },
         pipelineLastSamples: createEmptyPipelineLastSamples(),
@@ -851,30 +856,41 @@ export class NdiService {
 
   private startHeartbeat(): void {
     if (this.heartbeatTimer) return;
-
-    this.heartbeatTimer = setInterval(() => {
-      if (this.destroyed) return;
-      const now = Date.now();
-      let replayedFrame = false;
-
-      for (const [name, sender] of this.senders) {
-        if (!this.outputState[name]) continue;
-        if (now - sender.lastFrameReceivedAt <= HEARTBEAT_STALL_THRESHOLD_MS) continue;
-        if (sender.lastFrame) {
-          this.sendFrame(name, sender.lastFrame, sender.lastFrameWidth, sender.lastFrameHeight, true);
-          replayedFrame = true;
+    this.heartbeatDeadlineMs = performance.now() + HEARTBEAT_INTERVAL_MS;
+    const scheduleNextHeartbeat = () => {
+      const delayMs = Math.max(0, this.heartbeatDeadlineMs - performance.now());
+      this.heartbeatTimer = setTimeout(() => {
+        this.heartbeatTimer = null;
+        this.heartbeatDeadlineMs += HEARTBEAT_INTERVAL_MS;
+        const currentPerfMs = performance.now();
+        while (this.heartbeatDeadlineMs <= currentPerfMs) {
+          this.heartbeatDeadlineMs += HEARTBEAT_INTERVAL_MS;
         }
-      }
+        if (this.destroyed) return;
+        const now = Date.now();
+        let replayedFrame = false;
 
-      if (replayedFrame) {
-        this.queueDiagnosticsEmit();
-      }
-    }, HEARTBEAT_INTERVAL_MS);
+        for (const [name, sender] of this.senders) {
+          if (!this.outputState[name]) continue;
+          if (now - sender.lastFrameReceivedAt <= HEARTBEAT_STALL_THRESHOLD_MS) continue;
+          if (sender.lastFrame) {
+            this.sendFrame(name, sender.lastFrame, sender.lastFrameWidth, sender.lastFrameHeight, true);
+            replayedFrame = true;
+          }
+        }
+
+        if (replayedFrame) {
+          this.queueDiagnosticsEmit();
+        }
+        scheduleNextHeartbeat();
+      }, delayMs);
+    };
+    scheduleNextHeartbeat();
   }
 
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
+      clearTimeout(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
   }
@@ -1011,6 +1027,7 @@ function createEmptyPipelineLatency(): NdiPipelineLatencyDiagnostics {
     rendererToMainIpc: createEmptyPipelineStageStats(),
     mainHandler: createEmptyPipelineStageStats(),
     mainToHostIpc: createEmptyPipelineStageStats(),
+    directWorkerToHostIpc: createEmptyPipelineStageStats(),
     hostToNative: createEmptyPipelineStageStats(),
   };
 }
@@ -1031,6 +1048,7 @@ function createEmptyPipelineLastSamples(): PipelineLastSamples {
     rendererToMainIpc: 0,
     mainHandler: 0,
     mainToHostIpc: 0,
+    directWorkerToHostIpc: 0,
     hostToNative: 0,
   };
 }
@@ -1129,6 +1147,15 @@ function recordPipelineSpans(
     const v = pushSpan(samples.mainToHostIpc, hostReceivedAtMs - proxyForwardedAtMs);
     if (v !== null) last.mainToHostIpc = v;
   }
+  if (
+    typeof rendererSendAtMs === 'number'
+    && typeof hostReceivedAtMs === 'number'
+    && typeof mainReceivedAtMs !== 'number'
+    && typeof proxyForwardedAtMs !== 'number'
+  ) {
+    const v = pushSpan(samples.directWorkerToHostIpc, hostReceivedAtMs - rendererSendAtMs);
+    if (v !== null) last.directWorkerToHostIpc = v;
+  }
   if (typeof hostReceivedAtMs === 'number') {
     const v = pushSpan(samples.hostToNative, nativeSentAtMs - hostReceivedAtMs);
     if (v !== null) last.hostToNative = v;
@@ -1149,6 +1176,7 @@ function recordPipelineSpans(
   pipeline.rendererToMainIpc = computeStageStats(samples.rendererToMainIpc, last.rendererToMainIpc);
   pipeline.mainHandler = computeStageStats(samples.mainHandler, last.mainHandler);
   pipeline.mainToHostIpc = computeStageStats(samples.mainToHostIpc, last.mainToHostIpc);
+  pipeline.directWorkerToHostIpc = computeStageStats(samples.directWorkerToHostIpc, last.directWorkerToHostIpc);
   pipeline.hostToNative = computeStageStats(samples.hostToNative, last.hostToNative);
 }
 
@@ -1249,6 +1277,7 @@ function clonePipelineLatency(pipeline: NdiPipelineLatencyDiagnostics): NdiPipel
     rendererToMainIpc: { ...pipeline.rendererToMainIpc },
     mainHandler: { ...pipeline.mainHandler },
     mainToHostIpc: { ...pipeline.mainToHostIpc },
+    directWorkerToHostIpc: { ...pipeline.directWorkerToHostIpc },
     hostToNative: { ...pipeline.hostToNative },
   };
 }

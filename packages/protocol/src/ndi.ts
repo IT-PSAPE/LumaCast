@@ -2,6 +2,9 @@ import type { NdiOutputConfig, NdiOutputConfigMap, NdiOutputName } from './ndi-o
 
 export const NDI_OUTPUT_WIDTH = 1920;
 export const NDI_OUTPUT_HEIGHT = 1080;
+export const NDI_VIDEO_FRAME_RATE_N = 30_000;
+export const NDI_VIDEO_FRAME_RATE_D = 1_001;
+export const NDI_VIDEO_FRAME_INTERVAL_MS = 1_000 * NDI_VIDEO_FRAME_RATE_D / NDI_VIDEO_FRAME_RATE_N;
 type PartialNdiOutputConfigMap = Partial<Record<NdiOutputName, Partial<NdiOutputConfig>>>;
 
 export interface NdiOutputDefinition extends NdiOutputConfig {

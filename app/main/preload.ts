@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, NDI_EVENTS, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
+import { APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiFrameTransportPortAnnouncement, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
@@ -41,6 +41,19 @@ import type {
   SystemMetricsSnapshot,
 } from '@lumacast/protocol';
 import type { ProjectBackup } from '@lumacast/protocol';
+
+ipcRenderer.on(NDI_FRAME_TRANSPORT_PORT_CHANNEL, (event, announcement: unknown) => {
+  const [port] = event.ports;
+  if (!port || event.ports.length !== 1 || !isNdiFrameTransportPortAnnouncement(announcement)) {
+    for (const candidate of event.ports) candidate.close();
+    return;
+  }
+  // MessagePort is intentionally handed to the main world outside
+  // contextBridge: contextBridge would clone calls crossing isolated worlds.
+  // The renderer validates source, origin and the typed announcement before
+  // transferring this port into its readback worker.
+  window.postMessage(announcement, '*', [port]);
+});
 
 const api = {
   platform: process.platform,
@@ -157,6 +170,9 @@ const api = {
   updateNdiOutputConfig: (name: NdiOutputName, config: Partial<NdiOutputConfig>) =>
     ipcRenderer.invoke(IPC.updateNdiOutputConfig, name, config) as Promise<NdiOutputConfigMap>,
   getNdiDiagnostics: () => ipcRenderer.invoke(IPC.getNdiDiagnostics) as Promise<NdiDiagnostics>,
+  requestNdiFrameTransport: (name: NdiOutputName) => {
+    ipcRenderer.send(IPC.requestNdiFrameTransport, { name });
+  },
   sendNdiFrame: (name: NdiOutputName, buffer: ArrayBuffer, width: number, height: number, telemetry?: NdiFrameTelemetry) => {
     // Use ordinary IPC cloning for frame delivery. Electron's renderer
     // transfer-list path rejects ArrayBuffer here, which prevents frames from
