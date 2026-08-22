@@ -7,4 +7,4 @@ export {
   MigrationBackupError,
   runMigrations,
 } from './runner';
-export type { RunMigrationsOptions } from './runner';
+export type { MigrationProgress, RunMigrationsOptions } from './runner';

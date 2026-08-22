@@ -21,8 +21,11 @@ vi.mock('electron', () => ({
 import {
   APP_MENU_EVENTS,
   IPC,
+  MEDIA_DERIVATIVE_EVENTS,
   NDI_EVENTS,
   NDI_FRAME_CHANNEL_NAMES,
+  PERSISTENCE_CHANNELS,
+  PERSISTENCE_EVENTS,
 } from './ipc';
 
 // Importing the real preload module runs `contextBridge.exposeInMainWorld`
@@ -45,11 +48,19 @@ function exposedApi(): Record<string, unknown> {
 const NDI_EVENT_METHOD_NAMES: Record<keyof typeof NDI_EVENTS, string> = {
   outputStateChanged: 'onNdiOutputStateChanged',
   diagnosticsChanged: 'onNdiDiagnosticsChanged',
-  frameAck: 'onNdiFrameAck',
+  frameReleased: 'onNdiFrameReleased',
 };
 
 const APP_MENU_EVENT_METHOD_NAMES: Record<keyof typeof APP_MENU_EVENTS, string> = {
   command: 'onAppMenuCommand',
+};
+
+const PERSISTENCE_EVENT_METHOD_NAMES: Record<keyof typeof PERSISTENCE_EVENTS, string> = {
+  progress: 'onPersistenceProgress',
+};
+
+const MEDIA_DERIVATIVE_EVENT_METHOD_NAMES: Record<keyof typeof MEDIA_DERIVATIVE_EVENTS, string> = {
+  progress: 'onMediaDerivativeProgress',
 };
 
 const UTIL_METHOD_NAMES = ['platform', 'getPathForFile'];
@@ -59,6 +70,8 @@ const rpcNames = Object.keys(IPC).filter((key) => !frameNames.includes(key));
 const eventMethodNames = [
   ...Object.values(NDI_EVENT_METHOD_NAMES),
   ...Object.values(APP_MENU_EVENT_METHOD_NAMES),
+  ...Object.values(PERSISTENCE_EVENT_METHOD_NAMES),
+  ...Object.values(MEDIA_DERIVATIVE_EVENT_METHOD_NAMES),
 ];
 
 describe('ipc contract: RPC/event/frame classification', () => {
@@ -74,6 +87,9 @@ describe('ipc contract: RPC/event/frame classification', () => {
       ...Object.values(IPC),
       ...Object.values(NDI_EVENTS),
       ...Object.values(APP_MENU_EVENTS),
+      ...Object.values(PERSISTENCE_EVENTS),
+      ...Object.values(PERSISTENCE_CHANNELS),
+      ...Object.values(MEDIA_DERIVATIVE_EVENTS),
     ];
     expect(new Set(allChannelStrings).size).toBe(allChannelStrings.length);
   });
@@ -117,26 +133,40 @@ describe('ipc contract: events subscribe/unsubscribe, never invoke', () => {
     on.mockClear();
     removeListener.mockClear();
     invoke.mockClear();
+    send.mockClear();
   });
 
   it('registers an NDI event listener on its declared channel and tears it down on unsubscribe', () => {
     const callback = vi.fn();
-    const unsubscribe = (exposedApi().onNdiFrameAck as (cb: (name: string) => void) => () => void)(callback);
-    expect(on).toHaveBeenCalledWith(NDI_EVENTS.frameAck, expect.any(Function));
+    const unsubscribe = (exposedApi().onNdiFrameReleased as (cb: (release: { name: string; accepted: boolean; reason: string; releasedAtMs: number }) => void) => () => void)(callback);
+    expect(on).toHaveBeenCalledWith(NDI_EVENTS.frameReleased, expect.any(Function));
     expect(invoke).not.toHaveBeenCalled();
 
-    const [, handler] = on.mock.calls[on.mock.calls.length - 1] as [string, (event: unknown, name: string) => void];
-    handler({}, 'stage');
-    expect(callback).toHaveBeenCalledWith('stage');
+    const [, handler] = on.mock.calls[on.mock.calls.length - 1] as [string, (event: unknown, release: { name: string; accepted: boolean; reason: string; releasedAtMs: number }) => void];
+    handler({}, { name: 'stage', accepted: true, reason: 'sent', releasedAtMs: 1 });
+    expect(callback).toHaveBeenCalledWith({ name: 'stage', accepted: true, reason: 'sent', releasedAtMs: 1 });
 
     unsubscribe();
-    expect(removeListener).toHaveBeenCalledWith(NDI_EVENTS.frameAck, handler);
+    expect(removeListener).toHaveBeenCalledWith(NDI_EVENTS.frameReleased, handler);
   });
 
   it('registers the app-menu command event on its declared channel', () => {
     const callback = vi.fn();
     (exposedApi().onAppMenuCommand as (cb: (id: string) => void) => () => void)(callback);
     expect(on).toHaveBeenCalledWith(APP_MENU_EVENTS.command, expect.any(Function));
+  });
+
+  it('registers persistence progress on its declared channel and forwards the payload', () => {
+    const callback = vi.fn();
+    const unsubscribe = (exposedApi().onPersistenceProgress as (cb: (progress: unknown) => void) => () => void)(callback);
+    expect(on).toHaveBeenCalledWith(PERSISTENCE_EVENTS.progress, expect.any(Function));
+    expect(send).toHaveBeenCalledWith(PERSISTENCE_CHANNELS.subscribe);
+    const [, handler] = on.mock.calls[on.mock.calls.length - 1] as [string, (event: unknown, progress: unknown) => void];
+    const progress = { operation: 'initialize', phase: 'migrating', completed: 2, total: 4 };
+    handler({}, progress);
+    expect(callback).toHaveBeenCalledWith(progress);
+    unsubscribe();
+    expect(removeListener).toHaveBeenCalledWith(PERSISTENCE_EVENTS.progress, handler);
   });
 });
 

@@ -1,10 +1,12 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 
 // security.ts imports BrowserWindow and net from 'electron' (used by
 // assertTrustedIpcSender / fetchLocalFileResponse, which this file does not
-// exercise) and resolveLocalMediaSourcePath from '@lumacast/persistence-sqlite'
+// exercise) and resolveLocalMediaSourcePath from the lightweight main-process
+// path boundary
 // (a plain Node module with no Electron dependency, so it needs no mock).
 // Only the electron members actually referenced at module scope need stubs
 // so the import doesn't crash — following the pattern in
@@ -14,8 +16,10 @@ vi.mock('electron', () => ({
   net: { fetch: vi.fn() },
 }));
 
+import { net } from 'electron';
 import {
   describeUrlSchemeForLogging,
+  fetchLocalFileResponse,
   isApprovedExternalUrl,
   isTrustedWebContentsUrl,
 } from './security';
@@ -104,5 +108,144 @@ describe('describeUrlSchemeForLogging', () => {
 
   it('reports "unparseable" for an empty string', () => {
     expect(describeUrlSchemeForLogging('')).toBe('unparseable');
+  });
+});
+
+describe('fetchLocalFileResponse', () => {
+  it('returns validator headers and 304 for a matching If-None-Match request', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+      size: 10,
+      mtime: new Date('2026-08-22T12:00:00.000Z'),
+      mtimeMs: Date.parse('2026-08-22T12:00:00.000Z'),
+    } as fs.Stats);
+
+    const response = await fetchLocalFileResponse('/tmp/video.mp4', {
+      method: 'GET',
+      referrer: '',
+      url: 'cast-media://video',
+      headers: new Headers({ 'if-none-match': 'W/"10-1787400000000"' }),
+    });
+
+    expect(response.status).toBe(304);
+    expect(response.headers.get('etag')).toBe('W/"10-1787400000000"');
+    expect(response.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate');
+    expect(response.headers.get('last-modified')).toBe('Sat, 22 Aug 2026 12:00:00 GMT');
+  });
+
+  it('ignores a byte range when If-Range no longer matches and falls back to the full response', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+      size: 12,
+      mtime: new Date('2026-08-22T12:00:00.000Z'),
+      mtimeMs: Date.parse('2026-08-22T12:00:00.000Z'),
+    } as fs.Stats);
+    vi.mocked(net.fetch).mockResolvedValue(new Response('full-body', {
+      status: 200,
+      headers: { 'content-length': '12' },
+    }));
+
+    const response = await fetchLocalFileResponse('/tmp/video.mp4', {
+      method: 'GET',
+      referrer: '',
+      url: 'cast-media://video',
+      headers: new Headers({
+        range: 'bytes=0-3',
+        'if-range': 'W/"12-0"',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('full-body');
+    expect(response.headers.get('etag')).toBe('W/"12-1787400000000"');
+  });
+
+  it('treats weak If-Range validators as mismatches and falls back to the full response', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+      size: 12,
+      mtime: new Date('2026-08-22T12:00:00.000Z'),
+      mtimeMs: Date.parse('2026-08-22T12:00:00.000Z'),
+    } as fs.Stats);
+    vi.mocked(net.fetch).mockResolvedValue(new Response('full-body', {
+      status: 200,
+      headers: { 'content-length': '12' },
+    }));
+
+    const response = await fetchLocalFileResponse('/tmp/video.mp4', {
+      method: 'GET',
+      referrer: '',
+      url: 'cast-media://video',
+      headers: new Headers({
+        range: 'bytes=0-3',
+        'if-range': 'W/"12-1787400000000"',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('full-body');
+  });
+
+  it('ignores Range for HEAD requests and returns the normal HEAD response', async () => {
+    vi.spyOn(fs.promises, 'stat').mockResolvedValue({
+      size: 20,
+      mtime: new Date('2026-08-22T12:00:00.000Z'),
+      mtimeMs: Date.parse('2026-08-22T12:00:00.000Z'),
+    } as fs.Stats);
+
+    const response = await fetchLocalFileResponse('/tmp/video.mp4', {
+      method: 'HEAD',
+      referrer: '',
+      url: 'cast-media://video',
+      headers: new Headers({ range: 'bytes=0-3' }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-length')).toBe('20');
+    expect(response.headers.get('content-range')).toBeNull();
+  });
+
+  it('dedupes only concurrent stat calls and re-stats after the previous request settles', async () => {
+    let resolveStat!: (stats: fs.Stats) => void;
+    const statPromise = new Promise<fs.Stats>((resolve) => {
+      resolveStat = resolve;
+    });
+    const statSpy = vi.spyOn(fs.promises, 'stat')
+      .mockReturnValueOnce(statPromise)
+      .mockResolvedValueOnce({
+        size: 20,
+        mtime: new Date('2026-08-22T12:00:01.000Z'),
+        mtimeMs: Date.parse('2026-08-22T12:00:01.000Z'),
+      } as fs.Stats);
+    statSpy.mockClear();
+
+    const first = fetchLocalFileResponse('/tmp/video.mp4', {
+      method: 'HEAD',
+      referrer: '',
+      url: 'cast-media://video',
+      headers: new Headers({ range: 'bytes=0-3' }),
+    });
+    const second = fetchLocalFileResponse('/tmp/video.mp4', {
+      method: 'HEAD',
+      referrer: '',
+      url: 'cast-media://video',
+      headers: new Headers({ range: 'bytes=4-7' }),
+    });
+
+    expect(statSpy).toHaveBeenCalledTimes(1);
+
+    resolveStat({
+      size: 20,
+      mtime: new Date('2026-08-22T12:00:00.000Z'),
+      mtimeMs: Date.parse('2026-08-22T12:00:00.000Z'),
+    } as fs.Stats);
+
+    await Promise.all([first, second]);
+
+    await fetchLocalFileResponse('/tmp/video.mp4', {
+      method: 'HEAD',
+      referrer: '',
+      url: 'cast-media://video',
+      headers: new Headers({ range: 'bytes=0-3' }),
+    });
+
+    expect(statSpy).toHaveBeenCalledTimes(2);
   });
 });

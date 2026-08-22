@@ -2545,6 +2545,43 @@ function ensureListOrderIndexColumns(db: SqliteDatabase): void {
   }
 }
 
+function ensurePerformanceCompositeIndexes(db: SqliteDatabase): void {
+  if (hasTable(db, 'slides')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_id_order_index ON slides(presentation_id, order_index)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_id_order_index ON slides(lyric_id, order_index)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slides_talk_id_order_index ON slides(talk_id, order_index)');
+  }
+
+  if (hasTable(db, 'playlist_entries')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id_order_index ON playlist_entries(playlist_id, order_index)');
+  }
+
+  if (hasTable(db, 'talk_script_blocks')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_talk_script_blocks_slide_id_order_index ON talk_script_blocks(slide_id, order_index)');
+  }
+
+  if (hasTable(db, 'slide_elements')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slide_elements_slide_id_layer_z_index_created_at ON slide_elements(slide_id, layer, z_index, created_at)');
+  }
+}
+
+function addMediaAssetMetadataColumns(db: SqliteDatabase): void {
+  for (const tableName of ['image_assets', 'video_assets', 'audio_assets'] as const) {
+    if (!hasColumn(db, tableName, 'width')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN width INTEGER`);
+    }
+    if (!hasColumn(db, tableName, 'height')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN height INTEGER`);
+    }
+    if (!hasColumn(db, tableName, 'duration')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN duration REAL`);
+    }
+    if (!hasColumn(db, tableName, 'codec')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN codec TEXT`);
+    }
+  }
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'bootstrap-legacy-schema', up: bootstrapLegacySchema },
   { version: 2, name: 'stabilize-legacy-schema', up: stabilizeLegacySchema },
@@ -2574,4 +2611,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 26, name: 'per-owner-themes', up: migratePerOwnerThemes, requiresForeignKeysOff: true },
   { version: 27, name: 'item-scope', up: migrateItemScope },
   { version: 28, name: 'list-order-index', up: ensureListOrderIndexColumns },
+  { version: 29, name: 'performance-composite-indexes', up: ensurePerformanceCompositeIndexes },
+  { version: 30, name: 'media-asset-metadata', up: addMediaAssetMetadataColumns },
 ];

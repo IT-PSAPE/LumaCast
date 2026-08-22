@@ -1,11 +1,14 @@
 export type {
   ProjectRecoveryHooks,
+  RepositoryInitializationProgress,
+  RepositoryProgress,
   RestoreProjectBackupOptions,
+  RestoreProjectBackupProgress,
   RepositoryOptions,
 } from './store';
 export { CastRepository } from './store';
 
-export type { Migration, RunMigrationsOptions } from './migrations';
+export type { Migration, MigrationProgress, RunMigrationsOptions } from './migrations';
 export {
   MIGRATIONS,
   FutureSchemaVersionError,

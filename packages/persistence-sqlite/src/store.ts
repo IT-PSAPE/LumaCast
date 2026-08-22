@@ -39,7 +39,7 @@ import {
   type CodecContext,
 } from '@lumacast/protocol';
 import { SqliteDatabase } from './sqlite';
-import { LATEST_SCHEMA_VERSION, runMigrations } from './migrations';
+import { LATEST_SCHEMA_VERSION, runMigrations, type MigrationProgress } from './migrations';
 // Domain primitives (#153, #219): owned by @lumacast/composition, imported
 // directly rather than through the app/core/types.ts facade.
 import type { Id } from '@lumacast/kernel';
@@ -139,6 +139,7 @@ import type { SnapshotPatch } from '@lumacast/protocol';
 
 const DEFAULT_W = 1920;
 const DEFAULT_H = 1080;
+const SQLITE_IN_QUERY_CHUNK_SIZE = 200;
 
 const MEDIA_ASSET_TABLES = ['image_assets', 'video_assets', 'audio_assets'] as const;
 const PROJECT_BACKUP_MEDIA_ASSET_TABLES = MEDIA_ASSET_TABLES;
@@ -219,6 +220,19 @@ const PROJECT_BACKUP_TABLE_KEYS = [
 
 function collectProjectBackupIds(rows: readonly { id: Id }[]): Set<Id> {
   return new Set(rows.map((row) => row.id));
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/([\\%_])/g, '\\$1');
+}
+
+function chunkValues<T>(values: readonly T[], chunkSize = SQLITE_IN_QUERY_CHUNK_SIZE): T[][] {
+  if (values.length === 0) return [];
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 function assertProjectBackupReference(
@@ -410,10 +424,22 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
 
     for (const tableName of PROJECT_BACKUP_MEDIA_ASSET_TABLES) {
       const insertMediaAsset = db.prepare(
-        `INSERT INTO ${tableName} (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO ${tableName} (id, name, src, width, height, duration, codec, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const row of t[tableName]) {
-        insertMediaAsset.run(row.id, row.name, row.src, row.order_index, row.created_at, row.updated_at);
+        insertMediaAsset.run(
+          row.id,
+          row.name,
+          row.src,
+          row.width,
+          row.height,
+          row.duration,
+          row.codec,
+          row.order_index,
+          row.created_at,
+          row.updated_at,
+        );
       }
     }
 
@@ -747,6 +773,33 @@ export interface ProjectRecoveryHooks {
 export interface RestoreProjectBackupOptions {
   /** Test-only failure-injection hooks; omitted in production. */
   hooks?: ProjectRecoveryHooks;
+  /** Best-effort observer. Observer failures never affect recovery. */
+  onProgress?: (progress: RestoreProjectBackupProgress) => void;
+}
+
+export interface RestoreProjectBackupProgress {
+  operation: 'restoreProjectBackup';
+  phase: 'validation' | 'preparation' | 'migration' | 'insertion' | 'verification' | 'promotion' | 'complete';
+  completed: number;
+  total: number;
+}
+
+export interface RepositoryInitializationProgress extends MigrationProgress {
+  operation: 'initialize';
+}
+
+export type RepositoryProgress = RepositoryInitializationProgress | RestoreProjectBackupProgress;
+
+function reportRepositoryProgress<Progress extends RepositoryProgress>(
+  observer: ((progress: Progress) => void) | undefined,
+  progress: Progress,
+): void {
+  try {
+    observer?.(progress);
+  } catch {
+    // Progress is observational. It must not affect database transactions,
+    // recovery rollback, or whether the repository opens successfully.
+  }
 }
 
 export interface RepositoryOptions {
@@ -760,6 +813,8 @@ export interface RepositoryOptions {
    * `seed: false` to open a genuinely empty database instead.
    */
   seed?: boolean;
+  /** Best-effort observer for constructor migration progress. */
+  onProgress?: (progress: RepositoryInitializationProgress) => void;
 }
 
 /** The full set of ids a mutation may have touched, passed to {@link CastRepository.buildPatch}. */
@@ -806,16 +861,29 @@ export class CastRepository {
   private db: SqliteDatabase;
   private patchVersion = 0;
   private readonly dbPath: string;
+  private closed = false;
 
   constructor(options: RepositoryOptions) {
     this.dbPath = options.dbPath;
     migrateLegacyRecastDatabase(options.userDataPath, this.dbPath);
     this.db = new SqliteDatabase(this.dbPath);
     this.applyConnectionTuning();
-    runMigrations(this.db, this.dbPath);
+    runMigrations(this.db, this.dbPath, {
+      onProgress: (progress) => reportRepositoryProgress(options.onProgress, {
+        operation: 'initialize',
+        ...progress,
+      }),
+    });
     if (options.seed !== false) {
       this.seedIfEmpty();
     }
+  }
+
+  /** Releases the SQLite connection. Safe to call more than once. */
+  close(): void {
+    if (this.closed) return;
+    this.db.close();
+    this.closed = true;
   }
 
   private applyConnectionTuning(db: SqliteDatabase = this.db): void {
@@ -1060,9 +1128,12 @@ export class CastRepository {
       "SELECT id FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?"
     ).all(id) as Array<{ id: string }>).map((row) => row.id);
 
-    this.db.prepare('DELETE FROM cues WHERE id = ?').run(id);
-    this.db.prepare('DELETE FROM action_steps WHERE cue_id = ?').run(id);
-    this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?").run(id);
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM action_steps WHERE cue_id = ?').run(id);
+      this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?").run(id);
+      this.db.prepare('DELETE FROM cues WHERE id = ?').run(id);
+    });
+    tx();
     return this.buildPatch({
       deletedCueIds: [id],
       upsertMacroIds: affectedMacroIds,
@@ -1222,10 +1293,14 @@ export class CastRepository {
       "SELECT id FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?"
     ).all(id) as Array<{ id: string }>).map((row) => row.id);
 
-    this.db.prepare('DELETE FROM actions WHERE id = ?').run(id);
-    this.db.prepare('DELETE FROM action_steps WHERE action_id = ?').run(id);
-    this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?").run(id);
-    const upsertMacroIds = this.normalizeOrderIndex('actions');
+    let upsertMacroIds: Id[] = [];
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM actions WHERE id = ?').run(id);
+      this.db.prepare('DELETE FROM action_steps WHERE action_id = ?').run(id);
+      this.db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'macro' AND target_id = ?").run(id);
+      upsertMacroIds = this.normalizeOrderIndexWithinTransaction('actions');
+    });
+    tx();
     return this.buildPatch({
       deletedMacroIds: [id],
       upsertMacroIds,
@@ -1294,6 +1369,26 @@ export class CastRepository {
   deleteTriggerBinding(id: Id): SnapshotPatch {
     this.db.prepare('DELETE FROM trigger_bindings WHERE id = ?').run(id);
     return this.buildPatch({ deletedTriggerBindingIds: [id] });
+  }
+
+  /**
+   * Applies a targeted snapshot patch without rebuilding untouched tables.
+   * Used by routine undo/redo for patch-backed history entries; full-snapshot
+   * restore remains the backup/recovery and snapshot-history fallback path.
+   *
+   * Foreign-key checks are deferred to commit so mixed-table patches can
+   * legally express "child row stops referencing parent" and "parent row is
+   * deleted" in the same transaction. The actual mutation order still follows
+   * the canonical discipline from full restore: child-before-parent deletes,
+   * parent-before-child upserts.
+   */
+  applyPatch(patch: SnapshotPatch): void {
+    const tx = this.db.transaction(() => {
+      this.db.pragma('defer_foreign_keys = ON');
+      this.applySnapshotPatchDeletes(patch);
+      this.applySnapshotPatchUpserts(patch);
+    });
+    tx();
   }
 
   /**
@@ -1448,17 +1543,28 @@ export class CastRepository {
       }
 
       const insertImageAsset = this.db.prepare(
-        'INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       );
       const insertVideoAsset = this.db.prepare(
-        'INSERT INTO video_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO video_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       );
       const insertAudioAsset = this.db.prepare(
-        'INSERT INTO audio_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO audio_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
       );
       for (const asset of snapshot.mediaAssets) {
         const stmt = asset.type === 'image' ? insertImageAsset : asset.type === 'video' ? insertVideoAsset : insertAudioAsset;
-        stmt.run(asset.id, asset.name, asset.src, asset.order, asset.createdAt, asset.updatedAt);
+        stmt.run(
+          asset.id,
+          asset.name,
+          asset.src,
+          asset.width ?? null,
+          asset.height ?? null,
+          asset.duration ?? null,
+          asset.codec ?? null,
+          asset.order,
+          asset.createdAt,
+          asset.updatedAt,
+        );
       }
 
       const insertOverlay = this.db.prepare(
@@ -1714,12 +1820,30 @@ export class CastRepository {
         (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    const insertImageAsset = this.db.prepare('INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
-    const insertVideoAsset = this.db.prepare('INSERT INTO video_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
-    const insertAudioAsset = this.db.prepare('INSERT INTO audio_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
-    const insertMediaAsset = (id: Id, name: string, type: MediaAssetType, src: string, order: number, createdAt: string, updatedAt: string): void => {
+    const insertImageAsset = this.db.prepare(
+      'INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insertVideoAsset = this.db.prepare(
+      'INSERT INTO video_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insertAudioAsset = this.db.prepare(
+      'INSERT INTO audio_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insertMediaAsset = (
+      id: Id,
+      name: string,
+      type: MediaAssetType,
+      src: string,
+      order: number,
+      createdAt: string,
+      updatedAt: string,
+      width: number | null = null,
+      height: number | null = null,
+      duration: number | null = null,
+      codec: string | null = null,
+    ): void => {
       const stmt = type === 'image' ? insertImageAsset : type === 'video' ? insertVideoAsset : insertAudioAsset;
-      stmt.run(id, name, src, order, createdAt, updatedAt);
+      stmt.run(id, name, src, width, height, duration, codec, order, createdAt, updatedAt);
     };
     const insertOverlay = this.db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const insertStage = this.db.prepare('INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -2152,83 +2276,27 @@ export class CastRepository {
     const slides = this.db
       .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
       .all(itemRef.id) as Array<{ id: string }>;
-    const selectElements = this.db.prepare(
-      `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
-       FROM slide_elements
-       WHERE slide_id = ?
-       ORDER BY layer ASC, z_index ASC, created_at ASC`
+    const existingElementsBySlideId = this.getPersistedSlideElementsBySlideIds(
+      slides.map((slide) => slide.id),
+      'applyThemeToItem',
     );
-    const deleteElements = this.db.prepare('DELETE FROM slide_elements WHERE slide_id = ?');
-    const insertElement = this.db.prepare(
-      `INSERT INTO slide_elements
-        (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    const setSlideBackground = this.db.prepare('UPDATE slides SET background_json = ?, background_source = ?, updated_at = ? WHERE id = ?');
     const themeBackgroundJson = theme.background ? JSON.stringify(theme.background) : null;
 
     const deletedElementIds: Id[] = [];
+    const appliedElements = slides.flatMap((slide) => {
+      const currentElements = existingElementsBySlideId.get(slide.id) ?? [];
+      deletedElementIds.push(...currentElements.map((element) => element.id));
+      return applyThemeToElements(theme, currentElements, slide.id);
+    });
     const now = nowIso();
     const tx = this.db.transaction(() => {
       this.db.prepare(`UPDATE ${itemTable} SET theme_id = ?, updated_at = ? WHERE id = ?`).run(themeId, now, itemRef.id);
-      for (const slide of slides) {
-        setSlideBackground.run(themeBackgroundJson, 'theme', now, slide.id);
-        const currentElements = (selectElements.all(slide.id) as Array<{
-          id: string;
-          slide_id: string;
-          type: SlideElement['type'];
-          x: number;
-          y: number;
-          width: number;
-          height: number;
-          rotation: number;
-          opacity: number;
-          z_index: number;
-          layer: SlideElement['layer'];
-          payload_json: string;
-          source_theme_element_id: string | null;
-          created_at: string;
-          updated_at: string;
-        }>).map((row) => ({
-          id: row.id,
-          slideId: row.slide_id,
-          type: row.type,
-          x: row.x,
-          y: row.y,
-          width: row.width,
-          height: row.height,
-          rotation: row.rotation,
-          opacity: row.opacity,
-          zIndex: row.z_index,
-          layer: row.layer,
-          payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('applyThemeToItem', `slide_elements.${row.id}.payload_json`)),
-          sourceThemeElementId: row.source_theme_element_id,
-          createdAt: row.created_at,
-          updatedAt: row.updated_at,
-        }));
-        const appliedElements = applyThemeToElements(theme, currentElements, slide.id);
-        deletedElementIds.push(...currentElements.map((element) => element.id));
-        deleteElements.run(slide.id);
-        for (const element of appliedElements) {
-          insertElement.run(
-            element.id,
-            slide.id,
-            element.type,
-            element.x,
-            element.y,
-            element.width,
-            element.height,
-            element.rotation,
-            element.opacity,
-            element.zIndex,
-            element.layer,
-            JSON.stringify(element.payload),
-            element.sourceThemeElementId ?? null,
-            element.createdAt,
-            now,
-          );
-        }
-      }
+      this.updateSlidesBackgroundByIds(slides.map((slide) => slide.id), themeBackgroundJson, 'theme', now);
+      this.deleteRowsByColumn('slide_elements', 'slide_id', slides.map((slide) => slide.id));
+      // Re-inserting the applied elements is inherently output-row
+      // proportional: each resulting slide_element row must be materialized
+      // once even after the per-slide reads and deletes are batched.
+      this.insertSlideElementsRows(appliedElements, now);
     });
     tx();
 
@@ -2248,95 +2316,36 @@ export class CastRepository {
     const linkedItemIds = (this.db.prepare(`SELECT id FROM ${itemTable} WHERE theme_id = ?`).all(themeId) as Array<{ id: string }>).map((row) => row.id);
     if (linkedItemIds.length === 0) return this.buildPatch({});
 
-    const selectElements = this.db.prepare(
-      `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
-       FROM slide_elements
-       WHERE slide_id = ?
-       ORDER BY layer ASC, z_index ASC, created_at ASC`
+    const slideRowsByOwnerId = this.getSlideRowsByOwnerIds(ownerColumn, linkedItemIds);
+    const existingElementsBySlideId = this.getPersistedSlideElementsBySlideIds(
+      linkedItemIds.flatMap((itemId) => (slideRowsByOwnerId.get(itemId) ?? []).map((slide) => slide.id)),
+      'syncThemeToLinkedItems',
     );
-    const deleteElements = this.db.prepare('DELETE FROM slide_elements WHERE slide_id = ?');
-    const insertElement = this.db.prepare(
-      `INSERT INTO slide_elements
-        (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    const setSlideBackground = this.db.prepare('UPDATE slides SET background_json = ?, background_source = ?, updated_at = ? WHERE id = ?');
-    const slideBackgroundSource = this.db.prepare('SELECT background_source FROM slides WHERE id = ?');
     const themeBackgroundJson = theme.background ? JSON.stringify(theme.background) : null;
 
-    const touchedSlideIds: string[] = [];
+    const touchedSlideIds = linkedItemIds.flatMap((itemId) => (slideRowsByOwnerId.get(itemId) ?? []).map((slide) => slide.id));
+    const themeOwnedSlideIds: Id[] = [];
     const deletedElementIds: Id[] = [];
+    const syncedElements = linkedItemIds.flatMap((itemId) => {
+      const slides = slideRowsByOwnerId.get(itemId) ?? [];
+      return slides.flatMap((slide) => {
+        if (slide.background_source !== 'local') {
+          themeOwnedSlideIds.push(slide.id);
+        }
+        const currentElements = existingElementsBySlideId.get(slide.id) ?? [];
+        deletedElementIds.push(...currentElements.map((element) => element.id));
+        return syncThemeToElements(theme, currentElements, slide.id);
+      });
+    });
     const now = nowIso();
     const tx = this.db.transaction(() => {
-      for (const itemId of linkedItemIds) {
-        const slides = this.db
-          .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
-          .all(itemId) as Array<{ id: string }>;
-        for (const slide of slides) {
-          // Sync is non-destructive: only theme-owned backgrounds are
-          // refreshed; a local override survives.
-          const sourceRow = slideBackgroundSource.get(slide.id) as { background_source: string | null } | undefined;
-          if (!sourceRow || sourceRow.background_source !== 'local') {
-            setSlideBackground.run(themeBackgroundJson, 'theme', now, slide.id);
-          }
-          const currentElements = (selectElements.all(slide.id) as Array<{
-            id: string;
-            slide_id: string;
-            type: SlideElement['type'];
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-            rotation: number;
-            opacity: number;
-            z_index: number;
-            layer: SlideElement['layer'];
-            payload_json: string;
-            source_theme_element_id: string | null;
-            created_at: string;
-            updated_at: string;
-          }>).map((row) => ({
-            id: row.id,
-            slideId: row.slide_id,
-            type: row.type,
-            x: row.x,
-            y: row.y,
-            width: row.width,
-            height: row.height,
-            rotation: row.rotation,
-            opacity: row.opacity,
-            zIndex: row.z_index,
-            layer: row.layer,
-            payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext('syncThemeToLinkedItems', `slide_elements.${row.id}.payload_json`)),
-            sourceThemeElementId: row.source_theme_element_id,
-            createdAt: row.created_at,
-            updatedAt: row.updated_at,
-          }));
-          const syncedElements = syncThemeToElements(theme, currentElements, slide.id);
-          deletedElementIds.push(...currentElements.map((element) => element.id));
-          deleteElements.run(slide.id);
-          for (const element of syncedElements) {
-            insertElement.run(
-              element.id,
-              slide.id,
-              element.type,
-              element.x,
-              element.y,
-              element.width,
-              element.height,
-              element.rotation,
-              element.opacity,
-              element.zIndex,
-              element.layer,
-              JSON.stringify(element.payload),
-              element.sourceThemeElementId ?? null,
-              element.createdAt,
-              now,
-            );
-          }
-          touchedSlideIds.push(slide.id);
-        }
-      }
+      // Sync is non-destructive: only theme-owned backgrounds are refreshed;
+      // local overrides survive untouched.
+      this.updateSlidesBackgroundByIds(themeOwnedSlideIds, themeBackgroundJson, 'theme', now);
+      this.deleteRowsByColumn('slide_elements', 'slide_id', touchedSlideIds);
+      // The insert side remains output-row proportional for the same reason as
+      // applyThemeToItem: every persisted result row must be written once.
+      this.insertSlideElementsRows(syncedElements, now);
     });
     tx();
 
@@ -2504,8 +2513,16 @@ export class CastRepository {
     if (!source) throw new Error(`Item not found: ${input.id}`);
 
     let candidateTitle = `${source.title} Copy`;
+    const titleLike = `${escapeLikePattern(`${source.title} Copy`)}%`;
     const existingTitles = new Set(
-      (this.db.prepare(`SELECT title FROM ${table}`).all() as Array<{ title: string }>).map((row) => row.title.toLowerCase())
+      (
+        this.db.prepare(
+          `SELECT title
+           FROM ${table}
+           WHERE title = ? COLLATE NOCASE
+              OR title LIKE ? ESCAPE '\\' COLLATE NOCASE`
+        ).all(source.title, titleLike) as Array<{ title: string }>
+      ).map((row) => row.title.toLowerCase())
     );
     while (existingTitles.has(candidateTitle.toLowerCase())) {
       const match = candidateTitle.match(/^(.+?) Copy(?: (\d+))?$/);
@@ -2536,26 +2553,7 @@ export class CastRepository {
         order_index: number;
       }>;
 
-    const sourceElementsMap = new Map<string, Array<{
-      type: string;
-      x: number; y: number; width: number; height: number;
-      rotation: number; opacity: number; z_index: number;
-      layer: string; payload_json: string;
-      source_theme_element_id: string | null;
-    }>>();
-    for (const slide of sourceSlides) {
-      const elements = this.db
-        .prepare(
-          `SELECT type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id
-           FROM slide_elements WHERE slide_id = ? ORDER BY z_index ASC, created_at ASC`
-        )
-        .all(slide.id) as Array<{
-          type: string; x: number; y: number; width: number; height: number;
-          rotation: number; opacity: number; z_index: number; layer: string;
-          payload_json: string; source_theme_element_id: string | null;
-        }>;
-      sourceElementsMap.set(slide.id, elements);
-    }
+    const sourceElementsMap = this.getSourceElementRowsBySlideIds(sourceSlides.map((slide) => slide.id));
 
     const shiftedSiblings = this.db
       .prepare(`SELECT id FROM ${table} WHERE order_index >= ? AND id != ? ORDER BY order_index ASC`)
@@ -2572,6 +2570,9 @@ export class CastRepository {
         .prepare(`INSERT INTO ${table} (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
         .run(newOwnerId, candidateTitle, source.theme_id, sourceOrder + 1, now, now);
 
+      // The source reads are batched above; the insert side stays
+      // output-row proportional because each duplicated slide and element row
+      // must be materialized once in the new item.
       for (const sourceSlide of sourceSlides) {
         const newSlideId = createId();
         newSlideIds.push(newSlideId);
@@ -3365,8 +3366,11 @@ export class CastRepository {
     const table = this.mediaAssetTable(asset.type);
     const currentOrder = this.getNextMediaAssetOrderIndex() - 1;
     this.db
-      .prepare(`INSERT INTO ${table} (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
-      .run(assetId, asset.name, asset.src, currentOrder + 1, now, now);
+      .prepare(
+        `INSERT INTO ${table} (id, name, src, width, height, duration, codec, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(assetId, asset.name, asset.src, null, null, null, null, currentOrder + 1, now, now);
     return this.buildPatch({ upsertMediaAssetIds: [assetId] });
   }
 
@@ -3384,12 +3388,62 @@ export class CastRepository {
   updateMediaAssetSrc(id: Id, src: string): SnapshotPatch {
     this.assertMediaSource(src);
     for (const table of MEDIA_ASSET_TABLES) {
-      const result = this.db.prepare(`UPDATE ${table} SET src = ?, updated_at = ? WHERE id = ?`).run(src, nowIso(), id);
+      const result = this.db
+        .prepare(`UPDATE ${table} SET src = ?, width = NULL, height = NULL, duration = NULL, codec = NULL, updated_at = ? WHERE id = ?`)
+        .run(src, nowIso(), id);
       if (result.changes > 0) {
         return this.buildPatch({ upsertMediaAssetIds: [id] });
       }
     }
     throw new Error(`Media asset not found: ${id}`);
+  }
+
+  getMediaAsset(id: Id): MediaAsset | null {
+    return this.getMediaAssetsByIds([id])[0] ?? null;
+  }
+
+  buildMediaAssetPatch(id: Id): SnapshotPatch {
+    if (!this.getMediaAsset(id)) throw new Error(`Media asset not found: ${id}`);
+    return this.buildPatch({ upsertMediaAssetIds: [id] });
+  }
+
+  updateMediaAssetMetadata(
+    id: Id,
+    src: string,
+    metadata: Pick<MediaAsset, 'width' | 'height' | 'duration' | 'codec'>,
+  ): SnapshotPatch | null {
+    const now = nowIso();
+    for (const table of MEDIA_ASSET_TABLES) {
+      const result = this.db
+        .prepare(
+          `UPDATE ${table}
+           SET width = ?, height = ?, duration = ?, codec = ?, updated_at = ?
+           WHERE id = ? AND src = ?
+             AND (
+               width IS NOT ?
+               OR height IS NOT ?
+               OR duration IS NOT ?
+               OR codec IS NOT ?
+             )`
+        )
+        .run(
+          metadata.width ?? null,
+          metadata.height ?? null,
+          metadata.duration ?? null,
+          metadata.codec ?? null,
+          now,
+          id,
+          src,
+          metadata.width ?? null,
+          metadata.height ?? null,
+          metadata.duration ?? null,
+          metadata.codec ?? null,
+        );
+      if (result.changes > 0) {
+        return this.buildPatch({ upsertMediaAssetIds: [id] });
+      }
+    }
+    return null;
   }
 
   private mediaAssetTable(type: MediaAssetType): 'image_assets' | 'video_assets' | 'audio_assets' {
@@ -3701,33 +3755,35 @@ export class CastRepository {
     for (const macroId of macroIds) byMacroId.set(macroId, []);
     if (macroIds.length === 0) return byMacroId;
 
-    const placeholders = macroIds.map(() => '?').join(', ');
-    const rows = this.db.prepare(
-      `SELECT step.id, step.action_id, step.cue_id, step.order_index,
-              step.delay_before_ms AS step_delay_before_ms, step.delay_after_ms AS step_delay_after_ms,
-              step.created_at, step.updated_at,
-              cue.kind AS cue_kind, cue.payload_json AS cue_payload_json,
-              cue.failure_policy AS cue_failure_policy,
-              cue.created_at AS cue_created_at, cue.updated_at AS cue_updated_at
-       FROM action_steps step
-       JOIN cues cue ON cue.id = step.cue_id
-       WHERE step.action_id IN (${placeholders})
-       ORDER BY step.order_index ASC, step.created_at ASC, step.id ASC`
-    ).all(...macroIds) as Array<{
-      id: string;
-      action_id: string;
-      cue_id: string;
-      order_index: number;
-      step_delay_before_ms: number;
-      step_delay_after_ms: number;
-      created_at: string;
-      updated_at: string;
-      cue_kind: string;
-      cue_payload_json: string;
-      cue_failure_policy: string;
-      cue_created_at: string;
-      cue_updated_at: string;
-    }>;
+    const rows = chunkValues(macroIds).flatMap((macroIdChunk) => {
+      const placeholders = macroIdChunk.map(() => '?').join(', ');
+      return this.db.prepare(
+        `SELECT step.id, step.action_id, step.cue_id, step.order_index,
+                step.delay_before_ms AS step_delay_before_ms, step.delay_after_ms AS step_delay_after_ms,
+                step.created_at, step.updated_at,
+                cue.kind AS cue_kind, cue.payload_json AS cue_payload_json,
+                cue.failure_policy AS cue_failure_policy,
+                cue.created_at AS cue_created_at, cue.updated_at AS cue_updated_at
+         FROM action_steps step
+         JOIN cues cue ON cue.id = step.cue_id
+         WHERE step.action_id IN (${placeholders})
+         ORDER BY step.order_index ASC, step.created_at ASC, step.id ASC`
+      ).all(...macroIdChunk) as Array<{
+        id: string;
+        action_id: string;
+        cue_id: string;
+        order_index: number;
+        step_delay_before_ms: number;
+        step_delay_after_ms: number;
+        created_at: string;
+        updated_at: string;
+        cue_kind: string;
+        cue_payload_json: string;
+        cue_failure_policy: string;
+        cue_created_at: string;
+        cue_updated_at: string;
+      }>;
+    });
 
     for (const row of rows) {
       const cues = byMacroId.get(row.action_id) ?? [];
@@ -3757,20 +3813,113 @@ export class CastRepository {
 
   private getCuesByIds(ids: Id[]): Cue[] {
     if (ids.length === 0) return [];
-    const wanted = new Set(ids);
-    return this.listCues().filter((cue) => wanted.has(cue.id));
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(', ');
+      return this.db.prepare(
+        `SELECT id, kind, payload_json, failure_policy, created_at, updated_at
+         FROM cues
+         WHERE id IN (${placeholders})
+         ORDER BY updated_at DESC, created_at DESC, id ASC`
+      ).all(...idChunk) as Array<{
+        id: string;
+        kind: string;
+        payload_json: string;
+        failure_policy: string;
+        created_at: string;
+        updated_at: string;
+      }>;
+    }).sort((left, right) =>
+      right.updated_at.localeCompare(left.updated_at)
+      || right.created_at.localeCompare(left.created_at)
+      || left.id.localeCompare(right.id)
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      kind: row.kind as CueKind,
+      payload: decodeCuePayloadJson(row.payload_json, persistedContext('getCuesByIds', `cues.${row.id}.payload_json`)),
+      failurePolicy: row.failure_policy as CueFailurePolicy,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   private getMacrosByIds(ids: Id[]): Macro[] {
     if (ids.length === 0) return [];
-    const wanted = new Set(ids);
-    return this.listMacros().filter((macro) => wanted.has(macro.id));
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(', ');
+      return this.db.prepare(
+        `SELECT id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at
+         FROM actions
+         WHERE id IN (${placeholders})
+         ORDER BY order_index ASC, created_at ASC, id ASC`
+      ).all(...idChunk) as Array<{
+        id: string;
+        name: string;
+        description: string;
+        scope_level: string;
+        on_scope_exit: string;
+        loop_enabled: number;
+        loop_count: number | null;
+        order_index: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
+    const cuesByMacroId = this.getMacroCuesByMacroIds(rows.map((row) => row.id));
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      cues: cuesByMacroId.get(row.id) ?? [],
+      scopeLevel: row.scope_level as ScopeLevel,
+      onScopeExit: row.on_scope_exit as OnScopeExit,
+      loopEnabled: row.loop_enabled === 1,
+      loopCount: row.loop_count,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   private getTriggerBindingsByIds(ids: Id[]): TriggerBinding[] {
     if (ids.length === 0) return [];
-    const wanted = new Set(ids);
-    return this.listTriggerBindings().filter((binding) => wanted.has(binding.id));
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(', ');
+      return this.db.prepare(
+        `SELECT id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at
+         FROM trigger_bindings
+         WHERE id IN (${placeholders})
+         ORDER BY created_at ASC, id ASC`
+      ).all(...idChunk) as Array<{
+        id: string;
+        trigger_type: string;
+        source_id: string | null;
+        target_type: string | null;
+        target_id: string | null;
+        config_json: string;
+        enabled: number;
+        created_at: string;
+        updated_at: string;
+      }>;
+    }).sort((left, right) =>
+      left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      triggerType: row.trigger_type as TriggerType,
+      sourceId: row.source_id,
+      targetType: (row.target_type ?? 'macro') as TriggerBindingTargetType,
+      targetId: row.target_id ?? '',
+      config: parseJson<Record<string, unknown>>(row.config_json),
+      enabled: row.enabled === 1,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
   }
 
   private newLyricsTextPayload() {
@@ -3986,6 +4135,11 @@ export class CastRepository {
          ORDER BY order_index ASC, created_at ASC`
       )
       .all(itemId) as Array<{ id: string; width: number; height: number; notes: string; background_json: string | null; background_source: string | null; order_index: number }>;
+    const slideIds = slides.map((slide) => slide.id);
+    const elementsBySlideId = this.getSlideElementsBySlideIdsMap(slideIds, 'exportBundle');
+    const talkBlocksBySlideId = owner.type === 'talk'
+      ? this.getTalkScriptBlocksBySlideIdsMap(slideIds)
+      : new Map<Id, TalkScriptBlock[]>();
 
     const bundleSlides = slides.map((slide): BundleSlide => ({
       id: slide.id,
@@ -3995,9 +4149,9 @@ export class CastRepository {
       order: slide.order_index,
       background: slide.background_json ? decodeSlideBackgroundJson(slide.background_json, persistedContext('exportBundle', `slides.${slide.id}.background_json`)) : null,
       backgroundSource: (slide.background_source ?? 'local') as SlideBackgroundSource,
-      elements: this.getSlideElementsBySlideId(slide.id),
+      elements: elementsBySlideId.get(slide.id) ?? [],
       scriptBlocks: owner.type === 'talk'
-        ? (this.getTalkScriptBlocksByIds(this.getTalkScriptBlockIdsBySlideIds([slide.id])).map((block): BundleTalkScriptBlock => ({
+        ? ((talkBlocksBySlideId.get(slide.id) ?? []).map((block): BundleTalkScriptBlock => ({
           id: block.id,
           text: block.text,
           order: block.order,
@@ -4258,18 +4412,24 @@ export class CastRepository {
    * a neighbour shifting up because something above it was deleted is not an
    * edit to that neighbour, and the macro list sorts stably without it.
    */
-  private normalizeOrderIndex(table: 'overlays' | 'actions'): Id[] {
+  private normalizeOrderIndexWithinTransaction(table: 'overlays' | 'actions'): Id[] {
     const rows = this.db
       .prepare(`SELECT id, order_index FROM ${table} ORDER BY order_index ASC, created_at ASC, id ASC`)
       .all() as Array<{ id: string; order_index: number }>;
     const update = this.db.prepare(`UPDATE ${table} SET order_index = ? WHERE id = ?`);
     const changed: Id[] = [];
+    rows.forEach((row, index) => {
+      if (row.order_index === index) return;
+      update.run(index, row.id);
+      changed.push(row.id);
+    });
+    return changed;
+  }
+
+  private normalizeOrderIndex(table: 'overlays' | 'actions'): Id[] {
+    let changed: Id[] = [];
     const tx = this.db.transaction(() => {
-      rows.forEach((row, index) => {
-        if (row.order_index === index) return;
-        update.run(index, row.id);
-        changed.push(row.id);
-      });
+      changed = this.normalizeOrderIndexWithinTransaction(table);
     });
     tx();
     return changed;
@@ -4338,10 +4498,16 @@ export class CastRepository {
 
   private getPresentationsByIds(ids: Id[]): Presentation[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM presentations WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
-      .all(...ids) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM presentations WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+        .all(...idChunk) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -4368,10 +4534,16 @@ export class CastRepository {
 
   private getLyricsByIds(ids: Id[]): Lyric[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
-      .all(...ids) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+        .all(...idChunk) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -4398,10 +4570,16 @@ export class CastRepository {
 
   private getTalksByIds(ids: Id[]): Talk[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM talks WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
-      .all(...ids) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM talks WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+        .all(...idChunk) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -4468,22 +4646,43 @@ export class CastRepository {
 
   private getSlidesByIds(ids: Id[]): Slide[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(
-        `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
-                COALESCE(d.order_index, l.order_index, t.order_index) AS content_order
-         FROM slides s
-         LEFT JOIN presentations d ON d.id = s.presentation_id
-         LEFT JOIN lyrics l ON l.id = s.lyric_id
-         LEFT JOIN talks t ON t.id = s.talk_id
-         WHERE s.id IN (${placeholders}) AND (s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL)
-         ORDER BY content_order ASC, s.order_index ASC`
-      )
-      .all(...ids) as Array<{
-        id: string;
-        presentation_id: string | null;
-        lyric_id: string | null;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
+                  COALESCE(d.order_index, l.order_index, t.order_index) AS content_order
+           FROM slides s
+           LEFT JOIN presentations d ON d.id = s.presentation_id
+           LEFT JOIN lyrics l ON l.id = s.lyric_id
+           LEFT JOIN talks t ON t.id = s.talk_id
+           WHERE s.id IN (${placeholders}) AND (s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL)
+           ORDER BY content_order ASC, s.order_index ASC`
+        )
+        .all(...idChunk) as Array<{
+          id: string;
+          presentation_id: string | null;
+          lyric_id: string | null;
+          talk_id: string | null;
+          kind: SlideKind;
+          width: number;
+          height: number;
+          notes: string;
+          background_json: string | null;
+          background_source: string | null;
+          order_index: number;
+          created_at: string;
+          updated_at: string;
+          content_order: number | null;
+        }>;
+    }).sort((left, right) =>
+      (left.content_order ?? 0) - (right.content_order ?? 0)
+      || left.order_index - right.order_index
+      || left.id.localeCompare(right.id)
+    ) as Array<{
+      id: string;
+      presentation_id: string | null;
+      lyric_id: string | null;
         talk_id: string | null;
         kind: SlideKind;
         width: number;
@@ -4550,6 +4749,7 @@ export class CastRepository {
       source_theme_element_id: string | null;
       created_at: string;
       updated_at: string;
+      content_order?: number | null;
     }>;
 
     return rows.map((row) => ({
@@ -4573,30 +4773,44 @@ export class CastRepository {
 
   private getMediaAssetsByIds(ids: Id[]): MediaAsset[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, src, order_index, created_at, updated_at, 'image' AS type FROM image_assets WHERE id IN (${placeholders})
-         UNION ALL
-         SELECT id, name, src, order_index, created_at, updated_at, 'video' AS type FROM video_assets WHERE id IN (${placeholders})
-         UNION ALL
-         SELECT id, name, src, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets WHERE id IN (${placeholders})
-         ORDER BY order_index ASC, created_at ASC, id ASC`
-      )
-      .all(...ids, ...ids, ...ids) as Array<{
-      id: string;
-      name: string;
-      type: MediaAssetType;
-      src: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
+    const rows = chunkValues(ids, Math.floor(SQLITE_IN_QUERY_CHUNK_SIZE / 3)).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, name, src, width, height, duration, codec, order_index, created_at, updated_at, 'image' AS type FROM image_assets WHERE id IN (${placeholders})
+           UNION ALL
+           SELECT id, name, src, width, height, duration, codec, order_index, created_at, updated_at, 'video' AS type FROM video_assets WHERE id IN (${placeholders})
+           UNION ALL
+           SELECT id, name, src, width, height, duration, codec, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets WHERE id IN (${placeholders})
+           ORDER BY order_index ASC, created_at ASC, id ASC`
+        )
+        .all(...idChunk, ...idChunk, ...idChunk) as Array<{
+          id: string;
+          name: string;
+          type: MediaAssetType;
+          src: string;
+          width: number | null;
+          height: number | null;
+          duration: number | null;
+          codec: string | null;
+          order_index: number;
+          created_at: string;
+          updated_at: string;
+        }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
       type: row.type,
       src: row.src,
+      width: row.width,
+      height: row.height,
+      duration: row.duration,
+      codec: row.codec,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -4605,10 +4819,19 @@ export class CastRepository {
 
   private getOverlaysByIds(ids: Id[]): Overlay[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT id, name, enabled, animation_json, order_index, created_at, updated_at FROM overlays WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC, id ASC`)
-      .all(...ids) as Array<{ id: string; name: string; enabled: number; animation_json: string; order_index: number; created_at: string; updated_at: string }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id, name, enabled, animation_json, order_index, created_at, updated_at FROM overlays WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC, id ASC`)
+        .all(...idChunk) as Array<{ id: string; name: string; enabled: number; animation_json: string; order_index: number; created_at: string; updated_at: string }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
+    const slideIds = rows.map((row) => `${row.id}:slide`);
+    const elementsBySlideId = this.getSlideElementsBySlideIdsMap(slideIds, 'getOverlaysByIds');
+    const backgroundsBySlideId = this.getSlideBackgroundsBySlideIds(slideIds, 'getOverlaysByIds');
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
       return {
@@ -4617,8 +4840,8 @@ export class CastRepository {
         name: row.name,
         enabled: row.enabled === 1,
         order: row.order_index,
-        elements: this.getSlideElementsBySlideId(slideId),
-        background: this.getSlideBackgroundBySlideId(slideId),
+        elements: elementsBySlideId.get(slideId) ?? [],
+        background: backgroundsBySlideId.get(slideId) ?? null,
         animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlaysByIds', `overlays.${row.id}.animation_json`))),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -4630,6 +4853,9 @@ export class CastRepository {
     const rows = this.db
       .prepare(`SELECT id, name, width, height, order_index, created_at, updated_at FROM ${table} ORDER BY order_index ASC, created_at ASC`)
       .all() as Array<{ id: string; name: string; width: number; height: number; order_index: number; created_at: string; updated_at: string }>;
+    const slideIds = rows.map((row) => `${row.id}:slide`);
+    const elementsBySlideId = this.getSlideElementsBySlideIdsMap(slideIds, 'getThemeRows');
+    const backgroundsBySlideId = this.getSlideBackgroundsBySlideIds(slideIds, 'getThemeRows');
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
       return {
@@ -4639,8 +4865,8 @@ export class CastRepository {
         width: row.width,
         height: row.height,
         order: row.order_index,
-        elements: this.getSlideElementsBySlideId(slideId),
-        background: this.getSlideBackgroundBySlideId(slideId),
+        elements: elementsBySlideId.get(slideId) ?? [],
+        background: backgroundsBySlideId.get(slideId) ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -4649,10 +4875,19 @@ export class CastRepository {
 
   private getThemeRowsByIds(table: ThemeTableName, ids: Id[]): PresentationTheme[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT id, name, width, height, order_index, created_at, updated_at FROM ${table} WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
-      .all(...ids) as Array<{ id: string; name: string; width: number; height: number; order_index: number; created_at: string; updated_at: string }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id, name, width, height, order_index, created_at, updated_at FROM ${table} WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+        .all(...idChunk) as Array<{ id: string; name: string; width: number; height: number; order_index: number; created_at: string; updated_at: string }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
+    const slideIds = rows.map((row) => `${row.id}:slide`);
+    const elementsBySlideId = this.getSlideElementsBySlideIdsMap(slideIds, 'getThemeRowsByIds');
+    const backgroundsBySlideId = this.getSlideBackgroundsBySlideIds(slideIds, 'getThemeRowsByIds');
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
       return {
@@ -4662,8 +4897,8 @@ export class CastRepository {
         width: row.width,
         height: row.height,
         order: row.order_index,
-        elements: this.getSlideElementsBySlideId(slideId),
-        background: this.getSlideBackgroundBySlideId(slideId),
+        elements: elementsBySlideId.get(slideId) ?? [],
+        background: backgroundsBySlideId.get(slideId) ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -4692,30 +4927,32 @@ export class CastRepository {
 
   private getSlideElementsByIds(ids: Id[]): SlideElement[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(
-        `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
-         FROM slide_elements
-         WHERE id IN (${placeholders})`
-      )
-      .all(...ids) as Array<{
-        id: string;
-        slide_id: string;
-        type: SlideElement['type'];
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        rotation: number;
-        opacity: number;
-        z_index: number;
-        layer: SlideElement['layer'];
-        payload_json: string;
-        source_theme_element_id: string | null;
-        created_at: string;
-        updated_at: string;
-      }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
+           FROM slide_elements
+           WHERE id IN (${placeholders})`
+        )
+        .all(...idChunk) as Array<{
+          id: string;
+          slide_id: string;
+          type: SlideElement['type'];
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          rotation: number;
+          opacity: number;
+          z_index: number;
+          layer: SlideElement['layer'];
+          payload_json: string;
+          source_theme_element_id: string | null;
+          created_at: string;
+          updated_at: string;
+        }>;
+    });
     return rows.map((row) => ({
       id: row.id,
       slideId: row.slide_id,
@@ -4829,6 +5066,30 @@ export class CastRepository {
     return row?.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext('getSlideBackgroundBySlideId', `slides.${slideId}.background_json`)) : null;
   }
 
+  private getSlideBackgroundsBySlideIds(slideIds: readonly Id[], operation: string): Map<Id, SlideBackground | null> {
+    const backgroundsBySlideId = new Map<Id, SlideBackground | null>();
+    for (const slideId of slideIds) {
+      backgroundsBySlideId.set(slideId, null);
+    }
+    if (slideIds.length === 0) return backgroundsBySlideId;
+
+    const rows = chunkValues(slideIds).flatMap((slideIdChunk) => {
+      const placeholders = slideIdChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id, background_json FROM slides WHERE id IN (${placeholders})`)
+        .all(...slideIdChunk) as Array<{ id: string; background_json: string | null }>;
+    });
+
+    for (const row of rows) {
+      backgroundsBySlideId.set(
+        row.id,
+        row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext(operation, `slides.${row.id}.background_json`)) : null,
+      );
+    }
+
+    return backgroundsBySlideId;
+  }
+
   private getSlideElementsBySlideId(slideId: Id): SlideElement[] {
     const rows = this.db
       .prepare(
@@ -4874,6 +5135,166 @@ export class CastRepository {
     }));
   }
 
+  private getSlideElementsBySlideIdsMap(slideIds: readonly Id[], operation: string): Map<Id, SlideElement[]> {
+    const elementsBySlideId = new Map<Id, SlideElement[]>();
+    for (const slideId of slideIds) {
+      elementsBySlideId.set(slideId, []);
+    }
+    if (slideIds.length === 0) return elementsBySlideId;
+
+    const rows = chunkValues(slideIds).flatMap((slideIdChunk) => {
+      const placeholders = slideIdChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at
+           FROM slide_elements
+           WHERE slide_id IN (${placeholders})
+           ORDER BY slide_id ASC, layer ASC, z_index ASC, created_at ASC`
+        )
+        .all(...slideIdChunk) as Array<{
+          id: string;
+          slide_id: string;
+          type: SlideElement['type'];
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          rotation: number;
+          opacity: number;
+          z_index: number;
+          layer: SlideElement['layer'];
+          payload_json: string;
+          source_theme_element_id: string | null;
+          created_at: string;
+          updated_at: string;
+        }>;
+    });
+
+    for (const row of rows) {
+      const slideElements = elementsBySlideId.get(row.slide_id) ?? [];
+      slideElements.push({
+        id: row.id,
+        slideId: row.slide_id,
+        type: row.type,
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height,
+        rotation: row.rotation,
+        opacity: row.opacity,
+        zIndex: row.z_index,
+        layer: row.layer,
+        payload: decodeSlideElementPayloadJson(row.payload_json, row.type, persistedContext(operation, `slide_elements.${row.id}.payload_json`)),
+        sourceThemeElementId: row.source_theme_element_id,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+      elementsBySlideId.set(row.slide_id, slideElements);
+    }
+
+    return elementsBySlideId;
+  }
+
+  private getPersistedSlideElementsBySlideIds(slideIds: readonly Id[], operation: string): Map<Id, SlideElement[]> {
+    return this.getSlideElementsBySlideIdsMap(slideIds, operation);
+  }
+
+  private getSourceElementRowsBySlideIds(slideIds: readonly string[]): Map<string, Array<{
+    type: string;
+    x: number; y: number; width: number; height: number;
+    rotation: number; opacity: number; z_index: number;
+    layer: string; payload_json: string;
+    source_theme_element_id: string | null;
+  }>> {
+    const rowsBySlideId = new Map<string, Array<{
+      type: string;
+      x: number; y: number; width: number; height: number;
+      rotation: number; opacity: number; z_index: number;
+      layer: string; payload_json: string;
+      source_theme_element_id: string | null;
+    }>>();
+    for (const slideId of slideIds) {
+      rowsBySlideId.set(slideId, []);
+    }
+    if (slideIds.length === 0) return rowsBySlideId;
+
+    const rows = chunkValues(slideIds).flatMap((slideIdChunk) => {
+      const placeholders = slideIdChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id
+           FROM slide_elements
+           WHERE slide_id IN (${placeholders})
+           ORDER BY slide_id ASC, z_index ASC, created_at ASC`
+        )
+        .all(...slideIdChunk) as Array<{
+          slide_id: string;
+          type: string;
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          rotation: number;
+          opacity: number;
+          z_index: number;
+          layer: string;
+          payload_json: string;
+          source_theme_element_id: string | null;
+        }>;
+    });
+
+    for (const row of rows) {
+      const slideRows = rowsBySlideId.get(row.slide_id) ?? [];
+      slideRows.push({
+        type: row.type,
+        x: row.x,
+        y: row.y,
+        width: row.width,
+        height: row.height,
+        rotation: row.rotation,
+        opacity: row.opacity,
+        z_index: row.z_index,
+        layer: row.layer,
+        payload_json: row.payload_json,
+        source_theme_element_id: row.source_theme_element_id,
+      });
+      rowsBySlideId.set(row.slide_id, slideRows);
+    }
+
+    return rowsBySlideId;
+  }
+
+  private getSlideRowsByOwnerIds(
+    ownerColumn: 'presentation_id' | 'lyric_id' | 'talk_id',
+    ownerIds: readonly Id[],
+  ): Map<Id, Array<{ id: string; background_source: string | null }>> {
+    const slidesByOwnerId = new Map<Id, Array<{ id: string; background_source: string | null }>>();
+    for (const ownerId of ownerIds) {
+      slidesByOwnerId.set(ownerId, []);
+    }
+    if (ownerIds.length === 0) return slidesByOwnerId;
+
+    const rows = chunkValues(ownerIds).flatMap((ownerIdChunk) => {
+      const placeholders = ownerIdChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, ${ownerColumn} AS owner_id, background_source
+           FROM slides
+           WHERE ${ownerColumn} IN (${placeholders})
+           ORDER BY ${ownerColumn} ASC, order_index ASC`
+        )
+        .all(...ownerIdChunk) as Array<{ id: string; owner_id: string; background_source: string | null }>;
+    });
+
+    for (const row of rows) {
+      const ownerSlides = slidesByOwnerId.get(row.owner_id) ?? [];
+      ownerSlides.push({ id: row.id, background_source: row.background_source });
+      slidesByOwnerId.set(row.owner_id, ownerSlides);
+    }
+
+    return slidesByOwnerId;
+  }
+
   private getSlideIdsForOwner(ownerColumn: 'presentation_id' | 'lyric_id' | 'talk_id', ownerId: Id): Id[] {
     return (this.db
       .prepare(`SELECT id FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`)
@@ -4883,19 +5304,23 @@ export class CastRepository {
 
   private getSlideElementIdsBySlideIds(slideIds: Id[]): Id[] {
     if (slideIds.length === 0) return [];
-    const placeholders = slideIds.map(() => '?').join(',');
-    return (this.db
-      .prepare(`SELECT id FROM slide_elements WHERE slide_id IN (${placeholders}) ORDER BY created_at ASC, id ASC`)
-      .all(...slideIds) as Array<{ id: string }>)
+    return chunkValues(slideIds).flatMap((slideIdChunk) => {
+      const placeholders = slideIdChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id FROM slide_elements WHERE slide_id IN (${placeholders}) ORDER BY created_at ASC, id ASC`)
+        .all(...slideIdChunk) as Array<{ id: string }>;
+    })
       .map((row) => row.id);
   }
 
   private getTalkScriptBlockIdsBySlideIds(slideIds: Id[]): Id[] {
     if (slideIds.length === 0) return [];
-    const placeholders = slideIds.map(() => '?').join(',');
-    return (this.db
-      .prepare(`SELECT id FROM talk_script_blocks WHERE slide_id IN (${placeholders}) ORDER BY order_index ASC, id ASC`)
-      .all(...slideIds) as Array<{ id: string }>)
+    return chunkValues(slideIds).flatMap((slideIdChunk) => {
+      const placeholders = slideIdChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id FROM talk_script_blocks WHERE slide_id IN (${placeholders}) ORDER BY order_index ASC, id ASC`)
+        .all(...slideIdChunk) as Array<{ id: string }>;
+    })
       .map((row) => row.id);
   }
 
@@ -4953,22 +5378,24 @@ export class CastRepository {
 
   private getTalkScriptBlocksByIds(ids: Id[]): TalkScriptBlock[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(
-        `SELECT id, slide_id, text, order_index, created_at, updated_at
-         FROM talk_script_blocks
-         WHERE id IN (${placeholders})
-         ORDER BY order_index ASC`
-      )
-      .all(...ids) as Array<{
-      id: string;
-      slide_id: string;
-      text: string;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, slide_id, text, order_index, created_at, updated_at
+           FROM talk_script_blocks
+           WHERE id IN (${placeholders})
+           ORDER BY order_index ASC`
+        )
+        .all(...idChunk) as Array<{
+          id: string;
+          slide_id: string;
+          text: string;
+          order_index: number;
+          created_at: string;
+          updated_at: string;
+        }>;
+    }).sort((left, right) => left.order_index - right.order_index);
 
     return rows.map((row) => ({
       id: row.id,
@@ -4978,6 +5405,48 @@ export class CastRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }));
+  }
+
+  private getTalkScriptBlocksBySlideIdsMap(slideIds: readonly Id[]): Map<Id, TalkScriptBlock[]> {
+    const blocksBySlideId = new Map<Id, TalkScriptBlock[]>();
+    for (const slideId of slideIds) {
+      blocksBySlideId.set(slideId, []);
+    }
+    if (slideIds.length === 0) return blocksBySlideId;
+
+    const rows = chunkValues(slideIds).flatMap((slideIdChunk) => {
+      const placeholders = slideIdChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, slide_id, text, order_index, created_at, updated_at
+           FROM talk_script_blocks
+           WHERE slide_id IN (${placeholders})
+           ORDER BY slide_id ASC, order_index ASC, id ASC`
+        )
+        .all(...slideIdChunk) as Array<{
+          id: string;
+          slide_id: string;
+          text: string;
+          order_index: number;
+          created_at: string;
+          updated_at: string;
+        }>;
+    });
+
+    for (const row of rows) {
+      const blocks = blocksBySlideId.get(row.slide_id) ?? [];
+      blocks.push({
+        id: row.id,
+        slideId: row.slide_id,
+        text: row.text,
+        order: row.order_index,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+      blocksBySlideId.set(row.slide_id, blocks);
+    }
+
+    return blocksBySlideId;
   }
 
   private getPlaylists(): Playlist[] {
@@ -4995,10 +5464,16 @@ export class CastRepository {
 
   private getPlaylistsByIds(ids: Id[]): Playlist[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(`SELECT id, name, order_index, created_at, updated_at FROM playlists WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
-      .all(...ids) as Array<{ id: string; name: string; order_index: number; created_at: string; updated_at: string }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(`SELECT id, name, order_index, created_at, updated_at FROM playlists WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+        .all(...idChunk) as Array<{ id: string; name: string; order_index: number; created_at: string; updated_at: string }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -5089,29 +5564,34 @@ export class CastRepository {
 
   private getPlaylistRowsByIds(ids: Id[]): PlaylistRow[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(
-        `SELECT id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at
-         FROM playlist_entries WHERE id IN (${placeholders}) ORDER BY created_at ASC, id ASC`
-      )
-      .all(...ids) as Array<{
-        id: string; playlist_id: string; kind: 'item' | 'separator';
-        presentation_id: string | null; lyric_id: string | null; talk_id: string | null;
-        label: string | null; color_key: string | null; order_index: number;
-        created_at: string; updated_at: string;
-      }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at
+           FROM playlist_entries WHERE id IN (${placeholders}) ORDER BY created_at ASC, id ASC`
+        )
+        .all(...idChunk) as Array<{
+          id: string; playlist_id: string; kind: 'item' | 'separator';
+          presentation_id: string | null; lyric_id: string | null; talk_id: string | null;
+          label: string | null; color_key: string | null; order_index: number;
+          created_at: string; updated_at: string;
+        }>;
+    }).sort((left, right) =>
+      left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
     return rows.map((row) => this.toPlaylistRow(row));
   }
 
   private getMediaAssets(): MediaAsset[] {
     const rows = this.db
       .prepare(
-        `SELECT id, name, src, order_index, created_at, updated_at, 'image' AS type FROM image_assets
+        `SELECT id, name, src, width, height, duration, codec, order_index, created_at, updated_at, 'image' AS type FROM image_assets
          UNION ALL
-         SELECT id, name, src, order_index, created_at, updated_at, 'video' AS type FROM video_assets
+         SELECT id, name, src, width, height, duration, codec, order_index, created_at, updated_at, 'video' AS type FROM video_assets
          UNION ALL
-         SELECT id, name, src, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets
+         SELECT id, name, src, width, height, duration, codec, order_index, created_at, updated_at, 'audio' AS type FROM audio_assets
          ORDER BY order_index ASC, created_at ASC, id ASC`
       )
       .all() as Array<{
@@ -5119,6 +5599,10 @@ export class CastRepository {
       name: string;
       type: MediaAssetType;
       src: string;
+      width: number | null;
+      height: number | null;
+      duration: number | null;
+      codec: string | null;
       order_index: number;
       created_at: string;
       updated_at: string;
@@ -5129,6 +5613,10 @@ export class CastRepository {
       name: row.name,
       type: row.type,
       src: row.src,
+      width: row.width,
+      height: row.height,
+      duration: row.duration,
+      codec: row.codec,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at
@@ -5151,6 +5639,9 @@ export class CastRepository {
       created_at: string;
       updated_at: string;
     }>;
+    const slideIds = rows.map((row) => `${row.id}:slide`);
+    const elementsBySlideId = this.getSlideElementsBySlideIdsMap(slideIds, 'getOverlays');
+    const backgroundsBySlideId = this.getSlideBackgroundsBySlideIds(slideIds, 'getOverlays');
 
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
@@ -5160,8 +5651,8 @@ export class CastRepository {
         name: row.name,
         enabled: row.enabled === 1,
         order: row.order_index,
-        elements: this.getSlideElementsBySlideId(slideId),
-        background: this.getSlideBackgroundBySlideId(slideId),
+        elements: elementsBySlideId.get(slideId) ?? [],
+        background: backgroundsBySlideId.get(slideId) ?? null,
         animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('getOverlays', `overlays.${row.id}.animation_json`))),
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -5185,6 +5676,9 @@ export class CastRepository {
       created_at: string;
       updated_at: string;
     }>;
+    const slideIds = rows.map((row) => `${row.id}:slide`);
+    const elementsBySlideId = this.getSlideElementsBySlideIdsMap(slideIds, 'getStages');
+    const backgroundsBySlideId = this.getSlideBackgroundsBySlideIds(slideIds, 'getStages');
 
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
@@ -5195,8 +5689,8 @@ export class CastRepository {
         width: row.width,
         height: row.height,
         order: row.order_index,
-        elements: this.getSlideElementsBySlideId(slideId),
-        background: this.getSlideBackgroundBySlideId(slideId),
+        elements: elementsBySlideId.get(slideId) ?? [],
+        background: backgroundsBySlideId.get(slideId) ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -5205,23 +5699,32 @@ export class CastRepository {
 
   private getStagesByIds(ids: Id[]): Stage[] {
     if (ids.length === 0) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    const rows = this.db
-      .prepare(
-        `SELECT id, name, width, height, order_index, created_at, updated_at
-         FROM stages
-         WHERE id IN (${placeholders})
-         ORDER BY order_index ASC, created_at ASC`
-      )
-      .all(...ids) as Array<{
-      id: string;
-      name: string;
-      width: number;
-      height: number;
-      order_index: number;
-      created_at: string;
-      updated_at: string;
-    }>;
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db
+        .prepare(
+          `SELECT id, name, width, height, order_index, created_at, updated_at
+           FROM stages
+           WHERE id IN (${placeholders})
+           ORDER BY order_index ASC, created_at ASC`
+        )
+        .all(...idChunk) as Array<{
+          id: string;
+          name: string;
+          width: number;
+          height: number;
+          order_index: number;
+          created_at: string;
+          updated_at: string;
+        }>;
+    }).sort((left, right) =>
+      left.order_index - right.order_index
+      || left.created_at.localeCompare(right.created_at)
+      || left.id.localeCompare(right.id)
+    );
+    const slideIds = rows.map((row) => `${row.id}:slide`);
+    const elementsBySlideId = this.getSlideElementsBySlideIdsMap(slideIds, 'getStagesByIds');
+    const backgroundsBySlideId = this.getSlideBackgroundsBySlideIds(slideIds, 'getStagesByIds');
 
     return rows.map((row) => {
       const slideId = `${row.id}:slide`;
@@ -5232,8 +5735,8 @@ export class CastRepository {
         width: row.width,
         height: row.height,
         order: row.order_index,
-        elements: this.getSlideElementsBySlideId(slideId),
-        background: this.getSlideBackgroundBySlideId(slideId),
+        elements: elementsBySlideId.get(slideId) ?? [],
+        background: backgroundsBySlideId.get(slideId) ?? null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       };
@@ -5265,6 +5768,607 @@ export class CastRepository {
   private nextPatchVersion(): number {
     this.patchVersion += 1;
     return this.patchVersion;
+  }
+
+  private applySnapshotPatchDeletes(patch: SnapshotPatch): void {
+    this.deleteRowsByIds('trigger_bindings', patch.deletes.triggerBindings);
+    this.deleteRowsByIds('actions', patch.deletes.macros);
+    this.deleteRowsByIds('cues', patch.deletes.cues);
+    this.deleteRowsByIds('playlist_entries', patch.deletes.playlistEntries);
+    this.deleteRowsByIds('playlists', patch.deletes.playlists);
+    this.deleteRowsByIds('talk_script_blocks', patch.deletes.talkScriptBlocks);
+    this.deleteRowsByIds('slide_elements', patch.deletes.slideElements);
+    this.deleteRowsByIds('slides', patch.deletes.slides);
+    this.deleteContainerOwnerRows('overlays', patch.deletes.overlays);
+    this.deleteContainerOwnerRows('stages', patch.deletes.stages);
+    this.deleteRowsByIds('presentations', patch.deletes.presentations);
+    this.deleteRowsByIds('lyrics', patch.deletes.lyrics);
+    this.deleteRowsByIds('talks', patch.deletes.talks);
+    this.deleteThemeRowsByIds('presentation_themes', patch.deletes.presentationThemes);
+    this.deleteThemeRowsByIds('lyric_themes', patch.deletes.lyricThemes);
+    this.deleteThemeRowsByIds('talk_themes', patch.deletes.talkThemes);
+    this.deleteThemeRowsByIds('overlay_themes', patch.deletes.overlayThemes);
+    this.deleteMediaAssetRowsByIds(patch.deletes.mediaAssets);
+  }
+
+  private applySnapshotPatchUpserts(patch: SnapshotPatch): void {
+    this.upsertThemeRows('presentation_themes', patch.upserts.presentationThemes);
+    this.upsertThemeRows('lyric_themes', patch.upserts.lyricThemes);
+    this.upsertThemeRows('talk_themes', patch.upserts.talkThemes);
+    this.upsertThemeRows('overlay_themes', patch.upserts.overlayThemes);
+    this.upsertOverlayRows(patch.upserts.overlays);
+    this.upsertStageRows(patch.upserts.stages);
+    this.upsertPresentationRows(patch.upserts.presentations);
+    this.upsertLyricRows(patch.upserts.lyrics);
+    this.upsertTalkRows(patch.upserts.talks);
+    this.upsertSlideRows(patch.upserts.slides);
+    this.upsertTalkScriptBlockRows(patch.upserts.talkScriptBlocks);
+    this.upsertSlideElementRows(patch.upserts.slideElements);
+    this.upsertPlaylistRows(patch.upserts.playlists);
+    this.upsertPlaylistEntryRows(patch.upserts.playlistEntries);
+    this.upsertMediaAssetRows(patch.upserts.mediaAssets);
+    this.upsertCueRows(patch.upserts.cues);
+    this.upsertMacroRows(patch.upserts.macros);
+    this.upsertTriggerBindingRows(patch.upserts.triggerBindings);
+  }
+
+  private deleteRowsByIds(table: string, ids: readonly Id[] | undefined): void {
+    if (!ids || ids.length === 0) return;
+    for (const idChunk of chunkValues(ids)) {
+      const placeholders = idChunk.map(() => '?').join(',');
+      this.db.prepare(`DELETE FROM ${table} WHERE id IN (${placeholders})`).run(...idChunk);
+    }
+  }
+
+  private deleteRowsByColumn(table: string, column: string, ids: readonly Id[] | undefined): void {
+    if (!ids || ids.length === 0) return;
+    for (const idChunk of chunkValues(ids)) {
+      const placeholders = idChunk.map(() => '?').join(',');
+      this.db.prepare(`DELETE FROM ${table} WHERE ${column} IN (${placeholders})`).run(...idChunk);
+    }
+  }
+
+  private deleteContainerOwnerRows(
+    table: 'overlays' | 'stages',
+    ids: readonly Id[] | undefined,
+  ): void {
+    if (!ids || ids.length === 0) return;
+    this.deleteContainerSlidesByIds(ids.map((id) => `${id}:slide`));
+    this.deleteRowsByIds(table, ids);
+  }
+
+  private deleteThemeRowsByIds(table: ThemeTableName, ids: readonly Id[] | undefined): void {
+    if (!ids || ids.length === 0) return;
+    this.deleteContainerSlidesByIds(ids.map((id) => `${id}:slide`));
+    this.deleteRowsByIds(table, ids);
+  }
+
+  private deleteContainerSlidesByIds(slideIds: readonly Id[]): void {
+    if (slideIds.length === 0) return;
+    this.deleteRowsByColumn('slide_elements', 'slide_id', slideIds);
+    this.deleteRowsByIds('slides', slideIds);
+  }
+
+  private deleteMediaAssetRowsByIds(ids: readonly Id[] | undefined): void {
+    if (!ids || ids.length === 0) return;
+    for (const table of MEDIA_ASSET_TABLES) {
+      this.deleteRowsByIds(table, ids);
+    }
+  }
+
+  private updateSlidesBackgroundByIds(
+    slideIds: readonly Id[],
+    backgroundJson: string | null,
+    backgroundSource: SlideBackgroundSource,
+    now: string,
+  ): void {
+    if (slideIds.length === 0) return;
+    for (const slideIdChunk of chunkValues(slideIds)) {
+      const placeholders = slideIdChunk.map(() => '?').join(',');
+      this.db
+        .prepare(
+          `UPDATE slides
+           SET background_json = ?, background_source = ?, updated_at = ?
+           WHERE id IN (${placeholders})`
+        )
+        .run(backgroundJson, backgroundSource, now, ...slideIdChunk);
+    }
+  }
+
+  private insertSlideElementsRows(elements: readonly SlideElement[], now: string): void {
+    if (elements.length === 0) return;
+    const insertElement = this.db.prepare(
+      `INSERT INTO slide_elements
+        (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const element of elements) {
+      insertElement.run(
+        element.id,
+        element.slideId,
+        element.type,
+        element.x,
+        element.y,
+        element.width,
+        element.height,
+        element.rotation,
+        element.opacity,
+        element.zIndex,
+        element.layer,
+        JSON.stringify(element.payload),
+        element.sourceThemeElementId ?? null,
+        element.createdAt,
+        now,
+      );
+    }
+  }
+
+  private upsertPresentationRows(rows: readonly Presentation[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         theme_id = excluded.theme_id,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(row.id, row.title, row.themeId ?? null, row.order, row.createdAt, row.updatedAt);
+    }
+  }
+
+  private upsertLyricRows(rows: readonly Lyric[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         theme_id = excluded.theme_id,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(row.id, row.title, row.themeId ?? null, row.order, row.createdAt, row.updatedAt);
+    }
+  }
+
+  private upsertTalkRows(rows: readonly Talk[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         title = excluded.title,
+         theme_id = excluded.theme_id,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(row.id, row.title, row.themeId ?? null, row.order, row.createdAt, row.updatedAt);
+    }
+  }
+
+  private upsertSlideRows(rows: readonly Slide[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO slides
+        (id, presentation_id, lyric_id, talk_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         presentation_id = excluded.presentation_id,
+         lyric_id = excluded.lyric_id,
+         talk_id = excluded.talk_id,
+         kind = excluded.kind,
+         width = excluded.width,
+         height = excluded.height,
+         notes = excluded.notes,
+         background_json = excluded.background_json,
+         background_source = excluded.background_source,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(
+        row.id,
+        row.presentationId ?? null,
+        row.lyricId ?? null,
+        row.talkId ?? null,
+        row.kind,
+        row.width,
+        row.height,
+        row.notes,
+        row.background ? JSON.stringify(row.background) : null,
+        row.backgroundSource ?? 'local',
+        row.order,
+        row.createdAt,
+        row.updatedAt,
+      );
+    }
+  }
+
+  private upsertTalkScriptBlockRows(rows: readonly TalkScriptBlock[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         slide_id = excluded.slide_id,
+         text = excluded.text,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(row.id, row.slideId, row.text, row.order, row.createdAt, row.updatedAt);
+    }
+  }
+
+  private upsertSlideElementRows(rows: readonly SlideElement[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO slide_elements
+        (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         slide_id = excluded.slide_id,
+         type = excluded.type,
+         x = excluded.x,
+         y = excluded.y,
+         width = excluded.width,
+         height = excluded.height,
+         rotation = excluded.rotation,
+         opacity = excluded.opacity,
+         z_index = excluded.z_index,
+         layer = excluded.layer,
+         payload_json = excluded.payload_json,
+         source_theme_element_id = excluded.source_theme_element_id,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(
+        row.id,
+        row.slideId,
+        row.type,
+        row.x,
+        row.y,
+        row.width,
+        row.height,
+        row.rotation,
+        row.opacity,
+        row.zIndex,
+        row.layer,
+        JSON.stringify(row.payload),
+        row.sourceThemeElementId ?? null,
+        row.createdAt,
+        row.updatedAt,
+      );
+    }
+  }
+
+  private upsertPlaylistRows(rows: readonly Playlist[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO playlists (id, name, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(row.id, row.name, row.order, row.createdAt, row.updatedAt);
+    }
+  }
+
+  private upsertPlaylistEntryRows(rows: readonly PlaylistRow[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO playlist_entries
+        (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         playlist_id = excluded.playlist_id,
+         kind = excluded.kind,
+         presentation_id = excluded.presentation_id,
+         lyric_id = excluded.lyric_id,
+         talk_id = excluded.talk_id,
+         label = excluded.label,
+         color_key = excluded.color_key,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      if (row.kind === 'separator') {
+        upsert.run(row.id, row.playlistId, row.kind, null, null, null, row.label, row.colorKey, row.order, row.createdAt, row.updatedAt);
+        continue;
+      }
+      const owner = toPlaylistItemOwnerColumns(row.reference);
+      upsert.run(
+        row.id,
+        row.playlistId,
+        row.kind,
+        owner.presentationId,
+        owner.lyricId,
+        owner.talkId,
+        null,
+        null,
+        row.order,
+        row.createdAt,
+        row.updatedAt,
+      );
+    }
+  }
+
+  private upsertMediaAssetRows(rows: readonly MediaAsset[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    this.deleteMediaAssetRowsByIds(rows.map((row) => row.id));
+    const insertImage = this.db.prepare(
+      'INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insertVideo = this.db.prepare(
+      'INSERT INTO video_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const insertAudio = this.db.prepare(
+      'INSERT INTO audio_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const row of rows) {
+      const insert = row.type === 'image' ? insertImage : row.type === 'video' ? insertVideo : insertAudio;
+      insert.run(
+        row.id,
+        row.name,
+        row.src,
+        row.width ?? null,
+        row.height ?? null,
+        row.duration ?? null,
+        row.codec ?? null,
+        row.order,
+        row.createdAt,
+        row.updatedAt,
+      );
+    }
+  }
+
+  private upsertCueRows(rows: readonly Cue[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         kind = excluded.kind,
+         payload_json = excluded.payload_json,
+         failure_policy = excluded.failure_policy,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(row.id, row.kind, JSON.stringify(row.payload), row.failurePolicy, row.createdAt, row.updatedAt);
+    }
+  }
+
+  private upsertMacroRows(rows: readonly Macro[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const macroIds = rows.map((row) => row.id);
+    this.deleteRowsByColumn('action_steps', 'action_id', macroIds);
+    const upsertMacro = this.db.prepare(
+      `INSERT INTO actions (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         description = excluded.description,
+         scope_level = excluded.scope_level,
+         on_scope_exit = excluded.on_scope_exit,
+         loop_enabled = excluded.loop_enabled,
+         loop_count = excluded.loop_count,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    const insertStep = this.db.prepare(
+      `INSERT INTO action_steps
+        (id, action_id, cue_id, kind, order_index, payload_json, failure_policy, delay_before_ms, delay_after_ms, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of rows) {
+      upsertMacro.run(
+        row.id,
+        row.name,
+        row.description,
+        row.scopeLevel,
+        row.onScopeExit,
+        row.loopEnabled ? 1 : 0,
+        row.loopCount,
+        row.order ?? 0,
+        row.createdAt,
+        row.updatedAt,
+      );
+      for (const step of row.cues) {
+        insertStep.run(
+          step.id,
+          row.id,
+          step.cueId,
+          step.cue.kind,
+          step.orderIndex,
+          JSON.stringify(step.cue.payload),
+          step.cue.failurePolicy,
+          normalizeDelayMs(step.delayBeforeMs),
+          normalizeDelayMs(step.delayAfterMs),
+          step.createdAt,
+          step.updatedAt,
+        );
+      }
+    }
+  }
+
+  private upsertTriggerBindingRows(rows: readonly TriggerBinding[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO trigger_bindings (id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         trigger_type = excluded.trigger_type,
+         source_id = excluded.source_id,
+         target_type = excluded.target_type,
+         target_id = excluded.target_id,
+         config_json = excluded.config_json,
+         enabled = excluded.enabled,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(
+        row.id,
+        row.triggerType,
+        row.sourceId,
+        row.targetType,
+        row.targetId,
+        JSON.stringify(row.config),
+        row.enabled ? 1 : 0,
+        row.createdAt,
+        row.updatedAt,
+      );
+    }
+  }
+
+  private upsertThemeRows(table: ThemeTableName, rows: readonly PresentationTheme[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO ${table} (id, name, width, height, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         width = excluded.width,
+         height = excluded.height,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    const containerKind = THEME_CONTAINER_KIND_BY_TABLE[table];
+    for (const row of rows) {
+      upsert.run(row.id, row.name, row.width, row.height, row.order, row.createdAt, row.updatedAt);
+      this.upsertContainerSlide(
+        row.slideId ?? `${row.id}:slide`,
+        containerKind,
+        row.id,
+        row.width,
+        row.height,
+        row.background ?? null,
+        row.createdAt,
+        row.updatedAt,
+      );
+      this.replaceContainerElements(
+        row.slideId ?? `${row.id}:slide`,
+        this.normalizeContainerElementOwnership(row.elements, row.slideId ?? `${row.id}:slide`),
+        row.updatedAt,
+      );
+    }
+  }
+
+  private upsertOverlayRows(rows: readonly Overlay[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         enabled = excluded.enabled,
+         animation_json = excluded.animation_json,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      const slideId = row.slideId ?? `${row.id}:slide`;
+      upsert.run(
+        row.id,
+        row.name,
+        row.enabled ? 1 : 0,
+        JSON.stringify(normalizeOverlayAnimation(row.animation)),
+        row.order ?? 0,
+        row.createdAt,
+        row.updatedAt,
+      );
+      this.upsertContainerSlide(slideId, 'overlay', row.id, DEFAULT_W, DEFAULT_H, row.background ?? null, row.createdAt, row.updatedAt);
+      this.replaceContainerElements(slideId, this.normalizeContainerElementOwnership(row.elements, slideId), row.updatedAt);
+    }
+  }
+
+  private upsertStageRows(rows: readonly Stage[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         width = excluded.width,
+         height = excluded.height,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      const slideId = row.slideId ?? `${row.id}:slide`;
+      upsert.run(row.id, row.name, row.width, row.height, row.order ?? 0, row.createdAt, row.updatedAt);
+      this.upsertContainerSlide(slideId, 'stage', row.id, row.width, row.height, row.background ?? null, row.createdAt, row.updatedAt);
+      this.replaceContainerElements(slideId, this.normalizeContainerElementOwnership(row.elements, slideId), row.updatedAt);
+    }
+  }
+
+  private upsertContainerSlide(
+    slideId: Id,
+    kind: ContainerKind,
+    parentId: Id,
+    width: number,
+    height: number,
+    background: SlideBackground | null,
+    createdAt: string,
+    updatedAt: string,
+  ): void {
+    this.db.prepare(
+      `INSERT INTO slides
+        (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+       VALUES (?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 0, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         presentation_theme_id = excluded.presentation_theme_id,
+         lyric_theme_id = excluded.lyric_theme_id,
+         talk_theme_id = excluded.talk_theme_id,
+         overlay_theme_id = excluded.overlay_theme_id,
+         overlay_id = excluded.overlay_id,
+         stage_id = excluded.stage_id,
+         kind = excluded.kind,
+         width = excluded.width,
+         height = excluded.height,
+         notes = excluded.notes,
+         background_json = excluded.background_json,
+         background_source = excluded.background_source,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    ).run(
+      slideId,
+      kind === 'presentationTheme' ? parentId : null,
+      kind === 'lyricTheme' ? parentId : null,
+      kind === 'talkTheme' ? parentId : null,
+      kind === 'overlayTheme' ? parentId : null,
+      kind === 'overlay' ? parentId : null,
+      kind === 'stage' ? parentId : null,
+      kind,
+      width,
+      height,
+      background ? JSON.stringify(background) : null,
+      background ? 'local' : null,
+      createdAt,
+      updatedAt,
+    );
   }
 
   private buildPatch(spec: BuildPatchSpec): SnapshotPatch {
@@ -5350,7 +6454,8 @@ export class CastRepository {
    * same-directory temporary database, validated for row counts and FK
    * integrity, and only then promoted over the active database via a
    * recoverable file swap. `options.hooks` are test-only failure-injection
-   * seams; production callers pass no options.
+   * seams. `options.onProgress` is a best-effort observer and cannot alter
+   * restore behavior, even if it throws.
    *
    * A v1/schema-22 document (#219 item-model refactor, wave K) is handled
    * BEFORE the normal v2 validation: `isLegacyProjectBackup` is a cheap
@@ -5360,19 +6465,34 @@ export class CastRepository {
    * @lumacast/protocol's deck-bundles.ts). A structurally plausible v1
    * document is migrated by `migrateLegacyProjectBackup` — materialized at
    * schema 22, replayed through the exact tested migrations 23+ code path,
-   * and read back out as a current-shape (v2) document — then restored
-   * through this same method, recursively, so every safety net below
-   * (referential integrity, row-count/FK verification, the recoverable file
-   * swap) applies identically whether the source was v1 or v2.
+   * and read back out as a current-shape (v2) document. Every safety net
+   * below (referential integrity, row-count/FK verification, the recoverable
+   * file swap) applies identically whether the source was v1 or v2.
    */
   restoreProjectBackup(backup: ProjectBackup, options: RestoreProjectBackupOptions = {}): ProjectRestoreResult {
-    if (isLegacyProjectBackup(backup)) {
-      const legacy = validateLegacyProjectBackup(backup);
-      const migrated = migrateLegacyProjectBackup(legacy);
-      return this.restoreProjectBackup(migrated, options);
-    }
+    const totalPhases = 6;
+    const report = (
+      phase: RestoreProjectBackupProgress['phase'],
+      completed: number,
+    ) => reportRepositoryProgress(options.onProgress, {
+      operation: 'restoreProjectBackup',
+      phase,
+      completed,
+      total: totalPhases,
+    });
 
-    const document = validateProjectBackupDocument(backup);
+    report('validation', 0);
+    const legacy = isLegacyProjectBackup(backup);
+    let document: ProjectBackup;
+    if (legacy) {
+      const validatedLegacyBackup = validateLegacyProjectBackup(backup);
+      report('preparation', 1);
+      report('migration', 2);
+      document = migrateLegacyProjectBackup(validatedLegacyBackup);
+    } else {
+      document = validateProjectBackupDocument(backup);
+      report('preparation', 1);
+    }
     assertProjectBackupReferences(document);
 
     const tempPath = nextUniqueSiblingPath(this.dbPath, 'restore');
@@ -5380,6 +6500,7 @@ export class CastRepository {
     try {
       tempDb = new SqliteDatabase(tempPath);
       this.applyConnectionTuning(tempDb);
+      if (!legacy) report('migration', 2);
       runMigrations(tempDb, tempPath);
       const tempSchemaVersion = tempDb.pragma('user_version', { simple: true }) as number;
       if (tempSchemaVersion !== LATEST_SCHEMA_VERSION) {
@@ -5394,13 +6515,18 @@ export class CastRepository {
       }
 
       options.hooks?.beforeInsert?.(tempDb);
+      report('insertion', 3);
       insertProjectBackupRows(tempDb, document);
       options.hooks?.afterInsert?.(tempDb);
+      report('verification', 4);
       assertProjectBackupRowCounts(tempDb, document);
       assertProjectBackupForeignKeys(tempDb);
       options.hooks?.beforePromotion?.();
 
-      return this.promoteRestoredDatabase(tempDb, tempPath, options.hooks?.afterRetainActive);
+      report('promotion', 5);
+      const result = this.promoteRestoredDatabase(tempDb, tempPath, options.hooks?.afterRetainActive);
+      report('complete', totalPhases);
+      return result;
     } catch (error) {
       if (tempDb) {
         try {

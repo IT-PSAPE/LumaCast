@@ -1,5 +1,5 @@
 // #146 project recovery restore, rewritten for the #219 item-model refactor.
-// Fixture mirrors the #145 maximal fixture in project-backup.test.ts (post-v27
+// Fixture mirrors the #145 maximal fixture in project-backup.test.ts (current
 // schema: four per-owner theme tables, no libraries/collections/groups, flat
 // playlist_entries). Deliberately covers the nullable-column boundaries
 // (theme_id, cue_id, color_key, loop_count, source_id, background_source,
@@ -12,6 +12,7 @@ import path from 'node:path';
 import { IPC, PROJECT_BACKUP_FORMAT } from '@lumacast/protocol';
 import { ProjectBackupValidationError } from '@lumacast/protocol';
 import type { ProjectBackup, ProjectBackupTables } from '@lumacast/protocol';
+import { LATEST_SCHEMA_VERSION } from './migrations';
 import { CastRepository, type ProjectRecoveryHooks } from './store';
 import type { SqliteDatabase } from './sqlite';
 
@@ -142,14 +143,14 @@ function seedMaximalFixture(db: SqliteDatabase): void {
   db.prepare('INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run('block-2', 'slide-talk-1', 'Then we pray', 1, T1, T1);
 
-  db.prepare('INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('image-1', 'Logo', 'cast-media://image-1', 0, T0, T0);
-  db.prepare('INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('image-2', 'Backdrop', 'cast-media://image-2', 1, T1, T1);
-  db.prepare('INSERT INTO video_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('video-1', 'Intro', 'cast-media://video-1', 0, T0, T0);
-  db.prepare('INSERT INTO audio_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('audio-1', 'Sting', 'cast-media://audio-1', 0, T0, T0);
+  db.prepare('INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('image-1', 'Logo', 'cast-media://image-1', 400, 240, null, null, 0, T0, T0);
+  db.prepare('INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('image-2', 'Backdrop', 'cast-media://image-2', 1920, 1080, null, null, 1, T1, T1);
+  db.prepare('INSERT INTO video_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('video-1', 'Intro', 'cast-media://video-1', 1280, 720, 12.5, 'h264', 0, T0, T0);
+  db.prepare('INSERT INTO audio_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('audio-1', 'Sting', 'cast-media://audio-1', null, null, 3.25, 'aac', 0, T0, T0);
 
   const insertElement = db.prepare(
     `INSERT INTO slide_elements
@@ -242,9 +243,9 @@ describe('project recovery restore (#146, backup v2)', () => {
     expect(siblingFiles(tmpDir).filter((name) => restoreSiblingPattern('prerecovery').test(name))).toHaveLength(1);
   });
 
-  it('round trips byte-for-byte at schema version 28: re-exporting the promoted project reproduces the exact source document', () => {
+  it('round trips byte-for-byte at the current schema version: re-exporting the promoted project reproduces the exact source document', () => {
     const backup = repo.exportProjectBackup();
-    expect(backup.schemaVersion).toBe(28);
+    expect(backup.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
 
     repo.restoreProjectBackup(backup);
     const restored = repo.exportProjectBackup();

@@ -61,7 +61,7 @@ vi.mock('electron', () => {
       setApplicationMenu: vi.fn(),
       getApplicationMenu: vi.fn(() => null),
     },
-    app: { isPackaged: false },
+    app: { isPackaged: false, getPath: vi.fn(() => '/tmp') },
     clipboard: { readText: vi.fn(), writeText: vi.fn() },
     dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
     shell: { openPath: vi.fn(), openExternal: vi.fn() },
@@ -72,13 +72,27 @@ vi.mock('./security', () => ({
   assertTrustedIpcSender: vi.fn(),
 }));
 
-import { IPC, NDI_FRAME_CHANNEL_NAMES } from '@lumacast/protocol';
+import {
+  IPC,
+  MEDIA_DERIVATIVE_EVENTS,
+  NDI_FRAME_CHANNEL_NAMES,
+  PERSISTENCE_CHANNELS,
+  PERSISTENCE_EVENTS,
+  type MediaDerivativeProgress,
+  type PersistenceProgress,
+} from '@lumacast/protocol';
 import { registerIpcHandlers } from './ipc';
-import type { CastRepository } from '@lumacast/persistence-sqlite';
+import { MediaDerivativeService } from './media-derivatives';
+import { maskManagedMediaSource, revokeManagedMediaSource } from './media-capability';
+import type { PersistenceServiceLike } from './persistence/persistence-service-proxy';
 import type { NdiServiceLike } from '@lumacast/engine';
 import type { AppUpdater } from './app-updater';
 
 const FRAME_CHANNEL_NAME_SET = new Set<string>(NDI_FRAME_CHANNEL_NAMES);
+let repositoryMethods: Record<string, ReturnType<typeof vi.fn>>;
+let ndiService: NdiServiceLike;
+let latestPersistenceProgress: PersistenceProgress | null;
+let reportedPersistenceProgress: PersistenceProgress[];
 
 // Every `IPC` key that is not one of the two frame channels: this is the set
 // `registerRpcHandlers` is expected to register through `ipcMain.handle`,
@@ -89,6 +103,29 @@ const RPC_CHANNEL_NAMES = (Object.keys(IPC) as (keyof typeof IPC)[]).filter(
 
 function fakeEvent(): IpcMainInvokeEvent {
   return {} as IpcMainInvokeEvent;
+}
+
+function emptySnapshot() {
+  return {
+    presentations: [],
+    lyrics: [],
+    talks: [],
+    slides: [],
+    talkScriptBlocks: [],
+    slideElements: [],
+    mediaAssets: [],
+    overlays: [],
+    presentationThemes: [],
+    lyricThemes: [],
+    talkThemes: [],
+    overlayThemes: [],
+    stages: [],
+    playlists: [],
+    playlistEntries: [],
+    cues: [],
+    macros: [],
+    triggerBindings: [],
+  };
 }
 
 function makeFakeNdiService(): NdiServiceLike {
@@ -102,6 +139,7 @@ function makeFakeNdiService(): NdiServiceLike {
     receiveAudioFrame: vi.fn(),
     onOutputStateChanged: vi.fn(() => () => {}),
     onDiagnosticsChanged: vi.fn(() => () => {}),
+    onFrameReleased: vi.fn(() => () => {}),
     flushBlackoutAndDestroy: vi.fn(),
     destroy: vi.fn(),
   };
@@ -116,18 +154,24 @@ describe('main IPC registration (issue #152)', () => {
     // A minimal repo stub is enough: every test either checks registration
     // shape without invoking a handler, or invokes a handler whose codec
     // validation throws before any `repo.*` method is reached.
-    const repo = {} as unknown as CastRepository;
-    const ndiService = makeFakeNdiService();
+    repositoryMethods = {};
+    latestPersistenceProgress = null;
+    reportedPersistenceProgress = [];
+    const repo = repositoryMethods as unknown as PersistenceServiceLike;
+    ndiService = makeFakeNdiService();
     const appUpdater = {} as unknown as AppUpdater;
 
-    registerIpcHandlers(repo, ndiService, () => null, appUpdater);
+    registerIpcHandlers(repo, ndiService, () => null, appUpdater, {
+      onPersistenceProgress: (progress) => reportedPersistenceProgress.push(progress),
+      getLatestPersistenceProgress: () => latestPersistenceProgress,
+    });
   });
 
   it('registers a handler for every operation in the canonical map (missing-registration regression)', () => {
     const missing = RPC_CHANNEL_NAMES.filter((name) => !handleRegistrations.has(IPC[name]));
     expect(missing, `missing ipcMain.handle registration for: ${missing.join(', ')}`).toEqual([]);
-    // Sanity: this is the full 100-operation surface, not a partial list.
-    expect(RPC_CHANNEL_NAMES.length).toBe(100);
+    // Sanity: this is the full 103-operation surface, not a partial list.
+    expect(RPC_CHANNEL_NAMES.length).toBe(103);
   });
 
   it('registers nothing outside the canonical map (extra-registration regression)', () => {
@@ -168,6 +212,61 @@ describe('main IPC registration (issue #152)', () => {
     }
   });
 
+  it('replays the latest persistence progress when the preload subscribes after window creation', () => {
+    const send = vi.fn();
+    latestPersistenceProgress = {
+      operation: 'initialize',
+      phase: 'migration',
+      completed: 4,
+      total: 8,
+    };
+    const listener = onRegistrations.get(PERSISTENCE_CHANNELS.subscribe);
+    expect(listener).toBeDefined();
+
+    listener!({
+      sender: {
+        isDestroyed: () => false,
+        send,
+      },
+    });
+
+    expect(send).toHaveBeenCalledWith(PERSISTENCE_EVENTS.progress, latestPersistenceProgress);
+  });
+
+  it('keeps snapshot loading active with main-process heartbeats while the host is synchronously busy', async () => {
+    vi.useFakeTimers();
+    let resolveSnapshot!: (snapshot: ReturnType<typeof emptySnapshot>) => void;
+    repositoryMethods.getSnapshot = vi.fn(() => new Promise<ReturnType<typeof emptySnapshot>>((resolve) => {
+      resolveSnapshot = resolve;
+    }));
+    const handler = handleRegistrations.get(IPC.getSnapshot);
+    expect(handler).toBeDefined();
+
+    const pending = handler!(fakeEvent());
+    expect(reportedPersistenceProgress).toEqual([{
+      operation: 'getSnapshot',
+      phase: 'running',
+      completed: 0,
+      total: 1,
+    }]);
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(reportedPersistenceProgress.filter((progress) => progress.phase === 'running')).toHaveLength(5);
+
+    resolveSnapshot(emptySnapshot());
+    await expect(pending).resolves.toEqual(emptySnapshot());
+    expect(reportedPersistenceProgress.at(-1)).toEqual({
+      operation: 'getSnapshot',
+      phase: 'complete',
+      completed: 1,
+      total: 1,
+    });
+    const progressCount = reportedPersistenceProgress.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(reportedPersistenceProgress).toHaveLength(progressCount);
+    vi.useRealTimers();
+  });
+
   it('serializes a typed CodecError instead of swallowing it, after malformed input is rejected before repository code', async () => {
     const handler = handleRegistrations.get(IPC.deleteCue);
     expect(handler).toBeDefined();
@@ -185,5 +284,281 @@ describe('main IPC registration (issue #152)', () => {
     );
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it('does not split a media deletion into separately interleavable repository calls', async () => {
+    const order: string[] = [];
+    repositoryMethods.getMediaAsset = vi.fn();
+    repositoryMethods.deleteMediaAsset = vi.fn(async () => {
+      order.push('delete');
+      return { version: 1, upserts: {}, deletes: { mediaAssets: ['asset-1'] } };
+    });
+    const handler = handleRegistrations.get(IPC.deleteMediaAsset);
+    expect(handler).toBeDefined();
+
+    await handler!(fakeEvent(), 'asset-1');
+    expect(order).toEqual(['delete']);
+    expect(repositoryMethods.getMediaAsset).not.toHaveBeenCalled();
+  });
+
+  it('reconciles derivative invalidation and rescheduling when applySnapshotPatch replaces a media source', async () => {
+    const order: string[] = [];
+    const invalidateManySpy = vi.spyOn(MediaDerivativeService.prototype, 'invalidateMany').mockImplementation(() => {});
+    const scheduleBatchSpy = vi.spyOn(MediaDerivativeService.prototype, 'scheduleBatch').mockImplementation(() => {});
+    invalidateManySpy.mockImplementation(() => {
+      order.push('invalidate');
+    });
+    scheduleBatchSpy.mockImplementation(() => {
+      order.push('schedule');
+    });
+    repositoryMethods.getMediaAsset = vi.fn(async () => {
+      order.push('get');
+      return {
+        id: 'asset-1',
+        src: 'cast-media://%2Fold.mp4',
+      };
+    });
+    repositoryMethods.applyPatch = vi.fn(async () => {
+      order.push('apply');
+    });
+    const handler = handleRegistrations.get(IPC.applySnapshotPatch);
+    expect(handler).toBeDefined();
+
+    await handler!(fakeEvent(), {
+      version: 1,
+      deletes: {},
+      upserts: {
+        mediaAssets: [{
+          id: 'asset-1',
+          name: 'Asset 1',
+          type: 'image',
+          src: 'cast-media://%2Fnew.mp4',
+          width: 640,
+          height: 360,
+          duration: null,
+          codec: null,
+          order: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        }],
+      },
+    });
+
+    expect(repositoryMethods.getMediaAsset).toHaveBeenCalledWith('asset-1');
+    expect(repositoryMethods.applyPatch).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['get', 'apply', 'invalidate', 'schedule']);
+    expect(invalidateManySpy).toHaveBeenCalledWith(['asset-1']);
+    expect(scheduleBatchSpy).toHaveBeenCalledWith(['asset-1']);
+  });
+
+  it('masks progress patches before sending them to the renderer', () => {
+    handleRegistrations.clear();
+    onRegistrations.clear();
+    const send = vi.fn();
+    const progressListeners: Array<(progress: MediaDerivativeProgress) => void> = [];
+    vi.spyOn(MediaDerivativeService.prototype, 'onProgress').mockImplementation(function (listener) {
+      progressListeners.push(listener);
+      return () => {};
+    });
+
+    registerIpcHandlers(
+      repositoryMethods as unknown as PersistenceServiceLike,
+      ndiService,
+      () => ({
+        isDestroyed: () => false,
+        webContents: { send },
+      }) as never,
+      {} as unknown as AppUpdater,
+      { getLatestPersistenceProgress: () => latestPersistenceProgress },
+    );
+
+    const listener = progressListeners.at(-1);
+    expect(listener).toBeDefined();
+
+    listener!({
+      active: 1,
+      queued: 0,
+      completed: 0,
+      failed: 0,
+      total: 1,
+      statusText: 'Generating media thumbnails 0/1',
+      patch: {
+        version: 1,
+        deletes: {},
+        upserts: {
+          mediaAssets: [{
+            id: 'asset-progress',
+            name: 'Progress asset',
+            type: 'image',
+            src: '/tmp/progress-source.png',
+            thumbnailSrc: '/tmp/thumbs/progress-thumb.png',
+            width: 640,
+            height: 360,
+            duration: null,
+            codec: null,
+            order: 0,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      MEDIA_DERIVATIVE_EVENTS.progress,
+      expect.objectContaining({
+        statusText: 'Generating media thumbnails 0/1',
+        patch: expect.objectContaining({
+          upserts: expect.objectContaining({
+            mediaAssets: [expect.objectContaining({
+              src: expect.stringMatching(/^cast-media:\/\//),
+            })],
+          }),
+        }),
+      }),
+    );
+    const payload = send.mock.calls[0]?.[1] as {
+      patch?: { upserts?: { mediaAssets?: Array<{ src: string; thumbnailSrc?: string | null }> } };
+    };
+    expect(payload.patch?.upserts?.mediaAssets?.[0]?.src).not.toBe('/tmp/progress-source.png');
+    expect(payload.patch?.upserts?.mediaAssets?.[0]?.thumbnailSrc).not.toBe('/tmp/thumbs/progress-thumb.png');
+  });
+
+  it('accepts undo patches for deleted media assets even after the derivative thumbnail capability was revoked', async () => {
+    const source = 'cast-media:///tmp/restored-delete.png';
+    const derivativeSource = 'cast-media:///tmp/restored-delete-thumb.png';
+    const maskedSrc = maskManagedMediaSource(source, 'image');
+    const maskedThumbnail = maskManagedMediaSource(derivativeSource, 'image');
+    expect(revokeManagedMediaSource(derivativeSource, 'image')).toBe(true);
+    repositoryMethods.getMediaAsset = vi.fn().mockResolvedValue(null);
+    repositoryMethods.applyPatch = vi.fn().mockResolvedValue(undefined);
+    const scheduleBatchSpy = vi.spyOn(MediaDerivativeService.prototype, 'scheduleBatch').mockImplementation(() => {});
+    const handler = handleRegistrations.get(IPC.applySnapshotPatch);
+    expect(handler).toBeDefined();
+
+    await expect(handler!(fakeEvent(), {
+      version: 1,
+      deletes: {},
+      upserts: {
+        mediaAssets: [{
+          id: 'asset-delete',
+          name: 'Deleted asset',
+          type: 'image',
+          src: maskedSrc,
+          thumbnailSrc: maskedThumbnail,
+          width: 640,
+          height: 360,
+          duration: null,
+          codec: null,
+          order: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }],
+      },
+    })).resolves.toBeUndefined();
+
+    expect(repositoryMethods.applyPatch).toHaveBeenCalledWith(expect.objectContaining({
+      upserts: expect.objectContaining({
+        mediaAssets: [expect.objectContaining({
+          src: source,
+          thumbnailSrc: undefined,
+        })],
+      }),
+    }));
+    expect(scheduleBatchSpy).toHaveBeenCalledWith(['asset-delete']);
+  });
+
+  it('accepts undo patches for media source replacement even after the old derivative thumbnail capability was revoked', async () => {
+    const oldSource = 'cast-media:///tmp/source-before.png';
+    const derivativeSource = 'cast-media:///tmp/source-before-thumb.png';
+    const maskedOldSource = maskManagedMediaSource(oldSource, 'image');
+    const maskedOldThumbnail = maskManagedMediaSource(derivativeSource, 'image');
+    expect(revokeManagedMediaSource(derivativeSource, 'image')).toBe(true);
+    repositoryMethods.getMediaAsset = vi.fn().mockResolvedValue({
+      id: 'asset-replace',
+      src: 'cast-media:///tmp/source-after.png',
+    });
+    repositoryMethods.applyPatch = vi.fn().mockResolvedValue(undefined);
+    const invalidateManySpy = vi.spyOn(MediaDerivativeService.prototype, 'invalidateMany').mockImplementation(() => {});
+    const scheduleBatchSpy = vi.spyOn(MediaDerivativeService.prototype, 'scheduleBatch').mockImplementation(() => {});
+    const handler = handleRegistrations.get(IPC.applySnapshotPatch);
+    expect(handler).toBeDefined();
+
+    await expect(handler!(fakeEvent(), {
+      version: 1,
+      deletes: {},
+      upserts: {
+        mediaAssets: [{
+          id: 'asset-replace',
+          name: 'Replaced asset',
+          type: 'image',
+          src: maskedOldSource,
+          thumbnailSrc: maskedOldThumbnail,
+          width: 640,
+          height: 360,
+          duration: null,
+          codec: null,
+          order: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }],
+      },
+    })).resolves.toBeUndefined();
+
+    expect(repositoryMethods.applyPatch).toHaveBeenCalledWith(expect.objectContaining({
+      upserts: expect.objectContaining({
+        mediaAssets: [expect.objectContaining({
+          src: oldSource,
+          thumbnailSrc: undefined,
+        })],
+      }),
+    }));
+    expect(invalidateManySpy).toHaveBeenCalledWith(['asset-replace']);
+    expect(scheduleBatchSpy).toHaveBeenCalledWith(['asset-replace']);
+  });
+
+  it('reconciles derivative invalidation when restoreFromSnapshot deletes a media row', async () => {
+    const invalidateManySpy = vi.spyOn(MediaDerivativeService.prototype, 'invalidateMany').mockImplementation(() => {});
+    repositoryMethods.getSnapshot = vi.fn().mockResolvedValue({
+      ...emptySnapshot(),
+      mediaAssets: [{ id: 'asset-1', src: 'cast-media://%2Fold.mp4' }],
+    });
+    repositoryMethods.restoreFromSnapshot = vi.fn().mockResolvedValue(emptySnapshot());
+    const handler = handleRegistrations.get(IPC.restoreFromSnapshot);
+    expect(handler).toBeDefined();
+
+    await handler!(fakeEvent(), emptySnapshot());
+
+    expect(repositoryMethods.restoreFromSnapshot).toHaveBeenCalledTimes(1);
+    expect(invalidateManySpy).toHaveBeenCalledWith(['asset-1']);
+  });
+
+  it('keeps the NDI frame relay responsive while an async persistence RPC is pending', async () => {
+    let resolveSnapshot!: (value: unknown) => void;
+    repositoryMethods.getSnapshot = vi.fn(() => new Promise((resolve) => {
+      resolveSnapshot = resolve;
+    }));
+    const snapshotHandler = handleRegistrations.get(IPC.getSnapshot);
+    const frameListener = onRegistrations.get(IPC.sendNdiFrame);
+
+    const pendingSnapshot = snapshotHandler!(fakeEvent());
+    const buffer = new ArrayBuffer(4);
+    frameListener!(fakeEvent(), {
+      name: 'audience',
+      buffer,
+      width: 1,
+      height: 1,
+    });
+
+    expect(ndiService.receiveFrame).toHaveBeenCalledWith(
+      'audience',
+      new Uint8Array(buffer),
+      1,
+      1,
+      undefined,
+    );
+    resolveSnapshot({ presentations: [] });
+    await pendingSnapshot;
   });
 });

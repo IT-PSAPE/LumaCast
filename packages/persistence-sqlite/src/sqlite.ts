@@ -12,6 +12,8 @@ interface PragmaOptions {
   simple?: boolean;
 }
 
+const STATEMENT_CACHE_MAX_SIZE = 128;
+
 function normalizeRow<T>(row: T): T {
   if (!row || Array.isArray(row) || typeof row !== 'object') {
     return row;
@@ -57,12 +59,16 @@ export class SqliteStatement {
 
 export class SqliteDatabase {
   private database: NodeSqliteDatabaseSync;
+  private statementCache = new Map<string, SqliteStatement>();
+  private closed = false;
 
   constructor(filename: string, options: DatabaseOptions = {}) {
     this.database = new DatabaseSync(filename, { readOnly: options.readonly ?? false });
   }
 
   close(): void {
+    this.statementCache.clear();
+    this.closed = true;
     this.database.close();
   }
 
@@ -71,7 +77,26 @@ export class SqliteDatabase {
   }
 
   prepare(sql: string): SqliteStatement {
-    return new SqliteStatement(this.database.prepare(sql));
+    if (this.closed) {
+      throw new Error('Cannot prepare statements on a closed database.');
+    }
+
+    const cached = this.statementCache.get(sql);
+    if (cached) {
+      this.statementCache.delete(sql);
+      this.statementCache.set(sql, cached);
+      return cached;
+    }
+
+    const statement = new SqliteStatement(this.database.prepare(sql));
+    if (this.statementCache.size >= STATEMENT_CACHE_MAX_SIZE) {
+      const oldestSql = this.statementCache.keys().next().value;
+      if (oldestSql !== undefined) {
+        this.statementCache.delete(oldestSql);
+      }
+    }
+    this.statementCache.set(sql, statement);
+    return statement;
   }
 
   pragma(command: string, options: PragmaOptions = {}): unknown {

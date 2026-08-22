@@ -1,5 +1,5 @@
 // #145 project backup serialization, rewritten for the #219 item-model
-// refactor (backup format version 2, pinned to schema version 27 -- see
+// refactor (backup format version 2, pinned to the current schema version -- see
 // DESIGN.md D8 and schema-final.md). No libraries, no playlist_groups, no
 // collection_id anywhere; themes split into four per-owner tables
 // (presentation_themes/lyric_themes/talk_themes/overlay_themes);
@@ -43,7 +43,7 @@ function makeRepo(dir: string): CastRepository {
 }
 
 // ---------------------------------------------------------------------------
-// Fixture. Every application-owned post-v27 table gets a maximally
+// Fixture. Every application-owned table in the current backup schema gets a maximally
 // populated, fully deterministic row set: fixed ids and fixed ISO
 // timestamps, inserted directly through the repository's connection in
 // FK-safe order (parents before children). All JSON columns are serialized
@@ -209,14 +209,14 @@ function seedMaximalFixture(db: SqliteDatabase): void {
   db.prepare('INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run('block-2', 'slide-talk-1', 'Then we pray', 1, T1, T1);
 
-  db.prepare('INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('image-1', 'Logo', 'cast-media://image-1', 0, T0, T0);
-  db.prepare('INSERT INTO image_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('image-2', 'Backdrop', 'cast-media://image-2', 1, T1, T1);
-  db.prepare('INSERT INTO video_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('video-1', 'Intro', 'cast-media://video-1', 0, T0, T0);
-  db.prepare('INSERT INTO audio_assets (id, name, src, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('audio-1', 'Sting', 'cast-media://audio-1', 0, T0, T0);
+  db.prepare('INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('image-1', 'Logo', 'cast-media://image-1', 400, 240, null, null, 0, T0, T0);
+  db.prepare('INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('image-2', 'Backdrop', 'cast-media://image-2', 1920, 1080, null, null, 1, T1, T1);
+  db.prepare('INSERT INTO video_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('video-1', 'Intro', 'cast-media://video-1', 1280, 720, 12.5, 'h264', 0, T0, T0);
+  db.prepare('INSERT INTO audio_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run('audio-1', 'Sting', 'cast-media://audio-1', null, null, 3.25, 'aac', 0, T0, T0);
 
   const insertElement = db.prepare(
     `INSERT INTO slide_elements
@@ -347,14 +347,14 @@ const EXPECTED_TABLES: ProjectBackupTables = {
     { id: 'entry-5', playlist_id: 'pl-2', kind: 'item', presentation_id: null, lyric_id: null, talk_id: 'talk-1', label: null, color_key: null, order_index: 0, created_at: T6, updated_at: T6 },
   ],
   image_assets: [
-    { id: 'image-1', name: 'Logo', src: 'cast-media://image-1', order_index: 0, created_at: T0, updated_at: T0 },
-    { id: 'image-2', name: 'Backdrop', src: 'cast-media://image-2', order_index: 1, created_at: T1, updated_at: T1 },
+    { id: 'image-1', name: 'Logo', src: 'cast-media://image-1', width: 400, height: 240, duration: null, codec: null, order_index: 0, created_at: T0, updated_at: T0 },
+    { id: 'image-2', name: 'Backdrop', src: 'cast-media://image-2', width: 1920, height: 1080, duration: null, codec: null, order_index: 1, created_at: T1, updated_at: T1 },
   ],
   video_assets: [
-    { id: 'video-1', name: 'Intro', src: 'cast-media://video-1', order_index: 0, created_at: T0, updated_at: T0 },
+    { id: 'video-1', name: 'Intro', src: 'cast-media://video-1', width: 1280, height: 720, duration: 12.5, codec: 'h264', order_index: 0, created_at: T0, updated_at: T0 },
   ],
   audio_assets: [
-    { id: 'audio-1', name: 'Sting', src: 'cast-media://audio-1', order_index: 0, created_at: T0, updated_at: T0 },
+    { id: 'audio-1', name: 'Sting', src: 'cast-media://audio-1', width: null, height: null, duration: 3.25, codec: 'aac', order_index: 0, created_at: T0, updated_at: T0 },
   ],
   overlays: [
     { id: 'overlay-1', name: 'Watermark', enabled: 1, animation_json: JSON.stringify({ kind: 'dissolve', durationMs: 500, autoClearDurationMs: 3000 }), order_index: 0, created_at: T0, updated_at: T0 },
@@ -560,7 +560,7 @@ describe('project backup serialization (#145, backup v2)', () => {
 describe('project backup validation (#145, backup v2)', () => {
   it('keeps the core-supported schema version in lockstep with the database migrations', () => {
     expect(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION).toBe(LATEST_SCHEMA_VERSION);
-    expect(LATEST_SCHEMA_VERSION).toBe(28);
+    expect(LATEST_SCHEMA_VERSION).toBe(30);
   });
 
   it('rejects a v1/schema-22 backup with an explicit "older app version" message, not a silent/generic failure', () => {

@@ -9,6 +9,11 @@ export interface MediaAsset {
   name: string;
   type: MediaAssetType;
   src: string;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  codec: string | null;
+  thumbnailSrc?: string | null;
   order: number;
   createdAt: string;
   updatedAt: string;

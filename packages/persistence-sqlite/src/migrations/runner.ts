@@ -44,6 +44,24 @@ export interface RunMigrationsOptions {
   backupDir?: string;
   /** Called with the verified backup's absolute path, if one was made. */
   onBackupCreated?: (backupPath: string) => void;
+  /** Best-effort observer for migration progress. Observer failures are ignored. */
+  onProgress?: (progress: MigrationProgress) => void;
+}
+
+export interface MigrationProgress {
+  phase: 'backup' | 'migration' | 'complete';
+  completed: number;
+  total: number;
+  migrationVersion?: number;
+}
+
+function reportProgress(options: RunMigrationsOptions, progress: MigrationProgress): void {
+  try {
+    options.onProgress?.(progress);
+  } catch {
+    // Progress is observational. A broken telemetry consumer must never
+    // change whether a migration commits, rolls back, or runs at all.
+  }
 }
 
 function getUserVersion(db: SqliteDatabase): number {
@@ -185,15 +203,21 @@ export function runMigrations(db: SqliteDatabase, dbPath: string, options: RunMi
   }
 
   const pending: Migration[] = MIGRATIONS.filter((migration) => migration.version > currentVersion);
-  if (pending.length === 0) return;
+  if (pending.length === 0) {
+    reportProgress(options, { phase: 'complete', completed: 1, total: 1 });
+    return;
+  }
+
+  const total = pending.length;
 
   const isExistingDatabase = currentVersion > 0 || hasAnyTable(db);
   if (isExistingDatabase) {
+    reportProgress(options, { phase: 'backup', completed: 0, total });
     const backupPath = createVerifiedBackup(db, dbPath, currentVersion, options);
     options.onBackupCreated?.(backupPath);
   }
 
-  for (const migration of pending) {
+  for (const [index, migration] of pending.entries()) {
     const previousForeignKeysEnabled = migration.requiresForeignKeysOff ? getForeignKeysEnabled(db) : null;
     if (migration.requiresForeignKeysOff) {
       db.pragma('foreign_keys = OFF');
@@ -204,10 +228,18 @@ export function runMigrations(db: SqliteDatabase, dbPath: string, options: RunMi
         setUserVersion(db, migration.version);
       });
       applyMigration();
+      reportProgress(options, {
+        phase: 'migration',
+        completed: index + 1,
+        total,
+        migrationVersion: migration.version,
+      });
     } finally {
       if (migration.requiresForeignKeysOff) {
         db.pragma(`foreign_keys = ${previousForeignKeysEnabled ? 'ON' : 'OFF'}`);
       }
     }
   }
+
+  reportProgress(options, { phase: 'complete', completed: total, total });
 }

@@ -44,17 +44,78 @@ export interface NdiActiveSenderDiagnostics {
   audio: NdiSenderAudioDiagnostics;
 }
 
+export type NdiTakeKind = 'activate' | 'take';
+export const NDI_TAKE_KINDS = ['activate', 'take'] as const satisfies readonly NdiTakeKind[];
+
+export type NdiTakeReason =
+  | 'sequential'
+  | 'jump'
+  | 'crossItem'
+  | 'macro';
+export const NDI_TAKE_REASONS = ['sequential', 'jump', 'crossItem', 'macro'] as const satisfies readonly NdiTakeReason[];
+
+export type NdiFrameDropReason =
+  | 'backpressure'
+  | 'ackTimeout'
+  | 'captureFailed'
+  | 'bitmapFailed'
+  | 'invalidPayload'
+  | 'outputDisabled'
+  | 'senderUnavailable'
+  | 'nativeSendFailed';
+export const NDI_FRAME_DROP_REASONS = [
+  'backpressure',
+  'ackTimeout',
+  'captureFailed',
+  'bitmapFailed',
+  'invalidPayload',
+  'outputDisabled',
+  'senderUnavailable',
+  'nativeSendFailed',
+] as const satisfies readonly NdiFrameDropReason[];
+export const NDI_RENDERER_FRAME_DROP_REASONS = [
+  'backpressure',
+  'ackTimeout',
+  'captureFailed',
+  'bitmapFailed',
+] as const satisfies readonly NdiFrameDropReason[];
+
+export type NdiFrameDropReasonCounts = Record<NdiFrameDropReason, number>;
+
+export type NdiFrameReleaseReason =
+  | 'sent'
+  | 'invalidPayload'
+  | 'outputDisabled'
+  | 'senderUnavailable'
+  | 'nativeSendFailed';
+
+export interface NdiFrameRelease {
+  name: NdiOutputName;
+  attemptId?: string;
+  accepted: boolean;
+  reason: NdiFrameReleaseReason;
+  releasedAtMs: number;
+}
+
 export interface NdiFrameTelemetry {
+  attemptId?: string;
   captureDurationMs: number;
   readbackDurationMs: number;
   skippedCaptures: number;
   framesDroppedBackpressure: number;
+  correctiveFrameRetries: number;
+  dropReasons?: Partial<NdiFrameDropReasonCounts>;
   // Cross-process Date.now() timestamps. Each stage stamps as the frame
   // travels: renderer sets signature/capture/rendererSend; main sets
   // mainReceived and proxyForwarded; utility sets hostReceived. The native
   // send timestamp is computed inside the service and not echoed back.
   // Optional — older telemetry shapes still validate.
   signatureChangedAtMs?: number | null;
+  takeKind?: NdiTakeKind;
+  takeReason?: NdiTakeReason;
+  takeSessionId?: string;
+  takeSequenceId?: number;
+  takeIssuedAtMs?: number;
   captureStartedAtMs?: number;
   rendererSendAtMs?: number;
   mainReceivedAtMs?: number;
@@ -71,9 +132,13 @@ export interface NdiPipelineStageStats {
 
 export interface NdiPipelineLatencyDiagnostics {
   // Headline numbers — the user's symptom is sender-side latency, and
-  // signatureToWire is how long between a state change and bits on the wire.
-  frameAgeAtWire: NdiPipelineStageStats;
-  signatureToWire: NdiPipelineStageStats;
+  // signatureToNativeSend is how long between a state change and the native
+  // send call returning for that accepted attempt.
+  frameAgeAtNativeSend: NdiPipelineStageStats;
+  signatureToNativeSend: NdiPipelineStageStats;
+  activateToNativeSend: NdiPipelineStageStats;
+  takeToNativeSend: NdiPipelineStageStats;
+  takeReasonToNativeSend: Record<NdiTakeReason, NdiPipelineStageStats>;
   // Per-stage spans — for attributing where time goes when the headline
   // numbers are too high.
   captureToRendererSend: NdiPipelineStageStats;
@@ -88,9 +153,10 @@ export interface NdiSenderPerformanceDiagnostics {
   framesSent: number;
   framesReplayed: number;
   framesRejected: number;
-  framesSkippedNoConnections: number;
   skippedCaptures: number;
   framesDroppedBackpressure: number;
+  correctiveFrameRetries: number;
+  frameDrops: NdiFrameDropReasonCounts;
   bytesReceived: number;
   cacheCopyBytes: number;
   avgCaptureDurationMs: number;
@@ -123,6 +189,11 @@ export interface NdiSenderAudioDiagnostics {
   lastChannels: number;
 }
 
+export type NdiOutputAvailabilityDropCounts = Pick<
+  NdiFrameDropReasonCounts,
+  'outputDisabled' | 'senderUnavailable'
+>;
+
 export interface NdiDiagnostics {
   outputState: NdiOutputState;
   outputConfig: NdiOutputConfig;
@@ -131,6 +202,7 @@ export interface NdiDiagnostics {
   runtimePath: string | null;
   activeSender: NdiActiveSenderDiagnostics | null;
   senders: Record<NdiOutputName, NdiActiveSenderDiagnostics | null>;
+  availabilityDrops: Record<NdiOutputName, NdiOutputAvailabilityDropCounts>;
   sourceStatus: NdiSourceStatus;
   lastError: string | null;
 }
@@ -141,6 +213,14 @@ export interface SystemProcessMetrics {
   heapTotalBytes: number;
   externalBytes: number;
   cpuPercent: number;
+  eventLoopLag: SystemEventLoopLagStats;
+}
+
+export interface SystemEventLoopLagStats {
+  lastMs: number;
+  p95Ms: number;
+  maxMs: number;
+  count: number;
 }
 
 export interface SystemMetricsSnapshot {

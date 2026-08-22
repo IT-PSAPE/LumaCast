@@ -209,7 +209,7 @@ export const PROJECT_BACKUP_LEGACY_VERSION = 1 as const;
 // match; the focused lockstep test in project-backup.test.ts fails on drift.
 // Core keeps its own copy because the migrations module is unreachable here
 // (core may not import the database layer).
-export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 28 as const;
+export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 30 as const;
 // The one and only schema version a v1-format backup was ever exported at
 // (PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION was hardcoded to 22 for the whole
 // lifetime of format version 1). `validateLegacyProjectBackup` rejects any
@@ -283,6 +283,10 @@ const MEDIA_ASSET_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
   { name: 'id', type: 'string' },
   { name: 'name', type: 'string' },
   { name: 'src', type: 'string' },
+  { name: 'width', type: 'number', nullable: true },
+  { name: 'height', type: 'number', nullable: true },
+  { name: 'duration', type: 'number', nullable: true },
+  { name: 'codec', type: 'string', nullable: true },
   { name: 'order_index', type: 'number' },
   { name: 'created_at', type: 'string' },
   { name: 'updated_at', type: 'string' },
@@ -547,7 +551,12 @@ function assertProjectBackupRow(
  * than folding it into "unsupported version" — see the module-level TODO for
  * where a real v1→v2 transform hooks in.
  */
-export function validateProjectBackup(input: unknown): ProjectBackup {
+interface ValidProjectBackupEnvelope {
+  backup: ProjectBackup;
+  tables: Record<string, unknown>;
+}
+
+function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelope {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     throw new ProjectBackupValidationError('Invalid project backup: must be an object.');
   }
@@ -610,6 +619,33 @@ export function validateProjectBackup(input: unknown): ProjectBackup {
     );
   }
 
+  return { backup: input as ProjectBackup, tables: tablesRecord };
+}
+
+function assertProjectBackupSlideOwner(
+  row: ProjectBackupTables['slides'][number],
+  rowIndex: number,
+): void {
+  const ownerCount =
+    (row.presentation_id !== null ? 1 : 0) +
+    (row.lyric_id !== null ? 1 : 0) +
+    (row.talk_id !== null ? 1 : 0) +
+    (row.presentation_theme_id !== null ? 1 : 0) +
+    (row.lyric_theme_id !== null ? 1 : 0) +
+    (row.talk_theme_id !== null ? 1 : 0) +
+    (row.overlay_theme_id !== null ? 1 : 0) +
+    (row.overlay_id !== null ? 1 : 0) +
+    (row.stage_id !== null ? 1 : 0);
+  if (ownerCount !== 1) {
+    throw new ProjectBackupValidationError(
+      `Invalid project backup: tables.slides[${rowIndex}] must have exactly one owner id (presentation/lyric/talk/presentationTheme/lyricTheme/talkTheme/overlayTheme/overlay/stage), got ${ownerCount}.`,
+    );
+  }
+}
+
+export function validateProjectBackup(input: unknown): ProjectBackup {
+  const { backup, tables: tablesRecord } = validateProjectBackupEnvelope(input);
+
   for (const tableName of PROJECT_BACKUP_TABLE_KEYS) {
     const rows = tablesRecord[tableName];
     if (!Array.isArray(rows)) {
@@ -619,25 +655,89 @@ export function validateProjectBackup(input: unknown): ProjectBackup {
   }
 
   const slides = tablesRecord.slides as ProjectBackupTables['slides'];
-  slides.forEach((row, rowIndex) => {
-    const ownerCount =
-      (row.presentation_id !== null ? 1 : 0) +
-      (row.lyric_id !== null ? 1 : 0) +
-      (row.talk_id !== null ? 1 : 0) +
-      (row.presentation_theme_id !== null ? 1 : 0) +
-      (row.lyric_theme_id !== null ? 1 : 0) +
-      (row.talk_theme_id !== null ? 1 : 0) +
-      (row.overlay_theme_id !== null ? 1 : 0) +
-      (row.overlay_id !== null ? 1 : 0) +
-      (row.stage_id !== null ? 1 : 0);
-    if (ownerCount !== 1) {
-      throw new ProjectBackupValidationError(
-        `Invalid project backup: tables.slides[${rowIndex}] must have exactly one owner id (presentation/lyric/talk/presentationTheme/lyricTheme/talkTheme/overlayTheme/overlay/stage), got ${ownerCount}.`,
-      );
-    }
-  });
+  slides.forEach(assertProjectBackupSlideOwner);
 
-  return input as ProjectBackup;
+  return backup;
+}
+
+export interface ProjectBackupValidationProgress {
+  validatedRows: number;
+  totalRows: number;
+}
+
+export interface ValidateProjectBackupAsyncOptions {
+  /** Maximum row-validation operations performed before yielding. */
+  batchSize?: number;
+  onProgress?: (progress: ProjectBackupValidationProgress) => void;
+  /** Injectable for deterministic tests; defaults to a zero-delay timer. */
+  yieldToEventLoop?: () => Promise<void>;
+}
+
+function defaultProjectBackupValidationYield(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function reportProjectBackupValidationProgress(
+  observer: ValidateProjectBackupAsyncOptions['onProgress'],
+  progress: ProjectBackupValidationProgress,
+): void {
+  try {
+    observer?.(progress);
+  } catch {
+    // Progress is observational and cannot alter trust-boundary validation.
+  }
+}
+
+/**
+ * Asynchronous counterpart to `validateProjectBackup` for large restore
+ * payloads. It preserves the synchronous validator's accepted values and
+ * error messages while yielding between bounded row batches.
+ */
+export async function validateProjectBackupAsync(
+  input: unknown,
+  options: ValidateProjectBackupAsyncOptions = {},
+): Promise<ProjectBackup> {
+  const { backup, tables: tablesRecord } = validateProjectBackupEnvelope(input);
+  const batchSize = Math.max(1, Math.floor(options.batchSize ?? 250));
+  const yieldToEventLoop = options.yieldToEventLoop ?? defaultProjectBackupValidationYield;
+
+  let totalRows = 0;
+  for (const tableName of PROJECT_BACKUP_TABLE_KEYS) {
+    const rows = tablesRecord[tableName];
+    if (Array.isArray(rows)) totalRows += rows.length;
+  }
+
+  let validatedRows = 0;
+  let rowsSinceYield = 0;
+  for (const tableName of PROJECT_BACKUP_TABLE_KEYS) {
+    const rows = tablesRecord[tableName];
+    if (!Array.isArray(rows)) {
+      throw new ProjectBackupValidationError(`Invalid project backup: tables.${tableName} must be an array.`);
+    }
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+      assertProjectBackupRow(rows[rowIndex], tableName, rowIndex);
+      validatedRows += 1;
+      rowsSinceYield += 1;
+      if (rowsSinceYield >= batchSize && validatedRows < totalRows) {
+        reportProjectBackupValidationProgress(options.onProgress, { validatedRows, totalRows });
+        await yieldToEventLoop();
+        rowsSinceYield = 0;
+      }
+    }
+  }
+  const slides = tablesRecord.slides as ProjectBackupTables['slides'];
+  for (let rowIndex = 0; rowIndex < slides.length; rowIndex += 1) {
+    assertProjectBackupSlideOwner(slides[rowIndex], rowIndex);
+    if ((rowIndex + 1) % batchSize === 0 && rowIndex + 1 < slides.length) {
+      await yieldToEventLoop();
+    }
+  }
+
+  if (totalRows > 0) {
+    reportProjectBackupValidationProgress(options.onProgress, { validatedRows, totalRows });
+  }
+
+  return backup;
 }
 
 // ---------------------------------------------------------------------------
@@ -654,7 +754,7 @@ export function validateProjectBackup(input: unknown): ProjectBackup {
 // silently accepted or partially imported — with a message that always
 // names it as coming from an older app version, whether the failure is a
 // wrong schema version, a missing table, or a malformed row. The actual
-// v1→v2 transform (materializing to schema 22, replaying migrations 23–27,
+// v1→v2 transform (materializing to schema 22, replaying migrations 23–30,
 // reading the result back out) is @lumacast/persistence-sqlite's job — it
 // owns the database this module may not import.
 // ---------------------------------------------------------------------------

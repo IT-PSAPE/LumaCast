@@ -1,13 +1,16 @@
 import { app, BrowserWindow, Menu, nativeImage, protocol, shell, type BrowserWindowConstructorOptions } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CastRepository } from '@lumacast/persistence-sqlite';
+import { PERSISTENCE_EVENTS, type PersistenceProgress } from '@lumacast/protocol';
 import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';
 import { initializeLogger, getLogFilePath } from './logger';
 import { NdiServiceProxy } from './ndi/ndi-service-proxy';
 import { NoopNdiService, NdiConfigStore, type NdiServiceLike } from '@lumacast/engine';
+import { PersistenceServiceProxy } from './persistence/persistence-service-proxy';
+import { startPersistenceShell } from './persistence/start-persistence-shell';
+import { forkPersistenceHost } from './persistence/utility-process-transport';
 import {
   createForbiddenResponse,
   createNotFoundResponse,
@@ -55,13 +58,12 @@ console.log(`[main] argv=${process.argv.slice(1).join(' ')}`);
 let mainWindow: BrowserWindow | null = null;
 const WORKBENCH_MIN_WIDTH = 140 + 360 + 140;
 const WORKBENCH_MIN_HEIGHT = Math.max(360 + 96, 240 + 120) + 96;
-const repository = new CastRepository({
-  dbPath: path.join(userDataPath, 'lumacast.sqlite'),
-  userDataPath,
-  documentsPath: documentsDataDir,
-});
 const ndiConfigStore = new NdiConfigStore(userDataPath);
 let ndiService: NdiServiceLike | null = null;
+let persistenceService: PersistenceServiceProxy | null = null;
+let latestPersistenceProgress: PersistenceProgress | null = null;
+let persistenceShutdownPromise: Promise<void> | null = null;
+let persistenceShutdownComplete = false;
 let isShuttingDown = false;
 const appUpdater = new AppUpdater({
   getMainWindow: () => mainWindow,
@@ -79,6 +81,17 @@ function teardownNdi(reason: string, error?: unknown) {
     ndiService.destroy();
   } catch (destroyError) {
     console.error('[Main process NDI teardown failure]', destroyError);
+  }
+}
+
+function reportPersistenceProgress(progress: PersistenceProgress): void {
+  latestPersistenceProgress = progress;
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) return;
+  try {
+    window.webContents.send(PERSISTENCE_EVENTS.progress, progress);
+  } catch {
+    // Progress is observational and cannot alter persistence work.
   }
 }
 
@@ -325,8 +338,39 @@ app.whenReady().then(() => {
     console.error('[Main process NDI init failed — continuing without NDI]', error);
     ndiService = new NoopNdiService(initialNdiConfigs, `NDI service unavailable: ${message}`);
   }
-  registerIpcHandlers(repository, ndiService, () => mainWindow, appUpdater);
-  createMainWindow();
+  persistenceService = startPersistenceShell({
+    createService: () => {
+      const service = new PersistenceServiceProxy({
+        transport: forkPersistenceHost(path.join(__dirname, 'persistence-host.js')),
+        repositoryOptions: {
+          dbPath: path.join(userDataPath, 'lumacast.sqlite'),
+          userDataPath,
+          documentsPath: documentsDataDir,
+        },
+        onFatal: (error) => quitAfterFatalMainProcessError('persistence host failure', error),
+        onShutdownDelayed: () => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.hide();
+          }
+        },
+      });
+      service.onProgress(({ requestId: _requestId, ...progress }) => {
+        reportPersistenceProgress(progress);
+      });
+      return service;
+    },
+    registerHandlers: (service) => registerIpcHandlers(
+      service,
+      ndiService!,
+      () => mainWindow,
+      appUpdater,
+      {
+        onPersistenceProgress: reportPersistenceProgress,
+        getLatestPersistenceProgress: () => latestPersistenceProgress,
+      },
+    ),
+    createWindow: createMainWindow,
+  });
   appUpdater.initialize();
   appUpdater.scheduleStartupCheck();
 
@@ -336,16 +380,28 @@ app.whenReady().then(() => {
     }
   });
 }).catch((error) => {
-  console.error('[Main process app.whenReady failure]', error);
+  quitAfterFatalMainProcessError('app.whenReady failure', error);
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isShuttingDown = true;
   teardownNdi('before-quit');
+  if (persistenceShutdownComplete) return;
+  event.preventDefault();
+  if (persistenceShutdownPromise) return;
+
+  persistenceShutdownPromise = (persistenceService?.destroy(2_000) ?? Promise.resolve())
+    .catch((error) => {
+      console.error('[Main process persistence shutdown failure]', error);
+    })
+    .finally(() => {
+      persistenceShutdownComplete = true;
+      app.quit();
+    });
 });
 
 app.on('will-quit', () => {

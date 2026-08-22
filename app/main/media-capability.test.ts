@@ -19,6 +19,7 @@ import {
   maskManagedMediaSource,
   maskSnapshotPatch,
   parseManagedMediaReference,
+  revokeManagedMediaSource,
   resolveManagedMediaArgs,
 } from './media-capability';
 
@@ -239,7 +240,19 @@ describe('maskManagedMediaSource', () => {
 describe('outbound masking of RPC results', () => {
   it('masks media assets, slide backgrounds, and nested group element payloads', () => {
     const snapshot = {
-      mediaAssets: [{ id: 'a1', type: 'image', src: storedSource('/tmp/mask-asset.png') }],
+      mediaAssets: [{
+        id: 'a1',
+        name: 'Asset',
+        type: 'image',
+        src: storedSource('/tmp/mask-asset.png'),
+        width: 1920,
+        height: 1080,
+        duration: null,
+        codec: null,
+        order: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }],
       slides: [{ id: 's1', background: { type: 'image', src: storedSource('/tmp/mask-bg.png') } }],
       slideElements: [
         {
@@ -273,7 +286,19 @@ describe('outbound masking of RPC results', () => {
       patch: {
         version: 3,
         deletes: {},
-        upserts: { mediaAssets: [{ id: 'a1', type: 'video', src: storedSource('/tmp/mask-wrapped.mp4') }] },
+        upserts: { mediaAssets: [{
+          id: 'a1',
+          name: 'Wrapped',
+          type: 'video',
+          src: storedSource('/tmp/mask-wrapped.mp4'),
+          width: 1920,
+          height: 1080,
+          duration: 12,
+          codec: 'h264',
+          order: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }] },
       },
     }) as { patch: { upserts: { mediaAssets: { src: string }[] } } };
 
@@ -295,6 +320,15 @@ describe('outbound masking of RPC results', () => {
     const patch = { version: 1, deletes: {}, upserts: { mediaAssets: [] } };
     expect(maskSnapshotPatch(patch as unknown as Parameters<typeof maskSnapshotPatch>[0]).upserts.mediaAssets)
       .toEqual([]);
+  });
+
+  it('does not materialize absent optional upsert keys', () => {
+    const patch = { version: 1, deletes: {}, upserts: {} };
+    const masked = maskSnapshotPatch(patch as unknown as Parameters<typeof maskSnapshotPatch>[0]);
+
+    expect(Object.hasOwn(masked.upserts, 'mediaAssets')).toBe(false);
+    expect(Object.hasOwn(masked.upserts, 'slides')).toBe(false);
+    expect(Object.hasOwn(masked.upserts, 'overlayThemes')).toBe(false);
   });
 });
 
@@ -342,5 +376,61 @@ describe('inbound resolution of RPC arguments', () => {
   it('preserves explicitly-undefined keys, which structured clone carried across IPC', () => {
     const resolved = resolveManagedMediaArgs([{ src: undefined, id: 'x' }]) as Record<string, unknown>[];
     expect('src' in resolved[0]).toBe(true);
+  });
+
+  it('strips renderer-only thumbnailSrc capabilities so revoked derivative ids do not block undo patches', () => {
+    const source = storedSource('/tmp/inbound-thumb-source.png');
+    const thumbnailSource = storedSource('/tmp/inbound-thumb-derived.png');
+    const maskedSrc = maskManagedMediaSource(source, 'image');
+    const maskedThumbnail = maskManagedMediaSource(thumbnailSource, 'image');
+    expect(revokeManagedMediaSource(thumbnailSource, 'image')).toBe(true);
+
+    const [patch] = resolveManagedMediaArgs([{
+      version: 1,
+      deletes: {},
+      upserts: {
+        mediaAssets: [{
+          id: 'asset-1',
+          name: 'Asset',
+          type: 'image',
+          src: maskedSrc,
+          thumbnailSrc: maskedThumbnail,
+          width: 640,
+          height: 360,
+          duration: null,
+          codec: null,
+          order: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }],
+      },
+    }]) as Array<{ upserts: { mediaAssets: Array<Record<string, unknown>> } }>;
+
+    expect(patch.upserts.mediaAssets[0]?.src).toBe(source);
+    expect('thumbnailSrc' in (patch.upserts.mediaAssets[0] ?? {})).toBe(true);
+    expect(patch.upserts.mediaAssets[0]?.thumbnailSrc).toBeUndefined();
+  });
+
+  it('preserves unrelated nested thumbnailSrc fields outside snapshot media asset rows', () => {
+    const [resolved] = resolveManagedMediaArgs([{
+      payload: {
+        thumbnailSrc: 'custom-trigger-config',
+      },
+    }]) as Array<{ payload: { thumbnailSrc: string } }>;
+
+    expect(resolved.payload.thumbnailSrc).toBe('custom-trigger-config');
+  });
+
+  it('still rejects revoked managed source ids on real src fields', () => {
+    const source = storedSource('/tmp/revoked-real-src.png');
+    const masked = maskManagedMediaSource(source, 'image');
+    expect(revokeManagedMediaSource(source, 'image')).toBe(true);
+    expect(() => resolveManagedMediaArgs([{ src: masked }])).toThrow(ManagedMediaError);
+    try {
+      resolveManagedMediaArgs([{ src: masked }]);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ManagedMediaError);
+      expect((error as ManagedMediaError).reason).toBe('revoked-id');
+    }
   });
 });

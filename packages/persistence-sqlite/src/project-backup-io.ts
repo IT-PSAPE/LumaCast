@@ -225,16 +225,31 @@ function readProjectBackupPlaylistEntries(db: SqliteDatabase): ProjectBackupPlay
 function readProjectBackupMediaAssets(db: SqliteDatabase, table: MediaAssetTableName): ProjectBackupMediaAssetRow[] {
   const rows = db
     .prepare(
-      `SELECT id, name, src, order_index, created_at, updated_at
+      `SELECT id, name, src, width, height, duration, codec, order_index, created_at, updated_at
        FROM ${table}
        ORDER BY created_at ASC, id ASC`,
     )
-    .all() as Array<{ id: string; name: string; src: string; order_index: number; created_at: string; updated_at: string }>;
+    .all() as Array<{
+      id: string;
+      name: string;
+      src: string;
+      width: number | null;
+      height: number | null;
+      duration: number | null;
+      codec: string | null;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
 
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
     src: row.src,
+    width: row.width,
+    height: row.height,
+    duration: row.duration,
+    codec: row.codec,
     order_index: row.order_index,
     created_at: row.created_at,
     updated_at: row.updated_at,

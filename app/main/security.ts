@@ -272,7 +272,7 @@ const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, HEAD',
   'access-control-allow-headers': 'range',
-  'access-control-expose-headers': 'accept-ranges, content-length, content-range, content-type',
+  'access-control-expose-headers': 'accept-ranges, cache-control, content-length, content-range, content-type, etag, last-modified',
 } as const;
 
 function withCorsHeaders(response: Response): Response {
@@ -282,23 +282,80 @@ function withCorsHeaders(response: Response): Response {
   return response;
 }
 
-export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequest): Promise<Response> {
+const statPromiseByPath = new Map<string, Promise<fs.Stats>>();
+
+function statLocalFile(filePath: string): Promise<fs.Stats> {
+  const existing = statPromiseByPath.get(filePath);
+  if (existing) return existing;
+  const statPromise = fs.promises.stat(filePath).finally(() => {
+    if (statPromiseByPath.get(filePath) === statPromise) {
+      statPromiseByPath.delete(filePath);
+    }
+  });
+  statPromiseByPath.set(filePath, statPromise);
+  return statPromise;
+}
+
+function buildEntityTag(stats: fs.Stats): string {
+  return `W/"${stats.size}-${Math.trunc(stats.mtimeMs)}"`;
+}
+
+function buildLocalFileHeaders(stats: fs.Stats, contentType: string) {
+  return {
+    'accept-ranges': 'bytes',
+    'cache-control': 'private, max-age=0, must-revalidate',
+    'content-type': contentType,
+    etag: buildEntityTag(stats),
+    'last-modified': stats.mtime.toUTCString(),
+  };
+}
+
+function requestMatchesIfNoneMatch(request: CastMediaRequest | undefined, etag: string): boolean {
+  const ifNoneMatch = request ? readHeaderValue(request, 'if-none-match') : null;
+  if (!ifNoneMatch) return false;
+  return ifNoneMatch
+    .split(',')
+    .map((value) => value.trim())
+    .some((value) => value === '*' || value === etag);
+}
+
+function requestAllowsRange(request: CastMediaRequest | undefined, etag: string, lastModified: string): boolean {
+  const ifRange = request ? readHeaderValue(request, 'if-range') : null;
+  if (!ifRange) return true;
+  if (ifRange.startsWith('W/')) return false;
+  if (ifRange === etag || ifRange === lastModified) return true;
+  const parsed = Date.parse(ifRange);
+  if (Number.isNaN(parsed)) return false;
+  return parsed >= Date.parse(lastModified);
+}
+
+export async function fetchLocalFileResponse(filePath: string, request?: CastMediaRequest): Promise<Response> {
   const range = request ? readHeaderValue(request, 'range') : null;
   const method = request?.method ?? 'GET';
+  const stats = await statLocalFile(filePath);
+  const contentType = guessContentType(filePath);
+  const baseHeaders = buildLocalFileHeaders(stats, contentType);
 
-  if (range) {
-    const { size } = fs.statSync(filePath);
-    const resolvedRange = parseSingleByteRange(range, size);
-    const contentType = guessContentType(filePath);
+  if (requestMatchesIfNoneMatch(request, baseHeaders.etag)) {
+    return withCorsHeaders(new Response(null, {
+      status: 304,
+      headers: baseHeaders,
+    }));
+  }
+
+  const effectiveRange = method !== 'HEAD' && range && requestAllowsRange(request, baseHeaders.etag, baseHeaders['last-modified'])
+    ? range
+    : null;
+
+  if (effectiveRange) {
+    const resolvedRange = parseSingleByteRange(effectiveRange, stats.size);
 
     if (!resolvedRange) {
       return Promise.resolve(withCorsHeaders(new Response(null, {
         status: 416,
         headers: {
-          'accept-ranges': 'bytes',
-          'content-range': `bytes */${size}`,
-          'content-type': contentType,
-          'cache-control': 'no-store',
+          ...baseHeaders,
+          'content-range': `bytes */${stats.size}`,
         },
       })));
     }
@@ -306,11 +363,9 @@ export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequ
     const { start, end } = resolvedRange;
     const contentLength = end - start + 1;
     const headers = {
-      'accept-ranges': 'bytes',
+      ...baseHeaders,
       'content-length': String(contentLength),
-      'content-range': `bytes ${start}-${end}/${size}`,
-      'content-type': contentType,
-      'cache-control': 'no-store',
+      'content-range': `bytes ${start}-${end}/${stats.size}`,
     };
 
     if (method === 'HEAD') {
@@ -327,5 +382,20 @@ export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequ
     })));
   }
 
-  return net.fetch(pathToFileURL(filePath).toString(), { method }).then(withCorsHeaders);
+  if (method === 'HEAD') {
+    return withCorsHeaders(new Response(null, {
+      status: 200,
+      headers: {
+        ...baseHeaders,
+        'content-length': String(stats.size),
+      },
+    }));
+  }
+
+  const response = await net.fetch(pathToFileURL(filePath).toString(), { method });
+  const next = withCorsHeaders(response);
+  for (const [name, value] of Object.entries(baseHeaders)) {
+    next.headers.set(name, value);
+  }
+  return next;
 }

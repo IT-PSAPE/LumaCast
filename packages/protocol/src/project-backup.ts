@@ -38,15 +38,16 @@ import type {
 // ("Dependency Boundaries" / "Project Backup") for the recorded rationale.
 //
 // #219 item-model refactor (decision D8): format version 2, pinned to
-// schema version 27 (the last of the item-model migrations, v23–v27 — see
-// the design doc's D7). No `libraries`, no `playlist_groups`, no
+// schema version 30 (the current schema after v28 list-order-index, v29
+// performance composite indexes, and v30 media metadata; the item-model split
+// itself landed in v23–v27 — see the design doc's D7). No `libraries`, no `playlist_groups`, no
 // `collection_id` anywhere, and no single `themes` table: the four per-owner
 // theme tables each get their own key. Version 1 backups (schema 22, the
 // last pre-#219 schema) are no longer silently unreadable: `deck-bundles.ts`
 // exports `isLegacyProjectBackup`/`validateLegacyProjectBackup`, a documented
 // way to classify a v1 document as legacy-but-structurally-plausible instead
 // of throwing, and @lumacast/persistence-sqlite's `restoreProjectBackup`
-// (wave K) materializes a validated v1 document through the real v23–v27
+// (wave K) materializes a validated v1 document through the real v23–v30
 // migrations and restores the result via this same v2 path. A v1 document
 // that is NOT structurally plausible (garbage, or any schema version other
 // than 22) is still rejected explicitly, never silently. `validateProjectBackup`
@@ -148,6 +149,10 @@ export interface ProjectBackupMediaAssetRow {
   id: Id;
   name: string;
   src: string;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  codec: string | null;
   order_index: number;
   created_at: string;
   updated_at: string;

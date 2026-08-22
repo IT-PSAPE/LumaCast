@@ -4,6 +4,7 @@ import {
   BUNDLE_FORMAT,
   BUNDLE_VERSION,
   decodeAppSnapshotShape,
+  decodeSnapshotPatchShape,
   decodeCueCreateInput,
   decodeCuePayload,
   decodeCuePayloadJson,
@@ -23,6 +24,7 @@ import {
   decodeOverlayAnimation,
   decodeOverlayCreateInput,
   decodePersisted,
+  sanitizeNdiFrameTelemetry,
   decodeSlideBackground,
   decodeSlideBackgroundUpdateInput,
   decodeSlideCreateInput,
@@ -1063,6 +1065,37 @@ describe('decodeAppSnapshotShape', () => {
     expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
   });
 
+  it('accepts media-asset metadata fields and an optional thumbnailSrc on snapshot rows', () => {
+    const snapshot = emptySnapshot();
+    snapshot.mediaAssets = [{
+      id: 'media-1',
+      name: 'Clip',
+      type: 'video',
+      src: 'cast-media://video-1',
+      width: 1280,
+      height: 720,
+      duration: 12.5,
+      codec: 'h264',
+      thumbnailSrc: 'cast-media://thumb-1',
+      order: 0,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a media-asset metadata field with the wrong primitive type', () => {
+    const snapshot = emptySnapshot();
+    snapshot.mediaAssets = [{
+      id: 'media-1',
+      name: 'Clip',
+      type: 'video',
+      src: 'cast-media://video-1',
+      duration: '12.5',
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'mediaAssets[0].duration');
+  });
+
   // --- issue #224: structured fields delegate to their owning decoders -----
 
   it('rejects a slide element whose payload does not match its own type', () => {
@@ -1147,5 +1180,233 @@ describe('decodeAppSnapshotShape', () => {
     snapshot.cues = [{ id: 'cue-1', kind: 'overlay.activate', payload: { overlayId: 'ov-1' }, failurePolicy: 'continue' }];
     snapshot.triggerBindings = [{ id: 'tb-1', triggerType: 'slide.take', targetType: 'cue', targetId: 'cue-1', config: {}, enabled: true }];
     expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+});
+
+describe('decodeSnapshotPatchShape', () => {
+  it('accepts a patch that only touches present tables', () => {
+    const patch = {
+      version: 7,
+      upserts: {
+        slides: [{ id: 'slide-1', background: { type: 'color', color: '#000' }, order: 0, notes: '', width: 1920, height: 1080 }],
+        overlays: [{ id: 'ov-1', name: 'Overlay', enabled: true, elements: [], animation: { kind: 'fade', durationMs: 250 } }],
+      },
+      deletes: {
+        triggerBindings: ['binding-1'],
+      },
+    };
+
+    expect(() => decodeSnapshotPatchShape(patch, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects an invalid row inside a present upsert table', () => {
+    const patch = {
+      version: 7,
+      upserts: {
+        cues: [{ id: 'cue-1', kind: 'overlay.activate', payload: 'bad', failurePolicy: 'continue' }],
+      },
+      deletes: {},
+    };
+
+    expectCodecError(() => decodeSnapshotPatchShape(patch, CONTEXT), 'upserts.cues[0].payload');
+  });
+
+  it('rejects a wrong-typed delete id only on the present delete table', () => {
+    const patch = {
+      version: 7,
+      upserts: {},
+      deletes: {
+        playlists: ['pl-1'],
+        playlistEntries: [42],
+      },
+    };
+
+    expectCodecError(() => decodeSnapshotPatchShape(patch, CONTEXT), 'deletes.playlistEntries[0]');
+  });
+});
+
+describe('sanitizeNdiFrameTelemetry', () => {
+  it('returns undefined for non-object telemetry', () => {
+    expect(sanitizeNdiFrameTelemetry(null)).toBeUndefined();
+    expect(sanitizeNdiFrameTelemetry('bogus')).toBeUndefined();
+  });
+
+  it('drops malformed optional fields and zeroes malformed required counters', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: '',
+      captureDurationMs: Number.NaN,
+      readbackDurationMs: Infinity,
+      skippedCaptures: -1,
+      framesDroppedBackpressure: 'oops',
+      correctiveFrameRetries: -4,
+      dropReasons: {
+        backpressure: 2,
+        ackTimeout: 'bad',
+        captureFailed: -3,
+        bitmapFailed: 1,
+        invalidPayload: 9,
+        outputDisabled: 7,
+        senderUnavailable: 6,
+        nativeSendFailed: 5,
+      },
+      signatureChangedAtMs: 10,
+      takeKind: 'bogus',
+      takeReason: 'jump',
+      takeSessionId: '',
+      takeSequenceId: 1.5,
+      takeIssuedAtMs: -1,
+      captureStartedAtMs: 12,
+      rendererSendAtMs: 'later',
+      mainReceivedAtMs: 14,
+      proxyForwardedAtMs: -2,
+      hostReceivedAtMs: 16,
+    })).toEqual({
+      captureDurationMs: 0,
+      readbackDurationMs: 0,
+      skippedCaptures: 0,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 0,
+      dropReasons: {
+        backpressure: 2,
+        bitmapFailed: 1,
+      },
+      signatureChangedAtMs: 10,
+      captureStartedAtMs: 12,
+      mainReceivedAtMs: 14,
+      hostReceivedAtMs: 16,
+    });
+  });
+
+  it('preserves valid take telemetry and timestamps', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      dropReasons: {
+        backpressure: 4,
+        ackTimeout: 5,
+        captureFailed: 6,
+        bitmapFailed: 7,
+      },
+      signatureChangedAtMs: 8,
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: 'take-session-1',
+      takeSequenceId: 9,
+      takeIssuedAtMs: 10,
+      captureStartedAtMs: 11,
+      rendererSendAtMs: 12,
+      mainReceivedAtMs: 13,
+      proxyForwardedAtMs: 14,
+      hostReceivedAtMs: 15,
+    })).toEqual({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      dropReasons: {
+        backpressure: 2,
+        ackTimeout: 5,
+        captureFailed: 6,
+        bitmapFailed: 7,
+      },
+      signatureChangedAtMs: 8,
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: 'take-session-1',
+      takeSequenceId: 9,
+      takeIssuedAtMs: 10,
+      captureStartedAtMs: 11,
+      rendererSendAtMs: 12,
+      mainReceivedAtMs: 13,
+      proxyForwardedAtMs: 14,
+      hostReceivedAtMs: 15,
+    });
+  });
+
+  it('preserves a fully valid activate correlation tuple', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      takeKind: 'activate',
+      takeReason: 'crossItem',
+      takeSessionId: 'take-session-activate',
+      takeSequenceId: 12,
+      takeIssuedAtMs: 15,
+    })).toEqual({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      takeKind: 'activate',
+      takeReason: 'crossItem',
+      takeSessionId: 'take-session-activate',
+      takeSequenceId: 12,
+      takeIssuedAtMs: 15,
+    });
+  });
+
+  it('drops oversized telemetry ids', () => {
+    const oversized = `take-${'x'.repeat(200)}`;
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: oversized,
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: oversized,
+      takeSequenceId: 9,
+      takeIssuedAtMs: 10,
+    })).toEqual({
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+    });
+  });
+
+  it('bounds counts to nonnegative integers, canonicalizes backpressure, and drops partial take tuples', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      captureDurationMs: 12.5,
+      readbackDurationMs: Number.MAX_VALUE,
+      skippedCaptures: 1.25,
+      framesDroppedBackpressure: 3,
+      correctiveFrameRetries: Number.MAX_VALUE,
+      dropReasons: {
+        backpressure: 7,
+        ackTimeout: 2.5,
+      },
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: 'take-session-1',
+      takeSequenceId: 5,
+      signatureChangedAtMs: Number.MAX_VALUE,
+      takeIssuedAtMs: undefined,
+      captureStartedAtMs: Number.MAX_VALUE,
+    })).toEqual({
+      captureDurationMs: 12.5,
+      readbackDurationMs: 0,
+      skippedCaptures: 0,
+      framesDroppedBackpressure: 3,
+      correctiveFrameRetries: 0,
+      dropReasons: {
+        backpressure: 3,
+      },
+    });
   });
 });

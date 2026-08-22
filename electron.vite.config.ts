@@ -4,53 +4,76 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import { build as viteBuild, type Plugin } from 'vite';
 
-// Builds app/main/ndi/ndi-host.ts as a separate CJS bundle alongside the
-// main process bundle. electron-vite's default lib mode only supports a
-// single entry, but the NDI service runs in an Electron utility process
-// (utilityProcess.fork) which needs its own module file.
-function buildNdiHostBundlePlugin(): Plugin {
+// Builds utility-process entry points as separate CJS bundles alongside the
+// main process bundle. electron-vite's default lib mode only supports one
+// entry, while each utilityProcess.fork target needs its own module file.
+function buildUtilityHostBundlesPlugin(): Plugin {
   let inProgress = false;
   return {
-    name: 'lumacast-ndi-host-bundle',
+    name: 'lumacast-utility-host-bundles',
     enforce: 'post',
     async closeBundle() {
       if (inProgress) return;
       inProgress = true;
       try {
-        await viteBuild({
-          configFile: false,
-          logLevel: 'warn',
-          build: {
-            outDir: path.resolve(__dirname, 'out/main'),
-            emptyOutDir: false,
-            ssr: true,
-            target: 'node22',
-            sourcemap: true,
-            lib: {
-              entry: path.resolve(__dirname, 'app/main/ndi/ndi-host.ts'),
-              fileName: () => 'ndi-host.js',
-              formats: ['cjs']
+        for (const host of [
+          { source: 'app/main/ndi/ndi-host.ts', output: 'ndi-host.js' },
+          { source: 'app/main/persistence/persistence-host.ts', output: 'persistence-host.js' },
+        ]) {
+          await viteBuild({
+            configFile: false,
+            logLevel: 'warn',
+            build: {
+              outDir: path.resolve(__dirname, 'out/main'),
+              emptyOutDir: false,
+              ssr: true,
+              target: 'node22',
+              sourcemap: true,
+              lib: {
+                entry: path.resolve(__dirname, host.source),
+                fileName: () => host.output,
+                formats: ['cjs']
+              },
+              rollupOptions: {
+                external: ['electron', /^node:/, '@lumacast/ndi-native']
+              }
             },
-            rollupOptions: {
-              external: ['electron', /^node:/, '@lumacast/ndi-native']
+            resolve: {
+              alias: {
+                '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
+                '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
+                '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
+                '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
+                '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
+                '@lumacast/persistence-sqlite': path.resolve(__dirname, 'packages/persistence-sqlite/src/index.ts'),
+                '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts')
+              }
             }
-          },
-          resolve: {
-            alias: {
-              '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
-              '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
-              '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
-              '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
-              '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
-              '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts')
-            }
-          }
-        });
+          });
+        }
       } finally {
         inProgress = false;
       }
     }
   };
+}
+
+function rendererManualChunks(id: string): string | undefined {
+  const normalizedId = id.split(path.sep).join('/');
+
+  if (
+    normalizedId.includes('/node_modules/react/') ||
+    normalizedId.includes('/node_modules/react-dom/') ||
+    normalizedId.includes('/node_modules/scheduler/')
+  ) {
+    return 'vendor-react';
+  }
+
+  if (normalizedId.includes('/node_modules/lucide-react/')) {
+    return 'vendor-ui';
+  }
+
+  return undefined;
 }
 
 export default defineConfig({
@@ -62,7 +85,7 @@ export default defineConfig({
     // Rollup inlines it via the alias below instead.
     plugins: [
       externalizeDepsPlugin({ exclude: ['@lumacast/kernel', '@lumacast/composition', '@lumacast/automation', '@lumacast/commands', '@lumacast/protocol', '@lumacast/persistence-sqlite', '@lumacast/engine'] }),
-      buildNdiHostBundlePlugin()
+      buildUtilityHostBundlesPlugin()
     ],
     build: {
       outDir: 'out/main',
@@ -107,7 +130,10 @@ export default defineConfig({
     build: {
       outDir: path.resolve(__dirname, 'out/renderer'),
       rollupOptions: {
-        input: path.resolve(__dirname, 'app/renderer/index.html')
+        input: path.resolve(__dirname, 'app/renderer/index.html'),
+        output: {
+          manualChunks: rendererManualChunks,
+        },
       }
     },
     resolve: {
@@ -119,8 +145,7 @@ export default defineConfig({
         '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
         '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
         '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
-        '@lumacast/playback': path.resolve(__dirname, 'packages/playback/src/index.ts'),
-        '@lumacast/canvas': path.resolve(__dirname, 'packages/canvas/src/index.ts')
+        '@lumacast/playback': path.resolve(__dirname, 'packages/playback/src/index.ts')
       }
     },
     plugins: [tailwindcss(), react()]

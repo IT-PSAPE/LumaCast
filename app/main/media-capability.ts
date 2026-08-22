@@ -35,9 +35,9 @@
 // leaves and why closing it is separate work.
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { resolveLocalMediaSourcePath } from '@lumacast/persistence-sqlite';
 import type { MediaAsset, Slide, SlideBackground, SlideElement } from '@lumacast/composition';
 import type { SnapshotPatch } from '@lumacast/protocol';
+import { resolveLocalMediaSourcePath } from './media-source-path';
 import type { AppSnapshot } from '@lumacast/protocol';
 
 /**
@@ -285,6 +285,12 @@ export class ManagedMediaRegistry {
     this.#idsByGrantKey.clear();
   }
 
+  revokeGrant(source: string, use: ManagedMediaUse): boolean {
+    const existingId = this.#idsByGrantKey.get(`${use} ${source}`);
+    if (!existingId) return false;
+    return this.revoke(existingId);
+  }
+
   /** Test/diagnostic hook: number of live (non-revoked) capabilities. */
   get size(): number {
     return this.#grantsById.size;
@@ -306,6 +312,10 @@ export function resolveManagedMedia(
 
 export function revokeAllManagedMedia(): void {
   managedMediaRegistry.revokeAll();
+}
+
+export function revokeManagedMediaSource(source: string, use: ManagedMediaUse): boolean {
+  return managedMediaRegistry.revokeGrant(source, use);
 }
 
 // ─── Outbound: stored source -> managed capability ──────────────────────────
@@ -370,7 +380,11 @@ function maskElement(element: SlideElement): SlideElement {
 
 function maskMediaAsset(asset: MediaAsset): MediaAsset {
   const src = maskManagedMediaSource(asset.src, asset.type);
-  return src === asset.src ? asset : { ...asset, src };
+  const thumbnailSrc = typeof asset.thumbnailSrc === 'string'
+    ? maskManagedMediaSource(asset.thumbnailSrc, 'image')
+    : asset.thumbnailSrc;
+  if (src === asset.src && thumbnailSrc === asset.thumbnailSrc) return asset;
+  return { ...asset, src, thumbnailSrc };
 }
 
 function maskSlide(slide: Slide): Slide {
@@ -398,6 +412,10 @@ function mapChanged<T>(items: T[] | undefined, map: (item: T) => T): T[] | undef
   return mapped.some((item, index) => item !== items[index]) ? mapped : items;
 }
 
+function hasOwnKey(object: object, key: PropertyKey): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 export function maskAppSnapshot(snapshot: AppSnapshot): AppSnapshot {
   return {
     ...snapshot,
@@ -415,20 +433,35 @@ export function maskAppSnapshot(snapshot: AppSnapshot): AppSnapshot {
 
 export function maskSnapshotPatch(patch: SnapshotPatch): SnapshotPatch {
   const { upserts } = patch;
+  let nextUpserts = upserts;
+
+  const assignMasked = <K extends keyof SnapshotPatch['upserts']>(
+    key: K,
+    map: (item: NonNullable<SnapshotPatch['upserts'][K]>[number]) => NonNullable<SnapshotPatch['upserts'][K]>[number],
+  ) => {
+    if (!hasOwnKey(upserts, key)) return;
+    const current = upserts[key];
+    const masked = mapChanged(current, map as (item: NonNullable<SnapshotPatch['upserts'][K]>[number]) => NonNullable<SnapshotPatch['upserts'][K]>[number]);
+    if (masked === current) return;
+    if (nextUpserts === upserts) nextUpserts = { ...upserts };
+    nextUpserts[key] = masked as SnapshotPatch['upserts'][K];
+  };
+
+  assignMasked('mediaAssets', maskMediaAsset);
+  assignMasked('slides', maskSlide);
+  assignMasked('slideElements', maskElement);
+  assignMasked('presentationThemes', maskComposition);
+  assignMasked('lyricThemes', maskComposition);
+  assignMasked('talkThemes', maskComposition);
+  assignMasked('overlayThemes', maskComposition);
+  assignMasked('overlays', maskComposition);
+  assignMasked('stages', maskComposition);
+
+  if (nextUpserts === upserts) return patch;
+
   return {
     ...patch,
-    upserts: {
-      ...upserts,
-      mediaAssets: mapChanged(upserts.mediaAssets, maskMediaAsset),
-      slides: mapChanged(upserts.slides, maskSlide),
-      slideElements: mapChanged(upserts.slideElements, maskElement),
-      presentationThemes: mapChanged(upserts.presentationThemes, maskComposition),
-      lyricThemes: mapChanged(upserts.lyricThemes, maskComposition),
-      talkThemes: mapChanged(upserts.talkThemes, maskComposition),
-      overlayThemes: mapChanged(upserts.overlayThemes, maskComposition),
-      overlays: mapChanged(upserts.overlays, maskComposition),
-      stages: mapChanged(upserts.stages, maskComposition),
-    },
+    upserts: nextUpserts,
   };
 }
 
@@ -494,6 +527,51 @@ export function resolveManagedMediaSource(value: string): string {
   return resolved.source;
 }
 
+function stripRendererThumbnailSrcFromPatch(patch: SnapshotPatch): SnapshotPatch {
+  if (!patch.upserts.mediaAssets) return patch;
+  const mediaAssets = patch.upserts.mediaAssets.map((asset) => {
+    if (!Object.hasOwn(asset, 'thumbnailSrc')) return asset;
+    return { ...asset, thumbnailSrc: undefined };
+  });
+  if (mediaAssets.every((asset, index) => asset === patch.upserts.mediaAssets?.[index])) return patch;
+  return {
+    ...patch,
+    upserts: {
+      ...patch.upserts,
+      mediaAssets,
+    },
+  };
+}
+
+function stripRendererThumbnailSrcFromSnapshot(snapshot: AppSnapshot): AppSnapshot {
+  const mediaAssets = snapshot.mediaAssets.map((asset) => {
+    if (!Object.hasOwn(asset, 'thumbnailSrc')) return asset;
+    return { ...asset, thumbnailSrc: undefined };
+  });
+  return mediaAssets.every((asset, index) => asset === snapshot.mediaAssets[index])
+    ? snapshot
+    : { ...snapshot, mediaAssets };
+}
+
+function stripRendererThumbnailSrc(value: unknown): unknown {
+  if (!isPlainObject(value)) return value;
+  if (isSnapshotPatchLike(value)) return stripRendererThumbnailSrcFromPatch(value as unknown as SnapshotPatch);
+  if (isAppSnapshotLike(value)) return stripRendererThumbnailSrcFromSnapshot(value as unknown as AppSnapshot);
+  if (isPlainObject(value.patch) && isSnapshotPatchLike(value.patch)) {
+    return {
+      ...value,
+      patch: stripRendererThumbnailSrcFromPatch(value.patch as unknown as SnapshotPatch),
+    };
+  }
+  if (isPlainObject(value.snapshot) && isAppSnapshotLike(value.snapshot)) {
+    return {
+      ...value,
+      snapshot: stripRendererThumbnailSrcFromSnapshot(value.snapshot as unknown as AppSnapshot),
+    };
+  }
+  return value;
+}
+
 function resolveDeep(value: unknown): unknown {
   if (typeof value === 'string') return resolveManagedMediaSource(value);
   if (Array.isArray(value)) {
@@ -523,5 +601,5 @@ function resolveDeep(value: unknown): unknown {
  * — and a per-operation list would silently miss the next one added.
  */
 export function resolveManagedMediaArgs(args: readonly unknown[]): unknown[] {
-  return args.map(resolveDeep);
+  return args.map((arg) => resolveDeep(stripRendererThumbnailSrc(arg)));
 }

@@ -30,6 +30,7 @@ import type {
   LogReadResult,
   LogSessionSummary,
   NdiDiagnostics,
+  NdiFrameRelease,
   NdiFrameTelemetry,
   NdiOutputConfig,
   NdiOutputConfigMap,
@@ -82,6 +83,7 @@ interface RpcMethodSignatures {
   updateAppMenuState: (state: AppMenuState) => Promise<void>;
   checkForAppUpdates: (manual?: boolean) => Promise<void>;
   getSnapshot: () => Promise<AppSnapshot>;
+  applySnapshotPatch: (patch: SnapshotPatch) => Promise<void>;
   restoreFromSnapshot: (snapshot: AppSnapshot) => Promise<AppSnapshot>;
   chooseBundleExportPath: (suggestedName: string) => Promise<string | null>;
   chooseBundleImportPath: () => Promise<string | null>;
@@ -153,6 +155,13 @@ interface RpcMethodSignatures {
   createMediaAsset: (asset: MediaAssetCreateInput) => Promise<SnapshotPatch>;
   deleteMediaAsset: (id: Id) => Promise<SnapshotPatch>;
   updateMediaAssetSrc: (id: Id, src: string) => Promise<SnapshotPatch>;
+  ensureMediaDerivative: (assetId: Id) => Promise<EnsureMediaDerivativeResult>;
+  uploadMediaDerivativeFallback: (
+    assetId: Id,
+    generationToken: string,
+    sourceFingerprint: string,
+    bytes: Uint8Array,
+  ) => Promise<EnsureMediaDerivativeResult>;
   createOverlay: (overlay: OverlayCreateInput) => Promise<SnapshotPatch>;
   updateOverlay: (input: OverlayUpdateInput) => Promise<SnapshotPatch>;
   setOverlayEnabled: (overlayId: Id, enabled: boolean) => Promise<SnapshotPatch>;
@@ -237,21 +246,44 @@ type RpcSurface = {
 export interface NdiEventPayloads {
   outputStateChanged: NdiOutputState;
   diagnosticsChanged: NdiDiagnostics;
-  frameAck: NdiOutputName;
+  frameReleased: NdiFrameRelease;
 }
 
 export interface AppMenuEventPayloads {
   command: AppMenuCommandId;
 }
 
+export interface MediaDerivativeEventPayloads {
+  progress: MediaDerivativeProgress;
+}
+
+export interface PersistenceProgress {
+  operation: string;
+  phase: string;
+  completed?: number;
+  total?: number;
+}
+
+export interface PersistenceEventPayloads {
+  progress: PersistenceProgress;
+}
+
 type NdiEventSurface = {
   onNdiOutputStateChanged: (callback: (state: NdiEventPayloads['outputStateChanged']) => void) => () => void;
   onNdiDiagnosticsChanged: (callback: (diagnostics: NdiEventPayloads['diagnosticsChanged']) => void) => () => void;
-  onNdiFrameAck: (callback: (name: NdiEventPayloads['frameAck']) => void) => () => void;
+  onNdiFrameReleased: (callback: (release: NdiEventPayloads['frameReleased']) => void) => () => void;
 };
 
 type AppMenuEventSurface = {
   onAppMenuCommand: (callback: (commandId: AppMenuEventPayloads['command']) => void) => () => void;
+};
+
+type MediaDerivativeEventSurface = {
+  onMediaDerivativeProgress: (callback: (progress: MediaDerivativeEventPayloads['progress']) => void) => () => void;
+};
+
+type PersistenceEventSurface = {
+  onPersistenceProgress: (callback: (progress: PersistenceEventPayloads['progress']) => void) => () => void;
 };
 
 // High-frequency frame/message channel contracts (renderer -> main, one-way,
@@ -298,7 +330,7 @@ interface MainUtilApi {
 // mistyped member fails compilation there. `app/renderer/env.d.ts` types
 // `window.castApi` as `MainApi`, so existing renderer call sites stay typed
 // against exactly this shape.
-export type MainApi = RpcSurface & NdiEventSurface & AppMenuEventSurface & NdiFrameSurface & MainUtilApi;
+export type MainApi = RpcSurface & NdiEventSurface & AppMenuEventSurface & MediaDerivativeEventSurface & PersistenceEventSurface & NdiFrameSurface & MainUtilApi;
 
 // #219 item-model refactor decision D8: replaces `DeckItemCreateWithThemeInput`
 // — no `collectionId`/`groupId` (collections and library-grouped playlists
@@ -344,6 +376,26 @@ export interface ProjectRestoreResult {
   retainedDatabasePath: string;
 }
 
+export type MediaDerivativeStatus = 'ready' | 'needs-upload' | 'missing' | 'failed';
+
+export interface MediaDerivativeProgress {
+  active: number;
+  queued: number;
+  completed: number;
+  total: number;
+  failed: number;
+  statusText: string | null;
+  patch?: SnapshotPatch;
+}
+
+export interface EnsureMediaDerivativeResult {
+  assetId: Id;
+  status: MediaDerivativeStatus;
+  patch?: SnapshotPatch;
+  generationToken?: string;
+  sourceFingerprint?: string;
+}
+
 export interface InlineWindowMenuItem {
   id: string;
   label: string;
@@ -362,6 +414,7 @@ export const IPC = {
   updateAppMenuState: 'cast:updateAppMenuState',
   checkForAppUpdates: 'cast:checkForAppUpdates',
   getSnapshot: 'cast:getSnapshot',
+  applySnapshotPatch: 'cast:applySnapshotPatch',
   restoreFromSnapshot: 'cast:restoreFromSnapshot',
   chooseBundleExportPath: 'cast:chooseBundleExportPath',
   chooseBundleImportPath: 'cast:chooseBundleImportPath',
@@ -415,6 +468,8 @@ export const IPC = {
   createMediaAsset: 'cast:createMediaAsset',
   deleteMediaAsset: 'cast:deleteMediaAsset',
   updateMediaAssetSrc: 'cast:updateMediaAssetSrc',
+  ensureMediaDerivative: 'cast:ensureMediaDerivative',
+  uploadMediaDerivativeFallback: 'cast:uploadMediaDerivativeFallback',
   createOverlay: 'cast:createOverlay',
   updateOverlay: 'cast:updateOverlay',
   setOverlayEnabled: 'cast:setOverlayEnabled',
@@ -462,11 +517,23 @@ export const IPC = {
 export const NDI_EVENTS = {
   outputStateChanged: 'ndi:outputStateChanged',
   diagnosticsChanged: 'ndi:diagnosticsChanged',
-  frameAck: 'ndi:frameAck',
+  frameReleased: 'ndi:frameReleased',
 } as const;
 
 export const APP_MENU_EVENTS = {
   command: 'app-menu:command',
+} as const;
+
+export const MEDIA_DERIVATIVE_EVENTS = {
+  progress: 'media-derivatives:progress',
+} as const;
+
+export const PERSISTENCE_EVENTS = {
+  progress: 'persistence:progress',
+} as const;
+
+export const PERSISTENCE_CHANNELS = {
+  subscribe: 'persistence:subscribe',
 } as const;
 
 // ---------------------------------------------------------------------------

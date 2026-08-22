@@ -25,7 +25,12 @@ import type {
   TriggerBindingCreateInput,
 } from './rpc-inputs';
 import type { AppSnapshot, BundleBrokenReferenceDecision } from './rpc-results';
-import type { NdiOutputConfig, NdiOutputConfigMap, NdiOutputName } from './ndi-observability';
+import type { NdiFrameDropReasonCounts, NdiFrameTelemetry, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName } from './ndi-observability';
+import {
+  NDI_RENDERER_FRAME_DROP_REASONS,
+  NDI_TAKE_KINDS,
+  NDI_TAKE_REASONS,
+} from './ndi-observability';
 import type {
   BundleItem,
   BundleManifest,
@@ -1322,6 +1327,128 @@ export function decodeBundleBrokenReferenceDecision(value: unknown, context: Cod
 // ---------------------------------------------------------------------------
 
 const RPC_NDI_OUTPUT_NAMES: readonly NdiOutputName[] = ['audience', 'stage'];
+const MAX_NDI_TELEMETRY_COUNT = Number.MAX_SAFE_INTEGER;
+const MAX_NDI_TELEMETRY_DURATION_MS = 60_000;
+const MAX_NDI_TELEMETRY_TIMESTAMP_MS = 8_640_000_000_000_000;
+const MAX_NDI_TELEMETRY_ID_LENGTH = 128;
+const NDI_TELEMETRY_ID_PATTERN = /^[A-Za-z0-9:_-]+$/;
+
+function readBoundedNonNegativeFiniteNumber(value: unknown, max: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max ? value : null;
+}
+
+function readBoundedNonNegativeInteger(value: unknown, max: number): number | null {
+  return typeof value === 'number'
+    && Number.isSafeInteger(value)
+    && value >= 0
+    && value <= max
+    ? value
+    : null;
+}
+
+function readTelemetryId(value: unknown): string | null {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_NDI_TELEMETRY_ID_LENGTH
+    && NDI_TELEMETRY_ID_PATTERN.test(value)
+    ? value
+    : null;
+}
+
+function readEnum<T extends string>(value: unknown, allowed: readonly T[]): T | null {
+  return typeof value === 'string' && (allowed as readonly string[]).includes(value)
+    ? value as T
+    : null;
+}
+
+function sanitizeRendererFrameDropReasons(
+  value: unknown,
+  canonicalBackpressureCount: number | null,
+): Partial<NdiFrameDropReasonCounts> | undefined {
+  if (!isRecord(value)) return undefined;
+  const sanitized: Partial<NdiFrameDropReasonCounts> = {};
+  for (const reason of NDI_RENDERER_FRAME_DROP_REASONS) {
+    if (reason === 'backpressure' && canonicalBackpressureCount !== null) {
+      if (canonicalBackpressureCount > 0) sanitized.backpressure = canonicalBackpressureCount;
+      continue;
+    }
+    const count = readBoundedNonNegativeInteger(value[reason], MAX_NDI_TELEMETRY_COUNT);
+    if (count !== null) sanitized[reason] = count;
+  }
+  return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+}
+
+function sanitizeRendererTakeTelemetry(value: Record<string, unknown>): Pick<
+  NdiFrameTelemetry,
+  'takeKind' | 'takeReason' | 'takeSessionId' | 'takeSequenceId' | 'takeIssuedAtMs'
+> {
+  const takeKind = readEnum(value.takeKind, NDI_TAKE_KINDS);
+  if (takeKind !== 'take' && takeKind !== 'activate') return {};
+
+  const takeReason = readEnum(value.takeReason, NDI_TAKE_REASONS);
+  const takeSessionId = readTelemetryId(value.takeSessionId);
+  const takeSequenceId = readBoundedNonNegativeInteger(value.takeSequenceId, MAX_NDI_TELEMETRY_COUNT);
+  const takeIssuedAtMs = readBoundedNonNegativeFiniteNumber(value.takeIssuedAtMs, MAX_NDI_TELEMETRY_TIMESTAMP_MS);
+  if (!takeReason || !takeSessionId || takeSequenceId === null || takeIssuedAtMs === null) return {};
+  return {
+    takeKind,
+    takeReason,
+    takeSessionId,
+    takeSequenceId,
+    takeIssuedAtMs,
+  };
+}
+
+/**
+ * Sanitizes optional renderer-provided frame telemetry at the IPC/engine trust
+ * boundary. Telemetry is advisory: malformed fields are dropped or zeroed, and
+ * must never make a successfully-sent native frame look like a send failure.
+ */
+export function sanitizeNdiFrameTelemetry(value: unknown): NdiFrameTelemetry | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const canonicalBackpressureCount =
+    readBoundedNonNegativeInteger(value.framesDroppedBackpressure, MAX_NDI_TELEMETRY_COUNT)
+    ?? (isRecord(value.dropReasons)
+      ? readBoundedNonNegativeInteger(value.dropReasons.backpressure, MAX_NDI_TELEMETRY_COUNT)
+      : null);
+
+  const telemetry: NdiFrameTelemetry = {
+    captureDurationMs: readBoundedNonNegativeFiniteNumber(value.captureDurationMs, MAX_NDI_TELEMETRY_DURATION_MS) ?? 0,
+    readbackDurationMs: readBoundedNonNegativeFiniteNumber(value.readbackDurationMs, MAX_NDI_TELEMETRY_DURATION_MS) ?? 0,
+    skippedCaptures: readBoundedNonNegativeInteger(value.skippedCaptures, MAX_NDI_TELEMETRY_COUNT) ?? 0,
+    framesDroppedBackpressure: canonicalBackpressureCount ?? 0,
+    correctiveFrameRetries: readBoundedNonNegativeInteger(value.correctiveFrameRetries, MAX_NDI_TELEMETRY_COUNT) ?? 0,
+  };
+
+  const attemptId = readTelemetryId(value.attemptId);
+  if (attemptId) telemetry.attemptId = attemptId;
+
+  const dropReasons = sanitizeRendererFrameDropReasons(value.dropReasons, canonicalBackpressureCount);
+  if (dropReasons) telemetry.dropReasons = dropReasons;
+
+  const signatureChangedAtMs = readBoundedNonNegativeFiniteNumber(value.signatureChangedAtMs, MAX_NDI_TELEMETRY_TIMESTAMP_MS);
+  if (signatureChangedAtMs !== null) telemetry.signatureChangedAtMs = signatureChangedAtMs;
+
+  Object.assign(telemetry, sanitizeRendererTakeTelemetry(value));
+
+  const captureStartedAtMs = readBoundedNonNegativeFiniteNumber(value.captureStartedAtMs, MAX_NDI_TELEMETRY_TIMESTAMP_MS);
+  if (captureStartedAtMs !== null) telemetry.captureStartedAtMs = captureStartedAtMs;
+
+  const rendererSendAtMs = readBoundedNonNegativeFiniteNumber(value.rendererSendAtMs, MAX_NDI_TELEMETRY_TIMESTAMP_MS);
+  if (rendererSendAtMs !== null) telemetry.rendererSendAtMs = rendererSendAtMs;
+
+  const mainReceivedAtMs = readBoundedNonNegativeFiniteNumber(value.mainReceivedAtMs, MAX_NDI_TELEMETRY_TIMESTAMP_MS);
+  if (mainReceivedAtMs !== null) telemetry.mainReceivedAtMs = mainReceivedAtMs;
+
+  const proxyForwardedAtMs = readBoundedNonNegativeFiniteNumber(value.proxyForwardedAtMs, MAX_NDI_TELEMETRY_TIMESTAMP_MS);
+  if (proxyForwardedAtMs !== null) telemetry.proxyForwardedAtMs = proxyForwardedAtMs;
+
+  const hostReceivedAtMs = readBoundedNonNegativeFiniteNumber(value.hostReceivedAtMs, MAX_NDI_TELEMETRY_TIMESTAMP_MS);
+  if (hostReceivedAtMs !== null) telemetry.hostReceivedAtMs = hostReceivedAtMs;
+
+  return telemetry;
+}
 
 export function decodeNdiOutputName(value: unknown, context: CodecContext, field = 'name'): NdiOutputName {
   return expectEnum(value, context, field, RPC_NDI_OUTPUT_NAMES);
@@ -1413,6 +1540,7 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
   notes: 'string',
   text: 'string',
   src: 'string',
+  thumbnailSrc: 'string',
   colorKey: 'string',
   label: 'string',
   createdAt: 'string',
@@ -1455,6 +1583,7 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
   y: 'number',
   width: 'number',
   height: 'number',
+  duration: 'number',
   rotation: 'number',
   opacity: 'number',
   zIndex: 'number',
@@ -1463,6 +1592,7 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
   durationMs: 'number',
   autoClearDurationMs: 'number',
   loopCount: 'number',
+  codec: 'string',
   // Flags
   enabled: 'boolean',
   loopEnabled: 'boolean',
@@ -1610,4 +1740,48 @@ export function decodeAppSnapshotShape(value: unknown, context: CodecContext): A
   }
 
   return value as unknown as AppSnapshot;
+}
+
+/**
+ * Validates a partial snapshot patch before `applySnapshotPatch` mutates only
+ * the tables named on the wire payload. Unlike `decodeAppSnapshotShape`, this
+ * only walks tables actually present in `upserts`/`deletes`; missing table keys
+ * mean "no change".
+ */
+export function decodeSnapshotPatchShape(
+  value: unknown,
+  context: CodecContext,
+): import('./snapshot-patch').SnapshotPatch {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  expectFiniteNumber(value.version, context, 'version');
+
+  const upserts = value.upserts;
+  if (!isRecord(upserts)) fail(context, 'upserts must be an object');
+
+  const deletes = value.deletes;
+  if (!isRecord(deletes)) fail(context, 'deletes must be an object');
+
+  for (const field of APP_SNAPSHOT_ARRAY_FIELDS) {
+    const upsertRows = upserts[field];
+    if (upsertRows !== undefined) {
+      const items = expectArray(upsertRows, child(context, 'upserts'), field);
+      items.forEach((item, index) => {
+        const itemContext = child(context, `upserts.${field}[${index}]`);
+        if (!isRecord(item)) fail(itemContext, 'must be an object');
+        expectString(item.id, itemContext, 'id');
+        checkSnapshotRowFields(item, itemContext);
+        checkSnapshotRowStructure(field, item, itemContext);
+      });
+    }
+
+    const deletedIds = deletes[field];
+    if (deletedIds !== undefined) {
+      const ids = expectArray(deletedIds, child(context, 'deletes'), field);
+      ids.forEach((id, index) => {
+        expectString(id, child(context, `deletes.${field}[${index}]`), 'value');
+      });
+    }
+  }
+
+  return value as unknown as import('./snapshot-patch').SnapshotPatch;
 }

@@ -132,6 +132,10 @@ describe('CastRepository.updateMediaAssetSrc (#214)', () => {
       const assetId = createMediaAsset(repo);
       const patch = repo.updateMediaAssetSrc(assetId, 'file:///replacement');
       expect(patch.upserts.mediaAssets?.[0]?.src).toBe('file:///replacement');
+      expect(patch.upserts.mediaAssets?.[0]?.width).toBeNull();
+      expect(patch.upserts.mediaAssets?.[0]?.height).toBeNull();
+      expect(patch.upserts.mediaAssets?.[0]?.duration).toBeNull();
+      expect(patch.upserts.mediaAssets?.[0]?.codec).toBeNull();
     } finally {
       close();
       cleanup();
@@ -146,6 +150,30 @@ describe('CastRepository.updateMediaAssetSrc (#214)', () => {
         .toThrow(/Media asset not found: no-such-asset/);
       const patch = repo.updateMediaAssetSrc(assetId, 'file:///same');
       expect(patch.upserts.mediaAssets?.[0]?.src).toBe('file:///same');
+    } finally {
+      close();
+      cleanup();
+    }
+  });
+
+  it('clears persisted metadata when a source is replaced', () => {
+    const { repository: repo, close, cleanup } = createTestRepository();
+    try {
+      const assetId = createMediaAsset(repo, 'video');
+      repo.updateMediaAssetMetadata(assetId, 'file:///asset', {
+        width: 1280,
+        height: 720,
+        duration: 12.5,
+        codec: 'h264',
+      });
+
+      const patch = repo.updateMediaAssetSrc(assetId, 'file:///replacement');
+      expect(patch.upserts.mediaAssets?.[0]).toMatchObject({
+        width: null,
+        height: null,
+        duration: null,
+        codec: null,
+      });
     } finally {
       close();
       cleanup();
