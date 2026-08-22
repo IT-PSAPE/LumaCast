@@ -4,8 +4,9 @@
 // A Rich Body is an ordered list of Blocks; a Block is one paragraph or list
 // item of Runs; a Run is a contiguous span sharing the same Run-level style.
 // A Run stores ONLY the attributes it overrides — anything unset inherits the
-// Box-level style at resolve time (see ./resolve). Font family and font size
-// are always Box-level and never appear here.
+// Box-level style at resolve time (see ./resolve). Font family is always
+// Box-level and never appears here; font size may be overridden per Run as an
+// absolute px value (same unit as the Box-level `fontSize`).
 
 export interface RichRun {
   text: string;
@@ -15,6 +16,9 @@ export interface RichRun {
   italic?: boolean;
   underline?: boolean;
   strikethrough?: boolean;
+  // Absolute px size override (same unit as the Box-level fontSize). Scaled
+  // proportionally by the box's auto-fit `fontScale` at resolve time.
+  fontSize?: number;
 }
 
 export interface RichBlock {

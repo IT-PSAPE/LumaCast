@@ -22,10 +22,10 @@ export interface RichRange {
   end: RichPosition;
 }
 
-export type RunAttribute = 'color' | 'weight' | 'italic' | 'underline' | 'strikethrough';
+export type RunAttribute = 'color' | 'weight' | 'italic' | 'underline' | 'strikethrough' | 'fontSize';
 export type RunPatch = Partial<Pick<RichRun, RunAttribute>>;
 
-const RUN_ATTRIBUTES: RunAttribute[] = ['color', 'weight', 'italic', 'underline', 'strikethrough'];
+const RUN_ATTRIBUTES: RunAttribute[] = ['color', 'weight', 'italic', 'underline', 'strikethrough', 'fontSize'];
 
 export const BOLD_THRESHOLD = 600;
 
@@ -65,6 +65,16 @@ function sameStyle(a: RichRun, b: RichRun): boolean {
   return RUN_ATTRIBUTES.every((key) => a[key] === b[key]);
 }
 
+// Recovers the box's authored size: on the auto-fit render path `box.fontSize`
+// holds the fitted size, and an override must be compared against the authored
+// default (fitted ÷ multiplier). A missing or degenerate multiplier falls back
+// to the box size itself.
+function authoredBoxFontSize(box: RichBoxStyle): number {
+  const scale = box.fontScale;
+  if (scale === undefined || !Number.isFinite(scale) || scale <= 0) return box.fontSize;
+  return box.fontSize / scale;
+}
+
 // Drop any override equal to the Box-level default so a fully-default run carries
 // no style keys (byte-identical to plain text).
 function stripToDefault(run: RichRun, box: RichBoxStyle): RichRun {
@@ -74,6 +84,7 @@ function stripToDefault(run: RichRun, box: RichBoxStyle): RichRun {
   if (run.italic !== undefined && run.italic !== box.italic) next.italic = run.italic;
   if (run.underline !== undefined && run.underline !== box.underline) next.underline = run.underline;
   if (run.strikethrough !== undefined && run.strikethrough !== box.strikethrough) next.strikethrough = run.strikethrough;
+  if (run.fontSize !== undefined && run.fontSize !== authoredBoxFontSize(box)) next.fontSize = run.fontSize;
   return next;
 }
 
@@ -168,6 +179,9 @@ export interface RangeStyle {
   underline: AttrState<boolean>;
   strikethrough: AttrState<boolean>;
   color: AttrState<string>;
+  // Resolved px size; mixed when covered runs resolve to different sizes
+  // (explicit overrides scaled by the box's auto-fit factor, vs the box size).
+  fontSize: AttrState<number>;
   listType: AttrState<'bullet' | 'number' | undefined>;
 }
 
@@ -217,6 +231,7 @@ export function resolveRangeStyle(body: RichBody, range: RichRange, box: RichBox
     underline: attr(resolved.map((style) => style.underline), box.underline),
     strikethrough: attr(resolved.map((style) => style.strikethrough), box.strikethrough),
     color: attr(resolved.map((style) => style.color), box.color),
+    fontSize: attr(resolved.map((style) => style.fontSize), box.fontSize),
     listType: attr(lists, undefined),
   };
 }

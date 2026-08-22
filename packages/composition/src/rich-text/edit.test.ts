@@ -34,6 +34,51 @@ describe('applyRunStyle', () => {
     expect(next).toEqual([{ runs: [{ text: 'abcd', italic: true }], indent: 0 }]);
   });
 
+  it('applies a size to a substring, splitting and changing only that run', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hello world' }], indent: 0 }];
+    const next = applyRunStyle(body, range(0, 0, 0, 5), { fontSize: 72 }, BOX);
+    expect(next).toEqual([{ runs: [{ text: 'Hello', fontSize: 72 }, { text: ' world' }], indent: 0 }]);
+  });
+
+  it('coalesces two adjacent runs that end up the same size', () => {
+    const body: RichBody = [{ runs: [{ text: 'a', weight: 700 }, { text: 'b', italic: true }], indent: 0 }];
+    const next = applyRunStyle(body, range(0, 0, 0, 2), { fontSize: 64, weight: 400, italic: false }, BOX);
+    expect(next).toEqual([{ runs: [{ text: 'ab', fontSize: 64 }], indent: 0 }]);
+  });
+
+  it('strips a size that equals the box default back to a plain run', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', fontSize: 96 }], indent: 0 }];
+    const next = applyRunStyle(body, range(0, 0, 0, 2), { fontSize: 48 }, BOX);
+    expect(next).toEqual([{ runs: [{ text: 'Hi' }], indent: 0 }]);
+  });
+
+  it('compares a size against the authored box size when the box carries a fit multiplier', () => {
+    // Render-shaped box: fontSize is the fitted size (24), authored default was 48.
+    const fittedBox = { ...BOX, fontSize: 24, fontScale: 0.5 };
+    const body: RichBody = [{ runs: [{ text: 'Hi', fontSize: 48 }], indent: 0 }];
+    const next = applyRunStyle(body, range(0, 0, 0, 2), { italic: true }, fittedBox);
+    expect(next).toEqual([{ runs: [{ text: 'Hi', italic: true }], indent: 0 }]);
+  });
+
+  it('keeps a size that differs from the authored box size under a fit multiplier', () => {
+    const fittedBox = { ...BOX, fontSize: 24, fontScale: 0.5 };
+    const body: RichBody = [{ runs: [{ text: 'Hi', fontSize: 72 }], indent: 0 }];
+    const next = applyRunStyle(body, range(0, 0, 0, 2), { italic: true }, fittedBox);
+    expect(next).toEqual([{ runs: [{ text: 'Hi', fontSize: 72, italic: true }], indent: 0 }]);
+  });
+
+  it('falls back to comparing the box size itself for a degenerate fit multiplier', () => {
+    const degenerateBox = { ...BOX, fontSize: 24, fontScale: 0 };
+    const matching: RichBody = [{ runs: [{ text: 'Hi', fontSize: 24 }], indent: 0 }];
+    expect(applyRunStyle(matching, range(0, 0, 0, 2), { italic: true }, degenerateBox)).toEqual([
+      { runs: [{ text: 'Hi', italic: true }], indent: 0 },
+    ]);
+    const differing: RichBody = [{ runs: [{ text: 'Hi', fontSize: 48 }], indent: 0 }];
+    expect(applyRunStyle(differing, range(0, 0, 0, 2), { italic: true }, degenerateBox)).toEqual([
+      { runs: [{ text: 'Hi', fontSize: 48, italic: true }], indent: 0 },
+    ]);
+  });
+
   it('applies across multiple blocks', () => {
     const body: RichBody = [
       { runs: [{ text: 'one' }], indent: 0 },
@@ -96,5 +141,16 @@ describe('resolveRangeStyle', () => {
     const body: RichBody = [{ runs: [{ text: 'Hi', weight: 700 }, { text: 'yo' }], indent: 0 }];
     const style = resolveRangeStyle(body, range(0, 0, 0, 4), BOX);
     expect(style.bold.mixed).toBe(true);
+  });
+
+  it('reports a uniform explicit size, then mixed across differing sizes', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi', fontSize: 72 }, { text: 'yo', fontSize: 24 }], indent: 0 }];
+    expect(resolveRangeStyle(body, range(0, 0, 0, 2), BOX).fontSize).toEqual({ value: 72, mixed: false });
+    expect(resolveRangeStyle(body, range(0, 0, 0, 4), BOX).fontSize).toEqual({ value: 72, mixed: true });
+  });
+
+  it('falls back to the box size when no run overrides size', () => {
+    const body: RichBody = [{ runs: [{ text: 'Hi' }], indent: 0 }];
+    expect(resolveRangeStyle(body, range(0, 0, 0, 2), BOX).fontSize).toEqual({ value: 48, mixed: false });
   });
 });

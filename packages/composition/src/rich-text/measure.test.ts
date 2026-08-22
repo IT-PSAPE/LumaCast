@@ -42,6 +42,14 @@ describe('runFontString', () => {
   it('quotes a multi-word family name (Konva parity)', () => {
     expect(runFontString(resolveRun({ text: '' }, box(48, { fontFamily: 'Avenir Next' })))).toBe('400 48px "Avenir Next"');
   });
+
+  it('honors an overridden run size', () => {
+    expect(runFontString(resolveRun({ text: '', fontSize: 96 }, box(48)))).toBe('400 96px Inter');
+  });
+
+  it('scales an overridden run size by the box auto-fit factor', () => {
+    expect(runFontString(resolveRun({ text: '', fontSize: 96 }, box(24, { fontScale: 0.5 })))).toBe('400 48px Inter');
+  });
 });
 
 describe('stringToGraphemes', () => {
@@ -122,5 +130,28 @@ describe('wrapRuns (Konva-faithful)', () => {
     const lines = wrapRuns([{ text: 'ab' }, { text: 'cd' }], box(10), { width: 1000, measure });
     expect(lines[0].pieces).toHaveLength(1);
     expect(lineText(lines[0])).toBe('abcd');
+  });
+
+  it('measures a size-overridden run at its own size', () => {
+    const lines = wrapRuns([{ text: 'aa ' }, { text: 'bb', fontSize: 20 }], box(10), { width: 100, measure });
+    expect(lines).toHaveLength(1);
+    const [line] = lines;
+    expect(line.pieces[0]).toMatchObject({ text: 'aa ', style: { fontSize: 10 } });
+    expect(line.pieces[1]).toMatchObject({ text: 'bb', style: { fontSize: 20 } });
+    expect(line.width).toBe(35); // 'aa '(15 at 10px) + 'bb'(20 at 20px)
+  });
+
+  it('wraps earlier because an enlarged run is wider than the box size would be', () => {
+    // At the box size the whole thing fits (25 ≤ 30); doubling 'bb' pushes it to 35.
+    expect(wrapRuns([{ text: 'aa ' }, { text: 'bb' }], box(10), { width: 30, measure }).map(lineText))
+      .toEqual(['aa bb']);
+    expect(wrapRuns([{ text: 'aa ' }, { text: 'bb', fontSize: 20 }], box(10), { width: 30, measure }).map(lineText))
+      .toEqual(['aa', 'bb']);
+  });
+
+  it('shrinks an overridden run with the box auto-fit factor', () => {
+    // fontScale 0.5 halves the explicit 20px run back to the box's 10px, so it fits again.
+    const lines = wrapRuns([{ text: 'aa ' }, { text: 'bb', fontSize: 20 }], box(10, { fontScale: 0.5 }), { width: 30, measure });
+    expect(lines.map(lineText)).toEqual(['aa bb']);
   });
 });

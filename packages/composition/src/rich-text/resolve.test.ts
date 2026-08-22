@@ -57,10 +57,42 @@ describe('resolveRun', () => {
     expect(resolved.fontSize).toBe(48);
   });
 
-  it('never lets a run override family or size', () => {
+  it('never lets a run override the family', () => {
     const resolved = resolveRun({ text: 'x' }, { ...BOX, fontFamily: 'Georgia', fontSize: 12 });
     expect(resolved.fontFamily).toBe('Georgia');
     expect(resolved.fontSize).toBe(12);
+  });
+
+  it('lets an explicit run size override the box size', () => {
+    const resolved = resolveRun({ text: 'x', fontSize: 72 }, BOX);
+    expect(resolved.fontSize).toBe(72);
+  });
+
+  it('scales an explicit run size by an auto-fit fontScale', () => {
+    const box = { ...BOX, fontScale: 0.5 };
+    expect(resolveRun({ text: 'x', fontSize: 72 }, box).fontSize).toBe(36);
+    // The box size itself is already fitted — it must not be scaled again.
+    expect(resolveRun({ text: 'x' }, box).fontSize).toBe(48);
+  });
+
+  it('treats an absent fontScale as identity', () => {
+    expect(resolveRun({ text: 'x', fontSize: 72 }, BOX).fontSize).toBe(72);
+  });
+
+  it('clamps an explicit run size to a sane positive range', () => {
+    expect(resolveRun({ text: 'x', fontSize: 0 }, BOX).fontSize).toBe(1);
+    expect(resolveRun({ text: 'x', fontSize: -50 }, BOX).fontSize).toBe(1);
+    expect(resolveRun({ text: 'x', fontSize: Number.NaN }, BOX).fontSize).toBe(48);
+    expect(resolveRun({ text: 'x', fontSize: 10 ** 9 }, BOX).fontSize).toBe(4000);
+  });
+
+  it('clamps the scaled size after applying an auto-fit multiplier', () => {
+    const box = { ...BOX, fontScale: 100 };
+    expect(resolveRun({ text: 'x', fontSize: 72 }, box).fontSize).toBe(4000);
+  });
+
+  it('leaves an inherited box size untouched by the clamp', () => {
+    expect(resolveRun({ text: 'x' }, { ...BOX, fontSize: 0 }).fontSize).toBe(0);
   });
 
   it('treats explicit false as an override, not inheritance', () => {

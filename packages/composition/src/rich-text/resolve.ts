@@ -13,11 +13,14 @@ import { readTextFormatting } from '../element-payload';
 import type { RichBody, RichRun } from './types';
 import { textToRichBody } from './serialize';
 
-// The Box-level inputs a Run inherits from, plus the family/size every run draws
-// with (font family and font size are Box-level and cannot be overridden per Run).
+// The Box-level inputs a Run inherits from, plus the family every run draws
+// with (font family is Box-level and cannot be overridden per Run; font size
+// may be overridden per Run as an absolute px value). `fontScale` is the
+// auto-fit multiplier applied to an explicit run size (absent ⇒ 1).
 export interface RichBoxStyle {
   fontFamily: string;
   fontSize: number;
+  fontScale?: number;
   color: string;
   weight: number;
   italic: boolean;
@@ -30,6 +33,19 @@ export interface RichBoxStyle {
 export type ResolvedRunStyle = RichBoxStyle;
 
 const DEFAULT_WEIGHT = 400;
+
+// Explicit run sizes come straight from persisted documents, so they are
+// clamped before any consumer sees them: non-positive sizes render invisible
+// text or emit invalid canvas font strings, and enormous sizes explode line,
+// frame, and bleed metrics. Only the override branch is clamped — the
+// inherited box size passes through byte-identical.
+const MIN_RUN_FONT_SIZE = 1;
+const MAX_RUN_FONT_SIZE = 4000;
+
+function clampRunFontSize(size: number, fallback: number): number {
+  if (!Number.isFinite(size)) return fallback;
+  return Math.min(MAX_RUN_FONT_SIZE, Math.max(MIN_RUN_FONT_SIZE, size));
+}
 
 // Coerces the legacy Box-level weight (a numeric string such as '400'/'700', or
 // already a number) into the Run model's numeric weight. Garbage ⇒ 400.
@@ -55,12 +71,14 @@ export function boxStyleFromPayload(payload: TextElementPayload): RichBoxStyle {
   };
 }
 
-// Applies Run-level overrides over the Box-level style. Family and size are always
-// the Box's; the five Run-level attributes fall back to the Box when unset.
+// Applies Run-level overrides over the Box-level style. Family is always the
+// Box's; an explicit run size is scaled by the box's auto-fit `fontScale`
+// (absent ⇒ 1, identity); the five other Run-level attributes fall back to the
+// Box when unset.
 export function resolveRun(run: RichRun, box: RichBoxStyle): ResolvedRunStyle {
   return {
     fontFamily: box.fontFamily,
-    fontSize: box.fontSize,
+    fontSize: run.fontSize !== undefined ? clampRunFontSize(run.fontSize * (box.fontScale ?? 1), box.fontSize) : box.fontSize,
     color: run.color ?? box.color,
     weight: run.weight ?? box.weight,
     italic: run.italic ?? box.italic,

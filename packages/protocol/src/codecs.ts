@@ -245,6 +245,7 @@ const RICH_RUN_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' |
   italic: 'boolean',
   underline: 'boolean',
   strikethrough: 'boolean',
+  fontSize: 'number',
 };
 
 /**
