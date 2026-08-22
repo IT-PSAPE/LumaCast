@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiFrameTransportPortAnnouncement, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
+import { APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiFrameTransportPortAnnouncement, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
@@ -125,6 +125,7 @@ const api = {
   createMediaAsset: (asset: MediaAssetCreateInput) => ipcRenderer.invoke(IPC.createMediaAsset, asset),
   deleteMediaAsset: (id: Id) => ipcRenderer.invoke(IPC.deleteMediaAsset, id),
   updateMediaAssetSrc: (id: Id, src: string) => ipcRenderer.invoke(IPC.updateMediaAssetSrc, id, src),
+  reclaimMediaLibrary: () => ipcRenderer.invoke(IPC.reclaimMediaLibrary),
   ensureMediaDerivative: (assetId: Id) => ipcRenderer.invoke(IPC.ensureMediaDerivative, assetId),
   uploadMediaDerivativeFallback: (assetId: Id, generationToken: string, sourceFingerprint: string, bytes: Uint8Array) =>
     ipcRenderer.invoke(IPC.uploadMediaDerivativeFallback, assetId, generationToken, sourceFingerprint, bytes),
@@ -220,6 +221,11 @@ const api = {
     const handler = (_event: IpcRendererEvent, progress: import('@lumacast/protocol').MediaDerivativeProgress) => callback(progress);
     ipcRenderer.on(MEDIA_DERIVATIVE_EVENTS.progress, handler);
     return () => { ipcRenderer.removeListener(MEDIA_DERIVATIVE_EVENTS.progress, handler); };
+  },
+  onMediaLibraryProgress: (callback: (progress: import('@lumacast/protocol').MediaLibraryProgress) => void) => {
+    const handler = (_event: IpcRendererEvent, progress: import('@lumacast/protocol').MediaLibraryProgress) => callback(progress);
+    ipcRenderer.on(MEDIA_LIBRARY_EVENTS.progress, handler);
+    return () => { ipcRenderer.removeListener(MEDIA_LIBRARY_EVENTS.progress, handler); };
   },
   onPersistenceProgress: (callback: (progress: import('@lumacast/protocol').PersistenceProgress) => void) => {
     const handler = (_event: IpcRendererEvent, progress: import('@lumacast/protocol').PersistenceProgress) => callback(progress);

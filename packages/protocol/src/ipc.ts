@@ -155,6 +155,7 @@ interface RpcMethodSignatures {
   createMediaAsset: (asset: MediaAssetCreateInput) => Promise<SnapshotPatch>;
   deleteMediaAsset: (id: Id) => Promise<SnapshotPatch>;
   updateMediaAssetSrc: (id: Id, src: string) => Promise<SnapshotPatch>;
+  reclaimMediaLibrary: () => Promise<MediaLibraryReclaimResult>;
   ensureMediaDerivative: (assetId: Id) => Promise<EnsureMediaDerivativeResult>;
   uploadMediaDerivativeFallback: (
     assetId: Id,
@@ -257,6 +258,10 @@ export interface MediaDerivativeEventPayloads {
   progress: MediaDerivativeProgress;
 }
 
+export interface MediaLibraryEventPayloads {
+  progress: MediaLibraryProgress;
+}
+
 export interface PersistenceProgress {
   operation: string;
   phase: string;
@@ -280,6 +285,10 @@ type AppMenuEventSurface = {
 
 type MediaDerivativeEventSurface = {
   onMediaDerivativeProgress: (callback: (progress: MediaDerivativeEventPayloads['progress']) => void) => () => void;
+};
+
+type MediaLibraryEventSurface = {
+  onMediaLibraryProgress: (callback: (progress: MediaLibraryEventPayloads['progress']) => void) => () => void;
 };
 
 type PersistenceEventSurface = {
@@ -332,7 +341,7 @@ interface MainUtilApi {
 // mistyped member fails compilation there. `app/renderer/env.d.ts` types
 // `window.castApi` as `MainApi`, so existing renderer call sites stay typed
 // against exactly this shape.
-export type MainApi = RpcSurface & NdiEventSurface & AppMenuEventSurface & MediaDerivativeEventSurface & PersistenceEventSurface & NdiFrameSurface & MainUtilApi;
+export type MainApi = RpcSurface & NdiEventSurface & AppMenuEventSurface & MediaDerivativeEventSurface & MediaLibraryEventSurface & PersistenceEventSurface & NdiFrameSurface & MainUtilApi;
 
 // #219 item-model refactor decision D8: replaces `DeckItemCreateWithThemeInput`
 // — no `collectionId`/`groupId` (collections and library-grouped playlists
@@ -388,6 +397,27 @@ export interface MediaDerivativeProgress {
   failed: number;
   statusText: string | null;
   patch?: SnapshotPatch;
+}
+
+// Progress for the background pass that copies assets imported before the
+// media library existed into it (`MediaLibraryService.adoptExistingAssets`
+// in app/main/media-library.ts). `copied`/`total` count assets, not bytes:
+// the pass processes one asset at a time and there is no way to know total
+// bytes up front without stat-ing every pending source first.
+export interface MediaLibraryProgress {
+  copied: number;
+  total: number;
+  statusText: string | null;
+  patch?: SnapshotPatch;
+}
+
+// What an explicit reclaim removed. Nothing in the media library is ever
+// deleted implicitly (ADR-0019), so this is only ever the result of the user
+// asking for the space back.
+export interface MediaLibraryReclaimResult {
+  removedFiles: number;
+  freedBytes: number;
+  keptFiles: number;
 }
 
 export interface EnsureMediaDerivativeResult {
@@ -470,6 +500,7 @@ export const IPC = {
   createMediaAsset: 'cast:createMediaAsset',
   deleteMediaAsset: 'cast:deleteMediaAsset',
   updateMediaAssetSrc: 'cast:updateMediaAssetSrc',
+  reclaimMediaLibrary: 'cast:reclaimMediaLibrary',
   ensureMediaDerivative: 'cast:ensureMediaDerivative',
   uploadMediaDerivativeFallback: 'cast:uploadMediaDerivativeFallback',
   createOverlay: 'cast:createOverlay',
@@ -531,6 +562,10 @@ export const APP_MENU_EVENTS = {
 
 export const MEDIA_DERIVATIVE_EVENTS = {
   progress: 'media-derivatives:progress',
+} as const;
+
+export const MEDIA_LIBRARY_EVENTS = {
+  progress: 'media-library:progress',
 } as const;
 
 export const PERSISTENCE_EVENTS = {

@@ -254,25 +254,42 @@ export function useElementCommands({ activeEditorSource, currentItemRef, mutateP
     if (files.length === 0) return;
     let importedCount = 0;
     let skippedCount = 0;
+    let failedCount = 0;
     for (const file of Array.from(files)) {
       const src = resolvePersistentMediaSource(file);
       if (!src) {
         skippedCount += 1;
         continue;
       }
-      await mutatePatch(() => window.castApi.createMediaAsset({
-        name: file.name,
-        type: typeFromFile(file),
-        src,
-      }));
-      importedCount += 1;
+      try {
+        await mutatePatch(() => window.castApi.createMediaAsset({
+          name: file.name,
+          type: typeFromFile(file),
+          src,
+        }));
+        importedCount += 1;
+      } catch (error) {
+        // Import copies the file into the app's media library, so it can fail
+        // on an unreadable source or a full disk. One bad file must not
+        // abandon the rest of the selection.
+        console.error('[importMedia] Failed to import media file:', error);
+        failedCount += 1;
+      }
     }
-    if (importedCount > 0 && skippedCount === 0) {
+    if (importedCount > 0 && skippedCount === 0 && failedCount === 0) {
       setStatusText('Media imported');
       return;
     }
     if (importedCount > 0) {
-      setStatusText(`Imported ${importedCount} media item(s); skipped ${skippedCount} item(s) without file paths.`);
+      const problems = [
+        failedCount > 0 ? `${failedCount} could not be copied` : null,
+        skippedCount > 0 ? `skipped ${skippedCount} without file paths` : null,
+      ].filter((part): part is string => part !== null);
+      setStatusText(`Imported ${importedCount} media item(s); ${problems.join('; ')}.`);
+      return;
+    }
+    if (failedCount > 0) {
+      setStatusText('No media imported. The selected files could not be copied into the media library.');
       return;
     }
     setStatusText('No media imported. Selected files did not expose absolute file paths.');
@@ -289,7 +306,13 @@ export function useElementCommands({ activeEditorSource, currentItemRef, mutateP
       setStatusText('Media source not updated. Selected file did not expose an absolute file path.');
       return;
     }
-    await mutatePatch(() => window.castApi.updateMediaAssetSrc(id, src));
+    try {
+      await mutatePatch(() => window.castApi.updateMediaAssetSrc(id, src));
+    } catch (error) {
+      console.error('[changeMediaSrc] Failed to replace media source:', error);
+      setStatusText('Media source not updated. The selected file could not be copied into the media library.');
+      return;
+    }
     setStatusText('Media source updated');
   }, [mutatePatch, setStatusText]);
 

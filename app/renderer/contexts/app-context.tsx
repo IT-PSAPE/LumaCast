@@ -129,11 +129,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setMediaDerivativeStatusText(progress.statusText);
     });
+    // Reuses the media-derivatives status slot rather than adding a new one:
+    // both are the same kind of message to the user (an ambient background
+    // media task is running), and the slot already has exactly the wanted
+    // behavior — subordinate to an explicit operation or persistence
+    // messaging, and reset to "Ready" once its own statusText goes null.
+    const unsubscribeLibraryProgress = window.castApi.onMediaLibraryProgress((progress) => {
+      if (progress.patch) {
+        // Applying the patch is what keeps the renderer's snapshot in step
+        // with the rows main just repointed to their library copy — without
+        // it, undo could resurrect a stale external path.
+        void applyPatchLocally(progress.patch).catch((error) => {
+          console.error('[AppProvider] Failed to apply media library patch:', error);
+        });
+      }
+      setMediaDerivativeStatusText(progress.statusText);
+    });
     const unsubscribePersistenceProgress = window.castApi.onPersistenceProgress(handlePersistenceProgress);
     return () => {
       unsubscribeOutput();
       unsubscribeDiagnostics();
       unsubscribeDerivativeProgress();
+      unsubscribeLibraryProgress();
       unsubscribePersistenceProgress();
     };
   }, [applyPatchLocally, handlePersistenceProgress, setMediaDerivativeStatusText, setNdiDiagnostics, setNdiOutputConfigsState, setNdiOutputStateValue]);

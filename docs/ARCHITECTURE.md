@@ -353,6 +353,41 @@ Each rule is also proven by a committed fixture scenario under
   renderer dependency verification, packaging/signing checks) that would need
   to be satisfied before enabling it.
 
+## Media Library (ADR-0019)
+
+- Imported files are **copied into `<userData>/media`** and the database stores
+  a reference to the copy, so a project depends only on files the app owns.
+  `app/main/media-library.ts` (`MediaLibraryService`) owns the directory;
+  copies are content-addressed (`<sha256>.<ext>`), written through a `.part`
+  file and renamed into place, and cloned copy-on-write where the filesystem
+  supports it.
+- The stored form is `cast-media://library/<64 hex>[.<ext>]`, resolved relative
+  to the library directory. Its pattern admits no separator, `%`, or `..`, so it
+  cannot express a path outside the library. `resolveLocalMediaSourcePath`
+  exists in two copies — `app/main/media-source-path.ts` and
+  `packages/persistence-sqlite/src/media-source-utils.ts`, because the store
+  runs in a utility process — and both check the library branch before the
+  generic percent-decode. They must move in step.
+- `MediaLibraryService.adopt` sits in front of every media write in
+  `app/main/ipc.ts`: `createMediaAsset`, `updateMediaAssetSrc`, and the relink
+  decisions of `finalizeImportBundle`. Sources with nothing to copy (`blob:`,
+  `http(s):`, relative, empty, or an existing library reference) pass through
+  unchanged.
+- **Replace is a true replacement.** `updateMediaAssetSrc` repoints every stored
+  reference to the previous source — elements, nested group children, and
+  slide/theme/overlay/stage backgrounds — in one transaction, and returns a
+  patch covering all of them, so replacing a lost file repairs the slides that
+  lost it. `preserveMetadata` keeps the metadata columns for the adoption pass,
+  where the bytes are unchanged.
+- **Adoption** (`adoptExistingAssets`) copies pre-library assets into the
+  library in the background, starting when the renderer subscribes, emitting
+  each repoint as a patch the renderer applies so its snapshot — and undo —
+  stays in step. Sources whose file is already gone are left alone and read as
+  missing media (ADR-0018).
+- **Nothing is deleted implicitly.** `reclaim` is explicit, removes only names
+  the app writes itself, and mirrors `maskAppSnapshot`'s walk to decide what is
+  still referenced.
+
 ## Managed Media Capabilities (issue #159, ADR-0008)
 
 - The renderer never holds a filesystem path for managed media. Every media
@@ -365,13 +400,14 @@ Each rule is also proven by a committed fixture scenario under
   to stored sources on the way in (`resolveManagedMediaArgs`) and results have
   stored sources replaced by managed ids on the way out
   (`maskManagedMediaResult`). No repository method knows managed ids exist.
-- **Storage is unchanged.** The database still stores
-  `cast-media://<encodeURIComponent(absolutePath)>`, because that stored path is
-  the asset's identity for broken-source detection, deck-bundle export/relink,
-  import dedupe, and the v22 migration. Managed ids are session-scoped
-  capabilities, not durable identifiers. Inbound resolution returns the
-  byte-identical stored string, which is what keeps `restoreFromSnapshot` from
-  seeing a spurious change on every media row.
+- **Managed ids are not a storage format.** The database stores either the
+  legacy `cast-media://<encodeURIComponent(absolutePath)>` form or, for media
+  the app owns a copy of, `cast-media://library/<sha256>[.<ext>]` (ADR-0019).
+  Either way the stored string is the asset's identity for broken-source
+  detection, deck-bundle export/relink, import dedupe, and the v22 migration.
+  Managed ids are session-scoped capabilities, not durable identifiers. Inbound
+  resolution returns the byte-identical stored string, which is what keeps
+  `restoreFromSnapshot` from seeing a spurious change on every media row.
 - Media assets persist only truthful, nullable metadata: `width`, `height`,
   `duration`, and `codec` live on the asset row in SQLite and in schema-version
   30 project backups. Unknown or unsupported values stay `null`; they are never

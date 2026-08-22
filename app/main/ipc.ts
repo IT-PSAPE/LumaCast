@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type IpcMainInvokeEvent, type MessagePortMain } from 'electron';
-import { MEDIA_DERIVATIVE_EVENTS, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, validateProjectBackupAsync } from '@lumacast/protocol';
+import { MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, validateProjectBackupAsync } from '@lumacast/protocol';
 import {
   IPC,
   NDI_EVENTS,
@@ -103,6 +103,7 @@ import {
   MAX_TRUSTED_EMBEDDED_IMAGE_BYTES,
   MAX_EMBEDDED_IMAGE_OUTPUT_BYTES,
 } from './media-derivatives';
+import { MediaLibraryService } from './media-library';
 import type { NdiServiceLike } from '@lumacast/engine';
 import { sampleSystemMetrics } from '@lumacast/engine';
 import { assertTrustedIpcSender } from './security';
@@ -348,6 +349,7 @@ export const registerIpcHandlers = (
   } = {},
 ): void => {
   const mediaDerivatives = new MediaDerivativeService(repo, app.getPath('userData'));
+  const mediaLibrary = new MediaLibraryService(app.getPath('userData'));
 
   function reportPersistenceProgress(progress: PersistenceProgress): void {
     try {
@@ -425,12 +427,45 @@ export const registerIpcHandlers = (
       maskManagedMediaResult(mediaDerivatives.attachToResult(progress)),
     );
   });
+  // `registerIpcHandlers` is never handed a process-wide "is the app
+  // quitting" flag (app/main/index.ts's `isShuttingDown` is local to that
+  // module) — the main window being gone is an equally good signal that the
+  // background adoption pass below should stop: there is no renderer left to
+  // report progress to, and no reason to keep copying bytes past that point.
+  function isMainWindowGone(): boolean {
+    const window = getMainWindow();
+    return !window || window.isDestroyed();
+  }
+
+  let mediaLibraryAdoptionStarted = false;
+
   ipcMain.on(PERSISTENCE_CHANNELS.subscribe, (event) => {
     try {
       assertTrustedIpcSender(event);
       const latest = options.getLatestPersistenceProgress?.();
       if (latest && !event.sender.isDestroyed()) {
         event.sender.send(PERSISTENCE_EVENTS.progress, latest);
+      }
+
+      // Triggered from here, not at registration: this channel fires when
+      // the renderer mounts its subscription, which is exactly when a window
+      // exists to send patches to and a snapshot is being kept in sync to
+      // receive them. Guarded to run at most once per process — a second
+      // window subscribing (or a second subscribe call) must not restart it.
+      if (!mediaLibraryAdoptionStarted) {
+        mediaLibraryAdoptionStarted = true;
+        void mediaLibrary.adoptExistingAssets(repo, {
+          onProgress: (progress) => {
+            const window = getMainWindow();
+            if (!window || window.isDestroyed()) return;
+            window.webContents.send(MEDIA_LIBRARY_EVENTS.progress, maskManagedMediaResult(progress));
+          },
+          isCancelled: isMainWindowGone,
+        }).catch((error) => {
+          // A failed adoption pass must never take down the app; the assets
+          // it would have adopted simply stay on their original paths.
+          console.error('[MediaLibrary] Background adoption pass failed', error);
+        });
       }
     } catch (error) {
       console.error(`[IPC ${PERSISTENCE_CHANNELS.subscribe}]`, error);
@@ -544,8 +579,15 @@ export const registerIpcHandlers = (
       const validatedDecisions = decisions.map((decision, index) =>
         decodeBundleBrokenReferenceDecision(decision, rpcContext('finalizeImportBundle', `decisions[${index}]`))
       );
+      // A relink points at a file outside the app just as an import does, so
+      // the replacement is copied into the library before it is persisted.
+      const adoptedDecisions = await Promise.all(validatedDecisions.map(async (decision) => (
+        decision.action === 'replace' && decision.replacementPath
+          ? { ...decision, replacementPath: await mediaLibrary.adopt(decision.replacementPath) }
+          : decision
+      )));
       const bundle = await readDeckBundleArchive(filePath);
-      const snapshot = await repo.finalizeImportBundle(bundle, validatedDecisions);
+      const snapshot = await repo.finalizeImportBundle(bundle, adoptedDecisions);
       mediaDerivatives.scheduleBatch(snapshot.mediaAssets.map((asset) => asset.id));
       return snapshot;
     },
@@ -742,7 +784,11 @@ export const registerIpcHandlers = (
       return repo.deleteElementsBatch(ids);
     },
     createMediaAsset: async (_event, asset: MediaAssetCreateInput) => {
-      const patch = await repo.createMediaAsset(decodeMediaAssetCreateInput(asset, rpcContext('createMediaAsset')));
+      const input = decodeMediaAssetCreateInput(asset, rpcContext('createMediaAsset'));
+      // The file the user picked is copied into the library first, so what gets
+      // persisted is a reference to our copy and the project stops depending on
+      // a path only they can keep alive.
+      const patch = await repo.createMediaAsset({ ...input, src: await mediaLibrary.adopt(input.src) });
       const assetId = patch.upserts.mediaAssets?.[0]?.id;
       if (assetId) mediaDerivatives.schedule(assetId);
       return patch;
@@ -759,11 +805,12 @@ export const registerIpcHandlers = (
         [{ name: 'id', kind: 'string' }, { name: 'src', kind: 'string' }],
         rpcContext('updateMediaAssetSrc'),
       );
-      const patch = await repo.updateMediaAssetSrc(id, src);
+      const patch = await repo.updateMediaAssetSrc(id, await mediaLibrary.adopt(src));
       mediaDerivatives.invalidate(id);
       mediaDerivatives.schedule(id);
       return patch;
     },
+    reclaimMediaLibrary: () => mediaLibrary.reclaim(repo),
     ensureMediaDerivative: (_event, assetId: Id) => {
       expectRpcPrimitiveArgs([assetId], [{ name: 'assetId', kind: 'string' }], rpcContext('ensureMediaDerivative'));
       return mediaDerivatives.ensure(assetId);

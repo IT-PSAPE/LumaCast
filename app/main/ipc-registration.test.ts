@@ -75,6 +75,7 @@ vi.mock('./security', () => ({
 import {
   IPC,
   MEDIA_DERIVATIVE_EVENTS,
+  MEDIA_LIBRARY_EVENTS,
   NDI_FRAME_TRANSPORT_PORT_CHANNEL,
   NDI_FRAME_TRANSPORT_VERSION,
   NDI_FRAME_TRANSPORT_WINDOW_MESSAGE,
@@ -82,11 +83,13 @@ import {
   PERSISTENCE_CHANNELS,
   PERSISTENCE_EVENTS,
   type MediaDerivativeProgress,
+  type MediaLibraryProgress,
   type NdiOutputName,
   type PersistenceProgress,
 } from '@lumacast/protocol';
 import { registerIpcHandlers } from './ipc';
 import { MediaDerivativeService } from './media-derivatives';
+import { MediaLibraryService } from './media-library';
 import { maskManagedMediaSource, revokeManagedMediaSource } from './media-capability';
 import type { PersistenceServiceLike } from './persistence/persistence-service-proxy';
 import type { NdiServiceLike } from '@lumacast/engine';
@@ -160,6 +163,13 @@ describe('main IPC registration (issue #152)', () => {
     // shape without invoking a handler, or invokes a handler whose codec
     // validation throws before any `repo.*` method is reached.
     repositoryMethods = {};
+    // `registerIpcHandlers` now starts a media library adoption pass off the
+    // `PERSISTENCE_CHANNELS.subscribe` handler, which several tests below
+    // invoke directly for unrelated reasons; a default empty snapshot keeps
+    // that pass a same-tick no-op (no pending assets) for every test that
+    // doesn't care about it, rather than an unhandled `getSnapshot is not a
+    // function` rejection on every subscribe.
+    repositoryMethods.getSnapshot = vi.fn(() => Promise.resolve(emptySnapshot()));
     latestPersistenceProgress = null;
     reportedPersistenceProgress = [];
     createNdiFrameTransport = vi.fn<(name: NdiOutputName) => MessagePortMain | null>(() => null);
@@ -475,6 +485,108 @@ describe('main IPC registration (issue #152)', () => {
     };
     expect(payload.patch?.upserts?.mediaAssets?.[0]?.src).not.toBe('/tmp/progress-source.png');
     expect(payload.patch?.upserts?.mediaAssets?.[0]?.thumbnailSrc).not.toBe('/tmp/thumbs/progress-thumb.png');
+  });
+
+  it('starts the media library adoption pass at most once, no matter how many times the renderer subscribes', () => {
+    handleRegistrations.clear();
+    onRegistrations.clear();
+    const adoptExistingAssets = vi.spyOn(MediaLibraryService.prototype, 'adoptExistingAssets')
+      .mockResolvedValue({ adopted: 0, unreadable: 0, failed: 0, cancelled: false });
+
+    registerIpcHandlers(
+      repositoryMethods as unknown as PersistenceServiceLike,
+      ndiService,
+      () => null,
+      {} as unknown as AppUpdater,
+      { getLatestPersistenceProgress: () => latestPersistenceProgress },
+    );
+
+    const subscribeListener = onRegistrations.get(PERSISTENCE_CHANNELS.subscribe);
+    expect(subscribeListener).toBeDefined();
+
+    const fakeSubscribeEvent = { sender: { isDestroyed: () => false, send: vi.fn() } };
+    // A second window subscribing (or the same one subscribing twice) must
+    // not restart the pass — it runs at most once per process.
+    subscribeListener!(fakeSubscribeEvent);
+    subscribeListener!(fakeSubscribeEvent);
+    subscribeListener!(fakeSubscribeEvent);
+
+    expect(adoptExistingAssets).toHaveBeenCalledTimes(1);
+    expect(adoptExistingAssets).toHaveBeenCalledWith(
+      repositoryMethods,
+      expect.objectContaining({ onProgress: expect.any(Function), isCancelled: expect.any(Function) }),
+    );
+  });
+
+  it('masks media library adoption progress before sending it to the renderer', () => {
+    handleRegistrations.clear();
+    onRegistrations.clear();
+    const send = vi.fn();
+    let capturedOnProgress: ((progress: MediaLibraryProgress) => void) | undefined;
+    vi.spyOn(MediaLibraryService.prototype, 'adoptExistingAssets').mockImplementation(async (_repo, options = {}) => {
+      capturedOnProgress = options.onProgress;
+      return { adopted: 0, unreadable: 0, failed: 0, cancelled: false };
+    });
+
+    registerIpcHandlers(
+      repositoryMethods as unknown as PersistenceServiceLike,
+      ndiService,
+      () => ({
+        isDestroyed: () => false,
+        webContents: { send },
+      }) as never,
+      {} as unknown as AppUpdater,
+      { getLatestPersistenceProgress: () => latestPersistenceProgress },
+    );
+
+    const subscribeListener = onRegistrations.get(PERSISTENCE_CHANNELS.subscribe);
+    subscribeListener!({ sender: { isDestroyed: () => false, send: vi.fn() } });
+    expect(capturedOnProgress).toBeDefined();
+
+    capturedOnProgress!({
+      copied: 1,
+      total: 2,
+      statusText: 'Copying media into the library (1/2)',
+      patch: {
+        version: 1,
+        deletes: {},
+        upserts: {
+          mediaAssets: [{
+            id: 'asset-adopted',
+            name: 'Adopted asset',
+            type: 'image',
+            src: '/Users/someone/Pictures/original.png',
+            thumbnailSrc: null,
+            width: 640,
+            height: 360,
+            duration: null,
+            codec: null,
+            order: 0,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          }],
+        },
+      },
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(
+      MEDIA_LIBRARY_EVENTS.progress,
+      expect.objectContaining({
+        statusText: 'Copying media into the library (1/2)',
+        patch: expect.objectContaining({
+          upserts: expect.objectContaining({
+            mediaAssets: [expect.objectContaining({
+              src: expect.stringMatching(/^cast-media:\/\//),
+            })],
+          }),
+        }),
+      }),
+    );
+    const payload = send.mock.calls[0]?.[1] as {
+      patch?: { upserts?: { mediaAssets?: Array<{ src: string }> } };
+    };
+    expect(payload.patch?.upserts?.mediaAssets?.[0]?.src).not.toBe('/Users/someone/Pictures/original.png');
   });
 
   it('accepts undo patches for deleted media assets even after the derivative thumbnail capability was revoked', async () => {

@@ -22,6 +22,7 @@ import {
   APP_MENU_EVENTS,
   IPC,
   MEDIA_DERIVATIVE_EVENTS,
+  MEDIA_LIBRARY_EVENTS,
   NDI_EVENTS,
   NDI_FRAME_CHANNEL_NAMES,
   NDI_FRAME_TRANSPORT_PORT_CHANNEL,
@@ -68,6 +69,10 @@ const MEDIA_DERIVATIVE_EVENT_METHOD_NAMES: Record<keyof typeof MEDIA_DERIVATIVE_
   progress: 'onMediaDerivativeProgress',
 };
 
+const MEDIA_LIBRARY_EVENT_METHOD_NAMES: Record<keyof typeof MEDIA_LIBRARY_EVENTS, string> = {
+  progress: 'onMediaLibraryProgress',
+};
+
 const UTIL_METHOD_NAMES = ['platform', 'getPathForFile'];
 
 const frameNames: readonly string[] = NDI_FRAME_CHANNEL_NAMES;
@@ -77,6 +82,7 @@ const eventMethodNames = [
   ...Object.values(APP_MENU_EVENT_METHOD_NAMES),
   ...Object.values(PERSISTENCE_EVENT_METHOD_NAMES),
   ...Object.values(MEDIA_DERIVATIVE_EVENT_METHOD_NAMES),
+  ...Object.values(MEDIA_LIBRARY_EVENT_METHOD_NAMES),
 ];
 
 describe('ipc contract: RPC/event/frame classification', () => {
@@ -96,6 +102,7 @@ describe('ipc contract: RPC/event/frame classification', () => {
       ...Object.values(PERSISTENCE_EVENTS),
       ...Object.values(PERSISTENCE_CHANNELS),
       ...Object.values(MEDIA_DERIVATIVE_EVENTS),
+      ...Object.values(MEDIA_LIBRARY_EVENTS),
     ];
     expect(new Set(allChannelStrings).size).toBe(allChannelStrings.length);
   });
@@ -200,6 +207,18 @@ describe('ipc contract: events subscribe/unsubscribe, never invoke', () => {
     const callback = vi.fn();
     (exposedApi().onAppMenuCommand as (cb: (id: string) => void) => () => void)(callback);
     expect(on).toHaveBeenCalledWith(APP_MENU_EVENTS.command, expect.any(Function));
+  });
+
+  it('registers media library progress on its declared channel and tears it down on unsubscribe', () => {
+    const callback = vi.fn();
+    const unsubscribe = (exposedApi().onMediaLibraryProgress as (cb: (progress: unknown) => void) => () => void)(callback);
+    expect(on).toHaveBeenCalledWith(MEDIA_LIBRARY_EVENTS.progress, expect.any(Function));
+    const [, handler] = on.mock.calls[on.mock.calls.length - 1] as [string, (event: unknown, progress: unknown) => void];
+    const progress = { copied: 3, total: 12, statusText: 'Copying media into the library (3/12)' };
+    handler({}, progress);
+    expect(callback).toHaveBeenCalledWith(progress);
+    unsubscribe();
+    expect(removeListener).toHaveBeenCalledWith(MEDIA_LIBRARY_EVENTS.progress, handler);
   });
 
   it('registers persistence progress on its declared channel and forwards the payload', () => {
