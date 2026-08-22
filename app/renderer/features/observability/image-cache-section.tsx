@@ -14,6 +14,14 @@ export function ImageCacheSection() {
         <Stat label="Loading" value={formatNumber(stats.loadingCount)} />
         <Stat label="Errors" value={formatNumber(stats.errorCount)} highlight={stats.errorCount > 0} />
         <Stat label="Retained" value={formatNumber(stats.retainedCount)} />
+        <Stat label="Warm T1" value={formatNumber(stats.warmTier1Count)} />
+        <Stat label="Warm T2" value={formatNumber(stats.warmTier2Count)} />
+        <Stat label="Warm inflight" value={formatNumber(stats.warmInFlightCount)} />
+        <Stat label="Warm hits" value={formatNumber(stats.warmRetainHitCount)} />
+        <Stat label="Warm wasted" value={formatNumber(stats.warmWastedCount)} />
+        <Stat label="Warm cancelled" value={formatNumber(stats.warmCancelledCount)} />
+        <Stat label="Evictable" value={formatNumber(stats.evictableCount)} />
+        <Stat label="Evictable bytes" value={formatBytes(stats.evictableEstimatedBytes)} />
       </div>
     </SectionShell>
   );

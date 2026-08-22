@@ -28,6 +28,9 @@ parentPort.on('message', (event: { data: NdiHostCommand }) => {
     service.onDiagnosticsChanged((diagnostics) => {
       emit({ type: 'diagnosticsChanged', diagnostics });
     });
+    service.onFrameReleased((release) => {
+      emit({ type: 'frameReleased', release });
+    });
     emit({
       type: 'ready',
       outputState: service.getOutputState(),
@@ -37,16 +40,17 @@ parentPort.on('message', (event: { data: NdiHostCommand }) => {
     return;
   }
 
-  if (!service) return;
-
   switch (cmd.type) {
     case 'setOutputEnabled':
+      if (!service) return;
       service.setOutputEnabled(cmd.name, cmd.enabled);
       break;
     case 'updateOutputConfig':
+      if (!service) return;
       service.updateOutputConfig(cmd.name, cmd.config);
       break;
     case 'frame': {
+      if (!service) return;
       const stampedTelemetry = cmd.telemetry
         ? { ...cmd.telemetry, hostReceivedAtMs: Date.now() }
         : undefined;
@@ -60,6 +64,7 @@ parentPort.on('message', (event: { data: NdiHostCommand }) => {
       break;
     }
     case 'audio':
+      if (!service) return;
       service.receiveAudioFrame(
         cmd.name,
         new Float32Array(cmd.buffer),
@@ -69,13 +74,17 @@ parentPort.on('message', (event: { data: NdiHostCommand }) => {
       );
       break;
     case 'flushBlackout': {
+      if (!service) return;
       const { target, ...rest } = cmd.options ?? {};
       service.flushBlackoutAndDestroy(target, rest);
       break;
     }
     case 'destroy':
-      service.destroy();
-      service = null;
+      if (service) {
+        service.destroy();
+        service = null;
+      }
+      emit({ type: 'teardownComplete' });
       break;
   }
 });

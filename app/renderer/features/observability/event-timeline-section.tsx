@@ -6,8 +6,13 @@ import { EventRow } from './event-row';
 import { CATEGORY_FILTERS } from './observability-constants';
 
 export function EventTimelineSection() {
-  const { events, clearEvents } = useMetricsStore(
-    useShallow((s) => ({ events: s.events, clearEvents: s.clearEvents })),
+  const { events, clearEvents, mirrorEventsToConsole, setMirrorEventsToConsole } = useMetricsStore(
+    useShallow((s) => ({
+      events: s.events,
+      clearEvents: s.clearEvents,
+      mirrorEventsToConsole: s.mirrorEventsToConsole,
+      setMirrorEventsToConsole: s.setMirrorEventsToConsole,
+    })),
   );
   const [filter, setFilter] = useState<'all' | ObsEventCategory>('all');
   const visible = useMemo(() => {
@@ -17,9 +22,16 @@ export function EventTimelineSection() {
   return (
     <SectionShell
       title="Event timeline"
-      subtitle="Recent in-app events, newest first. Cleared on app restart — for permanent history use the log viewer below."
+      subtitle="Recent in-app events, newest first. Cleared on app restart; enable log mirroring to persist them."
       headerExtra={(
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`rounded border px-2 py-0.5 text-xs ${mirrorEventsToConsole ? 'border-emerald-500/60 text-emerald-300' : 'border-secondary text-secondary hover:bg-tertiary/40'}`}
+            onClick={() => setMirrorEventsToConsole(!mirrorEventsToConsole)}
+          >
+            {mirrorEventsToConsole ? 'Mirror to logs: on' : 'Mirror to logs: off'}
+          </button>
           <FilterChips
             value={filter}
             options={CATEGORY_FILTERS}

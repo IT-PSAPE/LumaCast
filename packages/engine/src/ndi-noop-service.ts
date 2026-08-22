@@ -32,6 +32,10 @@ export class NoopNdiService implements NdiServiceLike {
       runtimePath: null,
       activeSender: null,
       senders: { audience: null, stage: null },
+      availabilityDrops: {
+        audience: { outputDisabled: 0, senderUnavailable: 0 },
+        stage: { outputDisabled: 0, senderUnavailable: 0 },
+      },
       sourceStatus: 'idle',
       lastError: this.errorMessage,
     };
@@ -62,6 +66,10 @@ export class NoopNdiService implements NdiServiceLike {
   }
 
   onDiagnosticsChanged(): () => void {
+    return () => undefined;
+  }
+
+  onFrameReleased(): () => void {
     return () => undefined;
   }
 

@@ -3,7 +3,7 @@ import { Stage, Layer, Group } from 'react-konva';
 import type Konva from 'konva';
 import { NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT } from '@lumacast/protocol';
 import type { TextBinding } from '@lumacast/composition';
-import type { NdiOutputName } from '@lumacast/protocol';
+import type { NdiFrameDropReason, NdiFrameDropReasonCounts, NdiFrameRelease, NdiOutputName } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
 import { renderSceneNodeContent, needsOpaqueBackdrop, SceneSlideBackground, useBinding, type BindingValue, SceneNodeShape } from '@lumacast/canvas';
 import { traverseSceneNodes } from '@lumacast/composition';
@@ -11,11 +11,27 @@ import type { RenderNode, RenderScene, SceneSurface } from '@lumacast/compositio
 import { useNdiCaptureSource } from './ndi-capture-source';
 import NdiReadbackWorker from './ndi-readback-worker?worker';
 import type { CaptureRequest, WorkerOutbound } from './ndi-readback-worker';
+import {
+  claimNdiTakeCorrelation,
+  consumeNdiTakeCorrelation,
+  doesTakeCorrelationMatch,
+  hasPendingNdiTakeCorrelation,
+  type NdiTakeCorrelationClaim,
+} from '../../utils/ndi-take-correlation';
 
 const FRAME_INTERVAL_MS = 1000 / 30;
 // If we've been waiting on an ack longer than this, assume it was lost
 // and free up the back-pressure slot so capture can resume.
-const ACK_WATCHDOG_MS = 250;
+const FRAME_RELEASE_WATCHDOG_MS = 250;
+let nextGlobalNdiCaptureAttemptId = 0;
+let nextCaptureRequestId = 0;
+const ndiCaptureAttemptSessionId = (() => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `ndi-capture-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+})();
+type RendererTrackedReleaseDropReason = Extract<NdiFrameRelease['reason'], 'outputDisabled' | 'senderUnavailable'>;
 
 // Cheap signature used to decide whether the output has visibly changed
 // since the last capture. Video nodes are excluded because their contents
@@ -84,6 +100,32 @@ function hasTickingTextBinding(nodes: readonly RenderNode[], bindingValue: Bindi
   return false;
 }
 
+export function sceneHasVideoPlayback(scene: RenderScene): boolean {
+  return scene.nodes.some((node) => node.element.type === 'video')
+    || scene.slide.background?.type === 'video';
+}
+
+export function allocateNdiCaptureAttemptId(): number {
+  nextGlobalNdiCaptureAttemptId += 1;
+  return nextGlobalNdiCaptureAttemptId;
+}
+
+export function allocateNdiCaptureAttemptToken(): string {
+  return `${ndiCaptureAttemptSessionId}:${allocateNdiCaptureAttemptId()}`;
+}
+
+function allocateCaptureRequestId(): number {
+  nextCaptureRequestId += 1;
+  return nextCaptureRequestId;
+}
+
+export function shouldTrackRendererReleaseDropReason(
+  release: NdiFrameRelease,
+): release is NdiFrameRelease & { accepted: false; reason: RendererTrackedReleaseDropReason } {
+  return !release.accepted
+    && (release.reason === 'outputDisabled' || release.reason === 'senderUnavailable');
+}
+
 interface NdiFrameCaptureProps {
   /** Which named NDI output this capture feeds (must match a configured sender). */
   senderName: NdiOutputName;
@@ -91,17 +133,76 @@ interface NdiFrameCaptureProps {
   scene: RenderScene;
   /** Logical surface used by element renderers (e.g. media surface routing). */
   surface?: SceneSurface;
+  /** Current output item/playlist scope used to reject stale take claims. */
+  outputScopeKey: string | null;
   /** When false the capture loop is torn down and the off-screen stage is unmounted. */
   enabled: boolean;
 }
 
-export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }: NdiFrameCaptureProps) {
+type CaptureStageLike = Pick<Konva.Stage, 'getLayers' | 'batchDraw'>;
+
+interface InFlightCaptureAttempt {
+  attemptId: string;
+  requestId: number;
+  sentAtPerfMs: number;
+  takeCorrelation: NdiTakeCorrelationClaim | null;
+}
+
+export function createEmptyFrameDropReasons(): NdiFrameDropReasonCounts {
+  return {
+    backpressure: 0,
+    ackTimeout: 0,
+    captureFailed: 0,
+    bitmapFailed: 0,
+    invalidPayload: 0,
+    outputDisabled: 0,
+    senderUnavailable: 0,
+    nativeSendFailed: 0,
+  };
+}
+
+function incrementFrameDropReason(target: NdiFrameDropReasonCounts, reason: NdiFrameDropReason): void {
+  target[reason] += 1;
+}
+
+export function shouldScheduleCorrectiveRetry(release: NdiFrameRelease): boolean {
+  return !release.accepted && release.reason === 'nativeSendFailed';
+}
+
+export function doesReleaseMatchAttempt(
+  release: NdiFrameRelease,
+  attempt: Pick<InFlightCaptureAttempt, 'attemptId'> | null,
+): boolean {
+  return Boolean(attempt && release.attemptId === attempt.attemptId);
+}
+
+export function pinFallbackCaptureStagePixelRatio(stage: CaptureStageLike | null): void {
+  if (!stage) return;
+
+  let changed = false;
+  for (const layer of stage.getLayers()) {
+    const canvas = layer.getCanvas();
+    if (canvas.getPixelRatio() === 1) continue;
+    canvas.setPixelRatio(1);
+    changed = true;
+  }
+
+  if (changed) {
+    stage.batchDraw();
+  }
+}
+
+export function NdiFrameCapture({ senderName, scene, surface = 'show', outputScopeKey, enabled }: NdiFrameCaptureProps) {
   const { state: { outputConfigs } } = useNdi();
   const bindingValue = useBinding();
   const stageRef = useRef<Konva.Stage>(null);
   const pendingSkippedCapturesRef = useRef(0);
   const pendingDroppedBackpressureRef = useRef(0);
-  const inFlightSentAtRef = useRef<number | null>(null);
+  const pendingCorrectiveRetriesRef = useRef(0);
+  const pendingDropReasonsRef = useRef<NdiFrameDropReasonCounts>(createEmptyFrameDropReasons());
+  const inFlightAttemptRef = useRef<InFlightCaptureAttempt | null>(null);
+  const leasedTakeCorrelationRef = useRef<NdiTakeCorrelationClaim | null>(null);
+  const forceCorrectiveCaptureRef = useRef(false);
   const captureStartedAtRef = useRef(0);
   // Date.now() epoch-ms equivalents of the perf.now() timestamps above. Used
   // as cross-process pipeline-latency stamps (renderer's perf.now() can't be
@@ -111,14 +212,10 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
   // the resulting frame is shipped. Null for heartbeat / video-driven
   // captures where no state change triggered the frame.
   const signatureChangedAtMsRef = useRef<number | null>(null);
-  const requestIdRef = useRef(0);
-  const framesAckedRef = useRef(0);
+  const acceptedFramesRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
   const sharedCaptureSource = useNdiCaptureSource(senderName);
-  const hasVideoNodes = useMemo(
-    () => scene.nodes.some((node) => node.element.type === 'video'),
-    [scene.nodes],
-  );
+  const hasVideoNodes = useMemo(() => sceneHasVideoPlayback(scene), [scene]);
   const bindingSignature = useMemo(
     () => sceneBindingSignature(scene.nodes, bindingValue),
     [bindingValue, scene.nodes],
@@ -138,9 +235,13 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     worker.onmessage = (event: MessageEvent<WorkerOutbound>) => {
       const data = event.data;
       if (!data) return;
+      const activeAttempt = inFlightAttemptRef.current;
+      if (!activeAttempt || activeAttempt.requestId !== data.requestId) return;
       if (data.type === 'capture-failed') {
         console.error('[NdiFrameCapture] Worker readback failed:', data.error);
-        inFlightSentAtRef.current = null;
+        incrementFrameDropReason(pendingDropReasonsRef.current, 'captureFailed');
+        forceCorrectiveCaptureRef.current = true;
+        inFlightAttemptRef.current = null;
         return;
       }
       if (data.type !== 'captured') return;
@@ -153,45 +254,62 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
         data.width,
         data.height,
         {
+          attemptId: activeAttempt.attemptId,
           captureDurationMs,
           readbackDurationMs: data.readbackDurationMs,
           skippedCaptures: pendingSkippedCapturesRef.current,
           framesDroppedBackpressure: pendingDroppedBackpressureRef.current,
+          correctiveFrameRetries: pendingCorrectiveRetriesRef.current,
+          dropReasons: pendingDropReasonsRef.current,
           signatureChangedAtMs,
+          takeKind: activeAttempt.takeCorrelation?.kind,
+          takeReason: activeAttempt.takeCorrelation?.reason,
+          takeSessionId: activeAttempt.takeCorrelation?.sessionId,
+          takeSequenceId: activeAttempt.takeCorrelation?.sequenceId,
+          takeIssuedAtMs: activeAttempt.takeCorrelation?.takeIssuedAtMs,
           captureStartedAtMs: captureStartedAtMsRef.current,
         },
       );
       pendingSkippedCapturesRef.current = 0;
       pendingDroppedBackpressureRef.current = 0;
+      pendingCorrectiveRetriesRef.current = 0;
+      pendingDropReasonsRef.current = createEmptyFrameDropReasons();
     };
     return () => {
       worker.terminate();
       if (workerRef.current === worker) workerRef.current = null;
-      framesAckedRef.current = 0;
+      acceptedFramesRef.current = 0;
     };
   }, [enabled, senderName]);
 
-  const captureFrame = useCallback((): boolean => {
+  useEffect(() => () => {
+    inFlightAttemptRef.current = null;
+    leasedTakeCorrelationRef.current = null;
+  }, []);
+
+  const captureFrame = useCallback((takeCorrelation: NdiTakeCorrelationClaim | null): boolean => {
     const stage = stageRef.current;
     const canvas = sharedCaptureSource ?? stage?.getLayers()[0]?.getNativeCanvasElement();
     if (!canvas) return false;
     const worker = workerRef.current;
     if (!worker) return false;
 
-    captureStartedAtRef.current = performance.now();
+    const sentAtPerfMs = performance.now();
+    captureStartedAtRef.current = sentAtPerfMs;
     captureStartedAtMsRef.current = Date.now();
-    inFlightSentAtRef.current = performance.now();
-    const requestId = ++requestIdRef.current;
+    const attemptId = allocateNdiCaptureAttemptToken();
+    const requestId = allocateCaptureRequestId();
+    inFlightAttemptRef.current = { attemptId, requestId, sentAtPerfMs, takeCorrelation };
 
     // Snapshot the current Konva canvas into a transferable ImageBitmap, then
     // hand it to the worker. createImageBitmap is async on the main thread but
     // does not block; the actual pixel readback happens off-thread.
     createImageBitmap(canvas)
       .then((bitmap) => {
+        const activeAttempt = inFlightAttemptRef.current;
         const activeWorker = workerRef.current;
-        if (!activeWorker) {
+        if (!activeWorker || !activeAttempt || activeAttempt.requestId !== requestId) {
           bitmap.close();
-          inFlightSentAtRef.current = null;
           return;
         }
         const request: CaptureRequest = {
@@ -203,32 +321,57 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
         activeWorker.postMessage(request, [bitmap]);
       })
       .catch((error) => {
+        const activeAttempt = inFlightAttemptRef.current;
+        if (!activeAttempt || activeAttempt.requestId !== requestId) return;
         console.error('[NdiFrameCapture] createImageBitmap failed:', error);
-        inFlightSentAtRef.current = null;
+        incrementFrameDropReason(pendingDropReasonsRef.current, 'bitmapFailed');
+        forceCorrectiveCaptureRef.current = true;
+        inFlightAttemptRef.current = null;
       });
     return true;
   }, [sharedCaptureSource, withAlpha]);
 
   const handleImageLoad = useCallback(() => {
-    if (inFlightSentAtRef.current !== null) return;
     stageRef.current?.batchDraw();
-    captureFrame();
-  }, [captureFrame]);
+    forceCorrectiveCaptureRef.current = true;
+  }, []);
 
-  // Listen for main-process acks to free up the back-pressure slot.
+  // Listen for host-side frame releases to free up the back-pressure slot.
   useEffect(() => {
     if (!enabled) return;
-    return window.castApi.onNdiFrameAck((ackedName) => {
-      if (ackedName !== senderName) return;
-      framesAckedRef.current += 1;
-      inFlightSentAtRef.current = null;
+    return window.castApi.onNdiFrameReleased((release) => {
+      if (release.name !== senderName) return;
+      const activeAttempt = inFlightAttemptRef.current;
+      if (!doesReleaseMatchAttempt(release, activeAttempt)) return;
+      inFlightAttemptRef.current = null;
+      if (shouldTrackRendererReleaseDropReason(release)) {
+        incrementFrameDropReason(pendingDropReasonsRef.current, release.reason);
+      }
+      if (release.accepted) {
+        acceptedFramesRef.current += 1;
+        const matchedAttempt = activeAttempt!;
+        if (matchedAttempt.takeCorrelation) {
+          consumeNdiTakeCorrelation(senderName, matchedAttempt.takeCorrelation.sequenceId);
+          if (leasedTakeCorrelationRef.current?.sequenceId === matchedAttempt.takeCorrelation.sequenceId) {
+            leasedTakeCorrelationRef.current = null;
+          }
+        }
+      }
+      if (shouldScheduleCorrectiveRetry(release)) {
+        forceCorrectiveCaptureRef.current = true;
+      }
     });
   }, [enabled, senderName]);
+
+  useEffect(() => {
+    if (!enabled || sharedCaptureSource) return;
+    pinFallbackCaptureStagePixelRatio(stageRef.current);
+  }, [enabled, sharedCaptureSource]);
 
   // Single RAF loop driving capture at ~30fps. Only captures when the scene
   // signature changed or there are video nodes; the main process replays the
   // last frame on its own heartbeat when this side stays idle.
-  // Back-pressure: if a frame is in flight (no ack yet), skip — bursts piling
+  // Back-pressure: if a frame is in flight (no host-side release yet), skip — bursts piling
   // up in IPC are the main cause of latency under load.
   useEffect(() => {
     if (!enabled) return;
@@ -243,28 +386,50 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
       if (timestamp - lastCaptureTime >= FRAME_INTERVAL_MS) {
         lastCaptureTime = timestamp;
 
-        // Watchdog: if the main process never acked, free the slot so we
+        // Watchdog: if the host-side release never arrived, free the slot so we
         // don't stall forever after a dropped IPC message.
-        const sentAt = inFlightSentAtRef.current;
-        if (sentAt !== null && performance.now() - sentAt > ACK_WATCHDOG_MS) {
-          inFlightSentAtRef.current = null;
+        const activeAttempt = inFlightAttemptRef.current;
+        if (activeAttempt && performance.now() - activeAttempt.sentAtPerfMs > FRAME_RELEASE_WATCHDOG_MS) {
+          incrementFrameDropReason(pendingDropReasonsRef.current, 'ackTimeout');
+          forceCorrectiveCaptureRef.current = true;
+          inFlightAttemptRef.current = null;
         }
 
         const currentSignature = sceneSignature(scene.nodes, withAlpha, bindingSignature);
         const signatureChanged = currentSignature !== lastSignature;
-        const needsInitialFrame = framesAckedRef.current === 0;
-        if (needsInitialFrame || signatureChanged || hasVideoNodes || hasDynamicText) {
-          if (inFlightSentAtRef.current !== null) {
+        const currentSlideId = scene.slide?.id ?? null;
+        if (!doesTakeCorrelationMatch(leasedTakeCorrelationRef.current, currentSlideId, outputScopeKey)) {
+          leasedTakeCorrelationRef.current = null;
+        }
+        const hasPendingTake = currentSlideId
+          ? hasPendingNdiTakeCorrelation(senderName, currentSlideId, outputScopeKey)
+          : false;
+        const needsTakeCapture = hasPendingTake && leasedTakeCorrelationRef.current === null;
+        const needsInitialFrame = acceptedFramesRef.current === 0;
+        const needsCorrectiveFrame = forceCorrectiveCaptureRef.current;
+        if (needsInitialFrame || signatureChanged || hasVideoNodes || hasDynamicText || needsCorrectiveFrame || needsTakeCapture) {
+          if (inFlightAttemptRef.current !== null) {
             pendingDroppedBackpressureRef.current += 1;
+            incrementFrameDropReason(pendingDropReasonsRef.current, 'backpressure');
           } else {
             // Record signature-change timestamp so we can measure
-            // state-change → bits-on-wire latency end-to-end. Heartbeat /
-            // video-driven captures (no signature change) leave this null.
+            // state-change → accepted native-send latency end-to-end.
+            // Heartbeat / video-driven captures (no signature change) leave
+            // this null.
             if (signatureChanged && signatureChangedAtMsRef.current === null) {
               signatureChangedAtMsRef.current = Date.now();
             }
+            let takeCorrelation = leasedTakeCorrelationRef.current;
+            if (!takeCorrelation && currentSlideId) {
+              takeCorrelation = claimNdiTakeCorrelation(senderName, currentSlideId, outputScopeKey);
+              if (takeCorrelation) leasedTakeCorrelationRef.current = takeCorrelation;
+            }
             stageRef.current?.batchDraw();
-            if (captureFrame()) {
+            if (captureFrame(takeCorrelation)) {
+              if (needsCorrectiveFrame) {
+                pendingCorrectiveRetriesRef.current += 1;
+                forceCorrectiveCaptureRef.current = false;
+              }
               lastSignature = currentSignature;
             }
           }
@@ -279,9 +444,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
     return () => {
       running = false;
       if (rafId !== null) cancelAnimationFrame(rafId);
-      inFlightSentAtRef.current = null;
     };
-  }, [bindingSignature, captureFrame, enabled, hasVideoNodes, hasDynamicText, scene, withAlpha]);
+  }, [bindingSignature, captureFrame, enabled, hasVideoNodes, hasDynamicText, outputScopeKey, scene, senderName, withAlpha]);
 
   if (!enabled) return null;
   if (sharedCaptureSource) return null;
@@ -344,7 +508,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', enabled }
             </Group>
           ) : null}
           <Group>
-            <SceneSlideBackground background={scene.slide.background} width={scene.width} height={scene.height} surface={surface} />
+            <SceneSlideBackground background={scene.slide.background} width={scene.width} height={scene.height} surface={surface} ownerId={scene.slide.id} onMediaLoad={handleImageLoad} />
           </Group>
           <Group>
             {traverseSceneNodes(scene.nodes).map(({ node, frame }) => (

@@ -7,7 +7,7 @@ export function MemorySection() {
   const renderer = useMetricsStore((s) => s.rendererMemory);
   const system = useMetricsStore((s) => s.systemMetrics);
   return (
-    <SectionShell title="Memory & CPU" subtitle="Renderer JS heap and main-process metrics, sampled while this page is open.">
+    <SectionShell title="Memory & CPU" subtitle="Renderer heap plus main-process memory, CPU, and event-loop lag.">
       <div className="flex flex-col gap-3">
         <div>
           <div className="pb-1 text-xs font-semibold uppercase tracking-wide text-tertiary">Renderer</div>
@@ -32,6 +32,8 @@ export function MemorySection() {
               <Stat label="Heap total" value={formatBytes(system.main.heapTotalBytes)} />
               <Stat label="External" value={formatBytes(system.main.externalBytes)} />
               <Stat label="CPU" value={`${system.main.cpuPercent.toFixed(1)}%`} highlight={system.main.cpuPercent > 60} />
+              <Stat label="Loop lag p95" value={`${system.main.eventLoopLag.p95Ms.toFixed(2)} ms`} highlight={system.main.eventLoopLag.p95Ms > 25} />
+              <Stat label="Loop lag max" value={`${system.main.eventLoopLag.maxMs.toFixed(2)} ms`} highlight={system.main.eventLoopLag.maxMs > 50} />
               <Stat label="Uptime" value={formatDuration(system.uptimeSeconds * 1000)} />
             </div>
           )}

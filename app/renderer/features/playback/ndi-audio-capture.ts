@@ -81,9 +81,16 @@ interface AudioCaptureContext {
   analyser: AnalyserNode;
 }
 
+interface SourceRecord {
+  desiredConnected: boolean;
+  source: MediaElementAudioSourceNode | null;
+  connected: boolean;
+  context: AudioContext | null;
+}
+
 let initPromise: Promise<AudioCaptureContext | null> | null = null;
 let activeContext: AudioCaptureContext | null = null;
-const sources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
+const sources = new WeakMap<HTMLMediaElement, SourceRecord>();
 
 // Read-only handle for the observability page so it can sample the same
 // AudioContext we're using for capture. Returns null when capture hasn't
@@ -105,6 +112,10 @@ export function setNdiAudioEnabledOutputs(outputs: EnabledOutputs): void {
 }
 
 async function ensureContext(): Promise<AudioCaptureContext | null> {
+  if (activeContext?.ctx.state === 'closed') {
+    activeContext = null;
+    initPromise = null;
+  }
   if (initPromise) return initPromise;
   initPromise = (async () => {
     let ctx: AudioContext;
@@ -178,22 +189,42 @@ async function ensureContext(): Promise<AudioCaptureContext | null> {
 }
 
 export function addNdiAudioElement(element: HTMLMediaElement): void {
+  const record = sources.get(element) ?? {
+    desiredConnected: false,
+    source: null,
+    connected: false,
+    context: null,
+  } satisfies SourceRecord;
+  record.desiredConnected = true;
+  sources.set(element, record);
+
   void ensureContext().then((capture) => {
     if (!capture) return;
-    if (sources.has(element)) return;
-    try {
-      const source = capture.ctx.createMediaElementSource(element);
-      source.connect(capture.mixGain);
-      sources.set(element, source);
-    } catch (error) {
-      // createMediaElementSource throws if the element was already routed by
-      // someone else — there's no way to recover, the audio will just play
-      // through the speakers but won't be captured for NDI.
-      console.error('[ndi-audio-capture] createMediaElementSource failed:', error);
+    if (!record.desiredConnected) return;
+    if (record.context && record.context !== capture.ctx) {
+      if (record.connected && record.source) {
+        try { record.source.disconnect(); } catch { /* ignore */ }
+      }
+      record.source = null;
+      record.connected = false;
+      record.context = null;
     }
-    // Browsers start AudioContexts suspended until the page sees a gesture.
-    // The renderer is interactive by the time we're capturing, but resume
-    // defensively in case we got hooked up before a click.
+    record.context = capture.ctx;
+    if (!record.source) {
+      try {
+        record.source = capture.ctx.createMediaElementSource(element);
+      } catch (error) {
+        console.error('[ndi-audio-capture] createMediaElementSource failed:', error);
+        return;
+      }
+    }
+    if (!record.desiredConnected || record.connected || !record.source) return;
+    try {
+      record.source.connect(capture.mixGain);
+      record.connected = true;
+    } catch (error) {
+      console.error('[ndi-audio-capture] source connect failed:', error);
+    }
     if (capture.ctx.state === 'suspended') {
       void capture.ctx.resume().catch(() => undefined);
     }
@@ -201,10 +232,12 @@ export function addNdiAudioElement(element: HTMLMediaElement): void {
 }
 
 export function removeNdiAudioElement(element: HTMLMediaElement): void {
-  const source = sources.get(element);
-  if (!source) return;
+  const record = sources.get(element);
+  if (!record) return;
+  record.desiredConnected = false;
+  if (!record.source || !record.connected) return;
   try {
-    source.disconnect();
+    record.source.disconnect();
   } catch { /* ignore */ }
-  sources.delete(element);
+  record.connected = false;
 }

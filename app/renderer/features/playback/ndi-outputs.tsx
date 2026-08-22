@@ -1,11 +1,10 @@
-import { useEffect } from 'react';
-import type { NdiOutputName } from '@lumacast/protocol';
 import { useNdi } from '../../contexts/app-context';
-import { useRenderScenes } from '../../contexts/canvas/canvas-context';
+import { useNavigation } from '../../contexts/navigation-context';
 import { BindingProvider } from '@lumacast/canvas';
 import { NdiFrameCapture } from './ndi-frame-capture';
-import { setNdiAudioEnabledOutputs } from './ndi-audio-capture';
+import { useProgramOutput } from './use-program-output';
 import { useProgramBindingValue, useStageBindingValue, useStageScene } from './use-stage-scene';
+import { buildNdiTakeScopeKey } from '../../utils/ndi-take-correlation';
 
 // Mounts one NdiFrameCapture per configured NDI output. Each instance owns its
 // own off-screen Konva stage and capture loop — they only run when their
@@ -18,37 +17,37 @@ import { useProgramBindingValue, useStageBindingValue, useStageScene } from './u
 // off-screen stage renders a black frame.
 export function NdiOutputs() {
   const { state: { outputState } } = useNdi();
-  const { programScene } = useRenderScenes();
+  const { currentOutputPlaylistEntryId, currentOutputItemRef } = useNavigation();
+  const { scene: programScene } = useProgramOutput();
   const stageScene = useStageScene();
   const programBindingValue = useProgramBindingValue();
   const stageBindingValue = useStageBindingValue();
-
-  // Audio rides the audience feed only — the stage NDI is a presenter monitor
-  // and is intentionally silent. If that ever changes, add 'stage' here too.
-  useEffect(() => {
-    const enabled = new Set<NdiOutputName>();
-    if (outputState.audience) enabled.add('audience');
-    setNdiAudioEnabledOutputs(enabled);
-  }, [outputState.audience]);
+  const outputScopeKey = buildNdiTakeScopeKey(currentOutputPlaylistEntryId, currentOutputItemRef);
 
   return (
     <>
-      <BindingProvider value={programBindingValue}>
-        <NdiFrameCapture
-          senderName="audience"
-          scene={programScene}
-          surface="ndi-show"
-          enabled={outputState.audience}
-        />
-      </BindingProvider>
-      <BindingProvider value={stageBindingValue}>
-        <NdiFrameCapture
-          senderName="stage"
-          scene={stageScene}
-          surface="ndi-stage"
-          enabled={outputState.stage}
-        />
-      </BindingProvider>
+      {outputState.audience ? (
+        <BindingProvider value={programBindingValue}>
+          <NdiFrameCapture
+            senderName="audience"
+            scene={programScene}
+            surface="ndi-show"
+            outputScopeKey={outputScopeKey}
+            enabled
+          />
+        </BindingProvider>
+      ) : null}
+      {outputState.stage ? (
+        <BindingProvider value={stageBindingValue}>
+          <NdiFrameCapture
+            senderName="stage"
+            scene={stageScene}
+            surface="ndi-stage"
+            outputScopeKey={null}
+            enabled
+          />
+        </BindingProvider>
+      ) : null}
     </>
   );
 }

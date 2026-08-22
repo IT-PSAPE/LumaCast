@@ -1,5 +1,13 @@
 import { utilityProcess, type UtilityProcess } from 'electron';
-import type { NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState } from '@lumacast/protocol';
+import type {
+  NdiDiagnostics,
+  NdiFrameRelease,
+  NdiFrameTelemetry,
+  NdiOutputConfig,
+  NdiOutputConfigMap,
+  NdiOutputName,
+  NdiOutputState,
+} from '@lumacast/protocol';
 import type {
   BlackoutFlushOptions,
   NdiHostCommand,
@@ -9,6 +17,8 @@ import type {
 
 type StateChangeCallback = (state: NdiOutputState) => void;
 type DiagnosticsChangeCallback = (diagnostics: NdiDiagnostics) => void;
+type FrameReleasedCallback = (release: NdiFrameRelease) => void;
+const TEARDOWN_ACK_TIMEOUT_MS = 1_000;
 
 export interface NdiServiceProxyOptions {
   outputConfigs: NdiOutputConfigMap;
@@ -19,12 +29,16 @@ export interface NdiServiceProxyOptions {
 export class NdiServiceProxy implements NdiServiceLike {
   private readonly host: UtilityProcess;
   private destroyed = false;
+  private teardownStarted = false;
+  private hostKilled = false;
+  private teardownTimer: ReturnType<typeof setTimeout> | null = null;
   private cachedOutputState: NdiOutputState = { audience: false, stage: false };
   private cachedOutputConfigs: NdiOutputConfigMap;
   private cachedDiagnostics: NdiDiagnostics;
   private readonly onOutputConfigsChanged: (configs: NdiOutputConfigMap) => void;
   private stateChangeListeners: StateChangeCallback[] = [];
   private diagnosticsChangeListeners: DiagnosticsChangeCallback[] = [];
+  private frameReleasedListeners: FrameReleasedCallback[] = [];
 
   constructor(options: NdiServiceProxyOptions) {
     this.cachedOutputConfigs = options.outputConfigs;
@@ -90,7 +104,7 @@ export class NdiServiceProxy implements NdiServiceLike {
     height: number,
     telemetry?: NdiFrameTelemetry,
   ): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.teardownStarted) return;
     const buffer = rgba.buffer as ArrayBuffer;
     // Keep the main -> utility-process hop on plain structured clone. Electron
     // utilityProcess.postMessage only documents MessagePort transfer support;
@@ -109,7 +123,7 @@ export class NdiServiceProxy implements NdiServiceLike {
     channels: number,
     samplesPerChannel: number,
   ): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.teardownStarted) return;
     // Copy into a fresh ArrayBuffer so structured clone serializes only the
     // actual samples — `samples.buffer` may be a view into a larger backing
     // buffer (e.g. when slicing a worklet output).
@@ -138,8 +152,15 @@ export class NdiServiceProxy implements NdiServiceLike {
     };
   }
 
+  onFrameReleased(callback: FrameReleasedCallback): () => void {
+    this.frameReleasedListeners.push(callback);
+    return () => {
+      this.frameReleasedListeners = this.frameReleasedListeners.filter((listener) => listener !== callback);
+    };
+  }
+
   flushBlackoutAndDestroy(target?: NdiOutputName, options?: BlackoutFlushOptions): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.teardownStarted) return;
     try {
       this.send({ type: 'flushBlackout', options: { ...options, target } });
     } catch (error) {
@@ -151,34 +172,44 @@ export class NdiServiceProxy implements NdiServiceLike {
   }
 
   destroy(): void {
-    if (this.destroyed) return;
-    this.destroyed = true;
+    if (this.destroyed || this.teardownStarted) return;
+    this.teardownStarted = true;
     // Best-effort blackout before tearing the host down. Use the fast budget —
     // teardown can be triggered from `before-quit` and we cannot block app
     // exit longer than the user's window-close grace period.
     try {
-      this.send({ type: 'flushBlackout', options: { totalBudgetMs: 500 } });
+      this.postToHost({ type: 'flushBlackout', options: { totalBudgetMs: 500 } });
     } catch {
       // ignore — proceed to destroy
     }
     try {
-      this.send({ type: 'destroy' });
+      this.postToHost({ type: 'destroy' });
     } catch {
-      // ignore — we'll kill the host below
+      // ignore — fallback timer below will still kill the host
     }
-    try {
-      this.host.kill();
-    } catch (error) {
-      console.error('[NdiServiceProxy] Error killing host:', error);
-    }
+    this.stateChangeListeners = [];
+    this.diagnosticsChangeListeners = [];
+    this.frameReleasedListeners = [];
+    this.teardownTimer = setTimeout(() => {
+      this.finishDestroy();
+    }, TEARDOWN_ACK_TIMEOUT_MS);
   }
 
   private send(cmd: NdiHostCommand): void {
-    if (this.destroyed) return;
+    if (this.destroyed || this.teardownStarted) return;
+    this.postToHost(cmd);
+  }
+
+  private postToHost(cmd: NdiHostCommand): void {
     this.host.postMessage(cmd);
   }
 
   private handleHostEvent(event: NdiHostEvent): void {
+    if (event.type === 'teardownComplete') {
+      this.finishDestroy();
+      return;
+    }
+    if (this.destroyed || this.teardownStarted) return;
     switch (event.type) {
       case 'ready':
         this.cachedOutputState = event.outputState;
@@ -199,6 +230,24 @@ export class NdiServiceProxy implements NdiServiceLike {
         this.cachedDiagnostics = event.diagnostics;
         for (const listener of this.diagnosticsChangeListeners) listener(event.diagnostics);
         break;
+      case 'frameReleased':
+        for (const listener of this.frameReleasedListeners) listener(event.release);
+        break;
+    }
+  }
+
+  private finishDestroy(): void {
+    if (this.hostKilled) return;
+    this.hostKilled = true;
+    this.destroyed = true;
+    if (this.teardownTimer) {
+      clearTimeout(this.teardownTimer);
+      this.teardownTimer = null;
+    }
+    try {
+      this.host.kill();
+    } catch (error) {
+      console.error('[NdiServiceProxy] Error killing host:', error);
     }
   }
 }
@@ -216,6 +265,10 @@ function createInitialDiagnostics(configs: NdiOutputConfigMap): NdiDiagnostics {
     runtimePath: null,
     activeSender: null,
     senders: { audience: null, stage: null },
+    availabilityDrops: {
+      audience: { outputDisabled: 0, senderUnavailable: 0 },
+      stage: { outputDisabled: 0, senderUnavailable: 0 },
+    },
     sourceStatus: 'idle',
     lastError: null,
   };

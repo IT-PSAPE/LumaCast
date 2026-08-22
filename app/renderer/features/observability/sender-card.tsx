@@ -1,15 +1,38 @@
-import type { NdiOutputName, NdiActiveSenderDiagnostics } from '@lumacast/protocol';
+import type { NdiOutputName, NdiActiveSenderDiagnostics, NdiOutputAvailabilityDropCounts } from '@lumacast/protocol';
 import { Stat } from './stat';
 import { PipelineLatencyGroup } from './pipeline-latency-group';
 import { ReceiverHealthGroup } from './receiver-health-group';
 import { OUTPUT_TITLES } from './observability-constants';
 import { formatDuration, formatNumber, formatBytes } from './observability-format';
 
-export function SenderCard({ name, sender }: { name: NdiOutputName; sender: NdiActiveSenderDiagnostics | null }) {
+function formatDropReasons(frameDrops: NdiActiveSenderDiagnostics['performance']['frameDrops']): string {
+  const visible = Object.entries(frameDrops).filter(([, count]) => count > 0);
+  if (visible.length === 0) return '—';
+  return visible.map(([reason, count]) => `${reason}:${formatNumber(count)}`).join(' · ');
+}
+
+function formatAvailabilityDrops(frameDrops: NdiOutputAvailabilityDropCounts): string {
+  const visible = Object.entries(frameDrops).filter(([, count]) => count > 0);
+  if (visible.length === 0) return '—';
+  return visible.map(([reason, count]) => `${reason}:${formatNumber(count)}`).join(' · ');
+}
+
+export function SenderCard({
+  name,
+  sender,
+  availabilityDrops,
+}: {
+  name: NdiOutputName;
+  sender: NdiActiveSenderDiagnostics | null;
+  availabilityDrops: NdiOutputAvailabilityDropCounts;
+}) {
   if (!sender) {
     return (
       <div className="rounded border border-secondary px-3 py-2 text-sm text-tertiary">
         {OUTPUT_TITLES[name]} sender: inactive
+        <div className="pt-1">
+          <span className="font-medium text-primary">Unavailable/disabled drops:</span> {formatAvailabilityDrops(availabilityDrops)}
+        </div>
       </div>
     );
   }
@@ -32,6 +55,7 @@ export function SenderCard({ name, sender }: { name: NdiOutputName; sender: NdiA
         <Stat label="Frames sent" value={formatNumber(performance.framesSent)} />
         <Stat label="Captured" value={formatNumber(performance.framesCaptured)} />
         <Stat label="Replayed" value={formatNumber(performance.framesReplayed)} />
+        <Stat label="Corrective retries" value={formatNumber(performance.correctiveFrameRetries)} highlight={performance.correctiveFrameRetries > 0} />
         <Stat label="Backpressure drops" value={`${formatNumber(performance.framesDroppedBackpressure)} (${dropRate.toFixed(1)}%)`} highlight={dropRate > 1} />
         <Stat label="Skipped captures" value={formatNumber(performance.skippedCaptures)} />
         <Stat label="Rejected" value={formatNumber(performance.framesRejected)} highlight={performance.framesRejected > 0} />
@@ -61,6 +85,12 @@ export function SenderCard({ name, sender }: { name: NdiOutputName; sender: NdiA
         <Stat label="Silence frames" value={formatNumber(audio.audioSilenceFramesSent)} />
         <Stat label="Audio rejected" value={formatNumber(audio.audioFramesRejected)} highlight={audio.audioFramesRejected > 0} />
         <Stat label="Audio format" value={audio.lastSampleRate > 0 ? `${audio.lastSampleRate} Hz × ${audio.lastChannels}ch` : 'inactive'} />
+      </div>
+      <div className="mt-2 text-sm text-secondary">
+        <span className="font-medium text-primary">Drop reasons:</span> {formatDropReasons(performance.frameDrops)}
+      </div>
+      <div className="mt-1 text-sm text-secondary">
+        <span className="font-medium text-primary">Unavailable/disabled drops:</span> {formatAvailabilityDrops(availabilityDrops)}
       </div>
       <PipelineLatencyGroup pipeline={performance.pipeline} />
       <ReceiverHealthGroup connectionCount={sender.connectionCount} tally={sender.tally} />

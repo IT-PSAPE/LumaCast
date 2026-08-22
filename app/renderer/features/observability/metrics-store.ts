@@ -31,6 +31,7 @@ export interface ObsEvent {
 
 export interface VideoQualitySample {
   capturedAtMs: number;
+  elementKey: string;
   src: string;
   // Best-effort label — uses src basename or a counter when unknown.
   label: string;
@@ -41,6 +42,7 @@ export interface VideoQualitySample {
   decodedFps: number;
   isPlaying: boolean;
   hasAudio: boolean;
+  readyState: number;
   currentTimeSeconds: number;
   durationSeconds: number;
 }
@@ -58,14 +60,21 @@ export interface AudioHealthSnapshot {
 
 export interface CanvasRenderSnapshot {
   capturedAtMs: number;
-  // Rolling p50/p95 of inter-frame intervals from the renderer rAF loop —
-  // measured by the observability page itself when active.
+  // Rolling p50/p95 of inter-frame intervals from the renderer rAF loop.
   p50FrameIntervalMs: number;
   p95FrameIntervalMs: number;
   lastFrameIntervalMs: number;
-  // Konva stage layer count if available — useful for spotting regressions
-  // where unexpected layers are mounted.
-  layerCount: number;
+  overBudgetFrameCount: number;
+  mountedCanvasCount: number;
+  mountedVideoCount: number;
+  playingVideoCount: number;
+  visibilityState: DocumentVisibilityState;
+  workbenchMode: string;
+  drawerTab: string;
+  longTaskCount: number;
+  longTaskTotalMs: number;
+  lastLongTaskMs: number;
+  worstLongTaskMs: number;
 }
 
 export interface RendererMemorySnapshot {
@@ -76,7 +85,13 @@ export interface RendererMemorySnapshot {
 }
 
 const EVENT_RING_LIMIT = 200;
+const MIRROR_TO_LOGS_STORAGE_KEY = 'obs-mirror-events-to-logs';
 let eventIdSeq = 0;
+
+function readMirrorEventsToConsole(): boolean {
+  if (typeof window === 'undefined') return false;
+  return window.localStorage.getItem(MIRROR_TO_LOGS_STORAGE_KEY) === '1';
+}
 
 interface MetricsStoreState {
   events: ObsEvent[];
@@ -85,6 +100,7 @@ interface MetricsStoreState {
   canvasRender: CanvasRenderSnapshot | null;
   rendererMemory: RendererMemorySnapshot | null;
   systemMetrics: SystemMetricsSnapshot | null;
+  mirrorEventsToConsole: boolean;
 
   recordEvent: (
     category: ObsEventCategory,
@@ -98,15 +114,17 @@ interface MetricsStoreState {
   setCanvasRender: (snapshot: CanvasRenderSnapshot | null) => void;
   setRendererMemory: (snapshot: RendererMemorySnapshot | null) => void;
   setSystemMetrics: (snapshot: SystemMetricsSnapshot | null) => void;
+  setMirrorEventsToConsole: (enabled: boolean) => void;
 }
 
-export const useMetricsStore = create<MetricsStoreState>()((set) => ({
+export const useMetricsStore = create<MetricsStoreState>()((set, get) => ({
   events: [],
   videoQualities: {},
   audioHealth: null,
   canvasRender: null,
   rendererMemory: null,
   systemMetrics: null,
+  mirrorEventsToConsole: readMirrorEventsToConsole(),
 
   recordEvent: (category, message, details, level = 'info') => {
     const event: ObsEvent = {
@@ -124,8 +142,7 @@ export const useMetricsStore = create<MetricsStoreState>()((set) => ({
       next.push(event);
       return { events: next };
     });
-    // Also push to the file logger via console — main process bridges
-    // renderer console-messages into session-*.log.
+    if (!get().mirrorEventsToConsole) return;
     const detailsText = details ? ` ${JSON.stringify(details)}` : '';
     const line = `[obs] ${category} :: ${message}${detailsText}`;
     if (level === 'error') console.error(line);
@@ -135,13 +152,19 @@ export const useMetricsStore = create<MetricsStoreState>()((set) => ({
   clearEvents: () => set({ events: [] }),
   setVideoQualities: (entries) => set(() => {
     const map: Record<string, VideoQualitySample> = {};
-    for (const entry of entries) map[entry.src] = entry;
+    for (const entry of entries) map[entry.elementKey] = entry;
     return { videoQualities: map };
   }),
   setAudioHealth: (snapshot) => set({ audioHealth: snapshot }),
   setCanvasRender: (snapshot) => set({ canvasRender: snapshot }),
   setRendererMemory: (snapshot) => set({ rendererMemory: snapshot }),
   setSystemMetrics: (snapshot) => set({ systemMetrics: snapshot }),
+  setMirrorEventsToConsole: (enabled) => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(MIRROR_TO_LOGS_STORAGE_KEY, enabled ? '1' : '0');
+    }
+    set({ mirrorEventsToConsole: enabled });
+  },
 }));
 
 export { useShallow };

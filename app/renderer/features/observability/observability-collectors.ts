@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { useMetricsStore, type AudioHealthSnapshot, type RendererMemorySnapshot, type VideoQualitySample } from './metrics-store';
+import { useWorkbench } from '../../contexts/workbench-context';
+import { recordObsEvent, useMetricsStore, type AudioHealthSnapshot, type RendererMemorySnapshot, type VideoQualitySample } from './metrics-store';
 import { getActiveNdiAudioContext } from '../playback/ndi-audio-capture';
 
 const SYSTEM_METRICS_INTERVAL_MS = 2000;
@@ -7,6 +8,9 @@ const RENDERER_MEMORY_INTERVAL_MS = 1000;
 const VIDEO_QUALITY_INTERVAL_MS = 1000;
 const AUDIO_HEALTH_INTERVAL_MS = 250;
 const CANVAS_RENDER_SAMPLE_WINDOW = 60;
+const CANVAS_RENDER_GAP_EVENT_THRESHOLD_MS = 50;
+const CANVAS_RENDER_EVENT_DEBOUNCE_MS = 1000;
+const LONG_TASK_EVENT_THRESHOLD_MS = 50;
 
 interface PerformanceMemoryShim {
   usedJSHeapSize: number;
@@ -14,9 +18,8 @@ interface PerformanceMemoryShim {
   jsHeapSizeLimit: number;
 }
 
-// Polls main-process system metrics over IPC. Mounted only on the
-// Observability page so the IPC traffic is confined to when the user is
-// actually looking at it.
+// Polls main-process system metrics over IPC from the always-on app-shell
+// observability runtime.
 export function useSystemMetricsCollector(active: boolean): void {
   const setSystemMetrics = useMetricsStore((s) => s.setSystemMetrics);
   useEffect(() => {
@@ -73,9 +76,20 @@ interface VideoSampleCarry {
 export function useVideoQualityCollector(active: boolean): void {
   const setVideoQualities = useMetricsStore((s) => s.setVideoQualities);
   const carryRef = useRef<Map<string, VideoSampleCarry>>(new Map());
+  const videoElementKeysRef = useRef<WeakMap<HTMLVideoElement, string>>(new WeakMap());
+  const videoElementKeySeqRef = useRef(0);
   useEffect(() => {
     if (!active) return undefined;
     const carry = carryRef.current;
+    const videoElementKeys = videoElementKeysRef.current;
+    function getVideoElementKey(video: HTMLVideoElement): string {
+      let key = videoElementKeys.get(video);
+      if (key) return key;
+      videoElementKeySeqRef.current += 1;
+      key = `video-${videoElementKeySeqRef.current}`;
+      videoElementKeys.set(video, key);
+      return key;
+    }
     function sample() {
       const elements = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
       const now = Date.now();
@@ -83,24 +97,25 @@ export function useVideoQualityCollector(active: boolean): void {
       const liveKeys = new Set<string>();
       for (const el of elements) {
         const src = el.currentSrc || el.src;
-        if (!src) continue;
-        liveKeys.add(src);
+        const elementKey = getVideoElementKey(el);
+        liveKeys.add(elementKey);
         const quality = typeof el.getVideoPlaybackQuality === 'function'
           ? el.getVideoPlaybackQuality()
           : null;
         const totalDecoded = quality?.totalVideoFrames ?? 0;
         const dropped = quality?.droppedVideoFrames ?? 0;
-        const previous = carry.get(src);
+        const previous = carry.get(elementKey);
         let decodedFps = 0;
         if (previous) {
           const elapsedSec = Math.max(0.001, (now - previous.lastSampledAt) / 1000);
           decodedFps = Math.max(0, (totalDecoded - previous.lastTotalDecoded) / elapsedSec);
         }
-        carry.set(src, { lastTotalDecoded: totalDecoded, lastSampledAt: now });
+        carry.set(elementKey, { lastTotalDecoded: totalDecoded, lastSampledAt: now });
 
-        const label = labelForVideoSrc(src);
+        const label = labelForVideoSrc(src, elementKey);
         samples.push({
           capturedAtMs: now,
+          elementKey,
           src,
           label,
           droppedVideoFrames: dropped,
@@ -108,6 +123,7 @@ export function useVideoQualityCollector(active: boolean): void {
           decodedFps,
           isPlaying: !el.paused && !el.ended && el.readyState >= 2,
           hasAudio: 'mozHasAudio' in el ? Boolean((el as unknown as { mozHasAudio: boolean }).mozHasAudio) : true,
+          readyState: el.readyState,
           currentTimeSeconds: el.currentTime,
           durationSeconds: Number.isFinite(el.duration) ? el.duration : 0,
         });
@@ -124,13 +140,14 @@ export function useVideoQualityCollector(active: boolean): void {
   }, [active, setVideoQualities]);
 }
 
-function labelForVideoSrc(src: string): string {
+function labelForVideoSrc(src: string, fallbackLabel: string): string {
+  if (!src) return fallbackLabel;
   try {
     const url = new URL(src, window.location.href);
     const parts = url.pathname.split('/').filter(Boolean);
-    return parts[parts.length - 1] ?? src;
+    return parts[parts.length - 1] ?? fallbackLabel;
   } catch {
-    return src;
+    return src || fallbackLabel;
   }
 }
 
@@ -190,39 +207,139 @@ export function useAudioHealthCollector(active: boolean): void {
 // good enough to spot stalls.
 export function useCanvasRenderCollector(active: boolean): void {
   const setCanvasRender = useMetricsStore((s) => s.setCanvasRender);
+  const { state: { workbenchMode, drawerTab } } = useWorkbench();
+  const workbenchModeRef = useRef(workbenchMode);
+  workbenchModeRef.current = workbenchMode;
+  const drawerTabRef = useRef(drawerTab);
+  drawerTabRef.current = drawerTab;
   useEffect(() => {
     if (!active) return undefined;
     let rafId: number | null = null;
     let lastTimestamp = 0;
     const samples: number[] = [];
     let lastEmitAt = 0;
+    let overBudgetFrameCount = 0;
+    let lastGapEventAt = 0;
+    let lastLongTaskEventAt = 0;
+
+    function getRenderContext() {
+      const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
+      return {
+        mountedCanvasCount: document.querySelectorAll('canvas').length,
+        mountedVideoCount: videos.length,
+        playingVideoCount: videos.filter((video) => !video.paused && !video.ended && video.readyState >= 2).length,
+        visibilityState: document.visibilityState,
+        workbenchMode: workbenchModeRef.current,
+        drawerTab: drawerTabRef.current,
+      };
+    }
+
+    const longTaskStats = {
+      count: 0,
+      totalMs: 0,
+      lastMs: 0,
+      worstMs: 0,
+    };
+    const longTaskObserver = typeof PerformanceObserver === 'function'
+      ? new PerformanceObserver((list) => {
+          for (const entry of list.getEntries()) {
+            if (document.visibilityState !== 'visible') continue;
+            longTaskStats.count += 1;
+            longTaskStats.totalMs += entry.duration;
+            longTaskStats.lastMs = entry.duration;
+            longTaskStats.worstMs = Math.max(longTaskStats.worstMs, entry.duration);
+            const now = Date.now();
+            if (
+              document.visibilityState === 'visible'
+              && entry.duration >= LONG_TASK_EVENT_THRESHOLD_MS
+              && now - lastLongTaskEventAt >= CANVAS_RENDER_EVENT_DEBOUNCE_MS
+            ) {
+              lastLongTaskEventAt = now;
+              recordObsEvent(
+                'system',
+                'Renderer long task threshold exceeded',
+                {
+                  durationMs: entry.duration,
+                  ...getRenderContext(),
+                },
+                'warn',
+              );
+            }
+          }
+        })
+      : null;
+
+    try {
+      longTaskObserver?.observe({ entryTypes: ['longtask'] });
+    } catch {
+      longTaskObserver?.disconnect();
+    }
 
     function tick(timestamp: number) {
+      if (document.visibilityState !== 'visible') {
+        lastTimestamp = 0;
+        rafId = requestAnimationFrame(tick);
+        return;
+      }
       if (lastTimestamp > 0) {
         const interval = timestamp - lastTimestamp;
         if (samples.length >= CANVAS_RENDER_SAMPLE_WINDOW) samples.shift();
         samples.push(interval);
+        if (interval > 25) {
+          overBudgetFrameCount += 1;
+        }
         const now = Date.now();
+        if (interval >= CANVAS_RENDER_GAP_EVENT_THRESHOLD_MS && now - lastGapEventAt >= CANVAS_RENDER_EVENT_DEBOUNCE_MS) {
+          lastGapEventAt = now;
+          recordObsEvent(
+            'system',
+            'Renderer rAF gap threshold exceeded',
+            {
+              frameIntervalMs: interval,
+              ...getRenderContext(),
+            },
+            'warn',
+          );
+        }
         if (now - lastEmitAt >= 500 && samples.length >= 2) {
           lastEmitAt = now;
           const sorted = samples.slice().sort((a, b) => a - b);
           const p50 = sorted[Math.floor(sorted.length * 0.5)];
           const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+          const context = getRenderContext();
           setCanvasRender({
             capturedAtMs: now,
             p50FrameIntervalMs: p50,
             p95FrameIntervalMs: p95,
             lastFrameIntervalMs: interval,
-            layerCount: document.querySelectorAll('canvas').length,
+            overBudgetFrameCount,
+            mountedCanvasCount: context.mountedCanvasCount,
+            mountedVideoCount: context.mountedVideoCount,
+            playingVideoCount: context.playingVideoCount,
+            visibilityState: context.visibilityState,
+            workbenchMode: context.workbenchMode,
+            drawerTab: context.drawerTab,
+            longTaskCount: longTaskStats.count,
+            longTaskTotalMs: longTaskStats.totalMs,
+            lastLongTaskMs: longTaskStats.lastMs,
+            worstLongTaskMs: longTaskStats.worstMs,
           });
         }
       }
       lastTimestamp = timestamp;
       rafId = requestAnimationFrame(tick);
     }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        lastTimestamp = 0;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     rafId = requestAnimationFrame(tick);
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      longTaskObserver?.disconnect();
     };
   }, [active, setCanvasRender]);
 }

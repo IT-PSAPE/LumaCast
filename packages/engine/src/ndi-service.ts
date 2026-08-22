@@ -1,6 +1,30 @@
 import { performance } from 'node:perf_hooks';
-import { NDI_OUTPUT_HEIGHT, NDI_OUTPUT_ORDER, NDI_OUTPUT_WIDTH } from '@lumacast/protocol';
-import type { NdiActiveSenderDiagnostics, NdiDiagnostics, NdiFrameTelemetry, NdiOutputConfig, NdiOutputConfigMap, NdiOutputName, NdiOutputState, NdiPipelineLatencyDiagnostics, NdiPipelineStageStats, NdiSenderAudioDiagnostics, NdiSenderPerformanceDiagnostics, NdiSourceStatus } from '@lumacast/protocol';
+import {
+  NDI_OUTPUT_HEIGHT,
+  NDI_OUTPUT_ORDER,
+  NDI_OUTPUT_WIDTH,
+  sanitizeNdiFrameTelemetry,
+} from '@lumacast/protocol';
+import type {
+  NdiActiveSenderDiagnostics,
+  NdiDiagnostics,
+  NdiFrameDropReason,
+  NdiFrameDropReasonCounts,
+  NdiFrameRelease,
+  NdiFrameReleaseReason,
+  NdiFrameTelemetry,
+  NdiOutputConfig,
+  NdiOutputAvailabilityDropCounts,
+  NdiOutputConfigMap,
+  NdiOutputName,
+  NdiOutputState,
+  NdiTakeReason,
+  NdiPipelineLatencyDiagnostics,
+  NdiPipelineStageStats,
+  NdiSenderAudioDiagnostics,
+  NdiSenderPerformanceDiagnostics,
+  NdiSourceStatus,
+} from '@lumacast/protocol';
 import { defaultNdiModuleLoader, type NdiNativeModule } from './ndi-native-module';
 
 const HEARTBEAT_INTERVAL_MS = Math.round(1000 / 30);
@@ -9,6 +33,8 @@ const DIAGNOSTICS_EMIT_INTERVAL_MS = 250;
 const BYTES_PER_PIXEL = 4;
 const MAX_FRAME_BYTES = NDI_OUTPUT_WIDTH * NDI_OUTPUT_HEIGHT * BYTES_PER_PIXEL;
 const ROLLING_AVERAGE_WINDOW = 60;
+const MAX_TELEMETRY_COUNT = Number.MAX_SAFE_INTEGER;
+const MAX_PIPELINE_SPAN_MS = 60_000;
 // Send-duration sample window — sized to fit ~2s of 30 fps so percentiles
 // reflect recent behavior, not lifetime stats.
 const SEND_LATENCY_SAMPLE_WINDOW = 64;
@@ -32,6 +58,7 @@ const BLACKOUT_AUDIO_SAMPLES_PER_CHANNEL = 1024;
 
 type StateChangeCallback = (state: NdiOutputState) => void;
 type DiagnosticsChangeCallback = (diagnostics: NdiDiagnostics) => void;
+type FrameReleasedCallback = (release: NdiFrameRelease) => void;
 
 interface NdiServiceOptions {
   outputConfigs: NdiOutputConfigMap;
@@ -47,8 +74,11 @@ export interface BlackoutOptions {
 }
 
 interface PipelineSampleBuffers {
-  frameAgeAtWire: RollingSampleBuffer;
-  signatureToWire: RollingSampleBuffer;
+  frameAgeAtNativeSend: RollingSampleBuffer;
+  signatureToNativeSend: RollingSampleBuffer;
+  activateToNativeSend: RollingSampleBuffer;
+  takeToNativeSend: RollingSampleBuffer;
+  takeReasonToNativeSend: Record<NdiTakeReason, RollingSampleBuffer>;
   captureToRendererSend: RollingSampleBuffer;
   rendererToMainIpc: RollingSampleBuffer;
   mainHandler: RollingSampleBuffer;
@@ -57,8 +87,11 @@ interface PipelineSampleBuffers {
 }
 
 interface PipelineLastSamples {
-  frameAgeAtWire: number;
-  signatureToWire: number;
+  frameAgeAtNativeSend: number;
+  signatureToNativeSend: number;
+  activateToNativeSend: number;
+  takeToNativeSend: number;
+  takeReasonToNativeSend: Record<NdiTakeReason, number>;
   captureToRendererSend: number;
   rendererToMainIpc: number;
   mainHandler: number;
@@ -81,6 +114,15 @@ interface SenderState {
   sendIntervalSamples: RollingSampleBuffer;
   pipelineSamples: PipelineSampleBuffers;
   pipelineLastSamples: PipelineLastSamples;
+  acceptedTakeKeys: string[];
+  acceptedTakeKeySet: Set<string>;
+}
+
+interface AcceptedCorrelationAggregation {
+  kind: 'activate' | 'take';
+  reason: NdiTakeReason;
+  spanMs: number;
+  takeKey: string;
 }
 
 class RollingAverage {
@@ -164,6 +206,10 @@ export class NdiService {
   private asyncVideoSend = false;
   private outputState: NdiOutputState = { audience: false, stage: false };
   private outputConfigs: NdiOutputConfigMap;
+  private availabilityDrops: Record<NdiOutputName, NdiOutputAvailabilityDropCounts> = {
+    audience: { outputDisabled: 0, senderUnavailable: 0 },
+    stage: { outputDisabled: 0, senderUnavailable: 0 },
+  };
   private onOutputConfigsChanged: (configs: NdiOutputConfigMap) => void;
   private moduleLoader: () => NdiNativeModule;
   private senders: Map<NdiOutputName, SenderState> = new Map();
@@ -181,6 +227,7 @@ export class NdiService {
 
   private stateChangeListeners: StateChangeCallback[] = [];
   private diagnosticsChangeListeners: DiagnosticsChangeCallback[] = [];
+  private frameReleasedListeners: FrameReleasedCallback[] = [];
 
   constructor(options: NdiServiceOptions) {
     this.outputConfigs = options.outputConfigs;
@@ -234,16 +281,58 @@ export class NdiService {
   }
 
   receiveFrame(name: NdiOutputName, rgba: Uint8Array, width: number, height: number, telemetry?: NdiFrameTelemetry): void {
-    if (this.destroyed) return;
-    if (!this.outputState[name]) return;
+    const sanitizedTelemetry = sanitizeNdiFrameTelemetry(telemetry);
+    if (this.destroyed) {
+      this.availabilityDrops[name].senderUnavailable += 1;
+      this.queueDiagnosticsEmit();
+      this.emitFrameReleased({
+        name,
+        attemptId: sanitizedTelemetry?.attemptId,
+        accepted: false,
+        reason: 'senderUnavailable',
+        releasedAtMs: Date.now(),
+      });
+      return;
+    }
+    if (!this.outputState[name]) {
+      this.availabilityDrops[name].outputDisabled += 1;
+      this.queueDiagnosticsEmit();
+      this.emitFrameReleased({
+        name,
+        attemptId: sanitizedTelemetry?.attemptId,
+        accepted: false,
+        reason: 'outputDisabled',
+        releasedAtMs: Date.now(),
+      });
+      return;
+    }
 
     const sender = this.senders.get(name);
-    if (!sender) return;
+    if (!sender) {
+      this.availabilityDrops[name].senderUnavailable += 1;
+      this.queueDiagnosticsEmit();
+      this.emitFrameReleased({
+        name,
+        attemptId: sanitizedTelemetry?.attemptId,
+        accepted: false,
+        reason: 'senderUnavailable',
+        releasedAtMs: Date.now(),
+      });
+      return;
+    }
 
     if (!this.isValidFramePayload(rgba, width, height)) {
       sender.diagnostics.performance.framesRejected += 1;
+      sender.diagnostics.performance.frameDrops.invalidPayload += 1;
       this.lastError = `Rejected invalid NDI frame for ${name}`;
       this.queueDiagnosticsEmit();
+      this.emitFrameReleased({
+        name,
+        attemptId: sanitizedTelemetry?.attemptId,
+        accepted: false,
+        reason: 'invalidPayload',
+        releasedAtMs: Date.now(),
+      });
       return;
     }
 
@@ -258,11 +347,22 @@ export class NdiService {
       performanceData.maxFrameBytes = rgba.byteLength;
     }
 
-    if (telemetry) {
-      performanceData.skippedCaptures += telemetry.skippedCaptures;
-      performanceData.framesDroppedBackpressure += telemetry.framesDroppedBackpressure;
-      performanceData.avgCaptureDurationMs = sender.captureDurationRolling.push(telemetry.captureDurationMs);
-      performanceData.avgReadbackDurationMs = sender.readbackDurationRolling.push(telemetry.readbackDurationMs);
+    if (sanitizedTelemetry) {
+      performanceData.skippedCaptures = saturatingAddInt(
+        performanceData.skippedCaptures,
+        sanitizedTelemetry.skippedCaptures,
+      );
+      performanceData.framesDroppedBackpressure = saturatingAddInt(
+        performanceData.framesDroppedBackpressure,
+        sanitizedTelemetry.framesDroppedBackpressure,
+      );
+      performanceData.correctiveFrameRetries = saturatingAddInt(
+        performanceData.correctiveFrameRetries,
+        sanitizedTelemetry.correctiveFrameRetries,
+      );
+      mergeFrameDropReasons(performanceData.frameDrops, sanitizedTelemetry.dropReasons);
+      performanceData.avgCaptureDurationMs = sender.captureDurationRolling.push(sanitizedTelemetry.captureDurationMs);
+      performanceData.avgReadbackDurationMs = sender.readbackDurationRolling.push(sanitizedTelemetry.readbackDurationMs);
     }
 
     sender.lastFrame = rgba;
@@ -272,8 +372,15 @@ export class NdiService {
     this.sourceStatus = 'live';
     this.lastError = null;
 
-    this.sendFrame(name, rgba, width, height, false, telemetry);
+    const sendReason = this.sendFrame(name, rgba, width, height, false, sanitizedTelemetry);
     this.queueDiagnosticsEmit();
+    this.emitFrameReleased({
+      name,
+      attemptId: sanitizedTelemetry?.attemptId,
+      accepted: sendReason === 'sent',
+      reason: sendReason,
+      releasedAtMs: Date.now(),
+    });
   }
 
   receiveAudioFrame(
@@ -348,6 +455,10 @@ export class NdiService {
       runtimePath: this.runtimePath,
       activeSender: senderDiagnostics[primaryOutput],
       senders: senderDiagnostics,
+      availabilityDrops: {
+        audience: { ...this.availabilityDrops.audience },
+        stage: { ...this.availabilityDrops.stage },
+      },
       sourceStatus: this.sourceStatus,
       lastError: this.lastError,
     };
@@ -364,6 +475,13 @@ export class NdiService {
     this.diagnosticsChangeListeners.push(callback);
     return () => {
       this.diagnosticsChangeListeners = this.diagnosticsChangeListeners.filter((listener) => listener !== callback);
+    };
+  }
+
+  onFrameReleased(callback: FrameReleasedCallback): () => void {
+    this.frameReleasedListeners.push(callback);
+    return () => {
+      this.frameReleasedListeners = this.frameReleasedListeners.filter((listener) => listener !== callback);
     };
   }
 
@@ -537,8 +655,16 @@ export class NdiService {
         sendDurationSamples: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
         sendIntervalSamples: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
         pipelineSamples: {
-          frameAgeAtWire: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
-          signatureToWire: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+          frameAgeAtNativeSend: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+          signatureToNativeSend: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+          activateToNativeSend: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+          takeToNativeSend: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+          takeReasonToNativeSend: {
+            sequential: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+            jump: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+            crossItem: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+            macro: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
+          },
           captureToRendererSend: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
           rendererToMainIpc: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
           mainHandler: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
@@ -546,6 +672,8 @@ export class NdiService {
           hostToNative: new RollingSampleBuffer(SEND_LATENCY_SAMPLE_WINDOW),
         },
         pipelineLastSamples: createEmptyPipelineLastSamples(),
+        acceptedTakeKeys: [],
+        acceptedTakeKeySet: new Set(),
       });
       this.lastError = null;
     } catch (error) {
@@ -593,9 +721,11 @@ export class NdiService {
       restored.lastFrameWidth = previous.lastFrameWidth;
       restored.lastFrameHeight = previous.lastFrameHeight;
       restored.lastFrameReceivedAt = previous.lastFrameReceivedAt;
-      restored.diagnostics.performance = { ...previous.diagnostics.performance };
+      restored.diagnostics.performance = cloneSenderPerformance(previous.diagnostics.performance);
       restored.diagnostics.audio = { ...previous.diagnostics.audio };
       restored.diagnostics.startedAtMs = previous.diagnostics.startedAtMs;
+      restored.acceptedTakeKeys = previous.acceptedTakeKeys.slice();
+      restored.acceptedTakeKeySet = new Set(previous.acceptedTakeKeySet);
       if (previous.lastFrame) {
         restored.diagnostics.performance.cacheCopyBytes += previous.lastFrame.byteLength;
       }
@@ -658,10 +788,16 @@ export class NdiService {
     height: number,
     replayed: boolean,
     telemetry?: NdiFrameTelemetry,
-  ): void {
-    if (!this.module) return;
+  ): NdiFrameReleaseReason {
+    if (!this.module) {
+      this.availabilityDrops[name].senderUnavailable += 1;
+      return 'senderUnavailable';
+    }
     const sender = this.senders.get(name);
-    if (!sender) return;
+    if (!sender) {
+      this.availabilityDrops[name].senderUnavailable += 1;
+      return 'senderUnavailable';
+    }
 
     try {
       const connectionCount = this.module.getSenderConnections?.(sender.diagnostics.senderName, 0) ?? null;
@@ -695,12 +831,21 @@ export class NdiService {
       }
 
       if (telemetry && !replayed) {
-        recordPipelineSpans(sender, telemetry, nativeSentAtMs);
+        const acceptedCorrelation = planAcceptedCorrelationAggregation(sender, telemetry, nativeSentAtMs);
+        recordPipelineSpans(
+          sender,
+          telemetry,
+          nativeSentAtMs,
+          acceptedCorrelation,
+        );
       }
+      return 'sent';
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error('[NdiService] Frame send failed:', message);
       this.lastError = message;
+      sender.diagnostics.performance.frameDrops.nativeSendFailed += 1;
+      return 'nativeSendFailed';
     }
   }
 
@@ -754,6 +899,12 @@ export class NdiService {
     const diagnostics = this.getDiagnostics();
     for (const listener of this.diagnosticsChangeListeners) {
       listener(diagnostics);
+    }
+  }
+
+  private emitFrameReleased(release: NdiFrameRelease): void {
+    for (const listener of this.frameReleasedListeners) {
+      listener(release);
     }
   }
 
@@ -819,9 +970,10 @@ function createEmptySenderPerformanceDiagnostics(): NdiSenderPerformanceDiagnost
     framesSent: 0,
     framesReplayed: 0,
     framesRejected: 0,
-    framesSkippedNoConnections: 0,
     skippedCaptures: 0,
     framesDroppedBackpressure: 0,
+    correctiveFrameRetries: 0,
+    frameDrops: createEmptyFrameDropReasons(),
     bytesReceived: 0,
     cacheCopyBytes: 0,
     avgCaptureDurationMs: 0,
@@ -845,8 +997,16 @@ function createEmptyPipelineStageStats(): NdiPipelineStageStats {
 
 function createEmptyPipelineLatency(): NdiPipelineLatencyDiagnostics {
   return {
-    frameAgeAtWire: createEmptyPipelineStageStats(),
-    signatureToWire: createEmptyPipelineStageStats(),
+    frameAgeAtNativeSend: createEmptyPipelineStageStats(),
+    signatureToNativeSend: createEmptyPipelineStageStats(),
+    activateToNativeSend: createEmptyPipelineStageStats(),
+    takeToNativeSend: createEmptyPipelineStageStats(),
+    takeReasonToNativeSend: {
+      sequential: createEmptyPipelineStageStats(),
+      jump: createEmptyPipelineStageStats(),
+      crossItem: createEmptyPipelineStageStats(),
+      macro: createEmptyPipelineStageStats(),
+    },
     captureToRendererSend: createEmptyPipelineStageStats(),
     rendererToMainIpc: createEmptyPipelineStageStats(),
     mainHandler: createEmptyPipelineStageStats(),
@@ -857,8 +1017,16 @@ function createEmptyPipelineLatency(): NdiPipelineLatencyDiagnostics {
 
 function createEmptyPipelineLastSamples(): PipelineLastSamples {
   return {
-    frameAgeAtWire: 0,
-    signatureToWire: 0,
+    frameAgeAtNativeSend: 0,
+    signatureToNativeSend: 0,
+    activateToNativeSend: 0,
+    takeToNativeSend: 0,
+    takeReasonToNativeSend: {
+      sequential: 0,
+      jump: 0,
+      crossItem: 0,
+      macro: 0,
+    },
     captureToRendererSend: 0,
     rendererToMainIpc: 0,
     mainHandler: 0,
@@ -867,19 +1035,52 @@ function createEmptyPipelineLastSamples(): PipelineLastSamples {
   };
 }
 
+function createEmptyFrameDropReasons(): NdiFrameDropReasonCounts {
+  return {
+    backpressure: 0,
+    ackTimeout: 0,
+    captureFailed: 0,
+    bitmapFailed: 0,
+    invalidPayload: 0,
+    outputDisabled: 0,
+    senderUnavailable: 0,
+    nativeSendFailed: 0,
+  };
+}
+
+function mergeFrameDropReasons(
+  target: NdiFrameDropReasonCounts,
+  source: Partial<NdiFrameDropReasonCounts> | undefined,
+): void {
+  if (!source) return;
+  for (const reason of Object.keys(source) as NdiFrameDropReason[]) {
+    const next = source[reason];
+    if (!Number.isSafeInteger(next) || typeof next !== 'number' || next <= 0) continue;
+    target[reason] = saturatingAddInt(target[reason], next);
+  }
+}
+
 // Record a sample only when the span is non-negative — clock skew between
 // processes (Date.now() reordering on resume, NTP step) can produce
 // nonsensical negatives that would skew percentiles.
 function pushSpan(buffer: RollingSampleBuffer, valueMs: number): number | null {
-  if (!Number.isFinite(valueMs) || valueMs < 0) return null;
+  if (!Number.isFinite(valueMs) || valueMs < 0 || valueMs > MAX_PIPELINE_SPAN_MS) return null;
   buffer.push(valueMs);
   return valueMs;
+}
+
+function saturatingAddInt(current: number, next: number): number {
+  if (!Number.isSafeInteger(current) || current < 0) current = 0;
+  if (!Number.isSafeInteger(next) || next < 0) return current;
+  const sum = current + next;
+  return sum > MAX_TELEMETRY_COUNT ? MAX_TELEMETRY_COUNT : sum;
 }
 
 function recordPipelineSpans(
   sender: SenderState,
   telemetry: NdiFrameTelemetry,
   nativeSentAtMs: number,
+  acceptedCorrelation: AcceptedCorrelationAggregation | null,
 ): void {
   const {
     signatureChangedAtMs,
@@ -893,16 +1094,28 @@ function recordPipelineSpans(
   const last = sender.pipelineLastSamples;
 
   if (typeof captureStartedAtMs === 'number') {
-    const v = pushSpan(samples.frameAgeAtWire, nativeSentAtMs - captureStartedAtMs);
-    if (v !== null) last.frameAgeAtWire = v;
+    const v = pushSpan(samples.frameAgeAtNativeSend, nativeSentAtMs - captureStartedAtMs);
+    if (v !== null) last.frameAgeAtNativeSend = v;
     if (typeof rendererSendAtMs === 'number') {
       const c = pushSpan(samples.captureToRendererSend, rendererSendAtMs - captureStartedAtMs);
       if (c !== null) last.captureToRendererSend = c;
     }
   }
   if (typeof signatureChangedAtMs === 'number') {
-    const v = pushSpan(samples.signatureToWire, nativeSentAtMs - signatureChangedAtMs);
-    if (v !== null) last.signatureToWire = v;
+    const v = pushSpan(samples.signatureToNativeSend, nativeSentAtMs - signatureChangedAtMs);
+    if (v !== null) last.signatureToNativeSend = v;
+  }
+  if (acceptedCorrelation?.kind === 'activate') {
+    const v = pushSpan(samples.activateToNativeSend, acceptedCorrelation.spanMs);
+    if (v !== null) last.activateToNativeSend = v;
+  }
+  if (acceptedCorrelation?.kind === 'take') {
+    const v = pushSpan(samples.takeToNativeSend, acceptedCorrelation.spanMs);
+    if (v !== null) last.takeToNativeSend = v;
+  }
+  if (acceptedCorrelation) {
+    const v = pushSpan(samples.takeReasonToNativeSend[acceptedCorrelation.reason], acceptedCorrelation.spanMs);
+    if (v !== null) last.takeReasonToNativeSend[acceptedCorrelation.reason] = v;
   }
   if (typeof rendererSendAtMs === 'number' && typeof mainReceivedAtMs === 'number') {
     const v = pushSpan(samples.rendererToMainIpc, mainReceivedAtMs - rendererSendAtMs);
@@ -922,13 +1135,63 @@ function recordPipelineSpans(
   }
 
   const pipeline = sender.diagnostics.performance.pipeline;
-  pipeline.frameAgeAtWire = computeStageStats(samples.frameAgeAtWire, last.frameAgeAtWire);
-  pipeline.signatureToWire = computeStageStats(samples.signatureToWire, last.signatureToWire);
+  pipeline.frameAgeAtNativeSend = computeStageStats(samples.frameAgeAtNativeSend, last.frameAgeAtNativeSend);
+  pipeline.signatureToNativeSend = computeStageStats(samples.signatureToNativeSend, last.signatureToNativeSend);
+  pipeline.activateToNativeSend = computeStageStats(samples.activateToNativeSend, last.activateToNativeSend);
+  pipeline.takeToNativeSend = computeStageStats(samples.takeToNativeSend, last.takeToNativeSend);
+  pipeline.takeReasonToNativeSend = {
+    sequential: computeStageStats(samples.takeReasonToNativeSend.sequential, last.takeReasonToNativeSend.sequential),
+    jump: computeStageStats(samples.takeReasonToNativeSend.jump, last.takeReasonToNativeSend.jump),
+    crossItem: computeStageStats(samples.takeReasonToNativeSend.crossItem, last.takeReasonToNativeSend.crossItem),
+    macro: computeStageStats(samples.takeReasonToNativeSend.macro, last.takeReasonToNativeSend.macro),
+  };
   pipeline.captureToRendererSend = computeStageStats(samples.captureToRendererSend, last.captureToRendererSend);
   pipeline.rendererToMainIpc = computeStageStats(samples.rendererToMainIpc, last.rendererToMainIpc);
   pipeline.mainHandler = computeStageStats(samples.mainHandler, last.mainHandler);
   pipeline.mainToHostIpc = computeStageStats(samples.mainToHostIpc, last.mainToHostIpc);
   pipeline.hostToNative = computeStageStats(samples.hostToNative, last.hostToNative);
+}
+
+const MAX_ACCEPTED_TAKE_KEYS = 128;
+
+function isValidAcceptedCorrelationSpan(
+  nativeSentAtMs: number,
+  takeIssuedAtMs: number,
+): number | null {
+  if (!Number.isFinite(nativeSentAtMs) || !Number.isFinite(takeIssuedAtMs)) return null;
+  const spanMs = nativeSentAtMs - takeIssuedAtMs;
+  if (spanMs < 0 || spanMs > MAX_PIPELINE_SPAN_MS) return null;
+  return spanMs;
+}
+
+function planAcceptedCorrelationAggregation(
+  sender: SenderState,
+  telemetry: NdiFrameTelemetry,
+  nativeSentAtMs: number,
+): AcceptedCorrelationAggregation | null {
+  if (telemetry.takeKind !== 'take' && telemetry.takeKind !== 'activate') return null;
+  if (telemetry.takeReason == null) return null;
+  if (typeof telemetry.takeIssuedAtMs !== 'number') return null;
+  const takeSessionId = telemetry.takeSessionId;
+  const sequenceId = telemetry.takeSequenceId;
+  if (typeof takeSessionId !== 'string' || takeSessionId.length === 0) return null;
+  if (typeof sequenceId !== 'number' || !Number.isInteger(sequenceId)) return null;
+  const spanMs = isValidAcceptedCorrelationSpan(nativeSentAtMs, telemetry.takeIssuedAtMs);
+  if (spanMs === null) return null;
+  const takeKey = `${takeSessionId}:${sequenceId}`;
+  if (sender.acceptedTakeKeySet.has(takeKey)) return null;
+  sender.acceptedTakeKeySet.add(takeKey);
+  sender.acceptedTakeKeys.push(takeKey);
+  if (sender.acceptedTakeKeys.length > MAX_ACCEPTED_TAKE_KEYS) {
+    const evicted = sender.acceptedTakeKeys.shift();
+    if (typeof evicted === 'string') sender.acceptedTakeKeySet.delete(evicted);
+  }
+  return {
+    kind: telemetry.takeKind,
+    reason: telemetry.takeReason,
+    spanMs,
+    takeKey,
+  };
 }
 
 function computeStageStats(buffer: RollingSampleBuffer, lastMs: number): NdiPipelineStageStats {
@@ -957,18 +1220,31 @@ function cloneSenderDiagnostics(diagnostics: NdiActiveSenderDiagnostics): NdiAct
   return {
     ...diagnostics,
     tally: diagnostics.tally ? { ...diagnostics.tally } : null,
-    performance: {
-      ...diagnostics.performance,
-      pipeline: clonePipelineLatency(diagnostics.performance.pipeline),
-    },
+    performance: cloneSenderPerformance(diagnostics.performance),
     audio: { ...diagnostics.audio },
+  };
+}
+
+function cloneSenderPerformance(performance: NdiSenderPerformanceDiagnostics): NdiSenderPerformanceDiagnostics {
+  return {
+    ...performance,
+    frameDrops: { ...performance.frameDrops },
+    pipeline: clonePipelineLatency(performance.pipeline),
   };
 }
 
 function clonePipelineLatency(pipeline: NdiPipelineLatencyDiagnostics): NdiPipelineLatencyDiagnostics {
   return {
-    frameAgeAtWire: { ...pipeline.frameAgeAtWire },
-    signatureToWire: { ...pipeline.signatureToWire },
+    frameAgeAtNativeSend: { ...pipeline.frameAgeAtNativeSend },
+    signatureToNativeSend: { ...pipeline.signatureToNativeSend },
+    activateToNativeSend: { ...pipeline.activateToNativeSend },
+    takeToNativeSend: { ...pipeline.takeToNativeSend },
+    takeReasonToNativeSend: {
+      sequential: { ...pipeline.takeReasonToNativeSend.sequential },
+      jump: { ...pipeline.takeReasonToNativeSend.jump },
+      crossItem: { ...pipeline.takeReasonToNativeSend.crossItem },
+      macro: { ...pipeline.takeReasonToNativeSend.macro },
+    },
     captureToRendererSend: { ...pipeline.captureToRendererSend },
     rendererToMainIpc: { ...pipeline.rendererToMainIpc },
     mainHandler: { ...pipeline.mainHandler },
