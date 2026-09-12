@@ -13,7 +13,17 @@ const FRAME_WIDTH = 160;
 const FRAME_HEIGHT = 90;
 const FRAME_TIMEOUT_MS = 4_000;
 const CACHE_LIMIT = 4;
-const cache = new Map<string, string[]>();
+
+interface FilmstripEntry {
+  state: FilmstripState;
+  controller: AbortController;
+  listeners: Set<() => void>;
+}
+
+// Extraction belongs to the source rather than the visible transport tab.
+// A tab switch removes its subscriber without tearing down the decoder; the
+// bounded LRU entry publishes progress again if the transport remounts.
+const entries = new Map<string, FilmstripEntry>();
 
 export function getFilmstripFrameSize(sourceWidth: number, sourceHeight: number): { width: number; height: number } | null {
   if (!Number.isFinite(sourceWidth) || !Number.isFinite(sourceHeight) || sourceWidth <= 0 || sourceHeight <= 0) return null;
@@ -119,22 +129,57 @@ async function extractFilmstrip(
   }
 }
 
-function readCachedFrames(src: string): string[] | undefined {
-  const frames = cache.get(src);
-  if (!frames) return undefined;
-  cache.delete(src);
-  cache.set(src, frames);
-  return frames;
+function notify(entry: FilmstripEntry) {
+  for (const listener of entry.listeners) listener();
 }
 
-function writeCachedFrames(src: string, frames: string[]) {
-  cache.delete(src);
-  cache.set(src, frames);
-  while (cache.size > CACHE_LIMIT) {
-    const oldest = cache.keys().next().value;
-    if (typeof oldest !== 'string') break;
-    cache.delete(oldest);
+function touch(src: string, entry: FilmstripEntry) {
+  entries.delete(src);
+  entries.set(src, entry);
+}
+
+function trimEntries() {
+  while (entries.size > CACHE_LIMIT) {
+    const candidate = Array.from(entries.entries()).find(([, entry]) => entry.listeners.size === 0);
+    if (!candidate) return;
+    const [src, entry] = candidate;
+    entries.delete(src);
+    entry.controller.abort();
   }
+}
+
+function ensureEntry(src: string): FilmstripEntry {
+  const existing = entries.get(src);
+  if (existing) {
+    touch(src, existing);
+    return existing;
+  }
+
+  const entry: FilmstripEntry = {
+    state: { src, frames: [], status: 'loading' },
+    controller: new AbortController(),
+    listeners: new Set(),
+  };
+  entries.set(src, entry);
+
+  void extractFilmstrip(src, entry.controller.signal, (frames) => {
+    entry.state = { src, frames, status: 'loading' };
+    notify(entry);
+  }).then((frames) => {
+    if (entry.controller.signal.aborted) return;
+    entry.state = { src, frames, status: 'ready' };
+    touch(src, entry);
+    trimEntries();
+    notify(entry);
+  }).catch(() => {
+    if (entry.controller.signal.aborted) return;
+    entry.state = { src, frames: entry.state.frames, status: 'unavailable' };
+    notify(entry);
+    // Failed extraction can be retried the next time the source is selected.
+    if (entries.get(src) === entry) entries.delete(src);
+  });
+
+  return entry;
 }
 
 export function useVideoFilmstrip(src: string | undefined): FilmstripState {
@@ -145,28 +190,14 @@ export function useVideoFilmstrip(src: string | undefined): FilmstripState {
       setState({ frames: [], status: 'unavailable' });
       return;
     }
-    const cached = readCachedFrames(src);
-    if (cached) {
-      setState({ src, frames: cached, status: 'ready' });
-      return;
-    }
-
-    let active = true;
-    const controller = new AbortController();
-    setState({ src, frames: [], status: 'loading' });
-    void extractFilmstrip(src, controller.signal, (frames) => {
-      if (active) setState({ src, frames, status: 'loading' });
-    }).then((frames) => {
-      if (!active) return;
-      writeCachedFrames(src, frames);
-      setState({ src, frames, status: 'ready' });
-    }).catch(() => {
-      if (active) setState((current) => ({ src, frames: current.src === src ? current.frames : [], status: 'unavailable' }));
-    });
-
+    const entry = ensureEntry(src);
+    setState(entry.state);
+    const handleChange = () => setState(entry.state);
+    entry.listeners.add(handleChange);
+    trimEntries();
     return () => {
-      active = false;
-      controller.abort();
+      entry.listeners.delete(handleChange);
+      trimEntries();
     };
   }, [src]);
 

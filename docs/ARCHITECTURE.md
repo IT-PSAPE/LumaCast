@@ -128,6 +128,11 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   alpha at the final program monitor / audience-feed consumption point, so
   overlay fades rerender only those consumers while preserving the existing
   per-element compositing semantics.
+- `PlaybackProvider` is mounted above the screen router and owns the persistent
+  audio element plus the retained layer-video source. Resource tabs and editor
+  pages only subscribe to those transports, so navigation cannot replace their
+  playback clocks. Waveform and filmstrip analysis use their own bounded,
+  source-keyed jobs and likewise outlive a tab subscriber.
 - `packages/canvas/src/image-cache.ts` now enforces two distinct residency
   classes for images:
   - hard/soft paint safety (`retainImage`, `reserveImageEntry`) that must never
@@ -730,9 +735,9 @@ Bundle import uses the existing Choose bundle picker, inspection, broken-referen
 
 ### Audio waveform, video filmstrip, and media volume
 
-The audio transport uses a compact waveform with on-track marker popovers and a fixed-width binding selector (ADR-0028). `use-audio-waveform.ts` decodes audio for analysis only and caches four peak arrays; the existing media element remains the playback clock. Renderer fetches may use the capability-checked `cast-media:` scheme. Failed analysis leaves scrubbing and playback available.
+The audio transport uses a compact waveform with on-track marker popovers and a fixed-width binding selector (ADR-0028). `use-audio-waveform.ts` decodes audio with an `OfflineAudioContext` for analysis only and keeps a bounded source-keyed job/cache outside the tab component lifecycle; the existing media element remains the playback clock. Hiding the tab unsubscribes its UI without aborting analysis or reconfiguring the live playback and NDI audio device. Renderer fetches may use the capability-checked `cast-media:` scheme. Failed analysis leaves scrubbing and playback available.
 
-The video transport uses the same compact strip shape as a filmstrip scrubber. `use-video-filmstrip.ts` samples twelve frames through a detached muted video element and canvas, cancels stale extraction, and retains four completed filmstrips. It never seeks the live layer-video element, and preview failure leaves the ordinary video transport usable.
+The video transport uses the same compact strip shape as a filmstrip scrubber. `use-video-filmstrip.ts` samples twelve frames through a detached muted video element and canvas, keeping a bounded source-keyed extraction job/cache outside the tab component lifecycle. Navigation unsubscribes the visible strip without destroying an in-flight decoder for the armed source. It never seeks the live layer-video element, and preview failure leaves the ordinary video transport usable.
 
 Audio and layer-video volume are independent session controls applied to their media elements, shared by local playback and NDI capture. Muting preserves the chosen level. The kernel ID primitive uses ambient Web Crypto rather than importing a Node builtin into renderer consumers.
 

@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest';
-import { getFilmstripFrameSize, getFilmstripSampleTimes } from '../../../../../app/renderer/features/playback/use-video-filmstrip';
+import { cleanup, render, waitFor } from '@testing-library/react';
+import { createElement } from 'react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getFilmstripFrameSize, getFilmstripSampleTimes, useVideoFilmstrip } from '../../../../../app/renderer/features/playback/use-video-filmstrip';
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+function FilmstripProbe({ src }: { src: string }) {
+  const filmstrip = useVideoFilmstrip(src);
+  return createElement('div', { 'data-status': filmstrip.status }, filmstrip.frames.length);
+}
 
 describe('getFilmstripSampleTimes', () => {
   it('spans the video without seeking to the exact end frame', () => {
@@ -28,5 +40,28 @@ describe('getFilmstripFrameSize', () => {
   it('rejects invalid source dimensions', () => {
     expect(getFilmstripFrameSize(0, 1080)).toBeNull();
     expect(getFilmstripFrameSize(1080, Number.NaN)).toBeNull();
+  });
+});
+
+describe('useVideoFilmstrip', () => {
+  it('keeps one extraction job alive when the transport tab unmounts and remounts', async () => {
+    const originalCreateElement = document.createElement.bind(document);
+    let videoElementsCreated = 0;
+    vi.spyOn(document, 'createElement').mockImplementation(((tagName: string, options?: ElementCreationOptions) => {
+      const element = originalCreateElement(tagName, options);
+      if (tagName.toLowerCase() === 'video') {
+        videoElementsCreated += 1;
+        Object.defineProperty(element, 'load', { configurable: true, value: vi.fn() });
+        Object.defineProperty(element, 'pause', { configurable: true, value: vi.fn() });
+      }
+      return element;
+    }) as typeof document.createElement);
+
+    const first = render(createElement(FilmstripProbe, { src: 'cast-media://continuous-video' }));
+    await waitFor(() => expect(videoElementsCreated).toBe(1));
+    first.unmount();
+    render(createElement(FilmstripProbe, { src: 'cast-media://continuous-video' }));
+
+    await waitFor(() => expect(videoElementsCreated).toBe(1));
   });
 });
