@@ -128,6 +128,14 @@ Feature-owned controls remain feature-local when the behavior is
 domain-coupled — for example, `OutputSettingsPanel` stays in
 `features/playback`.
 
+These primitives are built on Base UI (`@base-ui/react`, ADR 0033): Base UI
+parts provide behaviour, keyboard interaction, focus management, and ARIA,
+and each component keeps its own exported API on top, so feature code never
+imports Base UI directly. Overlays portal into `#overlay-root`, carry the
+`data-popover-content` / `data-context-menu-owned` markers the shortcut and
+click-outside guards rely on, and register with the workbench overlay stack
+while open.
+
 ## 5a. Design Tokens
 
 `app/renderer/theme.css` holds the whole colour system in two tiers. The

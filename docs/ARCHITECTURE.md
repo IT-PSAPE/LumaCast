@@ -96,6 +96,13 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   variant subscribes to the element-editing context and `useSceneStageEditor`;
   read-only thumbnail, monitor, and NDI capture surfaces render the same scene
   tree without pulling in selection, marquee, transform, or inline-text state.
+- Shared UI primitives in `app/renderer/components` are built on Base UI
+  (`@base-ui/react`) for behaviour, keyboard interaction, focus management,
+  and ARIA, behind the components' existing exported APIs; overlays portal
+  into `#overlay-root`, carry the `data-popover-content` /
+  `data-context-menu-owned` markers, and register with the workbench overlay
+  stack. Colour comes from twelve semantic tokens over 26 base values in
+  `theme.css`, with states as opacity modifiers (ADR 0033).
 - Inline text editing renders through the DOM (ADR 0032). While an element is
   being edited, `SceneNodeText` draws only its background (`hideText`) and the
   editor's `contentEditable` renders the text visibly inside a frame on the
