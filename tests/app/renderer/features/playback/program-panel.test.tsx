@@ -236,7 +236,7 @@ describe('ProgramPanel surface composition', () => {
   it('surface pick replaces the single-mode cell composition', () => {
     const { getByRole, rerender, queryAllByTestId } = render(<ProgramPanel />);
 
-    fireEvent.pointerDown(getByRole('button', { name: 'Program' }));
+    fireEvent.click(getByRole('button', { name: 'Program' }));
     fireEvent.click(getByRole('menuitem', { name: 'Stage' }));
     expect(mocks.workbenchActions.setProgramSingleSurface).toHaveBeenCalledWith('stage');
 

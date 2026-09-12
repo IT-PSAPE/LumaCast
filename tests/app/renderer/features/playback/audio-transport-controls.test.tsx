@@ -203,7 +203,7 @@ describe('AudioTransportControls audio markers', () => {
     expect(await screen.findByRole('alert')).not.toBeNull();
     expect(lastSavedSchedule().enabled).toBe(false);
 
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Song' }));
     fireEvent.click(screen.getByRole('switch', { name: 'Audio sync' }));
     await waitFor(() => expect(lastSavedSchedule().enabled).toBe(true));
@@ -219,7 +219,7 @@ describe('AudioTransportControls audio markers', () => {
     mocks.slidesForItemRef.mockReturnValue([{ id: 's1', order: 0 }, { id: 's2', order: 1 }]);
     mocks.getCurrentTime.mockReturnValueOnce(1).mockReturnValueOnce(2);
     render(<AudioTransportControls />);
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Song' }));
     const markerButton = screen.getByRole('button', { name: 'Add marker (M)' });
     fireEvent.click(markerButton);
@@ -233,14 +233,14 @@ describe('AudioTransportControls audio markers', () => {
     mocks.slidesForItemRef.mockReturnValue([{ id: 's1', order: 0 }, { id: 's2', order: 1 }, { id: 's3', order: 2 }]);
     mocks.getCurrentTime.mockReturnValueOnce(1).mockReturnValueOnce(2).mockReturnValue(3);
     render(<AudioTransportControls />);
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Song' }));
     const markerButton = screen.getByRole('button', { name: 'Add marker (M)' });
     fireEvent.click(markerButton);
     fireEvent.click(markerButton);
     await waitFor(() => expect(lastSavedSchedule().markers).toHaveLength(2));
 
-    fireEvent.pointerDown(screen.getByLabelText('Marker 2 slide'));
+    fireEvent.click(screen.getByLabelText('Marker 2 slide'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Slide 3' }));
     await waitFor(() => expect(lastSavedSchedule().markers.map((marker: any) => marker.slideId)).toEqual(['s1', 's3']));
 
@@ -260,14 +260,14 @@ describe('AudioTransportControls audio markers', () => {
         : [{ id: 's3', order: 0 }, { id: 's4', order: 1 }];
     });
     render(<AudioTransportControls />);
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Song' }));
     const markerButton = screen.getByRole('button', { name: 'Add marker (M)' });
     fireEvent.click(markerButton);
     fireEvent.click(markerButton);
     await waitFor(() => expect(lastSavedSchedule().markers.map((marker: any) => marker.slideId)).toEqual(['s1', 's2']));
 
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Deck' }));
     await waitFor(() => expect(lastSavedSchedule().itemRef).toEqual({ type: 'presentation', id: 'deck-1' }));
     expect(lastSavedSchedule().markers.map((marker: any) => marker.slideId)).toEqual(['s3', 's4']);
@@ -275,7 +275,7 @@ describe('AudioTransportControls audio markers', () => {
     fireEvent.click(screen.getByRole('switch', { name: 'Audio sync' }));
     await waitFor(() => expect(lastSavedSchedule().enabled).toBe(true));
 
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'No item' }));
     await waitFor(() => expect(lastSavedSchedule().itemRef).toBeNull());
     expect(lastSavedSchedule().enabled).toBe(false);
@@ -300,7 +300,7 @@ describe('AudioTransportControls audio markers', () => {
     fireEvent.click(markerButton);
     fireEvent.click(markerButton);
 
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Song' }));
 
     await waitFor(() => expect(lastSavedSchedule().itemRef).toEqual({ type: 'lyric', id: 'song-1' }));
@@ -315,10 +315,10 @@ describe('AudioTransportControls audio markers', () => {
     const markerButton = screen.getByRole('button', { name: 'Add marker (M)' });
     fireEvent.click(markerButton);
     fireEvent.click(markerButton);
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Song' }));
 
-    fireEvent.pointerDown(screen.getByLabelText('Marker 2 slide'));
+    fireEvent.click(screen.getByLabelText('Marker 2 slide'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Slide 1' }));
 
     await waitFor(() => expect(lastSavedSchedule().markers.map((marker: any) => marker.slideId)).toEqual(['s1', 's1']));

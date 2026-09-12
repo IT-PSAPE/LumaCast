@@ -73,8 +73,8 @@ function renderAudioControls() {
 }
 
 function openMenu() {
-  const button = screen.getByLabelText('More actions');
-  fireEvent.pointerDown(button);
+  // Base UI's menu trigger opens on click, not on pointerdown.
+  fireEvent.click(screen.getByLabelText('More actions'));
 }
 
 afterEach(() => {

@@ -70,6 +70,6 @@ describe('SeparatorRow', () => {
     fireEvent.contextMenu(screen.getByDisplayValue('Act One'));
 
     expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeTruthy();
-    expect(screen.getByRole('menuitem', { name: 'Move up' }).getAttribute('data-disabled')).toBe('true');
+    expect(screen.getByRole('menuitem', { name: 'Move up' }).getAttribute('data-disabled')).toBe('');
   });
 });

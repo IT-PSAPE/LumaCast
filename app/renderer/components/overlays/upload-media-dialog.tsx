@@ -101,6 +101,7 @@ export function UploadMediaDialog({
                 disabled={isUploading}
                 className={cn(
                   'flex h-64 w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center transition-colors',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
                   isDragOver ? 'border-brand bg-brand/10' : 'border-secondary bg-secondary/30 hover:bg-secondary/50',
                   isUploading ? 'cursor-progress opacity-70' : 'cursor-pointer',
                 )}

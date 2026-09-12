@@ -82,61 +82,62 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
   }
 
   return (
-    <>
-      <Dialog.Root open onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-        <Dialog.Portal>
-          <Dialog.Backdrop />
-          <Dialog.Positioner>
-            <Dialog.Content data-ui-region="media-picker-dialog" className="max-h-[min(560px,calc(100vh-6rem))] max-w-[560px] overflow-hidden">
-              <Dialog.Header>
-                <Dialog.Title>{kind === 'image' ? 'Add Image Element' : 'Add Video Element'}</Dialog.Title>
-                <Dialog.CloseButton />
-              </Dialog.Header>
-              {/* A single grid track gives the scroll area a definite height; a flex/block body
-                  sized by the dialog's max-height leaves `size-full` nothing to resolve against. */}
-              <Dialog.Body className="grid grid-rows-[minmax(0,1fr)] overflow-hidden">
-                <ScrollArea.Root scrollPadding={16}>
-                  <ScrollArea.Viewport className="p-4">
-                    {filteredAssets.length === 0 ? (
-                      <p className="m-0 text-center text-sm text-tertiary">
-                        {EMPTY_LABELS[kind]}
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
-                        {filteredAssets.map((asset) => (
-                          <MediaPickerAssetTile
-                            key={asset.id}
-                            asset={asset}
-                            isSelected={selectedIds.has(asset.id)}
-                            onToggle={toggleAsset}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </ScrollArea.Viewport>
-                  <ScrollArea.Scrollbar>
-                    <ScrollArea.Thumb />
-                  </ScrollArea.Scrollbar>
-                </ScrollArea.Root>
-              </Dialog.Body>
-              <Dialog.Footer>
-                <span className="text-sm text-tertiary">
-                  {selectedIds.size > 0 ? `${selectedIds.size} selected` : `Select ${kind === 'image' ? 'images' : 'videos'} to add`}
-                </span>
-                <div className="flex gap-2">
-                  <ReacstButton variant="ghost" onClick={() => setShowUploadDialog(true)}>
-                    Upload
-                  </ReacstButton>
-                  <ReacstButton variant="ghost" onClick={onClose}>Cancel</ReacstButton>
-                  <ReacstButton onClick={handleConfirm} disabled={selectedIds.size === 0}>
-                    Add{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
-                  </ReacstButton>
-                </div>
-              </Dialog.Footer>
-            </Dialog.Content>
-          </Dialog.Positioner>
-        </Dialog.Portal>
-      </Dialog.Root>
+    <Dialog.Root open onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content data-ui-region="media-picker-dialog" className="max-h-[min(560px,calc(100vh-6rem))] max-w-[560px] overflow-hidden">
+            <Dialog.Header>
+              <Dialog.Title>{kind === 'image' ? 'Add Image Element' : 'Add Video Element'}</Dialog.Title>
+              <Dialog.CloseButton />
+            </Dialog.Header>
+            {/* A single grid track gives the scroll area a definite height; a flex/block body
+                sized by the dialog's max-height leaves `size-full` nothing to resolve against. */}
+            <Dialog.Body className="grid grid-rows-[minmax(0,1fr)] overflow-hidden">
+              <ScrollArea.Root scrollPadding={16}>
+                <ScrollArea.Viewport className="p-4">
+                  {filteredAssets.length === 0 ? (
+                    <p className="m-0 text-center text-sm text-tertiary">
+                      {EMPTY_LABELS[kind]}
+                    </p>
+                  ) : (
+                    <div role="group" aria-label={kind === 'image' ? 'Project images' : 'Project videos'} className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
+                      {filteredAssets.map((asset) => (
+                        <MediaPickerAssetTile
+                          key={asset.id}
+                          asset={asset}
+                          isSelected={selectedIds.has(asset.id)}
+                          onToggle={toggleAsset}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea.Viewport>
+                <ScrollArea.Scrollbar>
+                  <ScrollArea.Thumb />
+                </ScrollArea.Scrollbar>
+              </ScrollArea.Root>
+            </Dialog.Body>
+            <Dialog.Footer>
+              <span className="text-sm text-tertiary">
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : `Select ${kind === 'image' ? 'images' : 'videos'} to add`}
+              </span>
+              <div className="flex gap-2">
+                <ReacstButton variant="ghost" onClick={() => setShowUploadDialog(true)}>
+                  Upload
+                </ReacstButton>
+                <ReacstButton variant="ghost" onClick={onClose}>Cancel</ReacstButton>
+                <ReacstButton onClick={handleConfirm} disabled={selectedIds.size === 0}>
+                  Add{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                </ReacstButton>
+              </div>
+            </Dialog.Footer>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Dialog.Portal>
+      {/* Inside the picker's root, so Base UI treats the upload dialog as a
+          nested dialog: the picker stays put behind it and keeps its focus
+          trap ordered instead of two sibling traps fighting over focus. */}
       {showUploadDialog ? (
         <UploadMediaDialog
           kind={kind}
@@ -144,6 +145,6 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
           onImport={handleImport}
         />
       ) : null}
-    </>
+    </Dialog.Root>
   );
 }

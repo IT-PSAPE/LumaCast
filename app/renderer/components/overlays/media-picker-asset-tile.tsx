@@ -1,5 +1,6 @@
 import type { Id } from '@lumacast/kernel';
 import type { MediaAsset } from '@lumacast/composition';
+import { Toggle } from '@base-ui/react/toggle';
 import { cn } from '@renderer/utils/cn';
 import { MediaAssetIcon } from '../display/entity-icon';
 import { MediaThumbnail } from './media-thumbnail';
@@ -13,17 +14,16 @@ export function MediaPickerAssetTile({
   isSelected: boolean;
   onToggle: (id: Id) => void;
 }) {
-  function handleClick() {
-    onToggle(asset.id);
-  }
-
+  // A Toggle rather than a plain button: selecting a tile is a two-state
+  // choice, and Base UI reports it as `aria-pressed` for screen readers.
   return (
-    <button
-      type="button"
-      onClick={handleClick}
+    <Toggle
+      pressed={isSelected}
+      onPressedChange={() => onToggle(asset.id)}
       className={cn(
         'group cursor-pointer rounded border bg-primary p-0 text-left transition-colors',
-        isSelected ? 'border-brand ring-1 ring-brand' : 'border-primary',
+        'border-primary data-[pressed]:border-brand data-[pressed]:ring-1 data-[pressed]:ring-brand',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
       )}
     >
       <div
@@ -36,6 +36,6 @@ export function MediaPickerAssetTile({
         <MediaAssetIcon asset={asset} size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
         <span className="truncate">{asset.name}</span>
       </p>
-    </button>
+    </Toggle>
   );
 }

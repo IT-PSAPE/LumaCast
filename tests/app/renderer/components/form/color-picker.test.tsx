@@ -102,7 +102,7 @@ describe('ColorPicker', () => {
     renderPicker({ value: '#3366CC' });
     // Mode defaults to Hex; switch to RGB via the mode dropdown to reach the
     // per-channel NumberFields and check each is independently labelled.
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Hex' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hex' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'RGB' }));
 
     const red = screen.getByLabelText('Red') as HTMLInputElement;
@@ -115,7 +115,7 @@ describe('ColorPicker', () => {
 
   it('commits a channel edit typed into a labelled NumberField', () => {
     const { onChange } = renderPicker({ value: '#3366CC' });
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Hex' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hex' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'RGB' }));
 
     const red = screen.getByLabelText('Red');

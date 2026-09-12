@@ -112,7 +112,7 @@ describe('AppToolbar "Application views" switcher', () => {
     const { getByRole, rerender } = render(<AppToolbar />);
     const group = within(getByRole('group', { name: 'Application views' }));
 
-    fireEvent.pointerDown(group.getByRole('button', { name: 'More views' }));
+    fireEvent.click(group.getByRole('button', { name: 'More views' }));
     expect(getByRole('menuitem', { name: 'Overlay' })).not.toBeNull();
     expect(getByRole('menuitem', { name: 'Stage' })).not.toBeNull();
     expect(getByRole('menuitem', { name: 'Macros' })).not.toBeNull();
