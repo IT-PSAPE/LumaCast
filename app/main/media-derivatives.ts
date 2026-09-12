@@ -1025,6 +1025,9 @@ export class MediaDerivativeService {
       void next.runner()
         .then((result) => {
           this.completeBackgroundAsset(next.assetId, result.status === 'ready' ? 'ready' : 'failed');
+          if (next.priority === 'background' && result.status === 'ready' && result.patch) {
+            this.emitProgress(result.patch);
+          }
           next.resolve(result);
         }, (error) => {
           this.completeBackgroundAsset(next.assetId, 'failed');

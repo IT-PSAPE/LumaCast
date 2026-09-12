@@ -536,6 +536,25 @@ describe('MediaDerivativeService', () => {
     });
   });
 
+  it('emits the ready asset patch when a background thumbnail finishes', async () => {
+    const sourcePath = path.join(tempRoot, 'background-patch.mp4');
+    fs.writeFileSync(sourcePath, 'video');
+    const repo = createRepoStub([asset('background-patch', { src: sourcePath })]);
+    const service = new MediaDerivativeService(repo, tempRoot);
+    const thumbnailSources: Array<string | null | undefined> = [];
+    service.onProgress((progress) => {
+      const attached = service.attachToResult(progress) as typeof progress;
+      const patchedAsset = attached.patch?.upserts.mediaAssets?.[0];
+      if (patchedAsset) thumbnailSources.push(patchedAsset.thumbnailSrc);
+    });
+
+    service.scheduleBatch(['background-patch']);
+
+    await vi.waitFor(() => {
+      expect(thumbnailSources.some((source) => typeof source === 'string' && source.endsWith('.png'))).toBe(true);
+    });
+  });
+
   it('processes every background batch even after more than eight batches are queued', async () => {
     const assets = Array.from({ length: 10 }, (_, index) => {
       const filePath = path.join(tempRoot, `batch-${index}.mp4`);

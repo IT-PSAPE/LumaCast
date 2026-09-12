@@ -465,6 +465,16 @@ Each rule is also proven by a committed fixture scenario under
   asset id plus stored-source fingerprint. Cache entries are invalidated when
   the source path, size, mtime, or decoded thumbnail no longer matches. Project
   backups and deck bundles never include derivative files or the manifest.
+- On the first renderer persistence subscription, main adopts legacy media into
+  the managed library and then queues every current asset through the bounded
+  derivative service. This once-per-process backfill rebuilds an absent or
+  cleared cache without requiring the user to visit the media bin, and runs
+  after adoption so fingerprints use the asset's final stored source.
+  Background completion publishes its ready asset patch through the derivative
+  progress event, keeping the renderer snapshot and every thumbnail surface in
+  step with the rebuilt manifest. Project-content stabilization treats
+  `thumbnailSrc` as a media-row identity field because this session capability
+  can change without altering the asset's durable `updatedAt` value.
 - The renderer requests derivatives through typed IPC (`ensureMediaDerivative`
   and the bounded `uploadMediaDerivativeFallback` escape hatch) and receives an
   optional `thumbnailSrc` only as another managed-media capability. Main mints a

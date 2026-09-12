@@ -460,18 +460,35 @@ export const registerIpcHandlers = (
       // window subscribing (or a second subscribe call) must not restart it.
       if (!mediaLibraryAdoptionStarted) {
         mediaLibraryAdoptionStarted = true;
-        void mediaLibrary.adoptExistingAssets(repo, {
-          onProgress: (progress) => {
-            const window = getMainWindow();
-            if (!window || window.isDestroyed()) return;
-            window.webContents.send(MEDIA_LIBRARY_EVENTS.progress, maskManagedMediaResult(progress));
-          },
-          isCancelled: isMainWindowGone,
-        }).catch((error) => {
-          // A failed adoption pass must never take down the app; the assets
-          // it would have adopted simply stay on their original paths.
-          console.error('[MediaLibrary] Background adoption pass failed', error);
-        });
+        void (async () => {
+          try {
+            await mediaLibrary.adoptExistingAssets(repo, {
+              onProgress: (progress) => {
+                const window = getMainWindow();
+                if (!window || window.isDestroyed()) return;
+                window.webContents.send(MEDIA_LIBRARY_EVENTS.progress, maskManagedMediaResult(progress));
+              },
+              isCancelled: isMainWindowGone,
+            });
+          } catch (error) {
+            // A failed adoption pass must never take down the app; the assets
+            // it would have adopted simply stay on their original paths.
+            console.error('[MediaLibrary] Background adoption pass failed', error);
+          }
+
+          // Legacy projects and cleared caches have no derivative manifest.
+          // Queue every current asset after adoption so any repointed source
+          // is fingerprinted at its final managed-library location. The
+          // derivative service deduplicates work and admits at most three
+          // background jobs at a time.
+          if (isMainWindowGone()) return;
+          try {
+            const snapshot = await repo.getSnapshot();
+            mediaDerivatives.scheduleBatch(snapshot.mediaAssets.map((asset) => asset.id));
+          } catch (error) {
+            console.error('[MediaDerivatives] Background startup backfill failed', error);
+          }
+        })();
       }
     } catch (error) {
       console.error(`[IPC ${PERSISTENCE_CHANNELS.subscribe}]`, error);
