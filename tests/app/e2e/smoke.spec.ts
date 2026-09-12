@@ -3,7 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 
-const APP_ENTRY = path.resolve('out/main/index.js');
+// Launch the package so Electron reads its version and main entry from package.json.
+const APP_ENTRY = path.resolve('.');
 const SMOKE_PLAYLIST_NAME = 'Smoke Persistence Playlist';
 const SMOKE_PRESENTATION_TITLE = 'Smoke Persistence Presentation';
 const APP_TOOLBAR_REGION = '[data-ui-region="app-toolbar"]';

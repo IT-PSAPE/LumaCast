@@ -35,7 +35,8 @@ import type { AppSnapshot } from '@lumacast/protocol';
 // Theme bin click, create-item dialog, sync button) matches it end to end in
 // the packaged app.
 
-const APP_ENTRY = path.resolve('out/main/index.js');
+// Launch the package so Electron reads its version and main entry from package.json.
+const APP_ENTRY = path.resolve('.');
 const APP_TOOLBAR_REGION = '[data-ui-region="app-toolbar"]';
 const EDITOR_LAYOUT_REGION = '[data-ui-region="editor-layout"]';
 const ITEM_EDITOR_LAYOUT_REGION = '[data-ui-region="item-editor-layout"]';
