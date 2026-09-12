@@ -26,10 +26,10 @@ const buttonGroupRootStyles = cv({
 });
 
 const buttonGroupItemStyles = cv({
-  base: 'flex cursor-pointer items-center justify-center rounded-sm bg-transparent text-secondary transition-colors hover:bg-quaternary hover:text-primary disabled:pointer-events-none disabled:opacity-50',
+  base: 'flex cursor-pointer items-center justify-center rounded-sm bg-transparent text-secondary transition-colors hover:bg-tertiary hover:text-primary disabled:pointer-events-none disabled:opacity-50',
   variants: {
     active: {
-      true: 'bg-quaternary text-primary',
+      true: 'bg-tertiary text-primary',
       false: '',
     },
     size: {

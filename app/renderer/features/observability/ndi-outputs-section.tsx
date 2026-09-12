@@ -13,7 +13,7 @@ export function NdiOutputsSection() {
         <SenderCard name="audience" sender={diagnostics.senders.audience} availabilityDrops={diagnostics.availabilityDrops.audience} />
         <SenderCard name="stage" sender={diagnostics.senders.stage} availabilityDrops={diagnostics.availabilityDrops.stage} />
         {diagnostics.lastError ? (
-          <div className="rounded border border-red-500/50 bg-red-500/10 px-3 py-2 text-sm text-red-300">{diagnostics.lastError}</div>
+          <div className="rounded border border-red-500/50 bg-error/10 px-3 py-2 text-sm text-error">{diagnostics.lastError}</div>
         ) : null}
       </div>
     </SectionShell>

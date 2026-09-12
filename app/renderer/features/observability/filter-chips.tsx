@@ -14,7 +14,7 @@ export function FilterChips<T extends string>({
           key={option.id}
           type="button"
           onClick={() => onChange(option.id)}
-          className={`rounded px-2 py-0.5 text-xs ${value === option.id ? 'bg-active text-primary' : 'text-secondary hover:bg-tertiary/40'}`}
+          className={`rounded px-2 py-0.5 text-xs ${value === option.id ? 'bg-tertiary text-primary' : 'text-secondary hover:bg-tertiary/40'}`}
         >
           {option.label}
         </button>

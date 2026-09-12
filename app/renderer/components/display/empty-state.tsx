@@ -9,7 +9,7 @@ function Root({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 
 function Icon({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('text-quaternary', className)} {...props} />
+    <div className={cn('text-tertiary', className)} {...props} />
   );
 }
 

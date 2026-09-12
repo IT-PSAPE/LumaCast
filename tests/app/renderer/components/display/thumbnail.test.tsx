@@ -34,8 +34,8 @@ describe('Thumbnail default appearance (deck bin, theme bin, theme editor, …)'
       </Thumbnail.Tile>,
     );
     const tile = getByTestId('tile');
-    expect(tile.className).toContain('border-brand-400/70');
-    expect(tile.className).toContain('bg-brand-400/15');
+    expect(tile.className).toContain('border-brand/70');
+    expect(tile.className).toContain('bg-brand/15');
     expect(tile.className).not.toContain('ring-');
   });
 
@@ -76,7 +76,7 @@ describe('Thumbnail slide variant (opt-in, only slide components)', () => {
     const tile = getByTestId('tile');
     expect(classes(tile)).toContain('border-secondary');
     expect(classes(tile)).toContain('ring-1');
-    expect(classes(tile)).toContain('hover:ring-border-secondary');
+    expect(classes(tile)).toContain('hover:ring-(--border-color-secondary)');
     expect(classes(tile)).not.toContain('border-primary');
   });
 
@@ -88,11 +88,11 @@ describe('Thumbnail slide variant (opt-in, only slide components)', () => {
       </Thumbnail.Tile>,
     );
     const tile = getByTestId('tile');
-    expect(tile.className).toContain('ring-brand-400');
+    expect(tile.className).toContain('ring-brand');
     expect(tile.className).toContain('border-transparent');
     expect(tile.className).toContain('bg-primary');
-    expect(tile.className).not.toContain('bg-brand-400/15');
-    expect(tile.className).not.toContain('border-brand-400/70');
+    expect(tile.className).not.toContain('bg-brand/15');
+    expect(tile.className).not.toContain('border-brand/70');
   });
 
   it('applies the quiet caption override through the Caption className', () => {
@@ -118,9 +118,9 @@ describe('Thumbnail slide variant (opt-in, only slide components)', () => {
       </Thumbnail.Row>,
     );
     const row = getByTestId('row');
-    expect(row.className).toContain('ring-brand-400');
+    expect(row.className).toContain('ring-brand');
     expect(row.className).toContain('border-transparent');
-    expect(row.className).not.toContain('bg-brand-400/15');
+    expect(row.className).not.toContain('bg-brand/15');
   });
 });
 

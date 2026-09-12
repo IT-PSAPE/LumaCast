@@ -136,12 +136,12 @@ export function LogViewerSection() {
                   key={session.path}
                   type="button"
                   onClick={() => { setSelected(session.path); userScrolledRef.current = false; }}
-                  className={`flex flex-col gap-0.5 border-b border-secondary/40 px-3 py-2 text-left text-xs last:border-b-0 ${active ? 'bg-active text-primary' : 'text-secondary hover:bg-tertiary/40'}`}
+                  className={`flex flex-col gap-0.5 border-b border-secondary/40 px-3 py-2 text-left text-xs last:border-b-0 ${active ? 'bg-tertiary text-primary' : 'text-secondary hover:bg-tertiary/40'}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate font-medium">{session.fileName}</span>
                     {session.isCurrent ? (
-                      <span className="rounded bg-emerald-500/20 px-1 text-[10px] uppercase tracking-wide text-emerald-300">live</span>
+                      <span className="rounded bg-success/20 px-1 text-[10px] uppercase tracking-wide text-success">live</span>
                     ) : null}
                   </div>
                   <div className="text-tertiary">{formatBytes(session.sizeBytes)} · {new Date(session.modifiedAtMs).toLocaleString()}</div>

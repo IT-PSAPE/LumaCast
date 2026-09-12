@@ -40,7 +40,7 @@ const STANDARD_SORT_OPTIONS = [
   { key: 'modified', label: 'Date modified' },
 ] as const;
 
-const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transparent text-tertiary hover:bg-quaternary hover:text-primary [&>svg]:size-4';
+const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transparent text-tertiary hover:bg-tertiary hover:text-primary [&>svg]:size-4';
 
 const IMPORT_ACCEPT_BY_TAB = {
   image: 'image/*',

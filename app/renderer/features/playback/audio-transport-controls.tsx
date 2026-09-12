@@ -117,7 +117,7 @@ export function AudioTransportControls() {
       <AudioWaveformTrack key={armed?.id ?? 'empty'} src={armed?.src} duration={safeDuration}
         currentTime={isScrubbing ? draftTime : audio.currentTime} disabled={!hasAudio} controller={audioSync}
         onSeek={handleSeek} onScrubStart={handleScrubStart} onScrubEnd={handleScrubEnd} />
-      {audioSync.error ? <div role="alert" className="text-xs text-error_primary">{audioSync.error}</div> : null}
+      {audioSync.error ? <div role="alert" className="text-xs text-error">{audioSync.error}</div> : null}
     </div>
   );
 }

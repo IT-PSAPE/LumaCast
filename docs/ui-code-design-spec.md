@@ -128,6 +128,29 @@ Feature-owned controls remain feature-local when the behavior is
 domain-coupled — for example, `OutputSettingsPanel` stays in
 `features/playback`.
 
+## 5a. Design Tokens
+
+`app/renderer/theme.css` holds the whole colour system in two tiers. The
+base values are 26 raw colours (a grey ramp, brand 400–600, and red, orange
+and green 400–600); Tailwind's default palette is switched off, so nothing
+else can be named in a class. Twelve semantic tokens carry every colour
+meaning in the UI and are the only names components use:
+
+- `bg-primary`, `bg-secondary`, `bg-tertiary` for the app canvas, panels, and
+  controls;
+- `text-primary`, `text-secondary`, `text-tertiary`;
+- `border-primary`, `border-secondary`;
+- `brand`, `error`, `warning`, `success`, usable in any namespace
+  (`bg-brand`, `text-error`, `ring-brand`, `border-success/40`).
+
+Hover, pressed, tinted, and disabled states are opacity modifiers on these
+tokens (`hover:bg-brand/90`, `bg-error/15`), never extra tokens. Light values
+sit in `@theme`; dark values override the same twelve variables under
+`[data-theme="dark"]`. A palette experiment therefore edits base values or
+the twelve semantic lines and nothing in a component. The two remaining
+places that need a border or text colour as a background or ring reference
+the variable directly (`bg-(--border-color-primary)`).
+
 ## 6. Screens
 
 | Screen | `data-ui-region` on its root/major panels |

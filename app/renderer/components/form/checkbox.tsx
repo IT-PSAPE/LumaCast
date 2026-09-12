@@ -34,7 +34,7 @@ const checkboxIndicatorStyles = cv({
   base: 'grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors',
   variants: {
     checked: {
-      true: 'border-brand bg-brand_primary text-brand-700',
+      true: 'border-brand bg-brand/15 text-brand',
       false: 'border-primary bg-primary text-transparent',
     },
     disabled: {

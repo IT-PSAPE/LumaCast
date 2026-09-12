@@ -493,7 +493,7 @@ const Item = forwardRef<HTMLButtonElement, ItemProps>(function Item({
   }
 
   const variantClasses = variant === 'destructive'
-    ? 'text-error hover:bg-error_primary hover:text-error'
+    ? 'text-error hover:bg-error/15 hover:text-error'
     : 'text-secondary hover:bg-tertiary';
 
   return (

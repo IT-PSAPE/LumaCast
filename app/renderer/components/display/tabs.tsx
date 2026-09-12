@@ -226,7 +226,7 @@ function Panel({ children, value, className }: { children?: ReactNode; className
 }
 
 function Indicator() {
-  return <span className='absolute inset-0 top-auto bg-brand_primary h-[1px]' />;
+  return <span className='absolute inset-0 top-auto bg-brand/15 h-[1px]' />;
 }
 
 export const Tabs = { Root, List, Trigger, Indicator, Panel };

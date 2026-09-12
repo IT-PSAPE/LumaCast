@@ -520,7 +520,7 @@ export function AudioSyncEditor({ controller }: AudioSyncEditorProps) {
         onClick={() => controller.setEnabled(!controller.enabled)}
         className="flex h-7 items-center gap-1.5 text-xs text-secondary">
         <span>Sync</span>
-        <span className={`flex h-4 w-7 items-center rounded-full px-0.5 ${controller.enabled ? 'bg-brand_solid' : 'bg-tertiary'}`}>
+        <span className={`flex h-4 w-7 items-center rounded-full px-0.5 ${controller.enabled ? 'bg-brand' : 'bg-tertiary'}`}>
           <span className={`size-3 rounded-full bg-white transition-transform ${controller.enabled ? 'translate-x-3' : ''}`} />
         </span>
       </button>

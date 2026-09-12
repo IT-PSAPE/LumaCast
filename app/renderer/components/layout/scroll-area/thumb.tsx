@@ -36,7 +36,7 @@ export const ScrollAreaThumb = forwardRef<HTMLDivElement, ScrollAreaThumbProps>(
       ref={mergeRefs(forwardedRef, orientation === 'vertical' ? thumbYRef : thumbXRef)}
       data-orientation={orientation}
       className={cn(
-        'rounded-full bg-foreground-quaternary/70 hover:bg-foreground-tertiary',
+        'rounded-full bg-(--text-color-tertiary)/50 hover:bg-(--text-color-tertiary)/80',
         // Thin floating thumb — narrower than its scrollbar so the track reads as empty space.
         orientation === 'vertical' ? 'w-1' : 'h-1',
         className,

@@ -92,7 +92,7 @@ export function SlideInspector() {
   }
 
   if (isOverlayEdit && !currentOverlay) {
-    return <div className="text-sm text-tertiary">No overlay selected.</div>;
+    return <div className="text-sm text-tertiary p-2">No overlay selected.</div>;
   }
 
   return (

@@ -28,7 +28,7 @@ const SEARCH_PLACEHOLDER_BY_TAB: Record<BottomTab, string> = {
   macros: 'Search macros…',
 };
 
-const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transparent text-tertiary hover:bg-quaternary hover:text-primary [&>svg]:size-4';
+const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transparent text-tertiary hover:bg-tertiary hover:text-primary [&>svg]:size-4';
 
 export function ProgramPanel() {
   const { clearLayer, clearAllLayers, mediaLayerAsset, videoLayerAsset, contentLayerVisible, activeOverlays, overlayMode, setOverlayMode } = usePresentationLayers();

@@ -144,7 +144,7 @@ export function SlideOutlineRowBody({
         </Thumbnail.Body>
         {row.state === 'live' ? (
           <Thumbnail.Overlay position="top-right" className="right-2 top-2">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-[2px] bg-brand_solid text-white shadow-sm">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-[2px] bg-brand text-white shadow-sm">
               <Play size={12} strokeWidth={1.9} />
             </span>
           </Thumbnail.Overlay>

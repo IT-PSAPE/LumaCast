@@ -27,9 +27,9 @@ export function AudioWaveformTrack({ src, duration, currentTime, disabled, contr
   }).join(' '), [waveform.peaks]);
   return (
     <div className="relative">
-      <div className="relative h-16 overflow-hidden rounded border border-brand_solid/30 bg-brand_solid/10" data-ui-region="audio-waveform">
-        <div className="pointer-events-none absolute inset-y-0 left-0 bg-brand_solid/10" style={{ width: `${progress}%` }} />
-        <svg aria-hidden="true" viewBox="0 0 1200 58" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full" style={{ color: 'var(--color-background-brand_solid)' }}>
+      <div className="relative h-16 overflow-hidden rounded border border-brand_solid/30 bg-brand/10" data-ui-region="audio-waveform">
+        <div className="pointer-events-none absolute inset-y-0 left-0 bg-brand/10" style={{ width: `${progress}%` }} />
+        <svg aria-hidden="true" viewBox="0 0 1200 58" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full" style={{ color: 'var(--color-brand)' }}>
           {path ? <path d={path} stroke="currentColor" strokeWidth="1.5" /> : <path d="M0 29H1200" stroke="currentColor" strokeOpacity="0.3" />}
         </svg>
         {waveform.status !== 'ready' && src ? <span className="pointer-events-none absolute bottom-1 left-2 text-[10px] text-tertiary">{waveform.status === 'loading' ? 'Loading waveform…' : 'Waveform unavailable'}</span> : null}
@@ -47,7 +47,7 @@ export function AudioWaveformTrack({ src, duration, currentTime, disabled, contr
             onClick={(event) => { controller.seekToMarker(entry.timeMs); setSelection({ id: entry.id, anchor: event.currentTarget }); }}
             className="absolute top-0 h-full w-5 border-l border-brand_solid text-left focus:outline focus:outline-2 focus:outline-white"
             style={{ left: `clamp(0px, ${Math.min(100, entry.timeMs / 1000 / duration * 100)}%, calc(100% - 20px))` }}>
-            <span className="absolute left-0 top-0 rounded-br bg-brand_solid px-1 text-[10px] leading-4 text-white">{slideIndex >= 0 ? slideIndex + 1 : '•'}</span>
+            <span className="absolute left-0 top-0 rounded-br bg-brand px-1 text-[10px] leading-4 text-white">{slideIndex >= 0 ? slideIndex + 1 : '•'}</span>
           </button>;
         }) : null}
       </div>

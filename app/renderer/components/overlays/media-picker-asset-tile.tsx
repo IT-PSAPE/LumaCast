@@ -23,7 +23,7 @@ export function MediaPickerAssetTile({
       onClick={handleClick}
       className={cn(
         'group cursor-pointer rounded border bg-primary p-0 text-left transition-colors',
-        isSelected ? 'border-brand ring-1 ring-brand-400' : 'border-primary',
+        isSelected ? 'border-brand ring-1 ring-brand' : 'border-primary',
       )}
     >
       <div

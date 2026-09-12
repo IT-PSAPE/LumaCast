@@ -67,6 +67,6 @@ export function getSeparatorColors(separatorId: string, colorKey: string | null)
 
   return {
     backgroundColor: withAlpha(activeOption.swatch, 0.18),
-    textColor: `color-mix(in srgb, var(--color-text-primary) 88%, ${activeOption.swatch})`
+    textColor: `color-mix(in srgb, var(--text-color-primary) 88%, ${activeOption.swatch})`
   };
 }

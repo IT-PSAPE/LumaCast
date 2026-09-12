@@ -25,7 +25,7 @@ export function CanvasCueCard({ row, index, isSelected, onClick }: CanvasCueCard
       onClick={onClick}
       className={cn(
         'flex w-full items-center gap-3 rounded-md border bg-secondary/40 px-4 py-3 text-left transition-colors',
-        isSelected ? 'border-brand bg-active' : 'border-primary hover:border-secondary',
+        isSelected ? 'border-brand bg-tertiary' : 'border-primary hover:border-secondary',
       )}
     >
       <span className="flex size-8 shrink-0 items-center justify-center rounded bg-tertiary text-secondary">

@@ -23,14 +23,14 @@ export function formatDuration(ms: number): string {
 
 export function colorForLevel(level: ObsEventLevel): string {
   switch (level) {
-    case 'error': return 'text-red-400';
-    case 'warn': return 'text-amber-400';
+    case 'error': return 'text-error';
+    case 'warn': return 'text-warning';
     default: return 'text-secondary';
   }
 }
 
 export function lineColor(line: string): string {
-  if (line.includes(' ERROR ')) return 'text-red-400';
-  if (line.includes(' WARN ')) return 'text-amber-400';
+  if (line.includes(' ERROR ')) return 'text-error';
+  if (line.includes(' WARN ')) return 'text-warning';
   return '';
 }

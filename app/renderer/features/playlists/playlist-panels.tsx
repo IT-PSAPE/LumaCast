@@ -54,7 +54,7 @@ export function PlaylistPanels() {
             </LumaCastPanel.GroupTitle>
           </LumaCastPanel.Group>
 
-          <LumaCastPanel.GroupContent className="py-1.5 space-y-1">
+          <LumaCastPanel.GroupContent className="space-y-1">
             <ScrollArea.Root>
               <ScrollArea.Viewport role="list" aria-label="Playlists">
                 <SortableList.Root {...dnd}>

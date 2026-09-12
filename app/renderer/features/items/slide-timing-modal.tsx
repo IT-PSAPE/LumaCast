@@ -111,7 +111,7 @@ function TimingEditor({ itemRef, onClose }: { itemRef: ItemRef; onClose: () => v
             </SortableList.Root>
             {items.length === 0 && <p className="text-sm text-secondary">Add slides to set their timing.</p>}
           </div>
-          {error && <p role="alert" className="text-sm text-error_primary">{error}</p>}
+          {error && <p role="alert" className="text-sm text-error">{error}</p>}
         </Dialog.Body>
         <Dialog.Footer><ReacstButton variant="ghost" disabled={saving} onClick={() => void close()}>Cancel</ReacstButton>
           <ReacstButton variant="take" disabled={saving || items.length === 0} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</ReacstButton></Dialog.Footer>

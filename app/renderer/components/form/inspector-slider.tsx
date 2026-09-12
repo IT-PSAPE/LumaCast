@@ -48,7 +48,7 @@ export function InspectorSlider({
       {/* filled portion */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 rounded-l-lg bg-quaternary"
+        className="pointer-events-none absolute inset-y-0 left-0 rounded-l-lg bg-tertiary"
         style={{ width: `${percent}%` }}
       />
       {/* tick dots in unfilled region */}
@@ -61,7 +61,7 @@ export function InspectorSlider({
           {Array.from({ length: remaining }).map((_, index) => (
             <span
               key={index}
-              className="h-1 w-1 shrink-0 rounded-full bg-border-primary"
+              className="h-1 w-1 shrink-0 rounded-full bg-(--border-color-primary)"
             />
           ))}
         </div>
@@ -70,7 +70,7 @@ export function InspectorSlider({
           the pill's rounded ends instead of clipping at 0% and 100%. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-text-secondary"
+        className="pointer-events-none absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-(--text-color-secondary)"
         style={{ left: `calc(${percent / 100} * (100% - 6px) + 1px)` }}
       />
       {/* label left */}

@@ -42,7 +42,7 @@ export function ContainedSceneFrame({ width, height, className = '', stageClassN
     <div ref={containerRef} className="relative h-full w-full overflow-hidden">
       <div className={`absolute left-1/2 top-1/2 overflow-hidden -translate-x-1/2 -translate-y-1/2 ${className}`} style={frameStyle}>
         {checkerboard ? (
-          <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--color-background-tertiary)_0%_25%,var(--color-background-quaternary)_0%_50%)] bg-[length:24px_24px]" />
+          <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--background-color-tertiary)_0%_25%,var(--background-color-tertiary)_0%_50%)] bg-[length:24px_24px]" />
         ) : null}
         <div className={`absolute inset-0 ${stageClassName}`}>
           {children}

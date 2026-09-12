@@ -43,7 +43,7 @@ export function RowList({
             <span className="text-xs uppercase tracking-wide text-tertiary">
               {row.kind === 'item' ? row.item.type : 'playlist'}
             </span>
-            {isSelected(row) ? <Check size={12} strokeWidth={2.5} className="text-brand_solid" /> : null}
+            {isSelected(row) ? <Check size={12} strokeWidth={2.5} className="text-brand" /> : null}
           </SelectableRow.Trailing>
         </SelectableRow.Root>
       ))}

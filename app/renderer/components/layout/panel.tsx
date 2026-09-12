@@ -63,7 +63,7 @@ function PanelGroupFooter({ children, className, ...rest }: ComponentPropsWithou
 
 function PanelGroupContent({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
     return (
-        <div {...rest} className={cn('w-full px-2 flex flex-col justify-start items-start', className)}>{children}</div>
+        <div {...rest} className={cn('w-full flex flex-col justify-start items-start', className)}>{children}</div>
     );
 }
 
@@ -76,7 +76,7 @@ const menuItemVariants = cv({
     base: ['w-full min-h-7 py-1 px-2 inline-flex justify-start items-center gap-2 overflow-hidden'],
     variants: {
         state: {
-            active: ['bg-foreground-brand_primary text-primary_on-brand hover:bg-brand_solid'],
+            active: ['bg-brand text-white hover:bg-brand/90'],
             inactive: ['bg-transparent text-secondary hover:bg-tertiary active:bg-secondary'],
         },
     },

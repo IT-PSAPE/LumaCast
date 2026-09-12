@@ -35,10 +35,10 @@ export function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo }: Me
           onClick={handleAssignLayer}
           selected={isActive}
           aspectRatio={asset.type === 'audio' ? 1 : (asset.width && asset.height ? asset.width / asset.height : undefined)}
-          className={cn(isActive ? 'ring-1 ring-brand-400/35' : '')}
+          className={cn(isActive ? 'ring-1 ring-brand/35' : '')}
         >
           <Thumbnail.Body>
-            <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--color-background-tertiary)_0%_25%,var(--color-background-quaternary)_0%_50%)] bg-[length:16px_16px]" />
+            <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--background-color-tertiary)_0%_25%,var(--background-color-tertiary)_0%_50%)] bg-[length:16px_16px]" />
             <MediaThumbnail asset={asset} />
           </Thumbnail.Body>
           <Thumbnail.Caption>

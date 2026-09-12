@@ -27,7 +27,7 @@ export function EventTimelineSection() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className={`rounded border px-2 py-0.5 text-xs ${mirrorEventsToConsole ? 'border-emerald-500/60 text-emerald-300' : 'border-secondary text-secondary hover:bg-tertiary/40'}`}
+            className={`rounded border px-2 py-0.5 text-xs ${mirrorEventsToConsole ? 'border-success/60 text-success' : 'border-secondary text-secondary hover:bg-tertiary/40'}`}
             onClick={() => setMirrorEventsToConsole(!mirrorEventsToConsole)}
           >
             {mirrorEventsToConsole ? 'Mirror to logs: on' : 'Mirror to logs: off'}

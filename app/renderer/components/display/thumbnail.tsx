@@ -6,7 +6,7 @@ const thumbnailStyles = cv({
   base: 'group relative w-full min-w-0 overflow-hidden rounded-xs border bg-primary text-left transition-colors',
   variants: {
     selected: {
-      true: ['border-brand-400/70 bg-brand-400/15'],
+      true: ['border-brand/70 bg-brand/15'],
       false: ['border-primary hover:border-secondary'],
     },
     variant: {
@@ -18,12 +18,12 @@ const thumbnailStyles = cv({
     {
       variant: 'slide',
       selected: true,
-      className: ['border-transparent bg-primary ring-2 ring-brand-400'],
+      className: ['border-transparent bg-primary ring-2 ring-brand'],
     },
     {
       variant: 'slide',
       selected: false,
-      className: ['border-secondary hover:ring-border-secondary'],
+      className: ['border-secondary hover:ring-(--border-color-secondary)'],
     },
   ],
   defaultVariants: {

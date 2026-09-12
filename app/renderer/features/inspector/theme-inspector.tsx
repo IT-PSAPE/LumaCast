@@ -44,7 +44,7 @@ export function ThemeInspector() {
   }
 
   if (!currentTheme) {
-    return <div className="text-sm text-tertiary">No theme selected.</div>;
+    return <div className="text-sm text-tertiary p-2">No theme selected.</div>;
   }
 
   return (

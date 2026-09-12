@@ -6,8 +6,8 @@ const indicatorStyles = cv({
   base: 'inline-block size-1.5 rounded-full',
   variants: {
     active: {
-      true: ['bg-green-500'],
-      false: ['bg-red-500'],
+      true: ['bg-success'],
+      false: ['bg-error'],
     },
   },
 });

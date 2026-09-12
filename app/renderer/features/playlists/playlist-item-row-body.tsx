@@ -87,8 +87,8 @@ export function PlaylistItemRowBody({
           onDragOver={onDragOver}
           onDrop={onDrop}
           className={dragging
-            ? 'my-0.5 cursor-grabbing shadow-lg focus-visible:ring-2 focus-visible:ring-brand'
-            : 'my-0.5 cursor-grab focus-visible:ring-2 focus-visible:ring-brand active:cursor-grabbing'}
+            ? 'cursor-grabbing shadow-lg focus-visible:ring-2 focus-visible:ring-brand'
+            : 'cursor-grab focus-visible:ring-2 focus-visible:ring-brand active:cursor-grabbing'}
         >
           <ItemIcon entity={itemRef} className="shrink-0" />
           <RenameField ref={renameRef} value={item.title} onValueChange={handleRename} className="label-xs" />
