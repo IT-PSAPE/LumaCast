@@ -65,7 +65,7 @@ import each other with relative paths, never via the package's own
 | `@lumacast/kernel` | Dependency-free primitives (`Id`, `createId`, `nowIso`) every other package may depend on. |
 | `@lumacast/composition` | The visual-document domain model — decks, slides, elements, themes, overlays, stages, rich text — and the headless scene-normalization contract every rendering surface shares. |
 | `@lumacast/automation` | The cue/macro/trigger-binding domain model and the deterministic macro runtime, plus headless cue description for the macro editor UI. |
-| `@lumacast/commands` | Keyboard-shortcut definitions and the app-menu command vocabulary, plus headless keyboard-event matching helpers. `ShortcutActionId`/`AppMenuCommandId` unification is tracked as `TODO(commands-canonical-ids)` in the package. |
+| `@lumacast/commands` | Keyboard-shortcut definitions and the app-menu command vocabulary, plus headless keyboard-event matching helpers. Modifier matching is exact — an omitted modifier must not be pressed. The two surfaces overlap on twelve chords, so the package also holds the claim registry that keeps one keypress to one action (ADR-0022). `ShortcutActionId`/`AppMenuCommandId` unification is tracked as `TODO(commands-canonical-ids)` in the package. |
 | `@lumacast/protocol` | The versioned IPC surface, snapshot patches, the deck-bundle manifest, NDI observability and project-backup contracts, and the runtime codecs that decode them at trust boundaries. |
 | `@lumacast/persistence-sqlite` | SQLite-backed persistence: the `CastRepository` store, schema migrations, fixtures, and deterministic test-support helpers. |
 | `@lumacast/engine` | The authoritative NDI output runtime: sender lifecycle, frame/audio pipeline, and diagnostics. The Electron-shaped host process/IPC proxy stay as shims in `app/main/ndi`. |
@@ -81,21 +81,21 @@ tracked by a renderer-side epoch sourced from `document.fonts.ready` plus the
 `loadingdone` event so text first measured against fallback fonts is laid out
 again once the real face resolves.
 
+The Show page has one browser composition: playlist entries appear as tabs in
+the header, and the selected item's slides render below in the user's Grid or
+List view. `useDeckBrowserView` no longer selects among current, tabs, and
+continuous playlist layouts; the continuous browser subtree and its cross-item
+slide actions are removed. Grid/List remains a renderer preference under
+`lumacast.slide-browser-mode.v1`. On first load, the workbench copies a valid
+Grid/List value from the retired `lumacast.deck-browser-preferences.v1` JSON
+record when needed and then deletes that legacy key. See ADR-0030.
+
 Renderer playback/rendering splits responsibility at two narrow seams:
 
 - `SceneStage` has separate editable and read-only variants. Only the editable
   variant subscribes to the element-editing context and `useSceneStageEditor`;
   read-only thumbnail, monitor, and NDI capture surfaces render the same scene
   tree without pulling in selection, marquee, transform, or inline-text state.
-- `CanvasProvider` consumes a stable presentation-layer set (content visibility,
-  media/video layer assets, and overlay membership/order) and builds the base
-  layered program scene from that discrete set only.
-- `MediaResidencyBoundary` sits below `SlideProvider` and above the renderer's
-  media consumers. It translates headless `@lumacast/playback` residency tiers
-  into renderer execution: mounted surfaces hold T0 hard refs through
-  `useKImage`, adjacent/armed image sources acquire advisory `warmImage`
-  handles with T1 grace / T2 priority, and predictable video paints acquire a
-  bounded set of dedicated `warmVideoClaim` prerolls plus a shared-layer
 - Inline text editing renders through the DOM (ADR 0032). While an element is
   being edited, `SceneNodeText` draws only its background (`hideText`) and the
   editor's `contentEditable` renders the text visibly inside a frame on the
@@ -105,6 +105,15 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   auto-fit size is the canvas's own `computeAutoFitRichTextFontSize`. A text
   box grows around text taller than itself, live and on commit
   (`fitTextElementToBody`), and never shrinks below its authored height.
+- `CanvasProvider` consumes a stable presentation-layer set (content visibility,
+  media/video layer assets, and overlay membership/order) and builds the base
+  layered program scene from that discrete set only.
+- `MediaResidencyBoundary` sits below `SlideProvider` and above the renderer's
+  media consumers. It translates headless `@lumacast/playback` residency tiers
+  into renderer execution: mounted surfaces hold T0 hard refs through
+  `useKImage`, adjacent/armed image sources acquire advisory `warmImage`
+  handles with T1 grace / T2 priority, and predictable video paints acquire a
+  bounded set of dedicated `warmVideoClaim` prerolls plus a shared-layer
   `warmVideoSource` pool. Plan replacement releases abandoned warms instead of
   letting speculative work finish.
 - `PlaybackProvider` publishes dissolve timing and opacity through a separate
@@ -190,6 +199,7 @@ Each rule is also proven by a committed fixture scenario under
   performs one structured clone on that direct port. The utility host accepts
   frames only after a matching version/name handshake and validates the output
   name, attempt id, dimensions, exact byte length, and advisory telemetry.
+- Readback requests carry an immutable telemetry snapshot. The readback worker submits the captured frame directly on completion; its informational completion notification does not wait for the renderer to authorize submission. The renderer subtracts only that attempt's captured counters, preserving drops recorded while readback was in flight.
 - The direct channel is optional. A handshake timeout, invalid handshake or
   host response, closed port, unavailable host, or frame-release watchdog
   resets it and requests a replacement with bounded exponential backoff;
@@ -483,9 +493,9 @@ Each rule is also proven by a committed fixture scenario under
 
 ## Atomic Item Creation
 
-- `createItem(input)` is the one repository operation for creating a themed or unthemed item (Presentation, Lyric, or Talk) together with its first slide. `ItemCreateInput = { type: ItemType; title?; themeId?; playlistId?; position? }` — there is no `collectionId`/`groupId`: collections and libraries do not exist, and a new item attaches to a playlist only through `playlistId`/`position` (an ordinary `playlist_entries` insert, not a group membership). It validates title and owner type, theme existence (looked up in the one theme table `input.type` implies — `presentation`/`lyric`/`talk` themes cannot even be named by the wrong item type, so there is no separate "theme/owner-type compatibility" check to perform), and playlist existence when `playlistId` is supplied.
+- `createItem(input)` is the one repository operation for creating a themed or unthemed Presentation or Lyric together with its first slide. `ItemCreateInput = { type: ItemType; title?; themeId?; playlistId?; position? }` — there is no `collectionId`/`groupId`: collections and libraries do not exist, and a new item attaches to a playlist only through `playlistId`/`position` (an ordinary `playlist_entries` insert, not a group membership). It validates title and owner type, theme existence in the table implied by `input.type`, and playlist existence when `playlistId` is supplied.
 - Runs in one SQLite transaction:
-  1. Creates the owner (presentation/lyric/talk) with explicit `order_index` (dense within that one table only — presentations, lyrics, and talks each keep an independent order sequence) and its final `theme_id`.
+  1. Creates the owner (presentation or lyric) with explicit `order_index` (dense within that owner table) and its final `theme_id`.
   2. Creates the first slide once, with `background_source` = 'theme' if themed, 'local' otherwise.
   3. Applies theme elements via `applyThemeToElements` (with provenance) when themed; otherwise falls back to the owner type's current default first-slide content (the lyric branch keeps its initial editable lyric text).
   4. Rolls back the owner, slide, and elements together if any validation or write fails — no partially created item is left behind, and nothing is selected or navigated to.
@@ -498,7 +508,7 @@ Each rule is also proven by a committed fixture scenario under
 ## Exact-Copy Duplication
 
 ### Whole-Item Duplication (`duplicateItem`)
-- `ItemDuplicateInput = { type: 'presentation' | 'lyric'; id }` — Talk is not a legal `type` at the wire level (rejected by the decoder), not merely a runtime error: there is no `duplicateTalk`, and no runtime duplicate-talk guard/error exists (the absence is structural, decided at the type/codec boundary rather than thrown from the repository).
+- `ItemDuplicateInput = { type: 'presentation' | 'lyric'; id }`; those are the complete current item families at the type and codec boundaries.
 - Generates copy names case-insensitively within the same owner table (`presentations` or `lyrics`).
 - Inserts duplicate at `sourceOrder + 1`; shifts only later siblings within the source's own table (`order_index` is a per-table sequence — there is no collection dimension to scope by, since collections do not exist).
 - Returns `ItemDuplicateResult = { itemId, patch }`; the patch includes shifted sibling order updates. Callers select `itemId` directly and never scan the snapshot (see ADR-0004).
@@ -511,14 +521,14 @@ Each rule is also proven by a committed fixture scenario under
 ### Theme Duplication
 - Creates new temporary theme ID, backing-slide ID, and collision-free element IDs (including nested groups).
 - Deep-copies background, gradient stops, elements, nested children, payloads.
-- Preserves dimensions and managed-media references; which of the four theme tables (`presentation_themes`/`lyric_themes`/`talk_themes`/`overlay_themes`) the duplicate belongs to is fixed by which table the source came from — there is no `kind` field and no collection to preserve.
+- Preserves dimensions and managed-media references; which theme table (`presentation_themes`/`lyric_themes`/`overlay_themes`) the duplicate belongs to is fixed by which table the source came from — there is no `kind` field and no collection to preserve.
 - Persisting the draft normalizes IDs/ownership exactly once in one transaction.
 
 ## Element Provenance (`sourceThemeElementId`)
 
 - **Schema**: `slide_elements.source_theme_element_id` (nullable).
 - **Apply/Reset**: Sets explicit `sourceThemeElementId` on all materialized elements (recursive for groups).
-- **Sync**: Matches elements by `sourceThemeElementId` only (no ID-parsing fallback in normal runtime).
+- **Live resolution**: Matches elements by `sourceThemeElementId`; explicit property overrides remain local (ADR-0026).
 - **Duplicate**: Preserves `sourceThemeElementId` with new materialized IDs.
 - **Detach**: Nulls `sourceThemeElementId` recursively.
 - **User-created**: `sourceThemeElementId` = null.
@@ -526,34 +536,25 @@ Each rule is also proven by a committed fixture scenario under
 ## Background Ownership (`backgroundSource`)
 
 - **Schema**: `slides.background_source` = 'theme' | 'local' (default 'theme' for legacy).
-- **Apply/Reset/Sync**: Sets `background_source = 'theme'`.
+- **Apply/Reset**: Sets `background_source = 'theme'`.
 - **Create (first slide)**: 'theme' if themed, 'local' otherwise.
 - **Create (later slide)**: 'theme' if owner has assigned compatible theme, 'local' otherwise.
 - **Manual edit (`updateSlideBackground`)**: Sets `background_source = 'local'`.
 - **Detach**: Sets `background_source = 'local'` on all slides.
 - **Duplicate**: Preserves exactly.
-- **Sync**: Updates background only when `backgroundSource === 'theme'`; preserves local backgrounds.
+- **Live resolution**: Reads the current theme background when `backgroundSource === 'theme'`; preserves local backgrounds.
 
-## Sync Semantics (`syncThemeToLinkedItems`)
+## Live Theme Inheritance
 
-- Signature `syncThemeToLinkedItems(themeId, itemType: ItemType)`: sync is strictly per-family by construction, not by a runtime compatibility check — a presentation theme's linked-owner lookup only ever queries the `presentations` table (`WHERE theme_id = ?`), so it structurally never fans out to lyrics or talks. There is no cross-family case to guard against.
-- Resolves staged theme ID via `resolveThemeIdForMutation` before syncing.
-- Synchronizes every linked owner in `itemType`'s own table in one transaction.
-- Matches elements by explicit `sourceThemeElementId`.
-- Same-type matches: updates geometry/style in place, preserves authored text (plain/rich).
-- Type changes: removes old, creates new with collision-free ID.
-- Removes only elements whose provenance points to removed theme elements.
-- Preserves null-provenance custom elements and their relative order.
-- Idempotent: repeated sync with no changes produces no data/ordering changes.
+Linked presentation and lyric slides resolve geometry, styling, and inherited backgrounds from their current theme through `packages/composition/src/theme-inheritance.ts`. The renderer projects staged theme edits into this same read path for editor, thumbnails, live output, and NDI. Theme edits do not require rewriting linked slide rows or pressing Sync.
+
+`sourceThemeElementId` preserves element identity and `themeOverrideKeys` pins deliberate per-property local edits. Authored text remains local. New inherited elements use deterministic IDs. A local background continues to win via `backgroundSource`. Legacy divergences are conservatively preserved as overrides during migration; old storage cannot establish whether a difference was intentional or an outdated copy. See ADR-0026.
+
+`syncThemeToLinkedItems` remains a compatibility operation; its former manual UI is removed. Theme dimensions do not automatically resize existing slides.
 
 ## Detach Semantics (`detachThemeFromItem`)
 
-- Signature `detachThemeFromItem(itemRef: ItemRef)` — the item's own type already selects the right owner table, so no separate `themeType` parameter is needed.
-- Clears owner `theme_id`.
-- Sets `background_source = 'local'` on all slides.
-- Nulls `source_theme_element_id` on all elements (recursive).
-- Returns complete patch with owner, slides, and elements.
-- Later sync of former theme cannot affect detached owner.
+Detachment preserves the currently resolved appearance, clears the owner theme link, sets backgrounds local, and clears element provenance and override metadata. Materialization and unlinking belong to one repository transaction so a failed operation cannot leave a partly detached item. Deleted theme elements must not reappear when detaching. Theme deletion follows the same preservation boundary for linked owners.
 
 ## Migration (v22)
 
@@ -622,7 +623,7 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 - `PRAGMA user_version` is the sole schema cursor. A database whose `user_version` is newer than the highest supported version is refused (`FutureSchemaVersionError`) before any backup or write.
 - An existing database (any table, or a nonzero `user_version`) receives exactly one `VACUUM INTO` backup, `lumacast.bak-v<source>.sqlite`, before its first pending migration. The backup is opened read-only and verified with `integrity_check` and a matching source `user_version`; a failed or unverified backup aborts the migration (`MigrationBackupError`).
 - Each migration's `up` and its `user_version` bump commit in one SQLite transaction, so a crash rolls both back and the next start retries from the prior version. FK-off table rebuilds toggle `PRAGMA foreign_keys` around that transaction and restore its prior state afterward.
-- Fixtures `schema-v0`..`schema-v30` pin frozen structural fingerprints and convergence coverage for every historical version; they are regression evidence, not a second schema definition. Migrations v1–v22 and their fixtures are frozen and never edited; every schema change since is a new migration.
+- Fixtures `schema-v0`..`schema-v31` pin frozen structural fingerprints and convergence coverage for every historical version; they are regression evidence, not a second schema definition. Migrations v1–v22 and their fixtures are frozen and never edited; every schema change since is a new migration.
 - See ADR-0005 for the full contract and rationale.
 
 ## Snapshot / Bundle Persistence
@@ -635,9 +636,9 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 ## Project Backup (format v2)
 
 - A project backup is a separate, complete recovery artifact (issue #145), distinct from deck bundles: it serializes the entire application state, not a selection of items. Managed media files are never copied — only their `src` references are recorded.
-- Envelope (`ProjectBackup`): `{ format: 'cast-project-backup', version: 2, schemaVersion: 30, tables }`. `schemaVersion` is the source `PRAGMA user_version`, matched exactly (not a range); there are still no settings/preferences tables, so migration/schema metadata is carried by `schemaVersion` alone. The envelope carries no timestamp, so two exports of unchanged data are deeply and byte-for-byte identical.
-- `PROJECT_BACKUP_VERSION` is 2 (issue #219 item-model refactor, decision D8). `tables` now contains 21 application-owned tables — `presentations`, `lyrics`, `talks`, `slides`, `slide_elements`, `talk_script_blocks`, `playlists`, `playlist_entries`, `image_assets`, `video_assets`, `audio_assets`, `overlays`, `presentation_themes`, `lyric_themes`, `talk_themes`, `overlay_themes`, `stages`, `cues`, `actions`, `action_steps`, `trigger_bindings` — with no `libraries`, no `playlist_groups`, no `collection_id` anywhere, and no single `themes` table (the four per-owner theme tables each get their own key, sharing one structural `ProjectBackupThemeRow` shape). `playlist_entries` rows are flat and `kind`-discriminated (`'item' | 'separator'`): `kind='item'` populates exactly one of `presentation_id`/`lyric_id`/`talk_id` and leaves `label`/`color_key` null; `kind='separator'` leaves all three owner columns null and carries `label`/`color_key` instead — there is no `group_id`. Every row field is constructed explicitly from the SQL columns (snake_case, no object spread) in deterministic order (`ORDER BY created_at ASC, id ASC`); JSON-valued columns are serialized as raw JSON strings.
-- **Version 1 backups (schemaVersion exactly 22) are imported via migration replay**, not a hand-written transform: `restoreProjectBackup` dispatches on `isLegacyProjectBackup` first, validates the document against the frozen v1 contract (`validateLegacyProjectBackup`, reconstructed verbatim from the pre-#219 validator), then `migrateLegacyProjectBackup` materializes the rows into a throwaway SQLite database at schema 22 (`applyMigrationsThroughVersion`) and replays the real migrations v23–v30 over it — the same tested code path a live upgrade uses (groups → separator + entries with item-entry ids preserved, `themes.kind` → per-owner tables with talk-theme cloning, collection ids dropped, macro scope renamed, media metadata columns added) — before feeding the result through the ordinary v2 restore path. `validateProjectBackup` itself remains v2-only and still rejects version 1 with an "older app version" message; a version-1 document with any `schemaVersion` other than 22, or a future format version, is rejected explicitly.
+- Envelope (`ProjectBackup`): `{ format: 'cast-project-backup', version: 2, schemaVersion: 32, tables }`. `schemaVersion` is the source `PRAGMA user_version`, current exports use 32; schemas 30 and 31 are normalized on import with independent schedules and conservative theme override backfill; there are still no settings/preferences tables, so migration/schema metadata is carried by `schemaVersion` alone. The envelope carries no timestamp, so two exports of unchanged data are deeply and byte-for-byte identical.
+- `PROJECT_BACKUP_VERSION` is 2 (issue #219 item-model refactor, decision D8). `tables` now contains 22 application-owned tables — `presentations`, `lyrics`, `talks`, `slides`, `slide_elements`, `talk_script_blocks`, `playlists`, `playlist_entries`, `image_assets`, `video_assets`, `audio_assets`, `overlays`, `presentation_themes`, `lyric_themes`, `talk_themes`, `overlay_themes`, `stages`, `cues`, `actions`, `action_steps`, `trigger_bindings`, `playback_schedules` — with no `libraries`, no `playlist_groups`, no `collection_id` anywhere, and no single `themes` table (the four per-owner theme tables each get their own key, sharing one structural `ProjectBackupThemeRow` shape). `playlist_entries` rows are flat and `kind`-discriminated (`'item' | 'separator'`): `kind='item'` populates exactly one of `presentation_id`/`lyric_id`/`talk_id` and leaves `label`/`color_key` null; `kind='separator'` leaves all three owner columns null and carries `label`/`color_key` instead — there is no `group_id`. Every row field is constructed explicitly from the SQL columns (snake_case, no object spread) in deterministic order (`ORDER BY created_at ASC, id ASC`); JSON-valued columns are serialized as raw JSON strings.
+- **Version 1 backups (schemaVersion exactly 22) are imported via migration replay**, not a hand-written transform: `restoreProjectBackup` dispatches on `isLegacyProjectBackup` first, validates the document against the frozen v1 contract (`validateLegacyProjectBackup`, reconstructed verbatim from the pre-#219 validator), then `migrateLegacyProjectBackup` materializes the rows into a throwaway SQLite database at schema 22 (`applyMigrationsThroughVersion`) and replays the real migrations v23–v32 over it — the same tested code path a live upgrade uses (groups → separator + entries with item-entry ids preserved, `themes.kind` → per-owner tables with talk-theme cloning, collection ids dropped, macro scope renamed, media metadata columns added) — before feeding the result through the ordinary v2 restore path. `validateProjectBackup` itself remains v2-only and still rejects version 1 with an "older app version" message; a version-1 document with any `schemaVersion` other than 22, or a future format version, is rejected explicitly.
 - **Category decision (issue #215, parent #116/#153): this family is a serialization contract, not a persistence DTO**, and lives in `app/contracts/project-backup.ts` (`ProjectBackup`, `ProjectBackupTables`, and the seventeen `ProjectBackup*Row` interfaces). #153 classified it as the textbook persistence-DTO candidate on shape alone (snake_case fields mirroring SQL columns verbatim) and set out to move it to `app/database/dto/`. That is architecturally impossible: the family is consumed as a type-level dependency by `app/core/deck-bundles.ts` (`validateProjectBackup`, `ProjectBackupTableKey`) and by the IPC contract (`app/core/ipc.ts`, `app/main/ipc.ts`, `app/main/preload.ts`, `app/main/deck-bundle-archive.ts`) as well as by `app/database/store.ts`, and `core-purity` categorically forbids `app/core` from importing `app/database`. Shape alone does not decide the category — the deciding fact is which zones hold a type-level dependency on it; a shape mirroring SQL columns that only the database layer ever names would belong in `app/database/dto/` instead. `app/contracts/` is the correct home because it is the neutral runtime-decode boundary every zone may already import (issue #149), and it must not import `app/database`, `app/main`, `app/renderer`, React, Electron, or the native module (`contracts-purity`, issue #216) — so this move cannot relocate the original problem back through the database. `app/core/types.ts` keeps export-only re-exports of the family for existing `@core/types` importers, per the #153 facade convention; #155 is the exit condition that removes them. Record this decision here rather than relitigating it at the next split.
 - Core policy owns the contract: `validateProjectBackup` in `packages/protocol/src/deck-bundles.ts` (with `ProjectBackupValidationError`) rejects the legacy version 1 explicitly (see above), a future format version (> 2), a `schemaVersion` other than the exact supported version, wrong format string, an envelope that is not exactly the four keys `format`/`version`/`schemaVersion`/`tables`, missing or extra tables/columns, malformed types/enums/flags, and slide rows that break the single-owner invariant the schema CHECK enforces. Column lists are enumerated via `PROJECT_BACKUP_COLUMN_SPECS` in the same module. Cross-table referential/ownership integrity is restore-side and deferred to issue #146.
 - The repository produces and validates without mutating the active database: `exportProjectBackup()` refuses a `user_version` other than `LATEST_SCHEMA_VERSION` and gates every produced document through `validateProjectBackup` before returning; `validateProjectBackup(backup)` on `CastRepository`.
@@ -684,15 +685,39 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 ## Snapshot Restore (flat tables, no bin-identity reseeding — issue #219 supersedes #208)
 
 - Collections and libraries do not exist any more (issue #219, decisions D3/D4), so `CastRepository.restoreFromSnapshot(snapshot)` no longer needs the snapshot-authoritative collection-identity reseeding #208 built (clearing and re-seeding eight `*_collections` tables so that a restored snapshot's bin-default ids match the ids it was captured with). There are no bin defaults left to disagree.
-- `restoreFromSnapshot` clears every application-owned table and re-inserts the snapshot's rows in one transaction, child-before-parent on delete and parent-before-child on insert (the same discipline `clearProjectBackupTables`/`insertProjectBackupRows` use): the four theme tables and `presentations`/`lyrics`/`talks` are deleted after `slides` and re-inserted before it; `playlists` and `playlist_entries` are ordinary flat tables restored the same way as every other table — there is no special-cased tree-replacement machinery (the old `libraryBundles` full-replacement patch key is gone with it).
-- The two-owner ordering discipline still matters for a different reason than collections: presentations/lyrics/talks reference their theme table, and slides reference presentations/lyrics/talks — undoing a "creation + apply-theme" sequence deletes slides, then owners, then themes, and re-inserts themes, then owners, then slides, so no insert ever violates a not-yet-created FK target.
+- `restoreFromSnapshot` clears every application-owned table and re-inserts the snapshot's rows in one transaction, child-before-parent on delete and parent-before-child on insert (the same discipline `clearProjectBackupTables`/`insertProjectBackupRows` use): the three theme tables and `presentations`/`lyrics` are deleted after `slides` and re-inserted before it; `playlists` and `playlist_entries` are ordinary flat tables restored the same way as every other table — there is no special-cased tree-replacement machinery (the old `libraryBundles` full-replacement patch key is gone with it).
+- The owner ordering discipline still matters for a different reason than collections: presentations/lyrics reference their theme table, and slides reference presentations/lyrics — undoing a "creation + apply-theme" sequence deletes slides, then owners, then themes, and re-inserts themes, then owners, then slides, so no insert ever violates a not-yet-created FK target.
 - Routine patch-history undo/redo no longer uses `restoreFromSnapshot`. The hot path is `cast:applySnapshotPatch` → `CastRepository.applyPatch(patch)`: main validates only the tables present in the `SnapshotPatch`, then applies targeted deletes/upserts inside one transaction. The renderer already has the exact next `AppSnapshot`, so this IPC call returns success/failure only; it does not ship a full snapshot back.
 - `applyPatch` still follows the same canonical table order as full restore (child-before-parent deletes, parent-before-child upserts), but because a partial patch can mix "child row stops referencing parent" with "parent row is deleted" or "cue row is deleted" with "macro steps are rewritten", it defers FK enforcement to commit for that transaction. A failed commit or later write rolls the whole patch back.
 - Full-snapshot restore remains the right primitive for backup/recovery and for the smaller set of undo history entries that still store a whole snapshot rather than a patch. That split is structural in the IPC contract: `cast:applySnapshotPatch` is the incremental path, `cast:restoreFromSnapshot` is the whole-state fallback, and `cast:restoreProjectBackup` remains the distinct recovery channel.
 
 ## `AppSnapshot.slides` / `AppSnapshot.slideElements` scope (issue #211)
 
-- `CastRepository.getSlides()` and `CastRepository.getSlideElements()` are both scoped to item-owned slides — presentation, lyric, and talk content — and agree on that scope exactly: a slide or element only appears in `AppSnapshot.slides` / `AppSnapshot.slideElements` if it belongs to a presentation, lyric, or talk. Theme, overlay, and stage container slides and their elements are never in either collection; they are surfaced through their own owner's `elements` field instead (`PresentationTheme`/`LyricTheme`/`TalkTheme`/`OverlayTheme.elements`, `Overlay.elements`, `Stage.elements`, populated via `getSlideElementsBySlideId`).
+- `CastRepository.getSlides()` and `CastRepository.getSlideElements()` are both scoped to presentation- and lyric-owned slides and agree on that scope exactly. Theme, overlay, and stage container slides and their elements are never in either collection; they are surfaced through their own owner's `elements` field instead (`PresentationTheme`/`LyricTheme`/`OverlayTheme.elements`, `Overlay.elements`, `Stage.elements`, populated via `getSlideElementsBySlideId`).
 - Before #211, `getSlideElements()` was unfiltered and returned every `slide_elements` row regardless of owner, so `AppSnapshot.slideElements` silently disagreed with `AppSnapshot.slides` about scope. Every real database hit this immediately (every fresh repository self-seeds a default overlay with a branding element), and the mismatch produced two defects fixed as local workarounds before the getter itself was corrected: #208 (`restoreFromSnapshot` inserting container elements into item content slides on every restore) and #209 (a rollback test whose `slideElements` count included container elements it never created, later rewritten to assert a delta from a baseline instead of an absolute count).
 - `tests/packages/persistence-sqlite/src/snapshot-scope.test.ts` pins this contract directly for a repository holding items of each type, a theme, an overlay, and a stage together, so a future change to either getter fails loudly instead of resurfacing as a downstream defect.
-- The incremental `SnapshotPatch` path (`buildPatch`/`getSlideElementsByIds`) never carried container elements in `upserts.slideElements` in the first place — `createTheme`/`updateTheme`/`createOverlay`/`updateOverlay`/`createStage`/`updateStage` only ever patch one of the four `upserts.presentationThemes`/`lyricThemes`/`talkThemes`/`overlayThemes` keys, or `upserts.overlays`/`stages`, never `upserts.slideElements`. The wide behavior was exclusively a `getSnapshot()` full-refresh artifact, which is why no renderer surface needed updating: consumers either key off item-owned slide ids (drawn from the item-scoped `slides` collection) or read a container's own embedded `elements` field, never the shared `slideElements` array, to display theme/overlay/stage content.
+- The incremental `SnapshotPatch` path (`buildPatch`/`getSlideElementsByIds`) never carried container elements in `upserts.slideElements` in the first place — `createTheme`/`updateTheme`/`createOverlay`/`updateOverlay`/`createStage`/`updateStage` only ever patch `upserts.presentationThemes`/`lyricThemes`/`overlayThemes`, or `upserts.overlays`/`stages`, never `upserts.slideElements`. The wide behavior was exclusively a `getSnapshot()` full-refresh artifact, which is why no renderer surface needed updating: consumers either key off item-owned slide ids (drawn from the item-scoped `slides` collection) or read a container's own embedded `elements` field, never the shared `slideElements` array, to display theme/overlay/stage content.
+
+
+## Playback schedules
+
+Independent `PlaybackSchedule` records hold either ordered slide durations or an audio asset binding with timed markers. They refer to existing item and slide IDs and participate in snapshot patches, history, and full project backups. Slide-timing order belongs to the schedule, not the content item.
+
+`@lumacast/automation` owns the headless schedule runtime. `PlaybackSchedulesProvider` supplies the actual audio playhead and the existing slide activation boundary. Audio bindings take priority over timers; manual output changes suspend audio sync until Resume. Marker seeks activate only the destination and retain existing slide triggers. See ADR-0024.
+
+## Overlay reuse
+
+The theme UI offers presentation and lyric families. Overlay designs are reused through overlay duplication. Legacy overlay-theme data remains readable for backup compatibility; existing overlays already own their copied elements and background and require no appearance migration. See ADR-0025.
+
+
+## Scoped media drops and bundle imports
+
+Bundle import uses the existing Choose bundle picker, inspection, broken-reference decisions, and confirmation workflow. There is no app-wide bundle drop overlay or import handler. Media file drops remain scoped to the media bin. The shell only prevents dropped-file navigation, without importing or inspecting the file (ADR-0027).
+
+### Audio waveform, video filmstrip, and media volume
+
+The audio transport uses a compact waveform with on-track marker popovers and a fixed-width binding selector (ADR-0028). `use-audio-waveform.ts` decodes audio for analysis only and caches four peak arrays; the existing media element remains the playback clock. Renderer fetches may use the capability-checked `cast-media:` scheme. Failed analysis leaves scrubbing and playback available.
+
+The video transport uses the same compact strip shape as a filmstrip scrubber. `use-video-filmstrip.ts` samples twelve frames through a detached muted video element and canvas, cancels stale extraction, and retains four completed filmstrips. It never seeks the live layer-video element, and preview failure leaves the ordinary video transport usable.
+
+Audio and layer-video volume are independent session controls applied to their media elements, shared by local playback and NDI capture. Muting preserves the chosen level. The kernel ID primitive uses ambient Web Crypto rather than importing a Node builtin into renderer consumers.
