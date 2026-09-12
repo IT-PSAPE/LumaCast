@@ -1,3 +1,4 @@
+import { stampExplicitOverrides } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
 import type {
   SlideBackgroundSource,
@@ -27,7 +28,7 @@ import {
   parsePlaylistItemReference,
   type PlaylistItemReference,
 } from '@lumacast/composition';
-import { decodeBundleManifest, type CodecContext } from './codecs';
+import { decodeBundleManifest, decodePlaybackSchedule, decodeThemeOverrideKeys, type CodecContext } from './codecs';
 import type { ProjectBackup, ProjectBackupTables } from './project-backup';
 import type {
   ProjectBackupV1,
@@ -130,9 +131,7 @@ export function validateBundleManifest(input: unknown, context?: CodecContext): 
   for (const playlist of manifest.playlists ?? []) {
     for (const row of playlist.rows) {
       if (row.kind !== 'item') continue;
-      // Rejects zero or multiple populated owner columns instead of the
-      // `presentationId ?? lyricId` chain that previously accepted (and
-      // then silently mis-imported) a Talk-only entry.
+      // Rejects zero or multiple populated owner columns.
       getBundlePlaylistEntryReference(row);
     }
   }
@@ -144,13 +143,12 @@ export function validateBundleManifest(input: unknown, context?: CodecContext): 
  * canonical reference, rejecting entries with zero or multiple populated
  * owners. This is the single interpretation point for
  * `BundlePlaylistItemEntry` — callers must not re-derive the referenced
- * item id with an inline `??` chain, which previously dropped Talk entries
- * whenever the chain stopped short of `talkId`. Never call this on a
+ * item id with an inline `??` chain. Never call this on a
  * separator row — discriminate on `kind` first.
  */
 export function getBundlePlaylistEntryReference(entry: BundlePlaylistItemEntry): PlaylistItemReference {
   return parsePlaylistItemReference(
-    { presentationId: entry.presentationId, lyricId: entry.lyricId, talkId: entry.talkId },
+    { presentationId: entry.presentationId, lyricId: entry.lyricId },
     `playlist entry ${entry.id}`,
   );
 }
@@ -195,21 +193,30 @@ export function filterBundlePlaylistsToIncludedItems(
 // ---------------------------------------------------------------------------
 
 export const PROJECT_BACKUP_FORMAT = 'cast-project-backup' as const;
-export const PROJECT_BACKUP_VERSION = 2 as const;
-// The one prior format version, superseded by the #219 item-model refactor
-// (decision D8). `validateProjectBackup` rejects it explicitly rather than
-// folding it into the generic "unsupported version" branch — it validates a
-// v2 document, full stop. `isLegacyProjectBackup`/`validateLegacyProjectBackup`
-// below are the deliberate, separate opt-in for a caller that wants to
-// import a v1 document instead (see @lumacast/persistence-sqlite's
-// `restoreProjectBackup`, wave K).
+export const PROJECT_BACKUP_VERSION = 3 as const;
+// Format v2 spans schemas 30–32 and is accepted only as legacy import input;
+// it is normalized to the v3/schema-33 shape by discarding Talk content.
+export const PROJECT_BACKUP_PREVIOUS_VERSION = 2 as const;
+// Format v1 is pinned to schema 22 and uses the separate database-migration
+// import path below.
 export const PROJECT_BACKUP_LEGACY_VERSION = 1 as const;
 // The exact `PRAGMA user_version` this build's backup contract serializes.
 // The database layer's authoritative LATEST_SCHEMA_VERSION (ADR-0005) must
 // match; the focused lockstep test in project-backup.test.ts fails on drift.
 // Core keeps its own copy because the migrations module is unreachable here
 // (core may not import the database layer).
-export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 30 as const;
+export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 33 as const;
+// The last schema serialized by format v2.
+export const PROJECT_BACKUP_PREVIOUS_SCHEMA_VERSION = 32 as const;
+// The earliest accepted v2 schema version, predating migration v31's
+// `playback_schedules` table. A v2 document at schema 30 is not rejected:
+// `validateProjectBackupEnvelope` checks it against the 30 table set (every
+// table except `playback_schedules`) and the 30 column set (slide element
+// rows without the override column), then normalizes it to the current shape
+// with an empty schedule list and `theme_override_keys_json: null` — a
+// 30-era database could hold no schedules, so nothing is silently lost and
+// no old file is rejected.
+export const PROJECT_BACKUP_EARLIEST_SUPPORTED_SCHEMA_VERSION = 30 as const;
 // The one and only schema version a v1-format backup was ever exported at
 // (PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION was hardcoded to 22 for the whole
 // lifetime of format version 1). `validateLegacyProjectBackup` rejects any
@@ -230,8 +237,8 @@ export class ProjectBackupValidationError extends Error {
 // derive a value-level list from a union, so these arrays are the runtime
 // domains the validator enforces; keep each in step with its union.
 const SLIDE_KINDS: readonly SlideKind[] = [
-  'presentation', 'lyric', 'talk',
-  'presentationTheme', 'lyricTheme', 'talkTheme', 'overlayTheme',
+  'presentation', 'lyric',
+  'presentationTheme', 'lyricTheme', 'overlayTheme',
   'overlay', 'stage',
 ];
 const SLIDE_ELEMENT_TYPES: readonly SlideElementType[] = ['text', 'image', 'video', 'shape', 'group'];
@@ -258,6 +265,7 @@ const SCOPE_LEVELS: readonly ScopeLevel[] = ['global', 'item', 'slide'];
 const ON_SCOPE_EXITS: readonly OnScopeExit[] = ['cancel', 'revert', 'none'];
 const TRIGGER_TYPES: readonly TriggerType[] = ['slide.take', 'slide.activate', 'app.startup'];
 const TRIGGER_TARGET_TYPES: readonly TriggerBindingTargetType[] = ['cue', 'macro'];
+const PLAYBACK_SCHEDULE_KINDS = ['slide-timing', 'audio-sync'] as const;
 
 type ProjectBackupColumnType = 'string' | 'number' | 'json-string' | 'enum' | 'flag';
 
@@ -305,15 +313,12 @@ const THEME_ROW_SPEC: readonly ProjectBackupColumnSpec[] = [
 const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly ProjectBackupColumnSpec[]> = {
   presentations: ITEM_ROW_SPEC,
   lyrics: ITEM_ROW_SPEC,
-  talks: ITEM_ROW_SPEC,
   slides: [
     { name: 'id', type: 'string' },
     { name: 'presentation_id', type: 'string', nullable: true },
     { name: 'lyric_id', type: 'string', nullable: true },
-    { name: 'talk_id', type: 'string', nullable: true },
     { name: 'presentation_theme_id', type: 'string', nullable: true },
     { name: 'lyric_theme_id', type: 'string', nullable: true },
-    { name: 'talk_theme_id', type: 'string', nullable: true },
     { name: 'overlay_theme_id', type: 'string', nullable: true },
     { name: 'overlay_id', type: 'string', nullable: true },
     { name: 'stage_id', type: 'string', nullable: true },
@@ -341,14 +346,7 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'layer', type: 'enum', enum: SLIDE_ELEMENT_LAYERS },
     { name: 'payload_json', type: 'json-string' },
     { name: 'source_theme_element_id', type: 'string', nullable: true },
-    { name: 'created_at', type: 'string' },
-    { name: 'updated_at', type: 'string' },
-  ],
-  talk_script_blocks: [
-    { name: 'id', type: 'string' },
-    { name: 'slide_id', type: 'string' },
-    { name: 'text', type: 'string' },
-    { name: 'order_index', type: 'number' },
+    { name: 'theme_override_keys_json', type: 'json-string', nullable: true },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
@@ -365,7 +363,6 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'kind', type: 'enum', enum: PLAYLIST_ENTRY_KINDS },
     { name: 'presentation_id', type: 'string', nullable: true },
     { name: 'lyric_id', type: 'string', nullable: true },
-    { name: 'talk_id', type: 'string', nullable: true },
     { name: 'label', type: 'string', nullable: true },
     { name: 'color_key', type: 'string', nullable: true },
     { name: 'order_index', type: 'number' },
@@ -386,7 +383,6 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
   ],
   presentation_themes: THEME_ROW_SPEC,
   lyric_themes: THEME_ROW_SPEC,
-  talk_themes: THEME_ROW_SPEC,
   overlay_themes: THEME_ROW_SPEC,
   stages: [
     { name: 'id', type: 'string' },
@@ -449,9 +445,83 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
   ],
+  playback_schedules: [
+    { name: 'id', type: 'string' },
+    { name: 'item_ref_json', type: 'json-string', nullable: true },
+    { name: 'enabled', type: 'flag' },
+    { name: 'kind', type: 'enum', enum: PLAYBACK_SCHEDULE_KINDS },
+    { name: 'steps_json', type: 'json-string', nullable: true },
+    { name: 'audio_asset_id', type: 'string', nullable: true },
+    { name: 'markers_json', type: 'json-string', nullable: true },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+};
+
+const LEGACY_V2_SLIDE_KINDS = [
+  'presentation', 'lyric', 'talk', 'presentationTheme', 'lyricTheme',
+  'talkTheme', 'overlayTheme', 'overlay', 'stage',
+] as const;
+
+const LEGACY_V2_PROJECT_BACKUP_COLUMN_SPECS: Record<string, readonly ProjectBackupColumnSpec[]> = {
+  ...PROJECT_BACKUP_COLUMN_SPECS,
+  talks: ITEM_ROW_SPEC,
+  slides: [
+    { name: 'id', type: 'string' },
+    { name: 'presentation_id', type: 'string', nullable: true },
+    { name: 'lyric_id', type: 'string', nullable: true },
+    { name: 'talk_id', type: 'string', nullable: true },
+    { name: 'presentation_theme_id', type: 'string', nullable: true },
+    { name: 'lyric_theme_id', type: 'string', nullable: true },
+    { name: 'talk_theme_id', type: 'string', nullable: true },
+    { name: 'overlay_theme_id', type: 'string', nullable: true },
+    { name: 'overlay_id', type: 'string', nullable: true },
+    { name: 'stage_id', type: 'string', nullable: true },
+    { name: 'kind', type: 'enum', enum: LEGACY_V2_SLIDE_KINDS },
+    { name: 'width', type: 'number' },
+    { name: 'height', type: 'number' },
+    { name: 'notes', type: 'string' },
+    { name: 'background_json', type: 'json-string', nullable: true },
+    { name: 'background_source', type: 'enum', enum: SLIDE_BACKGROUND_SOURCES, nullable: true },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  talk_script_blocks: [
+    { name: 'id', type: 'string' },
+    { name: 'slide_id', type: 'string' },
+    { name: 'text', type: 'string' },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  playlist_entries: [
+    { name: 'id', type: 'string' },
+    { name: 'playlist_id', type: 'string' },
+    { name: 'kind', type: 'enum', enum: PLAYLIST_ENTRY_KINDS },
+    { name: 'presentation_id', type: 'string', nullable: true },
+    { name: 'lyric_id', type: 'string', nullable: true },
+    { name: 'talk_id', type: 'string', nullable: true },
+    { name: 'label', type: 'string', nullable: true },
+    { name: 'color_key', type: 'string', nullable: true },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  talk_themes: THEME_ROW_SPEC,
 };
 
 const PROJECT_BACKUP_TABLE_KEYS = Object.keys(PROJECT_BACKUP_COLUMN_SPECS) as ProjectBackupTableKey[];
+
+const LEGACY_V2_PROJECT_BACKUP_TABLE_KEYS = Object.keys(LEGACY_V2_PROJECT_BACKUP_COLUMN_SPECS);
+
+// The v2 table set before migration v31 introduced `playback_schedules`.
+// A schema-30 document is validated against exactly this set, then
+// normalized with an empty schedule list (see
+// PROJECT_BACKUP_EARLIEST_SUPPORTED_SCHEMA_VERSION above).
+const PROJECT_BACKUP_TABLE_KEYS_V30 = LEGACY_V2_PROJECT_BACKUP_TABLE_KEYS.filter(
+  (key) => key !== 'playback_schedules',
+);
 
 function describeProjectBackupValue(value: unknown): string {
   if (value === null) return 'null';
@@ -461,15 +531,16 @@ function describeProjectBackupValue(value: unknown): string {
 
 function assertProjectBackupRow(
   row: unknown,
-  tableName: ProjectBackupTableKey,
+  tableName: string,
   rowIndex: number,
+  columnSpecs: Record<string, readonly ProjectBackupColumnSpec[]> = PROJECT_BACKUP_COLUMN_SPECS,
 ): void {
   const path = `tables.${tableName}[${rowIndex}]`;
   if (typeof row !== 'object' || row === null || Array.isArray(row)) {
     throw new ProjectBackupValidationError(`Invalid project backup: ${path} must be a row object.`);
   }
   const record = row as Record<string, unknown>;
-  const specs = PROJECT_BACKUP_COLUMN_SPECS[tableName];
+  const specs = columnSpecs[tableName];
   const actualKeys = Object.keys(record).sort();
   const expectedKeys = specs.map((spec) => spec.name).sort();
   if (actualKeys.length !== expectedKeys.length || expectedKeys.some((key, index) => key !== actualKeys[index])) {
@@ -533,27 +604,50 @@ function assertProjectBackupRow(
         break;
     }
   }
+  if (columnSpecs === PROJECT_BACKUP_COLUMN_SPECS && tableName === 'slide_elements' && record.theme_override_keys_json !== null) {
+    try {
+      decodeThemeOverrideKeys(JSON.parse(record.theme_override_keys_json as string), { boundary: 'project-backup', operation: 'validateProjectBackup', path });
+    } catch (cause) {
+      throw new ProjectBackupValidationError(`Invalid project backup: ${path}.theme_override_keys_json: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  }
+  if (columnSpecs === PROJECT_BACKUP_COLUMN_SPECS && tableName === 'playback_schedules') {
+    try {
+      const itemRef = record.item_ref_json === null ? null : JSON.parse(record.item_ref_json as string);
+      const common = { id: record.id, itemRef, enabled: record.enabled === 1, kind: record.kind };
+      const schedule = record.kind === 'slide-timing'
+        ? { ...common, steps: record.steps_json === null ? null : JSON.parse(record.steps_json as string) }
+        : { ...common, audioAssetId: record.audio_asset_id, markers: record.markers_json === null ? null : JSON.parse(record.markers_json as string) };
+      if (record.kind === 'slide-timing' ? record.audio_asset_id !== null || record.markers_json !== null : record.steps_json !== null) {
+        throw new Error('columns do not match schedule kind');
+      }
+      decodePlaybackSchedule(schedule, { boundary: 'project-backup', operation: 'validateProjectBackup', path });
+    } catch (cause) {
+      throw new ProjectBackupValidationError(`Invalid project backup: ${path}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  }
 }
 
 /**
  * The single named validation entry point for the project-backup contract.
  * Rejects documents with an unsupported (including future) format/version, a
- * `schemaVersion` other than the exact supported version, an envelope that
- * is not exactly the four keys `format`/`version`/`schemaVersion`/`tables`,
- * missing or extra tables, or rows that violate the per-column contract —
- * including JSON columns that do not parse and the slide owner-exclusivity
- * rule the schema CHECK enforces. Cross-table referential integrity is a
- * restore-side concern (#146), not part of this validation. Pure: never
- * mutates anything.
+ * `schemaVersion` other than 33 (current), 32, 31, or 30 (previous versions —
+ * normalized to 33 by the envelope check below, never rejected: 30 gains an
+ * empty `playback_schedules` list, and 30/31 slide element rows gain
+ * `theme_override_keys_json: null`), an envelope that is not exactly the
+ * four keys `format`/`version`/`schemaVersion`/`tables`, missing or extra
+ * tables, or rows that violate the per-column contract — including JSON
+ * columns that do not parse and the slide owner-exclusivity rule the schema
+ * CHECK enforces. Cross-table referential integrity is a restore-side
+ * concern (#146), not part of this validation. Pure: never mutates its
+ * input (a schema-30/31/32 document normalizes to a new object).
  *
- * Version 1 (the pre-#219 format) is rejected explicitly, before the generic
- * version check, with a message naming it as an older app version rather
- * than folding it into "unsupported version" — see the module-level TODO for
- * where a real v1→v2 transform hooks in.
+ * Version 1 is handled through the separate schema-22 migration path below.
  */
 interface ValidProjectBackupEnvelope {
   backup: ProjectBackup;
   tables: Record<string, unknown>;
+  backfillLegacyOverrides: boolean;
 }
 
 function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelope {
@@ -570,11 +664,13 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
 
   if (candidate.version === PROJECT_BACKUP_LEGACY_VERSION) {
     throw new ProjectBackupValidationError(
-      'This backup is from an older app version and can no longer be restored directly; a converter will be added in a future release.',
+      'This backup is from an older app version and must be restored through the legacy import path.',
     );
   }
 
-  if (candidate.version !== PROJECT_BACKUP_VERSION) {
+  const isCurrentFormat = candidate.version === PROJECT_BACKUP_VERSION;
+  const isLegacyV2Format = candidate.version === PROJECT_BACKUP_PREVIOUS_VERSION;
+  if (!isCurrentFormat && !isLegacyV2Format) {
     if (typeof candidate.version === 'number' && candidate.version > PROJECT_BACKUP_VERSION) {
       throw new ProjectBackupValidationError(
         `Future backup format version ${candidate.version} is not supported; this build supports version ${PROJECT_BACKUP_VERSION}.`,
@@ -586,9 +682,16 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
   }
 
   const schemaVersion = candidate.schemaVersion;
-  if (schemaVersion !== PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION) {
+  const isCurrentSchema = isCurrentFormat && schemaVersion === PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION;
+  const isLegacyV2Schema = typeof schemaVersion === 'number'
+    && isLegacyV2Format
+    && Number.isInteger(schemaVersion)
+    && schemaVersion >= PROJECT_BACKUP_EARLIEST_SUPPORTED_SCHEMA_VERSION
+    && schemaVersion <= PROJECT_BACKUP_PREVIOUS_SCHEMA_VERSION;
+  const isEarliestSchema = schemaVersion === PROJECT_BACKUP_EARLIEST_SUPPORTED_SCHEMA_VERSION;
+  if (!isCurrentSchema && !isLegacyV2Schema) {
     throw new ProjectBackupValidationError(
-      `Unsupported backup schema version: ${describeProjectBackupValue(schemaVersion)}; supported schema version is ${PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION}.`,
+      `Unsupported backup format/schema combination: version ${describeProjectBackupValue(candidate.version)}, schema ${describeProjectBackupValue(schemaVersion)}.`,
     );
   }
 
@@ -608,8 +711,20 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
     throw new ProjectBackupValidationError('Invalid project backup: tables must be an object.');
   }
   const tablesRecord = tables as Record<string, unknown>;
+  // A schema-30 document predates `playback_schedules`: it must carry exactly
+  // the 30 table set (no more, no less), and is normalized here to the
+  // current shape with an empty schedule list before any row is validated.
+  // Schema-30/31 documents predate `theme_override_keys_json`: their slide
+  // element rows must carry exactly the 31 column set and are normalized
+  // with `theme_override_keys_json: null` (a 30/31-era database holds no
+  // override metadata, so nothing is silently lost).
+  const expectedKeys = isCurrentSchema
+    ? PROJECT_BACKUP_TABLE_KEYS
+    : isEarliestSchema
+      ? PROJECT_BACKUP_TABLE_KEYS_V30
+      : LEGACY_V2_PROJECT_BACKUP_TABLE_KEYS;
   const actualTableKeys = Object.keys(tablesRecord).sort();
-  const expectedTableKeys = PROJECT_BACKUP_TABLE_KEYS.slice().sort();
+  const expectedTableKeys = expectedKeys.slice().sort();
   if (
     actualTableKeys.length !== expectedTableKeys.length ||
     expectedTableKeys.some((key, index) => key !== actualTableKeys[index])
@@ -619,7 +734,85 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
     );
   }
 
-  return { backup: input as ProjectBackup, tables: tablesRecord };
+  if (isCurrentSchema) {
+    return { backup: input as ProjectBackup, tables: tablesRecord, backfillLegacyOverrides: false };
+  }
+
+  const legacySpecs = schemaVersion === 32
+    ? LEGACY_V2_PROJECT_BACKUP_COLUMN_SPECS
+    : {
+        ...LEGACY_V2_PROJECT_BACKUP_COLUMN_SPECS,
+        slide_elements: LEGACY_V2_PROJECT_BACKUP_COLUMN_SPECS.slide_elements.filter((spec) => spec.name !== 'theme_override_keys_json'),
+      };
+  for (const tableName of expectedKeys) {
+    const rows = tablesRecord[tableName];
+    if (!Array.isArray(rows)) {
+      throw new ProjectBackupValidationError(`Invalid project backup: tables.${tableName} must be an array.`);
+    }
+    rows.forEach((row, rowIndex) => assertProjectBackupRow(row, tableName, rowIndex, legacySpecs));
+  }
+
+  const legacySlides = tablesRecord.slides as Array<Record<string, unknown>>;
+  legacySlides.forEach((row, rowIndex) => {
+    const ownerCount = [
+      'presentation_id', 'lyric_id', 'talk_id', 'presentation_theme_id',
+      'lyric_theme_id', 'talk_theme_id', 'overlay_theme_id', 'overlay_id', 'stage_id',
+    ].filter((column) => row[column] !== null).length;
+    if (ownerCount !== 1) {
+      throw new ProjectBackupValidationError(`Invalid project backup: tables.slides[${rowIndex}] must have exactly one owner id, got ${ownerCount}.`);
+    }
+  });
+
+  const discardedSlideIds = new Set(legacySlides
+    .filter((row) => row.talk_id !== null || row.talk_theme_id !== null)
+    .map((row) => row.id as Id));
+  const legacyElements = tablesRecord.slide_elements as Array<Record<string, unknown>>;
+  const discardedElementIds = new Set(legacyElements
+    .filter((row) => discardedSlideIds.has(row.slide_id as Id))
+    .map((row) => row.id as Id));
+  const schedules = (isEarliestSchema ? [] : tablesRecord.playback_schedules as Array<Record<string, unknown>>)
+    .filter((row) => {
+      const itemRef = row.item_ref_json === null ? null : JSON.parse(row.item_ref_json as string) as { type?: unknown };
+      if (itemRef?.type === 'talk') return false;
+      const referencesDiscardedSlide = (json: unknown): boolean => {
+        if (json === null) return false;
+        const entries = JSON.parse(json as string) as unknown;
+        return Array.isArray(entries)
+          && entries.some((entry) => typeof entry?.slideId === 'string' && discardedSlideIds.has(entry.slideId));
+      };
+      return !referencesDiscardedSlide(row.steps_json) && !referencesDiscardedSlide(row.markers_json);
+    });
+
+  const normalizedTables: Record<string, unknown> = {};
+  for (const tableName of PROJECT_BACKUP_TABLE_KEYS) {
+    normalizedTables[tableName] = tablesRecord[tableName] ?? [];
+  }
+  normalizedTables.slides = legacySlides
+    .filter((row) => !discardedSlideIds.has(row.id as Id))
+    .map(({ talk_id: _talkId, talk_theme_id: _talkThemeId, ...row }) => row);
+  normalizedTables.slide_elements = legacyElements
+    .filter((row) => !discardedSlideIds.has(row.slide_id as Id))
+    .map((row) => {
+      const sourceWasDiscarded = typeof row.source_theme_element_id === 'string' && discardedElementIds.has(row.source_theme_element_id);
+      return {
+        ...row,
+        source_theme_element_id: sourceWasDiscarded ? null : row.source_theme_element_id,
+        theme_override_keys_json: schemaVersion === 32 && !sourceWasDiscarded ? row.theme_override_keys_json : null,
+      };
+    });
+  normalizedTables.playlist_entries = (tablesRecord.playlist_entries as Array<Record<string, unknown>>)
+    .filter((row) => row.talk_id === null)
+    .map(({ talk_id: _talkId, ...row }) => row);
+  normalizedTables.trigger_bindings = (tablesRecord.trigger_bindings as Array<Record<string, unknown>>)
+    .filter((row) => typeof row.source_id !== 'string' || !discardedSlideIds.has(row.source_id));
+  normalizedTables.playback_schedules = schedules;
+  const normalized: ProjectBackup = {
+    format: PROJECT_BACKUP_FORMAT,
+    version: PROJECT_BACKUP_VERSION,
+    schemaVersion: PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION,
+    tables: normalizedTables as unknown as ProjectBackup['tables'],
+  };
+  return { backup: normalized, tables: normalizedTables, backfillLegacyOverrides: schemaVersion < 32 };
 }
 
 function assertProjectBackupSlideOwner(
@@ -629,22 +822,64 @@ function assertProjectBackupSlideOwner(
   const ownerCount =
     (row.presentation_id !== null ? 1 : 0) +
     (row.lyric_id !== null ? 1 : 0) +
-    (row.talk_id !== null ? 1 : 0) +
     (row.presentation_theme_id !== null ? 1 : 0) +
     (row.lyric_theme_id !== null ? 1 : 0) +
-    (row.talk_theme_id !== null ? 1 : 0) +
     (row.overlay_theme_id !== null ? 1 : 0) +
     (row.overlay_id !== null ? 1 : 0) +
     (row.stage_id !== null ? 1 : 0);
   if (ownerCount !== 1) {
     throw new ProjectBackupValidationError(
-      `Invalid project backup: tables.slides[${rowIndex}] must have exactly one owner id (presentation/lyric/talk/presentationTheme/lyricTheme/talkTheme/overlayTheme/overlay/stage), got ${ownerCount}.`,
+      `Invalid project backup: tables.slides[${rowIndex}] must have exactly one owner id (presentation/lyric/presentationTheme/lyricTheme/overlayTheme/overlay/stage), got ${ownerCount}.`,
     );
   }
 }
 
+
+/** Apply the same conservative override inference to older backups as a live database upgrade. */
+function backfillLegacyBackupThemeOverrides(backup: ProjectBackup): ProjectBackup {
+  const tables = backup.tables;
+  const slidesById = new Map(tables.slides.map((slide) => [slide.id, slide]));
+  const owners = {
+    presentation: new Map(tables.presentations.map((item) => [item.id, item])),
+    lyric: new Map(tables.lyrics.map((item) => [item.id, item])),
+  };
+  const elementsById = new Map(tables.slide_elements.map((row) => [row.id, row]));
+  function asElement(row: ProjectBackupTables['slide_elements'][number]): SlideElement {
+    return {
+      id: row.id, slideId: row.slide_id, type: row.type,
+      x: row.x, y: row.y, width: row.width, height: row.height,
+      rotation: row.rotation, opacity: row.opacity, zIndex: row.z_index, layer: row.layer,
+      payload: JSON.parse(row.payload_json), sourceThemeElementId: row.source_theme_element_id,
+      themeOverrideKeys: null, createdAt: row.created_at, updatedAt: row.updated_at,
+    };
+  }
+  const rows = tables.slide_elements.map((row) => {
+    if (!row.source_theme_element_id) return row;
+    const slide = slidesById.get(row.slide_id);
+    const sourceRow = elementsById.get(row.source_theme_element_id);
+    const sourceSlide = sourceRow ? slidesById.get(sourceRow.slide_id) : null;
+    if (!slide || !sourceRow || !sourceSlide) return row;
+    const matches = slide.presentation_id
+      ? owners.presentation.get(slide.presentation_id)?.theme_id === sourceSlide.presentation_theme_id && sourceSlide.presentation_theme_id !== null
+      : slide.lyric_id
+        ? owners.lyric.get(slide.lyric_id)?.theme_id === sourceSlide.lyric_theme_id && sourceSlide.lyric_theme_id !== null
+        : false;
+    if (!matches) return row;
+    try {
+      const element = asElement(row);
+      const themeElement = asElement(sourceRow);
+      const stamped = stampExplicitOverrides({ elements: [themeElement], updatedAt: sourceRow.updated_at }, [element])[0];
+      return { ...row, theme_override_keys_json: stamped.themeOverrideKeys?.length ? JSON.stringify(stamped.themeOverrideKeys) : null,
+        payload_json: JSON.stringify(stamped.payload) };
+    } catch (cause) {
+      throw new ProjectBackupValidationError(`Invalid project backup: element ${row.id}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    }
+  });
+  return { ...backup, tables: { ...tables, slide_elements: rows } };
+}
+
 export function validateProjectBackup(input: unknown): ProjectBackup {
-  const { backup, tables: tablesRecord } = validateProjectBackupEnvelope(input);
+  const { backup, tables: tablesRecord, backfillLegacyOverrides } = validateProjectBackupEnvelope(input);
 
   for (const tableName of PROJECT_BACKUP_TABLE_KEYS) {
     const rows = tablesRecord[tableName];
@@ -657,7 +892,7 @@ export function validateProjectBackup(input: unknown): ProjectBackup {
   const slides = tablesRecord.slides as ProjectBackupTables['slides'];
   slides.forEach(assertProjectBackupSlideOwner);
 
-  return backup;
+  return backfillLegacyOverrides ? backfillLegacyBackupThemeOverrides(backup) : backup;
 }
 
 export interface ProjectBackupValidationProgress {
@@ -697,7 +932,7 @@ export async function validateProjectBackupAsync(
   input: unknown,
   options: ValidateProjectBackupAsyncOptions = {},
 ): Promise<ProjectBackup> {
-  const { backup, tables: tablesRecord } = validateProjectBackupEnvelope(input);
+  const { backup, tables: tablesRecord, backfillLegacyOverrides } = validateProjectBackupEnvelope(input);
   const batchSize = Math.max(1, Math.floor(options.batchSize ?? 250));
   const yieldToEventLoop = options.yieldToEventLoop ?? defaultProjectBackupValidationYield;
 
@@ -737,14 +972,14 @@ export async function validateProjectBackupAsync(
     reportProjectBackupValidationProgress(options.onProgress, { validatedRows, totalRows });
   }
 
-  return backup;
+  return backfillLegacyOverrides ? backfillLegacyBackupThemeOverrides(backup) : backup;
 }
 
 // ---------------------------------------------------------------------------
 // Legacy (v1) project backup import (#219 item-model refactor, wave K).
-// `validateProjectBackup` above validates a v2 document, full stop, and
-// keeps rejecting version 1 outright — that behavior (and its tests) is
-// unchanged. This section is a separate, deliberate opt-in: a caller that
+// `validateProjectBackup` above validates current v3 and legacy v2 documents,
+// and keeps rejecting version 1 directly. This section is a separate,
+// deliberate opt-in: a caller that
 // wants to import an old file, rather than reject it, first calls
 // `isLegacyProjectBackup` to decide whether a document is even worth trying
 // as legacy, then `validateLegacyProjectBackup` to fully structurally
@@ -754,7 +989,7 @@ export async function validateProjectBackupAsync(
 // silently accepted or partially imported — with a message that always
 // names it as coming from an older app version, whether the failure is a
 // wrong schema version, a missing table, or a malformed row. The actual
-// v1→v2 transform (materializing to schema 22, replaying migrations 23–30,
+// v1→v3 transform (materializing to schema 22, replaying migrations 23–33,
 // reading the result back out) is @lumacast/persistence-sqlite's job — it
 // owns the database this module may not import.
 // ---------------------------------------------------------------------------
@@ -769,7 +1004,7 @@ function legacyBackupError(message: string): never {
  * Cheap, non-throwing classification: does this document even claim to be a
  * v1 project backup? Used by a caller to decide whether to attempt the
  * legacy import path (`validateLegacyProjectBackup`) instead of the normal
- * v2 `validateProjectBackup`. Does not check `schemaVersion` or the table
+ * `validateProjectBackup`. Does not check `schemaVersion` or the table
  * shape — a document that passes this but fails `validateLegacyProjectBackup`
  * is legacy-labeled garbage, still rejected explicitly.
  */
@@ -1043,7 +1278,7 @@ function assertLegacyProjectBackupRow(
  * the single kind-tagged `themes` table, `playlist_groups`, and
  * `playlist_entries.group_id`), per-column type/nullability/enum contracts,
  * and the six-owner slide exclusivity rule. Cross-table referential
- * integrity is, as with the v2 validator, a restore-side concern. Every
+ * integrity is, as with the current validator, a restore-side concern. Every
  * rejection names this as an older-app-version document. Pure: never
  * mutates anything.
  */

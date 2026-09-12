@@ -23,7 +23,7 @@ import {
 } from '../../../../../packages/persistence-sqlite/src/migrations/index';
 
 const FIXTURES_ROOT = path.join(fileURLToPath(new URL('../../../../../packages/persistence-sqlite/src/', import.meta.url)), 'fixtures');
-const EXPECTED_SCHEMA_VERSIONS = Array.from({ length: 31 }, (_, i) => i);
+const EXPECTED_SCHEMA_VERSIONS = Array.from({ length: 34 }, (_, i) => i);
 const TEMP_PREFIX = 'lumacast-schema-equivalence-';
 const SAFETY_SOURCE_VERSION = 26;
 
@@ -224,15 +224,15 @@ afterAll(() => {
 });
 
 describe('schema equivalence across historical fixtures (#108)', () => {
-  it('pins fixture manifests for exactly versions 0..30 with matching directory suffixes', () => {
-    expect(LATEST_SCHEMA_VERSION, 'LATEST_SCHEMA_VERSION must be 30').toBe(30);
+  it('pins fixture manifests for exactly versions 0..33 with matching directory suffixes', () => {
+    expect(LATEST_SCHEMA_VERSION, 'LATEST_SCHEMA_VERSION must be 33').toBe(33);
     expect(
       MIGRATIONS.map((migration) => migration.version),
-      'MIGRATIONS versions must be a dense contiguous prefix 1..30',
-    ).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+      'MIGRATIONS versions must be a dense contiguous prefix 1..33',
+    ).toEqual(Array.from({ length: 33 }, (_, i) => i + 1));
     expect(
       FIXTURES.map((fixture) => fixture.version),
-      'fixture manifests must cover exactly versions 0..30 with no gaps or duplicates',
+      'fixture manifests must cover exactly versions 0..33 with no gaps or duplicates',
     ).toEqual(EXPECTED_SCHEMA_VERSIONS);
     for (const fixture of FIXTURES) {
       expect(

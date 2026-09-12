@@ -37,26 +37,26 @@ import type {
 // already decode/validate other wire formats. See docs/ARCHITECTURE.md
 // ("Dependency Boundaries" / "Project Backup") for the recorded rationale.
 //
-// #219 item-model refactor (decision D8): format version 2, pinned to
-// schema version 30 (the current schema after v28 list-order-index, v29
-// performance composite indexes, and v30 media metadata; the item-model split
-// itself landed in v23–v27 — see the design doc's D7). No `libraries`, no `playlist_groups`, no
-// `collection_id` anywhere, and no single `themes` table: the four per-owner
-// theme tables each get their own key. Version 1 backups (schema 22, the
-// last pre-#219 schema) are no longer silently unreadable: `deck-bundles.ts`
+// #219 item-model refactor: format version 3 at schema version 33 contains
+// presentations and lyrics only. No `libraries`, no `playlist_groups`, no
+// `collection_id`, no Talk tables/columns, and no single `themes` table: the
+// three per-owner theme tables each get their own key. Version 2 backups at
+// schemas 30–32 are accepted as legacy input and normalized by discarding
+// Talk content. Version 1 backups (schema 22, the last pre-#219 schema) are
+// no longer silently unreadable: `deck-bundles.ts`
 // exports `isLegacyProjectBackup`/`validateLegacyProjectBackup`, a documented
 // way to classify a v1 document as legacy-but-structurally-plausible instead
 // of throwing, and @lumacast/persistence-sqlite's `restoreProjectBackup`
-// (wave K) materializes a validated v1 document through the real v23–v30
-// migrations and restores the result via this same v2 path. A v1 document
+// (wave K) materializes a validated v1 document through the real v23–v33
+// migrations and restores the result via the current v3 path. A v1 document
 // that is NOT structurally plausible (garbage, or any schema version other
 // than 22) is still rejected explicitly, never silently. `validateProjectBackup`
-// below keeps rejecting version 1 outright — it validates a v2 document,
+// below keeps rejecting version 1 outright — it validates v3 and legacy v2 documents,
 // full stop; the legacy pair is a separate, deliberate opt-in for callers
 // that want to import an old file rather than reject it.
 // ---------------------------------------------------------------------------
 
-/** Shared row shape for presentations / lyrics / talks. */
+/** Shared row shape for presentations / lyrics. */
 export interface ProjectBackupItemRow {
   id: Id;
   title: string;
@@ -70,10 +70,8 @@ export interface ProjectBackupSlideRow {
   id: Id;
   presentation_id: Id | null;
   lyric_id: Id | null;
-  talk_id: Id | null;
   presentation_theme_id: Id | null;
   lyric_theme_id: Id | null;
-  talk_theme_id: Id | null;
   overlay_theme_id: Id | null;
   overlay_id: Id | null;
   stage_id: Id | null;
@@ -102,15 +100,8 @@ export interface ProjectBackupSlideElementRow {
   layer: SlideElementBase['layer'];
   payload_json: string;
   source_theme_element_id: Id | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ProjectBackupTalkScriptBlockRow {
-  id: Id;
-  slide_id: Id;
-  text: string;
-  order_index: number;
+  /** Sorted explicit theme override keys as JSON text, or null when none (v32+; absent in v30/v31 documents, normalized to null on import). */
+  theme_override_keys_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -126,8 +117,8 @@ export interface ProjectBackupPlaylistRow {
 /**
  * Flat playlist row (decision D5): `kind` discriminates an item entry from a
  * separator. `kind='item'` rows populate exactly one of
- * presentation_id/lyric_id/talk_id and leave label/color_key null;
- * `kind='separator'` rows leave all three owner columns null and carry
+ * presentation_id/lyric_id and leave label/color_key null;
+ * `kind='separator'` rows leave both owner columns null and carry
  * label/color_key instead. There is no `group_id` — playlists are flat.
  */
 export interface ProjectBackupPlaylistEntryRow {
@@ -136,7 +127,6 @@ export interface ProjectBackupPlaylistEntryRow {
   kind: 'item' | 'separator';
   presentation_id: Id | null;
   lyric_id: Id | null;
-  talk_id: Id | null;
   label: string | null;
   color_key: string | null;
   order_index: number;
@@ -168,7 +158,7 @@ export interface ProjectBackupOverlayRow {
   updated_at: string;
 }
 
-/** Shared row shape for the four per-owner theme tables (decision D2). */
+/** Shared row shape for the three per-owner theme tables (decision D2). */
 export interface ProjectBackupThemeRow {
   id: Id;
   name: string;
@@ -238,13 +228,32 @@ export interface ProjectBackupTriggerBindingRow {
   updated_at: string;
 }
 
+/**
+ * Independent automation record (migration v31): borrows content, never
+ * owned by it. `item_ref_json` is the serialized `ItemRef` or null for an
+ * unbound disabled draft; `steps_json`/`markers_json` are the serialized
+ * step/marker arrays (null when the other discriminant owns the row).
+ * There are deliberately no foreign keys — deleting a slide, item, or audio
+ * asset must never cascade here; stale references simply stop matching at
+ * runtime selection.
+ */
+export interface ProjectBackupPlaybackScheduleRow {
+  id: Id;
+  item_ref_json: string | null;
+  enabled: number;
+  kind: 'slide-timing' | 'audio-sync';
+  steps_json: string | null;
+  audio_asset_id: Id | null;
+  markers_json: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectBackupTables {
   presentations: ProjectBackupItemRow[];
   lyrics: ProjectBackupItemRow[];
-  talks: ProjectBackupItemRow[];
   slides: ProjectBackupSlideRow[];
   slide_elements: ProjectBackupSlideElementRow[];
-  talk_script_blocks: ProjectBackupTalkScriptBlockRow[];
   playlists: ProjectBackupPlaylistRow[];
   playlist_entries: ProjectBackupPlaylistEntryRow[];
   image_assets: ProjectBackupMediaAssetRow[];
@@ -253,18 +262,18 @@ export interface ProjectBackupTables {
   overlays: ProjectBackupOverlayRow[];
   presentation_themes: ProjectBackupThemeRow[];
   lyric_themes: ProjectBackupThemeRow[];
-  talk_themes: ProjectBackupThemeRow[];
   overlay_themes: ProjectBackupThemeRow[];
   stages: ProjectBackupStageRow[];
   cues: ProjectBackupCueRow[];
   actions: ProjectBackupMacroRow[];
   action_steps: ProjectBackupMacroStepRow[];
   trigger_bindings: ProjectBackupTriggerBindingRow[];
+  playback_schedules: ProjectBackupPlaybackScheduleRow[];
 }
 
 export interface ProjectBackup {
   format: 'cast-project-backup';
-  version: 2;
+  version: 3;
   schemaVersion: number;
   tables: ProjectBackupTables;
 }
@@ -273,7 +282,7 @@ export interface ProjectBackup {
 // Legacy (v1) project backup shapes — format version 1, pinned to schema
 // version 22 (the last pre-#219 schema; see the frozen migrations in
 // @lumacast/persistence-sqlite/src/migrations/definitions.ts, versions 1–22).
-// Column names mirror that schema verbatim, exactly as the v2 shapes above
+// Column names mirror that schema verbatim, exactly as the v3 shapes above
 // mirror the current one. These types exist solely so
 // `isLegacyProjectBackup`/`validateLegacyProjectBackup` (deck-bundles.ts) and
 // @lumacast/persistence-sqlite's legacy import path have something precise to

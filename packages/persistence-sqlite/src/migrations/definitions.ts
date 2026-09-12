@@ -2582,6 +2582,194 @@ function addMediaAssetMetadataColumns(db: SqliteDatabase): void {
   }
 }
 
+function addPlaybackSchedulesTable(db: SqliteDatabase): void {
+  if (hasTable(db, 'playback_schedules')) return;
+  db.exec(`
+    CREATE TABLE playback_schedules (
+      id TEXT PRIMARY KEY,
+      item_ref_json TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      kind TEXT NOT NULL,
+      steps_json TEXT,
+      audio_asset_id TEXT,
+      markers_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// v32 — durable explicit theme overrides
+// (`slide_elements.theme_override_keys_json`).
+//
+// Live linked themes resolve at read time; a linked row pins individual
+// geometry/payload properties via `themeOverrideKeys` while everything else
+// follows the theme. Before v32 the keys lived only in staged renderer
+// memory, so every reload silently dropped them. The column stores the sorted
+// key array as JSON text, or NULL when no overrides are recorded.
+//
+// Conservative backfill: every non-authored, non-identity property where a
+// linked same-type row differs from its theme source becomes an explicit key
+// (recursively for group children, whose keys live inside `payload_json`).
+// Type-mismatched and dangling rows yield no keys. Rows without provenance
+// are untouched. Idempotent: reruns only fill rows still NULL that have
+// since gained provenance.
+// ---------------------------------------------------------------------------
+const OVERRIDE_GEOMETRY_KEYS = ['x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer'] as const;
+const OVERRIDE_AUTHORED_KEYS = new Set(['text', 'format', 'richBody']);
+
+function overrideValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right) return false;
+  if (left !== null && right !== null && typeof left === 'object') {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function deriveBackfillOverrideKeys(
+  themeGeometry: Record<string, unknown>,
+  themePayload: Record<string, unknown>,
+  rowGeometry: Record<string, unknown>,
+  rowPayload: Record<string, unknown>,
+): string[] {
+  const keys = new Set<string>();
+  for (const key of OVERRIDE_GEOMETRY_KEYS) {
+    if (!overrideValuesEqual(rowGeometry[key], themeGeometry[key])) keys.add(key);
+  }
+  const payloadKeys = new Set([...Object.keys(themePayload), ...Object.keys(rowPayload)]);
+  for (const key of payloadKeys) {
+    if (key === 'children' || OVERRIDE_AUTHORED_KEYS.has(key)) continue;
+    if (!overrideValuesEqual(rowPayload[key], themePayload[key])) keys.add(key);
+  }
+  return [...keys].sort();
+}
+
+function backfillGroupChildrenOverrides(themeChildById: Map<string, SlideElement>, rowChildren: SlideElement[]): { children: SlideElement[]; changed: boolean } {
+  let changed = false;
+  const children = rowChildren.map((child) => {
+    const sourceId = (child as { sourceThemeElementId?: string | null }).sourceThemeElementId;
+    const themeChild = sourceId ? themeChildById.get(sourceId) : undefined;
+    if (!themeChild || themeChild.type !== child.type) return child;
+    const keys = deriveBackfillOverrideKeys(
+      themeChild as unknown as Record<string, unknown>,
+      themeChild.payload as unknown as Record<string, unknown>,
+      child as unknown as Record<string, unknown>,
+      child.payload as unknown as Record<string, unknown>,
+    );
+    let nextChild: SlideElement = child;
+    const previousKeys = Array.isArray((child as { themeOverrideKeys?: unknown }).themeOverrideKeys)
+      ? ((child as { themeOverrideKeys?: string[] }).themeOverrideKeys ?? null)
+      : null;
+    const previousSorted = previousKeys ? [...previousKeys].sort() : null;
+    const nextSorted = keys.length > 0 ? keys : null;
+    if (JSON.stringify(previousSorted) !== JSON.stringify(nextSorted)) {
+      nextChild = { ...child, themeOverrideKeys: nextSorted };
+      changed = true;
+    }
+    if (child.type === 'group') {
+      const themeGrandchildren = new Map<string, SlideElement>();
+      for (const grandchild of ((themeChild.payload as unknown as { children?: SlideElement[] }).children ?? [])) {
+        themeGrandchildren.set(grandchild.id, grandchild);
+      }
+      const restamped = backfillGroupChildrenOverrides(themeGrandchildren, ((nextChild.payload as unknown as { children?: SlideElement[] }).children ?? []) as SlideElement[]);
+      if (restamped.changed) {
+        nextChild = { ...nextChild, payload: { ...(nextChild.payload as object), children: restamped.children } as SlideElement['payload'] };
+        changed = true;
+      }
+    }
+    return nextChild;
+  });
+  return { children, changed };
+}
+
+function addThemeOverrideKeysColumn(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'slide_elements', 'theme_override_keys_json')) {
+    db.exec('ALTER TABLE slide_elements ADD COLUMN theme_override_keys_json TEXT');
+  }
+
+  const themeElementCache = new Map<string, Map<string, { type: string; geometry: Record<string, unknown>; payload: Record<string, unknown>; childrenById: Map<string, SlideElement> }>>();
+  const loadThemeElements = (themeSlideId: string) => {
+    const cached = themeElementCache.get(themeSlideId);
+    if (cached) return cached;
+    const rows = db.prepare('SELECT id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json FROM slide_elements WHERE slide_id = ?').all(themeSlideId) as Array<{
+      id: string; type: string; x: number; y: number; width: number; height: number;
+      rotation: number; opacity: number; z_index: number; layer: string; payload_json: string;
+    }>;
+    const byId = new Map<string, { type: string; geometry: Record<string, unknown>; payload: Record<string, unknown>; childrenById: Map<string, SlideElement> }>();
+    for (const row of rows) {
+      const payload = parseJson<Record<string, unknown>>(row.payload_json) ?? {};
+      const childrenById = new Map<string, SlideElement>();
+      if (row.type === 'group') {
+        for (const child of ((payload as { children?: SlideElement[] }).children ?? [])) {
+          if (child && typeof child.id === 'string') childrenById.set(child.id, child);
+        }
+      }
+      byId.set(row.id, {
+        type: row.type,
+        geometry: { x: row.x, y: row.y, width: row.width, height: row.height, rotation: row.rotation, opacity: row.opacity, zIndex: row.z_index, layer: row.layer },
+        payload,
+        childrenById,
+      });
+    }
+    themeElementCache.set(themeSlideId, byId);
+    return byId;
+  };
+
+  const slides = db.prepare(
+    `SELECT s.id AS slide_id, s.presentation_id, s.lyric_id, s.talk_id,
+            p.theme_id AS p_theme_id, l.theme_id AS l_theme_id, t.theme_id AS t_theme_id
+     FROM slides s
+     LEFT JOIN presentations p ON p.id = s.presentation_id
+     LEFT JOIN lyrics l ON l.id = s.lyric_id
+     LEFT JOIN talks t ON t.id = s.talk_id
+     WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL`
+  ).all() as Array<{
+    slide_id: string; presentation_id: string | null; lyric_id: string | null; talk_id: string | null;
+    p_theme_id: string | null; l_theme_id: string | null; t_theme_id: string | null;
+  }>;
+
+  const updateKeys = db.prepare('UPDATE slide_elements SET theme_override_keys_json = ? WHERE id = ?');
+  const updatePayload = db.prepare('UPDATE slide_elements SET payload_json = ?, theme_override_keys_json = ? WHERE id = ?');
+
+  for (const slide of slides) {
+    const themeId = slide.presentation_id ? slide.p_theme_id : slide.lyric_id ? slide.l_theme_id : slide.t_theme_id;
+    if (!themeId) continue;
+    const themeElements = loadThemeElements(`${themeId}:slide`);
+    if (themeElements.size === 0) continue;
+    const rows = db.prepare(
+      'SELECT id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, theme_override_keys_json FROM slide_elements WHERE slide_id = ? AND source_theme_element_id IS NOT NULL'
+    ).all(slide.slide_id) as Array<{
+      id: string; type: string; x: number; y: number; width: number; height: number;
+      rotation: number; opacity: number; z_index: number; layer: string; payload_json: string;
+      source_theme_element_id: string | null; theme_override_keys_json: string | null;
+    }>;
+    for (const row of rows) {
+      if (row.theme_override_keys_json !== null) continue;
+      const theme = row.source_theme_element_id ? themeElements.get(row.source_theme_element_id) : undefined;
+      if (!theme || theme.type !== row.type) continue;
+      const rowPayload = parseJson<Record<string, unknown>>(row.payload_json) ?? {};
+      const keys = deriveBackfillOverrideKeys(
+        theme.geometry,
+        theme.payload,
+        { x: row.x, y: row.y, width: row.width, height: row.height, rotation: row.rotation, opacity: row.opacity, zIndex: row.z_index, layer: row.layer },
+        rowPayload,
+      );
+      const keysJson = keys.length > 0 ? JSON.stringify(keys) : null;
+      if (row.type === 'group') {
+        const rowChildren = ((rowPayload as { children?: SlideElement[] }).children ?? []) as SlideElement[];
+        const restamped = backfillGroupChildrenOverrides(theme.childrenById, rowChildren);
+        if (restamped.changed) {
+          updatePayload.run(JSON.stringify({ ...rowPayload, children: restamped.children }), keysJson, row.id);
+          continue;
+        }
+      }
+      if (keysJson !== null) updateKeys.run(keysJson, row.id);
+    }
+  }
+}
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'bootstrap-legacy-schema', up: bootstrapLegacySchema },
   { version: 2, name: 'stabilize-legacy-schema', up: stabilizeLegacySchema },
@@ -2613,4 +2801,208 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 28, name: 'list-order-index', up: ensureListOrderIndexColumns },
   { version: 29, name: 'performance-composite-indexes', up: ensurePerformanceCompositeIndexes },
   { version: 30, name: 'media-asset-metadata', up: addMediaAssetMetadataColumns },
+  { version: 31, name: 'playback-schedules', up: addPlaybackSchedulesTable },
+  { version: 32, name: 'theme-override-keys', up: addThemeOverrideKeysColumn },
+  { version: 33, name: 'remove-talks', up: removeTalksSchema, requiresForeignKeysOff: true },
 ];
+
+// ---------------------------------------------------------------------------
+// v33 — remove Talks and talk themes entirely (#219 item-model refactor
+// decision D1/D2 continuation): the Talk item type and its associated
+// talk_themes table, talk_script_blocks table, and all Talk-owned columns
+// (slides.talk_id, slides.talk_theme_id, playlist_entries.talk_id,
+// talks.theme_id) are dropped. Data in these tables/columns is discarded.
+// Earlier migrations (1–32) remain intact so legacy databases upgrade
+// through the full history; this migration is the terminal step that
+// finalizes the item model to Presentations and Lyrics only.
+// ---------------------------------------------------------------------------
+function removeTalksSchema(db: SqliteDatabase): void {
+  const talkOwnedSlideIds = new Set((db.prepare(
+    'SELECT id FROM slides WHERE talk_id IS NOT NULL OR talk_theme_id IS NOT NULL',
+  ).all() as Array<{ id: string }>).map((row) => row.id));
+  db.exec(`
+    UPDATE slide_elements
+    SET source_theme_element_id = NULL, theme_override_keys_json = NULL
+    WHERE source_theme_element_id IN (
+      SELECT se.id
+      FROM slide_elements se
+      JOIN slides s ON s.id = se.slide_id
+      WHERE s.talk_id IS NOT NULL OR s.talk_theme_id IS NOT NULL
+    );
+  `);
+
+  if (hasTable(db, 'trigger_bindings')) {
+    db.exec(`
+      DELETE FROM trigger_bindings
+      WHERE source_id IN (
+        SELECT id FROM slides WHERE talk_id IS NOT NULL OR talk_theme_id IS NOT NULL
+      );
+    `);
+  }
+
+  if (hasTable(db, 'playback_schedules')) {
+    const rows = db.prepare(
+      'SELECT id, item_ref_json, steps_json, markers_json FROM playback_schedules',
+    ).all() as Array<{ id: string; item_ref_json: string | null; steps_json: string | null; markers_json: string | null }>;
+    const deleteSchedule = db.prepare('DELETE FROM playback_schedules WHERE id = ?');
+    for (const row of rows) {
+      let remove = false;
+      try {
+        const itemRef = row.item_ref_json ? JSON.parse(row.item_ref_json) as { type?: unknown } : null;
+        remove = itemRef?.type === 'talk';
+        for (const json of [row.steps_json, row.markers_json]) {
+          if (remove || json === null) continue;
+          const entries = JSON.parse(json) as Array<{ slideId?: unknown }>;
+          remove = Array.isArray(entries) && entries.some((entry) => typeof entry?.slideId === 'string' && talkOwnedSlideIds.has(entry.slideId));
+        }
+      } catch {
+        // Leave malformed non-Talk rows for the existing trust-boundary
+        // decoder to report; this migration only removes identifiable Talk data.
+      }
+      if (remove) deleteSchedule.run(row.id);
+    }
+  }
+
+  db.exec(`
+    DELETE FROM slide_elements
+    WHERE slide_id IN (SELECT id FROM slides WHERE talk_id IS NOT NULL OR talk_theme_id IS NOT NULL);
+  `);
+
+  // Drop talk_script_blocks first (FK to slides)
+  db.exec('DROP TABLE IF EXISTS talk_script_blocks;');
+
+  // Drop indexes on talk columns
+  db.exec('DROP INDEX IF EXISTS idx_slides_talk_id;');
+  db.exec('DROP INDEX IF EXISTS idx_slides_talk_theme_id;');
+  db.exec('DROP INDEX IF EXISTS idx_playlist_entries_talk_id;');
+  db.exec('DROP INDEX IF EXISTS idx_talks_order_index;');
+  db.exec('DROP INDEX IF EXISTS idx_talks_theme_id;');
+  db.exec('DROP INDEX IF EXISTS idx_talk_themes_order_index;');
+
+  // Recreate slides without talk_id and talk_theme_id
+  db.exec(`
+    CREATE TABLE slides_v33 (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      presentation_theme_id TEXT,
+      lyric_theme_id TEXT,
+      overlay_theme_id TEXT,
+      overlay_id TEXT,
+      stage_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'presentation',
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      background_json TEXT,
+      background_source TEXT DEFAULT 'theme',
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      FOREIGN KEY(presentation_theme_id) REFERENCES presentation_themes(id),
+      FOREIGN KEY(lyric_theme_id) REFERENCES lyric_themes(id),
+      FOREIGN KEY(overlay_theme_id) REFERENCES overlay_themes(id),
+      FOREIGN KEY(overlay_id) REFERENCES overlays(id),
+      FOREIGN KEY(stage_id) REFERENCES stages(id),
+      CHECK (
+        (presentation_id IS NOT NULL) +
+        (lyric_id IS NOT NULL) +
+        (presentation_theme_id IS NOT NULL) +
+        (lyric_theme_id IS NOT NULL) +
+        (overlay_theme_id IS NOT NULL) +
+        (overlay_id IS NOT NULL) +
+        (stage_id IS NOT NULL) = 1
+      )
+    );
+  `);
+
+  db.exec(`
+    INSERT INTO slides_v33
+      (id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+    SELECT
+      id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source
+    FROM slides
+    WHERE talk_id IS NULL AND talk_theme_id IS NULL;
+  `);
+
+  db.exec(`
+    DROP TABLE slides;
+    ALTER TABLE slides_v33 RENAME TO slides;
+  `);
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_id ON slides(lyric_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_theme_id ON slides(presentation_theme_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_theme_id ON slides(lyric_theme_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_overlay_theme_id ON slides(overlay_theme_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_overlay_id ON slides(overlay_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_stage_id ON slides(stage_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_id_order_index ON slides(presentation_id, order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_id_order_index ON slides(lyric_id, order_index);');
+
+  // Recreate playlist_entries without talk_id
+  db.exec(`
+    CREATE TABLE playlist_entries_v33 (
+      id TEXT PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('item', 'separator')),
+      presentation_id TEXT,
+      lyric_id TEXT,
+      label TEXT,
+      color_key TEXT,
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(playlist_id) REFERENCES playlists(id),
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      CHECK (
+        (kind = 'item' AND label IS NULL AND
+          (presentation_id IS NOT NULL) + (lyric_id IS NOT NULL) = 1)
+        OR
+        (kind = 'separator' AND presentation_id IS NULL AND lyric_id IS NULL)
+      )
+    );
+  `);
+
+  db.exec(`
+    INSERT INTO playlist_entries_v33
+      (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at)
+    SELECT
+      id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at
+    FROM playlist_entries
+    WHERE talk_id IS NULL;
+  `);
+
+  db.exec(`
+    DROP TABLE playlist_entries;
+    ALTER TABLE playlist_entries_v33 RENAME TO playlist_entries;
+  `);
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id ON playlist_entries(playlist_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_presentation_id ON playlist_entries(presentation_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_lyric_id ON playlist_entries(lyric_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id_order_index ON playlist_entries(playlist_id, order_index);');
+  db.exec(`
+    WITH ranked AS (
+      SELECT id, ROW_NUMBER() OVER (
+        PARTITION BY playlist_id
+        ORDER BY order_index ASC, created_at ASC, id ASC
+      ) - 1 AS rank
+      FROM playlist_entries
+    )
+    UPDATE playlist_entries
+    SET order_index = (SELECT rank FROM ranked WHERE ranked.id = playlist_entries.id);
+  `);
+
+  // Drop talk_themes and talks tables
+  db.exec('DROP TABLE IF EXISTS talk_themes;');
+  db.exec('DROP TABLE IF EXISTS talks;');
+
+  const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+  if (foreignKeyViolations.length > 0) {
+    throw new Error(`Migration v33 left ${foreignKeyViolations.length} foreign key violation(s).`);
+  }
+}

@@ -1,6 +1,6 @@
 // #146 project recovery restore, rewritten for the #219 item-model refactor.
 // Fixture mirrors the #145 maximal fixture in project-backup.test.ts (current
-// schema: four per-owner theme tables, no libraries/collections/groups, flat
+// schema: three per-owner theme tables, no libraries/collections/groups, flat
 // playlist_entries). Deliberately covers the nullable-column boundaries
 // (theme_id, cue_id, color_key, loop_count, source_id, background_source,
 // empty notes) and managed-media references only (cast-media:// srcs; no
@@ -49,7 +49,6 @@ const GRADIENT_BACKGROUND = {
 };
 const TEXT_PAYLOAD = { text: 'Announcements', fontFamily: 'Helvetica', fontSize: 64, color: '#FFFFFF', alignment: 'center', weight: '700' };
 const IMAGE_PAYLOAD = { src: 'cast-media://image-1', name: 'Logo', visible: true };
-const VIDEO_PAYLOAD = { src: 'cast-media://video-1', autoplay: true, loop: false, muted: true, playbackRate: 1 };
 const CUE_1_PAYLOAD = { overlayId: 'overlay-1' };
 const CUE_2_PAYLOAD = { assetId: 'video-1' };
 const CUE_3_PAYLOAD = { action: 'cancel', target: '*' };
@@ -62,7 +61,6 @@ function clearAllTables(db: SqliteDatabase): void {
     DELETE FROM actions;
     DELETE FROM cues;
     DELETE FROM slide_elements;
-    DELETE FROM talk_script_blocks;
     DELETE FROM playlist_entries;
     DELETE FROM playlists;
     DELETE FROM slides;
@@ -70,11 +68,9 @@ function clearAllTables(db: SqliteDatabase): void {
     DELETE FROM stages;
     DELETE FROM presentation_themes;
     DELETE FROM lyric_themes;
-    DELETE FROM talk_themes;
     DELETE FROM overlay_themes;
     DELETE FROM presentations;
     DELETE FROM lyrics;
-    DELETE FROM talks;
     DELETE FROM image_assets;
     DELETE FROM video_assets;
     DELETE FROM audio_assets;
@@ -95,8 +91,6 @@ function seedMaximalFixture(db: SqliteDatabase): void {
     .run('pres-2', 'Welcome', null, 1, T1, T1);
   db.prepare('INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run('lyric-1', 'Great Is Thy Faithfulness', 'ltheme-1', 0, T0, T0);
-  db.prepare('INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('talk-1', 'Sunday Sermon', null, 0, T0, T0);
 
   db.prepare('INSERT INTO overlays (id, name, enabled, animation_json, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run('overlay-1', 'Watermark', 1, JSON.stringify({ kind: 'dissolve', durationMs: 500 }), 0, T0, T0);
@@ -113,35 +107,29 @@ function seedMaximalFixture(db: SqliteDatabase): void {
 
   const insertSlide = db.prepare(
     `INSERT INTO slides
-       (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  insertSlide.run('ptheme-1:slide', null, null, null, 'ptheme-1', null, null, null, null, null, 'presentationTheme', 1920, 1080, '', JSON.stringify(PTHEME_BACKGROUND), null, 0, T0, T0);
-  insertSlide.run('ltheme-1:slide', null, null, null, null, 'ltheme-1', null, null, null, null, 'lyricTheme', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'local', 0, T1, T1);
-  insertSlide.run('overlay-1:slide', null, null, null, null, null, null, null, 'overlay-1', null, 'overlay', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'local', 0, T2, T2);
-  insertSlide.run('stage-1:slide', null, null, null, null, null, null, null, null, 'stage-1', 'stage', 1920, 1080, '', null, 'local', 0, T3, T3);
-  insertSlide.run('slide-pres-1', 'pres-1', null, null, null, null, null, null, null, null, 'presentation', 1920, 1080, 'Announcement intro', JSON.stringify(PTHEME_BACKGROUND), 'theme', 0, T4, T4);
-  insertSlide.run('slide-pres-2', 'pres-1', null, null, null, null, null, null, null, null, 'presentation', 1920, 1080, '', JSON.stringify(GRADIENT_BACKGROUND), 'local', 1, T4, T4);
-  insertSlide.run('slide-lyric-1', null, 'lyric-1', null, null, null, null, null, null, null, 'lyric', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'theme', 0, T4, T4);
-  insertSlide.run('slide-talk-1', null, null, 'talk-1', null, null, null, null, null, null, 'talk', 1920, 1080, '', null, 'local', 0, T4, T4);
+  insertSlide.run('ptheme-1:slide', null, null, 'ptheme-1', null, null, null, null, 'presentationTheme', 1920, 1080, '', JSON.stringify(PTHEME_BACKGROUND), null, 0, T0, T0);
+  insertSlide.run('ltheme-1:slide', null, null, null, 'ltheme-1', null, null, null, 'lyricTheme', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'local', 0, T1, T1);
+  insertSlide.run('overlay-1:slide', null, null, null, null, null, 'overlay-1', null, 'overlay', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'local', 0, T2, T2);
+  insertSlide.run('stage-1:slide', null, null, null, null, null, null, 'stage-1', 'stage', 1920, 1080, '', null, 'local', 0, T3, T3);
+  insertSlide.run('slide-pres-1', 'pres-1', null, null, null, null, null, null, 'presentation', 1920, 1080, 'Announcement intro', JSON.stringify(PTHEME_BACKGROUND), 'theme', 0, T4, T4);
+  insertSlide.run('slide-pres-2', 'pres-1', null, null, null, null, null, null, 'presentation', 1920, 1080, '', JSON.stringify(GRADIENT_BACKGROUND), 'local', 1, T4, T4);
+  insertSlide.run('slide-lyric-1', null, 'lyric-1', null, null, null, null, null, 'lyric', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'theme', 0, T4, T4);
 
   db.prepare(
-    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run('sep-1', 'pl-1', 'separator', null, null, null, 'Opening', 'blue', 0, T0, T0);
+    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run('sep-1', 'pl-1', 'separator', null, null, 'Opening', 'blue', 0, T0, T0);
   db.prepare(
-    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run('entry-1', 'pl-1', 'item', 'pres-1', null, null, null, null, 1, T1, T1);
+    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run('entry-1', 'pl-1', 'item', 'pres-1', null, null, null, 1, T1, T1);
   db.prepare(
-    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run('entry-2', 'pl-1', 'item', null, 'lyric-1', null, null, null, 2, T2, T2);
+    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run('entry-2', 'pl-1', 'item', null, 'lyric-1', null, null, 2, T2, T2);
   db.prepare(
-    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-  ).run('entry-3', 'pl-2', 'item', null, null, 'talk-1', null, null, 0, T2, T2);
-
-  db.prepare('INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('block-1', 'slide-talk-1', 'Welcome everyone', 0, T0, T0);
-  db.prepare('INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run('block-2', 'slide-talk-1', 'Then we pray', 1, T1, T1);
+    'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run('entry-3', 'pl-2', 'item', null, 'lyric-1', null, null, 0, T2, T2);
 
   db.prepare('INSERT INTO image_assets (id, name, src, width, height, duration, codec, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run('image-1', 'Logo', 'cast-media://image-1', 400, 240, null, null, 0, T0, T0);
@@ -163,7 +151,6 @@ function seedMaximalFixture(db: SqliteDatabase): void {
   insertElement.run('elem-pres-2', 'slide-pres-1', 'image', 10, 10, 200, 200, 0, 0.8, 5, 'media', JSON.stringify(IMAGE_PAYLOAD), null, T1, T1);
   insertElement.run('elem-pres-3', 'slide-pres-2', 'shape', 0, 0, 1920, 1080, 0, 1, 1, 'background', JSON.stringify({ fillColor: '#101820CC' }), null, T2, T2);
   insertElement.run('elem-lyric-1', 'slide-lyric-1', 'text', 100, 100, 900, 60, 0, 1, 10, 'content', JSON.stringify(TEXT_PAYLOAD), 't-elem-2', T3, T3);
-  insertElement.run('elem-talk-1', 'slide-talk-1', 'video', 0, 0, 800, 450, 0, 1, 5, 'media', JSON.stringify(VIDEO_PAYLOAD), null, T4, T4);
 
   db.prepare('INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run('cue-1', 'overlay.activate', JSON.stringify(CUE_1_PAYLOAD), 'continue', T0, T0);
@@ -218,6 +205,74 @@ function mutateBackup(backup: ProjectBackup, mutate: (tables: ProjectBackupTable
   return copy;
 }
 
+function buildLegacyProjectBackupV2(current: ProjectBackup): ProjectBackup {
+  const tables = JSON.parse(JSON.stringify(current.tables)) as Record<string, Array<Record<string, unknown>>>;
+  tables.slides = tables.slides.map((slide) => ({
+    ...slide,
+    talk_id: null,
+    talk_theme_id: null,
+  }));
+  tables.playlist_entries = tables.playlist_entries.map((entry) => ({ ...entry, talk_id: null }));
+  tables.talks = [{ id: 'legacy-talk', title: 'Legacy Talk', theme_id: 'legacy-talk-theme', order_index: 0, created_at: T0, updated_at: T0 }];
+  tables.talk_themes = [{ id: 'legacy-talk-theme', name: 'Legacy Talk Theme', width: 1920, height: 1080, order_index: 0, created_at: T0, updated_at: T0 }];
+  tables.slides.push(
+    {
+      id: 'legacy-talk-theme:slide', presentation_id: null, lyric_id: null, talk_id: null,
+      presentation_theme_id: null, lyric_theme_id: null, talk_theme_id: 'legacy-talk-theme',
+      overlay_theme_id: null, overlay_id: null, stage_id: null, kind: 'talkTheme', width: 1920,
+      height: 1080, notes: '', background_json: null, background_source: 'local', order_index: 0,
+      created_at: T0, updated_at: T0,
+    },
+    {
+      id: 'legacy-talk-slide', presentation_id: null, lyric_id: null, talk_id: 'legacy-talk',
+      presentation_theme_id: null, lyric_theme_id: null, talk_theme_id: null,
+      overlay_theme_id: null, overlay_id: null, stage_id: null, kind: 'talk', width: 1920,
+      height: 1080, notes: '', background_json: null, background_source: 'theme', order_index: 0,
+      created_at: T0, updated_at: T0,
+    },
+  );
+  tables.slide_elements.push(
+    {
+      id: 'legacy-talk-theme-element', slide_id: 'legacy-talk-theme:slide', type: 'text', x: 0, y: 0,
+      width: 100, height: 50, rotation: 0, opacity: 1, z_index: 0, layer: 'content',
+      payload_json: JSON.stringify(TEXT_PAYLOAD), source_theme_element_id: null,
+      theme_override_keys_json: null, created_at: T0, updated_at: T0,
+    },
+    {
+      id: 'legacy-talk-element', slide_id: 'legacy-talk-slide', type: 'text', x: 0, y: 0,
+      width: 100, height: 50, rotation: 0, opacity: 1, z_index: 0, layer: 'content',
+      payload_json: JSON.stringify(TEXT_PAYLOAD), source_theme_element_id: 'legacy-talk-theme-element',
+      theme_override_keys_json: null, created_at: T0, updated_at: T0,
+    },
+  );
+  const retainedElement = tables.slide_elements.find((element) => element.id === 'elem-pres-3');
+  if (!retainedElement) throw new Error('expected retained presentation element fixture');
+  retainedElement.source_theme_element_id = 'legacy-talk-theme-element';
+  retainedElement.theme_override_keys_json = '["x"]';
+  tables.talk_script_blocks = [{ id: 'legacy-talk-block', slide_id: 'legacy-talk-slide', text: 'Legacy', order_index: 0, created_at: T0, updated_at: T0 }];
+  tables.playlist_entries.push({
+    id: 'legacy-talk-entry', playlist_id: 'pl-1', kind: 'item', presentation_id: null, lyric_id: null,
+    talk_id: 'legacy-talk', label: null, color_key: null, order_index: 3, created_at: T0, updated_at: T0,
+  });
+  tables.trigger_bindings.push(
+    { id: 'legacy-talk-binding', trigger_type: 'slide.take', source_id: 'legacy-talk-slide', target_type: 'cue', target_id: 'cue-1', config_json: '{}', enabled: 1, created_at: T0, updated_at: T0 },
+    { id: 'legacy-talk-theme-binding', trigger_type: 'slide.take', source_id: 'legacy-talk-theme:slide', target_type: 'macro', target_id: 'macro-1', config_json: '{}', enabled: 1, created_at: T0, updated_at: T0 },
+  );
+  tables.playback_schedules = [
+    { id: 'schedule-keep', item_ref_json: JSON.stringify({ type: 'presentation', id: 'pres-1' }), enabled: 1, kind: 'slide-timing', steps_json: JSON.stringify([{ slideId: 'slide-pres-1', durationMs: 1000 }]), audio_asset_id: null, markers_json: null, created_at: T0, updated_at: T0 },
+    { id: 'schedule-talk-item', item_ref_json: JSON.stringify({ type: 'talk', id: 'legacy-talk' }), enabled: 1, kind: 'slide-timing', steps_json: '[]', audio_asset_id: null, markers_json: null, created_at: T0, updated_at: T0 },
+    { id: 'schedule-talk-slide', item_ref_json: JSON.stringify({ type: 'presentation', id: 'pres-1' }), enabled: 1, kind: 'slide-timing', steps_json: JSON.stringify([{ slideId: 'legacy-talk-slide', durationMs: 1000 }]), audio_asset_id: null, markers_json: null, created_at: T0, updated_at: T0 },
+    { id: 'schedule-talk-theme-slide', item_ref_json: JSON.stringify({ type: 'lyric', id: 'lyric-1' }), enabled: 1, kind: 'audio-sync', steps_json: null, audio_asset_id: 'audio-1', markers_json: JSON.stringify([{ id: 'marker-1', timeMs: 0, slideId: 'legacy-talk-theme:slide' }]), created_at: T0, updated_at: T0 },
+  ];
+
+  return {
+    format: PROJECT_BACKUP_FORMAT,
+    version: 2,
+    schemaVersion: 32,
+    tables,
+  } as unknown as ProjectBackup;
+}
+
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-recovery-'));
   repo = makeRepo(tmpDir);
@@ -229,7 +284,7 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe('project recovery restore (#146, backup v2)', () => {
+describe('project recovery restore (#146, backup v3)', () => {
   it('promotes the restored project over the active database and retains the pre-recovery database as a same-directory sibling', () => {
     const backup = repo.exportProjectBackup();
 
@@ -245,12 +300,62 @@ describe('project recovery restore (#146, backup v2)', () => {
 
   it('round trips byte-for-byte at the current schema version: re-exporting the promoted project reproduces the exact source document', () => {
     const backup = repo.exportProjectBackup();
+    expect(backup.version).toBe(3);
     expect(backup.schemaVersion).toBe(LATEST_SCHEMA_VERSION);
 
     repo.restoreProjectBackup(backup);
     const restored = repo.exportProjectBackup();
 
     expect(JSON.stringify(restored)).toBe(JSON.stringify(backup));
+  });
+
+  it('restores a v2/schema-32 backup after discarding Talk content and references while retaining unrelated content', () => {
+    const legacy = buildLegacyProjectBackupV2(repo.exportProjectBackup());
+
+    const result = repo.restoreProjectBackup(legacy);
+    const snapshot = result.snapshot;
+
+    expect(snapshot.presentations.map((item) => item.id)).toEqual(['pres-1', 'pres-2']);
+    expect(snapshot.lyrics.map((item) => item.id)).toEqual(['lyric-1']);
+    expect(snapshot.slides.some((slide) => slide.id.startsWith('legacy-talk'))).toBe(false);
+    expect(snapshot.slideElements.some((element) => element.id.startsWith('legacy-talk'))).toBe(false);
+    expect(snapshot.slideElements.find((element) => element.id === 'elem-pres-3')).toMatchObject({
+      sourceThemeElementId: null,
+      themeOverrideKeys: null,
+    });
+    expect(snapshot.playlistEntries.some((entry) => entry.id === 'legacy-talk-entry')).toBe(false);
+    expect(snapshot.triggerBindings.map((binding) => binding.id).sort()).toEqual(['binding-1', 'binding-2', 'binding-3']);
+    expect(snapshot.cues.map((cue) => cue.id).sort()).toEqual(['cue-1', 'cue-2', 'cue-3']);
+    expect(snapshot.macros.map((macro) => macro.id).sort()).toEqual(['macro-1', 'macro-2']);
+    expect((snapshot.playbackSchedules ?? []).map((schedule) => schedule.id)).toEqual(['schedule-keep']);
+
+    const reExported = repo.exportProjectBackup();
+    expect(reExported.version).toBe(3);
+    expect(reExported.schemaVersion).toBe(33);
+  });
+
+  it('preserves explicit and intentionally empty override metadata from schema-32 backups', () => {
+    const legacy = buildLegacyProjectBackupV2(repo.exportProjectBackup());
+    const pinned = legacy.tables.slide_elements.find((element) => element.id === 'elem-pres-1');
+    const inherited = legacy.tables.slide_elements.find((element) => element.id === 'elem-lyric-1');
+    if (!pinned || !inherited) throw new Error('expected linked element fixtures');
+    pinned.x = 333;
+    pinned.payload_json = JSON.stringify({ ...TEXT_PAYLOAD, fontSize: 24 });
+    pinned.theme_override_keys_json = '["x"]';
+    inherited.payload_json = JSON.stringify({ ...TEXT_PAYLOAD, fontSize: 20 });
+    inherited.theme_override_keys_json = null;
+
+    const snapshot = repo.restoreProjectBackup(legacy).snapshot;
+
+    expect(snapshot.slideElements.find((element) => element.id === 'elem-pres-1')).toMatchObject({
+      x: 333,
+      themeOverrideKeys: ['x'],
+      payload: { fontSize: 24 },
+    });
+    expect(snapshot.slideElements.find((element) => element.id === 'elem-lyric-1')).toMatchObject({
+      themeOverrideKeys: null,
+      payload: { fontSize: 20 },
+    });
   });
 
   it('survives a repository reopen: the promoted file is a complete, valid project', () => {
@@ -371,7 +476,7 @@ describe('project recovery restore (#146, backup v2)', () => {
       const backup = repo.exportProjectBackup();
       const hooks: ProjectRecoveryHooks = {
         afterInsert(db) {
-          db.prepare('DELETE FROM talk_script_blocks').run();
+          db.prepare("DELETE FROM slide_elements WHERE id = 'elem-pres-3'").run();
         },
       };
 
@@ -385,8 +490,8 @@ describe('project recovery restore (#146, backup v2)', () => {
       })();
 
       expect(error).toBeInstanceOf(ProjectBackupValidationError);
-      expect(error.message).toMatch(/talk_script_blocks/);
-      expect(repo.getSnapshot().talkScriptBlocks).toHaveLength(2);
+      expect(error.message).toMatch(/slide_elements/);
+      expect(repo.getSnapshot().slideElements.some((element) => element.id === 'elem-pres-3')).toBe(true);
       expect(siblingFiles(tmpDir).filter((name) => restoreSiblingPattern('restore').test(name))).toEqual([]);
     });
 
@@ -521,11 +626,9 @@ describe('project recovery restore (#146, backup v2)', () => {
 // A real v1/schema-22 document -- libraries, the eight per-bin collection
 // tables, one kind-tagged `themes` table, `playlist_groups` -- is no longer
 // rejected. `restoreProjectBackup` materializes it at schema 22, replays the
-// real migrations 23-27, and restores the result through the ordinary v2
-// path. `theme-1` (kind 'slides') is referenced by BOTH `pres-1` and
-// `talk-1`, exercising the talk-theme clone (decision D2); `group-2` is
-// empty, exercising "every group yields a separator, including an empty
-// one" (decision D5); item-entry ids are preserved, separator ids are not.
+// real migrations through v33, which discards Talk-owned rows before restore.
+// `group-2` is empty, exercising "every group yields a separator, including
+// an empty one"; retained item-entry ids are preserved, separator ids are not.
 // ---------------------------------------------------------------------------
 
 const LEGACY_T0 = '2025-01-01T00:00:00.000Z';
@@ -599,7 +702,7 @@ describe('legacy (v1) project backup import (#219 item-model refactor, wave K)',
     fs.rmSync(legacyTmpDir, { recursive: true, force: true });
   });
 
-  it('restores a v1/schema-22 backup: separators synthesized in order, item-entry ids preserved, and a talk-theme clone', () => {
+  it('restores a v1/schema-22 backup by discarding Talk content and retaining presentations, lyrics, and separators', () => {
     const legacy = buildLegacyProjectBackupV1();
 
     const result = legacyRepo.restoreProjectBackup(legacy);
@@ -607,46 +710,40 @@ describe('legacy (v1) project backup import (#219 item-model refactor, wave K)',
 
     expect(snapshot.presentations).toHaveLength(1);
     expect(snapshot.lyrics).toHaveLength(1);
-    expect(snapshot.talks).toHaveLength(1);
 
     const presentation = snapshot.presentations[0]!;
-    const talk = snapshot.talks[0]!;
     const lyric = snapshot.lyrics[0]!;
     expect(presentation.themeId).not.toBeNull();
-    expect(talk.themeId).not.toBeNull();
-    // Both source rows referenced the SAME v1 'slides' theme id, but a talk
-    // gets a fresh talk-family clone -- never the same id as the
-    // presentation's presentation-family theme.
-    expect(talk.themeId).not.toBe(presentation.themeId);
     expect(snapshot.presentationThemes.some((t) => t.id === presentation.themeId)).toBe(true);
-    expect(snapshot.talkThemes.some((t) => t.id === talk.themeId)).toBe(true);
     expect(snapshot.lyricThemes.some((t) => t.id === lyric.themeId)).toBe(true);
+    expect(snapshot).not.toHaveProperty('talks');
+    expect(snapshot).not.toHaveProperty('talkThemes');
+    expect(snapshot).not.toHaveProperty('talkScriptBlocks');
 
     const playlist = snapshot.playlists.find((p) => p.name === 'Sunday Service')!;
     expect(playlist).toBeTruthy();
     const rows = snapshot.playlistEntries
       .filter((entry) => entry.playlistId === playlist.id)
       .sort((left, right) => left.order - right.order);
-    // group-1 (3 entries) then group-2 (empty) -- every group yields a
-    // separator, including the empty one -- so 1 + 3 + 1 = 5 rows.
-    expect(rows).toHaveLength(5);
+    // group-1 retains two non-Talk entries; group-2 remains an empty separator.
+    expect(rows).toHaveLength(4);
     expect(rows[0]).toMatchObject({ kind: 'separator', label: 'Opening', colorKey: 'blue' });
     // Item-entry ids are preserved byte-for-byte by the migration (unlike
     // bundle import, which always assigns fresh ids).
     expect(rows[1]).toMatchObject({ id: 'entry-1', kind: 'item' });
     expect(rows[2]).toMatchObject({ id: 'entry-2', kind: 'item' });
-    expect(rows[3]).toMatchObject({ id: 'entry-3', kind: 'item' });
-    expect(rows[4]).toMatchObject({ kind: 'separator', label: 'Closing', colorKey: null });
+    expect(rows[3]).toMatchObject({ kind: 'separator', label: 'Closing', colorKey: null });
+    expect(rows.some((row) => row.id === 'entry-3')).toBe(false);
 
     // The macro scope rename (decision D6): v1 'deckItem' -> 'item'.
     const action = snapshot.macros.find((macro) => macro.name === 'Advance')!;
     expect(action.scopeLevel).toBe('item');
 
-    // The restored database round-trips: re-exporting reproduces a valid v2
+    // The restored database round-trips: re-exporting produces a valid v3
     // document at the current schema version.
     const reExported = legacyRepo.exportProjectBackup();
-    expect(reExported.version).toBe(2);
-    expect(reExported.schemaVersion).toBeGreaterThan(22);
+    expect(reExported.version).toBe(3);
+    expect(reExported.schemaVersion).toBe(33);
   });
 
   it('rejects a v1 document with an unsupported legacy schema version, naming it as an older app version', () => {

@@ -3,7 +3,7 @@ import { APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, ND
 import type { SnapshotPatch } from '@lumacast/protocol';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
-import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
+import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
 import type {
   CueCreateInput,
   CueUpdateInput,
@@ -21,9 +21,6 @@ import type {
   SlideOrderUpdateInput,
   StageCreateInput,
   StageUpdateInput,
-  TalkScriptBlockCreateInput,
-  TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput,
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
@@ -98,6 +95,9 @@ const api = {
   listTriggerBindings: () => ipcRenderer.invoke(IPC.listTriggerBindings) as Promise<TriggerBinding[]>,
   createTriggerBinding: (input: TriggerBindingCreateInput) => ipcRenderer.invoke(IPC.createTriggerBinding, input) as Promise<SnapshotPatch>,
   deleteTriggerBinding: (id: Id) => ipcRenderer.invoke(IPC.deleteTriggerBinding, id) as Promise<SnapshotPatch>,
+  listPlaybackSchedules: () => ipcRenderer.invoke(IPC.listPlaybackSchedules) as Promise<PlaybackSchedule[]>,
+  savePlaybackSchedule: (schedule: PlaybackSchedule) => ipcRenderer.invoke(IPC.savePlaybackSchedule, schedule) as Promise<SnapshotPatch>,
+  deletePlaybackSchedule: (id: Id) => ipcRenderer.invoke(IPC.deletePlaybackSchedule, id) as Promise<SnapshotPatch>,
   createPlaylist: (name: string) => ipcRenderer.invoke(IPC.createPlaylist, name),
   createSeparator: (playlistId: Id, label: string) => ipcRenderer.invoke(IPC.createSeparator, playlistId, label),
   renameSeparator: (id: Id, label: string) => ipcRenderer.invoke(IPC.renameSeparator, id, label),
@@ -109,16 +109,11 @@ const api = {
     ipcRenderer.invoke(IPC.addItemToPlaylist, playlistId, itemRef, position) as Promise<SnapshotPatch>,
   createPresentation: (title: string) => ipcRenderer.invoke(IPC.createPresentation, title),
   createLyric: (title: string) => ipcRenderer.invoke(IPC.createLyric, title),
-  createTalk: (title: string) => ipcRenderer.invoke(IPC.createTalk, title),
   createSlide: (input: SlideCreateInput) => ipcRenderer.invoke(IPC.createSlide, input),
   duplicateSlide: (slideId: Id) => ipcRenderer.invoke(IPC.duplicateSlide, slideId),
   deleteSlide: (slideId: Id) => ipcRenderer.invoke(IPC.deleteSlide, slideId),
   updateSlideNotes: (input: SlideNotesUpdateInput) => ipcRenderer.invoke(IPC.updateSlideNotes, input),
   updateSlideBackground: (input: SlideBackgroundUpdateInput) => ipcRenderer.invoke(IPC.updateSlideBackground, input),
-  createTalkScriptBlock: (input: TalkScriptBlockCreateInput) => ipcRenderer.invoke(IPC.createTalkScriptBlock, input),
-  updateTalkScriptBlock: (input: TalkScriptBlockUpdateInput) => ipcRenderer.invoke(IPC.updateTalkScriptBlock, input),
-  deleteTalkScriptBlock: (id: Id) => ipcRenderer.invoke(IPC.deleteTalkScriptBlock, id),
-  setTalkScriptBlockOrder: (input: TalkScriptBlockOrderUpdateInput) => ipcRenderer.invoke(IPC.setTalkScriptBlockOrder, input),
   setSlideOrder: (input: SlideOrderUpdateInput) => ipcRenderer.invoke(IPC.setSlideOrder, input),
   setPlaylistOrder: (playlistId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setPlaylistOrder, playlistId, newOrder),
   setOverlayOrder: (overlayId: Id, newOrder: number) => ipcRenderer.invoke(IPC.setOverlayOrder, overlayId, newOrder),
@@ -165,14 +160,11 @@ const api = {
   renamePlaylist: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylist, id, name),
   renamePresentation: (id: Id, title: string) => ipcRenderer.invoke(IPC.renamePresentation, id, title),
   renameLyric: (id: Id, title: string) => ipcRenderer.invoke(IPC.renameLyric, id, title),
-  renameTalk: (id: Id, title: string) => ipcRenderer.invoke(IPC.renameTalk, id, title),
   movePresentation: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.movePresentation, id, direction),
   moveLyric: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.moveLyric, id, direction),
-  moveTalk: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.moveTalk, id, direction),
   deletePlaylist: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylist, id),
   deletePresentation: (id: Id) => ipcRenderer.invoke(IPC.deletePresentation, id),
   deleteLyric: (id: Id) => ipcRenderer.invoke(IPC.deleteLyric, id),
-  deleteTalk: (id: Id) => ipcRenderer.invoke(IPC.deleteTalk, id),
   setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) =>
     ipcRenderer.invoke(IPC.setNdiOutputEnabled, name, enabled),
   getNdiOutputState: () => ipcRenderer.invoke(IPC.getNdiOutputState),

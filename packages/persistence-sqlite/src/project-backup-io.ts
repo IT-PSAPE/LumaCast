@@ -5,13 +5,13 @@ import type {
   ProjectBackupMacroStepRow,
   ProjectBackupMediaAssetRow,
   ProjectBackupOverlayRow,
+  ProjectBackupPlaybackScheduleRow,
   ProjectBackupPlaylistEntryRow,
   ProjectBackupPlaylistRow,
   ProjectBackupSlideElementRow,
   ProjectBackupSlideRow,
   ProjectBackupStageRow,
   ProjectBackupTables,
-  ProjectBackupTalkScriptBlockRow,
   ProjectBackupThemeRow,
   ProjectBackupTriggerBindingRow,
 } from '@lumacast/protocol';
@@ -37,8 +37,8 @@ import type { SqliteDatabase } from './sqlite';
 // `SELECT ... ORDER BY created_at ASC, id ASC` plus a field-by-field mapping,
 // identical in shape to `ProjectBackup`'s row contract.
 
-type ItemTableName = 'presentations' | 'lyrics' | 'talks';
-type ThemeTableName = 'presentation_themes' | 'lyric_themes' | 'talk_themes' | 'overlay_themes';
+type ItemTableName = 'presentations' | 'lyrics';
+type ThemeTableName = 'presentation_themes' | 'lyric_themes' | 'overlay_themes';
 type MediaAssetTableName = 'image_assets' | 'video_assets' | 'audio_assets';
 
 function readProjectBackupItems(db: SqliteDatabase, table: ItemTableName): ProjectBackupItemRow[] {
@@ -58,7 +58,7 @@ function readProjectBackupItems(db: SqliteDatabase, table: ItemTableName): Proje
 function readProjectBackupSlides(db: SqliteDatabase): ProjectBackupSlideRow[] {
   const rows = db
     .prepare(
-      `SELECT id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height,
+      `SELECT id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height,
               notes, background_json, background_source, order_index, created_at, updated_at
        FROM slides
        ORDER BY created_at ASC, id ASC`,
@@ -67,10 +67,8 @@ function readProjectBackupSlides(db: SqliteDatabase): ProjectBackupSlideRow[] {
     id: string;
     presentation_id: string | null;
     lyric_id: string | null;
-    talk_id: string | null;
     presentation_theme_id: string | null;
     lyric_theme_id: string | null;
-    talk_theme_id: string | null;
     overlay_theme_id: string | null;
     overlay_id: string | null;
     stage_id: string | null;
@@ -89,10 +87,8 @@ function readProjectBackupSlides(db: SqliteDatabase): ProjectBackupSlideRow[] {
     id: row.id,
     presentation_id: row.presentation_id,
     lyric_id: row.lyric_id,
-    talk_id: row.talk_id,
     presentation_theme_id: row.presentation_theme_id,
     lyric_theme_id: row.lyric_theme_id,
-    talk_theme_id: row.talk_theme_id,
     overlay_theme_id: row.overlay_theme_id,
     overlay_id: row.overlay_id,
     stage_id: row.stage_id,
@@ -112,7 +108,7 @@ function readProjectBackupSlideElements(db: SqliteDatabase): ProjectBackupSlideE
   const rows = db
     .prepare(
       `SELECT id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer,
-              payload_json, source_theme_element_id, created_at, updated_at
+              payload_json, source_theme_element_id, theme_override_keys_json, created_at, updated_at
        FROM slide_elements
        ORDER BY created_at ASC, id ASC`,
     )
@@ -130,6 +126,7 @@ function readProjectBackupSlideElements(db: SqliteDatabase): ProjectBackupSlideE
     layer: SlideElement['layer'];
     payload_json: string;
     source_theme_element_id: string | null;
+    theme_override_keys_json: string | null;
     created_at: string;
     updated_at: string;
   }>;
@@ -148,25 +145,7 @@ function readProjectBackupSlideElements(db: SqliteDatabase): ProjectBackupSlideE
     layer: row.layer,
     payload_json: row.payload_json,
     source_theme_element_id: row.source_theme_element_id,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  }));
-}
-
-function readProjectBackupTalkScriptBlocks(db: SqliteDatabase): ProjectBackupTalkScriptBlockRow[] {
-  const rows = db
-    .prepare(
-      `SELECT id, slide_id, text, order_index, created_at, updated_at
-       FROM talk_script_blocks
-       ORDER BY created_at ASC, id ASC`,
-    )
-    .all() as Array<{ id: string; slide_id: string; text: string; order_index: number; created_at: string; updated_at: string }>;
-
-  return rows.map((row) => ({
-    id: row.id,
-    slide_id: row.slide_id,
-    text: row.text,
-    order_index: row.order_index,
+    theme_override_keys_json: row.theme_override_keys_json,
     created_at: row.created_at,
     updated_at: row.updated_at,
   }));
@@ -189,7 +168,7 @@ function readProjectBackupPlaylists(db: SqliteDatabase): ProjectBackupPlaylistRo
 function readProjectBackupPlaylistEntries(db: SqliteDatabase): ProjectBackupPlaylistEntryRow[] {
   const rows = db
     .prepare(
-      `SELECT id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at
+      `SELECT id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at
        FROM playlist_entries
        ORDER BY created_at ASC, id ASC`,
     )
@@ -199,7 +178,6 @@ function readProjectBackupPlaylistEntries(db: SqliteDatabase): ProjectBackupPlay
     kind: 'item' | 'separator';
     presentation_id: string | null;
     lyric_id: string | null;
-    talk_id: string | null;
     label: string | null;
     color_key: string | null;
     order_index: number;
@@ -213,7 +191,6 @@ function readProjectBackupPlaylistEntries(db: SqliteDatabase): ProjectBackupPlay
     kind: row.kind,
     presentation_id: row.presentation_id,
     lyric_id: row.lyric_id,
-    talk_id: row.talk_id,
     label: row.label,
     color_key: row.color_key,
     order_index: row.order_index,
@@ -439,15 +416,45 @@ function readProjectBackupTriggerBindings(db: SqliteDatabase): ProjectBackupTrig
   }));
 }
 
+function readProjectBackupPlaybackSchedules(db: SqliteDatabase): ProjectBackupPlaybackScheduleRow[] {
+  const rows = db
+    .prepare(
+      `SELECT id, item_ref_json, enabled, kind, steps_json, audio_asset_id, markers_json, created_at, updated_at
+       FROM playback_schedules
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all() as Array<{
+    id: string;
+    item_ref_json: string | null;
+    enabled: number;
+    kind: 'slide-timing' | 'audio-sync';
+    steps_json: string | null;
+    audio_asset_id: string | null;
+    markers_json: string | null;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    item_ref_json: row.item_ref_json,
+    enabled: row.enabled,
+    kind: row.kind,
+    steps_json: row.steps_json,
+    audio_asset_id: row.audio_asset_id,
+    markers_json: row.markers_json,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+}
+
 /** Assembles a `ProjectBackupTables` document by reading every application-owned table off `db`, in the same deterministic order `CastRepository.exportProjectBackup` has always used. */
 export function buildProjectBackupTables(db: SqliteDatabase): ProjectBackupTables {
   return {
     presentations: readProjectBackupItems(db, 'presentations'),
     lyrics: readProjectBackupItems(db, 'lyrics'),
-    talks: readProjectBackupItems(db, 'talks'),
     slides: readProjectBackupSlides(db),
     slide_elements: readProjectBackupSlideElements(db),
-    talk_script_blocks: readProjectBackupTalkScriptBlocks(db),
     playlists: readProjectBackupPlaylists(db),
     playlist_entries: readProjectBackupPlaylistEntries(db),
     image_assets: readProjectBackupMediaAssets(db, 'image_assets'),
@@ -456,12 +463,12 @@ export function buildProjectBackupTables(db: SqliteDatabase): ProjectBackupTable
     overlays: readProjectBackupOverlays(db),
     presentation_themes: readProjectBackupThemeRows(db, 'presentation_themes'),
     lyric_themes: readProjectBackupThemeRows(db, 'lyric_themes'),
-    talk_themes: readProjectBackupThemeRows(db, 'talk_themes'),
     overlay_themes: readProjectBackupThemeRows(db, 'overlay_themes'),
     stages: readProjectBackupStages(db),
     cues: readProjectBackupCues(db),
     actions: readProjectBackupActions(db),
     action_steps: readProjectBackupActionSteps(db),
     trigger_bindings: readProjectBackupTriggerBindings(db),
+    playback_schedules: readProjectBackupPlaybackSchedules(db),
   };
 }

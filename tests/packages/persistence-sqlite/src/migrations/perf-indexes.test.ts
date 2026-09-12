@@ -34,8 +34,10 @@ describe('migration 29 performance indexes', () => {
     try {
       runMigrations(db, dbPath);
 
+      expect(db.pragma('user_version', { simple: true })).toBe(33);
+
       const indexNames = (db.prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_slides_presentation_id_order_index', 'idx_slides_lyric_id_order_index', 'idx_slides_talk_id_order_index', 'idx_playlist_entries_playlist_id_order_index', 'idx_talk_script_blocks_slide_id_order_index', 'idx_slide_elements_slide_id_layer_z_index_created_at') ORDER BY name ASC"
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_slides_presentation_id_order_index', 'idx_slides_lyric_id_order_index', 'idx_playlist_entries_playlist_id_order_index', 'idx_slide_elements_slide_id_layer_z_index_created_at') ORDER BY name ASC"
       ).all() as Array<{ name: string }>).map((row) => row.name);
 
       expect(indexNames).toEqual([
@@ -43,8 +45,6 @@ describe('migration 29 performance indexes', () => {
         'idx_slide_elements_slide_id_layer_z_index_created_at',
         'idx_slides_lyric_id_order_index',
         'idx_slides_presentation_id_order_index',
-        'idx_slides_talk_id_order_index',
-        'idx_talk_script_blocks_slide_id_order_index',
       ]);
     } finally {
       db.close();
@@ -107,9 +107,9 @@ describe('migration 29 performance indexes', () => {
         '2024-01-01T00:00:00.000Z',
       );
 
-      runMigrations(db, dbPath);
+      applyMigrationsThroughVersion(db, 29);
 
-      expect(db.pragma('user_version', { simple: true })).toBe(30);
+      expect(db.pragma('user_version', { simple: true })).toBe(29);
       expect(db.prepare('SELECT id FROM presentations WHERE id = ?').get('presentation-1')).toEqual({ id: 'presentation-1' });
       expect(db.prepare('SELECT id FROM slides WHERE presentation_id = ? ORDER BY order_index ASC').all('presentation-1')).toEqual([{ id: 'slide-1' }]);
       expect(db.prepare('SELECT id FROM slide_elements WHERE slide_id = ? ORDER BY layer ASC, z_index ASC, created_at ASC').all('slide-1')).toEqual([{ id: 'element-1' }]);
@@ -122,7 +122,7 @@ describe('migration 29 performance indexes', () => {
     const dbPath = createTempDbPath('query-plan.sqlite');
     const db = new SqliteDatabase(dbPath);
     try {
-      runMigrations(db, dbPath);
+      applyMigrationsThroughVersion(db, 28);
 
       db.prepare('INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(
         'presentation-1',
@@ -237,6 +237,8 @@ describe('migration 29 performance indexes', () => {
         '2024-01-01T00:00:00.000Z',
         '2024-01-01T00:00:00.000Z',
       );
+
+      applyMigrationsThroughVersion(db, 29);
 
       const slidePlan = explainPlanDetails(
         db,

@@ -1,4 +1,4 @@
-import type { CueClearLayer, CuePayload, LifecycleAction } from '@lumacast/automation';
+import type { CueClearLayer, CuePayload, LifecycleAction, PlaybackSchedule } from '@lumacast/automation';
 import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, OverlayAnimation, ItemType, ThemeOwnerType } from '@lumacast/composition';
 import type {
   CueCreateInput,
@@ -17,9 +17,6 @@ import type {
   SlideOrderUpdateInput,
   StageCreateInput,
   StageUpdateInput,
-  TalkScriptBlockCreateInput,
-  TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput,
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
@@ -33,20 +30,24 @@ import {
 } from './ndi-observability';
 import type {
   BundleItem,
+  BundleItemV2,
   BundleManifest,
   BundleManifestV1,
+  BundleManifestV2,
   BundleMediaReference,
   BundleOverlay,
   BundlePlaylist,
   BundlePlaylistRow,
   BundlePlaylistV1,
+  BundlePlaylistV2,
   BundleSlide,
+  BundleSlideV2,
   BundleStage,
   BundleTheme,
   BundleThemeV1,
+  BundleThemeV2,
 } from './deck-bundle-manifest';
 import type { InlineWindowMenuBounds, ItemCreateInput, ItemDuplicateInput } from './ipc';
-import { createId, type Id } from '@lumacast/kernel';
 
 /**
  * Runtime codecs for values that cross a trust boundary (issue #149, parent
@@ -328,6 +329,38 @@ export function decodeSlideElementPayload(
   return value as unknown as SlideElementPayload;
 }
 
+const OVERRIDE_IDENTITY_KEYS = new Set(['id', 'slideId', 'type', 'sourceThemeElementId', 'themeOverrideKeys', 'createdAt', 'updatedAt']);
+const OVERRIDE_AUTHORED_KEYS = new Set(['text', 'format', 'richBody']);
+const OVERRIDE_GEOMETRY_KEYS = new Set(['x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer']);
+
+function normalizeOverrideKeyInput(key: string): string | null {
+  const bare = key.startsWith('payload.') ? key.slice('payload.'.length) : key;
+  if (bare.length === 0 || OVERRIDE_IDENTITY_KEYS.has(bare) || OVERRIDE_AUTHORED_KEYS.has(bare)) return null;
+  if (bare === 'children') return null;
+  if (OVERRIDE_GEOMETRY_KEYS.has(bare)) return bare;
+  return bare;
+}
+
+/**
+ * Decodes `themeOverrideKeys` wherever it appears (full elements, create /
+ * update inputs, persisted rows). Missing/undefined stays missing (optional
+ * inputs), null stays null, arrays normalize (bare `payload.<key>` forms
+ * collapse, invalid keys drop, duplicates collapse, sorted) — an array that
+ * normalizes to nothing becomes null, never the raw input.
+ */
+export function decodeThemeOverrideKeys(value: unknown, context: CodecContext): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const entries = expectArray(value, context, 'themeOverrideKeys');
+  const normalized = new Set<string>();
+  entries.forEach((entry, index) => {
+    if (typeof entry !== 'string') fail(child(context, `themeOverrideKeys[${index}]`), `must be a string, got ${describe(entry)}`);
+    const bare = normalizeOverrideKeyInput(entry as string);
+    if (bare) normalized.add(bare);
+  });
+  return normalized.size > 0 ? [...normalized].sort() : null;
+}
+
 /** Decodes a full slide element (bundle shape: base fields plus payload). */
 export function decodeSlideElement(value: unknown, context: CodecContext): SlideElement {
   if (!isRecord(value)) fail(context, 'element must be an object');
@@ -346,6 +379,10 @@ export function decodeSlideElement(value: unknown, context: CodecContext): Slide
   expectString(value.updatedAt, context, 'updatedAt');
   expectNullableString(value.sourceThemeElementId, context, 'sourceThemeElementId');
   decodeSlideElementPayload(value.payload, type, child(context, 'payload'));
+  if (value.themeOverrideKeys !== undefined) {
+    const decoded = decodeThemeOverrideKeys(value.themeOverrideKeys, context);
+    (value as Record<string, unknown>).themeOverrideKeys = decoded ?? null;
+  }
   return value as unknown as SlideElement;
 }
 
@@ -480,19 +517,15 @@ export function decodeCuePayloadJson(json: string, context: CodecContext): CuePa
 // ---------------------------------------------------------------------------
 
 export const BUNDLE_FORMAT = 'cast-deck-bundle' as const;
-export const BUNDLE_VERSION = 2 as const;
-// The one prior manifest version, superseded by the #219 item-model
-// refactor (decision D8: flat playlist rows, themeType-tagged themes). Read
-// via `decodeLegacyBundleManifest` below and converted to the current v2
-// shape by `normalizeBundleManifestV1` (wave K) — never folded into the
-// generic "unsupported version" branch; a v1 document that fails the v1
-// structural decode is still rejected explicitly, never silently misparsed
-// against the v2 shape.
+export const BUNDLE_VERSION = 3 as const;
+const BUNDLE_PREVIOUS_VERSION = 2 as const;
 const BUNDLE_LEGACY_VERSION = 1 as const;
 const BUNDLE_LEGACY_THEME_KINDS = ['slides', 'lyrics', 'overlays'] as const;
 
-const ITEM_TYPES: readonly ItemType[] = ['presentation', 'lyric', 'talk'];
-const THEME_OWNER_TYPES: readonly ThemeOwnerType[] = ['presentation', 'lyric', 'talk', 'overlay'];
+const ITEM_TYPES: readonly ItemType[] = ['presentation', 'lyric'];
+const LEGACY_ITEM_TYPES = ['presentation', 'lyric', 'talk'] as const;
+const THEME_OWNER_TYPES: readonly ThemeOwnerType[] = ['presentation', 'lyric', 'overlay'];
+const LEGACY_THEME_OWNER_TYPES = ['presentation', 'lyric', 'talk', 'overlay'] as const;
 const OVERLAY_TYPES = ['image', 'shape', 'text', 'video'] as const;
 const BACKGROUND_SOURCES = ['theme', 'local'] as const;
 const MEDIA_ELEMENT_TYPES = ['image', 'video'] as const;
@@ -514,6 +547,7 @@ function decodeMediaReferences(value: unknown, context: CodecContext): BundleMed
 
 function decodeBundleSlide(value: unknown, context: CodecContext): BundleSlide {
   if (!isRecord(value)) fail(context, 'slide must be an object');
+  rejectUnknownKeys(value, context, ['id', 'width', 'height', 'notes', 'order', 'background', 'backgroundSource', 'elements']);
   expectString(value.id, context, 'id');
   expectFiniteNumber(value.width, context, 'width');
   expectFiniteNumber(value.height, context, 'height');
@@ -527,20 +561,44 @@ function decodeBundleSlide(value: unknown, context: CodecContext): BundleSlide {
   }
   const elements = expectArray(value.elements, context, 'elements');
   elements.forEach((element, index) => decodeSlideElement(element, child(context, `elements[${index}]`)));
+  return value as unknown as BundleSlide;
+}
+
+function decodeLegacyBundleSlide(value: unknown, context: CodecContext): BundleSlideV2 {
+  if (!isRecord(value)) fail(context, 'slide must be an object');
+  expectString(value.id, context, 'id');
+  expectFiniteNumber(value.width, context, 'width');
+  expectFiniteNumber(value.height, context, 'height');
+  expectString(value.notes, context, 'notes');
+  expectFiniteNumber(value.order, context, 'order');
+  if (value.background !== undefined && value.background !== null) decodeSlideBackground(value.background, child(context, 'background'));
+  if (value.backgroundSource !== undefined) expectEnum(value.backgroundSource, context, 'backgroundSource', BACKGROUND_SOURCES);
+  expectArray(value.elements, context, 'elements').forEach((element, index) => decodeSlideElement(element, child(context, `elements[${index}]`)));
   if (value.scriptBlocks !== undefined) {
-    const blocks = expectArray(value.scriptBlocks, context, 'scriptBlocks');
-    blocks.forEach((block, index) => {
-      if (!isRecord(block)) fail(child(context, `scriptBlocks[${index}]`), 'must be an object');
-      expectString(block.id, child(context, `scriptBlocks[${index}]`), 'id');
-      expectString(block.text, child(context, `scriptBlocks[${index}]`), 'text');
-      expectFiniteNumber(block.order, child(context, `scriptBlocks[${index}]`), 'order');
+    expectArray(value.scriptBlocks, context, 'scriptBlocks').forEach((block, index) => {
+      const blockContext = child(context, `scriptBlocks[${index}]`);
+      if (!isRecord(block)) fail(blockContext, 'must be an object');
+      expectString(block.id, blockContext, 'id');
+      expectString(block.text, blockContext, 'text');
+      expectFiniteNumber(block.order, blockContext, 'order');
     });
   }
-  return value as unknown as BundleSlide;
+  return value as unknown as BundleSlideV2;
+}
+
+function decodeLegacyBundleItem(value: unknown, context: CodecContext): void {
+  if (!isRecord(value)) fail(context, 'item must be an object');
+  expectString(value.id, context, 'id');
+  expectEnum(value.type, context, 'type', LEGACY_ITEM_TYPES);
+  expectString(value.title, context, 'title');
+  expectNullableString(value.themeId, context, 'themeId');
+  expectFiniteNumber(value.order, context, 'order');
+  expectArray(value.slides, context, 'slides').forEach((slide, index) => decodeLegacyBundleSlide(slide, child(context, `slides[${index}]`)));
 }
 
 function decodeBundleItem(value: unknown, context: CodecContext): BundleItem {
   if (!isRecord(value)) fail(context, 'item must be an object');
+  rejectUnknownKeys(value, context, ['id', 'type', 'title', 'themeId', 'order', 'slides']);
   expectString(value.id, context, 'id');
   expectEnum(value.type, context, 'type', ITEM_TYPES);
   expectString(value.title, context, 'title');
@@ -553,6 +611,7 @@ function decodeBundleItem(value: unknown, context: CodecContext): BundleItem {
 
 function decodeBundleTheme(value: unknown, context: CodecContext): BundleTheme {
   if (!isRecord(value)) fail(context, 'theme must be an object');
+  rejectUnknownKeys(value, context, ['id', 'name', 'themeType', 'width', 'height', 'order', 'elements']);
   expectString(value.id, context, 'id');
   expectString(value.name, context, 'name');
   expectEnum(value.themeType, context, 'themeType', THEME_OWNER_TYPES);
@@ -607,13 +666,37 @@ function decodeBundlePlaylistRow(value: unknown, context: CodecContext): void {
   const kind = expectEnum(value.kind, context, 'kind', PLAYLIST_ROW_KINDS);
   expectFiniteNumber(value.order, context, 'order');
   if (kind === 'item') {
+    rejectUnknownKeys(value, context, ['id', 'kind', 'presentationId', 'lyricId', 'order']);
     expectNullableString(value.presentationId, context, 'presentationId');
     expectNullableString(value.lyricId, context, 'lyricId');
-    expectNullableString(value.talkId, context, 'talkId');
   } else {
+    rejectUnknownKeys(value, context, ['id', 'kind', 'label', 'colorKey', 'order']);
     expectString(value.label, context, 'label');
     expectNullableString(value.colorKey, context, 'colorKey');
   }
+}
+
+function decodeLegacyBundlePlaylistV2(value: unknown, context: CodecContext): BundlePlaylistV2 {
+  if (!isRecord(value)) fail(context, 'playlist must be an object');
+  expectString(value.id, context, 'id');
+  expectString(value.name, context, 'name');
+  expectFiniteNumber(value.order, context, 'order');
+  expectArray(value.rows, context, 'rows').forEach((row, rowIndex) => {
+    const rowContext = child(context, `rows[${rowIndex}]`);
+    if (!isRecord(row)) fail(rowContext, 'row must be an object');
+    expectString(row.id, rowContext, 'id');
+    const kind = expectEnum(row.kind, rowContext, 'kind', PLAYLIST_ROW_KINDS);
+    expectFiniteNumber(row.order, rowContext, 'order');
+    if (kind === 'item') {
+      expectNullableString(row.presentationId, rowContext, 'presentationId');
+      expectNullableString(row.lyricId, rowContext, 'lyricId');
+      expectNullableString(row.talkId, rowContext, 'talkId');
+    } else {
+      expectString(row.label, rowContext, 'label');
+      expectNullableString(row.colorKey, rowContext, 'colorKey');
+    }
+  });
+  return value as unknown as BundlePlaylistV2;
 }
 
 function decodeBundlePlaylist(value: unknown, context: CodecContext): BundlePlaylist {
@@ -630,9 +713,9 @@ function decodeBundlePlaylist(value: unknown, context: CodecContext): BundlePlay
 // Legacy (v1) bundle manifest decode + normalization (#219 item-model
 // refactor, wave K). `decodeBundleManifest`'s legacy branch below decodes an
 // untrusted v1 document with the functions in this section, then converts it
-// to the current v2 shape with `normalizeBundleManifestV1` before returning
-// — every OTHER decoder in this module (and every caller of
-// `decodeBundleManifest`) only ever sees v2 data.
+// to the current v3 shape with `normalizeBundleManifestV1` before returning
+// — every other decoder in this module (and every caller of
+// `decodeBundleManifest`) only ever sees v3 data.
 // ---------------------------------------------------------------------------
 
 function decodeLegacyBundleTheme(value: unknown, context: CodecContext): BundleThemeV1 {
@@ -683,14 +766,14 @@ function decodeLegacyBundlePlaylist(value: unknown, context: CodecContext): Bund
 /**
  * Decodes an untrusted v1 (pre-#219) deck-bundle manifest — the
  * nested-group, `kind`-tagged-theme, `libraryName`-carrying shape. Reuses
- * `decodeBundleItem`/`decodeBundleOverlay`/`decodeBundleStage` unchanged
- * (those shapes never changed between v1 and v2).
+ * The legacy item decoder accepts Talk items solely so normalization can
+ * discard them before returning the current manifest.
  */
 function decodeLegacyBundleManifest(value: Record<string, unknown>, context: CodecContext): BundleManifestV1 {
   expectString(value.exportedAt, context, 'exportedAt');
 
   const items = expectArray(value.items, context, 'items');
-  items.forEach((item, index) => decodeBundleItem(item, child(context, `items[${index}]`)));
+  items.forEach((item, index) => decodeLegacyBundleItem(item, child(context, `items[${index}]`)));
 
   const themes = expectArray(value.themes, context, 'themes');
   themes.forEach((theme, index) => decodeLegacyBundleTheme(theme, child(context, `themes[${index}]`)));
@@ -727,12 +810,12 @@ function normalizeLegacyBundlePlaylist(playlist: BundlePlaylistV1): BundlePlayli
     rows.push({ id: group.id, kind: 'separator', label: group.name, colorKey: group.colorKey, order: rows.length });
     const orderedEntries = group.entries.slice().sort((left, right) => left.order - right.order);
     for (const entry of orderedEntries) {
+      if (entry.talkId) continue;
       rows.push({
         id: entry.id,
         kind: 'item',
         presentationId: entry.presentationId,
         lyricId: entry.lyricId,
-        talkId: entry.talkId ?? null,
         order: rows.length,
       });
     }
@@ -743,20 +826,15 @@ function normalizeLegacyBundlePlaylist(playlist: BundlePlaylistV1): BundlePlayli
 
 /**
  * Converts a structurally-decoded v1 (pre-#219) bundle manifest into the
- * current v2 shape (decision D8). Pure and total: never throws on a document
+ * current v3 shape (decision D8). Pure and total: never throws on a document
  * that already passed `decodeLegacyBundleManifest`.
  *
- * - `items`/`overlays`/`stages` (and their slides) are unchanged between v1
- *   and v2 — carried through verbatim.
+ * - Talk items are discarded; retained item slides lose legacy script blocks.
+ *   Overlays and stages are carried through verbatim.
  * - themes: `kind: 'lyrics'` → `themeType: 'lyric'`; `kind: 'overlays'` →
  *   `themeType: 'overlay'`; `kind: 'slides'` → `themeType: 'presentation'`
- *   (the base copy always lands in the presentation family), PLUS a
- *   talk-family clone — a fresh manifest-local id, identical content — for
- *   every `kind: 'slides'` theme referenced by at least one talk item (one
- *   clone per distinct source theme, shared by every talk that referenced
- *   it); every talk item referencing that source theme is repointed to the
- *   clone. `finalizeImportBundle` regenerates real ids on import regardless,
- *   so the clone's id only needs to be unique within this manifest.
+ *   (the copy lands in the presentation family). A slides theme referenced
+ *   only by discarded Talk items is discarded too.
  * - playlists: flattened per `normalizeLegacyBundlePlaylist`; `libraryName`
  *   dropped (decision D4).
  * - `mediaReferences` is carried through as decoded: every real consumer
@@ -766,28 +844,25 @@ function normalizeLegacyBundlePlaylist(playlist: BundlePlaylistV1): BundlePlayli
  *   post-clone element set.
  */
 export function normalizeBundleManifestV1(legacy: BundleManifestV1): BundleManifest {
-  const talkThemeIdsReferenced = new Set<Id>();
-  for (const item of legacy.items) {
-    if (item.type === 'talk' && item.themeId) talkThemeIdsReferenced.add(item.themeId);
-  }
-
-  const themes: BundleTheme[] = [];
-  const talkCloneIdBySourceThemeId = new Map<Id, Id>();
-  for (const theme of legacy.themes) {
-    const themeType: ThemeOwnerType = theme.kind === 'lyrics' ? 'lyric' : theme.kind === 'overlays' ? 'overlay' : 'presentation';
-    themes.push({ id: theme.id, name: theme.name, themeType, width: theme.width, height: theme.height, order: theme.order, elements: theme.elements });
-    if (theme.kind === 'slides' && talkThemeIdsReferenced.has(theme.id)) {
-      const cloneId = createId();
-      talkCloneIdBySourceThemeId.set(theme.id, cloneId);
-      themes.push({ id: cloneId, name: theme.name, themeType: 'talk', width: theme.width, height: theme.height, order: theme.order, elements: theme.elements });
-    }
-  }
-
-  const items: BundleItem[] = legacy.items.map((item) => {
-    if (item.type !== 'talk' || !item.themeId) return item;
-    const cloneId = talkCloneIdBySourceThemeId.get(item.themeId);
-    return cloneId ? { ...item, themeId: cloneId } : item;
-  });
+  const retainedItems = legacy.items.filter(
+    (item): item is BundleItemV2 & { type: ItemType } => item.type !== 'talk',
+  );
+  const retainedSlideThemeIds = new Set(retainedItems.flatMap((item) => item.themeId ? [item.themeId] : []));
+  const themes: BundleTheme[] = legacy.themes
+    .filter((theme) => theme.kind !== 'slides' || retainedSlideThemeIds.has(theme.id) || !legacy.items.some((item) => item.themeId === theme.id))
+    .map((theme) => ({
+      id: theme.id,
+      name: theme.name,
+      themeType: theme.kind === 'lyrics' ? 'lyric' : theme.kind === 'overlays' ? 'overlay' : 'presentation',
+      width: theme.width,
+      height: theme.height,
+      order: theme.order,
+      elements: theme.elements,
+    }));
+  const items: BundleItem[] = retainedItems.map((item) => ({
+    ...item,
+    slides: item.slides.map(({ scriptBlocks: _discarded, ...slide }) => slide),
+  }));
 
   return {
     format: BUNDLE_FORMAT,
@@ -802,13 +877,68 @@ export function normalizeBundleManifestV1(legacy: BundleManifestV1): BundleManif
   };
 }
 
+export function normalizeBundleManifestV2(legacy: BundleManifestV2): BundleManifest {
+  const retainedItems = legacy.items.filter(
+    (item): item is BundleItemV2 & { type: ItemType } => item.type !== 'talk',
+  );
+  const retainedItemIds = new Set(retainedItems.map((item) => item.id));
+  const retainedThemeIds = new Set(legacy.themes.filter((theme) => theme.themeType !== 'talk').map((theme) => theme.id));
+  const items: BundleItem[] = retainedItems.map((item) => ({
+    ...item,
+    themeId: item.themeId && retainedThemeIds.has(item.themeId) ? item.themeId : null,
+    slides: item.slides.map(({ scriptBlocks: _discarded, ...slide }) => slide),
+  }));
+  const playlists: BundlePlaylist[] | undefined = legacy.playlists?.map((playlist) => ({
+    id: playlist.id,
+    name: playlist.name,
+    order: playlist.order,
+    rows: playlist.rows
+      .filter((row) => row.kind === 'separator' || (!row.talkId && (row.presentationId ? retainedItemIds.has(row.presentationId) : row.lyricId ? retainedItemIds.has(row.lyricId) : false)))
+      .map((row, order) => row.kind === 'separator'
+        ? { ...row, order }
+        : { id: row.id, kind: 'item', presentationId: row.presentationId, lyricId: row.lyricId, order }),
+  }));
+  return {
+    format: BUNDLE_FORMAT,
+    version: BUNDLE_VERSION,
+    exportedAt: legacy.exportedAt,
+    items,
+    themes: legacy.themes.filter((theme): theme is BundleThemeV2 & { themeType: ThemeOwnerType } => theme.themeType !== 'talk'),
+    mediaReferences: legacy.mediaReferences,
+    ...(legacy.overlays !== undefined ? { overlays: legacy.overlays } : {}),
+    ...(legacy.stages !== undefined ? { stages: legacy.stages } : {}),
+    ...(playlists !== undefined ? { playlists } : {}),
+  };
+}
+
+function decodeLegacyBundleManifestV2(value: Record<string, unknown>, context: CodecContext): BundleManifestV2 {
+  expectString(value.exportedAt, context, 'exportedAt');
+  expectArray(value.items, context, 'items').forEach((item, index) => decodeLegacyBundleItem(item, child(context, `items[${index}]`)));
+  expectArray(value.themes, context, 'themes').forEach((theme, index) => {
+    const themeContext = child(context, `themes[${index}]`);
+    if (!isRecord(theme)) fail(themeContext, 'theme must be an object');
+    expectString(theme.id, themeContext, 'id');
+    expectString(theme.name, themeContext, 'name');
+    expectEnum(theme.themeType, themeContext, 'themeType', LEGACY_THEME_OWNER_TYPES);
+    expectFiniteNumber(theme.width, themeContext, 'width');
+    expectFiniteNumber(theme.height, themeContext, 'height');
+    expectFiniteNumber(theme.order, themeContext, 'order');
+    expectArray(theme.elements, themeContext, 'elements').forEach((element, elementIndex) => decodeSlideElement(element, child(themeContext, `elements[${elementIndex}]`)));
+  });
+  decodeMediaReferences(value.mediaReferences, context);
+  if (value.overlays !== undefined) expectArray(value.overlays, context, 'overlays').forEach((overlay, index) => decodeBundleOverlay(overlay, child(context, `overlays[${index}]`)));
+  if (value.stages !== undefined) expectArray(value.stages, context, 'stages').forEach((stage, index) => decodeBundleStage(stage, child(context, `stages[${index}]`)));
+  if (value.playlists !== undefined) expectArray(value.playlists, context, 'playlists').forEach((playlist, index) => decodeLegacyBundlePlaylistV2(playlist, child(context, `playlists[${index}]`)));
+  return value as unknown as BundleManifestV2;
+}
+
 /**
  * Decodes an untrusted deck-bundle manifest. Rejects unknown formats
  * explicitly. Version 1 (the pre-#219 nested-group shape) is decoded via
- * `decodeLegacyBundleManifest` and converted to the current v2 shape via
+ * `decodeLegacyBundleManifest` and converted to the current v3 shape via
  * `normalizeBundleManifestV1` — a v1 document that fails that structural
  * decode is still rejected explicitly, never silently misparsed against the
- * v2 shape below. Rejects future versions explicitly, then validates the
+ * current shape below. Rejects future versions explicitly, then validates the
  * full structural shape of items, themes, overlays, stages, playlists, and
  * every nested slide element, background, and animation.
  */
@@ -825,12 +955,20 @@ export function decodeBundleManifest(value: unknown, context: CodecContext): Bun
     const legacy = decodeLegacyBundleManifest(value, context);
     return normalizeBundleManifestV1(legacy);
   }
+  if (value.version === BUNDLE_PREVIOUS_VERSION) {
+    return normalizeBundleManifestV2(decodeLegacyBundleManifestV2(value, context));
+  }
   if (value.version !== BUNDLE_VERSION) {
     if (typeof value.version === 'number' && value.version > BUNDLE_VERSION) {
       fail(context, `future bundle version ${value.version} is not supported; this build supports version ${BUNDLE_VERSION}`);
     }
     fail(context, `unsupported bundle version ${describe(value.version)}; this build supports version ${BUNDLE_VERSION}`);
   }
+
+  rejectUnknownKeys(value, context, [
+    'format', 'version', 'exportedAt', 'items', 'themes', 'mediaReferences',
+    'overlays', 'stages', 'playlists',
+  ]);
 
   expectString(value.exportedAt, context, 'exportedAt');
 
@@ -1058,15 +1196,135 @@ export function decodeTriggerBindingCreateInput(value: unknown, context: CodecCo
 }
 
 // ---------------------------------------------------------------------------
-// Slides and talk script blocks
+// Playback schedules (slide-timing / audio-sync automation records).
+// `decodePlaybackSchedule` is the single reusable trust-boundary decoder for
+// this family: the save RPC (`savePlaybackSchedule` in app/main/ipc.ts), the
+// full-snapshot restore shape, and the snapshot-patch shape all route through
+// it, so structural rules live in exactly one place. It validates shape only
+// (discriminant, item-ref type/id/null, finite positive ms durations, unique
+// step slides and marker ids/times) — never references. A schedule whose
+// slides, item, or audio asset were deleted still decodes structurally, so
+// undo/redo restore and persisted reads keep permitting stale records; the
+// strict new-save reference checks (slide ownership, audio-asset type,
+// enabled-requires-bindings) live in the repository's `savePlaybackSchedule`,
+// the one layer that holds the referenced rows.
+// ---------------------------------------------------------------------------
+
+/** Discriminant values for PlaybackSchedule (mirrors @lumacast/automation). */
+export const PLAYBACK_SCHEDULE_KINDS = ['slide-timing', 'audio-sync'] as const;
+
+/**
+ * Safe upper bound for step durations and marker times: 24 hours, well under
+ * the 2^31-1 ms ceiling a timer handle can schedule against, and finite by
+ * construction.
+ */
+export const MAX_PLAYBACK_SCHEDULE_DURATION_MS = 24 * 60 * 60 * 1000;
+
+const PLAYBACK_SCHEDULE_ITEM_TYPES = ['presentation', 'lyric'] as const;
+
+/** Stable schedule id for a slide-timing record bound to `itemRef` (as used by the UI). */
+export function buildSlideTimingScheduleId(itemRef: { type: string; id: string }): string {
+  return `timing:${itemRef.type}:${itemRef.id}`;
+}
+
+/** Stable schedule id for the audio-sync record owned by `audioAssetId` (as used by the UI). */
+export function buildAudioSyncScheduleId(audioAssetId: string): string {
+  return `audio:${audioAssetId}`;
+}
+
+function expectNonEmptyString(value: unknown, context: CodecContext, field: string): string {
+  const result = expectString(value, context, field);
+  if (result.length === 0) fail(child(context, field), 'must be a non-empty string');
+  return result;
+}
+
+function decodeScheduleItemRef(value: unknown, context: CodecContext): void {
+  if (!isRecord(value)) fail(context, `must be an object, got ${describe(value)}`);
+  rejectUnknownKeys(value, context, ['type', 'id']);
+  expectEnum(value.type, context, 'type', PLAYBACK_SCHEDULE_ITEM_TYPES);
+  expectNonEmptyString(value.id, context, 'id');
+}
+
+function decodeScheduleDurationMs(value: unknown, context: CodecContext, field: string): number {
+  const durationMs = expectFiniteNumber(value, context, field);
+  if (durationMs < 1) fail(child(context, field), `must be >= 1, got ${durationMs}`);
+  if (durationMs > MAX_PLAYBACK_SCHEDULE_DURATION_MS) {
+    fail(child(context, field), `must be <= ${MAX_PLAYBACK_SCHEDULE_DURATION_MS}, got ${durationMs}`);
+  }
+  return durationMs;
+}
+
+/**
+ * Strict structural decode of one PlaybackSchedule. Rejects unknown
+ * top-level keys, a missing/unknown `kind` discriminant, a malformed
+ * nullable `itemRef`, non-finite or out-of-range ms durations, duplicate
+ * step slides, and duplicate marker ids or times. Binding rules (only
+ * enabled schedules require an itemRef and destinations) and reference
+ * rules (slide ownership, audio-asset type) are intentionally NOT checked
+ * here — see the section comment above.
+ */
+export function decodePlaybackSchedule(value: unknown, context: CodecContext): PlaybackSchedule {
+  if (!isRecord(value)) fail(context, 'schedule must be an object');
+  rejectUnknownKeys(value, context, ['id', 'itemRef', 'enabled', 'kind', 'steps', 'audioAssetId', 'markers']);
+  expectNonEmptyString(value.id, context, 'id');
+  if (value.itemRef !== null) {
+    decodeScheduleItemRef(value.itemRef, child(context, 'itemRef'));
+  }
+  expectBoolean(value.enabled, context, 'enabled');
+  const kind = expectEnum(value.kind, context, 'kind', PLAYBACK_SCHEDULE_KINDS);
+
+  if (kind === 'slide-timing') {
+    if (value.audioAssetId !== undefined) fail(child(context, 'audioAssetId'), 'must not be present on a slide-timing schedule');
+    if (value.markers !== undefined) fail(child(context, 'markers'), 'must not be present on a slide-timing schedule');
+    const steps = expectArray(value.steps, context, 'steps');
+    const seenSlides = new Set<string>();
+    steps.forEach((step, index) => {
+      const stepContext = child(context, `steps[${index}]`);
+      if (!isRecord(step)) fail(stepContext, 'must be an object');
+      rejectUnknownKeys(step, stepContext, ['slideId', 'durationMs']);
+      const slideId = expectNonEmptyString(step.slideId, stepContext, 'slideId');
+      decodeScheduleDurationMs(step.durationMs, stepContext, 'durationMs');
+      if (seenSlides.has(slideId)) fail(child(stepContext, 'slideId'), `duplicate slide ${JSON.stringify(slideId)}`);
+      seenSlides.add(slideId);
+    });
+  } else {
+    if (value.steps !== undefined) fail(child(context, 'steps'), 'must not be present on an audio-sync schedule');
+    expectNonEmptyString(value.audioAssetId, context, 'audioAssetId');
+    const markers = expectArray(value.markers, context, 'markers');
+    const seenIds = new Set<string>();
+    const seenTimes = new Set<number>();
+    markers.forEach((marker, index) => {
+      const markerContext = child(context, `markers[${index}]`);
+      if (!isRecord(marker)) fail(markerContext, 'must be an object');
+      rejectUnknownKeys(marker, markerContext, ['id', 'timeMs', 'slideId']);
+      const markerId = expectNonEmptyString(marker.id, markerContext, 'id');
+      if (seenIds.has(markerId)) fail(child(markerContext, 'id'), `duplicate marker id ${JSON.stringify(markerId)}`);
+      seenIds.add(markerId);
+      const timeMs = expectFiniteNumber(marker.timeMs, markerContext, 'timeMs');
+      if (timeMs < 0) fail(child(markerContext, 'timeMs'), `must be >= 0, got ${timeMs}`);
+      if (timeMs > MAX_PLAYBACK_SCHEDULE_DURATION_MS) {
+        fail(child(markerContext, 'timeMs'), `must be <= ${MAX_PLAYBACK_SCHEDULE_DURATION_MS}, got ${timeMs}`);
+      }
+      if (seenTimes.has(timeMs)) fail(child(markerContext, 'timeMs'), `duplicate marker time ${timeMs}`);
+      seenTimes.add(timeMs);
+      if (marker.slideId !== null) {
+        expectNonEmptyString(marker.slideId, markerContext, 'slideId');
+      }
+    });
+  }
+
+  return value as unknown as PlaybackSchedule;
+}
+
+// ---------------------------------------------------------------------------
+// Slides
 // ---------------------------------------------------------------------------
 
 export function decodeSlideCreateInput(value: unknown, context: CodecContext): SlideCreateInput {
   if (!isRecord(value)) fail(context, 'must be an object');
-  rejectUnknownKeys(value, context, ['presentationId', 'lyricId', 'talkId', 'width', 'height']);
+  rejectUnknownKeys(value, context, ['presentationId', 'lyricId', 'width', 'height']);
   if (value.presentationId !== undefined) expectNullableString(value.presentationId, context, 'presentationId');
   if (value.lyricId !== undefined) expectNullableString(value.lyricId, context, 'lyricId');
-  if (value.talkId !== undefined) expectNullableString(value.talkId, context, 'talkId');
   checkOptionalFields(value, context, { width: 'number', height: 'number' });
   return value as unknown as SlideCreateInput;
 }
@@ -1097,30 +1355,6 @@ export function decodeSlideOrderUpdateInput(value: unknown, context: CodecContex
   return value as unknown as SlideOrderUpdateInput;
 }
 
-export function decodeTalkScriptBlockCreateInput(value: unknown, context: CodecContext): TalkScriptBlockCreateInput {
-  if (!isRecord(value)) fail(context, 'must be an object');
-  rejectUnknownKeys(value, context, ['slideId', 'text', 'order']);
-  expectString(value.slideId, context, 'slideId');
-  checkOptionalFields(value, context, { text: 'string', order: 'number' });
-  return value as unknown as TalkScriptBlockCreateInput;
-}
-
-export function decodeTalkScriptBlockUpdateInput(value: unknown, context: CodecContext): TalkScriptBlockUpdateInput {
-  if (!isRecord(value)) fail(context, 'must be an object');
-  rejectUnknownKeys(value, context, ['id', 'text']);
-  expectString(value.id, context, 'id');
-  expectString(value.text, context, 'text');
-  return value as unknown as TalkScriptBlockUpdateInput;
-}
-
-export function decodeTalkScriptBlockOrderUpdateInput(value: unknown, context: CodecContext): TalkScriptBlockOrderUpdateInput {
-  if (!isRecord(value)) fail(context, 'must be an object');
-  rejectUnknownKeys(value, context, ['id', 'newOrder']);
-  expectString(value.id, context, 'id');
-  expectFiniteNumber(value.newOrder, context, 'newOrder');
-  return value as unknown as TalkScriptBlockOrderUpdateInput;
-}
-
 // ---------------------------------------------------------------------------
 // Slide elements (create/update). Creation reuses decodeSlideElementPayload
 // for full per-type payload validation, since the element `type` is known.
@@ -1135,7 +1369,7 @@ const ELEMENT_CREATE_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'bool
 
 export function decodeElementCreateInput(value: unknown, context: CodecContext): ElementCreateInput {
   if (!isRecord(value)) fail(context, 'must be an object');
-  rejectUnknownKeys(value, context, ['id', 'slideId', 'type', 'x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer', 'payload', 'sourceThemeElementId']);
+  rejectUnknownKeys(value, context, ['id', 'slideId', 'type', 'x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer', 'payload', 'sourceThemeElementId', 'themeOverrideKeys']);
   expectString(value.slideId, context, 'slideId');
   const type = expectEnum(value.type, context, 'type', SLIDE_ELEMENT_TYPES);
   expectFiniteNumber(value.x, context, 'x');
@@ -1145,6 +1379,9 @@ export function decodeElementCreateInput(value: unknown, context: CodecContext):
   checkOptionalFields(value, context, ELEMENT_CREATE_OPTIONAL_FIELDS);
   if (value.layer !== undefined) expectEnum(value.layer, context, 'layer', ELEMENT_LAYERS);
   if (value.sourceThemeElementId !== undefined) expectNullableString(value.sourceThemeElementId, context, 'sourceThemeElementId');
+  if (value.themeOverrideKeys !== undefined) {
+    (value as Record<string, unknown>).themeOverrideKeys = decodeThemeOverrideKeys(value.themeOverrideKeys, context);
+  }
   decodeSlideElementPayload(value.payload, type, child(context, 'payload'));
   return value as unknown as ElementCreateInput;
 }
@@ -1176,12 +1413,15 @@ const ELEMENT_UPDATE_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'bool
  */
 export function decodeElementUpdateInput(value: unknown, context: CodecContext): ElementUpdateInput {
   if (!isRecord(value)) fail(context, 'must be an object');
-  rejectUnknownKeys(value, context, ['id', 'x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer', 'payload']);
+  rejectUnknownKeys(value, context, ['id', 'x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer', 'payload', 'themeOverrideKeys']);
   expectString(value.id, context, 'id');
   checkOptionalFields(value, context, ELEMENT_UPDATE_OPTIONAL_FIELDS);
   if (value.layer !== undefined) expectEnum(value.layer, context, 'layer', ELEMENT_LAYERS);
   if (value.payload !== undefined && !isRecord(value.payload)) {
     fail(child(context, 'payload'), `must be an object, got ${describe(value.payload)}`);
+  }
+  if (value.themeOverrideKeys !== undefined) {
+    (value as Record<string, unknown>).themeOverrideKeys = decodeThemeOverrideKeys(value.themeOverrideKeys, context);
   }
   return value as unknown as ElementUpdateInput;
 }
@@ -1266,9 +1506,7 @@ export function decodeStageUpdateInput(value: unknown, context: CodecContext): S
   return value as unknown as StageUpdateInput;
 }
 
-const RPC_ITEM_CREATE_TYPES: readonly ItemType[] = ['presentation', 'lyric', 'talk'];
-// Talks are deliberately excluded (decision D1: there is simply no
-// `duplicateTalk`) — matches `ItemDuplicateInput['type']` exactly.
+const RPC_ITEM_CREATE_TYPES: readonly ItemType[] = ['presentation', 'lyric'];
 const RPC_ITEM_DUPLICATE_TYPES = ['presentation', 'lyric'] as const;
 
 /** #219 item-model refactor: replaces `decodeDeckItemCreateWithThemeInput`. */
@@ -1492,19 +1730,16 @@ export function decodeStoredNdiOutputConfigMap(value: unknown, context: CodecCon
 // #219 item-model refactor decision D4/D5: `libraries`/`libraryBundles`/
 // `collections` are gone — playlists ship as two ordinary flat-row families
 // (`playlists`, `playlistEntries`) like every other table, not a derived
-// tree. `themes` splits into four per-owner arrays (decision D2).
+// tree. `themes` splits into three per-owner arrays (decision D2).
 const APP_SNAPSHOT_ARRAY_FIELDS = [
   'presentations',
   'lyrics',
-  'talks',
   'slides',
-  'talkScriptBlocks',
   'slideElements',
   'mediaAssets',
   'overlays',
   'presentationThemes',
   'lyricThemes',
-  'talkThemes',
   'overlayThemes',
   'stages',
   'playlists',
@@ -1512,6 +1747,7 @@ const APP_SNAPSHOT_ARRAY_FIELDS = [
   'cues',
   'macros',
   'triggerBindings',
+  'playbackSchedules',
 ] as const;
 
 /**
@@ -1566,17 +1802,16 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
   themeId: 'string',
   presentationThemeId: 'string',
   lyricThemeId: 'string',
-  talkThemeId: 'string',
   overlayThemeId: 'string',
   overlayId: 'string',
   stageId: 'string',
   assetId: 'string',
   presentationId: 'string',
   lyricId: 'string',
-  talkId: 'string',
   sourceId: 'string',
   targetId: 'string',
   sourceThemeElementId: 'string',
+  audioAssetId: 'string',
   // Geometry, ordering, and timings
   order: 'number',
   orderIndex: 'number',
@@ -1610,8 +1845,8 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
  *   of is not this map's business; failing on it would make adding a domain
  *   field a breaking change to undo/redo.
  * - **`null` and `undefined` always pass.** Which fields are nullable or
- *   optional varies per family (`themeId` is optional on Presentation/Lyric/
- *   Talk, the nine owner FKs on `Slide` are null for all but one,
+ *   optional varies per family (`themeId` is optional on Presentation/Lyric,
+ *   the seven owner FKs on `Slide` are null for all but one,
  *   `loopCount: number | null` means "loop forever"), and encoding that here
  *   would be the per-family
  *   mirror this map exists to avoid. Getting it wrong in the strict direction
@@ -1645,13 +1880,23 @@ function checkSnapshotRowStructure(field: string, row: Record<string, unknown>, 
       decodeSlideElement(row, context);
       return;
     case 'slides':
+      if (row.kind === 'talk' || row.kind === 'talkTheme') {
+        fail(child(context, 'kind'), `unsupported slide kind ${JSON.stringify(row.kind)}`);
+      }
       if (row.background !== null && row.background !== undefined) {
         decodeSlideBackground(row.background, child(context, 'background'));
       }
       return;
+    case 'playlistEntries':
+      if (row.kind === 'item') {
+        if (!isRecord(row.reference)) fail(child(context, 'reference'), 'must be an object');
+        rejectUnknownKeys(row.reference, child(context, 'reference'), ['type', 'id']);
+        expectEnum(row.reference.type, child(context, 'reference'), 'type', ITEM_TYPES);
+        expectString(row.reference.id, child(context, 'reference'), 'id');
+      }
+      return;
     case 'presentationThemes':
     case 'lyricThemes':
-    case 'talkThemes':
     case 'overlayThemes':
     case 'stages':
     case 'overlays': {
@@ -1691,6 +1936,13 @@ function checkSnapshotRowStructure(field: string, row: Record<string, unknown>, 
         fail(child(context, 'config'), `must be an object, got ${describe(row.config)}`);
       }
       return;
+    case 'playbackSchedules': {
+      // The single reusable schedule decoder: structural only, so stale
+      // references (deleted slides/items/assets) still decode here and only
+      // fail the strict new-save checks in the repository.
+      decodePlaybackSchedule(row, context);
+      return;
+    }
     default:
       return;
   }
@@ -1726,21 +1978,31 @@ function checkSnapshotRowStructure(field: string, row: Record<string, unknown>, 
  */
 export function decodeAppSnapshotShape(value: unknown, context: CodecContext): AppSnapshot {
   if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, APP_SNAPSHOT_ARRAY_FIELDS);
 
   for (const field of APP_SNAPSHOT_ARRAY_FIELDS) {
-    const items = expectArray(value[field], context, field);
+    const raw = (value as Record<string, unknown>)[field];
+    // `playbackSchedules` is optional for backward compatibility: snapshots
+    // persisted or serialized before the schedule family existed carry no
+    // such key, and must still decode (as an empty schedule list) rather
+    // than failing the restore.
+    const items = field === 'playbackSchedules' && raw === undefined
+      ? []
+      : expectArray(raw, context, field);
 
     items.forEach((item, index) => {
       const itemContext = child(context, `${field}[${index}]`);
 
       if (!isRecord(item)) fail(itemContext, 'must be an object');
+      if ('talkId' in item) fail(child(itemContext, 'talkId'), 'unknown field');
+      if ('talkThemeId' in item) fail(child(itemContext, 'talkThemeId'), 'unknown field');
       expectString(item.id, itemContext, 'id');
       checkSnapshotRowFields(item, itemContext);
       checkSnapshotRowStructure(field, item, itemContext);
     });
   }
 
-  return value as unknown as AppSnapshot;
+  return { playbackSchedules: [], ...(value as object) } as unknown as AppSnapshot;
 }
 
 /**
@@ -1762,6 +2024,10 @@ export function decodeSnapshotPatchShape(
   const deletes = value.deletes;
   if (!isRecord(deletes)) fail(context, 'deletes must be an object');
 
+  rejectUnknownKeys(value, context, ['version', 'upserts', 'deletes']);
+  rejectUnknownKeys(upserts, child(context, 'upserts'), APP_SNAPSHOT_ARRAY_FIELDS);
+  rejectUnknownKeys(deletes, child(context, 'deletes'), APP_SNAPSHOT_ARRAY_FIELDS);
+
   for (const field of APP_SNAPSHOT_ARRAY_FIELDS) {
     const upsertRows = upserts[field];
     if (upsertRows !== undefined) {
@@ -1769,6 +2035,8 @@ export function decodeSnapshotPatchShape(
       items.forEach((item, index) => {
         const itemContext = child(context, `upserts.${field}[${index}]`);
         if (!isRecord(item)) fail(itemContext, 'must be an object');
+        if ('talkId' in item) fail(child(itemContext, 'talkId'), 'unknown field');
+        if ('talkThemeId' in item) fail(child(itemContext, 'talkThemeId'), 'unknown field');
         expectString(item.id, itemContext, 'id');
         checkSnapshotRowFields(item, itemContext);
         checkSnapshotRowStructure(field, item, itemContext);

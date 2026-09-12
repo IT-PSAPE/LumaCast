@@ -26,7 +26,7 @@ import { buildProjectBackupTables } from './project-backup-io';
 // insert the v1 rows verbatim, replay migrations 23..LATEST_SCHEMA_VERSION
 // over them, then read the result back out with the ordinary
 // `buildProjectBackupTables` query set. `CastRepository.restoreProjectBackup`
-// feeds the resulting v2 document through the normal v2 restore path
+// feeds the resulting v3 document through the normal current restore path
 // unchanged — every downstream safety net (referential integrity, row-count
 // and FK verification, the recoverable file swap) applies exactly as it
 // would for a live export.
@@ -106,7 +106,7 @@ function insertLegacyRows(db: SqliteDatabase, tableName: keyof ProjectBackupV1Ta
 
 /**
  * Converts a validated v1/schema-22 project backup into a current-shape
- * (format version 2, schema version `LATEST_SCHEMA_VERSION`) document. See
+ * (format version 3, schema version `LATEST_SCHEMA_VERSION`) document. See
  * the module comment above for the full strategy: zero duplicated
  * migration-transform logic, only the real migrations 23+ replayed over a
  * throwaway database.

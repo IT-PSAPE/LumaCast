@@ -12,11 +12,8 @@ import type {
   Slide,
   SlideElement,
   Stage,
-  Talk,
-  TalkScriptBlock,
-  TalkTheme,
 } from '@lumacast/composition';
-import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
+import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
 import type { AppSnapshot } from './rpc-results';
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -48,15 +45,12 @@ export interface SnapshotPatch {
   upserts: {
     presentations?: Presentation[];
     lyrics?: Lyric[];
-    talks?: Talk[];
     slides?: Slide[];
-    talkScriptBlocks?: TalkScriptBlock[];
     slideElements?: SlideElement[];
     mediaAssets?: MediaAsset[];
     overlays?: Overlay[];
     presentationThemes?: PresentationTheme[];
     lyricThemes?: LyricTheme[];
-    talkThemes?: TalkTheme[];
     overlayThemes?: OverlayTheme[];
     stages?: Stage[];
     playlists?: Playlist[];
@@ -64,19 +58,17 @@ export interface SnapshotPatch {
     cues?: Cue[];
     macros?: Macro[];
     triggerBindings?: TriggerBinding[];
+    playbackSchedules?: PlaybackSchedule[];
   };
   deletes: {
     presentations?: Id[];
     lyrics?: Id[];
-    talks?: Id[];
     slides?: Id[];
-    talkScriptBlocks?: Id[];
     slideElements?: Id[];
     mediaAssets?: Id[];
     overlays?: Id[];
     presentationThemes?: Id[];
     lyricThemes?: Id[];
-    talkThemes?: Id[];
     overlayThemes?: Id[];
     stages?: Id[];
     playlists?: Id[];
@@ -84,41 +76,37 @@ export interface SnapshotPatch {
     cues?: Id[];
     macros?: Id[];
     triggerBindings?: Id[];
+    playbackSchedules?: Id[];
   };
 }
 
 type SnapshotTableKey =
   | 'presentations'
   | 'lyrics'
-  | 'talks'
   | 'slides'
-  | 'talkScriptBlocks'
   | 'slideElements'
   | 'mediaAssets'
   | 'overlays'
   | 'presentationThemes'
   | 'lyricThemes'
-  | 'talkThemes'
   | 'overlayThemes'
   | 'stages'
   | 'playlists'
   | 'playlistEntries'
   | 'cues'
   | 'macros'
-  | 'triggerBindings';
+  | 'triggerBindings'
+  | 'playbackSchedules';
 
 type SnapshotTableRecordMap = {
   presentations: Presentation;
   lyrics: Lyric;
-  talks: Talk;
   slides: Slide;
-  talkScriptBlocks: TalkScriptBlock;
   slideElements: SlideElement;
   mediaAssets: MediaAsset;
   overlays: Overlay;
   presentationThemes: PresentationTheme;
   lyricThemes: LyricTheme;
-  talkThemes: TalkTheme;
   overlayThemes: OverlayTheme;
   stages: Stage;
   playlists: Playlist;
@@ -126,6 +114,7 @@ type SnapshotTableRecordMap = {
   cues: Cue;
   macros: Macro;
   triggerBindings: TriggerBinding;
+  playbackSchedules: PlaybackSchedule;
 };
 
 // ─── Utilities ──────────────────────────────────────────────────────
@@ -145,15 +134,12 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
     ...snapshot,
     presentations: mergeTable(snapshot.presentations, patch.upserts.presentations, patch.deletes.presentations),
     lyrics: mergeTable(snapshot.lyrics, patch.upserts.lyrics, patch.deletes.lyrics),
-    talks: mergeTable(snapshot.talks, patch.upserts.talks, patch.deletes.talks),
     slides: mergeTable(snapshot.slides, patch.upserts.slides, patch.deletes.slides),
-    talkScriptBlocks: mergeTable(snapshot.talkScriptBlocks, patch.upserts.talkScriptBlocks, patch.deletes.talkScriptBlocks),
     slideElements: mergeTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements),
     mediaAssets: mergeTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets),
     overlays: mergeTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays),
     presentationThemes: mergeTable(snapshot.presentationThemes, patch.upserts.presentationThemes, patch.deletes.presentationThemes),
     lyricThemes: mergeTable(snapshot.lyricThemes, patch.upserts.lyricThemes, patch.deletes.lyricThemes),
-    talkThemes: mergeTable(snapshot.talkThemes, patch.upserts.talkThemes, patch.deletes.talkThemes),
     overlayThemes: mergeTable(snapshot.overlayThemes, patch.upserts.overlayThemes, patch.deletes.overlayThemes),
     stages: mergeTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages),
     playlists: mergeTable(snapshot.playlists, patch.upserts.playlists, patch.deletes.playlists),
@@ -161,6 +147,7 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
     cues: mergeTable(snapshot.cues, patch.upserts.cues, patch.deletes.cues),
     macros: mergeTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros),
     triggerBindings: mergeTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings),
+    playbackSchedules: mergeTable(snapshot.playbackSchedules ?? [], patch.upserts.playbackSchedules, patch.deletes.playbackSchedules),
   };
   return next;
 }
@@ -176,15 +163,12 @@ export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): Snapsh
 
   invertTable(snapshot.presentations, patch.upserts.presentations, patch.deletes.presentations, inverse, 'presentations');
   invertTable(snapshot.lyrics, patch.upserts.lyrics, patch.deletes.lyrics, inverse, 'lyrics');
-  invertTable(snapshot.talks, patch.upserts.talks, patch.deletes.talks, inverse, 'talks');
   invertTable(snapshot.slides, patch.upserts.slides, patch.deletes.slides, inverse, 'slides');
-  invertTable(snapshot.talkScriptBlocks, patch.upserts.talkScriptBlocks, patch.deletes.talkScriptBlocks, inverse, 'talkScriptBlocks');
   invertTable(snapshot.slideElements, patch.upserts.slideElements, patch.deletes.slideElements, inverse, 'slideElements');
   invertTable(snapshot.mediaAssets, patch.upserts.mediaAssets, patch.deletes.mediaAssets, inverse, 'mediaAssets');
   invertTable(snapshot.overlays, patch.upserts.overlays, patch.deletes.overlays, inverse, 'overlays');
   invertTable(snapshot.presentationThemes, patch.upserts.presentationThemes, patch.deletes.presentationThemes, inverse, 'presentationThemes');
   invertTable(snapshot.lyricThemes, patch.upserts.lyricThemes, patch.deletes.lyricThemes, inverse, 'lyricThemes');
-  invertTable(snapshot.talkThemes, patch.upserts.talkThemes, patch.deletes.talkThemes, inverse, 'talkThemes');
   invertTable(snapshot.overlayThemes, patch.upserts.overlayThemes, patch.deletes.overlayThemes, inverse, 'overlayThemes');
   invertTable(snapshot.stages, patch.upserts.stages, patch.deletes.stages, inverse, 'stages');
   invertTable(snapshot.playlists, patch.upserts.playlists, patch.deletes.playlists, inverse, 'playlists');
@@ -192,6 +176,7 @@ export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): Snapsh
   invertTable(snapshot.cues, patch.upserts.cues, patch.deletes.cues, inverse, 'cues');
   invertTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros, inverse, 'macros');
   invertTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings, inverse, 'triggerBindings');
+  invertTable(snapshot.playbackSchedules ?? [], patch.upserts.playbackSchedules, patch.deletes.playbackSchedules, inverse, 'playbackSchedules');
 
   return inverse;
 }
@@ -267,14 +252,8 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'lyrics':
       inverse.upserts.lyrics = [...(inverse.upserts.lyrics ?? []), value as Lyric];
       return;
-    case 'talks':
-      inverse.upserts.talks = [...(inverse.upserts.talks ?? []), value as Talk];
-      return;
     case 'slides':
       inverse.upserts.slides = [...(inverse.upserts.slides ?? []), value as Slide];
-      return;
-    case 'talkScriptBlocks':
-      inverse.upserts.talkScriptBlocks = [...(inverse.upserts.talkScriptBlocks ?? []), value as TalkScriptBlock];
       return;
     case 'slideElements':
       inverse.upserts.slideElements = [...(inverse.upserts.slideElements ?? []), value as SlideElement];
@@ -290,9 +269,6 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
       return;
     case 'lyricThemes':
       inverse.upserts.lyricThemes = [...(inverse.upserts.lyricThemes ?? []), value as LyricTheme];
-      return;
-    case 'talkThemes':
-      inverse.upserts.talkThemes = [...(inverse.upserts.talkThemes ?? []), value as TalkTheme];
       return;
     case 'overlayThemes':
       inverse.upserts.overlayThemes = [...(inverse.upserts.overlayThemes ?? []), value as OverlayTheme];
@@ -315,6 +291,9 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'triggerBindings':
       inverse.upserts.triggerBindings = [...(inverse.upserts.triggerBindings ?? []), value as TriggerBinding];
       return;
+    case 'playbackSchedules':
+      inverse.upserts.playbackSchedules = [...(inverse.upserts.playbackSchedules ?? []), value as PlaybackSchedule];
+      return;
   }
 }
 
@@ -326,14 +305,8 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
     case 'lyrics':
       inverse.deletes.lyrics = [...(inverse.deletes.lyrics ?? []), id];
       return;
-    case 'talks':
-      inverse.deletes.talks = [...(inverse.deletes.talks ?? []), id];
-      return;
     case 'slides':
       inverse.deletes.slides = [...(inverse.deletes.slides ?? []), id];
-      return;
-    case 'talkScriptBlocks':
-      inverse.deletes.talkScriptBlocks = [...(inverse.deletes.talkScriptBlocks ?? []), id];
       return;
     case 'slideElements':
       inverse.deletes.slideElements = [...(inverse.deletes.slideElements ?? []), id];
@@ -349,9 +322,6 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
       return;
     case 'lyricThemes':
       inverse.deletes.lyricThemes = [...(inverse.deletes.lyricThemes ?? []), id];
-      return;
-    case 'talkThemes':
-      inverse.deletes.talkThemes = [...(inverse.deletes.talkThemes ?? []), id];
       return;
     case 'overlayThemes':
       inverse.deletes.overlayThemes = [...(inverse.deletes.overlayThemes ?? []), id];
@@ -373,6 +343,9 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
       return;
     case 'triggerBindings':
       inverse.deletes.triggerBindings = [...(inverse.deletes.triggerBindings ?? []), id];
+      return;
+    case 'playbackSchedules':
+      inverse.deletes.playbackSchedules = [...(inverse.deletes.playbackSchedules ?? []), id];
       return;
   }
 }

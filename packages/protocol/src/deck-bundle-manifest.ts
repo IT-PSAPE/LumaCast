@@ -21,15 +21,14 @@ import type { ItemType, SlideBackground, SlideBackgroundSource, SlideElement, Ov
 // `rpc-inputs.ts`/`rpc-results.ts`, so the file-format vs wire-payload
 // distinction is visible in the import path.
 //
-// #219 item-model refactor (decision D8): manifest version 2. Playlists are
+// Manifest version 3 contains only presentations and lyrics. Playlists are
 // flat rows (item entries interleaved with separators) instead of entries
 // nested inside groups; items are typed by `ItemType` (there is no unified
 // deck-item concept); themes are tagged by `themeType` (which of the four
 // per-owner theme tables they belong to) instead of `kind`; there is no
-// `libraryName` (the library concept is gone). Version 1 manifests are
-// rejected with an explicit version error by `decodeBundleManifest`
-// (codecs.ts) — a v1 reader (groups → separator+entries, `kind` → per-owner
-// theme table) is a later compatibility wave's job.
+// `libraryName` (the library concept is gone). Versions 1 and 2 remain
+// import-only compatibility shapes and are normalized by discarding Talk
+// content and references before callers see the current manifest.
 // ---------------------------------------------------------------------------
 
 export interface BundleTheme {
@@ -51,13 +50,6 @@ export interface BundleSlide {
   background?: SlideBackground | null;
   backgroundSource?: SlideBackgroundSource;
   elements: SlideElement[];
-  scriptBlocks?: BundleTalkScriptBlock[];
-}
-
-export interface BundleTalkScriptBlock {
-  id: Id;
-  text: string;
-  order: number;
 }
 
 export interface BundleItem {
@@ -108,7 +100,6 @@ export interface BundlePlaylistItemEntry {
   kind: 'item';
   presentationId: Id | null;
   lyricId: Id | null;
-  talkId: Id | null;
   order: number;
 }
 
@@ -140,7 +131,7 @@ export interface BundlePlaylist {
 
 export interface BundleManifest {
   format: 'cast-deck-bundle';
-  version: 2;
+  version: 3;
   exportedAt: string;
   items: BundleItem[];
   themes: BundleTheme[];
@@ -151,12 +142,68 @@ export interface BundleManifest {
 }
 
 // ---------------------------------------------------------------------------
+// Legacy v2 bundle shapes. These are accepted only at the import boundary;
+// normalization discards Talk items, Talk themes, their slides/script blocks,
+// and playlist rows that reference them.
+// ---------------------------------------------------------------------------
+
+export interface BundleTalkScriptBlockV2 {
+  id: Id;
+  text: string;
+  order: number;
+}
+
+export interface BundleSlideV2 extends BundleSlide {
+  scriptBlocks?: BundleTalkScriptBlockV2[];
+}
+
+export interface BundleItemV2 {
+  id: Id;
+  type: 'presentation' | 'lyric' | 'talk';
+  title: string;
+  themeId: Id | null;
+  order: number;
+  slides: BundleSlideV2[];
+}
+
+export interface BundleThemeV2 extends Omit<BundleTheme, 'themeType'> {
+  themeType: 'presentation' | 'lyric' | 'talk' | 'overlay';
+}
+
+export interface BundlePlaylistItemEntryV2 {
+  id: Id;
+  kind: 'item';
+  presentationId: Id | null;
+  lyricId: Id | null;
+  talkId: Id | null;
+  order: number;
+}
+
+export type BundlePlaylistRowV2 = BundlePlaylistItemEntryV2 | BundlePlaylistSeparator;
+
+export interface BundlePlaylistV2 extends Omit<BundlePlaylist, 'rows'> {
+  rows: BundlePlaylistRowV2[];
+}
+
+export interface BundleManifestV2 {
+  format: 'cast-deck-bundle';
+  version: 2;
+  exportedAt: string;
+  items: BundleItemV2[];
+  themes: BundleThemeV2[];
+  mediaReferences: BundleMediaReference[];
+  overlays?: BundleOverlay[];
+  stages?: BundleStage[];
+  playlists?: BundlePlaylistV2[];
+}
+
+// ---------------------------------------------------------------------------
 // Legacy (v1) bundle manifest shapes — the pre-#219 on-disk `.cst` shape:
 // entries nested inside groups, themes tagged by `kind`, and a `libraryName`
-// on every playlist. `BundleItem`/`BundleOverlay`/`BundleStage`/`BundleSlide`
-// are unchanged between v1 and v2, so they are reused as-is below. Kept so
+// on every playlist. `BundleOverlay`/`BundleStage` are unchanged, while v1
+// items use the v2 Talk-capable legacy item shape. Kept so
 // `codecs.ts`'s `decodeBundleManifest` can still decode an old file and
-// `normalizeBundleManifestV1` can convert it to the current v2 shape — never
+// `normalizeBundleManifestV1` can convert it to the current v3 shape — never
 // construct one of these by hand outside that import path.
 // ---------------------------------------------------------------------------
 
@@ -202,7 +249,7 @@ export interface BundleManifestV1 {
   format: 'cast-deck-bundle';
   version: 1;
   exportedAt: string;
-  items: BundleItem[];
+  items: BundleItemV2[];
   themes: BundleThemeV1[];
   mediaReferences: BundleMediaReference[];
   overlays?: BundleOverlay[];

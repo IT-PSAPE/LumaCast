@@ -16,10 +16,8 @@ function makeBackup(playlists: ProjectBackupTables['playlists'] = []): ProjectBa
     tables: {
       presentations: [],
       lyrics: [],
-      talks: [],
       slides: [],
       slide_elements: [],
-      talk_script_blocks: [],
       playlists,
       playlist_entries: [],
       image_assets: [],
@@ -28,13 +26,13 @@ function makeBackup(playlists: ProjectBackupTables['playlists'] = []): ProjectBa
       overlays: [],
       presentation_themes: [],
       lyric_themes: [],
-      talk_themes: [],
       overlay_themes: [],
       stages: [],
       cues: [],
       actions: [],
       action_steps: [],
       trigger_bindings: [],
+      playback_schedules: [],
     },
   };
 }
@@ -89,10 +87,8 @@ describe('validateProjectBackupAsync', () => {
       id: 'slide-1',
       presentation_id: null,
       lyric_id: null,
-      talk_id: null,
       presentation_theme_id: null,
       lyric_theme_id: null,
-      talk_theme_id: null,
       overlay_theme_id: null,
       overlay_id: null,
       stage_id: null,
@@ -147,4 +143,16 @@ describe('validateProjectBackupAsync', () => {
     })).resolves.toBe(backup);
     expect(observer).toHaveBeenCalled();
   });
+});
+
+
+it('rejects structurally invalid schedule JSON before restoring a backup', async () => {
+  const backup = makeBackup();
+  backup.tables.playback_schedules.push({
+    id: 'timing:presentation:p', item_ref_json: JSON.stringify({ type: 'presentation', id: 'p' }),
+    enabled: 1, kind: 'slide-timing', steps_json: JSON.stringify([{ slideId: 's', durationMs: -1 }]),
+    audio_asset_id: null, markers_json: null, created_at: 'now', updated_at: 'now',
+  });
+  expect(() => validateProjectBackup(backup)).toThrow(/durationMs/);
+  await expect(validateProjectBackupAsync(backup)).rejects.toThrow(/durationMs/);
 });

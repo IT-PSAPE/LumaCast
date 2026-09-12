@@ -97,25 +97,8 @@ export interface TriggerBindingCreateInput {
 export interface SlideCreateInput {
   presentationId?: Id | null;
   lyricId?: Id | null;
-  talkId?: Id | null;
   width?: number;
   height?: number;
-}
-
-export interface TalkScriptBlockCreateInput {
-  slideId: Id;
-  text?: string;
-  order?: number;
-}
-
-export interface TalkScriptBlockUpdateInput {
-  id: Id;
-  text: string;
-}
-
-export interface TalkScriptBlockOrderUpdateInput {
-  id: Id;
-  newOrder: number;
 }
 
 export interface SlideNotesUpdateInput {
@@ -142,6 +125,7 @@ export interface ElementCreateInput {
   layer?: SlideElementBase['layer'];
   payload: SlideElementPayload;
   sourceThemeElementId?: Id | null;
+  themeOverrideKeys?: string[] | null;
 }
 
 export interface ElementUpdateInput {
@@ -155,6 +139,7 @@ export interface ElementUpdateInput {
   zIndex?: number;
   layer?: SlideElementBase['layer'];
   payload?: SlideElementPayload;
+  themeOverrideKeys?: string[] | null;
 }
 
 export interface OverlayCreateInput {
@@ -171,9 +156,9 @@ export interface OverlayUpdateInput {
 }
 
 // #219 item-model refactor decision D2: `kind: ThemeKind` is gone along with
-// the single `themes` table — `themeType` says which of the four per-owner
-// theme tables (`presentation_themes`/`lyric_themes`/`talk_themes`/
-// `overlay_themes`) this theme belongs to. Kept as a single wire input
+// the single `themes` table — `themeType` says which of the three per-owner
+// theme tables (`presentation_themes`/`lyric_themes`/`overlay_themes`) this
+// theme belongs to. Kept as a single wire input
 // (not quadrupled per owner type) per D2's explicit wire decision; storage
 // and domain stay per-table.
 export interface ThemeCreateInput {
@@ -187,7 +172,7 @@ export interface ThemeCreateInput {
 
 export interface ThemeUpdateInput {
   id: Id;
-  // Required (unlike the other optional update fields): the four theme
+  // Required (unlike the other optional update fields): the three theme
   // tables are independent id spaces, so the table an update targets cannot
   // be inferred from `id` alone.
   themeType: ThemeOwnerType;

@@ -121,15 +121,12 @@ function emptySnapshot() {
   return {
     presentations: [],
     lyrics: [],
-    talks: [],
     slides: [],
-    talkScriptBlocks: [],
     slideElements: [],
     mediaAssets: [],
     overlays: [],
     presentationThemes: [],
     lyricThemes: [],
-    talkThemes: [],
     overlayThemes: [],
     stages: [],
     playlists: [],
@@ -193,8 +190,8 @@ describe('main IPC registration (issue #152)', () => {
   it('registers a handler for every operation in the canonical map (missing-registration regression)', () => {
     const missing = RPC_CHANNEL_NAMES.filter((name) => !handleRegistrations.has(IPC[name]));
     expect(missing, `missing ipcMain.handle registration for: ${missing.join(', ')}`).toEqual([]);
-    // Sanity: this is the full 104-operation surface, not a partial list.
-    expect(RPC_CHANNEL_NAMES.length).toBe(104);
+    // Sanity: this is the full 107-operation surface, not a partial list.
+    expect(RPC_CHANNEL_NAMES.length).toBe(107);
   });
 
   it('registers nothing outside the canonical map (extra-registration regression)', () => {

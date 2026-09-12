@@ -3,6 +3,9 @@ import {
   CodecError,
   BUNDLE_FORMAT,
   BUNDLE_VERSION,
+  MAX_PLAYBACK_SCHEDULE_DURATION_MS,
+  buildAudioSyncScheduleId,
+  buildSlideTimingScheduleId,
   decodeAppSnapshotShape,
   decodeSnapshotPatchShape,
   decodeCueCreateInput,
@@ -24,6 +27,7 @@ import {
   decodeOverlayAnimation,
   decodeOverlayCreateInput,
   decodePersisted,
+  decodePlaybackSchedule,
   sanitizeNdiFrameTelemetry,
   decodeSlideBackground,
   decodeSlideBackgroundUpdateInput,
@@ -157,7 +161,7 @@ function buildValidManifest(): Record<string, unknown> {
         order: 0,
         rows: [
           { id: 'sep-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
-          { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+          { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
         ],
       },
     ],
@@ -166,12 +170,8 @@ function buildValidManifest(): Record<string, unknown> {
 
 // Golden v1 fixture (pre-#219): entries nested inside groups, themes tagged
 // by `kind`, and a `libraryName` on every playlist. Kept as a legacy-import
-// regression fixture — `decodeBundleManifest` now decodes it and converts it
-// to the current v2 shape via `normalizeBundleManifestV1` (see "decodes and
-// normalizes a v1 manifest" below). The `theme-1` ('slides' kind) is
-// referenced by BOTH the presentation and the talk, exercising the
-// talk-family clone (decision D8); `group-2` is empty, exercising "every
-// group yields a separator, including an empty one".
+// regression fixture. The Talk item and its playlist row must be discarded,
+// while the presentation and both separators survive normalization to v3.
 function buildLegacyV1Manifest(): Record<string, unknown> {
   return {
     format: BUNDLE_FORMAT,
@@ -263,7 +263,10 @@ function buildLegacyV1Manifest(): Record<string, unknown> {
             name: 'Opening',
             colorKey: null,
             order: 0,
-            entries: [{ id: 'entry-1', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 }],
+            entries: [
+              { id: 'entry-1', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 },
+              { id: 'entry-talk', presentationId: null, lyricId: null, talkId: 'talk-1', order: 1 },
+            ],
           },
         ],
       },
@@ -454,7 +457,7 @@ describe('decodeCuePayload', () => {
 });
 
 describe('decodeBundleManifest', () => {
-  it('decodes a valid current (v2) manifest, including flat playlist rows', () => {
+  it('decodes a valid current (v3) manifest, including flat playlist rows', () => {
     const manifest = decodeBundleManifestWith(buildValidManifest());
     expect(manifest.items).toHaveLength(1);
     expect(manifest.themes[0].elements[0].payload).toMatchObject({ text: 'Hello' });
@@ -462,7 +465,7 @@ describe('decodeBundleManifest', () => {
     expect(manifest.overlays?.[0].animation).toEqual({ kind: 'none', durationMs: 0, autoClearDurationMs: null });
     expect(manifest.playlists?.[0].rows).toEqual([
       { id: 'sep-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
-      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
     ]);
   });
 
@@ -472,29 +475,19 @@ describe('decodeBundleManifest', () => {
     expectCodecError(() => decodeBundleManifestWith(manifest), 'unsupported bundle format');
   });
 
-  // Regression (#219 item-model refactor decision D8): a real v1 file on
-  // disk (nested groups, `kind`-tagged themes, `libraryName`) decodes and is
-  // converted to the current v2 shape by `normalizeBundleManifestV1`.
-  it('decodes and normalizes a v1 manifest: separators synthesized in canonical order, entry ids preserved, and a talk-theme clone', () => {
+  it('normalizes a v1 manifest by discarding Talk content and retaining non-Talk content', () => {
     const manifest = decodeBundleManifestWith(buildLegacyV1Manifest());
 
     expect(manifest.format).toBe(BUNDLE_FORMAT);
     expect(manifest.version).toBe(BUNDLE_VERSION);
 
-    // The presentation keeps referencing the original ('slides' -> presentation
-    // family) theme; the talk is repointed to a fresh talk-family clone.
     const presentation = manifest.items.find((item) => item.id === 'pres-1')!;
-    const talk = manifest.items.find((item) => item.id === 'talk-1')!;
     expect(presentation.themeId).toBe('theme-1');
-    expect(talk.themeId).not.toBe('theme-1');
-    expect(typeof talk.themeId).toBe('string');
+    expect(manifest.items.some((item) => item.id === 'talk-1')).toBe(false);
 
-    expect(manifest.themes).toHaveLength(2);
+    expect(manifest.themes).toHaveLength(1);
     const presentationTheme = manifest.themes.find((theme) => theme.id === 'theme-1')!;
-    const talkTheme = manifest.themes.find((theme) => theme.id === talk.themeId)!;
     expect(presentationTheme).toMatchObject({ themeType: 'presentation', name: 'Theme', width: 1920, height: 1080 });
-    expect(talkTheme).toMatchObject({ themeType: 'talk', name: 'Theme', width: 1920, height: 1080 });
-    expect(talkTheme.elements).toEqual(presentationTheme.elements);
 
     // group-1 (order 0, "Opening") sorts before group-2 (order 1, "Closing")
     // despite appearing second in the source array; every group -- including
@@ -502,10 +495,43 @@ describe('decodeBundleManifest', () => {
     // renumbered 0..n. The item entry keeps its original id.
     expect(manifest.playlists?.[0].rows).toEqual([
       { id: 'group-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
-      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
       { id: 'group-2', kind: 'separator', label: 'Closing', colorKey: 'red', order: 2 },
     ]);
     expect(manifest.playlists?.[0]).not.toHaveProperty('libraryName');
+  });
+
+  it('normalizes a v2 manifest by discarding Talk items, themes, rows, and script blocks', () => {
+    const legacyV2 = {
+      ...buildValidManifest(),
+      version: 2,
+      items: [
+        ...(buildValidManifest().items as unknown[]),
+        {
+          id: 'talk-1', type: 'talk', title: 'Legacy Talk', themeId: 'talk-theme-1', order: 1,
+          slides: [{ id: 'talk-slide-1', width: 1920, height: 1080, notes: '', order: 0, elements: [], scriptBlocks: [{ id: 'block-1', text: 'Legacy', order: 0 }] }],
+        },
+      ],
+      themes: [
+        ...(buildValidManifest().themes as unknown[]),
+        { id: 'talk-theme-1', name: 'Talk Theme', themeType: 'talk', width: 1920, height: 1080, order: 1, elements: [] },
+      ],
+      playlists: [{
+        id: 'playlist-1', name: 'Sunday', order: 0,
+        rows: [
+          { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 },
+          { id: 'entry-talk', kind: 'item', presentationId: null, lyricId: null, talkId: 'talk-1', order: 1 },
+        ],
+      }],
+    };
+
+    const manifest = decodeBundleManifestWith(legacyV2);
+    expect(manifest.version).toBe(3);
+    expect(manifest.items.map((item) => item.id)).toEqual(['pres-1']);
+    expect(manifest.themes.map((theme) => theme.id)).toEqual(['theme-1']);
+    expect(manifest.playlists?.[0].rows).toEqual([
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 0 },
+    ]);
   });
 
   it('rejects a structurally invalid v1 manifest with a field path (not silently misparsed)', () => {
@@ -516,8 +542,8 @@ describe('decodeBundleManifest', () => {
 
   it('rejects a future version explicitly without partial results', () => {
     const manifest = buildValidManifest();
-    manifest.version = 3;
-    expectCodecError(() => decodeBundleManifestWith(manifest), 'future bundle version 3');
+    manifest.version = 4;
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'future bundle version 4');
   });
 
   it('rejects an unsupported version', () => {
@@ -849,7 +875,7 @@ describe('decodeMediaAssetCreateInput / decodeItemCreateInput / decodeItemDuplic
   });
 
   it('decodes a minimal item create input (title, themeId, playlistId, position all optional)', () => {
-    expect(decodeItemCreateInput({ type: 'talk' }, CONTEXT)).toEqual({ type: 'talk' });
+    expect(decodeItemCreateInput({ type: 'lyric' }, CONTEXT)).toEqual({ type: 'lyric' });
   });
 
   it('decodes an item create input placed into a playlist at a position', () => {
@@ -868,9 +894,6 @@ describe('decodeMediaAssetCreateInput / decodeItemCreateInput / decodeItemDuplic
     expect(decodeItemDuplicateInput({ type: 'lyric', id: 'lyr-1' }, CONTEXT)).toEqual({ type: 'lyric', id: 'lyr-1' });
   });
 
-  it('rejects talk on item duplicate (decision D1: there is no duplicateTalk)', () => {
-    expectCodecError(() => decodeItemDuplicateInput({ type: 'talk', id: 'tk-1' }, CONTEXT), 'type');
-  });
 });
 
 describe('decodeBundleExportOptions / decodeBundleBrokenReferenceDecision', () => {
@@ -948,13 +971,13 @@ describe('NDI RPC input vs. persisted config file: unknown-field policy contrast
 
 describe('decodeAppSnapshotShape', () => {
   // #219 item-model refactor decisions D3/D4/D2: no libraries, libraryBundles,
-  // or collections; `themes` splits into four per-owner arrays; playlists
+  // or collections; `themes` splits into three per-owner arrays; playlists
   // ship as two ordinary flat-row families (playlists/playlistEntries), not
   // a derived tree.
   const EMPTY_SNAPSHOT_FIELDS = [
-    'presentations', 'lyrics', 'talks', 'slides',
-    'talkScriptBlocks', 'slideElements', 'mediaAssets', 'overlays',
-    'presentationThemes', 'lyricThemes', 'talkThemes', 'overlayThemes',
+    'presentations', 'lyrics', 'slides',
+    'slideElements', 'mediaAssets', 'overlays',
+    'presentationThemes', 'lyricThemes', 'overlayThemes',
     'stages', 'playlists', 'playlistEntries', 'cues', 'macros', 'triggerBindings',
   ];
 
@@ -997,7 +1020,7 @@ describe('decodeAppSnapshotShape', () => {
     snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
     snapshot.playlistEntries = [
       { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
-      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
     ];
     expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
   });
@@ -1038,8 +1061,8 @@ describe('decodeAppSnapshotShape', () => {
 
   it('rejects a non-finite number where a number is expected', () => {
     const snapshot = emptySnapshot();
-    snapshot.talkScriptBlocks = [{ id: 'b-1', slideId: 's-1', text: 'hi', order: Number.NaN }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'talkScriptBlocks[0].order');
+    snapshot.playlists = [{ id: 'playlist-1', name: 'Sunday', order: Number.NaN }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playlists[0].order');
   });
 
   it('rejects an object where a primitive field is expected', () => {
@@ -1056,7 +1079,6 @@ describe('decodeAppSnapshotShape', () => {
       id: 's-1',
       presentationId: null,
       lyricId: null,
-      talkId: null,
       presentationThemeId: undefined,
       order: 0,
       // Not in the field-kind map: not this boundary's business.
@@ -1128,8 +1150,8 @@ describe('decodeAppSnapshotShape', () => {
 
   it('rejects a theme whose elements array is missing', () => {
     const snapshot = emptySnapshot();
-    snapshot.talkThemes = [{ id: 'th-1', name: 'Theme' }];
-    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'talkThemes[0].elements');
+    snapshot.overlayThemes = [{ id: 'th-1', name: 'Theme' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'overlayThemes[0].elements');
   });
 
   it('rejects a malformed cue payload', () => {
@@ -1167,13 +1189,12 @@ describe('decodeAppSnapshotShape', () => {
     snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
     snapshot.playlistEntries = [
       { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: 'blue', order: 0 },
-      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 1 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
     ];
     snapshot.slides = [{ id: 's-1', background: { type: 'color', color: '#000' }, order: 0, notes: '', width: 1920, height: 1080 }];
     snapshot.slideElements = [{ ...textElement(), id: 'el-1', type: 'shape', payload: { fillColor: '#fff' } }];
     snapshot.presentationThemes = [{ id: 'pt-1', name: 'Theme', elements: [], background: null, width: 1920, height: 1080 }];
     snapshot.lyricThemes = [{ id: 'lt-1', name: 'Lyric Theme', elements: [], background: null, width: 1920, height: 1080 }];
-    snapshot.talkThemes = [{ id: 'tt-1', name: 'Talk Theme', elements: [], background: null, width: 1920, height: 1080 }];
     snapshot.overlayThemes = [{ id: 'ot-1', name: 'Overlay Theme', elements: [], background: null, width: 1920, height: 1080 }];
     snapshot.overlays = [{ id: 'ov-1', name: 'Lower third', enabled: true, elements: [], animation: { kind: 'fade', durationMs: 250 } }];
     snapshot.stages = [{ id: 'st-1', name: 'Stage', elements: [], width: 1920, height: 1080 }];
@@ -1222,6 +1243,165 @@ describe('decodeSnapshotPatchShape', () => {
     };
 
     expectCodecError(() => decodeSnapshotPatchShape(patch, CONTEXT), 'deletes.playlistEntries[0]');
+  });
+});
+
+describe('decodePlaybackSchedule', () => {
+  const timing = {
+    id: 'timing:presentation:pres-1',
+    itemRef: { type: 'presentation', id: 'pres-1' },
+    enabled: true,
+    kind: 'slide-timing',
+    steps: [
+      { slideId: 'slide-1', durationMs: 5000 },
+      { slideId: 'slide-2', durationMs: 3000 },
+    ],
+  };
+
+  const audioSync = {
+    id: 'audio:audio-1',
+    itemRef: { type: 'lyric', id: 'lyric-1' },
+    enabled: true,
+    kind: 'audio-sync',
+    audioAssetId: 'audio-1',
+    markers: [
+      { id: 'm-1', timeMs: 0, slideId: 'slide-1' },
+      { id: 'm-2', timeMs: 2500, slideId: 'slide-2' },
+    ],
+  };
+
+  it('accepts a well-formed slide-timing schedule and a disabled unbound draft', () => {
+    expect(decodePlaybackSchedule(structuredClone(timing), CONTEXT)).toEqual(timing);
+    const draft = { id: 'timing:draft', itemRef: null, enabled: false, kind: 'slide-timing', steps: [] };
+    expect(decodePlaybackSchedule(draft, CONTEXT)).toEqual(draft);
+  });
+
+  it('accepts a well-formed audio-sync schedule and a disabled draft with null bindings', () => {
+    expect(decodePlaybackSchedule(structuredClone(audioSync), CONTEXT)).toEqual(audioSync);
+    const draft = { id: 'audio:audio-9', itemRef: null, enabled: false, kind: 'audio-sync', audioAssetId: 'audio-9', markers: [{ id: 'm-1', timeMs: 100, slideId: null }] };
+    expect(decodePlaybackSchedule(draft, CONTEXT)).toEqual(draft);
+  });
+
+  it('builds the stable UI schedule ids', () => {
+    expect(buildSlideTimingScheduleId({ type: 'presentation', id: 'pres-1' })).toBe('timing:presentation:pres-1');
+    expect(buildAudioSyncScheduleId('audio-1')).toBe('audio:audio-1');
+  });
+
+  it('rejects an unknown discriminant, unknown keys, and a malformed itemRef', () => {
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, kind: 'metronome' }, CONTEXT), 'kind');
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, extra: 1 }, CONTEXT), 'extra');
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, itemRef: { type: 'deck', id: 'x' } }, CONTEXT), 'itemRef.type');
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, itemRef: { type: 'presentation', id: '' } }, CONTEXT), 'itemRef.id');
+  });
+
+  it('rejects cross-discriminant keys', () => {
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, audioAssetId: 'audio-1' }, CONTEXT), 'audioAssetId');
+    expectCodecError(() => decodePlaybackSchedule({ ...audioSync, steps: [] }, CONTEXT), 'steps');
+  });
+
+  it('rejects non-finite, non-positive, and over-bound durations and times', () => {
+    const badDurations = [0, -5, Number.NaN, Infinity, MAX_PLAYBACK_SCHEDULE_DURATION_MS + 1];
+    for (const durationMs of badDurations) {
+      expectCodecError(
+        () => decodePlaybackSchedule({ ...timing, steps: [{ slideId: 'slide-1', durationMs }] }, CONTEXT),
+        'durationMs',
+      );
+    }
+    const badTimes = [-1, Number.NaN, Infinity, MAX_PLAYBACK_SCHEDULE_DURATION_MS + 1];
+    for (const timeMs of badTimes) {
+      expectCodecError(
+        () => decodePlaybackSchedule({ ...audioSync, markers: [{ id: 'm-1', timeMs, slideId: null }] }, CONTEXT),
+        'timeMs',
+      );
+    }
+  });
+
+  it('rejects duplicate step slides and duplicate marker ids or times', () => {
+    expectCodecError(
+      () => decodePlaybackSchedule({ ...timing, steps: [{ slideId: 's-1', durationMs: 100 }, { slideId: 's-1', durationMs: 200 }] }, CONTEXT),
+      'slideId',
+    );
+    expectCodecError(
+      () => decodePlaybackSchedule({ ...audioSync, markers: [{ id: 'm-1', timeMs: 0, slideId: null }, { id: 'm-1', timeMs: 5, slideId: null }] }, CONTEXT),
+      'id',
+    );
+    expectCodecError(
+      () => decodePlaybackSchedule({ ...audioSync, markers: [{ id: 'm-1', timeMs: 100, slideId: null }, { id: 'm-2', timeMs: 100, slideId: null }] }, CONTEXT),
+      'timeMs',
+    );
+  });
+});
+
+describe('playback-schedule snapshot compatibility', () => {
+  const snapshotFields = [
+    'presentations', 'lyrics', 'slides',
+    'slideElements', 'mediaAssets', 'overlays',
+    'presentationThemes', 'lyricThemes', 'overlayThemes',
+    'stages', 'playlists', 'playlistEntries', 'cues', 'macros', 'triggerBindings',
+  ];
+
+  function snapshotWithoutSchedules(): Record<string, unknown> {
+    return Object.fromEntries(snapshotFields.map((field) => [field, []]));
+  }
+
+  it('decodes a pre-schedule snapshot with no playbackSchedules key as an empty schedule list', () => {
+    const decoded = decodeAppSnapshotShape(snapshotWithoutSchedules(), CONTEXT);
+    expect(decoded.playbackSchedules).toEqual([]);
+  });
+
+  it('decodes a snapshot carrying structurally valid schedules', () => {
+    const snapshot = {
+      ...snapshotWithoutSchedules(),
+      playbackSchedules: [{
+        id: 'timing:presentation:pres-1',
+        itemRef: { type: 'presentation', id: 'pres-1' },
+        enabled: false,
+        kind: 'slide-timing',
+        steps: [{ slideId: 'slide-1', durationMs: 1000 }],
+      }],
+    };
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a snapshot carrying a structurally invalid schedule', () => {
+    const snapshot = {
+      ...snapshotWithoutSchedules(),
+      playbackSchedules: [{
+        id: 'timing:presentation:pres-1',
+        itemRef: { type: 'presentation', id: 'pres-1' },
+        enabled: false,
+        kind: 'slide-timing',
+        steps: [{ slideId: 'slide-1', durationMs: 0 }],
+      }],
+    };
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playbackSchedules[0].steps[0].durationMs');
+  });
+
+  it('accepts schedule upserts and deletes on a snapshot patch, rejecting malformed schedule rows', () => {
+    const valid = {
+      version: 3,
+      upserts: {
+        playbackSchedules: [{
+          id: 'audio:audio-1',
+          itemRef: null,
+          enabled: false,
+          kind: 'audio-sync',
+          audioAssetId: 'audio-1',
+          markers: [],
+        }],
+      },
+      deletes: { playbackSchedules: ['audio:audio-2'] },
+    };
+    expect(() => decodeSnapshotPatchShape(valid, CONTEXT)).not.toThrow();
+
+    const invalid = {
+      version: 3,
+      upserts: {
+        playbackSchedules: [{ id: 'audio:audio-1', itemRef: null, enabled: false, kind: 'audio-sync', audioAssetId: 'audio-1', markers: [{ id: 'm-1', timeMs: -2, slideId: null }] }],
+      },
+      deletes: {},
+    };
+    expectCodecError(() => decodeSnapshotPatchShape(invalid, CONTEXT), 'upserts.playbackSchedules[0].markers[0].timeMs');
   });
 });
 

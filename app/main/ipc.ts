@@ -20,6 +20,7 @@ import {
 import type { AppMenuState } from '@lumacast/commands';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
+import type { PlaybackSchedule } from '@lumacast/automation';
 import type {
   CueCreateInput,
   CueUpdateInput,
@@ -37,9 +38,6 @@ import type {
   SlideOrderUpdateInput,
   StageCreateInput,
   StageUpdateInput,
-  TalkScriptBlockCreateInput,
-  TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput,
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
@@ -70,15 +68,13 @@ import {
   decodeNdiOutputName,
   decodeOverlayCreateInput,
   decodeOverlayUpdateInput,
+  decodePlaybackSchedule,
   decodeSlideBackgroundUpdateInput,
   decodeSlideCreateInput,
   decodeSlideNotesUpdateInput,
   decodeSlideOrderUpdateInput,
   decodeStageCreateInput,
   decodeStageUpdateInput,
-  decodeTalkScriptBlockCreateInput,
-  decodeTalkScriptBlockOrderUpdateInput,
-  decodeTalkScriptBlockUpdateInput,
   decodeThemeCreateInput,
   decodeThemeUpdateInput,
   decodeTriggerBindingCreateInput,
@@ -127,8 +123,8 @@ function rpcContext(operation: string, path = ''): CodecContext {
   return { boundary: 'rpc', operation, path };
 }
 
-const ITEM_TYPES = ['presentation', 'lyric', 'talk'] as const satisfies readonly ItemType[];
-const THEME_OWNER_TYPES = ['presentation', 'lyric', 'talk', 'overlay'] as const satisfies readonly ThemeOwnerType[];
+const ITEM_TYPES = ['presentation', 'lyric'] as const satisfies readonly ItemType[];
+const THEME_OWNER_TYPES = ['presentation', 'lyric', 'overlay'] as const satisfies readonly ThemeOwnerType[];
 
 function childContext(context: CodecContext, field: string): CodecContext {
   return { ...context, path: context.path ? `${context.path}.${field}` : field };
@@ -620,6 +616,13 @@ export const registerIpcHandlers = (
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteTriggerBinding'));
       return repo.deleteTriggerBinding(id);
     },
+    listPlaybackSchedules: () => repo.listPlaybackSchedules(),
+    savePlaybackSchedule: (_event, schedule: PlaybackSchedule) =>
+      repo.savePlaybackSchedule(decodePlaybackSchedule(schedule, rpcContext('savePlaybackSchedule'))),
+    deletePlaybackSchedule: (_event, id: Id) => {
+      expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deletePlaybackSchedule'));
+      return repo.deletePlaybackSchedule(id);
+    },
     createPlaylist: (_event, name: string) => {
       expectRpcPrimitiveArgs([name], [{ name: 'name', kind: 'string' }], rpcContext('createPlaylist'));
       return repo.createPlaylist(name);
@@ -685,10 +688,6 @@ export const registerIpcHandlers = (
       expectRpcPrimitiveArgs([title], [{ name: 'title', kind: 'string' }], rpcContext('createLyric'));
       return repo.createLyric(title);
     },
-    createTalk: (_event, title: string) => {
-      expectRpcPrimitiveArgs([title], [{ name: 'title', kind: 'string' }], rpcContext('createTalk'));
-      return repo.createTalk(title);
-    },
     createSlide: (_event, input: SlideCreateInput) =>
       repo.createSlide(decodeSlideCreateInput(input, rpcContext('createSlide'))),
     duplicateSlide: (_event, slideId: Id) => {
@@ -703,16 +702,6 @@ export const registerIpcHandlers = (
       repo.updateSlideNotes(decodeSlideNotesUpdateInput(input, rpcContext('updateSlideNotes'))),
     updateSlideBackground: (_event, input: SlideBackgroundUpdateInput) =>
       repo.updateSlideBackground(decodeSlideBackgroundUpdateInput(input, rpcContext('updateSlideBackground'))),
-    createTalkScriptBlock: (_event, input: TalkScriptBlockCreateInput) =>
-      repo.createTalkScriptBlock(decodeTalkScriptBlockCreateInput(input, rpcContext('createTalkScriptBlock'))),
-    updateTalkScriptBlock: (_event, input: TalkScriptBlockUpdateInput) =>
-      repo.updateTalkScriptBlock(decodeTalkScriptBlockUpdateInput(input, rpcContext('updateTalkScriptBlock'))),
-    deleteTalkScriptBlock: (_event, id: Id) => {
-      expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteTalkScriptBlock'));
-      return repo.deleteTalkScriptBlock(id);
-    },
-    setTalkScriptBlockOrder: (_event, input: TalkScriptBlockOrderUpdateInput) =>
-      repo.setTalkScriptBlockOrder(decodeTalkScriptBlockOrderUpdateInput(input, rpcContext('setTalkScriptBlockOrder'))),
     setSlideOrder: (_event, input: SlideOrderUpdateInput) =>
       repo.setSlideOrder(decodeSlideOrderUpdateInput(input, rpcContext('setSlideOrder'))),
     setPlaylistOrder: (_event, playlistId: Id, newOrder: number) => {
@@ -958,14 +947,6 @@ export const registerIpcHandlers = (
       );
       return repo.renameLyric(id, title);
     },
-    renameTalk: (_event, id: Id, title: string) => {
-      expectRpcPrimitiveArgs(
-        [id, title],
-        [{ name: 'id', kind: 'string' }, { name: 'title', kind: 'string' }],
-        rpcContext('renameTalk'),
-      );
-      return repo.renameTalk(id, title);
-    },
     // Per-type reorder (decision D1): each item table keeps its own
     // `order_index` sequence, so the old cross-type `moveDeckItem` splits
     // one-for-one per table.
@@ -985,14 +966,6 @@ export const registerIpcHandlers = (
       );
       return repo.moveLyric(id, direction);
     },
-    moveTalk: (_event, id: Id, direction: 'up' | 'down') => {
-      expectRpcPrimitiveArgs(
-        [id, direction],
-        [{ name: 'id', kind: 'string' }, { name: 'direction', kind: 'enum', values: RPC_MOVE_DIRECTIONS }],
-        rpcContext('moveTalk'),
-      );
-      return repo.moveTalk(id, direction);
-    },
     deletePlaylist: (_event, id: Id) => {
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deletePlaylist'));
       return repo.deletePlaylist(id);
@@ -1004,10 +977,6 @@ export const registerIpcHandlers = (
     deleteLyric: (_event, id: Id) => {
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteLyric'));
       return repo.deleteLyric(id);
-    },
-    deleteTalk: (_event, id: Id) => {
-      expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteTalk'));
-      return repo.deleteTalk(id);
     },
     // Reuses the existing full project-backup validator (app/core/deck-bundles,
     // issue #145/#146) instead of re-implementing per-table validation here —

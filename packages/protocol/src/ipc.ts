@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
+import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
 import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
 import type {
   CueCreateInput,
@@ -18,9 +18,6 @@ import type {
   SlideOrderUpdateInput,
   StageCreateInput,
   StageUpdateInput,
-  TalkScriptBlockCreateInput,
-  TalkScriptBlockOrderUpdateInput,
-  TalkScriptBlockUpdateInput,
   ThemeCreateInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
@@ -70,9 +67,9 @@ export interface RpcError {
 //
 // #219 item-model refactor: there is no collection concept, no library
 // concept, and no unified "deck item" concept left on this surface (decisions
-// D1/D3/D4). Presentation/Lyric/Talk are independent entities with per-table
+// D1/D3/D4). Presentation/Lyric are independent entities with per-table
 // reorder ops; `ItemType`/`ItemRef` is the wire vocabulary wherever an
-// operation structurally needs "one of presentation | lyric | talk";
+// operation structurally needs "one of presentation | lyric";
 // playlist groups are gone — a playlist is a flat, ordered row list where a
 // row is either an item entry or a separator (decision D5).
 interface RpcMethodSignatures {
@@ -102,6 +99,9 @@ interface RpcMethodSignatures {
   listTriggerBindings: () => Promise<TriggerBinding[]>;
   createTriggerBinding: (input: TriggerBindingCreateInput) => Promise<SnapshotPatch>;
   deleteTriggerBinding: (id: Id) => Promise<SnapshotPatch>;
+  listPlaybackSchedules: () => Promise<PlaybackSchedule[]>;
+  savePlaybackSchedule: (schedule: PlaybackSchedule) => Promise<SnapshotPatch>;
+  deletePlaybackSchedule: (id: Id) => Promise<SnapshotPatch>;
   createPlaylist: (name: string) => Promise<SnapshotPatch>;
   // Separator CRUD (decision D5): a separator is a plain divider row inside
   // the flat playlist row list — it keeps its own label and color and never
@@ -115,7 +115,7 @@ interface RpcMethodSignatures {
   // by the row's own id, never by a group. `removePlaylistRow` is the
   // explicit successor to today's `movePlaylistEntryToGroup(entryId, null)`
   // ("remove"); it detaches the row from its playlist without touching the
-  // underlying Presentation/Lyric/Talk it may reference.
+  // underlying Presentation/Lyric it may reference.
   movePlaylistRow: (rowId: Id, newOrder: number) => Promise<SnapshotPatch>;
   removePlaylistRow: (rowId: Id) => Promise<SnapshotPatch>;
   // Attach an EXISTING item to a playlist as a new row (successor to
@@ -124,16 +124,11 @@ interface RpcMethodSignatures {
   addItemToPlaylist: (playlistId: Id, itemRef: ItemRef, position?: number) => Promise<SnapshotPatch>;
   createPresentation: (title: string) => Promise<SnapshotPatch>;
   createLyric: (title: string) => Promise<SnapshotPatch>;
-  createTalk: (title: string) => Promise<SnapshotPatch>;
   createSlide: (input: SlideCreateInput) => Promise<SnapshotPatch>;
   duplicateSlide: (slideId: Id) => Promise<SnapshotPatch>;
   deleteSlide: (slideId: Id) => Promise<SnapshotPatch>;
   updateSlideNotes: (input: SlideNotesUpdateInput) => Promise<SnapshotPatch>;
   updateSlideBackground: (input: SlideBackgroundUpdateInput) => Promise<SnapshotPatch>;
-  createTalkScriptBlock: (input: TalkScriptBlockCreateInput) => Promise<SnapshotPatch>;
-  updateTalkScriptBlock: (input: TalkScriptBlockUpdateInput) => Promise<SnapshotPatch>;
-  deleteTalkScriptBlock: (id: Id) => Promise<SnapshotPatch>;
-  setTalkScriptBlockOrder: (input: TalkScriptBlockOrderUpdateInput) => Promise<SnapshotPatch>;
   setSlideOrder: (input: SlideOrderUpdateInput) => Promise<SnapshotPatch>;
   setPlaylistOrder: (playlistId: Id, newOrder: number) => Promise<SnapshotPatch>;
   // Absolute-position list reorders, one per list panel that can be dragged.
@@ -169,13 +164,13 @@ interface RpcMethodSignatures {
   deleteOverlay: (overlayId: Id) => Promise<SnapshotPatch>;
   createTheme: (input: ThemeCreateInput) => Promise<SnapshotPatch>;
   updateTheme: (input: ThemeUpdateInput) => Promise<SnapshotPatch>;
-  // `themeType` selects which of the four per-owner theme tables `themeId`
+  // `themeType` selects which of the three per-owner theme tables `themeId`
   // lives in (decision D2) — theme ids are independent per table, so the
   // table can never be inferred from the id alone.
   deleteTheme: (themeId: Id, themeType: ThemeOwnerType) => Promise<SnapshotPatch>;
   applyThemeToItem: (themeId: Id, itemRef: ItemRef) => Promise<SnapshotPatch>;
   detachThemeFromItem: (itemRef: ItemRef) => Promise<SnapshotPatch>;
-  // `itemType` scopes the sync to one item table (presentation/lyric/talk);
+  // `itemType` scopes the sync to one item table (presentation/lyric);
   // overlay themes have no linked-item concept to sync.
   syncThemeToLinkedItems: (themeId: Id, itemType: ItemType) => Promise<SnapshotPatch>;
   applyThemeToOverlay: (themeId: Id, overlayId: Id) => Promise<SnapshotPatch>;
@@ -188,17 +183,14 @@ interface RpcMethodSignatures {
   renamePlaylist: (id: Id, name: string) => Promise<SnapshotPatch>;
   renamePresentation: (id: Id, title: string) => Promise<SnapshotPatch>;
   renameLyric: (id: Id, title: string) => Promise<SnapshotPatch>;
-  renameTalk: (id: Id, title: string) => Promise<SnapshotPatch>;
-  // Per-type reorder (decision D1): each of the three item tables keeps its
+  // Per-type reorder (decision D1): each of the two item tables keeps its
   // own `order_index` sequence — there is no cross-type "deck order" left to
   // reorder within, so the old `moveDeckItem` splits one-for-one per table.
   movePresentation: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
   moveLyric: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
-  moveTalk: (id: Id, direction: 'up' | 'down') => Promise<SnapshotPatch>;
   deletePlaylist: (id: Id) => Promise<SnapshotPatch>;
   deletePresentation: (id: Id) => Promise<SnapshotPatch>;
   deleteLyric: (id: Id) => Promise<SnapshotPatch>;
-  deleteTalk: (id: Id) => Promise<SnapshotPatch>;
   setNdiOutputEnabled: (name: NdiOutputName, enabled: boolean) => Promise<NdiOutputState>;
   getNdiOutputState: () => Promise<NdiOutputState>;
   getNdiOutputConfigs: () => Promise<NdiOutputConfigMap>;
@@ -368,9 +360,7 @@ export interface ItemCreateResult {
   patch: SnapshotPatch;
 }
 
-// Talks are deliberately excluded (decision D1: there is simply no
-// `duplicateTalk`, matching today's per-type absence rather than a thrown
-// error) — `type` only ever admits the two duplicable item types.
+// Both current item families support whole-item duplication.
 export interface ItemDuplicateInput {
   type: 'presentation' | 'lyric';
   id: Id;
@@ -469,6 +459,9 @@ export const IPC = {
   listTriggerBindings: 'cast:listTriggerBindings',
   createTriggerBinding: 'cast:createTriggerBinding',
   deleteTriggerBinding: 'cast:deleteTriggerBinding',
+  listPlaybackSchedules: 'cast:listPlaybackSchedules',
+  savePlaybackSchedule: 'cast:savePlaybackSchedule',
+  deletePlaybackSchedule: 'cast:deletePlaybackSchedule',
   createPlaylist: 'cast:createPlaylist',
   createSeparator: 'cast:createSeparator',
   renameSeparator: 'cast:renameSeparator',
@@ -479,16 +472,11 @@ export const IPC = {
   addItemToPlaylist: 'cast:addItemToPlaylist',
   createPresentation: 'cast:createPresentation',
   createLyric: 'cast:createLyric',
-  createTalk: 'cast:createTalk',
   createSlide: 'cast:createSlide',
   duplicateSlide: 'cast:duplicateSlide',
   deleteSlide: 'cast:deleteSlide',
   updateSlideNotes: 'cast:updateSlideNotes',
   updateSlideBackground: 'cast:updateSlideBackground',
-  createTalkScriptBlock: 'cast:createTalkScriptBlock',
-  updateTalkScriptBlock: 'cast:updateTalkScriptBlock',
-  deleteTalkScriptBlock: 'cast:deleteTalkScriptBlock',
-  setTalkScriptBlockOrder: 'cast:setTalkScriptBlockOrder',
   setSlideOrder: 'cast:setSlideOrder',
   setPlaylistOrder: 'cast:setPlaylistOrder',
   setOverlayOrder: 'cast:setOverlayOrder',
@@ -527,14 +515,11 @@ export const IPC = {
   renamePlaylist: 'cast:renamePlaylist',
   renamePresentation: 'cast:renamePresentation',
   renameLyric: 'cast:renameLyric',
-  renameTalk: 'cast:renameTalk',
   movePresentation: 'cast:movePresentation',
   moveLyric: 'cast:moveLyric',
-  moveTalk: 'cast:moveTalk',
   deletePlaylist: 'cast:deletePlaylist',
   deletePresentation: 'cast:deletePresentation',
   deleteLyric: 'cast:deleteLyric',
-  deleteTalk: 'cast:deleteTalk',
   getAudioCoverArt: 'cast:getAudioCoverArt',
   setNdiOutputEnabled: 'ndi:setOutputEnabled',
   getNdiOutputState: 'ndi:getOutputState',

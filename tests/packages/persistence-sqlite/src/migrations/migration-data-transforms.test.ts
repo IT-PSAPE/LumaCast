@@ -272,3 +272,214 @@ describe('v26 per-owner-themes — talk theme cloning + provenance remap (#219 D
     }
   });
 });
+
+describe('v32 theme override keys — preserve linked group child overrides', () => {
+  it('backfills geometry and style pins for linked children and nested grandchildren', () => {
+    const db = new SqliteDatabase(':memory:');
+    try {
+      materializeTo(db, 31);
+      db.exec(`
+        INSERT INTO presentation_themes (id, name, width, height, order_index, created_at, updated_at)
+        VALUES ('theme-1', 'Theme', 1920, 1080, 0, '2020-01-01', '2020-01-01');
+        INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at)
+        VALUES ('pres-1', 'Deck', 'theme-1', 0, '2020-01-01', '2020-01-01');
+        INSERT INTO slides
+          (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+        VALUES
+          ('theme-1:slide', NULL, NULL, NULL, 'theme-1', NULL, NULL, NULL, NULL, NULL, 'presentationTheme', 1920, 1080, '', 0, '2020-01-01', '2020-01-01', NULL, 'local'),
+          ('slide-1', 'pres-1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'presentation', 1920, 1080, '', 0, '2020-01-01', '2020-01-01', NULL, 'theme');
+      `);
+
+      const element = (
+        id: string,
+        type: 'text' | 'group',
+        overrides: Record<string, unknown> = {},
+      ) => ({
+        id,
+        slideId: 'theme-1:slide',
+        type,
+        x: 10,
+        y: 20,
+        width: 300,
+        height: 80,
+        rotation: 0,
+        opacity: 1,
+        zIndex: 1,
+        layer: 'content',
+        createdAt: '2020-01-01',
+        updatedAt: '2020-01-01',
+        payload: type === 'text'
+          ? { text: 'Theme copy', fontFamily: 'Arial', fontSize: 40, color: '#fff', alignment: 'left' }
+          : { children: [] },
+        ...overrides,
+      });
+
+      const themeGrandchild = element('theme-grandchild', 'text', { x: 5, payload: { text: 'Theme nested', fontFamily: 'Arial', fontSize: 20, color: '#fff', alignment: 'left' } });
+      const themeNestedGroup = element('theme-nested-group', 'group', { payload: { children: [themeGrandchild] } });
+      const themeChild = element('theme-child', 'text');
+      const themeGroup = element('theme-group', 'group', { payload: { children: [themeChild, themeNestedGroup] } });
+
+      const rowGrandchild = element('row-grandchild', 'text', {
+        slideId: 'slide-1',
+        sourceThemeElementId: 'theme-grandchild',
+        x: 55,
+        payload: { text: 'Authored nested', fontFamily: 'Arial', fontSize: 11, color: '#fff', alignment: 'left' },
+      });
+      const rowNestedGroup = element('row-nested-group', 'group', {
+        slideId: 'slide-1',
+        sourceThemeElementId: 'theme-nested-group',
+        payload: { children: [rowGrandchild] },
+      });
+      const rowChild = element('row-child', 'text', {
+        slideId: 'slide-1',
+        sourceThemeElementId: 'theme-child',
+        x: 220,
+        payload: { text: 'Authored copy', fontFamily: 'Arial', fontSize: 18, color: '#fff', alignment: 'left' },
+      });
+      const rowGroup = element('row-group', 'group', {
+        slideId: 'slide-1',
+        sourceThemeElementId: 'theme-group',
+        payload: { children: [rowChild, rowNestedGroup] },
+      });
+
+      const insertElement = db.prepare(`
+        INSERT INTO slide_elements
+          (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, created_at, updated_at)
+        VALUES (?, ?, 'group', 10, 20, 300, 80, 0, 1, 1, 'content', ?, ?, '2020-01-01', '2020-01-01')
+      `);
+      insertElement.run('theme-group', 'theme-1:slide', JSON.stringify(themeGroup.payload), null);
+      insertElement.run('row-group', 'slide-1', JSON.stringify(rowGroup.payload), 'theme-group');
+
+      applyMigration(db, 32);
+
+      const row = db.prepare("SELECT payload_json, theme_override_keys_json FROM slide_elements WHERE id = 'row-group'").get() as {
+        payload_json: string;
+        theme_override_keys_json: string | null;
+      };
+      const payload = JSON.parse(row.payload_json) as { children: Array<{ id: string; payload: { text?: string; children?: Array<{ payload: { text: string }; themeOverrideKeys?: string[] | null }> }; themeOverrideKeys?: string[] | null }> };
+      expect(row.theme_override_keys_json).toBeNull();
+      expect(payload.children[0]).toMatchObject({
+        id: 'row-child',
+        x: 220,
+        themeOverrideKeys: ['fontSize', 'x'],
+        payload: { text: 'Authored copy', fontSize: 18 },
+      });
+      expect(payload.children[1].payload.children?.[0]).toMatchObject({
+        x: 55,
+        themeOverrideKeys: ['fontSize', 'x'],
+        payload: { text: 'Authored nested', fontSize: 11 },
+      });
+    } finally {
+      db.close();
+    }
+  });
+});
+
+describe('v33 remove-talks — discard retired content without damaging retained rows', () => {
+  it('deletes Talk tables, columns, slides, elements, playlist rows, bindings, and schedules while preserving automation, indexes, and FK integrity', () => {
+    const db = new SqliteDatabase(':memory:');
+    try {
+      materializeTo(db, 32);
+      db.exec(`
+        INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at)
+        VALUES ('pres-1', 'Deck', NULL, 0, '2020-01-01', '2020-01-01');
+        INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at)
+        VALUES ('lyric-1', 'Song', NULL, 0, '2020-01-01', '2020-01-01');
+        INSERT INTO talk_themes (id, name, width, height, order_index, created_at, updated_at)
+        VALUES ('talk-theme-1', 'Legacy Theme', 1920, 1080, 0, '2020-01-01', '2020-01-01');
+        INSERT INTO talks (id, title, theme_id, order_index, created_at, updated_at)
+        VALUES ('talk-1', 'Legacy Talk', 'talk-theme-1', 0, '2020-01-01', '2020-01-01');
+
+        INSERT INTO slides
+          (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+        VALUES
+          ('slide-pres', 'pres-1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'presentation', 1920, 1080, '', 0, '2020-01-01', '2020-01-01', NULL, 'local'),
+          ('slide-lyric', NULL, 'lyric-1', NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'lyric', 1920, 1080, '', 0, '2020-01-01', '2020-01-01', NULL, 'local'),
+          ('slide-talk', NULL, NULL, 'talk-1', NULL, NULL, NULL, NULL, NULL, NULL, 'talk', 1920, 1080, '', 0, '2020-01-01', '2020-01-01', NULL, 'local'),
+          ('slide-talk-theme', NULL, NULL, NULL, NULL, NULL, 'talk-theme-1', NULL, NULL, NULL, 'talkTheme', 1920, 1080, '', 0, '2020-01-01', '2020-01-01', NULL, 'local');
+
+        INSERT INTO slide_elements
+          (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, theme_override_keys_json, created_at, updated_at)
+        VALUES
+          ('element-talk', 'slide-talk', 'text', 0, 0, 100, 50, 0, 1, 0, 'content', '{}', NULL, NULL, '2020-01-01', '2020-01-01'),
+          ('element-talk-theme', 'slide-talk-theme', 'text', 0, 0, 100, 50, 0, 1, 0, 'content', '{}', NULL, NULL, '2020-01-01', '2020-01-01'),
+          ('element-pres', 'slide-pres', 'text', 0, 0, 100, 50, 0, 1, 0, 'content', '{}', 'element-talk-theme', '["x"]', '2020-01-01', '2020-01-01');
+        INSERT INTO talk_script_blocks (id, slide_id, text, order_index, created_at, updated_at)
+        VALUES ('block-1', 'slide-talk', 'Legacy script', 0, '2020-01-01', '2020-01-01');
+
+        INSERT INTO playlists (id, name, order_index, created_at, updated_at)
+        VALUES ('playlist-1', 'Service', 0, '2020-01-01', '2020-01-01');
+        INSERT INTO playlist_entries
+          (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at)
+        VALUES
+          ('entry-pres', 'playlist-1', 'item', 'pres-1', NULL, NULL, NULL, NULL, 0, '2020-01-01', '2020-01-01'),
+          ('entry-talk', 'playlist-1', 'item', NULL, NULL, 'talk-1', NULL, NULL, 1, '2020-01-01', '2020-01-01'),
+          ('separator', 'playlist-1', 'separator', NULL, NULL, NULL, 'Middle', NULL, 2, '2020-01-01', '2020-01-01'),
+          ('entry-lyric', 'playlist-1', 'item', NULL, 'lyric-1', NULL, NULL, NULL, 3, '2020-01-01', '2020-01-01');
+
+        INSERT INTO playback_schedules
+          (id, item_ref_json, enabled, kind, steps_json, audio_asset_id, markers_json, created_at, updated_at)
+        VALUES
+          ('schedule-keep', '{"type":"presentation","id":"pres-1"}', 1, 'slide-timing', '[{"slideId":"slide-pres","durationMs":1000}]', NULL, NULL, '2020-01-01', '2020-01-01'),
+          ('schedule-talk-ref', '{"type":"talk","id":"talk-1"}', 1, 'slide-timing', '[]', NULL, NULL, '2020-01-01', '2020-01-01'),
+          ('schedule-talk-step', '{"type":"presentation","id":"pres-1"}', 1, 'slide-timing', '[{"slideId":"slide-talk","durationMs":1000}]', NULL, NULL, '2020-01-01', '2020-01-01'),
+          ('schedule-talk-marker', '{"type":"lyric","id":"lyric-1"}', 1, 'audio-sync', NULL, 'audio-1', '[{"id":"marker-1","timeMs":0,"slideId":"slide-talk"}]', '2020-01-01', '2020-01-01');
+
+        INSERT INTO cues (id, kind, payload_json, failure_policy, created_at, updated_at)
+        VALUES ('cue-keep', 'overlay.clearAll', '{}', 'continue', '2020-01-01', '2020-01-01');
+        INSERT INTO actions
+          (id, name, description, scope_level, on_scope_exit, loop_enabled, loop_count, order_index, created_at, updated_at)
+        VALUES ('macro-keep', 'Keep', '', 'global', 'cancel', 0, NULL, 0, '2020-01-01', '2020-01-01');
+        INSERT INTO trigger_bindings
+          (id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at)
+        VALUES
+          ('binding-keep-slide', 'slide.take', 'slide-pres', 'cue', 'cue-keep', '{}', 1, '2020-01-01', '2020-01-01'),
+          ('binding-keep-global', 'app.startup', NULL, 'macro', 'macro-keep', '{}', 1, '2020-01-01', '2020-01-01'),
+          ('binding-talk-slide', 'slide.take', 'slide-talk', 'cue', 'cue-keep', '{}', 1, '2020-01-01', '2020-01-01'),
+          ('binding-talk-theme-slide', 'slide.take', 'slide-talk-theme', 'macro', 'macro-keep', '{}', 1, '2020-01-01', '2020-01-01');
+      `);
+
+      applyMigration(db, 33);
+
+      expect(db.pragma('user_version', { simple: true })).toBe(33);
+      for (const table of ['talks', 'talk_themes', 'talk_script_blocks']) {
+        expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)).toBeUndefined();
+      }
+      const slideColumns = (db.pragma('table_info(slides)') as Array<{ name: string }>).map((column) => column.name);
+      expect(slideColumns).not.toContain('talk_id');
+      expect(slideColumns).not.toContain('talk_theme_id');
+      const playlistColumns = (db.pragma('table_info(playlist_entries)') as Array<{ name: string }>).map((column) => column.name);
+      expect(playlistColumns).not.toContain('talk_id');
+
+      expect(db.prepare('SELECT id FROM slides ORDER BY id').all()).toEqual([{ id: 'slide-lyric' }, { id: 'slide-pres' }]);
+      expect(db.prepare('SELECT id FROM slide_elements ORDER BY id').all()).toEqual([{ id: 'element-pres' }]);
+      expect(db.prepare("SELECT source_theme_element_id, theme_override_keys_json FROM slide_elements WHERE id = 'element-pres'").get()).toEqual({
+        source_theme_element_id: null,
+        theme_override_keys_json: null,
+      });
+      expect(db.prepare('SELECT id, order_index FROM playlist_entries ORDER BY order_index').all()).toEqual([
+        { id: 'entry-pres', order_index: 0 },
+        { id: 'separator', order_index: 1 },
+        { id: 'entry-lyric', order_index: 2 },
+      ]);
+      expect(db.prepare('SELECT id FROM playback_schedules ORDER BY id').all()).toEqual([{ id: 'schedule-keep' }]);
+      expect(db.prepare('SELECT id FROM trigger_bindings ORDER BY id').all()).toEqual([
+        { id: 'binding-keep-global' },
+        { id: 'binding-keep-slide' },
+      ]);
+      expect(db.prepare('SELECT id FROM cues').all()).toEqual([{ id: 'cue-keep' }]);
+      expect(db.prepare('SELECT id FROM actions').all()).toEqual([{ id: 'macro-keep' }]);
+      expect(db.pragma('foreign_key_check')).toEqual([]);
+
+      const indexColumns = (name: string) => (db.pragma(`index_info(${name})`) as Array<{ name: string }>).map((column) => column.name);
+      expect(indexColumns('idx_slides_presentation_id_order_index')).toEqual(['presentation_id', 'order_index']);
+      expect(indexColumns('idx_slides_lyric_id_order_index')).toEqual(['lyric_id', 'order_index']);
+      expect(indexColumns('idx_playlist_entries_playlist_id_order_index')).toEqual(['playlist_id', 'order_index']);
+      expect(indexColumns('idx_slide_elements_slide_id_layer_z_index_created_at')).toEqual(['slide_id', 'layer', 'z_index', 'created_at']);
+      expect(indexColumns('idx_trigger_bindings_trigger_type_source_id')).toEqual(['trigger_type', 'source_id']);
+      expect(indexColumns('idx_trigger_bindings_target')).toEqual(['target_type', 'target_id']);
+    } finally {
+      db.close();
+    }
+  });
+});

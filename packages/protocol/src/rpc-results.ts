@@ -4,22 +4,19 @@ import type {
   ThemeOwnerType,
   Presentation,
   Lyric,
-  Talk,
   Slide,
-  TalkScriptBlock,
   SlideElement,
   MediaAsset,
   OverlayType,
   Overlay,
   PresentationTheme,
   LyricTheme,
-  TalkTheme,
   OverlayTheme,
   Stage,
   Playlist,
   PlaylistRow,
 } from '@lumacast/composition';
-import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
+import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
 import type { BundleMediaReference } from './deck-bundle-manifest';
 
 // ---------------------------------------------------------------------------
@@ -50,7 +47,7 @@ import type { BundleMediaReference } from './deck-bundle-manifest';
  *
  * #219 item-model refactor decisions D3/D4/D2/D5: `libraries`,
  * `libraryBundles`, and `collections` are gone (no library or collection
- * concept survives anywhere on the wire); `themes` splits into four
+ * concept survives anywhere on the wire); `themes` splits into three
  * per-owner arrays; playlists ship as flat, ordinary tables
  * (`playlists`/`playlistEntries`) instead of a derived tree — any tree the
  * renderer needs is derived client-side, not carried on the wire.
@@ -58,15 +55,12 @@ import type { BundleMediaReference } from './deck-bundle-manifest';
 export interface AppSnapshot {
   presentations: Presentation[];
   lyrics: Lyric[];
-  talks: Talk[];
   slides: Slide[];
-  talkScriptBlocks: TalkScriptBlock[];
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
   presentationThemes: PresentationTheme[];
   lyricThemes: LyricTheme[];
-  talkThemes: TalkTheme[];
   overlayThemes: OverlayTheme[];
   stages: Stage[];
   playlists: Playlist[];
@@ -74,6 +68,7 @@ export interface AppSnapshot {
   cues: Cue[];
   macros: Macro[];
   triggerBindings: TriggerBinding[];
+  playbackSchedules?: PlaybackSchedule[];
 }
 
 export interface BundleInspectionItem {

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createDefaultThemeElements } from '@lumacast/composition';
+import { createDefaultThemeElements, getSlideItemRef, preserveThemeLocalRemovals, resolveLinkedSlideElements, stampExplicitOverrides } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, ItemType, Overlay, SlideBackground, SlideElement, Stage, ThemeOwnerType, GroupElementPayload } from '@lumacast/composition';
 import type { EditorThemeSource } from '@lumacast/canvas';
@@ -11,10 +11,10 @@ import { createId } from '../../utils/create-id';
 import { useStagedCollection } from '../../hooks/use-staged-collection';
 import { buildSnapshotDiff } from '../element/element-history-utils';
 import { useCast } from '../app-context';
-import { useProjectContent } from '../use-project-content';
+import { ThemeDraftProjectionContext, useProjectContent, type ThemeDraftOverride, type ThemeDraftProjection } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
 
-const THEME_OWNER_TYPES: readonly ThemeOwnerType[] = ['presentation', 'lyric', 'talk', 'overlay'];
+const THEME_OWNER_TYPES: readonly ThemeOwnerType[] = ['presentation', 'lyric', 'overlay'];
 
 function generateDeterministicCopyName(baseName: string, existingNames: Set<string>): string {
   let candidate = `${baseName} Copy`;
@@ -29,7 +29,7 @@ function generateDeterministicCopyName(baseName: string, existingNames: Set<stri
 // ─── Types ──────────────────────────────────────────────────────────
 
 // #219 item-model refactor decision D2: `applyThemeToItem` takes an `ItemRef`
-// (the item's own type already says which of the three item theme tables is
+// (the item's own type already says which item theme table is
 // legal — no separate `themeType` field needed on the target itself).
 export type ThemeApplyTarget =
   | { type: 'item'; itemRef: ItemRef }
@@ -46,7 +46,7 @@ export interface ThemeEditorValue {
   themeType: ThemeOwnerType;
   setThemeType: (themeType: ThemeOwnerType) => void;
   themes: EditorThemeSource[];
-  /** Every family's themes, for consumers that render all four families at once. */
+  /** Every family's themes, for consumers that render all families at once. */
   themesByType: Record<ThemeOwnerType, EditorThemeSource[]>;
   currentThemeId: Id | null;
   currentTheme: EditorThemeSource | null;
@@ -61,6 +61,10 @@ export interface ThemeEditorValue {
   applyThemeToTarget: (themeId: Id, target: ThemeApplyTarget) => Promise<void>;
   resolveThemeIdForMutation: (themeId: Id) => Promise<Id>;
   detachThemeFromItem: (itemRef: ItemRef) => Promise<void>;
+  /**
+   * @deprecated Manual sync is unnecessary — linked slides resolve the
+   * current theme live at read time. Kept for RPC compat only.
+   */
   syncLinkedItems: (themeId: Id, itemType: ItemType) => Promise<void>;
   deleteTheme: (themeId: Id) => void;
   duplicateTheme: (themeId: Id) => void;
@@ -168,13 +172,11 @@ const StageEditorContext = createContext<StageEditorValue | null>(null);
 function pickThemeArray(snapshot: AppSnapshot, themeType: ThemeOwnerType): EditorThemeSource[] {
   if (themeType === 'presentation') return snapshot.presentationThemes;
   if (themeType === 'lyric') return snapshot.lyricThemes;
-  if (themeType === 'talk') return snapshot.talkThemes;
   return snapshot.overlayThemes;
 }
 
 function defaultThemeName(themeType: ThemeOwnerType): string {
   if (themeType === 'lyric') return 'New Lyric Theme';
-  if (themeType === 'talk') return 'New Talk Theme';
   if (themeType === 'overlay') return 'New Overlay Theme';
   return 'New Presentation Theme';
 }
@@ -410,10 +412,12 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     overlays: persistedOverlays,
     presentationThemes: persistedPresentationThemes,
     lyricThemes: persistedLyricThemes,
-    talkThemes: persistedTalkThemes,
     overlayThemes: persistedOverlayThemes,
     stages: persistedStages,
     slideElementsBySlideId,
+    slides: projectSlides,
+    presentationsById,
+    lyricsById,
   } = useProjectContent();
 
   // ── Overlay editor ──
@@ -595,7 +599,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   const [themeType, setThemeType] = useState<ThemeOwnerType>('presentation');
   const [themeNameFocusRequest, setThemeNameFocusRequest] = useState(0);
   // Maps temporary (client-generated) theme IDs to their persisted IDs after push,
-  // shared across all four families since ids are unique across them in practice.
+  // shared across all families since ids are unique across them in practice.
   const tempToPersistedIdMapRef = useRef(new Map<Id, Id>());
   // Holds in-flight apply operations keyed by target+theme so a duplicate
   // invocation awaits the same promise instead of starting a second mutation.
@@ -603,15 +607,13 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
 
   const presentationThemeFamily = useThemeFamily('presentation', persistedPresentationThemes, workbenchMode, mutatePatch, setStatusText, tempToPersistedIdMapRef);
   const lyricThemeFamily = useThemeFamily('lyric', persistedLyricThemes, workbenchMode, mutatePatch, setStatusText, tempToPersistedIdMapRef);
-  const talkThemeFamily = useThemeFamily('talk', persistedTalkThemes, workbenchMode, mutatePatch, setStatusText, tempToPersistedIdMapRef);
   const overlayThemeFamily = useThemeFamily('overlay', persistedOverlayThemes, workbenchMode, mutatePatch, setStatusText, tempToPersistedIdMapRef);
 
   const pickFamily = useCallback((type: ThemeOwnerType): ThemeFamilyState => {
     if (type === 'presentation') return presentationThemeFamily;
     if (type === 'lyric') return lyricThemeFamily;
-    if (type === 'talk') return talkThemeFamily;
     return overlayThemeFamily;
-  }, [lyricThemeFamily, overlayThemeFamily, presentationThemeFamily, talkThemeFamily]);
+  }, [lyricThemeFamily, overlayThemeFamily, presentationThemeFamily]);
 
   const activeFamily = pickFamily(themeType);
 
@@ -632,7 +634,7 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
 
   // Finds which family currently knows about `themeId` — either as an
   // already-persisted row or as a staged (unsaved) draft — without requiring
-  // the caller to say which of the four independent theme tables it lives
+  // the caller to say which independent theme table it lives
   // in. Callers outside the theme editor (navigation's create-item flow, the
   // per-item inspector) only ever hold a bare theme id.
   const findFamilyForThemeId = useCallback((themeId: Id): ThemeFamilyState | null => {
@@ -682,10 +684,26 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     }
   }, [mutatePatch, resolveThemeIdForMutation, setStatusText]);
 
+  // Staged-overlaid theme lookup for one item: staged drafts first (what the
+  // user currently sees), then the persisted family row.
+  const themeForItem = useCallback((itemRef: ItemRef, themeId: Id): EditorThemeSource | null => {
+    const themes = itemRef.type === 'presentation'
+      ? presentationThemeFamily.themes
+      : lyricThemeFamily.themes;
+    return themes.find((theme) => theme.id === themeId) ?? null;
+  }, [lyricThemeFamily.themes, presentationThemeFamily.themes]);
+
+  const pushDeckChangesRef = useRef<() => Promise<void>>(async () => {});
   const detachThemeFromItem = useCallback(async (itemRef: ItemRef) => {
+    const item = itemRef.type === 'presentation'
+      ? presentationsById.get(itemRef.id)
+      : lyricsById.get(itemRef.id);
+    if (item?.themeId) await resolveThemeIdForMutation(item.themeId);
+    await pushDeckChangesRef.current();
+    // The repository materializes the current appearance and removes the link atomically.
     await mutatePatch(() => window.castApi.detachThemeFromItem(itemRef));
     setStatusText('Detached theme from item');
-  }, [mutatePatch, setStatusText]);
+  }, [lyricsById, mutatePatch, presentationsById, resolveThemeIdForMutation, setStatusText]);
 
   const syncLinkedItems = useCallback(async (themeId: Id, itemType: ItemType) => {
     const resolvedId = await resolveThemeIdForMutation(themeId);
@@ -729,9 +747,8 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
   const themesByType = useMemo<Record<ThemeOwnerType, EditorThemeSource[]>>(() => ({
     presentation: presentationThemeFamily.themes,
     lyric: lyricThemeFamily.themes,
-    talk: talkThemeFamily.themes,
     overlay: overlayThemeFamily.themes,
-  }), [lyricThemeFamily.themes, overlayThemeFamily.themes, presentationThemeFamily.themes, talkThemeFamily.themes]);
+  }), [lyricThemeFamily.themes, overlayThemeFamily.themes, presentationThemeFamily.themes]);
 
   const themeValue = useMemo<ThemeEditorValue>(() => ({
     themeType,
@@ -977,13 +994,34 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     return false;
   }, [persistedElementsBySlideId, stagedSlides]);
 
+  const slideTheme = useCallback((slideId: Id) => {
+    const slide = projectSlides.find((candidate) => candidate.id === slideId);
+    const ref = slide ? getSlideItemRef(slide) : null;
+    if (!ref) return null;
+    const owner = ref.type === 'presentation' ? presentationsById.get(ref.id)
+      : lyricsById.get(ref.id);
+    return owner?.themeId ? themeForItem(ref, owner.themeId) : null;
+  }, [lyricsById, presentationsById, projectSlides, themeForItem]);
+  const resolvedEditorCache = useRef(new Map<Id, { input: SlideElement[]; theme: EditorThemeSource; output: SlideElement[] }>());
   const getSlideElements = useCallback((slideId: Id) => {
-    return stagedSlides[slideId] ?? persistedElementsBySlideId.get(slideId) ?? [];
-  }, [persistedElementsBySlideId, stagedSlides]);
+    const input = stagedSlides[slideId] ?? persistedElementsBySlideId.get(slideId) ?? [];
+    const theme = slideTheme(slideId);
+    if (!theme) return input;
+    const cached = resolvedEditorCache.current.get(slideId);
+    if (cached?.input === input && cached.theme === theme) return cached.output;
+    const output = resolveLinkedSlideElements(theme, slideId, input);
+    resolvedEditorCache.current.set(slideId, { input, theme, output });
+    return output;
+  }, [persistedElementsBySlideId, slideTheme, stagedSlides]);
 
   const replaceSlideElements = useCallback((slideId: Id, elements: SlideElement[]) => {
-    setStagedSlides((current) => ({ ...current, [slideId]: cloneElements(elements) }));
-  }, []);
+    const cloned = cloneElements(elements);
+    const theme = slideTheme(slideId);
+    const previous = getSlideElements(slideId);
+    const staged = theme ? stampExplicitOverrides(theme,
+      preserveThemeLocalRemovals(theme.elements, previous, cloned), previous) : cloned;
+    setStagedSlides((current) => ({ ...current, [slideId]: staged }));
+  }, [getSlideElements, slideTheme]);
 
   useEffect(() => {
     setStagedSlides((current) => {
@@ -995,8 +1033,9 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     });
   }, [persistedElementsBySlideId]);
 
+  const deckPushPromiseRef = useRef<Promise<void> | null>(null);
   const pushDeckChanges = useCallback(async () => {
-    if (isDeckPushingChanges) return;
+    if (deckPushPromiseRef.current) return deckPushPromiseRef.current;
     const pendingSlideIds = Object.keys(stagedSlides).filter((slideId) => {
       if (!persistedElementsBySlideId.has(slideId)) return false;
       const persisted = persistedElementsBySlideId.get(slideId) ?? [];
@@ -1005,38 +1044,47 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     });
     if (pendingSlideIds.length === 0) { setStagedSlides({}); return; }
 
-    setIsDeckPushingChanges(true);
-    try {
-      // Each mutatePatch call applies its patch before the next runs,
-      // keeping the renderer snapshot in sync across the sequence.
-      for (const slideId of pendingSlideIds) {
-        const persisted = persistedElementsBySlideId.get(slideId) ?? [];
-        const staged = stagedSlides[slideId] ?? [];
-        const diff = buildSnapshotDiff(persisted, staged);
-        if (diff.deletes.length > 0) {
-          await mutatePatch(() => window.castApi.deleteElementsBatch(diff.deletes));
+    const run = (async () => {
+      setIsDeckPushingChanges(true);
+      try {
+        // Each mutatePatch call applies its patch before the next runs,
+        // keeping the renderer snapshot in sync across the sequence.
+        for (const slideId of pendingSlideIds) {
+          const persisted = persistedElementsBySlideId.get(slideId) ?? [];
+          const staged = stagedSlides[slideId] ?? [];
+          const diff = buildSnapshotDiff(persisted, staged);
+          if (diff.deletes.length > 0) {
+            await mutatePatch(() => window.castApi.deleteElementsBatch(diff.deletes));
+          }
+          if (diff.updates.length > 0) {
+            await mutatePatch(() =>
+              diff.updates.length === 1
+                ? window.castApi.updateElement(diff.updates[0])
+                : window.castApi.updateElementsBatch(diff.updates),
+            );
+          }
+          if (diff.creates.length > 0) {
+            await mutatePatch(() =>
+              diff.creates.length === 1
+                ? window.castApi.createElement(diff.creates[0])
+                : window.castApi.createElementsBatch(diff.creates),
+            );
+          }
         }
-        if (diff.updates.length > 0) {
-          await mutatePatch(() =>
-            diff.updates.length === 1
-              ? window.castApi.updateElement(diff.updates[0])
-              : window.castApi.updateElementsBatch(diff.updates),
-          );
-        }
-        if (diff.creates.length > 0) {
-          await mutatePatch(() =>
-            diff.creates.length === 1
-              ? window.castApi.createElement(diff.creates[0])
-              : window.castApi.createElementsBatch(diff.creates),
-          );
-        }
+        setStagedSlides((current) => {
+          const next = { ...current };
+          for (const id of pendingSlideIds) if (next[id] === stagedSlides[id]) delete next[id];
+          return next;
+        });
+        setStatusText('Slide changes pushed');
+      } finally {
+        setIsDeckPushingChanges(false);
       }
-      setStagedSlides({});
-      setStatusText('Slide changes pushed');
-    } finally {
-      setIsDeckPushingChanges(false);
-    }
-  }, [isDeckPushingChanges, mutatePatch, persistedElementsBySlideId, setStatusText, stagedSlides]);
+    })();
+    deckPushPromiseRef.current = run;
+    try { await run; } finally { deckPushPromiseRef.current = null; }
+  }, [mutatePatch, persistedElementsBySlideId, setStatusText, stagedSlides]);
+  pushDeckChangesRef.current = pushDeckChanges;
 
   useEffect(() => {
     const previousMode = previousDeckModeRef.current;
@@ -1055,6 +1103,24 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
     pushChanges: pushDeckChanges,
   }), [getSlideElements, deckHasPendingChanges, isDeckPushingChanges, pushDeckChanges, replaceSlideElements]);
 
+  // ── Theme draft projection (live linked slides) ──
+  //
+  // Publishes staged theme drafts for the projection port in
+  // use-project-content: linked slides resolve drafts immediately instead of
+  // waiting for the leave/push persist. Null per family when that family has
+  // no staged buffer, so the memo below (and every downstream consumer)
+  // keeps its references when nothing is being edited.
+
+  const themeDraftProjection = useMemo<ThemeDraftProjection>(() => ({
+    presentation: toDraftOverrideMap(presentationThemeFamily.stagedThemes),
+    lyric: toDraftOverrideMap(lyricThemeFamily.stagedThemes),
+    overlay: toDraftOverrideMap(overlayThemeFamily.stagedThemes),
+  }), [
+    lyricThemeFamily.stagedThemes,
+    overlayThemeFamily.stagedThemes,
+    presentationThemeFamily.stagedThemes,
+  ]);
+
   // ── Combined value ──
 
   return (
@@ -1062,7 +1128,9 @@ export function AssetEditorProvider({ children }: { children: ReactNode }) {
       <ThemeEditorContext.Provider value={themeValue}>
         <DeckEditorContext.Provider value={deckValue}>
           <StageEditorContext.Provider value={stageValue}>
-            {children}
+            <ThemeDraftProjectionContext.Provider value={themeDraftProjection}>
+              {children}
+            </ThemeDraftProjectionContext.Provider>
           </StageEditorContext.Provider>
         </DeckEditorContext.Provider>
       </ThemeEditorContext.Provider>
@@ -1105,6 +1173,15 @@ export function useStageEditor(): StageEditorValue {
 }
 
 // ─── Utils ──────────────────────────────────────────────────────────
+
+function toDraftOverrideMap(staged: EditorThemeSource[] | null): ReadonlyMap<Id, ThemeDraftOverride> | null {
+  if (!staged) return null;
+  const map = new Map<Id, ThemeDraftOverride>();
+  for (const theme of staged) {
+    map.set(theme.id, { id: theme.id, elements: theme.elements, background: theme.background, updatedAt: theme.updatedAt });
+  }
+  return map;
+}
 
 function toOverlayCreateInput(overlay: Overlay): OverlayCreateInput {
   return { name: overlay.name, elements: cloneElements(overlay.elements), animation: overlay.animation };

@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
-import { getSlideItemRef } from '@lumacast/composition';
+import { getPlaylistEntryItemRef, getSlideItemRef } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, Slide, SlideBackground, SlideElement, TalkScriptBlock } from '@lumacast/composition';
+import type { ItemRef, Slide, SlideBackground, SlideElement } from '@lumacast/composition';
 import type { AppSnapshot, NdiTakeReason } from '@lumacast/protocol';
 import { clamp, sortSlides } from '../utils/slides';
 import { itemRefsEqual } from '../utils/navigation-context-utils';
@@ -16,10 +16,7 @@ import { dispatchAutomationTriggerEvent } from '../features/automation/automatio
 // entry ids (preserved across the migration) for the playlist/live cases;
 // the detached-browser case, which previously keyed on the bare merged
 // deck-item id, now keys on `itemRefKey(currentItemRef)` — there is no
-// merged id space to rely on any more. "Is this a talk" gating reads
-// `ItemRef.type` directly: Presentation/Lyric/Talk carry no `type` field of
-// their own (wave A decision), so the discriminant only ever lives on the
-// reference, never on the resolved entity.
+// merged id space to rely on any more.
 
 interface SlideContextValue {
   slides: Slide[];
@@ -30,8 +27,6 @@ interface SlideContextValue {
   liveElements: SlideElement[];
   nextLiveSlide: Slide | null;
   nextLiveElements: SlideElement[];
-  liveTalkScriptBlock: TalkScriptBlock | null;
-  liveTalkScriptProgress: string | null;
   slideElementsById: Map<Id, SlideElement[]>;
   isOutputArmedOnCurrent: boolean;
   setCurrentSlideIndex: (idx: number) => void;
@@ -43,8 +38,7 @@ interface SlideContextValue {
   goPrev: () => void;
   selectPlaylistEntry: (entryId: Id) => void;
   selectPlaylistItem: (itemRef: ItemRef) => void;
-  focusPlaylistEntrySlide: (entryId: Id, itemRef: ItemRef, index: number) => void;
-  activatePlaylistEntrySlide: (entryId: Id, itemRef: ItemRef, index: number) => void;
+  activateScheduledSlide: (itemRef: ItemRef, slideId: Id) => void;
   createSlide: () => Promise<void>;
   duplicateSlide: (slideId: Id) => Promise<void>;
   deleteSlide: (slideId: Id) => Promise<void>;
@@ -97,19 +91,20 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     currentItemRef,
     currentPlaylistEntryId,
     currentPlaylistItemRef,
+    currentPlaylistRows,
     currentOutputPlaylistEntryId,
     currentOutputItemRef,
     isDetachedDeckBrowser,
     armOutputPlaylistEntry,
+    armOutputItem,
     selectPlaylistEntry: selectPlaylistEntryInNavigation,
     selectPlaylistItem: selectPlaylistItemInNavigation,
   } = useNavigation();
-  const { slidesForItemRef, slideElementsBySlideId, talkScriptBlocksBySlideId } = useProjectContent();
+  const { slidesForItemRef, liveSlideElementsBySlideId } = useProjectContent();
 
   const playlistSelection = useIndexedSelection();
   const drawerSelection = useIndexedSelection();
   const liveSelection = useIndexedSelection();
-  const talkScriptSelection = useIndexedSelection();
 
   const slides = useMemo(() => slidesForItemRef(currentItemRef), [currentItemRef, slidesForItemRef]);
   const outputSlides = useMemo(() => slidesForItemRef(currentOutputItemRef), [currentOutputItemRef, slidesForItemRef]);
@@ -142,49 +137,26 @@ export function SlideProvider({ children }: { children: ReactNode }) {
   const liveSlide = outputSlides[liveSlideIndex] ?? null;
   const nextLiveSlide = liveSlideIndex >= 0 ? outputSlides[liveSlideIndex + 1] ?? null : null;
 
+  // Live inherited themes: output reads the resolved elements (current theme
+  // styling with local overrides and authored content preserved), not the raw
+  // persisted rows.
   const liveElements = useMemo(() => {
     if (!liveSlide) return [];
-    return slideElementsBySlideId.get(liveSlide.id) ?? [];
-  }, [liveSlide, slideElementsBySlideId]);
+    return liveSlideElementsBySlideId.get(liveSlide.id) ?? [];
+  }, [liveSlide, liveSlideElementsBySlideId]);
 
   const nextLiveElements = useMemo(() => {
     if (!nextLiveSlide) return [];
-    return slideElementsBySlideId.get(nextLiveSlide.id) ?? [];
-  }, [nextLiveSlide, slideElementsBySlideId]);
-
-  const liveTalkScriptBlocks = useMemo(() => (
-    liveSlide ? talkScriptBlocksBySlideId.get(liveSlide.id) ?? [] : []
-  ), [liveSlide, talkScriptBlocksBySlideId]);
-
-  const liveTalkScriptBlockIndex = useMemo(() => {
-    if (!liveSlide || liveTalkScriptBlocks.length === 0) return NO_SLIDE_SELECTED;
-    return resolveSlideIndex(liveSlide.id, talkScriptSelection.indices, liveTalkScriptBlocks.length);
-  }, [liveSlide, liveTalkScriptBlocks.length, talkScriptSelection.indices]);
-
-  const liveTalkScriptBlock = currentOutputItemRef?.type === 'talk' && liveTalkScriptBlockIndex >= 0
-    ? liveTalkScriptBlocks[liveTalkScriptBlockIndex] ?? null
-    : null;
-  const liveTalkScriptProgress = liveTalkScriptBlock
-    ? `${liveTalkScriptBlockIndex + 1} / ${liveTalkScriptBlocks.length}`
-    : null;
-
-  const setLiveTalkScriptIndexForSlide = useCallback((slide: Slide | null, mode: 'first' | 'last' = 'first') => {
-    if (!slide) return;
-    const blocks = talkScriptBlocksBySlideId.get(slide.id) ?? [];
-    if (blocks.length === 0) {
-      talkScriptSelection.update(slide.id, NO_SLIDE_SELECTED);
-      return;
-    }
-    talkScriptSelection.update(slide.id, mode === 'last' ? blocks.length - 1 : 0);
-  }, [talkScriptBlocksBySlideId, talkScriptSelection]);
+    return liveSlideElementsBySlideId.get(nextLiveSlide.id) ?? [];
+  }, [nextLiveSlide, liveSlideElementsBySlideId]);
 
   const slideElementsById = useMemo(() => {
     const bySlide = new Map<Id, SlideElement[]>();
     for (const slide of slides) {
-      bySlide.set(slide.id, slideElementsBySlideId.get(slide.id) ?? []);
+      bySlide.set(slide.id, liveSlideElementsBySlideId.get(slide.id) ?? []);
     }
     return bySlide;
-  }, [slideElementsBySlideId, slides]);
+  }, [liveSlideElementsBySlideId, slides]);
 
   const updateVisibleSelectedSlideIndex = useCallback((selectionKey: Id, nextIndex: number) => {
     if (isDetachedDeckBrowser) {
@@ -194,17 +166,9 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     playlistSelection.update(selectionKey, nextIndex);
   }, [isDetachedDeckBrowser, drawerSelection, playlistSelection]);
 
-  const activatePlaylistEntry = useCallback((entryId: Id, nextIndex: number | null) => {
-    selectPlaylistEntryInNavigation(entryId);
-    if (nextIndex !== null) {
-      liveSelection.update(entryId, nextIndex);
-    }
-    armOutputPlaylistEntry(entryId);
-  }, [armOutputPlaylistEntry, selectPlaylistEntryInNavigation, liveSelection.update]);
-
   // Focus only — Program state is independent of which entry the operator is
   // currently inspecting. Arming happens through explicit actions (activate,
-  // take, activatePlaylistEntrySlide, armCurrentPlaylistSelection).
+  // take and armCurrentPlaylistSelection).
   const selectPlaylistEntry = useCallback((entryId: Id) => {
     selectPlaylistEntryInNavigation(entryId);
   }, [selectPlaylistEntryInNavigation]);
@@ -252,7 +216,6 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     updateVisibleSelectedSlideIndex(selectionKey, nextIndex);
     if (!canDriveOutput || !currentPlaylistEntryId) return;
     liveSelection.update(currentPlaylistEntryId, nextIndex);
-    setLiveTalkScriptIndexForSlide(slides[nextIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
     const activatedSlideId = slides[nextIndex]?.id;
     if (activatedSlideId) {
@@ -282,7 +245,6 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     isDetachedDeckBrowser,
     liveSlideIndex,
     setStatusText,
-    setLiveTalkScriptIndexForSlide,
     slides.length,
     slides,
     liveSelection.update,
@@ -292,7 +254,6 @@ export function SlideProvider({ children }: { children: ReactNode }) {
   const takeSlide = useCallback(() => {
     if (!canDriveOutput || !currentPlaylistEntryId || slides.length === 0 || currentSlideIndex < 0) return;
     liveSelection.update(currentPlaylistEntryId, currentSlideIndex);
-    setLiveTalkScriptIndexForSlide(slides[currentSlideIndex] ?? null, 'first');
     armOutputPlaylistEntry(currentPlaylistEntryId);
     const takenSlideId = slides[currentSlideIndex]?.id;
     if (takenSlideId) {
@@ -323,7 +284,6 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     currentOutputPlaylistEntryId,
     liveSlideIndex,
     setStatusText,
-    setLiveTalkScriptIndexForSlide,
     slides.length,
     slides,
     liveSelection.update,
@@ -335,7 +295,6 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     const nextIndex = resolveSlideIndex(currentPlaylistEntryId, playlistSelection.indices, contentSlides.length);
     if (contentSlides.length > 0) {
       liveSelection.update(currentPlaylistEntryId, nextIndex);
-      setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
       const activatedSlideId = contentSlides[nextIndex]?.id;
       if (activatedSlideId) {
         noteOutputTakeIntent({
@@ -363,59 +322,19 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     currentPlaylistEntryId,
     liveSlideIndex,
     playlistSelection.indices,
-    setLiveTalkScriptIndexForSlide,
     slidesForItemRef,
     liveSelection.update,
   ]);
 
   const goNext = useCallback(() => {
     if (slides.length === 0) return;
-    if (
-      canDriveOutput
-      && currentItemRef?.type === 'talk'
-      && currentSlideIndex === liveSlideIndex
-      && currentSlide
-    ) {
-      const blocks = talkScriptBlocksBySlideId.get(currentSlide.id) ?? [];
-      const currentBlockIndex = resolveSlideIndex(currentSlide.id, talkScriptSelection.indices, blocks.length);
-      if (blocks.length > 0 && currentBlockIndex >= 0 && currentBlockIndex < blocks.length - 1) {
-        talkScriptSelection.update(currentSlide.id, currentBlockIndex + 1);
-        setStatusText(`Script block ${currentBlockIndex + 2}/${blocks.length}`);
-        return;
-      }
-      // End of the last block on the last slide — stop. Without this,
-      // activateSlide clamps back to this slide and resets the script
-      // index to 0, which looks like the script blocks are cycling.
-      if (currentSlideIndex >= slides.length - 1) return;
-    }
     activateSlide(currentSlideIndex + 1);
-  }, [activateSlide, canDriveOutput, currentItemRef, currentSlide, currentSlideIndex, liveSlideIndex, setStatusText, slides.length, talkScriptBlocksBySlideId, talkScriptSelection]);
+  }, [activateSlide, currentSlideIndex, slides.length]);
 
   const goPrev = useCallback(() => {
     if (slides.length === 0) return;
-    if (
-      canDriveOutput
-      && currentItemRef?.type === 'talk'
-      && currentSlideIndex === liveSlideIndex
-      && currentSlide
-    ) {
-      const blocks = talkScriptBlocksBySlideId.get(currentSlide.id) ?? [];
-      const currentBlockIndex = resolveSlideIndex(currentSlide.id, talkScriptSelection.indices, blocks.length);
-      if (blocks.length > 0) {
-        if (currentBlockIndex > 0) {
-          talkScriptSelection.update(currentSlide.id, currentBlockIndex - 1);
-          setStatusText(`Script block ${currentBlockIndex}/${blocks.length}`);
-          return;
-        }
-        if (currentSlideIndex === 0) return;
-        const previousSlide = slides[currentSlideIndex - 1] ?? null;
-        activateSlide(currentSlideIndex - 1);
-        setLiveTalkScriptIndexForSlide(previousSlide, 'last');
-        return;
-      }
-    }
     activateSlide(currentSlideIndex - 1);
-  }, [activateSlide, canDriveOutput, currentItemRef, currentSlide, currentSlideIndex, liveSlideIndex, setLiveTalkScriptIndexForSlide, setStatusText, slides, talkScriptBlocksBySlideId, talkScriptSelection]);
+  }, [activateSlide, currentSlideIndex, slides.length]);
 
   const createSlideAction = useCallback(async () => {
     if (!currentItemRef) return;
@@ -424,7 +343,6 @@ export function SlideProvider({ children }: { children: ReactNode }) {
       const nextSnapshot = await mutatePatch(() => window.castApi.createSlide({
         presentationId: currentItemRef.type === 'presentation' ? currentItemRef.id : null,
         lyricId: currentItemRef.type === 'lyric' ? currentItemRef.id : null,
-        talkId: currentItemRef.type === 'talk' ? currentItemRef.id : null,
       }));
       const createdSlideIndex = findCreatedSlideIndex(nextSnapshot, currentItemRef, previousSlideIds);
       const selectionKey = isDetachedDeckBrowser ? itemRefKey(currentItemRef) : currentPlaylistEntryId;
@@ -496,48 +414,57 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     setStatusText('Updated slide background');
   }, [currentSlide, mutatePatch, setStatusText]);
 
-  const focusPlaylistEntrySlide = useCallback((entryId: Id, itemRef: ItemRef, index: number) => {
+  const activateScheduledSlide = useCallback((itemRef: ItemRef, slideId: Id) => {
     const contentSlides = slidesForItemRef(itemRef);
-    if (contentSlides.length === 0) return;
-    const nextIndex = clamp(index, 0, contentSlides.length - 1);
-    playlistSelection.update(entryId, nextIndex);
-    selectPlaylistEntryInNavigation(entryId);
-  }, [selectPlaylistEntryInNavigation, slidesForItemRef, playlistSelection.update]);
+    const slideIndex = contentSlides.findIndex((s) => s.id === slideId);
+    if (slideIndex < 0) return;
 
-  const activatePlaylistEntrySlide = useCallback((entryId: Id, itemRef: ItemRef, index: number) => {
-    const contentSlides = slidesForItemRef(itemRef);
-    if (contentSlides.length === 0) return;
-    const nextIndex = clamp(index, 0, contentSlides.length - 1);
-    playlistSelection.update(entryId, nextIndex);
-    setLiveTalkScriptIndexForSlide(contentSlides[nextIndex] ?? null, 'first');
-    activatePlaylistEntry(entryId, nextIndex);
-    const activatedSlideId = contentSlides[nextIndex]?.id;
-    if (activatedSlideId) {
-      noteOutputTakeIntent({
-        kind: 'activate',
-        slideId: activatedSlideId,
-        outputScopeKey: buildNdiTakeScopeKey(entryId, itemRef),
-        reason: classifyTakeReason({
-          targetEntryId: entryId,
-          targetItemRef: itemRef,
-          targetIndex: nextIndex,
-          currentOutputEntryId: currentOutputPlaylistEntryId,
-          currentOutputItemRef,
-          currentLiveIndex: liveSlideIndex,
-        }),
-      });
-      dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: activatedSlideId });
+    // The same item may occur more than once: preserve the current matching
+    // playlist row instead of always jumping to the first occurrence.
+    const matchingRows = currentPlaylistRows.filter((row) => {
+      if (row.kind !== 'item') return false;
+      const rowRef = getPlaylistEntryItemRef(row);
+      return rowRef.type === itemRef.type && rowRef.id === itemRef.id;
+    });
+    const foundRow = matchingRows.find((row) => row.id === currentOutputPlaylistEntryId)
+      ?? matchingRows[0];
+
+    if (foundRow) {
+      liveSelection.update(foundRow.id, slideIndex);
+      armOutputPlaylistEntry(foundRow.id);
+    } else {
+      // Direct item with no playlist row: the live index for a rowless
+      // output is keyed on `itemRefKey(currentOutputItemRef)`, so update
+      // that key directly before arming output.
+      liveSelection.update(itemRefKey(itemRef), slideIndex);
+      armOutputItem(itemRef);
     }
-    setStatusText(`Live slide ${nextIndex + 1}`);
+
+    noteOutputTakeIntent({
+      kind: 'activate',
+      slideId,
+      outputScopeKey: buildNdiTakeScopeKey(foundRow?.id ?? null, itemRef),
+      reason: classifyTakeReason({
+        targetEntryId: foundRow?.id ?? null,
+        targetItemRef: itemRef,
+        targetIndex: slideIndex,
+        currentOutputEntryId: currentOutputPlaylistEntryId,
+        currentOutputItemRef,
+        currentLiveIndex: liveSlideIndex,
+      }),
+    });
+
+    dispatchAutomationTriggerEvent({ triggerType: 'slide.activate', sourceId: slideId });
+    dispatchAutomationTriggerEvent({ triggerType: 'slide.take', sourceId: slideId });
   }, [
-    activatePlaylistEntry,
+    armOutputItem,
+    armOutputPlaylistEntry,
     currentOutputItemRef,
     currentOutputPlaylistEntryId,
+    currentPlaylistRows,
+    liveSelection,
     liveSlideIndex,
-    setLiveTalkScriptIndexForSlide,
-    setStatusText,
     slidesForItemRef,
-    playlistSelection.update,
   ]);
 
   const value = useMemo<SlideContextValue>(() => ({
@@ -549,8 +476,6 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     liveElements,
     nextLiveSlide,
     nextLiveElements,
-    liveTalkScriptBlock,
-    liveTalkScriptProgress,
     slideElementsById,
     isOutputArmedOnCurrent,
     setCurrentSlideIndex,
@@ -562,8 +487,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     goPrev,
     selectPlaylistEntry,
     selectPlaylistItem,
-    focusPlaylistEntrySlide,
-    activatePlaylistEntrySlide,
+    activateScheduledSlide,
     createSlide: createSlideAction,
     duplicateSlide: duplicateSlideAction,
     deleteSlide: deleteSlideAction,
@@ -572,7 +496,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     updateCurrentSlideNotes,
     updateCurrentSlideBackground,
   }), [
-    activatePlaylistEntrySlide,
+    activateScheduledSlide,
     activateSlide,
     armCurrentPlaylistSelection,
     createSlideAction,
@@ -583,14 +507,11 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     currentSlide,
     currentSlideIndex,
     clearCurrentSlideSelection,
-    focusPlaylistEntrySlide,
     goNext,
     goPrev,
     isOutputArmedOnCurrent,
     liveElements,
     liveSlide,
-    liveTalkScriptBlock,
-    liveTalkScriptProgress,
     liveSlideIndex,
     nextLiveElements,
     nextLiveSlide,
