@@ -87,9 +87,31 @@ function renderDialog(type: ItemType, options: {
   return { createItem, openLyricEditor };
 }
 
+// FieldSelect is a Base UI Select: a combobox trigger that opens a listbox.
+// jsdom commits a selection through the keyboard (ArrowDown to the option,
+// Enter), the same sequence tests/app/renderer/components/form/field.test.tsx uses.
+async function settle() {
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+}
+
 async function selectFieldOption(triggerName: RegExp | string, optionName: RegExp | string) {
-  fireEvent.pointerDown(screen.getByRole('button', { name: triggerName }), { button: 0 });
-  fireEvent.click(screen.getByRole('menuitem', { name: optionName }));
+  const trigger = await screen.findByRole('combobox', { name: triggerName });
+  trigger.focus();
+  fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  await settle();
+  const options = screen.getAllByRole('option');
+  const target = options.find((option) => {
+    const text = option.textContent?.trim() ?? '';
+    return typeof optionName === 'string' ? text === optionName : optionName.test(text);
+  });
+  if (!target) throw new Error(`option ${String(optionName)} not found`);
+  for (let step = 0; step < options.length && !target.hasAttribute('data-highlighted'); step += 1) {
+    fireEvent.keyDown(document.activeElement ?? trigger, { key: 'ArrowDown' });
+    await settle();
+  }
+  fireEvent.keyDown(document.activeElement ?? trigger, { key: 'Enter' });
+  await settle();
+  await settle();
 }
 
 afterEach(() => {
