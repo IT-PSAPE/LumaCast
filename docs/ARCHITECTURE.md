@@ -735,3 +735,7 @@ The audio transport uses a compact waveform with on-track marker popovers and a 
 The video transport uses the same compact strip shape as a filmstrip scrubber. `use-video-filmstrip.ts` samples twelve frames through a detached muted video element and canvas, cancels stale extraction, and retains four completed filmstrips. It never seeks the live layer-video element, and preview failure leaves the ordinary video transport usable.
 
 Audio and layer-video volume are independent session controls applied to their media elements, shared by local playback and NDI capture. Muting preserves the chosen level. The kernel ID primitive uses ambient Web Crypto rather than importing a Node builtin into renderer consumers.
+
+## CI and stable releases
+
+`.github/workflows/ci-release.yml` is the single validation and release pipeline (ADR-0035). Pull requests stop after validation. A validated `main` push proceeds only when `package.json` contains a higher stable version and `v<version>` does not already exist, then packages Windows, macOS, and Linux in parallel and publishes one GitHub Release after all platforms succeed. Manual dispatch supports retrying an unpublished current version; prereleases are not generated.

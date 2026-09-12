@@ -1,0 +1,37 @@
+# Release notes template used by the GitHub release notes API in CI.
+changelog:
+  exclude:
+    labels:
+      - ignore-for-release
+      - duplicate
+      - invalid
+      - wontfix
+    authors:
+      - dependabot
+
+  categories:
+    - title: Features
+      labels:
+        - feat
+        - feature
+        - enhancement
+    - title: Bug fixes
+      labels:
+        - fix
+        - bug
+    - title: Performance
+      labels:
+        - perf
+        - performance
+    - title: Refactoring & internals
+      labels:
+        - refactor
+        - chore
+        - internal
+    - title: Documentation
+      labels:
+        - docs
+        - documentation
+    - title: Other
+      labels:
+        - '*'

@@ -1,9 +1,8 @@
 # Commit and release conventions
 
-This repo has two GitHub Actions paths:
+This repo has one GitHub Actions path:
 
-- [.github/workflows/ci.yml](../.github/workflows/ci.yml): runs on pull requests and branch pushes for validation.
-- [.github/workflows/release.yml](../.github/workflows/release.yml): packages production artifacts only when a GitHub Release is published.
+- [.github/workflows/ci-release.yml](../.github/workflows/ci-release.yml): validates pull requests and `main`, then packages and publishes a stable release only when `package.json#version` increases on `main`.
 
 ## Commit messages
 
@@ -21,7 +20,7 @@ Bad:
 
 ## Version bumps
 
-Only bump `package.json` when preparing an actual release candidate.
+Only bump `package.json` when preparing an actual stable release.
 
 | Change class | Bump |
 | --- | --- |
@@ -32,20 +31,14 @@ Only bump `package.json` when preparing an actual release candidate.
 ## Release process
 
 1. Land the change through a passing PR.
-2. Bump the version:
+2. Bump the version without creating a local tag:
 
 ```bash
-npm version patch
-git push && git push --tags
+npm version patch --no-git-tag-version
 ```
 
-3. Publish the GitHub Release:
-
-```bash
-gh release create v$(node -p "require('./package.json').version") --generate-notes
-```
-
-4. Watch the release build:
+3. Commit and push the version increase to `main`. The unified workflow validates the change, builds all platforms, creates the tag, and publishes the release.
+4. Watch the unified workflow:
 
 ```bash
 gh run watch
@@ -53,13 +46,14 @@ gh run watch
 
 ## What the release workflow does
 
-When a GitHub Release is published, the release workflow:
+After validation passes and the stable version increased, the workflow:
 
-1. checks out the release tag
-2. runs `npm ci`
-3. validates `v<version>` against `package.json`
-4. typechecks, tests, and builds
-5. packages and uploads artifacts to that GitHub Release
+1. verifies that `v<version>` is not already published
+2. builds the native addon and application on Windows, macOS, and Linux
+3. packages and uploads each platform's artifacts
+4. creates `v<version>` and publishes one GitHub Release after every platform succeeds
+
+If the version is unchanged, the workflow finishes after validation. A manual workflow dispatch retries the current version only when its release does not exist.
 
 ## Release notes
 
