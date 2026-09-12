@@ -1,32 +1,11 @@
-import { forwardRef, type CSSProperties, type HTMLAttributes } from 'react';
-import { useScrollAreaRootContext } from './context';
-import { mergeRefs } from './utils';
+import { forwardRef, type HTMLAttributes } from 'react';
+import { ScrollArea as BaseScrollArea } from '@base-ui/react/scroll-area';
 
 export interface ScrollAreaCornerProps extends HTMLAttributes<HTMLDivElement> {}
 
 export const ScrollAreaCorner = forwardRef<HTMLDivElement, ScrollAreaCornerProps>(function ScrollAreaCorner(
-  { className, style, ...elementProps },
+  props,
   forwardedRef,
 ) {
-  const { cornerRef, cornerSize, hiddenState } = useScrollAreaRootContext();
-
-  if (hiddenState.corner) return null;
-
-  const baseStyle: CSSProperties = {
-    position: 'absolute',
-    bottom: 0,
-    insetInlineEnd: 0,
-    width: cornerSize.width,
-    height: cornerSize.height,
-    ...style,
-  };
-
-  return (
-    <div
-      {...elementProps}
-      ref={mergeRefs(forwardedRef, cornerRef)}
-      className={className}
-      style={baseStyle}
-    />
-  );
+  return <BaseScrollArea.Corner {...props} ref={forwardedRef} />;
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useScrollAreaRootContext } from './context';
+import { useScrollAreaActiveItemContext } from './context';
 import type { ScrollPadding } from './root';
 
 /**
@@ -10,7 +10,7 @@ import type { ScrollPadding } from './root';
  * Custom to lumacast — Base UI's scroll-area does not ship this hook.
  */
 export function useScrollAreaActiveItem<T extends HTMLElement = HTMLDivElement>(isActive: boolean) {
-  const { viewportRef, scrollPaddingRef } = useScrollAreaRootContext();
+  const { viewportRef, scrollPaddingRef } = useScrollAreaActiveItemContext();
   const ref = useRef<T | null>(null);
 
   useEffect(() => {
