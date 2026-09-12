@@ -55,7 +55,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run end-to-end tests
-        run: npm run test:e2e
+        run: xvfb-run --auto-servernum npm run test:e2e
 
   release-gate:
     name: Check release version
