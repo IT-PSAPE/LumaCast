@@ -401,12 +401,17 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     return map;
   }, [projectSlides]);
 
-  // Thumbnail scene cache keyed by slide id. Each entry remembers the slide
-  // and elements references it was built from; returns the cached scene when
-  // both references match. `stableArray` in useProjectContent keeps refs
-  // stable when content is unchanged, so this avoids rebuilding the Konva
-  // scene tree on every render of the slide grid.
-  const thumbnailCacheRef = useRef<Map<Id, { slide: Slide; elements: SlideElement[]; scene: RenderScene }>>(new Map());
+  // Thumbnail scene cache keyed by slide id. Each entry remembers every
+  // reference that contributes to the built scene. `stableArray` in
+  // useProjectContent keeps these refs stable when content is unchanged, so
+  // selection and layout renders still hit the cache while derivative and
+  // resolved-theme updates rebuild the media keys and frame they changed.
+  const thumbnailCacheRef = useRef<Map<Id, {
+    frame: Slide;
+    elements: SlideElement[];
+    mediaProxyBySource: ReadonlyMap<string, string>;
+    scene: RenderScene;
+  }>>(new Map());
 
   useEffect(() => {
     const cache = thumbnailCacheRef.current;
@@ -425,11 +430,16 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
       : (projectLiveElementsBySlideId.get(slideId) ?? []);
     const cache = thumbnailCacheRef.current;
     const cached = cache.get(slideId);
-    if (cached && cached.slide === slide && cached.elements === elements) {
+    if (
+      cached
+      && cached.frame === frame
+      && cached.elements === elements
+      && cached.mediaProxyBySource === mediaProxyBySource
+    ) {
       return cached.scene;
     }
     const scene = buildThumbnailScene(frame, elements, { proxyMediaBySource: mediaProxyBySource });
-    cache.set(slideId, { slide, elements, scene });
+    cache.set(slideId, { frame, elements, mediaProxyBySource, scene });
     return scene;
   }, [currentSlide?.id, effectiveElements, getSlideElements, mediaProxyBySource, projectLiveElementsBySlideId, projectLiveSlidesById, projectSlidesById, resolveElementsForSlide]);
 
