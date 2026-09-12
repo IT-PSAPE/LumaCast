@@ -548,7 +548,14 @@ describe('MediaDerivativeService', () => {
       toPNG: () => Buffer.from('batch-png'),
     });
     const service = new MediaDerivativeService(repo, tempRoot);
-    let latestProgress: { completed: number; failed: number; total: number; statusText: string | null } | null = null;
+    let latestProgress: {
+      active: number;
+      queued: number;
+      completed: number;
+      failed: number;
+      total: number;
+      statusText: string | null;
+    } | null = null;
     service.onProgress((progress) => {
       latestProgress = progress;
     });
@@ -559,9 +566,9 @@ describe('MediaDerivativeService', () => {
     await vi.waitFor(() => {
       expect(nativeImageApi.createThumbnailFromPath).toHaveBeenCalledTimes(10);
       expect(latestProgress).toEqual(expect.objectContaining({
-        completed: 10,
+        active: 0,
+        queued: 0,
         failed: 0,
-        total: 10,
         statusText: null,
       }));
     });
