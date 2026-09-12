@@ -1,4 +1,4 @@
-import { Children, isValidElement, type CSSProperties, type HTMLAttributes, type ReactElement, type ReactNode, type Ref } from 'react';
+import { Children, isValidElement, type CSSProperties, type HTMLAttributes, type MouseEventHandler, type ReactElement, type ReactNode, type Ref } from 'react';
 import { cn } from '@renderer/utils/cn';
 import { cv } from '@renderer/utils/cv';
 
@@ -36,7 +36,7 @@ type ThumbnailOverlayPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bott
 
 interface ThumbnailRootProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children' | 'onDoubleClick'> {
   children: ReactNode;
-  onDoubleClick?: () => void;
+  onDoubleClick?: MouseEventHandler<HTMLDivElement>;
   selected?: boolean;
   variant?: 'default' | 'slide';
   aspectRatio?: number;
@@ -88,7 +88,10 @@ function Row({ children, className, onClick, onDoubleClick, selected = false, va
       <div className={cn('relative min-w-0 max-w-3xs flex-1 overflow-hidden border-r border-primary bg-tertiary', slots.preview?.props.className)}>
         {slots.preview?.props.children ?? null}
       </div>
-      <div className={cn('grid min-h-[84px] min-w-0 content-center gap-1 px-2.5 py-2', slots.body?.props.className)}>
+      <div
+        className={cn('grid min-h-[84px] min-w-0 content-center gap-1 px-2.5 py-2', slots.body?.props.className)}
+        style={slots.body?.props.style}
+      >
         {slots.body?.props.children ?? null}
       </div>
       {slots.overlays.map(renderOverlay)}
@@ -122,7 +125,10 @@ function Tile({ children, className, onClick, onDoubleClick, selected = false, v
       </div>
       {slots.overlays.map(renderOverlay)}
       {slots.caption ? (
-        <div className={cn('min-w-0 truncate border-t border-primary bg-tertiary px-2 py-1 text-sm text-secondary transition-colors group-hover:text-primary', slots.caption.props.className)}>
+        <div
+          className={cn('min-w-0 truncate border-t border-primary bg-tertiary px-2 py-1 text-sm text-secondary transition-colors group-hover:text-primary', slots.caption.props.className)}
+          style={slots.caption.props.style}
+        >
           {slots.caption.props.children}
         </div>
       ) : null}

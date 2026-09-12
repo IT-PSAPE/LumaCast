@@ -6,6 +6,7 @@ import type {
   Lyric,
   Slide,
   SlideElement,
+  SlideTag,
   MediaAsset,
   OverlayType,
   Overlay,
@@ -69,6 +70,7 @@ export interface AppSnapshot {
   macros: Macro[];
   triggerBindings: TriggerBinding[];
   playbackSchedules?: PlaybackSchedule[];
+  slideTags?: SlideTag[];
 }
 
 export interface BundleInspectionItem {

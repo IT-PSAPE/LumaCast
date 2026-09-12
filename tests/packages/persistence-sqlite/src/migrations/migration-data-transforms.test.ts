@@ -445,10 +445,10 @@ describe('v33 remove-talks — discard retired content without damaging retained
       for (const table of ['talks', 'talk_themes', 'talk_script_blocks']) {
         expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)).toBeUndefined();
       }
-      const slideColumns = (db.pragma('table_info(slides)') as Array<{ name: string }>).map((column) => column.name);
+      const slideColumns = (db.prepare('PRAGMA table_info(slides)').all() as Array<{ name: string }>).map((column) => column.name);
       expect(slideColumns).not.toContain('talk_id');
       expect(slideColumns).not.toContain('talk_theme_id');
-      const playlistColumns = (db.pragma('table_info(playlist_entries)') as Array<{ name: string }>).map((column) => column.name);
+      const playlistColumns = (db.prepare('PRAGMA table_info(playlist_entries)').all() as Array<{ name: string }>).map((column) => column.name);
       expect(playlistColumns).not.toContain('talk_id');
 
       expect(db.prepare('SELECT id FROM slides ORDER BY id').all()).toEqual([{ id: 'slide-lyric' }, { id: 'slide-pres' }]);
@@ -469,9 +469,9 @@ describe('v33 remove-talks — discard retired content without damaging retained
       ]);
       expect(db.prepare('SELECT id FROM cues').all()).toEqual([{ id: 'cue-keep' }]);
       expect(db.prepare('SELECT id FROM actions').all()).toEqual([{ id: 'macro-keep' }]);
-      expect(db.pragma('foreign_key_check')).toEqual([]);
+      expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
 
-      const indexColumns = (name: string) => (db.pragma(`index_info(${name})`) as Array<{ name: string }>).map((column) => column.name);
+      const indexColumns = (name: string) => (db.prepare(`PRAGMA index_info(${name})`).all() as Array<{ name: string }>).map((column) => column.name);
       expect(indexColumns('idx_slides_presentation_id_order_index')).toEqual(['presentation_id', 'order_index']);
       expect(indexColumns('idx_slides_lyric_id_order_index')).toEqual(['lyric_id', 'order_index']);
       expect(indexColumns('idx_playlist_entries_playlist_id_order_index')).toEqual(['playlist_id', 'order_index']);

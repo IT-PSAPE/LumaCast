@@ -30,6 +30,7 @@ import {
   planDetachMaterialization,
   stampExplicitOverrides,
   syncThemeToElements,
+  isValidSlideTagColorKey,
 } from '@lumacast/composition';
 import { createId, nowIso } from '@lumacast/kernel';
 import {
@@ -75,6 +76,7 @@ import type {
   PlaylistItemEntry,
   PlaylistSeparator,
   PlaylistRow,
+  SlideTag,
 } from '@lumacast/composition';
 import type {
   Cue,
@@ -132,6 +134,9 @@ import type {
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
+  SlideTagCreateInput,
+  SlideTagUpdateInput,
+  SlideTagAssignInput,
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
@@ -199,6 +204,7 @@ const PROJECT_BACKUP_TABLE_KEYS = [
   'overlay_themes',
   'presentations',
   'lyrics',
+  'slide_tags',
   'overlays',
   'stages',
   'slides',
@@ -256,6 +262,7 @@ function assertProjectBackupReferences(backup: ProjectBackup): void {
     presentations: collectProjectBackupIds(t.presentations),
     lyrics: collectProjectBackupIds(t.lyrics),
     slides: collectProjectBackupIds(t.slides),
+    slide_tags: collectProjectBackupIds(t.slide_tags),
     slide_elements: collectProjectBackupIds(t.slide_elements),
     playlists: collectProjectBackupIds(t.playlists),
     presentation_themes: collectProjectBackupIds(t.presentation_themes),
@@ -277,6 +284,7 @@ function assertProjectBackupReferences(backup: ProjectBackup): void {
     assertProjectBackupReference(ids.overlay_themes, 'slides', 'overlay_theme_id', row.id, row.overlay_theme_id);
     assertProjectBackupReference(ids.overlays, 'slides', 'overlay_id', row.id, row.overlay_id);
     assertProjectBackupReference(ids.stages, 'slides', 'stage_id', row.id, row.stage_id);
+    assertProjectBackupReference(ids.slide_tags, 'slides', 'tag_id', row.id, row.tag_id);
   }
   for (const row of t.slide_elements) {
     assertProjectBackupReference(ids.slides, 'slide_elements', 'slide_id', row.id, row.slide_id);
@@ -313,6 +321,7 @@ function clearProjectBackupTables(db: SqliteDatabase): void {
     DELETE FROM playlist_entries;
     DELETE FROM playlists;
     DELETE FROM slides;
+    DELETE FROM slide_tags;
     DELETE FROM presentations;
     DELETE FROM lyrics;
     DELETE FROM overlays;
@@ -374,15 +383,22 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
       insertStage.run(row.id, row.name, row.width, row.height, row.order_index, row.created_at, row.updated_at);
     }
 
+    const insertSlideTag = db.prepare(
+      'INSERT INTO slide_tags (id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    for (const row of t.slide_tags) {
+      insertSlideTag.run(row.id, row.name, row.color_key, row.order_index, row.created_at, row.updated_at);
+    }
+
     const insertSlide = db.prepare(
-      `INSERT INTO slides (id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO slides (id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, tag_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const row of t.slides) {
       insertSlide.run(
         row.id, row.presentation_id, row.lyric_id,
         row.presentation_theme_id, row.lyric_theme_id, row.overlay_theme_id,
-        row.overlay_id, row.stage_id, row.kind, row.width, row.height, row.notes,
+        row.overlay_id, row.stage_id, row.tag_id, row.kind, row.width, row.height, row.notes,
         row.background_json, row.background_source, row.order_index, row.created_at, row.updated_at,
       );
     }
@@ -904,6 +920,7 @@ interface BuildPatchSpec {
   upsertMacroIds?: Id[];
   upsertTriggerBindingIds?: Id[];
   upsertPlaybackScheduleIds?: Id[];
+  upsertSlideTagIds?: Id[];
   deletedPresentationIds?: Id[];
   deletedLyricIds?: Id[];
   deletedSlideIds?: Id[];
@@ -920,6 +937,7 @@ interface BuildPatchSpec {
   deletedMacroIds?: Id[];
   deletedTriggerBindingIds?: Id[];
   deletedPlaybackScheduleIds?: Id[];
+  deletedSlideTagIds?: Id[];
 }
 
 interface ContentSlideRow {
@@ -933,6 +951,7 @@ interface ContentSlideRow {
   background_json: string | null;
   background_source: string | null;
   order_index: number;
+  tag_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1118,6 +1137,7 @@ export class CastRepository {
       macros: this.listMacros(),
       triggerBindings: this.listTriggerBindings(),
       playbackSchedules: this.listPlaybackSchedules(),
+      slideTags: this.listSlideTags(),
     };
   }
 
@@ -1717,6 +1737,7 @@ export class CastRepository {
         DELETE FROM playlists;
         DELETE FROM slide_elements;
         DELETE FROM slides;
+        DELETE FROM slide_tags;
         DELETE FROM overlays;
         DELETE FROM stages;
         DELETE FROM presentations;
@@ -1743,6 +1764,13 @@ export class CastRepository {
       insertThemeRow('lyric_themes', snapshot.lyricThemes);
       insertThemeRow('overlay_themes', snapshot.overlayThemes);
 
+      const insertSlideTag = this.db.prepare(
+        'INSERT INTO slide_tags (id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      );
+      for (const tag of snapshot.slideTags ?? []) {
+        insertSlideTag.run(tag.id, tag.name, tag.colorKey, tag.order, tag.createdAt, tag.updatedAt);
+      }
+
       const insertPresentation = this.db.prepare(
         'INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
       );
@@ -1758,8 +1786,8 @@ export class CastRepository {
       }
 
       const insertSlide = this.db.prepare(
-        `INSERT INTO slides (id, presentation_id, lyric_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO slides (id, presentation_id, lyric_id, kind, width, height, notes, background_json, background_source, order_index, tag_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       for (const slide of snapshot.slides) {
         const backgroundJson = slide.background ? JSON.stringify(slide.background) : null;
@@ -1774,6 +1802,7 @@ export class CastRepository {
           backgroundJson,
           slide.backgroundSource ?? 'local',
           slide.order,
+          slide.tagId ?? null,
           slide.createdAt,
           slide.updatedAt,
         );
@@ -2343,7 +2372,7 @@ export class CastRepository {
             .sort((left, right) => left.order - right.order)
             .forEach((row, rowIndex) => {
               if (row.kind === 'separator') {
-                insertPlaylistEntry.run(createId(), newPlaylistId, 'separator', null, null, null, row.label, row.colorKey, rowIndex, now, now);
+                insertPlaylistEntry.run(createId(), newPlaylistId, 'separator', null, null, row.label, row.colorKey, rowIndex, now, now);
                 return;
               }
               const sourceReference = getBundlePlaylistEntryReference(row);
@@ -2998,7 +3027,7 @@ export class CastRepository {
     const sourceOrder = source.order_index;
     const sourceSlides = this.db
       .prepare(
-        `SELECT id, kind, width, height, background_json, background_source, notes, order_index
+        `SELECT id, kind, width, height, background_json, background_source, notes, order_index, tag_id
          FROM slides
          WHERE ${fkColumn} = ?
          ORDER BY order_index ASC`
@@ -3012,6 +3041,7 @@ export class CastRepository {
         background_source: string | null;
         notes: string;
         order_index: number;
+        tag_id: string | null;
       }>;
 
     const sourceElementsMap = this.getSourceElementRowsBySlideIds(sourceSlides.map((slide) => slide.id));
@@ -3039,8 +3069,8 @@ export class CastRepository {
         newSlideIds.push(newSlideId);
         this.db
           .prepare(
-            `INSERT INTO slides (id, presentation_id, lyric_id, kind, width, height, background_json, background_source, notes, order_index, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO slides (id, presentation_id, lyric_id, kind, width, height, background_json, background_source, notes, order_index, tag_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .run(
             newSlideId,
@@ -3053,6 +3083,7 @@ export class CastRepository {
             sourceSlide.background_source ?? 'local',
             sourceSlide.notes,
             sourceSlide.order_index,
+            sourceSlide.tag_id,
             now,
             now,
           );
@@ -3364,7 +3395,7 @@ export class CastRepository {
 
   duplicateSlide(slideId: Id): SnapshotPatch {
     const original = this.db
-      .prepare('SELECT id, presentation_id, lyric_id, width, height, notes, background_json, background_source, order_index FROM slides WHERE id = ?')
+      .prepare('SELECT id, presentation_id, lyric_id, width, height, notes, background_json, background_source, order_index, tag_id FROM slides WHERE id = ?')
       .get(slideId) as {
         id: string;
         presentation_id: string | null;
@@ -3375,6 +3406,7 @@ export class CastRepository {
         background_json: string | null;
         background_source: string | null;
         order_index: number;
+        tag_id: string | null;
       } | undefined;
     if (!original) return this.buildPatch({});
 
@@ -3403,7 +3435,7 @@ export class CastRepository {
       `UPDATE slides SET order_index = order_index + 1, updated_at = ? WHERE ${ownerColumn} = ? AND order_index >= ?`
     );
     const insertSlide = this.db.prepare(
-      'INSERT INTO slides (id, presentation_id, lyric_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO slides (id, presentation_id, lyric_id, kind, width, height, notes, background_json, background_source, order_index, tag_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     const insertElement = this.db.prepare(
       `INSERT INTO slide_elements
@@ -3425,6 +3457,7 @@ export class CastRepository {
         original.background_json,
         original.background_source ?? 'local',
         insertOrder,
+        original.tag_id,
         now,
         now,
       );
@@ -3492,6 +3525,179 @@ export class CastRepository {
     tx();
     return this.buildPatch({ upsertSlideIds: reordered.map((sibling) => sibling.id) });
   }
+
+  // ─── Slide Tags ───────────────────────────────────────────────────────
+
+  listSlideTags(): SlideTag[] {
+    const rows = this.db
+      .prepare('SELECT id, name, color_key, order_index, created_at, updated_at FROM slide_tags ORDER BY order_index ASC, created_at ASC, id ASC')
+      .all() as Array<{ id: string; name: string; color_key: string; order_index: number; created_at: string; updated_at: string }>;
+    return rows.map((row) => this.mapSlideTagRow(row, 'listSlideTags'));
+  }
+
+  createSlideTag(input: SlideTagCreateInput): SnapshotPatch {
+    const name = input.name.trim();
+    if (!name) throw new Error('Slide tag name must not be empty.');
+    if (!isValidSlideTagColorKey(input.colorKey)) throw new Error(`Invalid slide tag color: ${input.colorKey}`);
+    const now = nowIso();
+    const tagId = createId();
+    const currentOrder = (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM slide_tags').get() as { maxOrder: number | null }).maxOrder ?? -1;
+    this.db
+      .prepare('INSERT INTO slide_tags (id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(tagId, name, input.colorKey, currentOrder + 1, now, now);
+    return this.buildPatch({ upsertSlideTagIds: [tagId] });
+  }
+
+  updateSlideTag(input: SlideTagUpdateInput): SnapshotPatch {
+    const existing = this.db.prepare('SELECT id FROM slide_tags WHERE id = ?').get(input.id);
+    if (!existing) throw new Error(`Slide tag not found: ${input.id}`);
+    if (input.name === undefined && input.colorKey === undefined && input.order === undefined) return this.buildPatch({});
+    if (input.name !== undefined && !input.name.trim()) throw new Error('Slide tag name must not be empty.');
+    if (input.colorKey !== undefined && !isValidSlideTagColorKey(input.colorKey)) {
+      throw new Error(`Invalid slide tag color: ${input.colorKey}`);
+    }
+    if (input.order !== undefined && !Number.isFinite(input.order)) throw new Error('Slide tag order must be finite.');
+
+    const now = nowIso();
+    const affectedIds = new Set<Id>([input.id]);
+    const tx = this.db.transaction(() => {
+      if (input.name !== undefined || input.colorKey !== undefined) {
+        this.db.prepare(
+          `UPDATE slide_tags
+           SET name = COALESCE(?, name), color_key = COALESCE(?, color_key), updated_at = ?
+           WHERE id = ?`
+        ).run(input.name?.trim() ?? null, input.colorKey ?? null, now, input.id);
+      }
+
+      if (input.order !== undefined) {
+        const tags = this.db
+          .prepare('SELECT id, order_index FROM slide_tags ORDER BY order_index ASC, created_at ASC, id ASC')
+          .all() as Array<{ id: string; order_index: number }>;
+        const moved = tags.find((tag) => tag.id === input.id);
+        if (!moved) throw new Error(`Slide tag not found: ${input.id}`);
+        const reordered = tags.filter((tag) => tag.id !== input.id);
+        const target = Math.max(0, Math.min(Math.trunc(input.order), reordered.length));
+        reordered.splice(target, 0, moved);
+        const updateOrder = this.db.prepare('UPDATE slide_tags SET order_index = ?, updated_at = ? WHERE id = ?');
+        reordered.forEach((tag, index) => {
+          if (tag.order_index === index) return;
+          updateOrder.run(index, now, tag.id);
+          affectedIds.add(tag.id);
+        });
+      }
+    });
+    tx();
+    return this.buildPatch({ upsertSlideTagIds: [...affectedIds] });
+  }
+
+  deleteSlideTag(tagId: Id): SnapshotPatch {
+    const exists = this.db.prepare('SELECT id FROM slide_tags WHERE id = ?').get(tagId);
+    if (!exists) throw new Error(`Slide tag not found: ${tagId}`);
+    const affectedSlideIds = this.db
+      .prepare('SELECT id FROM slides WHERE tag_id = ?')
+      .all(tagId) as Array<{ id: string }>;
+    const slideIds = affectedSlideIds.map((row) => row.id);
+
+    let reorderedTagIds: Id[] = [];
+    const tx = this.db.transaction(() => {
+      const now = nowIso();
+      for (const idChunk of chunkValues(slideIds)) {
+        const placeholders = idChunk.map(() => '?').join(',');
+        this.db.prepare(`UPDATE slides SET tag_id = NULL, updated_at = ? WHERE id IN (${placeholders})`).run(now, ...idChunk);
+      }
+      this.db.prepare('DELETE FROM slide_tags WHERE id = ?').run(tagId);
+      reorderedTagIds = this.normalizeSlideTagOrder();
+    });
+    tx();
+
+    return this.buildPatch({
+      deletedSlideTagIds: [tagId],
+      upsertSlideIds: slideIds,
+      upsertSlideTagIds: reorderedTagIds,
+    });
+  }
+
+  assignSlideTags(input: SlideTagAssignInput): SnapshotPatch {
+    const slideIds = [...new Set(input.slideIds)];
+    if (slideIds.length === 0) return this.buildPatch({});
+
+    if (input.tagId !== null) {
+      const tagExists = this.db.prepare('SELECT id FROM slide_tags WHERE id = ?').get(input.tagId);
+      if (!tagExists) throw new Error(`Slide tag not found: ${input.tagId}`);
+    }
+
+    const existingIds = new Set(chunkValues(slideIds).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return (this.db.prepare(
+        `SELECT id FROM slides
+         WHERE id IN (${placeholders}) AND (presentation_id IS NOT NULL OR lyric_id IS NOT NULL)`
+      ).all(...idChunk) as Array<{ id: string }>).map((row) => row.id);
+    }));
+    const missingIds = slideIds.filter((id) => !existingIds.has(id));
+    if (missingIds.length > 0) throw new Error(`Slide not found or cannot be tagged: ${missingIds.join(', ')}`);
+
+    const now = nowIso();
+    const tx = this.db.transaction(() => {
+      for (const idChunk of chunkValues(slideIds)) {
+        const placeholders = idChunk.map(() => '?').join(',');
+        this.db
+          .prepare(`UPDATE slides SET tag_id = ?, updated_at = ? WHERE id IN (${placeholders})`)
+          .run(input.tagId, now, ...idChunk);
+      }
+    });
+    tx();
+
+    return this.buildPatch({
+      upsertSlideIds: slideIds,
+    });
+  }
+
+  private normalizeSlideTagOrder(): Id[] {
+    const tags = this.db
+      .prepare('SELECT id, order_index FROM slide_tags ORDER BY order_index ASC, created_at ASC, id ASC')
+      .all() as Array<{ id: string; order_index: number }>;
+    const now = nowIso();
+    const changed: Id[] = [];
+    tags.forEach((tag, index) => {
+      if (tag.order_index === index) return;
+      this.db.prepare('UPDATE slide_tags SET order_index = ?, updated_at = ? WHERE id = ?').run(index, now, tag.id);
+      changed.push(tag.id);
+    });
+    return changed;
+  }
+
+  private getSlideTagsByIds(ids: readonly Id[]): SlideTag[] {
+    if (ids.length === 0) return [];
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db.prepare(
+        `SELECT id, name, color_key, order_index, created_at, updated_at
+         FROM slide_tags WHERE id IN (${placeholders})`
+      ).all(...idChunk) as Array<{ id: string; name: string; color_key: string; order_index: number; created_at: string; updated_at: string }>;
+    });
+    return rows
+      .sort((left, right) => left.order_index - right.order_index || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
+      .map((row) => this.mapSlideTagRow(row, 'getSlideTagsByIds'));
+  }
+
+  private mapSlideTagRow(
+    row: { id: string; name: string; color_key: string; order_index: number; created_at: string; updated_at: string },
+    operation: string,
+  ): SlideTag {
+    if (!isValidSlideTagColorKey(row.color_key)) {
+      throw new Error(`[persisted/${operation}] slide_tags.${row.id}.color_key: invalid slide tag color ${JSON.stringify(row.color_key)}`);
+    }
+    return {
+      id: row.id,
+      name: row.name,
+      colorKey: row.color_key,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  // ─── Elements ─────────────────────────────────────────────────────────
 
   createElement(input: ElementCreateInput): SnapshotPatch {
     const now = nowIso();
@@ -5024,7 +5230,7 @@ export class CastRepository {
   private getSlides(): Slide[] {
     const rows = this.db
       .prepare(
-        `SELECT s.id, s.presentation_id, s.lyric_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
+        `SELECT s.id, s.presentation_id, s.lyric_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.tag_id, s.created_at, s.updated_at,
                 COALESCE(p.order_index, l.order_index) AS content_order
          FROM slides s
          LEFT JOIN presentations p ON p.id = s.presentation_id
@@ -5043,6 +5249,7 @@ export class CastRepository {
         background_json: string | null;
         background_source: string | null;
         order_index: number;
+        tag_id: string | null;
         created_at: string;
         updated_at: string;
       }>;
@@ -5056,7 +5263,7 @@ export class CastRepository {
       const placeholders = idChunk.map(() => '?').join(',');
       return this.db
         .prepare(
-          `SELECT s.id, s.presentation_id, s.lyric_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.created_at, s.updated_at,
+          `SELECT s.id, s.presentation_id, s.lyric_id, s.kind, s.width, s.height, s.notes, s.background_json, s.background_source, s.order_index, s.tag_id, s.created_at, s.updated_at,
                   COALESCE(p.order_index, l.order_index) AS content_order
            FROM slides s
            LEFT JOIN presentations p ON p.id = s.presentation_id
@@ -5091,6 +5298,7 @@ export class CastRepository {
       background: row.background_json ? decodeSlideBackgroundJson(row.background_json, persistedContext(operation, `slides.${row.id}.background_json`)) : null,
       backgroundSource: (row.background_source ?? 'local') as SlideBackgroundSource,
       order: row.order_index,
+      tagId: row.tag_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -6060,6 +6268,7 @@ export class CastRepository {
   }
 
   private applySnapshotPatchUpserts(patch: SnapshotPatch): void {
+    this.upsertSlideTagRows(patch.upserts.slideTags);
     this.upsertThemeRows('presentation_themes', patch.upserts.presentationThemes);
     this.upsertThemeRows('lyric_themes', patch.upserts.lyricThemes);
     this.upsertThemeRows('overlay_themes', patch.upserts.overlayThemes);
@@ -6076,6 +6285,7 @@ export class CastRepository {
     this.upsertMacroRows(patch.upserts.macros);
     this.upsertTriggerBindingRows(patch.upserts.triggerBindings);
     this.upsertPlaybackScheduleRows(patch.upserts.playbackSchedules);
+    this.deleteRowsByIds('slide_tags', patch.deletes.slideTags);
   }
 
   private deleteRowsByIds(table: string, ids: readonly Id[] | undefined): void {
@@ -6208,8 +6418,8 @@ export class CastRepository {
     if (!rows || rows.length === 0) return;
     const upsert = this.db.prepare(
       `INSERT INTO slides
-        (id, presentation_id, lyric_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, presentation_id, lyric_id, kind, width, height, notes, background_json, background_source, order_index, tag_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          presentation_id = excluded.presentation_id,
          lyric_id = excluded.lyric_id,
@@ -6220,6 +6430,7 @@ export class CastRepository {
          background_json = excluded.background_json,
          background_source = excluded.background_source,
          order_index = excluded.order_index,
+         tag_id = excluded.tag_id,
          created_at = excluded.created_at,
          updated_at = excluded.updated_at`
     );
@@ -6235,6 +6446,7 @@ export class CastRepository {
         row.background ? JSON.stringify(row.background) : null,
         row.backgroundSource ?? 'local',
         row.order,
+        row.tagId ?? null,
         row.createdAt,
         row.updatedAt,
       );
@@ -6507,6 +6719,23 @@ export class CastRepository {
     }
   }
 
+  private upsertSlideTagRows(rows: readonly SlideTag[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO slide_tags (id, name, color_key, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         color_key = excluded.color_key,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(row.id, row.name, row.colorKey, row.order, row.createdAt, row.updatedAt);
+    }
+  }
+
   private upsertThemeRows(table: ThemeTableName, rows: readonly PresentationTheme[] | undefined): void {
     if (!rows || rows.length === 0) return;
     const upsert = this.db.prepare(
@@ -6660,6 +6889,7 @@ export class CastRepository {
     if (spec.upsertMacroIds && spec.upsertMacroIds.length > 0) patch.upserts.macros = this.getMacrosByIds(spec.upsertMacroIds);
     if (spec.upsertTriggerBindingIds && spec.upsertTriggerBindingIds.length > 0) patch.upserts.triggerBindings = this.getTriggerBindingsByIds(spec.upsertTriggerBindingIds);
     if (spec.upsertPlaybackScheduleIds && spec.upsertPlaybackScheduleIds.length > 0) patch.upserts.playbackSchedules = this.getPlaybackSchedulesByIds(spec.upsertPlaybackScheduleIds);
+    if (spec.upsertSlideTagIds && spec.upsertSlideTagIds.length > 0) patch.upserts.slideTags = this.getSlideTagsByIds(spec.upsertSlideTagIds);
 
     if (spec.deletedPresentationIds && spec.deletedPresentationIds.length > 0) patch.deletes.presentations = [...spec.deletedPresentationIds];
     if (spec.deletedLyricIds && spec.deletedLyricIds.length > 0) patch.deletes.lyrics = [...spec.deletedLyricIds];
@@ -6677,6 +6907,7 @@ export class CastRepository {
     if (spec.deletedMacroIds && spec.deletedMacroIds.length > 0) patch.deletes.macros = [...spec.deletedMacroIds];
     if (spec.deletedTriggerBindingIds && spec.deletedTriggerBindingIds.length > 0) patch.deletes.triggerBindings = [...spec.deletedTriggerBindingIds];
     if (spec.deletedPlaybackScheduleIds && spec.deletedPlaybackScheduleIds.length > 0) patch.deletes.playbackSchedules = [...spec.deletedPlaybackScheduleIds];
+    if (spec.deletedSlideTagIds && spec.deletedSlideTagIds.length > 0) patch.deletes.slideTags = [...spec.deletedSlideTagIds];
 
     return patch;
   }

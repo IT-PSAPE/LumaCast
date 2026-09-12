@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useSlides } from '../../contexts/slide-context';
 import { useThumbnailScene } from '../../contexts/canvas/canvas-context';
 import { useOutlineView } from './use-slide-list-view';
@@ -9,10 +9,13 @@ import { SlideOutlineRow } from './slide-list-row';
 import { SortableSlideOutlineRow } from './sortable-slide-outline-row';
 import { outlineRowId, useSlideReorderCommit } from './use-slide-reorder';
 import { VirtualizedList } from '@renderer/components/layout/virtualized-list';
+import { useNavigation } from '../../contexts/navigation-context';
+import { useSlideRangeSelection } from '../../hooks/use-slide-range-selection';
 
 export function SingleSlideList() {
-  const { rows: persistedRows, currentSlideIndex, selectSlide, openSlide, updateText } = useOutlineView();
+  const { rows: persistedRows, currentSlideIndex, selectSlide, openSlide } = useOutlineView();
   const { reorderSlide } = useSlides();
+  const { currentItemRef } = useNavigation();
   const getThumbnailScene = useThumbnailScene();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const virtualScrollToIndexRef = useRef<((index: number) => void) | null>(null);
@@ -25,6 +28,12 @@ export function SingleSlideList() {
     getId: outlineRowId,
     commit: useSlideReorderCommit(reorderSlide),
   });
+  const slideIds = useMemo(() => rows.map((row) => row.slide.id), [rows]);
+  const selection = useSlideRangeSelection(
+    slideIds,
+    currentSlideIndex,
+    currentItemRef ? `${currentItemRef.type}:${currentItemRef.id}` : null,
+  );
   const activeRowIndex = dnd.activeId ? rows.findIndex((row) => row.slide.id === dnd.activeId) : -1;
   const activeRow = activeRowIndex === -1 ? null : rows[activeRowIndex];
   const activeScene = activeRow ? getThumbnailScene(activeRow.slide.id, 'list') : null;
@@ -38,9 +47,11 @@ export function SingleSlideList() {
         row={row}
         scene={scene}
         isFocused={row.index === currentSlideIndex}
+        isSelected={selection.selectedSlideIds.size === 0 ? row.index === currentSlideIndex : selection.selectedSlideIds.has(row.slide.id)}
         onSelect={selectSlide}
         onOpen={openSlide}
-        onTextCommit={updateText}
+        onRangeSelect={selection.selectSlide}
+        actionSlideIds={selection.actionSlideIds(row.slide.id)}
       />
     );
   }
@@ -69,9 +80,11 @@ export function SingleSlideList() {
               row={activeRow}
               scene={activeScene}
               isFocused={activeRow.index === currentSlideIndex}
+              isSelected={selection.selectedSlideIds.has(activeRow.slide.id)}
               onSelect={selectSlide}
               onOpen={openSlide}
-              onTextCommit={updateText}
+              onRangeSelect={selection.selectSlide}
+              actionSlideIds={selection.actionSlideIds(activeRow.slide.id)}
               overlay
             />
           ) : null}

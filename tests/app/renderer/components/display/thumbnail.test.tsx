@@ -122,6 +122,24 @@ describe('Thumbnail slide variant (opt-in, only slide components)', () => {
     expect(row.className).toContain('border-transparent');
     expect(row.className).not.toContain('bg-brand/15');
   });
+
+  it('forwards caption and row-body styles for tag coloring', () => {
+    const { getByText } = render(
+      <>
+        <Thumbnail.Tile>
+          <Thumbnail.Body>tile body</Thumbnail.Body>
+          <Thumbnail.Caption style={{ backgroundColor: 'rgb(1, 2, 3)' }}>caption</Thumbnail.Caption>
+        </Thumbnail.Tile>
+        <Thumbnail.Row>
+          <Thumbnail.Preview>preview</Thumbnail.Preview>
+          <Thumbnail.Body style={{ backgroundColor: 'rgb(4, 5, 6)' }}>row body</Thumbnail.Body>
+        </Thumbnail.Row>
+      </>,
+    );
+
+    expect(getByText('caption').style.backgroundColor).toBe('rgb(1, 2, 3)');
+    expect(getByText('row body').style.backgroundColor).toBe('rgb(4, 5, 6)');
+  });
 });
 
 describe('Thumbnail overlays', () => {

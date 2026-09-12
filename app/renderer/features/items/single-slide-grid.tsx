@@ -4,13 +4,14 @@ import { useSlides } from '../../contexts/slide-context';
 import { useThumbnailScene } from '../../contexts/canvas/canvas-context';
 import { useDeckBrowser } from './deck-browser-context';
 import { SortableList, VIRTUALIZED_SORTABLE_MEASURING } from '@renderer/components/layout/sortable-list';
-import { getSlideVisualState, slideTextPreview } from '../../utils/slides';
+import { getSlideVisualState } from '../../utils/slides';
 import { itemRefsEqual } from '../../utils/navigation-context-utils';
 import { VirtualizedThumbnailGrid } from '@renderer/components/layout/thumbnail-grid';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { SlideGridTile } from './slide-grid-tile';
 import { SortableSlideGridTile } from './sortable-slide-grid-tile';
 import { useSlideReorder } from './use-slide-reorder';
+import { useSlideRangeSelection } from '../../hooks/use-slide-range-selection';
 
 export function SingleSlideGrid() {
   const { currentItemRef, currentOutputItemRef, isDetachedDeckBrowser } = useNavigation();
@@ -25,6 +26,12 @@ export function SingleSlideGrid() {
   }, [gridItemSize]);
   const showLiveState = !isDetachedDeckBrowser && itemRefsEqual(currentItemRef, currentOutputItemRef);
   const { items: slides, dnd } = useSlideReorder(persistedSlides, reorderSlide);
+  const slideIds = useMemo(() => slides.map((slide) => slide.id), [slides]);
+  const selection = useSlideRangeSelection(
+    slideIds,
+    currentSlideIndex,
+    currentItemRef ? `${currentItemRef.type}:${currentItemRef.id}` : null,
+  );
   const virtualizedGrid = useMemo(() => ({ columns: gridItemSize }), [gridItemSize]);
   const virtualizedKeyboard = useMemo(() => ({
     columns: gridItemSize,
@@ -57,12 +64,14 @@ export function SingleSlideGrid() {
               slideId={activeSlide.id}
               index={activeSlideIndex}
               scene={activeScene}
-              selected={activeSlideIndex === currentSlideIndex}
+              selected={selection.selectedSlideIds.has(activeSlide.id)}
+              focused={activeSlideIndex === currentSlideIndex}
               isLive={activeState === 'live'}
               isEmpty={activeState === 'warning'}
-              textPreview={slideTextPreview(activeElements)}
               onActivate={activateSlide}
               onFocus={setCurrentSlideIndex}
+              onRangeSelect={selection.selectSlide}
+              actionSlideIds={selection.actionSlideIds(activeSlide.id)}
               overlay
             />
           ) : null}
@@ -90,12 +99,14 @@ export function SingleSlideGrid() {
                   slideId={slide.id}
                   index={idx}
                   scene={scene}
-                  selected={idx === currentSlideIndex}
+                  selected={selection.selectedSlideIds.size === 0 ? idx === currentSlideIndex : selection.selectedSlideIds.has(slide.id)}
+                  focused={idx === currentSlideIndex}
                   isLive={state === 'live'}
                   isEmpty={state === 'warning'}
-                  textPreview={slideTextPreview(elements)}
                   onActivate={activateSlide}
                   onFocus={setCurrentSlideIndex}
+                  onRangeSelect={selection.selectSlide}
+                  actionSlideIds={selection.actionSlideIds(slide.id)}
                 />
               );
             })}

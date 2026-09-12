@@ -76,7 +76,7 @@ const menuItemVariants = cv({
     base: ['w-full min-h-7 py-1 px-2 inline-flex justify-start items-center gap-2 overflow-hidden'],
     variants: {
         state: {
-            active: ['bg-brand text-white hover:bg-brand/90'],
+            active: ['bg-brand/10 text-brand hover:bg-brand/15 active:bg-brand/20'],
             inactive: ['bg-transparent text-secondary hover:bg-tertiary active:bg-secondary'],
         },
     },

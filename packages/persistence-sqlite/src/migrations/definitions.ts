@@ -2804,6 +2804,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 31, name: 'playback-schedules', up: addPlaybackSchedulesTable },
   { version: 32, name: 'theme-override-keys', up: addThemeOverrideKeysColumn },
   { version: 33, name: 'remove-talks', up: removeTalksSchema, requiresForeignKeysOff: true },
+  { version: 34, name: 'slide-tags', up: addSlideTagsSchema },
 ];
 
 // ---------------------------------------------------------------------------
@@ -3005,4 +3006,31 @@ function removeTalksSchema(db: SqliteDatabase): void {
   if (foreignKeyViolations.length > 0) {
     throw new Error(`Migration v33 left ${foreignKeyViolations.length} foreign key violation(s).`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// v34 — add slide_tags table and slide.tag_id column.
+// Project-level slide tag definitions (id, name, colorKey, order, createdAt,
+// updatedAt). Every slide gets a nullable tag_id FK. The tag is metadata only
+// and never adds canvas elements. Changing a tag color updates all assigned
+// slide captions through the snapshot immediately.
+// ---------------------------------------------------------------------------
+function addSlideTagsSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE slide_tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color_key TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slide_tags_order_index ON slide_tags(order_index);');
+
+  // Add tag_id column to slides table
+  if (!hasColumn(db, 'slides', 'tag_id')) {
+    db.exec('ALTER TABLE slides ADD COLUMN tag_id TEXT REFERENCES slide_tags(id)');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_tag_id ON slides(tag_id);');
 }

@@ -50,12 +50,6 @@ export function slideTextDetails(elements: SlideElement[]): SlideTextDetails {
   return { textElement, text: raw, primaryLine, secondaryLine };
 }
 
-export function slideTextPreview(elements: SlideElement[]): string {
-  const details = slideTextDetails(elements);
-  if (!details.text) return details.primaryLine;
-  return compactText(details.text, 72);
-}
-
 export function getSlideVisualState(index: number, liveSlideIndex: number, currentSlideIndex: number, elements: SlideElement[]): SlideVisualState {
   if (index === liveSlideIndex) return 'live';
   if (index === currentSlideIndex) return 'selected';

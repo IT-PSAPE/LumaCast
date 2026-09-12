@@ -23,6 +23,7 @@ export * from './domain/overlays';
 export * from './domain/playlists';
 export * from './domain/slide-elements';
 export * from './domain/slides';
+export * from './domain/slide-tags';
 export * from './domain/stages';
 export * from './domain/theme';
 

@@ -1,6 +1,6 @@
 import type { Id } from '@lumacast/kernel';
 import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
-import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
+import type { ItemRef, ItemType, SlideTag, ThemeOwnerType } from '@lumacast/composition';
 import type {
   CueCreateInput,
   CueUpdateInput,
@@ -16,6 +16,9 @@ import type {
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
+  SlideTagAssignInput,
+  SlideTagCreateInput,
+  SlideTagUpdateInput,
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
@@ -102,6 +105,11 @@ interface RpcMethodSignatures {
   listPlaybackSchedules: () => Promise<PlaybackSchedule[]>;
   savePlaybackSchedule: (schedule: PlaybackSchedule) => Promise<SnapshotPatch>;
   deletePlaybackSchedule: (id: Id) => Promise<SnapshotPatch>;
+  listSlideTags: () => Promise<SlideTag[]>;
+  createSlideTag: (input: SlideTagCreateInput) => Promise<SnapshotPatch>;
+  updateSlideTag: (input: SlideTagUpdateInput) => Promise<SnapshotPatch>;
+  deleteSlideTag: (id: Id) => Promise<SnapshotPatch>;
+  assignSlideTags: (input: SlideTagAssignInput) => Promise<SnapshotPatch>;
   createPlaylist: (name: string) => Promise<SnapshotPatch>;
   // Separator CRUD (decision D5): a separator is a plain divider row inside
   // the flat playlist row list — it keeps its own label and color and never
@@ -462,6 +470,11 @@ export const IPC = {
   listPlaybackSchedules: 'cast:listPlaybackSchedules',
   savePlaybackSchedule: 'cast:savePlaybackSchedule',
   deletePlaybackSchedule: 'cast:deletePlaybackSchedule',
+  listSlideTags: 'cast:listSlideTags',
+  createSlideTag: 'cast:createSlideTag',
+  updateSlideTag: 'cast:updateSlideTag',
+  deleteSlideTag: 'cast:deleteSlideTag',
+  assignSlideTags: 'cast:assignSlideTags',
   createPlaylist: 'cast:createPlaylist',
   createSeparator: 'cast:createSeparator',
   renameSeparator: 'cast:renameSeparator',

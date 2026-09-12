@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { invertPatch, type AppSnapshot, type SnapshotPatch } from '@lumacast/protocol';
+import type { SlideTagColorKey } from '@lumacast/composition';
 
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
@@ -29,6 +30,7 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
     cues: [],
     macros: [],
     triggerBindings: [],
+    slideTags: [],
     ...partial,
   };
 }
@@ -59,6 +61,17 @@ function makeMediaAsset(id: string, partial: Partial<AppSnapshot['mediaAssets'][
     createdAt: '2024-01-01T00:00:00.000Z',
     updatedAt: '2024-01-01T00:00:00.000Z',
     ...partial,
+  };
+}
+
+function makeSlideTag(id: string, name: string, colorKey: SlideTagColorKey) {
+  return {
+    id,
+    name,
+    colorKey,
+    order: 0,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
   };
 }
 
@@ -170,6 +183,25 @@ describe('app-store persistence inactivity watchdog', () => {
 });
 
 describe('app-store undo/redo persistence contract', () => {
+  it('applies slide-tag upserts and deletes to the live renderer snapshot', async () => {
+    const { useAppStore } = await loadFreshStore(makeSnapshot());
+    const tag = makeSlideTag('tag-1', 'Chorus', 'blue');
+
+    await useAppStore.getState().applyPatchLocally({
+      version: 1,
+      upserts: { slideTags: [tag] },
+      deletes: {},
+    });
+    expect(useAppStore.getState().snapshot?.slideTags).toEqual([tag]);
+
+    await useAppStore.getState().applyPatchLocally({
+      version: 1,
+      upserts: {},
+      deletes: { slideTags: ['tag-1'] },
+    });
+    expect(useAppStore.getState().snapshot?.slideTags).toEqual([]);
+  });
+
   it('uses applySnapshotPatch for patch-backed undo and redo entries', async () => {
     const before = makeSnapshot({ presentations: [makePresentation('presentation-1', 'Deck')] });
     const afterPresentation = makePresentation('presentation-1', 'Deck Renamed');

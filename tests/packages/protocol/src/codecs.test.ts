@@ -32,6 +32,9 @@ import {
   decodeSlideBackground,
   decodeSlideBackgroundUpdateInput,
   decodeSlideCreateInput,
+  decodeSlideTagAssignInput,
+  decodeSlideTagCreateInput,
+  decodeSlideTagUpdateInput,
   decodeSlideElement,
   decodeSlideElementPayload,
   decodeSlideElementPayloadJson,
@@ -1020,7 +1023,7 @@ describe('decodeAppSnapshotShape', () => {
     snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
     snapshot.playlistEntries = [
       { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
-      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', reference: { type: 'presentation', id: 'pres-1' }, presentationId: 'pres-1', lyricId: null, order: 1 },
     ];
     expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
   });
@@ -1051,6 +1054,12 @@ describe('decodeAppSnapshotShape', () => {
     const snapshot = emptySnapshot();
     snapshot.mediaAssets = [{ id: 'm-1', name: 42, type: 'image', src: 'cast-media://x' }];
     expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'mediaAssets[0].name');
+  });
+
+  it('rejects a slide tag reference supplied as a non-string value', () => {
+    const snapshot = emptySnapshot();
+    snapshot.slides = [{ id: 's-1', tagId: { id: 'tag-1' } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'slides[0].tagId');
   });
 
   it('rejects a boolean field supplied as a string', () => {
@@ -1189,7 +1198,7 @@ describe('decodeAppSnapshotShape', () => {
     snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
     snapshot.playlistEntries = [
       { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: 'blue', order: 0 },
-      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', reference: { type: 'presentation', id: 'pres-1' }, presentationId: 'pres-1', lyricId: null, order: 1 },
     ];
     snapshot.slides = [{ id: 's-1', background: { type: 'color', color: '#000' }, order: 0, notes: '', width: 1920, height: 1080 }];
     snapshot.slideElements = [{ ...textElement(), id: 'el-1', type: 'shape', payload: { fillColor: '#fff' } }];
@@ -1328,6 +1337,47 @@ describe('decodePlaybackSchedule', () => {
     expectCodecError(
       () => decodePlaybackSchedule({ ...audioSync, markers: [{ id: 'm-1', timeMs: 100, slideId: null }, { id: 'm-2', timeMs: 100, slideId: null }] }, CONTEXT),
       'timeMs',
+    );
+  });
+});
+
+describe('slide-tag codecs', () => {
+  it('accepts the separator color palette and a many-slide assignment', () => {
+    expect(decodeSlideTagCreateInput({ name: 'Chorus', colorKey: 'indigo' }, CONTEXT)).toEqual({ name: 'Chorus', colorKey: 'indigo' });
+    expect(decodeSlideTagUpdateInput({ id: 'tag-1', name: 'Bridge', colorKey: 'teal', order: 2 }, CONTEXT)).toEqual({
+      id: 'tag-1',
+      name: 'Bridge',
+      colorKey: 'teal',
+      order: 2,
+    });
+    expect(decodeSlideTagAssignInput({ slideIds: ['slide-1', 'slide-2'], tagId: 'tag-1' }, CONTEXT)).toEqual({
+      slideIds: ['slide-1', 'slide-2'],
+      tagId: 'tag-1',
+    });
+  });
+
+  it('rejects invalid colors, empty names, and duplicate assignment ids', () => {
+    expectCodecError(() => decodeSlideTagCreateInput({ name: '', colorKey: 'red' }, CONTEXT), 'name');
+    expectCodecError(() => decodeSlideTagCreateInput({ name: 'Verse', colorKey: 'purple' }, CONTEXT), 'colorKey');
+    expectCodecError(() => decodeSlideTagAssignInput({ slideIds: ['slide-1', 'slide-1'], tagId: null }, CONTEXT), 'slideIds');
+  });
+
+  it('decodes older snapshots without tags and validates tag rows when present', () => {
+    const legacy = Object.fromEntries([
+      'presentations', 'lyrics', 'slides', 'slideElements', 'mediaAssets', 'overlays',
+      'presentationThemes', 'lyricThemes', 'overlayThemes', 'stages', 'playlists',
+      'playlistEntries', 'cues', 'macros', 'triggerBindings',
+    ].map((field) => [field, []]));
+    expect(decodeAppSnapshotShape(legacy, CONTEXT).slideTags).toEqual([]);
+
+    const current = {
+      ...legacy,
+      slideTags: [{ id: 'tag-1', name: 'Verse', colorKey: 'red', order: 0, createdAt: 'now', updatedAt: 'now' }],
+    };
+    expect(() => decodeAppSnapshotShape(current, CONTEXT)).not.toThrow();
+    expectCodecError(
+      () => decodeAppSnapshotShape({ ...current, slideTags: [{ ...current.slideTags[0], colorKey: 'purple' }] }, CONTEXT),
+      'slideTags[0].colorKey',
     );
   });
 });

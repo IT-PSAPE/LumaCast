@@ -52,6 +52,7 @@ export interface Slide {
   height: number;
   notes: string;
   order: number;
+  tagId?: Id | null;
   createdAt: string;
   updatedAt: string;
 }

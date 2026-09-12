@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { SlideKind, SlideBackgroundSource, SlideElementType, SlideElementBase } from '@lumacast/composition';
+import type { SlideKind, SlideBackgroundSource, SlideElementType, SlideElementBase, SlideTagColorKey } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
   CueKind,
@@ -37,7 +37,7 @@ import type {
 // already decode/validate other wire formats. See docs/ARCHITECTURE.md
 // ("Dependency Boundaries" / "Project Backup") for the recorded rationale.
 //
-// #219 item-model refactor: format version 3 at schema version 33 contains
+// #219 item-model refactor: format version 3 at schema version 34 contains
 // presentations and lyrics only. No `libraries`, no `playlist_groups`, no
 // `collection_id`, no Talk tables/columns, and no single `themes` table: the
 // three per-owner theme tables each get their own key. Version 2 backups at
@@ -75,6 +75,7 @@ export interface ProjectBackupSlideRow {
   overlay_theme_id: Id | null;
   overlay_id: Id | null;
   stage_id: Id | null;
+  tag_id: Id | null;
   kind: SlideKind;
   width: number;
   height: number;
@@ -179,6 +180,15 @@ export interface ProjectBackupStageRow {
   updated_at: string;
 }
 
+export interface ProjectBackupSlideTagRow {
+  id: Id;
+  name: string;
+  color_key: SlideTagColorKey;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectBackupCueRow {
   id: Id;
   kind: CueKind;
@@ -254,6 +264,7 @@ export interface ProjectBackupTables {
   lyrics: ProjectBackupItemRow[];
   slides: ProjectBackupSlideRow[];
   slide_elements: ProjectBackupSlideElementRow[];
+  slide_tags: ProjectBackupSlideTagRow[];
   playlists: ProjectBackupPlaylistRow[];
   playlist_entries: ProjectBackupPlaylistEntryRow[];
   image_assets: ProjectBackupMediaAssetRow[];

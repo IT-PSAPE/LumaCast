@@ -36,6 +36,9 @@ import type {
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
+  SlideTagAssignInput,
+  SlideTagCreateInput,
+  SlideTagUpdateInput,
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
@@ -73,6 +76,9 @@ import {
   decodeSlideCreateInput,
   decodeSlideNotesUpdateInput,
   decodeSlideOrderUpdateInput,
+  decodeSlideTagAssignInput,
+  decodeSlideTagCreateInput,
+  decodeSlideTagUpdateInput,
   decodeStageCreateInput,
   decodeStageUpdateInput,
   decodeThemeCreateInput,
@@ -623,6 +629,17 @@ export const registerIpcHandlers = (
       expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deletePlaybackSchedule'));
       return repo.deletePlaybackSchedule(id);
     },
+    listSlideTags: () => repo.listSlideTags(),
+    createSlideTag: (_event, input: SlideTagCreateInput) =>
+      repo.createSlideTag(decodeSlideTagCreateInput(input, rpcContext('createSlideTag'))),
+    updateSlideTag: (_event, input: SlideTagUpdateInput) =>
+      repo.updateSlideTag(decodeSlideTagUpdateInput(input, rpcContext('updateSlideTag'))),
+    deleteSlideTag: (_event, id: Id) => {
+      expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteSlideTag'));
+      return repo.deleteSlideTag(id);
+    },
+    assignSlideTags: (_event, input: SlideTagAssignInput) =>
+      repo.assignSlideTags(decodeSlideTagAssignInput(input, rpcContext('assignSlideTags'))),
     createPlaylist: (_event, name: string) => {
       expectRpcPrimitiveArgs([name], [{ name: 'name', kind: 'string' }], rpcContext('createPlaylist'));
       return repo.createPlaylist(name);

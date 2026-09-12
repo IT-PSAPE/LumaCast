@@ -10,6 +10,7 @@ import type {
   ProjectBackupPlaylistRow,
   ProjectBackupSlideElementRow,
   ProjectBackupSlideRow,
+  ProjectBackupSlideTagRow,
   ProjectBackupStageRow,
   ProjectBackupTables,
   ProjectBackupThemeRow,
@@ -23,7 +24,7 @@ import type {
   TriggerBindingTargetType,
   TriggerType,
 } from '@lumacast/automation';
-import type { SlideBackgroundSource, SlideElement, SlideKind } from '@lumacast/composition';
+import type { SlideBackgroundSource, SlideElement, SlideKind, SlideTagColorKey } from '@lumacast/composition';
 import type { SqliteDatabase } from './sqlite';
 
 // #219 item-model refactor (wave K): pure row-projection reads for the
@@ -58,7 +59,7 @@ function readProjectBackupItems(db: SqliteDatabase, table: ItemTableName): Proje
 function readProjectBackupSlides(db: SqliteDatabase): ProjectBackupSlideRow[] {
   const rows = db
     .prepare(
-      `SELECT id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height,
+      `SELECT id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, tag_id, kind, width, height,
               notes, background_json, background_source, order_index, created_at, updated_at
        FROM slides
        ORDER BY created_at ASC, id ASC`,
@@ -72,6 +73,7 @@ function readProjectBackupSlides(db: SqliteDatabase): ProjectBackupSlideRow[] {
     overlay_theme_id: string | null;
     overlay_id: string | null;
     stage_id: string | null;
+    tag_id: string | null;
     kind: SlideKind;
     width: number;
     height: number;
@@ -92,12 +94,39 @@ function readProjectBackupSlides(db: SqliteDatabase): ProjectBackupSlideRow[] {
     overlay_theme_id: row.overlay_theme_id,
     overlay_id: row.overlay_id,
     stage_id: row.stage_id,
+    tag_id: row.tag_id,
     kind: row.kind,
     width: row.width,
     height: row.height,
     notes: row.notes,
     background_json: row.background_json,
     background_source: row.background_source as SlideBackgroundSource | null,
+    order_index: row.order_index,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+}
+
+function readProjectBackupSlideTags(db: SqliteDatabase): ProjectBackupSlideTagRow[] {
+  const rows = db
+    .prepare(
+      `SELECT id, name, color_key, order_index, created_at, updated_at
+       FROM slide_tags
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all() as Array<{
+      id: string;
+      name: string;
+      color_key: SlideTagColorKey;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    color_key: row.color_key,
     order_index: row.order_index,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -455,6 +484,7 @@ export function buildProjectBackupTables(db: SqliteDatabase): ProjectBackupTable
     lyrics: readProjectBackupItems(db, 'lyrics'),
     slides: readProjectBackupSlides(db),
     slide_elements: readProjectBackupSlideElements(db),
+    slide_tags: readProjectBackupSlideTags(db),
     playlists: readProjectBackupPlaylists(db),
     playlist_entries: readProjectBackupPlaylistEntries(db),
     image_assets: readProjectBackupMediaAssets(db, 'image_assets'),

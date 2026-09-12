@@ -5,6 +5,7 @@ import type {
   SlideElementBase,
   SlideElementPayload,
   SlideElement,
+  SlideTagColorKey,
   MediaAssetType,
   OverlayAnimation,
   ThemeOwnerType,
@@ -209,4 +210,21 @@ export interface BundleExportOptions {
   includeOverlays?: boolean;
   includeStages?: boolean;
   playlistIds?: Id[];
+}
+
+export interface SlideTagCreateInput {
+  name: string;
+  colorKey: SlideTagColorKey;
+}
+
+export interface SlideTagUpdateInput {
+  id: Id;
+  name?: string;
+  colorKey?: SlideTagColorKey;
+  order?: number;
+}
+
+export interface SlideTagAssignInput {
+  slideIds: Id[];
+  tagId: Id | null;
 }

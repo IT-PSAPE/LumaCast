@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { SingleSlideGrid } from '../../../../../app/renderer/features/items/single-slide-grid';
 
 const mocks = vi.hoisted(() => ({
@@ -78,7 +78,24 @@ vi.mock('@renderer/components/layout/scroll-area', async () => {
 });
 
 vi.mock('../../../../../app/renderer/features/items/sortable-slide-grid-tile', () => ({
-  SortableSlideGridTile: ({ slideId }: { slideId: string }) => <div>{slideId}</div>,
+  SortableSlideGridTile: ({ slideId, index, selected, onRangeSelect, onActivate }: {
+    slideId: string;
+    index: number;
+    selected: boolean;
+    onRangeSelect: (index: number, extend: boolean) => void;
+    onActivate: (index: number) => void;
+  }) => (
+    <button
+      type="button"
+      data-selected={selected ? 'true' : 'false'}
+      onClick={(event) => {
+        onRangeSelect(index, event.shiftKey);
+        if (!event.shiftKey) onActivate(index);
+      }}
+    >
+      {slideId}
+    </button>
+  ),
 }));
 
 vi.mock('../../../../../app/renderer/features/items/slide-grid-tile', () => ({
@@ -121,5 +138,34 @@ describe('SingleSlideGrid', () => {
     const virtualizedKeyboard = (mocks.rootProps as { virtualizedKeyboard: { scrollToIndex: (index: number) => void } }).virtualizedKeyboard;
     virtualizedKeyboard.scrollToIndex(17);
     expect(mocks.scrollToIndex).toHaveBeenLastCalledWith(5, { align: 'auto' });
+  });
+
+  it('extends selection in document order without activating the Shift-clicked slide', () => {
+    const activateSlide = vi.fn();
+    mocks.navigation.value = {
+      currentItemRef: { type: 'presentation', id: 'item-1' },
+      currentOutputItemRef: { type: 'presentation', id: 'item-1' },
+      isDetachedDeckBrowser: false,
+    };
+    mocks.slides.value = {
+      slides: Array.from({ length: 4 }, (_, index) => ({ id: `slide-${index}` })),
+      currentSlideIndex: 0,
+      liveSlideIndex: -1,
+      slideElementsById: new Map(),
+      activateSlide,
+      setCurrentSlideIndex: vi.fn(),
+      reorderSlide: vi.fn(),
+    };
+    mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
+    mocks.deckBrowser.value = { gridItemSize: 3 };
+
+    render(<SingleSlideGrid />);
+    fireEvent.click(screen.getByRole('button', { name: 'slide-0' }));
+    fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { shiftKey: true });
+
+    expect(activateSlide).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'slide-2' }).getAttribute('data-selected')).toBe('true');
   });
 });

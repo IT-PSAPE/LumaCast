@@ -146,6 +146,13 @@ describe('ipc contract: RPC operations invoke, never send', () => {
     await (exposedApi().renamePlaylist as (id: string, name: string) => Promise<unknown>)('playlist-1', 'New Playlist');
     expect(invoke).toHaveBeenCalledWith(IPC.renamePlaylist, 'playlist-1', 'New Playlist');
   });
+
+  it('routes slide-tag assignment through its canonical invoke channel', async () => {
+    const input = { slideIds: ['slide-1', 'slide-2'], tagId: 'tag-1' };
+    await (exposedApi().assignSlideTags as (value: typeof input) => Promise<unknown>)(input);
+    expect(invoke).toHaveBeenCalledWith(IPC.assignSlideTags, input);
+    expect(send).not.toHaveBeenCalled();
+  });
 });
 
 describe('ipc contract: events subscribe/unsubscribe, never invoke', () => {

@@ -18,6 +18,7 @@ function makeBackup(playlists: ProjectBackupTables['playlists'] = []): ProjectBa
       lyrics: [],
       slides: [],
       slide_elements: [],
+      slide_tags: [],
       playlists,
       playlist_entries: [],
       image_assets: [],
@@ -52,6 +53,40 @@ describe('validateProjectBackupAsync', () => {
     const backup = makeBackup([makePlaylistRow(0)]);
 
     await expect(validateProjectBackupAsync(backup)).resolves.toBe(backup);
+  });
+
+  it('normalizes a pre-tag v3/schema-33 backup with empty tags and null slide assignments', async () => {
+    const backup = makeBackup();
+    backup.tables.slides.push({
+      id: 'slide-1',
+      presentation_id: 'presentation-1',
+      lyric_id: null,
+      presentation_theme_id: null,
+      lyric_theme_id: null,
+      overlay_theme_id: null,
+      overlay_id: null,
+      stage_id: null,
+      tag_id: null,
+      kind: 'presentation',
+      width: 1920,
+      height: 1080,
+      notes: '',
+      background_json: null,
+      background_source: null,
+      order_index: 0,
+      created_at: '2026-08-22T00:00:00.000Z',
+      updated_at: '2026-08-22T00:00:00.000Z',
+    });
+    const legacyTables = JSON.parse(JSON.stringify(backup.tables)) as Record<string, unknown>;
+    delete legacyTables.slide_tags;
+    legacyTables.slides = (legacyTables.slides as Array<Record<string, unknown>>).map(({ tag_id: _tagId, ...slide }) => slide);
+    const legacy = { ...backup, schemaVersion: 33, tables: legacyTables };
+
+    const normalized = validateProjectBackup(legacy);
+    await expect(validateProjectBackupAsync(legacy)).resolves.toEqual(normalized);
+    expect(normalized.schemaVersion).toBe(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION);
+    expect(normalized.tables.slide_tags).toEqual([]);
+    expect(normalized.tables.slides[0].tag_id).toBeNull();
   });
 
   it('rejects a malformed row with the synchronous validator message', async () => {
@@ -92,6 +127,7 @@ describe('validateProjectBackupAsync', () => {
       overlay_theme_id: null,
       overlay_id: null,
       stage_id: null,
+      tag_id: null,
       kind: 'presentation',
       width: 1920,
       height: 1080,

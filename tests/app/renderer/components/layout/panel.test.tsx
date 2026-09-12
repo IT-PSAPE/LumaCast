@@ -112,4 +112,13 @@ describe('LumaCastPanel', () => {
     expect(node?.tagName).toBe('BUTTON');
     expect(node?.classList.contains('custom-menu-item')).toBe(true);
   });
+
+  it('uses a subtle brand tint and brand text for active menu items', () => {
+    render(<LumaCastPanel.MenuItem active>Selected item</LumaCastPanel.MenuItem>);
+    const node = document.querySelector('button');
+    expect(node?.classList.contains('bg-brand/10')).toBe(true);
+    expect(node?.classList.contains('text-brand')).toBe(true);
+    expect(node?.classList.contains('bg-brand')).toBe(false);
+    expect(node?.classList.contains('text-white')).toBe(false);
+  });
 });

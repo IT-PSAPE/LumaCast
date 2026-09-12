@@ -11,6 +11,7 @@ import type {
   PresentationTheme,
   Slide,
   SlideElement,
+  SlideTag,
   Stage,
 } from '@lumacast/composition';
 import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
@@ -59,6 +60,7 @@ export interface SnapshotPatch {
     macros?: Macro[];
     triggerBindings?: TriggerBinding[];
     playbackSchedules?: PlaybackSchedule[];
+    slideTags?: SlideTag[];
   };
   deletes: {
     presentations?: Id[];
@@ -77,6 +79,7 @@ export interface SnapshotPatch {
     macros?: Id[];
     triggerBindings?: Id[];
     playbackSchedules?: Id[];
+    slideTags?: Id[];
   };
 }
 
@@ -96,7 +99,8 @@ type SnapshotTableKey =
   | 'cues'
   | 'macros'
   | 'triggerBindings'
-  | 'playbackSchedules';
+  | 'playbackSchedules'
+  | 'slideTags';
 
 type SnapshotTableRecordMap = {
   presentations: Presentation;
@@ -115,6 +119,7 @@ type SnapshotTableRecordMap = {
   macros: Macro;
   triggerBindings: TriggerBinding;
   playbackSchedules: PlaybackSchedule;
+  slideTags: SlideTag;
 };
 
 // ─── Utilities ──────────────────────────────────────────────────────
@@ -148,6 +153,7 @@ export function applyPatch(snapshot: AppSnapshot, patch: SnapshotPatch): AppSnap
     macros: mergeTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros),
     triggerBindings: mergeTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings),
     playbackSchedules: mergeTable(snapshot.playbackSchedules ?? [], patch.upserts.playbackSchedules, patch.deletes.playbackSchedules),
+    slideTags: mergeTable(snapshot.slideTags ?? [], patch.upserts.slideTags, patch.deletes.slideTags),
   };
   return next;
 }
@@ -177,6 +183,7 @@ export function invertPatch(snapshot: AppSnapshot, patch: SnapshotPatch): Snapsh
   invertTable(snapshot.macros, patch.upserts.macros, patch.deletes.macros, inverse, 'macros');
   invertTable(snapshot.triggerBindings, patch.upserts.triggerBindings, patch.deletes.triggerBindings, inverse, 'triggerBindings');
   invertTable(snapshot.playbackSchedules ?? [], patch.upserts.playbackSchedules, patch.deletes.playbackSchedules, inverse, 'playbackSchedules');
+  invertTable(snapshot.slideTags ?? [], patch.upserts.slideTags, patch.deletes.slideTags, inverse, 'slideTags');
 
   return inverse;
 }
@@ -294,6 +301,9 @@ function appendInverseUpsert<K extends SnapshotTableKey>(
     case 'playbackSchedules':
       inverse.upserts.playbackSchedules = [...(inverse.upserts.playbackSchedules ?? []), value as PlaybackSchedule];
       return;
+    case 'slideTags':
+      inverse.upserts.slideTags = [...(inverse.upserts.slideTags ?? []), value as SlideTag];
+      return;
   }
 }
 
@@ -346,6 +356,9 @@ function appendInverseDelete(inverse: SnapshotPatch, key: SnapshotTableKey, id: 
       return;
     case 'playbackSchedules':
       inverse.deletes.playbackSchedules = [...(inverse.deletes.playbackSchedules ?? []), id];
+      return;
+    case 'slideTags':
+      inverse.deletes.slideTags = [...(inverse.deletes.slideTags ?? []), id];
       return;
   }
 }

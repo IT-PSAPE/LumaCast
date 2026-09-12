@@ -113,6 +113,7 @@ function clearAllTables(db: SqliteDatabase): void {
     DELETE FROM playlist_entries;
     DELETE FROM playlists;
     DELETE FROM slides;
+    DELETE FROM slide_tags;
     DELETE FROM overlays;
     DELETE FROM stages;
     DELETE FROM presentation_themes;
@@ -151,6 +152,9 @@ function seedMaximalFixture(db: SqliteDatabase): void {
   db.prepare('INSERT INTO stages (id, name, width, height, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run('stage-2', 'Stage Left', 1920, 1080, 1, T1, T1);
 
+  db.prepare('INSERT INTO slide_tags (id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('tag-1', 'Chorus', 'blue', 0, T2, T2);
+
   db.prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
     .run('pl-1', 'Sunday Service', 0, T0, T0);
   db.prepare('INSERT INTO playlists (id, name, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
@@ -158,18 +162,18 @@ function seedMaximalFixture(db: SqliteDatabase): void {
 
   const insertSlide = db.prepare(
     `INSERT INTO slides
-       (id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, tag_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
-  insertSlide.run('ptheme-1:slide', null, null, 'ptheme-1', null, null, null, null, 'presentationTheme', 1920, 1080, '', JSON.stringify(PTHEME_BACKGROUND), null, 0, T0, T0);
-  insertSlide.run('ltheme-1:slide', null, null, null, 'ltheme-1', null, null, null, 'lyricTheme', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'local', 0, T1, T1);
-  insertSlide.run('otheme-1:slide', null, null, null, null, 'otheme-1', null, null, 'overlayTheme', 1280, 720, '', null, 'local', 0, T3, T3);
-  insertSlide.run('overlay-1:slide', null, null, null, null, null, 'overlay-1', null, 'overlay', 1920, 1080, '', JSON.stringify(OVERLAY_SLIDE_BACKGROUND), 'local', 0, T4, T4);
-  insertSlide.run('stage-1:slide', null, null, null, null, null, null, 'stage-1', 'stage', 1920, 1080, '', null, 'local', 0, T5, T5);
-  insertSlide.run('stage-2:slide', null, null, null, null, null, null, 'stage-2', 'stage', 1920, 1080, '', null, 'local', 0, T6, T6);
-  insertSlide.run('slide-pres-1', 'pres-1', null, null, null, null, null, null, 'presentation', 1920, 1080, 'Announcement intro', JSON.stringify(PTHEME_BACKGROUND), 'theme', 0, T7, T7);
-  insertSlide.run('slide-pres-2', 'pres-1', null, null, null, null, null, null, 'presentation', 1920, 1080, '', JSON.stringify(GRADIENT_BACKGROUND), 'local', 1, T8, T8);
-  insertSlide.run('slide-lyric-1', null, 'lyric-1', null, null, null, null, null, 'lyric', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'theme', 0, T9, T9);
+  insertSlide.run('ptheme-1:slide', null, null, 'ptheme-1', null, null, null, null, null, 'presentationTheme', 1920, 1080, '', JSON.stringify(PTHEME_BACKGROUND), null, 0, T0, T0);
+  insertSlide.run('ltheme-1:slide', null, null, null, 'ltheme-1', null, null, null, null, 'lyricTheme', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'local', 0, T1, T1);
+  insertSlide.run('otheme-1:slide', null, null, null, null, 'otheme-1', null, null, null, 'overlayTheme', 1280, 720, '', null, 'local', 0, T3, T3);
+  insertSlide.run('overlay-1:slide', null, null, null, null, null, 'overlay-1', null, null, 'overlay', 1920, 1080, '', JSON.stringify(OVERLAY_SLIDE_BACKGROUND), 'local', 0, T4, T4);
+  insertSlide.run('stage-1:slide', null, null, null, null, null, null, 'stage-1', null, 'stage', 1920, 1080, '', null, 'local', 0, T5, T5);
+  insertSlide.run('stage-2:slide', null, null, null, null, null, null, 'stage-2', null, 'stage', 1920, 1080, '', null, 'local', 0, T6, T6);
+  insertSlide.run('slide-pres-1', 'pres-1', null, null, null, null, null, null, 'tag-1', 'presentation', 1920, 1080, 'Announcement intro', JSON.stringify(PTHEME_BACKGROUND), 'theme', 0, T7, T7);
+  insertSlide.run('slide-pres-2', 'pres-1', null, null, null, null, null, null, null, 'presentation', 1920, 1080, '', JSON.stringify(GRADIENT_BACKGROUND), 'local', 1, T8, T8);
+  insertSlide.run('slide-lyric-1', null, 'lyric-1', null, null, null, null, null, null, 'lyric', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'theme', 0, T9, T9);
 
   db.prepare(
     'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -280,15 +284,15 @@ const EXPECTED_TABLES: ProjectBackupTables = {
     { id: 'lyric-1', title: 'Great Is Thy Faithfulness', theme_id: 'ltheme-1', order_index: 0, created_at: T0, updated_at: T0 },
   ],
   slides: [
-    { id: 'ptheme-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: 'ptheme-1', lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, kind: 'presentationTheme', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(PTHEME_BACKGROUND), background_source: null, order_index: 0, created_at: T0, updated_at: T0 },
-    { id: 'ltheme-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: 'ltheme-1', overlay_theme_id: null, overlay_id: null, stage_id: null, kind: 'lyricTheme', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(LTHEME_BACKGROUND), background_source: 'local', order_index: 0, created_at: T1, updated_at: T1 },
-    { id: 'otheme-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: 'otheme-1', overlay_id: null, stage_id: null, kind: 'overlayTheme', width: 1280, height: 720, notes: '', background_json: null, background_source: 'local', order_index: 0, created_at: T3, updated_at: T3 },
-    { id: 'overlay-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: 'overlay-1', stage_id: null, kind: 'overlay', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(OVERLAY_SLIDE_BACKGROUND), background_source: 'local', order_index: 0, created_at: T4, updated_at: T4 },
-    { id: 'stage-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: 'stage-1', kind: 'stage', width: 1920, height: 1080, notes: '', background_json: null, background_source: 'local', order_index: 0, created_at: T5, updated_at: T5 },
-    { id: 'stage-2:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: 'stage-2', kind: 'stage', width: 1920, height: 1080, notes: '', background_json: null, background_source: 'local', order_index: 0, created_at: T6, updated_at: T6 },
-    { id: 'slide-pres-1', presentation_id: 'pres-1', lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, kind: 'presentation', width: 1920, height: 1080, notes: 'Announcement intro', background_json: JSON.stringify(PTHEME_BACKGROUND), background_source: 'theme', order_index: 0, created_at: T7, updated_at: T7 },
-    { id: 'slide-pres-2', presentation_id: 'pres-1', lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, kind: 'presentation', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(GRADIENT_BACKGROUND), background_source: 'local', order_index: 1, created_at: T8, updated_at: T8 },
-    { id: 'slide-lyric-1', presentation_id: null, lyric_id: 'lyric-1', presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, kind: 'lyric', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(LTHEME_BACKGROUND), background_source: 'theme', order_index: 0, created_at: T9, updated_at: T9 },
+    { id: 'ptheme-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: 'ptheme-1', lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, tag_id: null, kind: 'presentationTheme', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(PTHEME_BACKGROUND), background_source: null, order_index: 0, created_at: T0, updated_at: T0 },
+    { id: 'ltheme-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: 'ltheme-1', overlay_theme_id: null, overlay_id: null, stage_id: null, tag_id: null, kind: 'lyricTheme', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(LTHEME_BACKGROUND), background_source: 'local', order_index: 0, created_at: T1, updated_at: T1 },
+    { id: 'otheme-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: 'otheme-1', overlay_id: null, stage_id: null, tag_id: null, kind: 'overlayTheme', width: 1280, height: 720, notes: '', background_json: null, background_source: 'local', order_index: 0, created_at: T3, updated_at: T3 },
+    { id: 'overlay-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: 'overlay-1', stage_id: null, tag_id: null, kind: 'overlay', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(OVERLAY_SLIDE_BACKGROUND), background_source: 'local', order_index: 0, created_at: T4, updated_at: T4 },
+    { id: 'stage-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: 'stage-1', tag_id: null, kind: 'stage', width: 1920, height: 1080, notes: '', background_json: null, background_source: 'local', order_index: 0, created_at: T5, updated_at: T5 },
+    { id: 'stage-2:slide', presentation_id: null, lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: 'stage-2', tag_id: null, kind: 'stage', width: 1920, height: 1080, notes: '', background_json: null, background_source: 'local', order_index: 0, created_at: T6, updated_at: T6 },
+    { id: 'slide-pres-1', presentation_id: 'pres-1', lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, tag_id: 'tag-1', kind: 'presentation', width: 1920, height: 1080, notes: 'Announcement intro', background_json: JSON.stringify(PTHEME_BACKGROUND), background_source: 'theme', order_index: 0, created_at: T7, updated_at: T7 },
+    { id: 'slide-pres-2', presentation_id: 'pres-1', lyric_id: null, presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, tag_id: null, kind: 'presentation', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(GRADIENT_BACKGROUND), background_source: 'local', order_index: 1, created_at: T8, updated_at: T8 },
+    { id: 'slide-lyric-1', presentation_id: null, lyric_id: 'lyric-1', presentation_theme_id: null, lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, tag_id: null, kind: 'lyric', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(LTHEME_BACKGROUND), background_source: 'theme', order_index: 0, created_at: T9, updated_at: T9 },
   ],
   slide_elements: [
     { id: 'pt-elem-1', slide_id: 'ptheme-1:slide', type: 'text', x: 100, y: 100, width: 800, height: 60, rotation: 0, opacity: 1, z_index: 2, layer: 'content', payload_json: JSON.stringify(PTHEME_TEXT_PAYLOAD), theme_override_keys_json: null, source_theme_element_id: null, created_at: T0, updated_at: T0 },
@@ -300,6 +304,9 @@ const EXPECTED_TABLES: ProjectBackupTables = {
     { id: 'elem-pres-2', slide_id: 'slide-pres-1', type: 'image', x: 10, y: 10, width: 200, height: 200, rotation: 0, opacity: 0.8, z_index: 5, layer: 'media', payload_json: JSON.stringify(IMAGE_PAYLOAD), theme_override_keys_json: null, source_theme_element_id: null, created_at: T7, updated_at: T7 },
     { id: 'elem-pres-3', slide_id: 'slide-pres-2', type: 'shape', x: 0, y: 0, width: 1920, height: 1080, rotation: 0, opacity: 1, z_index: 1, layer: 'background', payload_json: JSON.stringify(SHAPE_PAYLOAD), theme_override_keys_json: null, source_theme_element_id: null, created_at: T8, updated_at: T8 },
     { id: 'elem-lyric-1', slide_id: 'slide-lyric-1', type: 'text', x: 100, y: 100, width: 900, height: 60, rotation: 0, opacity: 1, z_index: 10, layer: 'content', payload_json: JSON.stringify(RICH_PAYLOAD), theme_override_keys_json: null, source_theme_element_id: 'lt-elem-1', created_at: T9, updated_at: T9 },
+  ],
+  slide_tags: [
+    { id: 'tag-1', name: 'Chorus', color_key: 'blue', order_index: 0, created_at: T2, updated_at: T2 },
   ],
   playlists: [
     { id: 'pl-1', name: 'Sunday Service', order_index: 0, created_at: T0, updated_at: T0 },
@@ -380,7 +387,7 @@ afterEach(() => {
 });
 
 describe('project backup serialization (#145, backup v3)', () => {
-  it('produces the exact expected document for the maximally populated fixture (envelope + all 19 tables)', () => {
+  it('produces the exact expected document for the maximally populated fixture', () => {
     const backup = repo.exportProjectBackup();
 
     expect(backup).toEqual({
@@ -522,7 +529,7 @@ describe('project backup validation (#145, backup v3)', () => {
   it('keeps the core-supported schema version in lockstep with the database migrations', () => {
     expect(PROJECT_BACKUP_VERSION).toBe(3);
     expect(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION).toBe(LATEST_SCHEMA_VERSION);
-    expect(LATEST_SCHEMA_VERSION).toBe(33);
+    expect(LATEST_SCHEMA_VERSION).toBe(34);
   });
 
   it('rejects a v1/schema-22 backup with an explicit "older app version" message, not a silent/generic failure', () => {
@@ -639,6 +646,9 @@ describe('project backup validation (#145, backup v3)', () => {
     const badEnum = { ...backup, tables: { ...backup.tables, slides: [{ ...backup.tables.slides[0], kind: 'banana' }] } };
     expect(() => validateProjectBackup(badEnum)).toThrow(/slides\[0\]\.kind must be one of/);
 
+    const badTagColor = { ...backup, tables: { ...backup.tables, slide_tags: [{ ...backup.tables.slide_tags[0], color_key: 'banana' }] } };
+    expect(() => validateProjectBackup(badTagColor)).toThrow(/slide_tags\[0\]\.color_key must be one of/);
+
     const badFlag = { ...backup, tables: { ...backup.tables, overlays: [{ ...backup.tables.overlays[0], enabled: 2 }] } };
     expect(() => validateProjectBackup(badFlag)).toThrow(/overlays\[0\]\.enabled must be 0 or 1/);
 
@@ -649,7 +659,7 @@ describe('project backup validation (#145, backup v3)', () => {
     expect(() => validateProjectBackup(badType)).toThrow(/playlists\[0\]\.order_index must be a finite number/);
   });
 
-  it('rejects slide rows without exactly one of the nine owners (mirroring the schema CHECK)', () => {
+  it('rejects slide rows without exactly one of the seven owners (mirroring the schema CHECK)', () => {
     const backup = repo.exportProjectBackup();
 
     const noOwner = { ...backup, tables: { ...backup.tables, slides: [{ ...backup.tables.slides[0], presentation_theme_id: null }] } };

@@ -64,6 +64,7 @@ function clearAllTables(db: SqliteDatabase): void {
     DELETE FROM playlist_entries;
     DELETE FROM playlists;
     DELETE FROM slides;
+    DELETE FROM slide_tags;
     DELETE FROM overlays;
     DELETE FROM stages;
     DELETE FROM presentation_themes;
@@ -117,6 +118,10 @@ function seedMaximalFixture(db: SqliteDatabase): void {
   insertSlide.run('slide-pres-1', 'pres-1', null, null, null, null, null, null, 'presentation', 1920, 1080, 'Announcement intro', JSON.stringify(PTHEME_BACKGROUND), 'theme', 0, T4, T4);
   insertSlide.run('slide-pres-2', 'pres-1', null, null, null, null, null, null, 'presentation', 1920, 1080, '', JSON.stringify(GRADIENT_BACKGROUND), 'local', 1, T4, T4);
   insertSlide.run('slide-lyric-1', null, 'lyric-1', null, null, null, null, null, 'lyric', 1920, 1080, '', JSON.stringify(LTHEME_BACKGROUND), 'theme', 0, T4, T4);
+
+  db.prepare('INSERT INTO slide_tags (id, name, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('tag-1', 'Chorus', 'blue', 0, T2, T2);
+  db.prepare('UPDATE slides SET tag_id = ? WHERE id = ?').run('tag-1', 'slide-pres-1');
 
   db.prepare(
     'INSERT INTO playlist_entries (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -207,11 +212,12 @@ function mutateBackup(backup: ProjectBackup, mutate: (tables: ProjectBackupTable
 
 function buildLegacyProjectBackupV2(current: ProjectBackup): ProjectBackup {
   const tables = JSON.parse(JSON.stringify(current.tables)) as Record<string, Array<Record<string, unknown>>>;
-  tables.slides = tables.slides.map((slide) => ({
+  tables.slides = tables.slides.map(({ tag_id: _tagId, ...slide }) => ({
     ...slide,
     talk_id: null,
     talk_theme_id: null,
   }));
+  delete tables.slide_tags;
   tables.playlist_entries = tables.playlist_entries.map((entry) => ({ ...entry, talk_id: null }));
   tables.talks = [{ id: 'legacy-talk', title: 'Legacy Talk', theme_id: 'legacy-talk-theme', order_index: 0, created_at: T0, updated_at: T0 }];
   tables.talk_themes = [{ id: 'legacy-talk-theme', name: 'Legacy Talk Theme', width: 1920, height: 1080, order_index: 0, created_at: T0, updated_at: T0 }];
@@ -331,7 +337,7 @@ describe('project recovery restore (#146, backup v3)', () => {
 
     const reExported = repo.exportProjectBackup();
     expect(reExported.version).toBe(3);
-    expect(reExported.schemaVersion).toBe(33);
+    expect(reExported.schemaVersion).toBe(34);
   });
 
   it('preserves explicit and intentionally empty override metadata from schema-32 backups', () => {
@@ -461,6 +467,13 @@ describe('project recovery restore (#146, backup v3)', () => {
     it('rejects an optional reference to a missing theme (presentations.theme_id)', () => {
       const backup = mutateBackup(repo.exportProjectBackup(), (tables) => {
         tables.presentations[0].theme_id = 'ghost-theme';
+      });
+      expectUntouchedActive(() => repo.restoreProjectBackup(backup));
+    });
+
+    it('rejects a slide tag reference whose definition is missing', () => {
+      const backup = mutateBackup(repo.exportProjectBackup(), (tables) => {
+        tables.slides.find((slide) => slide.id === 'slide-pres-1')!.tag_id = 'ghost-tag';
       });
       expectUntouchedActive(() => repo.restoreProjectBackup(backup));
     });
@@ -743,7 +756,7 @@ describe('legacy (v1) project backup import (#219 item-model refactor, wave K)',
     // document at the current schema version.
     const reExported = legacyRepo.exportProjectBackup();
     expect(reExported.version).toBe(3);
-    expect(reExported.schemaVersion).toBe(33);
+    expect(reExported.schemaVersion).toBe(34);
   });
 
   it('rejects a v1 document with an unsupported legacy schema version, naming it as an older app version', () => {

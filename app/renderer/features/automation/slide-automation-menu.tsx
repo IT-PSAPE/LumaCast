@@ -4,7 +4,7 @@ import { ContextMenu } from '@renderer/components/overlays/context-menu';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useAutomation } from './automation-context';
 
-export function SlideAutomationMenu({ slideId }: { slideId: Id }) {
+export function SlideAutomationMenu({ slideId, slideIds }: { slideId?: Id; slideIds?: Id[] }) {
   const {
     state: { macros, isLoading },
     actions: { ensureCue, createBinding },
@@ -14,15 +14,18 @@ export function SlideAutomationMenu({ slideId }: { slideId: Id }) {
   const images = mediaAssets.filter((asset) => asset.type === 'image');
   const videos = mediaAssets.filter((asset) => asset.type === 'video');
   const audios = mediaAssets.filter((asset) => asset.type === 'audio');
+  const sourceIds = slideIds ?? (slideId ? [slideId] : []);
 
   async function bindCue(input: { kind: CueKind; payload: CuePayload }) {
     const cue = await ensureCue({ kind: input.kind, payload: input.payload });
-    await createBinding({
-      triggerType: 'slide.activate',
-      sourceId: slideId,
-      targetType: 'cue',
-      targetId: cue.id,
-    });
+    for (const sourceId of sourceIds) {
+      await createBinding({
+        triggerType: 'slide.activate',
+        sourceId,
+        targetType: 'cue',
+        targetId: cue.id,
+      });
+    }
   }
 
   if (isLoading) {
@@ -152,12 +155,16 @@ export function SlideAutomationMenu({ slideId }: { slideId: Id }) {
           <ContextMenu.Item
             key={`macro:${macro.id}`}
             onSelect={() => {
-              void createBinding({
-                triggerType: 'slide.activate',
-                sourceId: slideId,
-                targetType: 'macro',
-                targetId: macro.id,
-              });
+              void (async () => {
+                for (const sourceId of sourceIds) {
+                  await createBinding({
+                    triggerType: 'slide.activate',
+                    sourceId,
+                    targetType: 'macro',
+                    targetId: macro.id,
+                  });
+                }
+              })();
             }}
           >
             {macro.name}

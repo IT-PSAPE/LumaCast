@@ -134,6 +134,7 @@ function emptySnapshot() {
     cues: [],
     macros: [],
     triggerBindings: [],
+    slideTags: [],
   };
 }
 
@@ -190,8 +191,8 @@ describe('main IPC registration (issue #152)', () => {
   it('registers a handler for every operation in the canonical map (missing-registration regression)', () => {
     const missing = RPC_CHANNEL_NAMES.filter((name) => !handleRegistrations.has(IPC[name]));
     expect(missing, `missing ipcMain.handle registration for: ${missing.join(', ')}`).toEqual([]);
-    // Sanity: this is the full 107-operation surface, not a partial list.
-    expect(RPC_CHANNEL_NAMES.length).toBe(107);
+    // Sanity: this is the full operation surface, not a partial list.
+    expect(RPC_CHANNEL_NAMES.length).toBe(104);
   });
 
   it('registers nothing outside the canonical map (extra-registration regression)', () => {
@@ -394,6 +395,39 @@ describe('main IPC registration (issue #152)', () => {
     );
 
     consoleErrorSpy.mockRestore();
+  });
+
+  it('validates slide-tag mutations before forwarding them to persistence', async () => {
+    repositoryMethods.createSlideTag = vi.fn(async () => ({
+      version: 1,
+      upserts: { slideTags: [] },
+      deletes: {},
+    }));
+    repositoryMethods.assignSlideTags = vi.fn(async () => ({
+      version: 1,
+      upserts: { slides: [] },
+      deletes: {},
+    }));
+
+    const create = handleRegistrations.get(IPC.createSlideTag);
+    const assign = handleRegistrations.get(IPC.assignSlideTags);
+    expect(create).toBeDefined();
+    expect(assign).toBeDefined();
+
+    await expect(create!(fakeEvent(), { name: '', colorKey: 'blue' })).rejects.toThrow(/createSlideTag.*name/);
+    expect(repositoryMethods.createSlideTag).not.toHaveBeenCalled();
+
+    await create!(fakeEvent(), { name: 'Chorus', colorKey: 'blue' });
+    expect(repositoryMethods.createSlideTag).toHaveBeenCalledWith({ name: 'Chorus', colorKey: 'blue' });
+
+    await expect(assign!(fakeEvent(), { slideIds: ['slide-1', 'slide-1'], tagId: 'tag-1' })).rejects.toThrow(/assignSlideTags.*duplicate/);
+    expect(repositoryMethods.assignSlideTags).not.toHaveBeenCalled();
+
+    await assign!(fakeEvent(), { slideIds: ['slide-1', 'slide-2'], tagId: null });
+    expect(repositoryMethods.assignSlideTags).toHaveBeenCalledWith({
+      slideIds: ['slide-1', 'slide-2'],
+      tagId: null,
+    });
   });
 
   it('does not split a media deletion into separately interleavable repository calls', async () => {

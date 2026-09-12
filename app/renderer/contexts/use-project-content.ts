@@ -14,6 +14,7 @@ import type {
   Slide,
   SlideBackground,
   SlideElement,
+  SlideTag,
   Stage,
   ThemeOwnerType,
 } from '@lumacast/composition';
@@ -61,6 +62,7 @@ interface ProjectContent {
   presentations: Presentation[];
   lyrics: Lyric[];
   slides: Slide[];
+  slideTags: SlideTag[];
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
@@ -77,6 +79,7 @@ interface ProjectContent {
   lyricsById: ReadonlyMap<Id, Lyric>;
   slidesByItem: ReadonlyMap<string, Slide[]>;
   slideElementsBySlideId: ReadonlyMap<Id, SlideElement[]>;
+  slideTagsById: ReadonlyMap<Id, SlideTag>;
   /**
    * Live inherited-theme resolution of `slideElementsBySlideId`: linked
    * presentation and lyric slides resolve current theme styling — backed
@@ -181,6 +184,7 @@ export function useProjectContent(): ProjectContent {
     presentations: Presentation[];
     lyrics: Lyric[];
     slides: Slide[];
+    slideTags: SlideTag[];
     slideElements: SlideElement[];
     mediaAssets: MediaAsset[];
     overlays: Overlay[];
@@ -199,6 +203,7 @@ export function useProjectContent(): ProjectContent {
       presentations: snapshot?.presentations ?? [],
       lyrics: snapshot?.lyrics ?? [],
       slides: snapshot?.slides ?? [],
+      slideTags: sortByOrder(snapshot?.slideTags ?? []),
       slideElements: snapshot?.slideElements ?? [],
       mediaAssets: snapshot?.mediaAssets ?? [],
       overlays: sortByOrder(snapshot?.overlays ?? []),
@@ -217,6 +222,7 @@ export function useProjectContent(): ProjectContent {
       presentations: stableArray(prev?.presentations ?? null, raw.presentations),
       lyrics: stableArray(prev?.lyrics ?? null, raw.lyrics),
       slides: stableArray(prev?.slides ?? null, raw.slides),
+      slideTags: stableArray(prev?.slideTags ?? null, raw.slideTags),
       slideElements: stableArray(prev?.slideElements ?? null, raw.slideElements),
       mediaAssets: stableArray(prev?.mediaAssets ?? null, raw.mediaAssets),
       overlays: stableArray(prev?.overlays ?? null, raw.overlays),
@@ -243,7 +249,7 @@ export function useProjectContent(): ProjectContent {
     }
 
     const {
-      presentations, lyrics, slides, slideElements, mediaAssets, overlays,
+      presentations, lyrics, slides, slideTags, slideElements, mediaAssets, overlays,
       presentationThemes, lyricThemes, overlayThemes, stages, cues, macros, triggerBindings,
       playlists,
     } = stableInputs;
@@ -279,6 +285,9 @@ export function useProjectContent(): ProjectContent {
     slideElementsBySlideId.forEach((elements, slideId) => {
       slideElementsBySlideId.set(slideId, sortElements(elements));
     });
+
+    const slideTagsById = new Map<Id, SlideTag>();
+    for (const tag of slideTags) slideTagsById.set(tag.id, tag);
 
     const mediaAssetsById = new Map<Id, MediaAsset>();
     for (const asset of mediaAssets) mediaAssetsById.set(asset.id, asset);
@@ -374,6 +383,7 @@ export function useProjectContent(): ProjectContent {
       presentations,
       lyrics,
       slides,
+      slideTags,
       slideElements,
       mediaAssets,
       overlays,
@@ -389,6 +399,7 @@ export function useProjectContent(): ProjectContent {
       lyricsById,
       slidesByItem,
       slideElementsBySlideId,
+      slideTagsById,
       liveSlideElementsBySlideId,
       liveSlidesById,
       mediaAssetsById,

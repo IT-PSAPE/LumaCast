@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'ele
 import { APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, NDI_AUDIO_TRANSPORT_PORT_CHANNEL, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiAudioTransportPortAnnouncement, isNdiFrameTransportPortAnnouncement, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
+import type { ItemRef, ItemType, SlideTag, ThemeOwnerType } from '@lumacast/composition';
 import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
 import type {
   CueCreateInput,
@@ -19,6 +19,9 @@ import type {
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
+  SlideTagAssignInput,
+  SlideTagCreateInput,
+  SlideTagUpdateInput,
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
@@ -98,6 +101,11 @@ const api = {
   listPlaybackSchedules: () => ipcRenderer.invoke(IPC.listPlaybackSchedules) as Promise<PlaybackSchedule[]>,
   savePlaybackSchedule: (schedule: PlaybackSchedule) => ipcRenderer.invoke(IPC.savePlaybackSchedule, schedule) as Promise<SnapshotPatch>,
   deletePlaybackSchedule: (id: Id) => ipcRenderer.invoke(IPC.deletePlaybackSchedule, id) as Promise<SnapshotPatch>,
+  listSlideTags: () => ipcRenderer.invoke(IPC.listSlideTags) as Promise<SlideTag[]>,
+  createSlideTag: (input: SlideTagCreateInput) => ipcRenderer.invoke(IPC.createSlideTag, input) as Promise<SnapshotPatch>,
+  updateSlideTag: (input: SlideTagUpdateInput) => ipcRenderer.invoke(IPC.updateSlideTag, input) as Promise<SnapshotPatch>,
+  deleteSlideTag: (id: Id) => ipcRenderer.invoke(IPC.deleteSlideTag, id) as Promise<SnapshotPatch>,
+  assignSlideTags: (input: SlideTagAssignInput) => ipcRenderer.invoke(IPC.assignSlideTags, input) as Promise<SnapshotPatch>,
   createPlaylist: (name: string) => ipcRenderer.invoke(IPC.createPlaylist, name),
   createSeparator: (playlistId: Id, label: string) => ipcRenderer.invoke(IPC.createSeparator, playlistId, label),
   renameSeparator: (id: Id, label: string) => ipcRenderer.invoke(IPC.renameSeparator, id, label),

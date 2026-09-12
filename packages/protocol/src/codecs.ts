@@ -1,5 +1,6 @@
 import type { CueClearLayer, CuePayload, LifecycleAction, PlaybackSchedule } from '@lumacast/automation';
-import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, OverlayAnimation, ItemType, ThemeOwnerType } from '@lumacast/composition';
+import { SLIDE_TAG_COLOR_KEYS } from '@lumacast/composition';
+import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, SlideTag, SlideTagColorKey, OverlayAnimation, ItemType, ThemeOwnerType } from '@lumacast/composition';
 import type {
   CueCreateInput,
   CueUpdateInput,
@@ -15,6 +16,9 @@ import type {
   SlideCreateInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
+  SlideTagCreateInput,
+  SlideTagAssignInput,
+  SlideTagUpdateInput,
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
@@ -1506,6 +1510,57 @@ export function decodeStageUpdateInput(value: unknown, context: CodecContext): S
   return value as unknown as StageUpdateInput;
 }
 
+// ---------------------------------------------------------------------------
+// Slide Tags
+// ---------------------------------------------------------------------------
+
+function expectSlideTagColorKey(value: unknown, context: CodecContext, field: string): SlideTagColorKey {
+  const str = expectString(value, context, field);
+  if (!SLIDE_TAG_COLOR_KEYS.includes(str as SlideTagColorKey)) {
+    fail(child(context, field), `must be one of [${SLIDE_TAG_COLOR_KEYS.join(', ')}], got ${JSON.stringify(str)}`);
+  }
+  return str as SlideTagColorKey;
+}
+
+export function decodeSlideTagCreateInput(value: unknown, context: CodecContext): SlideTagCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['name', 'colorKey']);
+  expectNonEmptyString(value.name, context, 'name');
+  expectSlideTagColorKey(value.colorKey, context, 'colorKey');
+  return value as unknown as SlideTagCreateInput;
+}
+
+export function decodeSlideTagUpdateInput(value: unknown, context: CodecContext): SlideTagUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'name', 'colorKey', 'order']);
+  expectNonEmptyString(value.id, context, 'id');
+  if (value.name !== undefined) expectNonEmptyString(value.name, context, 'name');
+  if (value.colorKey !== undefined) expectSlideTagColorKey(value.colorKey, context, 'colorKey');
+  if (value.order !== undefined) expectFiniteNumber(value.order, context, 'order');
+  return value as unknown as SlideTagUpdateInput;
+}
+
+export function decodeSlideTagAssignInput(value: unknown, context: CodecContext): SlideTagAssignInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['slideIds', 'tagId']);
+  const slideIds = expectArray(value.slideIds, context, 'slideIds');
+  slideIds.forEach((slideId, index) => expectNonEmptyString(slideId, child(context, 'slideIds'), String(index)));
+  if (new Set(slideIds).size !== slideIds.length) fail(child(context, 'slideIds'), 'must not contain duplicate ids');
+  expectNullableString(value.tagId, context, 'tagId');
+  return value as unknown as SlideTagAssignInput;
+}
+
+export function decodeSlideTag(value: unknown, context: CodecContext): SlideTag {
+  if (!isRecord(value)) fail(context, 'slide tag must be an object');
+  expectNonEmptyString(value.id, context, 'id');
+  expectNonEmptyString(value.name, context, 'name');
+  expectSlideTagColorKey(value.colorKey, context, 'colorKey');
+  expectFiniteNumber(value.order, context, 'order');
+  expectString(value.createdAt, context, 'createdAt');
+  expectString(value.updatedAt, context, 'updatedAt');
+  return value as unknown as SlideTag;
+}
+
 const RPC_ITEM_CREATE_TYPES: readonly ItemType[] = ['presentation', 'lyric'];
 const RPC_ITEM_DUPLICATE_TYPES = ['presentation', 'lyric'] as const;
 
@@ -1748,6 +1803,7 @@ const APP_SNAPSHOT_ARRAY_FIELDS = [
   'macros',
   'triggerBindings',
   'playbackSchedules',
+  'slideTags',
 ] as const;
 
 /**
@@ -1808,6 +1864,7 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
   assetId: 'string',
   presentationId: 'string',
   lyricId: 'string',
+  tagId: 'string',
   sourceId: 'string',
   targetId: 'string',
   sourceThemeElementId: 'string',
@@ -1943,6 +2000,10 @@ function checkSnapshotRowStructure(field: string, row: Record<string, unknown>, 
       decodePlaybackSchedule(row, context);
       return;
     }
+    case 'slideTags': {
+      decodeSlideTag(row, context);
+      return;
+    }
     default:
       return;
   }
@@ -1986,7 +2047,7 @@ export function decodeAppSnapshotShape(value: unknown, context: CodecContext): A
     // persisted or serialized before the schedule family existed carry no
     // such key, and must still decode (as an empty schedule list) rather
     // than failing the restore.
-    const items = field === 'playbackSchedules' && raw === undefined
+    const items = (field === 'playbackSchedules' || field === 'slideTags') && raw === undefined
       ? []
       : expectArray(raw, context, field);
 
@@ -2002,7 +2063,7 @@ export function decodeAppSnapshotShape(value: unknown, context: CodecContext): A
     });
   }
 
-  return { playbackSchedules: [], ...(value as object) } as unknown as AppSnapshot;
+  return { playbackSchedules: [], slideTags: [], ...(value as object) } as unknown as AppSnapshot;
 }
 
 /**
