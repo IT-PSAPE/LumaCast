@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
+import { Input } from "@base-ui/react/input"
 import { cn } from "../../utils/cn"
 
 type RenameFieldProps = {
@@ -101,7 +102,12 @@ export const RenameField = forwardRef<RenameFieldHandle, RenameFieldProps>(funct
     }
 
     return (
-        <input
+        // No `type` prop: the app's Playwright e2e suite locates this input via
+        // `input:not([type])` (see tests/app/e2e/theme-regression.spec.ts) because a
+        // renamed value lives only in the live DOM `.value` property. Base UI's
+        // <Input> renders a bare <input> and never adds a default `type`, so that
+        // selector keeps working unchanged.
+        <Input
             ref={inputRef}
             className={cn( "m-0 w-full min-w-0 appearance-none truncate border-0 bg-transparent p-0 outline-none focus:outline-none focus:ring-0", isEditing ? "cursor-text" : "cursor-pointer", className)}
             readOnly={!isEditing || !enabled}
