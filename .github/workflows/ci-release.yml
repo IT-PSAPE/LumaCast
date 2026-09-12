@@ -55,6 +55,9 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run end-to-end tests
+        env:
+          # Include Electron stderr when Playwright reports only "Process failed to launch!".
+          DEBUG: pw:browser
         run: xvfb-run --auto-servernum npm run test:e2e
 
   release-gate:
