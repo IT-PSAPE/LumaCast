@@ -5,7 +5,7 @@ import { LAYER_VIDEO_NODE_ID } from '@lumacast/composition';
 import type { VideoElementPayload } from '@lumacast/composition';
 import type { RenderNode, ResolvedMediaState, SceneSurface } from '@lumacast/composition';
 import { MISSING_MEDIA_SURFACES, MissingMediaPlaceholder } from './missing-media-placeholder';
-import { resolveMediaCover } from './resolve-media-cover';
+import { resolveMediaFit } from './resolve-media-cover';
 import { useKImage } from './use-k-image';
 import { useKVideo } from './use-k-video';
 import { buildVideoNodeClaimKey } from './video-claim-keys';
@@ -58,12 +58,10 @@ function getMediaRequestKey(node: RenderNode): string | null {
   return null;
 }
 
-function resolveCrop(media: LoadedMedia, width: number, height: number) {
-  if (media.kind === 'image') {
-    return resolveMediaCover(media.resource.naturalWidth, media.resource.naturalHeight, width, height);
-  }
-
-  return resolveMediaCover(media.resource.videoWidth, media.resource.videoHeight, width, height);
+function resolveDraw(media: LoadedMedia, isVideoNode: boolean, width: number, height: number) {
+  const sourceWidth = media.kind === 'image' ? media.resource.naturalWidth : media.resource.videoWidth;
+  const sourceHeight = media.kind === 'image' ? media.resource.naturalHeight : media.resource.videoHeight;
+  return resolveMediaFit(sourceWidth, sourceHeight, width, height, isVideoNode ? 'contain' : 'cover');
 }
 
 function resolveLoadedMedia(
@@ -197,7 +195,9 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
     };
   }, [displayedMedia]);
 
-  const crop = displayedMedia ? resolveCrop(displayedMedia, node.element.width, node.element.height) : null;
+  const draw = displayedMedia
+    ? resolveDraw(displayedMedia, node.element.type === 'video', node.element.width, node.element.height)
+    : null;
   // Thumbnail surfaces never decode the full source (ADR-0013 keeps them
   // derivative-only), so there the proxy is the only thing that can report a
   // missing file.
@@ -206,15 +206,15 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
     && proxyImageState.status !== 'loaded'
     && MISSING_MEDIA_SURFACES.has(surface);
 
-  return displayedMedia ? (
+  return displayedMedia && draw ? (
     <KonvaImage
       ref={imageRef}
       image={displayedMedia.resource}
-      x={0}
-      y={0}
-      width={node.element.width}
-      height={node.element.height}
-      crop={crop ?? undefined}
+      x={draw.x}
+      y={draw.y}
+      width={draw.width}
+      height={draw.height}
+      crop={draw.crop}
     />
   ) : shouldRenderMissingPlaceholder ? (
     <MissingMediaPlaceholder width={node.element.width} height={node.element.height} />

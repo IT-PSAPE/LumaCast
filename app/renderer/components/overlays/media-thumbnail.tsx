@@ -59,7 +59,7 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
           draggable={false}
           crossOrigin="anonymous"
           onError={() => setBrokenSrc(displaySrc)}
-          className="block h-full w-full object-cover"
+          className={`block h-full w-full ${resolvedAsset.type === 'video' ? 'object-contain bg-black' : 'object-cover'}`}
         />
       </div>
     );

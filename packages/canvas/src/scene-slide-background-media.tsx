@@ -111,7 +111,7 @@ function SceneSlideBackgroundMedia({
     return <Rect x={0} y={0} width={width} height={height} fill="#00000000" listening={false} />;
   }
 
-  const draw = resolveMediaFit(naturalSize.w, naturalSize.h, width, height, fit);
+  const draw = resolveMediaFit(naturalSize.w, naturalSize.h, width, height, kind === 'video' ? 'contain' : fit);
   if (!draw) return null;
 
   return (

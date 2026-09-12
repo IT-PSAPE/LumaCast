@@ -66,7 +66,10 @@ describe('MediaThumbnail derivative rendering', () => {
 
     render(<MediaThumbnail asset={videoAsset()} />);
 
-    expect(screen.getByRole('img').getAttribute('src')).toBe('managed://thumb-1');
+    const image = screen.getByRole('img');
+    expect(image.getAttribute('src')).toBe('managed://thumb-1');
+    expect(image.className).toContain('object-contain');
+    expect(image.className).not.toContain('object-cover');
   });
 
   it('shows the explicit missing-source state when derivative generation fails', () => {

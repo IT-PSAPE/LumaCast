@@ -91,17 +91,17 @@ function videoNode(src: string, proxyMediaKey: string | null = null): RenderNode
   };
 }
 
-function loadedImage(): HTMLImageElement {
+function loadedImage(width = 1920, height = 1080): HTMLImageElement {
   const image = document.createElement('img');
-  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 1920 });
-  Object.defineProperty(image, 'naturalHeight', { configurable: true, value: 1080 });
+  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: width });
+  Object.defineProperty(image, 'naturalHeight', { configurable: true, value: height });
   return image;
 }
 
-function loadedVideo(): HTMLVideoElement {
+function loadedVideo(width = 1920, height = 1080): HTMLVideoElement {
   const video = document.createElement('video');
-  Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1920 });
-  Object.defineProperty(video, 'videoHeight', { configurable: true, value: 1080 });
+  Object.defineProperty(video, 'videoWidth', { configurable: true, value: width });
+  Object.defineProperty(video, 'videoHeight', { configurable: true, value: height });
   return video;
 }
 
@@ -150,6 +150,25 @@ describe('scene media proxy rendering', () => {
     expect(lastImageProps?.image).toBe(fullVideo);
   });
 
+  it('contains portrait video and its derivative inside a landscape video node', () => {
+    const proxy = loadedImage(1080, 1920);
+    const fullVideo = loadedVideo(1080, 1920);
+    videoStates.set('asset://clip.mp4', { status: 'loading' });
+    imageStates.set('asset://clip-thumb.png', { status: 'loaded', resource: proxy });
+
+    const node = videoNode('asset://clip.mp4', 'asset://clip-thumb.png');
+    const view = render(<SceneNodeMedia node={node} surface={'show' satisfies SceneSurface} />);
+
+    expect(lastImageProps).toMatchObject({ x: 109.375, y: 0, width: 101.25, height: 180 });
+    expect(lastImageProps?.crop).toBeUndefined();
+
+    videoStates.set('asset://clip.mp4', { status: 'loaded', resource: fullVideo });
+    view.rerender(<SceneNodeMedia node={node} surface={'show' satisfies SceneSurface} />);
+
+    expect(lastImageProps).toMatchObject({ x: 109.375, y: 0, width: 101.25, height: 180 });
+    expect(lastImageProps?.crop).toBeUndefined();
+  });
+
   it('renders a background derivative first and swaps to the full background image once loaded', () => {
     const proxy = loadedImage();
     const full = loadedImage();
@@ -185,6 +204,25 @@ describe('scene media proxy rendering', () => {
 
     expect(lastImageProps?.image).toBe(full);
     expect(lastRectProps).toBeNull();
+  });
+
+  it('always contains portrait video backgrounds even when legacy data requests cover', () => {
+    const portrait = loadedVideo(1080, 1920);
+    videoStates.set('asset://background.mp4', { status: 'loaded', resource: portrait });
+
+    render(
+      <SceneSlideBackgroundMedia
+        kind="video"
+        src="asset://background.mp4"
+        fit={'cover' satisfies SlideBackgroundFit}
+        width={1920}
+        height={1080}
+        surface={'show' satisfies SceneSurface}
+      />,
+    );
+
+    expect(lastImageProps).toMatchObject({ x: 656.25, y: 0, width: 607.5, height: 1080 });
+    expect(lastImageProps?.crop).toBeUndefined();
   });
 
   it('never requests the full source image or video on list surfaces', () => {
