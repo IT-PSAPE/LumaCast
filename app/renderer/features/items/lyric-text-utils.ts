@@ -48,11 +48,8 @@ export function normalizeLyricText(text: string): string {
 export function parseLyricImportText(text: string): string[] {
   const normalized = text.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n');
 
-  const hasBlankLineSeparator = /\n[ \t]*\n/.test(normalized);
-  const splitter = hasBlankLineSeparator ? /\n[ \t]*\n+/g : /\n+/g;
-
   return normalized
-    .split(splitter)
-    .map((block) => normalizeLyricText(block))
-    .filter((block) => block.length > 0);
+    .split(/\n+/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 }

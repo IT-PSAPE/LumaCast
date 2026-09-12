@@ -156,7 +156,7 @@ describe('DocEditor', () => {
         expect(last[1].content).toBe('line2')
     })
 
-    it('normalizes single-line paste with CRLF and CR to LF', async () => {
+    it('splits multi-line paste with CRLF and CR normalization into blocks', async () => {
         const initial: Block[] = [{ id: 'a', content: 'hi-' }]
         const onChange = vi.fn()
         const { container } = render(<DocEditor initialBlocks={initial} onChange={onChange} />)
@@ -172,17 +172,20 @@ describe('DocEditor', () => {
             } as unknown as ClipboardEvent)
         })
 
-        // Only a single logical line, so it is inserted in-place with \r normalized to \n
+        // a\r\nb\rc normalizes to a\nb\nc -> 3 non-empty lines -> splits into 3 blocks
         const last = onChange.mock.calls.at(-1)![0] as Block[]
-        expect(last).toHaveLength(1)
-        // 'hi-' + 'a\nb\nc' (normalized) => 'hi-a\nb\nc'
-        expect(last[0].content).toBe('hi-a\nb\nc')
+        expect(last).toHaveLength(3)
+        expect(last[0].content).toBe('hi-a')
+        expect(last[1].content).toBe('b')
+        expect(last[2].content).toBe('c')
         expect(last[0].content).not.toContain('\r')
+        expect(last[1].content).not.toContain('\r')
+        expect(last[2].content).not.toContain('\r')
     })
 
     it('never lands a raw U+2028/U+2029 separator in block content on paste', async () => {
-        // A separator in the middle splits into blocks; a trailing one keeps
-        // the paste on the single-insert path, which must still normalize it.
+        // U+2028 normalizes to \n; trailing newline creates an empty line which is ignored.
+        // Result is a single non-empty line 'one' inserted at caret.
         const initial: Block[] = [{ id: 'a', content: '' }]
         const onChange = vi.fn()
         const { container } = render(<DocEditor initialBlocks={initial} onChange={onChange} />)
@@ -200,7 +203,7 @@ describe('DocEditor', () => {
 
         const last = onChange.mock.calls.at(-1)![0] as Block[]
         expect(last).toHaveLength(1)
-        expect(last[0].content).toBe('one\n')
+        expect(last[0].content).toBe('one')
         expect(last[0].content).not.toContain('\u2028')
     })
 

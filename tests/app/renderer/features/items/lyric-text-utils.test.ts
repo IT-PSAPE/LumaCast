@@ -13,13 +13,10 @@ describe('parseLyricImportText', () => {
     expect(parseLyricImportText('a\u2028b\u2029c')).toEqual(['a', 'b', 'c']);
   });
 
-  it('splits on single newlines when no blank lines exist', () => {
+  it('splits on newlines and ignores blank/whitespace-only lines', () => {
     expect(parseLyricImportText('a\nb\nc')).toEqual(['a', 'b', 'c']);
-  });
-
-  it('prefers blank-line separators when any blank line exists', () => {
-    expect(parseLyricImportText('x\ny\n\nz')).toEqual(['x\ny', 'z']);
-    expect(parseLyricImportText('x\ny\n \n\t\nz')).toEqual(['x\ny', 'z']);
+    expect(parseLyricImportText('x\ny\n\nz')).toEqual(['x', 'y', 'z']);
+    expect(parseLyricImportText('x\ny\n \n\t\nz')).toEqual(['x', 'y', 'z']);
   });
 
   it('trims surrounding whitespace including carriage returns and drops empty blocks', () => {

@@ -156,7 +156,7 @@ describe('SortableBlock', () => {
         expect(onUpdate).not.toHaveBeenCalled()
     })
 
-    it('inserts single-line paste with CRLF/CR normalization via onPaste', async () => {
+    it('splits multi-line paste with CRLF/CR normalization via onPaste', async () => {
         const onUpdate = vi.fn()
         const onPaste = vi.fn()
         const { textarea } = renderBlock({ block: { id: 'b1', content: 'hi-' }, onUpdate, onPaste })
@@ -171,18 +171,17 @@ describe('SortableBlock', () => {
             } as unknown as ClipboardEvent)
         })
 
-        expect(onPaste).not.toHaveBeenCalled()
-        expect(onUpdate).toHaveBeenCalledTimes(1)
-        // Normalized \r\n and \r to \n
-        expect(onUpdate).toHaveBeenCalledWith('hi-a\nb\nc', 'paste')
-        expect(onUpdate.mock.calls[0][0]).not.toContain('\r')
+        // a\r\nb\rc normalizes to a\nb\nc -> 3 non-empty lines -> splits into 3 blocks
+        expect(onPaste).toHaveBeenCalledTimes(1)
+        expect(onPaste).toHaveBeenCalledWith('hi-', ['a', 'b', 'c'], '')
+        expect(onUpdate).not.toHaveBeenCalled()
     })
 
-    it('normalizes single-line Cmd+V insert via readClipboardText (handles \\r\\n)', async () => {
-        const onUpdate = vi.fn()
+    it('splits multi-line Cmd+V via readClipboardText into blocks', async () => {
+        const onPaste = vi.fn()
         const readClipboardText = vi.fn().mockResolvedValue('x\r\ny\r')
         setCastApi({ readClipboardText })
-        const { textarea } = renderBlock({ block: { id: 'b1', content: 'pre' }, onUpdate })
+        const { textarea } = renderBlock({ block: { id: 'b1', content: 'pre' }, onPaste, onUpdate: vi.fn() })
         textarea.focus()
         textarea.setSelectionRange(3, 3)
 
@@ -193,10 +192,68 @@ describe('SortableBlock', () => {
             await Promise.resolve()
         })
 
+        // x\r\ny\r normalizes to x\ny\n -> 2 non-empty lines -> splits into 2 blocks
+        expect(readClipboardText).toHaveBeenCalled()
+        expect(onPaste).toHaveBeenCalledTimes(1)
+        expect(onPaste).toHaveBeenCalledWith('pre', ['x', 'y'], '')
+    })
+
+    it('inserts truly single-line paste verbatim via onUpdate', async () => {
+        const onUpdate = vi.fn()
+        const onPaste = vi.fn()
+        const { textarea } = renderBlock({ block: { id: 'b1', content: 'hi-' }, onUpdate, onPaste })
+        textarea.focus()
+        textarea.setSelectionRange(3, 3)
+
+        await act(async () => {
+            fireEvent.paste(textarea, {
+                clipboardData: {
+                    getData: (type: string) => (type === 'text' ? '  single line  ' : ''),
+                },
+            } as unknown as ClipboardEvent)
+        })
+
+        expect(onPaste).not.toHaveBeenCalled()
+        expect(onUpdate).toHaveBeenCalledTimes(1)
+        expect(onUpdate).toHaveBeenCalledWith('hi-  single line  ', 'paste')
+    })
+
+    it('inserts single-line Cmd+V verbatim via readClipboardText', async () => {
+        const onUpdate = vi.fn()
+        const readClipboardText = vi.fn().mockResolvedValue('  single line  ')
+        setCastApi({ readClipboardText })
+        const { textarea } = renderBlock({ block: { id: 'b1', content: 'pre' }, onUpdate, onPaste: vi.fn() })
+        textarea.focus()
+        textarea.setSelectionRange(3, 3)
+
+        await act(async () => {
+            fireEvent.keyDown(textarea, { key: 'v', metaKey: true, ctrlKey: false, altKey: false })
+            await Promise.resolve()
+            await Promise.resolve()
+        })
+
         expect(readClipboardText).toHaveBeenCalled()
         expect(onUpdate).toHaveBeenCalledTimes(1)
-        expect(onUpdate).toHaveBeenCalledWith('prex\ny\n', 'paste')
-        expect(onUpdate.mock.calls[0][0]).not.toContain('\r')
+        expect(onUpdate).toHaveBeenCalledWith('pre  single line  ', 'paste')
+    })
+
+    it('trims line edges and ignores blank lines for multi-line lyric paste', async () => {
+        const onUpdate = vi.fn()
+        const onPaste = vi.fn()
+        const { textarea } = renderBlock({ block: { id: 'b1', content: '' }, onUpdate, onPaste })
+        textarea.focus()
+        textarea.setSelectionRange(0, 0)
+
+        await act(async () => {
+            fireEvent.paste(textarea, {
+                clipboardData: {
+                    getData: (type: string) => (type === 'text' ? '  first line  \n \t\n  second line  ' : ''),
+                },
+            } as unknown as ClipboardEvent)
+        })
+
+        expect(onPaste).toHaveBeenCalledWith('', ['first line', 'second line'], '')
+        expect(onUpdate).not.toHaveBeenCalled()
     })
 
     it('handles readClipboardText rejection gracefully (does nothing)', async () => {
@@ -247,6 +304,19 @@ describe('SortableBlock', () => {
         })
         expect(onSplit).toHaveBeenCalledTimes(1)
         expect(onSplit).toHaveBeenCalledWith('ab', '|cd')
+    })
+
+    it('leaves Shift+Enter to the textarea as a soft newline', async () => {
+        const onSplit = vi.fn()
+        const { textarea } = renderBlock({ block: { id: 'b1', content: 'line' }, onSplit })
+        textarea.focus()
+        textarea.setSelectionRange(2, 2)
+
+        const event = createEvent.keyDown(textarea, { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true })
+        fireEvent(textarea, event)
+
+        expect(onSplit).not.toHaveBeenCalled()
+        expect(event.defaultPrevented).toBe(false)
     })
 
     it('Backspace at start on empty text still deletes, and on non-empty still merges', async () => {

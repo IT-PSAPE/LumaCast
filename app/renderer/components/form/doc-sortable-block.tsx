@@ -39,10 +39,6 @@ function normalizePastedNewlines(text: string) {
     return text.replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n')
 }
 
-function hasBlankLineSeparator(text: string) {
-    return /\n[ \t]*\n/.test(text)
-}
-
 export function SortableBlock({ index, block, isSelected, rowRef, contentRef, accessory, onUpdate, onSplit, onDelete, onMergeWithPrev, onPaste, onCaretExit, onSelectAllBlocks, onTextareaFocus, onTextareaBlur }: SortableBlockProps) {
     const textareaRef = useRef<HTMLTextAreaElement | null>(null)
     const setContentRef = useCallback(
@@ -65,8 +61,9 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
             e.stopPropagation()
             const { selectionStart, selectionEnd, value } = e.currentTarget
             void window.castApi.readClipboardText().then((text) => {
+                if (text.length === 0) return
                 const normalized = normalizePastedNewlines(text)
-                if (!hasBlankLineSeparator(normalized)) {
+                if (!normalized.includes('\n')) {
                     const nextValue = `${value.slice(0, selectionStart)}${normalized}${value.slice(selectionEnd)}`
                     onUpdate(nextValue, 'paste')
                     requestAnimationFrame(() => {
@@ -78,8 +75,22 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
                     })
                     return
                 }
-
                 const blocks = parseLyricImportText(normalized)
+                if (blocks.length === 0) {
+                    return
+                }
+                if (blocks.length === 1) {
+                    const nextValue = `${value.slice(0, selectionStart)}${blocks[0]}${value.slice(selectionEnd)}`
+                    onUpdate(nextValue, 'paste')
+                    requestAnimationFrame(() => {
+                        const textarea = textareaRef.current
+                        if (!textarea) return
+                        const caret = selectionStart + blocks[0].length
+                        textarea.focus()
+                        textarea.setSelectionRange(caret, caret)
+                    })
+                    return
+                }
                 onPaste(value.slice(0, selectionStart), blocks, value.slice(selectionEnd))
             }).catch(() => {})
             return
@@ -148,7 +159,7 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
         // guarantees the two never both fire for one keyboard paste.
         e.preventDefault()
         const { selectionStart, selectionEnd, value } = e.currentTarget
-        if (!hasBlankLineSeparator(normalized)) {
+        if (!normalized.includes('\n')) {
             const nextValue = `${value.slice(0, selectionStart)}${normalized}${value.slice(selectionEnd)}`
             onUpdate(nextValue, 'paste')
             requestAnimationFrame(() => {
@@ -161,6 +172,21 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
             return
         }
         const blocks = parseLyricImportText(normalized)
+        if (blocks.length === 0) {
+            return
+        }
+        if (blocks.length === 1) {
+            const nextValue = `${value.slice(0, selectionStart)}${blocks[0]}${value.slice(selectionEnd)}`
+            onUpdate(nextValue, 'paste')
+            requestAnimationFrame(() => {
+                const textarea = textareaRef.current
+                if (!textarea) return
+                const caret = selectionStart + blocks[0].length
+                textarea.focus()
+                textarea.setSelectionRange(caret, caret)
+            })
+            return
+        }
         onPaste(value.slice(0, selectionStart), blocks, value.slice(selectionEnd))
     }
     const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
