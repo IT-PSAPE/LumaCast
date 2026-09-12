@@ -34,6 +34,7 @@
     "packages/**/*.tsx",
     "tests/**/*.ts",
     "tests/**/*.tsx",
+    "vitest.setup.ts",
     "tool/browser-preview/**/*.ts"
   ]
 }

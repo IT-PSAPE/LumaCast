@@ -568,7 +568,7 @@ describe('SceneNodeText', () => {
     const ctx = invokeSceneFunc(shapeProps);
 
     expect(ctx.ops.filter((op) => op.type === 'fillText')).toEqual([
-      expect.objectContaining({ type: 'fillText', text: '• ', font: '400 32px Inter' }),
+      expect.objectContaining({ type: 'fillText', text: '• ', font: '400 32px Inter' }),
       expect.objectContaining({ type: 'fillText', text: 'First item', font: '400 32px Inter' }),
     ]);
   });
@@ -694,7 +694,7 @@ describe('SceneNodeText', () => {
   });
 
   it('keeps uniform-size layout pixel-identical to the single-size arithmetic', () => {
-    const payload = textPayload({ fontSize: 32, lineHeight: 1.25 });
+    const payload = textPayload({ text: 'Hello', fontSize: 32, lineHeight: 1.25 });
     const node = renderNode({}, {
       element: {
         ...renderNode().element,

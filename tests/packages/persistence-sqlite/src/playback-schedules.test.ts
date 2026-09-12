@@ -247,7 +247,7 @@ describe('playback-schedule persistence', () => {
     }
   });
 
-  it('imports older schema-30 backups by normalizing to an empty schedule list', () => {
+  it('imports pre-slide-tag schema-33 backups without changing their schedule list', () => {
     const target = createTestRepository({ seed: false });
     try {
       seedPresentation(target.repository);
@@ -255,7 +255,9 @@ describe('playback-schedule persistence', () => {
       expect(backup.schemaVersion).toBe(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION);
 
       const legacyTables = JSON.parse(JSON.stringify(backup.tables)) as Record<string, unknown>;
-      delete legacyTables.playback_schedules;
+      delete legacyTables.slide_tags;
+      legacyTables.slides = (legacyTables.slides as Array<Record<string, unknown>>)
+        .map(({ tag_id: _tagId, ...slide }) => slide);
       const legacy = {
         ...backup,
         schemaVersion: PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION - 1,
@@ -263,7 +265,7 @@ describe('playback-schedule persistence', () => {
       } as unknown as ProjectBackup;
       const normalized = validateProjectBackup(legacy);
       expect(normalized.schemaVersion).toBe(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION);
-      expect(normalized.tables.playback_schedules).toEqual([]);
+      expect(normalized.tables.playback_schedules).toEqual(backup.tables.playback_schedules);
 
       const restored = target.repository.restoreProjectBackup(legacy);
       expect(restored.snapshot.playbackSchedules).toEqual([]);

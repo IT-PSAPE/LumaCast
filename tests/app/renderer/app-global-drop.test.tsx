@@ -28,6 +28,7 @@ function dispatchWindowFileDrop(type: 'dragover' | 'drop', files: File[]): boole
 describe('app-level file drop behavior', () => {
   beforeEach(() => {
     (window as unknown as { castApi?: unknown }).castApi = {
+      platform: 'darwin',
       inspectImportBundle: vi.fn(),
       finalizeImportBundle: vi.fn(),
       getPathForFile: vi.fn(() => '/tmp/deck.cst'),

@@ -164,7 +164,7 @@ describe('AudioTransportControls audio markers', () => {
     expect(fireEvent.keyDown(play, { key: 'm', metaKey: true })).toBe(true);
     const repeatEvent = new KeyboardEvent('keydown', { key: 'm', repeat: true, bubbles: true });
     expect(fireEvent(play, repeatEvent)).toBe(true);
-    expect(fireEvent.keyDown(screen.getByLabelText('Audio scrubber'), { key: 'm' })).toBe(true);
+    expect(fireEvent.keyDown(screen.getByLabelText('Audio volume'), { key: 'm' })).toBe(true);
     const consumed = new KeyboardEvent('keydown', { key: 'm', bubbles: true, cancelable: true });
     consumed.preventDefault();
     expect(fireEvent(play, consumed)).toBe(false);
@@ -178,6 +178,7 @@ describe('AudioTransportControls audio markers', () => {
     const scope = document.createElement('div');
     scope.setAttribute('data-shortcuts-scope', 'audio-focus');
     document.body.appendChild(scope);
+    mocks.getCurrentTime.mockReturnValue(1);
     expect(fireEvent.keyDown(scope, { key: 'm' })).toBe(false);
     await waitFor(() => expect(mocks.saveSchedule).toHaveBeenCalledTimes(2));
     scope.remove();
@@ -209,6 +210,7 @@ describe('AudioTransportControls audio markers', () => {
     await waitFor(() => expect(lastSavedSchedule().enabled).toBe(true));
     expect(lastSavedSchedule().markers).toHaveLength(1);
 
+    mocks.getCurrentTime.mockReturnValue(2);
     fireEvent.click(screen.getByRole('button', { name: 'Add marker (M)' }));
     await waitFor(() => expect(lastSavedSchedule().markers).toHaveLength(2));
     expect(lastSavedSchedule().enabled).toBe(true);
@@ -282,7 +284,7 @@ describe('AudioTransportControls audio markers', () => {
   });
 
   it('serializes rapid records so every marker reaches the persisted schedule', async () => {
-    mocks.getCurrentTime.mockReturnValue(1);
+    mocks.getCurrentTime.mockReturnValueOnce(1).mockReturnValueOnce(2);
     render(<AudioTransportControls />);
     const markerButton = screen.getByRole('button', { name: 'Add marker (M)' });
     fireEvent.click(markerButton);
@@ -292,7 +294,7 @@ describe('AudioTransportControls audio markers', () => {
   });
 
   it('assigns unassigned markers in slide order when an item is bound', async () => {
-    mocks.getCurrentTime.mockReturnValue(1);
+    mocks.getCurrentTime.mockReturnValueOnce(1).mockReturnValueOnce(2);
     mocks.lyrics = [{ id: 'song-1', title: 'Song' }];
     mocks.slidesForItemRef.mockReturnValue([{ id: 's1', order: 0 }, { id: 's2', order: 1 }]);
     render(<AudioTransportControls />);
@@ -308,7 +310,7 @@ describe('AudioTransportControls audio markers', () => {
   });
 
   it('allows per-marker slide reassignment including repeats', async () => {
-    mocks.getCurrentTime.mockReturnValue(1);
+    mocks.getCurrentTime.mockReturnValueOnce(1).mockReturnValueOnce(2);
     mocks.lyrics = [{ id: 'song-1', title: 'Song' }];
     mocks.slidesForItemRef.mockReturnValue([{ id: 's1', order: 0 }, { id: 's2', order: 1 }]);
     render(<AudioTransportControls />);
@@ -339,7 +341,7 @@ describe('AudioTransportControls audio markers', () => {
   });
 
   it('removing a marker persists the remaining ones', async () => {
-    mocks.getCurrentTime.mockReturnValue(1);
+    mocks.getCurrentTime.mockReturnValueOnce(1).mockReturnValueOnce(2);
     render(<AudioTransportControls />);
     const markerButton = screen.getByRole('button', { name: 'Add marker (M)' });
     fireEvent.click(markerButton);
@@ -359,14 +361,14 @@ describe('AudioTransportControls audio markers', () => {
       markers: [{ id: 'm1', timeMs: 1000, slideId: null }],
     });
     mocks.deleteSchedule.mockImplementation(async (id: string) => {
-      const index = mocks.schedules.findIndex((entry: any) => entry.id === id);
-      if (index >= 0) mocks.schedules.splice(index, 1);
+      mocks.schedules = mocks.schedules.filter((entry: any) => entry.id !== id);
     });
-    render(<AudioTransportControls />);
+    const { rerender } = render(<AudioTransportControls />);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Remove schedule' })).not.toBeNull());
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove schedule' }));
     await waitFor(() => expect(mocks.deleteSchedule).toHaveBeenCalledWith('audio:audio-1'));
+    rerender(<AudioTransportControls />);
     await waitFor(() => expect(screen.getByText('No markers')).not.toBeNull());
     expect(screen.queryByRole('button', { name: 'Remove schedule' })).toBeNull();
   });

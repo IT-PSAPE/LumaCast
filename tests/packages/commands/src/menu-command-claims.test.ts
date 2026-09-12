@@ -124,13 +124,13 @@ describe('menuCommandForEvent — which native-menu command a keydown parallels'
   }
 
   it.each([
-    ['c', {}, 'edit.copy'],
-    ['x', {}, 'edit.cut'],
-    ['v', {}, 'edit.paste'],
-    ['d', {}, 'edit.duplicate'],
-    ['k', {}, 'view.openCommandPalette'],
-    ['z', {}, 'edit.undo'],
-    ['z', { shiftKey: true }, 'edit.redo'],
+    ['c', { metaKey: true }, 'edit.copy'],
+    ['x', { metaKey: true }, 'edit.cut'],
+    ['v', { metaKey: true }, 'edit.paste'],
+    ['d', { metaKey: true }, 'edit.duplicate'],
+    ['k', { metaKey: true }, 'view.openCommandPalette'],
+    ['z', { metaKey: true }, 'edit.undo'],
+    ['z', { metaKey: true, shiftKey: true }, 'edit.redo'],
   ])('Cmd+%s maps to %s', (key, opts, expected) => {
     expect(menuCommandForEvent(press(String(key), opts as { shiftKey?: boolean }))).toBe(expected);
   });

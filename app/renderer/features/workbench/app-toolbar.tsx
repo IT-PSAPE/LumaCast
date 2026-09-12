@@ -10,7 +10,7 @@ import { useNdi } from '@renderer/contexts/app-context';
 import { useCommandPalette } from '../command-palette/command-palette-context';
 import { OverflowViewMenu } from './overflow-view-menu';
 
-const isMac = window.castApi.platform === 'darwin';
+const isMac = window.castApi?.platform === 'darwin';
 
 const dragStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;

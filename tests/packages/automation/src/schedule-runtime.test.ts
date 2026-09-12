@@ -932,6 +932,7 @@ describe('schedule updates and explicit resume', () => {
     const ctx = createTestContext();
     const runtime = ctx.createRuntime();
     const schedule = makeAudioSchedule();
+    ctx.armedAudioId = 'audio1';
     ctx.audioPlaying = true;
     ctx.audioTime = 1.5;
     runtime.start(schedule);
@@ -946,6 +947,7 @@ describe('schedule updates and explicit resume', () => {
   it('explicit resume resolves the destination even while paused', () => {
     const ctx = createTestContext();
     const runtime = ctx.createRuntime();
+    ctx.armedAudioId = 'audio1';
     ctx.audioTime = 3.5;
     ctx.audioPlaying = false;
     runtime.start(makeAudioSchedule());
@@ -970,6 +972,7 @@ describe('schedule updates and explicit resume', () => {
 it('re-resolves the current marker after rebinding without clearing manual suspension', () => {
   const ctx = createTestContext();
   const runtime = ctx.createRuntime();
+  ctx.armedAudioId = 'audio1';
   ctx.audioPlaying = true;
   ctx.audioTime = 1.5;
   const schedule = makeAudioSchedule();

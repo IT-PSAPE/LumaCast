@@ -124,9 +124,9 @@ async function run() {
   const pacingReportPath = path.join(temporaryDirectory, 'pacing.json');
   const mockRuntimePath = path.join(
     ROOT,
+    'tests',
     'packages',
     'ndi-native',
-    'test',
     'fixtures',
     'libndi_mock.dylib',
   );

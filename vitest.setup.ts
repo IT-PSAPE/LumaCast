@@ -1,4 +1,4 @@
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
 
 // jsdom does not implement matchMedia, but renderer modules read the system
 // colour preference during module initialization. Keep the shared test

@@ -319,6 +319,7 @@ describe('AppProvider observability synthesis', () => {
           onMediaDerivativeProgress.mockImplementation(listener);
           return () => {};
         }),
+        onMediaLibraryProgress: vi.fn(() => () => {}),
         onPersistenceProgress: vi.fn((listener: (progress: import('@lumacast/protocol').PersistenceProgress) => void) => {
           onPersistenceProgress.mockImplementation(listener);
           return () => {};
@@ -369,6 +370,7 @@ describe('AppProvider observability synthesis', () => {
           onMediaDerivativeProgress.mockImplementation(listener);
           return () => {};
         }),
+        onMediaLibraryProgress: vi.fn(() => () => {}),
         onPersistenceProgress: vi.fn((listener: (progress: import('@lumacast/protocol').PersistenceProgress) => void) => {
           onPersistenceProgress.mockImplementation(listener);
           return () => {};
@@ -444,6 +446,7 @@ describe('AppProvider observability synthesis', () => {
           onMediaDerivativeProgress.mockImplementation(listener);
           return () => {};
         }),
+        onMediaLibraryProgress: vi.fn(() => () => {}),
         onPersistenceProgress: vi.fn(() => () => {}),
       },
     });

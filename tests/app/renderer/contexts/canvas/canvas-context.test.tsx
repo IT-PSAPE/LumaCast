@@ -160,7 +160,13 @@ vi.mock('../../../../../app/renderer/contexts/use-project-content', () => ({
   useProjectContent: () => ({
     slides: [mocks.slideA, mocks.slideB],
     slideElementsBySlideId: new Map(),
+    liveSlidesById: new Map([
+      ['slide-a', mocks.slideA],
+      ['slide-b', mocks.slideB],
+    ]),
+    liveElementsBySlideId: new Map(),
     mediaAssets: [],
+    resolveElementsForSlide: (_slideId: string, elements: SlideElement[]) => elements,
   }),
 }));
 

@@ -6,6 +6,17 @@ vi.mock('../../../../../app/renderer/contexts/navigation-context', () => ({ useN
 vi.mock('../../../../../app/renderer/contexts/playback-schedules-context', () => ({ usePlaybackSchedules: () => ({ schedules: state.schedules, saveSchedule: state.save }) }));
 vi.mock('../../../../../app/renderer/contexts/use-project-content', () => ({ useProjectContent: () => ({ slidesForItemRef: () => state.slides }) }));
 vi.mock('../../../../../app/renderer/contexts/canvas/canvas-context', () => ({ useThumbnailScene: () => () => null }));
+vi.mock('../../../../../app/renderer/contexts/workbench-context', () => ({
+  useWorkbench: () => ({
+    overlayStack: {
+      rootElement: undefined,
+      stack: [],
+      baseZIndex: 100,
+      register: vi.fn(),
+      unregister: vi.fn(),
+    },
+  }),
+}));
 vi.mock('../../../../../app/renderer/components/overlays/confirm-dialog', () => ({ useConfirm: () => vi.fn().mockResolvedValue(true) }));
 vi.mock('../../../../../app/renderer/components/display/lazy-scene-stage', () => ({ LazySceneStage: () => null }));
 describe('slide timing editor', () => {

@@ -212,7 +212,7 @@ describe('useAppMenu — editable paste fallback', () => {
     await fireMenu('edit.paste');
     expect(execCommandMock).toHaveBeenCalledWith('paste', false, undefined);
     expect(readClipboardText).toHaveBeenCalledTimes(1);
-    expect(input.value).toBe('a-XY');
+    expect(input.value).toBe('aXYc');
     expect(fakes.elements.pasteSelection).not.toHaveBeenCalled();
   });
 
@@ -310,7 +310,7 @@ describe('useAppMenu — modal overlay scope', () => {
     readClipboardText.mockResolvedValue('XY');
     const input = focusInput('a-c', [1, 2]);
     await fireMenu('edit.paste');
-    expect(input.value).toBe('a-XY');
+    expect(input.value).toBe('aXYc');
     expect(fakes.elements.pasteSelection).not.toHaveBeenCalled();
   });
 

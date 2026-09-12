@@ -167,7 +167,8 @@ vi.mock('@lumacast/canvas', () => ({
   }),
 }));
 
-vi.mock('@lumacast/composition', () => ({
+vi.mock('@lumacast/composition', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@lumacast/composition')>(),
   traverseSceneNodes: (nodes: Array<{ id: string }>) => nodes.map((node) => ({
     node,
     frame: {

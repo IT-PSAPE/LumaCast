@@ -269,7 +269,7 @@ describe('override metadata', () => {
     const theme = themeSource([textElement('title')]);
     const user = baseElement('user-1', 'shape');
     expect(stampExplicitOverrides(theme, [user])[0]).toBe(user);
-    expect(stampExplicitOverrides(null, [user])).toBe(user);
+    expect(stampExplicitOverrides(null, [user])[0]).toBe(user);
   });
 
   it('deriveLegacyOverrideKeys captures divergences for the backfill migration', () => {
@@ -331,7 +331,7 @@ describe('planDetachMaterialization', () => {
 
     expect(plan.creates).toHaveLength(1);
     expect(plan.creates[0].id).toBe(deriveLinkedElementId('slide-1', 'footer'));
-    expect(plan.creates[0].sourceThemeElementId).toBe('footer');
+    expect(plan.creates[0].sourceThemeElementId).toBeNull();
     expect(plan.creates[0].slideId).toBe('slide-1');
   });
 
@@ -350,7 +350,7 @@ describe('planDetachMaterialization', () => {
   it('yields no writes when the assigned theme is gone', () => {
     const rows = [linkedRow(textElement('title'), 'row-title')];
     const plan = planDetachMaterialization(null, 'slide-1', rows, null, 'theme');
-    expect(plan).toEqual({ updates: [], creates: [], background: null });
+    expect(plan).toEqual({ updates: [], creates: [], deletes: [], background: null });
   });
 
   it('stripOverrideMetadata drops provenance recursively with stable IDs', () => {

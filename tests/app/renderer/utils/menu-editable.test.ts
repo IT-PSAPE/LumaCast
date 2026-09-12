@@ -226,7 +226,7 @@ describe('pasteClipboardTextIntoEditable', () => {
     input.setSelectionRange(1, 2);
     execCommandMock.mockReturnValue(false);
     await pasteClipboardTextIntoEditable(input);
-    expect(input.value).toBe('a-XY');
+    expect(input.value).toBe('aXYc');
   });
 
   it('does nothing on readonly targets, empty text, or clipboard errors', async () => {
