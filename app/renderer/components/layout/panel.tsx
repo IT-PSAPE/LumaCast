@@ -73,7 +73,7 @@ type PanelMenuItemProps = PanelMenuLevelProps & Omit<ButtonHTMLAttributes<HTMLBu
 };
 
 const menuItemVariants = cv({
-    base: ['w-full min-h-7 py-1 px-2 rounded-sm inline-flex justify-start items-center gap-2 overflow-hidden'],
+    base: ['w-full min-h-7 py-1 px-2 inline-flex justify-start items-center gap-2 overflow-hidden'],
     variants: {
         state: {
             active: ['bg-foreground-brand_primary text-primary_on-brand hover:bg-brand_solid'],
