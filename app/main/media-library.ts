@@ -296,7 +296,6 @@ function collectReferencedLibraryFiles(snapshot: AppSnapshot): Set<string> {
   for (const composition of [
     ...snapshot.presentationThemes,
     ...snapshot.lyricThemes,
-    ...snapshot.talkThemes,
     ...snapshot.overlayThemes,
     ...snapshot.overlays,
     ...snapshot.stages,

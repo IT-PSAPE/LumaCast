@@ -265,7 +265,6 @@ function emptySnapshot(): Record<string, unknown[]> {
     slideElements: [],
     presentationThemes: [],
     lyricThemes: [],
-    talkThemes: [],
     overlayThemes: [],
     overlays: [],
     stages: [],

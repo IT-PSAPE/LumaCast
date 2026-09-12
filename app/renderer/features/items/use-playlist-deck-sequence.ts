@@ -1,25 +1,25 @@
 import { useMemo } from 'react';
 import { getPlaylistEntryItemRef } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, Lyric, Presentation, PlaylistRow, Slide, Talk } from '@lumacast/composition';
+import type { ItemRef, Lyric, Presentation, PlaylistRow, Slide } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 
 export interface PlaylistDeckSequenceItem {
   entryId: Id;
   itemRef: ItemRef;
-  item: Presentation | Lyric | Talk;
+  item: Presentation | Lyric;
   slides: Slide[];
   occurrenceIndex: number;
 }
 
 // #219 item-model refactor decision D5/D9: a playlist's rows are already
 // flat — this walks them directly, skipping separator rows (they are never
-// an output-advance stop and never occupy a slot in the continuous browser's
-// sequence), instead of flattening PlaylistTree.groups.
+// an output-advance stop and never occupy a playlist tab), instead of
+// flattening PlaylistTree.groups.
 export function flattenPlaylistDeckSequence(
   rows: PlaylistRow[],
-  resolveItemRef: (ref: ItemRef) => Presentation | Lyric | Talk | null,
+  resolveItemRef: (ref: ItemRef) => Presentation | Lyric | null,
   slidesForItemRef: (ref: ItemRef) => Slide[],
 ): PlaylistDeckSequenceItem[] {
   const countsByKey = new Map<string, number>();

@@ -14,7 +14,7 @@ import { AdvancedDisclosure } from './advanced-disclosure';
 import { SelectionFooter } from './selection-footer';
 
 type TransferTab = 'export' | 'import';
-type TypeFilter = 'all' | 'presentation' | 'lyric' | 'talk' | 'playlist';
+type TypeFilter = 'all' | 'presentation' | 'lyric' | 'playlist';
 
 export function ImportExportPanel() {
   const [activeTab, setActiveTab] = useState<TransferTab>('export');
@@ -35,7 +35,6 @@ export function ImportExportPanel() {
         if (typeFilter === 'playlist' && row.kind !== 'playlist') return false;
         if (typeFilter === 'presentation' && (row.kind !== 'item' || row.item.type !== 'presentation')) return false;
         if (typeFilter === 'lyric' && (row.kind !== 'item' || row.item.type !== 'lyric')) return false;
-        if (typeFilter === 'talk' && (row.kind !== 'item' || row.item.type !== 'talk')) return false;
       }
       if (!normalizedFilter) return true;
       return row.title.toLowerCase().includes(normalizedFilter);
@@ -95,7 +94,6 @@ export function ImportExportPanel() {
                 <SegmentedControl.Label value="playlist">Playlists</SegmentedControl.Label>
                 <SegmentedControl.Label value="presentation">Presentations</SegmentedControl.Label>
                 <SegmentedControl.Label value="lyric">Lyrics</SegmentedControl.Label>
-                <SegmentedControl.Label value="talk">Talks</SegmentedControl.Label>
               </SegmentedControl>
             </div>
             <FieldInput
@@ -116,7 +114,7 @@ export function ImportExportPanel() {
               onToggle={handleToggleRow}
               emptyMessage={
                 allRows.length === 0
-                  ? 'Nothing to export yet — create a presentation, lyric, or talk first.'
+                  ? 'Nothing to export yet — create a presentation or lyric first.'
                   : 'Nothing matches your filter.'
               }
             />

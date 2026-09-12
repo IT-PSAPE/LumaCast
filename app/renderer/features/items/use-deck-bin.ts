@@ -1,17 +1,17 @@
 import { useMemo, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, ItemType, Lyric, Presentation, Talk } from '@lumacast/composition';
+import type { ItemRef, ItemType, Lyric, Presentation } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { itemRefKey, useProjectContent } from '../../contexts/use-project-content';
 import { filterByText } from '../../utils/filter-by-text';
 import { useDeckBinSort, compareByKey, type BinSort, type DeckBinSortKey } from '../workbench/use-bin-sort';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 
-// #219 item-model refactor decision D9: the bin shows three independently-
-// ordered sections (Presentations / Lyrics / Talks), each filtered/sorted
+// #219 item-model refactor decision D9: the bin shows independently ordered
+// presentation and lyric sections, each filtered/sorted
 // from its own per-type array — there is no merged deckItems list to sort
 // across types, and each section's own manual order comes straight from its
-// table's order_index (movePresentation/moveLyric/moveTalk act within it).
+// table's order_index (movePresentation/moveLyric act within it).
 export interface ItemBinSection<T> {
   type: ItemType;
   label: string;
@@ -26,7 +26,7 @@ export function useDeckBin() {
     renameItem,
     moveItem,
   } = useNavigation();
-  const { presentations, lyrics, talks, slidesByItem } = useProjectContent();
+  const { presentations, lyrics, slidesByItem } = useProjectContent();
   const [editingItemRef, setEditingItemRef] = useState<ItemRef | null>(null);
   const { sort } = useDeckBinSort();
   const { state: { searchValue } } = useBinControls();
@@ -39,16 +39,10 @@ export function useDeckBin() {
     () => filterAndSort(lyrics, 'lyric', searchValue, sort, slidesByItem),
     [lyrics, searchValue, slidesByItem, sort],
   );
-  const filteredTalks = useMemo(
-    () => filterAndSort(talks, 'talk', searchValue, sort, slidesByItem),
-    [talks, searchValue, slidesByItem, sort],
-  );
-
-  const sections = useMemo<[ItemBinSection<Presentation>, ItemBinSection<Lyric>, ItemBinSection<Talk>]>(() => [
+  const sections = useMemo<[ItemBinSection<Presentation>, ItemBinSection<Lyric>]>(() => [
     { type: 'presentation', label: 'Presentations', items: filteredPresentations },
     { type: 'lyric', label: 'Lyrics', items: filteredLyrics },
-    { type: 'talk', label: 'Talks', items: filteredTalks },
-  ], [filteredPresentations, filteredLyrics, filteredTalks]);
+  ], [filteredPresentations, filteredLyrics]);
 
   function handleRename(itemRef: ItemRef, title: string) {
     // renameItem rejects when the item no longer exists (#214), which a
@@ -59,7 +53,7 @@ export function useDeckBin() {
   }
 
   function handleMove(itemRef: ItemRef, direction: 'up' | 'down') {
-    // moveItem → movePresentation/moveLyric/moveTalk rejects when the item no
+    // moveItem rejects when the item no
     // longer exists (#214), which a context-menu action can race with a
     // concurrent delete. mutatePatch has already reported the failure, so
     // absorb the rethrow here.

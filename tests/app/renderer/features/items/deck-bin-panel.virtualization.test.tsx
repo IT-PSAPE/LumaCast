@@ -59,7 +59,6 @@ function renderPanel() {
     sections: [
       { type: 'presentation', label: 'Presentations', items: [{ id: 'p-1', title: 'Deck A' }, { id: 'p-2', title: 'Deck B' }] },
       { type: 'lyric', label: 'Lyrics', items: [] },
-      { type: 'talk', label: 'Talks', items: [{ id: 't-1', title: 'Talk A' }] },
     ],
     editingItemRef: null,
     browseItem: vi.fn(),
@@ -99,6 +98,5 @@ describe('DeckBinPanel virtualization', () => {
     expect(screen.queryByText('Deck B')).toBeNull();
     expect(screen.getByText('Lyrics')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Create lyric' })).not.toBeNull();
-    expect(screen.queryByText('Talk A')).toBeNull();
   });
 });

@@ -16,34 +16,31 @@ const NO_TEMPLATE_VALUE = '';
 export function ItemInspector() {
   const { currentItemRef, currentItem, renameItem } = useNavigation();
   const {
-    presentationThemes, lyricThemes, talkThemes,
-    presentationThemesById, lyricThemesById, talkThemesById,
+    presentationThemes, lyricThemes,
+    presentationThemesById, lyricThemesById,
   } = useProjectContent();
   const { applyThemeToTarget, detachThemeFromItem } = useThemeEditor();
   const { setStatusText } = useCast();
   const confirm = useConfirm();
   const [titleDraft, setTitleDraft] = useState('');
 
-  // The three item types each theme against their own table (D2: no
+  // The item types each theme against their own table (D2: no
   // capability matrix left to check — which table an id lives in already
   // says what it can theme), so the inspector just picks the one array/map
   // matching the current item's type.
   const compatibleThemes = useMemo(() => {
     if (!currentItemRef) return [];
     if (currentItemRef.type === 'presentation') return presentationThemes;
-    if (currentItemRef.type === 'lyric') return lyricThemes;
-    return talkThemes;
-  }, [currentItemRef, lyricThemes, presentationThemes, talkThemes]);
+    return lyricThemes;
+  }, [currentItemRef, lyricThemes, presentationThemes]);
 
   const assignedTheme = useMemo(() => {
     if (!currentItem?.themeId || !currentItemRef) return null;
     const byId = currentItemRef.type === 'presentation'
       ? presentationThemesById
-      : currentItemRef.type === 'lyric'
-        ? lyricThemesById
-        : talkThemesById;
+      : lyricThemesById;
     return byId.get(currentItem.themeId) ?? null;
-  }, [currentItem, currentItemRef, lyricThemesById, presentationThemesById, talkThemesById]);
+  }, [currentItem, currentItemRef, lyricThemesById, presentationThemesById]);
 
   const themeOptions = useMemo(() => [
     { value: NO_TEMPLATE_VALUE, label: 'Select a theme…' },
@@ -66,7 +63,7 @@ export function ItemInspector() {
     if (!currentItemRef || !currentItem) return;
     const trimmed = titleDraft.trim();
     if (!trimmed || trimmed === currentItem.title) return;
-    // renameItem → renamePresentation/Lyric/Talk rejects when the item no
+    // renameItem rejects when the item no
     // longer exists (#214), which this blur commit can race with a concurrent
     // delete. mutatePatch has already reported the failure, so absorb the
     // rethrow here.

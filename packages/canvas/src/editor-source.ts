@@ -4,8 +4,8 @@ import type { ItemType, Overlay, Slide, SlideBackground, SlideElement, Stage, Th
 export type EditorWorkbenchMode = 'item-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor';
 
 /**
- * Structural shape shared by the four per-owner theme entities
- * (PresentationTheme/LyricTheme/TalkTheme/OverlayTheme in
+ * Structural shape shared by the three per-owner theme entities
+ * (PresentationTheme/LyricTheme/OverlayTheme in
  * @lumacast/composition) that this generic theme-editor source needs.
  * Importing one shared local shape rather than a union (there is no `Theme`
  * union entity — see #219 decision D2) keeps this editor contract decoupled

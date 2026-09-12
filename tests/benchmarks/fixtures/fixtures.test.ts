@@ -82,13 +82,10 @@ describe('generateFixture — entity/relationship coverage (#200 acceptance: req
     expect(counts.separators).toBeGreaterThanOrEqual(1);
     expect(counts.presentations).toBe(1);
     expect(counts.lyrics).toBe(1);
-    expect(counts.talks).toBe(1);
-    expect(counts.slides).toBe(3);
-    expect(counts.talkScriptBlocks).toBe(1);
+    expect(counts.slides).toBe(2);
     expect(counts.itemSlideElements).toBeGreaterThan(0);
     expect(counts.presentationThemes).toBe(1);
     expect(counts.lyricThemes).toBe(0);
-    expect(counts.talkThemes).toBe(0);
     expect(counts.overlayThemes).toBe(0);
   });
 
@@ -97,7 +94,7 @@ describe('generateFixture — entity/relationship coverage (#200 acceptance: req
     const large = manifests.large.entityCounts;
     expect(large.playlists).toBeGreaterThan(small.playlists);
     expect(large.separators).toBeGreaterThan(small.separators);
-    expect(large.presentations + large.lyrics + large.talks).toBeGreaterThan(20);
+    expect(large.presentations + large.lyrics).toBeGreaterThan(20);
     expect(large.slides).toBeGreaterThan(50);
     expect(large.itemSlideElements).toBeGreaterThan(100);
   });
@@ -106,18 +103,16 @@ describe('generateFixture — entity/relationship coverage (#200 acceptance: req
     const counts = manifests['media-heavy'].entityCounts;
     expect(counts.mediaAssets).toBeGreaterThanOrEqual(60);
     expect(counts.itemSlideElements).toBeGreaterThan(0);
-    expect(counts.mediaAssets).toBeGreaterThan(counts.presentations + counts.lyrics + counts.talks);
+    expect(counts.mediaAssets).toBeGreaterThan(counts.presentations + counts.lyrics);
   });
 
-  it('theme-heavy has many items sharing themes with real provenance links, across all four theme families', () => {
+  it('theme-heavy has many items sharing themes with real provenance links, across all three theme families', () => {
     const { manifest, snapshot } = generateFixture('theme-heavy');
     expect(manifest.entityCounts.presentationThemes).toBeGreaterThanOrEqual(1);
     expect(manifest.entityCounts.lyricThemes).toBeGreaterThanOrEqual(1);
-    expect(manifest.entityCounts.talkThemes).toBeGreaterThanOrEqual(1);
     expect(manifest.entityCounts.overlayThemes).toBeGreaterThanOrEqual(1);
     expect(manifest.entityCounts.overlays).toBeGreaterThanOrEqual(3);
     expect(manifest.entityCounts.presentations).toBeGreaterThan(0);
-    expect(manifest.entityCounts.talks).toBeGreaterThan(0);
     expect(manifest.entityCounts.lyrics).toBeGreaterThan(0);
 
     const provenanceLinked = snapshot.slideElements.filter((element) => element.sourceThemeElementId != null);
@@ -125,7 +120,7 @@ describe('generateFixture — entity/relationship coverage (#200 acceptance: req
 
     // As of #211, `getSlideElements()` (and so `AppSnapshot.slideElements`)
     // is scoped to item-owned slides exactly like `AppSnapshot.slides` —
-    // theme/overlay/stage container elements (there are 7 of them here: 4
+    // theme/overlay/stage container elements (there are 6 of them here: 3
     // per-family themes + 3 overlays, each with one default element) are
     // excluded entirely, not merely double-counted. `slideElements` and
     // `itemSlideElements` should therefore be equal; a mismatch would mean
@@ -134,10 +129,12 @@ describe('generateFixture — entity/relationship coverage (#200 acceptance: req
     expect(manifest.entityCounts.slideElements).toBe(manifest.entityCounts.itemSlideElements);
   });
 
-  it('talk-automation-heavy is dominated by talks, script blocks, cues, macros and trigger bindings', () => {
-    const counts = manifests['talk-automation-heavy'].entityCounts;
-    expect(counts.talks).toBeGreaterThanOrEqual(12);
-    expect(counts.talkScriptBlocks).toBeGreaterThanOrEqual(60);
+  it('automation-heavy is dominated by presentation/lyric slides, cues, macros and trigger bindings', () => {
+    const counts = manifests['automation-heavy'].entityCounts;
+    expect(counts.presentations + counts.lyrics).toBeGreaterThanOrEqual(12);
+    expect(counts.presentations).toBeGreaterThan(0);
+    expect(counts.lyrics).toBeGreaterThan(0);
+    expect(counts.slides).toBeGreaterThanOrEqual(84);
     expect(counts.cues).toBeGreaterThanOrEqual(30);
     expect(counts.macros).toBeGreaterThanOrEqual(15);
     expect(counts.triggerBindings).toBeGreaterThanOrEqual(25);

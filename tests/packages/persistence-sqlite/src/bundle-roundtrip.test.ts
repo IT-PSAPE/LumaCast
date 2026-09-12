@@ -94,7 +94,7 @@ describe('bundle roundtrip: exportBundle -> inspectImportBundle -> finalizeImpor
       includeOverlays: true,
       includeStages: true,
     });
-    expect(manifest.version).toBe(2);
+    expect(manifest.version).toBe(3);
     expect(manifest.overlays).toHaveLength(1);
     expect(manifest.stages).toHaveLength(1);
 
@@ -164,13 +164,9 @@ describe('bundle roundtrip: exportBundle -> inspectImportBundle -> finalizeImpor
 
   // Regression (#219 item-model refactor decision D8, wave K): a real v1
   // (.cst) file -- nested groups, `kind`-tagged themes, `libraryName` -- is
-  // no longer rejected. `normalizeBundleManifestV1` (protocol) converts it
-  // to the current v2 shape before `inspectImportBundle`/`finalizeImportBundle`
-  // ever see it: groups become separators, `kind:'slides'` becomes the
-  // presentation family PLUS a talk-family clone for the theme the talk
-  // references, `kind:'lyrics'`/`'overlays'` become their own families, and
-  // `libraryName` is dropped.
-  it('imports a legacy v1 (.cst) bundle: separators synthesized, and every theme family correct including a talk-theme clone', () => {
+  // no longer rejected. Normalization discards Talk content and retains the
+  // presentation, lyric, themes, and separators in the current v3 shape.
+  it('imports a legacy v1 (.cst) bundle while discarding Talk content', () => {
     const legacyManifest = {
       format: 'cast-deck-bundle',
       version: 1,
@@ -198,7 +194,10 @@ describe('bundle roundtrip: exportBundle -> inspectImportBundle -> finalizeImpor
               name: 'Opening',
               colorKey: null,
               order: 0,
-              entries: [{ id: 'entry-1', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 }],
+              entries: [
+                { id: 'entry-1', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 },
+                { id: 'entry-talk', presentationId: null, lyricId: null, talkId: 'talk-1', order: 1 },
+              ],
             },
           ],
         },
@@ -206,30 +205,23 @@ describe('bundle roundtrip: exportBundle -> inspectImportBundle -> finalizeImpor
     };
 
     const inspection = repo.inspectImportBundle(legacyManifest as unknown as BundleManifest);
-    expect(inspection.itemCount).toBe(3);
-    // theme-slides converts, PLUS a talk-family clone -> 4 themes total.
-    expect(inspection.themeCount).toBe(4);
-    expect(inspection.themes.map((theme) => theme.themeType).sort()).toEqual(['lyric', 'overlay', 'presentation', 'talk']);
+    expect(inspection.itemCount).toBe(2);
+    expect(inspection.themeCount).toBe(3);
+    expect(inspection.themes.map((theme) => theme.themeType).sort()).toEqual(['lyric', 'overlay', 'presentation']);
     expect(inspection.playlists[0]).toMatchObject({ name: 'Sunday', separatorCount: 1, entryCount: 1 });
 
     const before = repo.getSnapshot();
     const after = repo.finalizeImportBundle(legacyManifest as unknown as BundleManifest, []);
     expect(after.presentationThemes).toHaveLength(before.presentationThemes.length + 1);
     expect(after.lyricThemes).toHaveLength(before.lyricThemes.length + 1);
-    expect(after.talkThemes).toHaveLength(before.talkThemes.length + 1);
     expect(after.overlayThemes).toHaveLength(before.overlayThemes.length + 1);
 
     const importedPresentation = after.presentations.find((p) => p.title === 'Slides')!;
-    const importedTalk = after.talks.find((t) => t.title === 'Sermon')!;
     const importedLyric = after.lyrics.find((l) => l.title === 'Song')!;
     expect(importedPresentation.themeId).not.toBeNull();
-    expect(importedTalk.themeId).not.toBeNull();
-    // Both originally referenced the SAME v1 'slides' theme, but land in two
-    // different per-owner tables -- so the imported ids are never equal.
-    expect(importedTalk.themeId).not.toBe(importedPresentation.themeId);
     expect(after.presentationThemes.some((t) => t.id === importedPresentation.themeId)).toBe(true);
-    expect(after.talkThemes.some((t) => t.id === importedTalk.themeId)).toBe(true);
     expect(after.lyricThemes.some((t) => t.id === importedLyric.themeId)).toBe(true);
+    expect(after.presentations.some((item) => item.title === 'Sermon')).toBe(false);
 
     const importedPlaylist = after.playlists.find((p) => p.name === 'Sunday')!;
     const importedRows = after.playlistEntries

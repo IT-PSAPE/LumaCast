@@ -46,13 +46,13 @@ function itemEntriesFor(target: CastRepository, playlistId: Id): PlaylistItemEnt
   return rowsFor(target, playlistId).filter((row): row is PlaylistItemEntry => row.kind === 'item');
 }
 
-function buildMinimalTalkManifest(): BundleManifest {
+function buildMinimalManifest(): BundleManifest {
   return {
     format: 'cast-deck-bundle',
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     items: [
-      { id: 'talk-1', type: 'talk', title: 'Sermon', themeId: null, order: 0, slides: [] },
+      { id: 'presentation-1', type: 'presentation', title: 'Deck', themeId: null, order: 0, slides: [] },
     ],
     themes: [],
     mediaReferences: [],
@@ -62,7 +62,7 @@ function buildMinimalTalkManifest(): BundleManifest {
         name: 'Service',
         order: 0,
         rows: [
-          { id: 'entry-1', kind: 'item', presentationId: null, lyricId: null, talkId: 'talk-1', order: 0 },
+          { id: 'entry-1', kind: 'item', presentationId: 'presentation-1', lyricId: null, order: 0 },
         ],
       },
     ],
@@ -80,69 +80,65 @@ describe('playlist item reference round trips', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('adds Presentation, Lyric, and Talk entries each with a correct canonical reference', () => {
+  it('adds Presentation and Lyric entries each with a correct canonical reference', () => {
     const playlistId = createPlaylist(repo, 'Service');
     const presentationId = createItem(repo, 'presentation', 'Slides');
     const lyricId = createItem(repo, 'lyric', 'Song');
-    const talkId = createItem(repo, 'talk', 'Sermon');
 
     repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
     repo.addItemToPlaylist(playlistId, { type: 'lyric', id: lyricId });
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
 
     const entries = itemEntriesFor(repo, playlistId);
-    expect(entries).toHaveLength(3);
-
-    const talkEntry = entries.find((e) => e.reference.itemId === talkId);
-    expect(talkEntry?.reference).toEqual({ type: 'talk', itemId: talkId });
-    expect(talkEntry?.talkId).toBe(talkId);
-    expect(talkEntry?.presentationId).toBeNull();
-    expect(talkEntry?.lyricId).toBeNull();
+    expect(entries).toHaveLength(2);
 
     const presentationEntry = entries.find((e) => e.reference.itemId === presentationId);
     expect(presentationEntry?.reference).toEqual({ type: 'presentation', itemId: presentationId });
+    expect(presentationEntry?.presentationId).toBe(presentationId);
+    expect(presentationEntry?.lyricId).toBeNull();
 
     const lyricEntry = entries.find((e) => e.reference.itemId === lyricId);
     expect(lyricEntry?.reference).toEqual({ type: 'lyric', itemId: lyricId });
+    expect(lyricEntry?.presentationId).toBeNull();
+    expect(lyricEntry?.lyricId).toBe(lyricId);
   });
 
   it('preserves row identity and referenced item identity across a movePlaylistRow reorder', () => {
     const playlistId = createPlaylist(repo, 'Service');
-    const talkId = createItem(repo, 'talk', 'Sermon');
     const presentationId = createItem(repo, 'presentation', 'Slides');
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+    const lyricId = createItem(repo, 'lyric', 'Song');
     repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
+    repo.addItemToPlaylist(playlistId, { type: 'lyric', id: lyricId });
 
     const before = itemEntriesFor(repo, playlistId);
-    const talkRowId = before.find((e) => e.reference.itemId === talkId)!.id;
+    const presentationRowId = before.find((e) => e.reference.itemId === presentationId)!.id;
 
-    repo.movePlaylistRow(talkRowId, 1);
+    repo.movePlaylistRow(presentationRowId, 1);
 
     const after = itemEntriesFor(repo, playlistId);
-    const talkRowAfter = after.find((e) => e.id === talkRowId);
-    expect(talkRowAfter).toBeTruthy();
-    expect(talkRowAfter?.reference).toEqual({ type: 'talk', itemId: talkId });
+    const presentationRowAfter = after.find((e) => e.id === presentationRowId);
+    expect(presentationRowAfter).toBeTruthy();
+    expect(presentationRowAfter?.reference).toEqual({ type: 'presentation', itemId: presentationId });
     expect(after.map((e) => e.id)).not.toEqual(before.map((e) => e.id));
     expect(new Set(after.map((e) => e.id))).toEqual(new Set(before.map((e) => e.id)));
   });
 
   it('survives closing and reopening the database ("restart")', () => {
     const playlistId = createPlaylist(repo, 'Service');
-    const talkId = createItem(repo, 'talk', 'Sermon');
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+    const presentationId = createItem(repo, 'presentation', 'Deck');
+    repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
     closeRepo(repo);
     repo = makeRepo(tmpDir);
 
     const entries = itemEntriesFor(repo, playlistId);
     expect(entries).toHaveLength(1);
-    expect(entries[0].reference).toEqual({ type: 'talk', itemId: talkId });
+    expect(entries[0].reference).toEqual({ type: 'presentation', itemId: presentationId });
   });
 
-  it('exports and re-imports a Talk-only playlist without losing the entry (regression: export used to drop Talk entries)', () => {
+  it('exports and re-imports a Presentation-only playlist without losing the entry (regression: export used to drop Presentation entries)', () => {
     const playlistId = createPlaylist(repo, 'Service');
-    const talkId = createItem(repo, 'talk', 'Sermon');
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+    const presentationId = createItem(repo, 'presentation', 'Deck');
+    repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
     const manifest = repo.exportBundle([], { playlistIds: [playlistId] });
 
@@ -152,14 +148,11 @@ describe('playlist item reference round trips', () => {
     const exportedEntry = exportedRows[0];
     expect(exportedEntry.kind).toBe('item');
     if (exportedEntry.kind === 'item') {
-      expect(exportedEntry.talkId).toBe(talkId);
-      expect(exportedEntry.presentationId).toBeNull();
+      expect(exportedEntry.presentationId).toBe(presentationId);
       expect(exportedEntry.lyricId).toBeNull();
     }
-    // The Talk item itself must be included in the bundle too — previously
-    // `presentationId ?? lyricId` never surfaced its id, so it was dropped
-    // both from the referenced-item set and from the filtered row list.
-    expect(manifest.items.some((item) => item.id === talkId)).toBe(true);
+    // The referenced item itself must be included in the bundle.
+    expect(manifest.items.some((item) => item.id === presentationId)).toBe(true);
 
     const importDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-playlist-import-'));
     const importRepo = makeRepo(importDir);
@@ -174,12 +167,12 @@ describe('playlist item reference round trips', () => {
       expect(importedPlaylist).toBeTruthy();
       const importedEntries = itemEntriesFor(importRepo, importedPlaylist!.id);
       expect(importedEntries).toHaveLength(1);
-      const importedTalk = importRepo.getSnapshot().talks.find((t) => t.id === importedEntries[0].reference.itemId);
-      expect(importedTalk?.title).toBe('Sermon');
-      expect(importedEntries[0].reference.type).toBe('talk');
+      const importedPresentation = importRepo.getSnapshot().presentations.find((t) => t.id === importedEntries[0].reference.itemId);
+      expect(importedPresentation?.title).toBe('Deck');
+      expect(importedEntries[0].reference.type).toBe('presentation');
       // Import mints new row and item ids; content identity survives via title/type.
       expect(importedEntries[0].id).not.toBe(exportedEntry.id);
-      expect(importedEntries[0].reference.itemId).not.toBe(talkId);
+      expect(importedEntries[0].reference.itemId).not.toBe(presentationId);
     } finally {
       closeRepo(importRepo);
       fs.rmSync(importDir, { recursive: true, force: true });
@@ -189,8 +182,8 @@ describe('playlist item reference round trips', () => {
   it('exports a playlist containing a separator, and the separator survives import intact', () => {
     const playlistId = createPlaylist(repo, 'Service');
     repo.createSeparator(playlistId, 'Opening');
-    const talkId = createItem(repo, 'talk', 'Sermon');
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+    const presentationId = createItem(repo, 'presentation', 'Deck');
+    repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
     const manifest = repo.exportBundle([], { playlistIds: [playlistId] });
     const rows = manifest.playlists![0].rows;
@@ -218,13 +211,12 @@ describe('playlist item reference round trips', () => {
   });
 
   it('rejects an import manifest playlist row with zero populated owners, without partially importing it', () => {
-    const manifest = buildMinimalTalkManifest();
+    const manifest = buildMinimalManifest();
     manifest.playlists![0].rows[0] = {
       id: 'entry-1',
       kind: 'item',
       presentationId: null,
       lyricId: null,
-      talkId: null,
       order: 0,
     };
 
@@ -234,13 +226,12 @@ describe('playlist item reference round trips', () => {
   });
 
   it('rejects an import manifest playlist row with multiple populated owners, without partially importing it', () => {
-    const manifest = buildMinimalTalkManifest();
+    const manifest = buildMinimalManifest();
     manifest.playlists![0].rows[0] = {
       id: 'entry-1',
       kind: 'item',
       presentationId: 'stray-presentation-id',
-      lyricId: null,
-      talkId: 'talk-1',
+      lyricId: 'stray-lyric-id',
       order: 0,
     };
 
@@ -249,21 +240,14 @@ describe('playlist item reference round trips', () => {
     expect(repo.getSnapshot().playlists).toHaveLength(0);
   });
 
-  // Regression (#219 item-model refactor decision D8, wave K): a real v1
-  // file (nested groups, `libraryName`) is no longer rejected -- it imports,
-  // with the group flattened into a separator (label = group name) followed
-  // by its entry, and `libraryName` silently dropped (decision D4). Bundle
-  // import always assigns fresh row/item ids (unlike backup restore, which
-  // preserves item-entry ids) -- see `finalizeImportBundle`'s `createId()`
-  // calls -- so this asserts row kind/label/color and the resolved item
-  // reference, not id equality with the source manifest.
-  it('imports a legacy v1 (group-based) bundle manifest: the group becomes a separator', () => {
+  it('imports a legacy v1 bundle by discarding Talk content while retaining the presentation and its row', () => {
     const legacyManifest = {
       format: 'cast-deck-bundle',
       version: 1,
       exportedAt: new Date().toISOString(),
       items: [
-        { id: 'talk-1', type: 'talk', title: 'Sermon', themeId: null, order: 0, slides: [] },
+        { id: 'presentation-1', type: 'presentation', title: 'Deck', themeId: null, order: 0, slides: [] },
+        { id: 'talk-1', type: 'talk', title: 'Legacy Talk', themeId: null, order: 1, slides: [] },
       ],
       themes: [],
       mediaReferences: [],
@@ -279,7 +263,10 @@ describe('playlist item reference round trips', () => {
               name: 'Opening',
               colorKey: 'blue',
               order: 0,
-              entries: [{ id: 'entry-1', presentationId: null, lyricId: null, talkId: 'talk-1', order: 0 }],
+              entries: [
+                { id: 'entry-1', presentationId: 'presentation-1', lyricId: null, talkId: null, order: 0 },
+                { id: 'entry-talk', presentationId: null, lyricId: null, talkId: 'talk-1', order: 1 },
+              ],
             },
           ],
         },
@@ -287,11 +274,13 @@ describe('playlist item reference round trips', () => {
     };
 
     const inspection = repo.inspectImportBundle(legacyManifest as unknown as BundleManifest);
+    expect(inspection.itemCount).toBe(1);
     expect(inspection.playlists[0]).toMatchObject({ name: 'Service', separatorCount: 1, entryCount: 1 });
 
     const after = repo.finalizeImportBundle(legacyManifest as unknown as BundleManifest, []);
-    const importedTalk = after.talks.find((talk) => talk.title === 'Sermon')!;
-    expect(importedTalk).toBeTruthy();
+    const importedPresentation = after.presentations.find((presentation) => presentation.title === 'Deck')!;
+    expect(importedPresentation).toBeTruthy();
+    expect(after.presentations.some((presentation) => presentation.title === 'Legacy Talk')).toBe(false);
     const importedPlaylist = after.playlists.find((p) => p.name === 'Service')!;
     const importedRows = after.playlistEntries
       .filter((row) => row.playlistId === importedPlaylist.id)
@@ -299,35 +288,35 @@ describe('playlist item reference round trips', () => {
     expect(importedRows).toHaveLength(2);
     expect(importedRows[0]).toMatchObject({ kind: 'separator', label: 'Opening', colorKey: 'blue' });
     expect(importedRows[1].kind).toBe('item');
-    expect((importedRows[1] as PlaylistItemEntry).reference).toEqual({ type: 'talk', itemId: importedTalk.id });
+    expect((importedRows[1] as PlaylistItemEntry).reference).toEqual({ type: 'presentation', itemId: importedPresentation.id });
   });
 
   it('rejects an unsupported (non-legacy) bundle version explicitly, without a partial import', () => {
-    const manifest = buildMinimalTalkManifest();
-    (manifest as unknown as { version: number }).version = 3;
+    const manifest = buildMinimalManifest();
+    (manifest as unknown as { version: number }).version = 4;
 
-    expect(() => repo.inspectImportBundle(manifest)).toThrow(/future bundle version 3/);
-    expect(() => repo.finalizeImportBundle(manifest, [])).toThrow(/future bundle version 3/);
+    expect(() => repo.inspectImportBundle(manifest)).toThrow(/future bundle version 4/);
+    expect(() => repo.finalizeImportBundle(manifest, [])).toThrow(/future bundle version 4/);
     expect(repo.getSnapshot().playlists).toHaveLength(0);
   });
 
   it('allows duplicate entries referencing the same item, each keeping its own row identity', () => {
     const playlistId = createPlaylist(repo, 'Service');
-    const talkId = createItem(repo, 'talk', 'Sermon');
+    const presentationId = createItem(repo, 'presentation', 'Deck');
 
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+    repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
+    repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
     const entries = itemEntriesFor(repo, playlistId);
     expect(entries).toHaveLength(2);
     expect(entries[0].id).not.toBe(entries[1].id);
-    expect(entries.every((e) => e.reference.itemId === talkId)).toBe(true);
+    expect(entries.every((e) => e.reference.itemId === presentationId)).toBe(true);
   });
 
-  it('round-trips a full snapshot restore, preserving the Talk entry reference', () => {
+  it('round-trips a full snapshot restore, preserving the Presentation entry reference', () => {
     const playlistId = createPlaylist(repo, 'Service');
-    const talkId = createItem(repo, 'talk', 'Sermon');
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+    const presentationId = createItem(repo, 'presentation', 'Deck');
+    repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
     const snapshot = repo.getSnapshot();
 
@@ -337,8 +326,8 @@ describe('playlist item reference round trips', () => {
       restoreRepo.restoreFromSnapshot(snapshot);
       const entries = itemEntriesFor(restoreRepo, playlistId);
       expect(entries).toHaveLength(1);
-      expect(entries[0].reference).toEqual({ type: 'talk', itemId: talkId });
-      expect(entries[0].talkId).toBe(talkId);
+      expect(entries[0].reference).toEqual({ type: 'presentation', itemId: presentationId });
+      expect(entries[0].presentationId).toBe(presentationId);
     } finally {
       closeRepo(restoreRepo);
       fs.rmSync(restoreDir, { recursive: true, force: true });
@@ -371,8 +360,8 @@ describe('playlist item reference round trips', () => {
   it('kind-discrimination: a snapshot with a separator row never reaches parsePlaylistItemReference and never throws', () => {
     const playlistId = createPlaylist(repo, 'Service');
     repo.createSeparator(playlistId, 'Opening');
-    const talkId = createItem(repo, 'talk', 'Sermon');
-    repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+    const presentationId = createItem(repo, 'presentation', 'Deck');
+    repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
     repo.createSeparator(playlistId, 'Closing');
 
     // Reading the whole snapshot exercises every playlist_entries row

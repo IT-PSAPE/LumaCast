@@ -8,7 +8,7 @@ import type { Presentation, SlideElement, ThemeOwnerType } from '@lumacast/compo
 import type { AppSnapshot } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import { applyPatch, createEmptyPatch } from '@lumacast/protocol';
-import { AssetEditorProvider, useThemeEditor, type ThemeEditorValue } from '../../../../../app/renderer/contexts/asset-editor/asset-editor-context';
+import { AssetEditorProvider, useThemeEditor, useDeckEditor, type ThemeEditorValue } from '../../../../../app/renderer/contexts/asset-editor/asset-editor-context';
 
 // Covers #144: Apply/Reset, Sync, and Detach are wired to three distinct
 // `castApi` operations from the renderer, none of them reimplementing the
@@ -36,7 +36,8 @@ vi.mock('../../../../../app/renderer/contexts/app-context', () => ({
   }),
 }));
 
-vi.mock('../../../../../app/renderer/contexts/use-project-content', () => ({
+vi.mock('../../../../../app/renderer/contexts/use-project-content', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../../app/renderer/contexts/use-project-content')>(),
   useProjectContent: () => mocks.project.value,
 }));
 
@@ -73,9 +74,9 @@ function makeElement(id: Id, text: string): SlideElement {
   };
 }
 
-// #219 item-model refactor decision D2: the four theme families
-// (presentation/lyric/talk/overlay) share one structural row shape — there
-// is no `kind` discriminant on the row itself, only on which of the four
+// #219 item-model refactor decision D2: the theme families share one
+// structural row shape — there is no `kind` discriminant on the row itself,
+// only on which
 // snapshot arrays it lives in.
 function makeTheme(id: Id, name: string, partial: Partial<{
   width: number; height: number; order: number; elements: SlideElement[];
@@ -107,9 +108,8 @@ function makePresentation(id: Id, title: string, themeId: Id | null): Presentati
   };
 }
 
-function themeFieldName(themeType: ThemeOwnerType): 'presentationThemes' | 'lyricThemes' | 'talkThemes' | 'overlayThemes' {
+function themeFieldName(themeType: ThemeOwnerType): 'presentationThemes' | 'lyricThemes' | 'overlayThemes' {
   if (themeType === 'lyric') return 'lyricThemes';
-  if (themeType === 'talk') return 'talkThemes';
   if (themeType === 'overlay') return 'overlayThemes';
   return 'presentationThemes';
 }
@@ -118,15 +118,12 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
   return {
     presentations: [],
     lyrics: [],
-    talks: [],
     slides: [],
-    talkScriptBlocks: [],
     slideElements: [],
     mediaAssets: [],
     overlays: [],
     presentationThemes: [],
     lyricThemes: [],
-    talkThemes: [],
     overlayThemes: [],
     stages: [],
     playlists: [],
@@ -142,20 +139,16 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
 function makeProjectContent(snapshot: AppSnapshot): any {
   const presentationsById = new Map(snapshot.presentations.map((p) => [p.id, p]));
   const lyricsById = new Map(snapshot.lyrics.map((l) => [l.id, l]));
-  const talksById = new Map(snapshot.talks.map((t) => [t.id, t]));
 
   return {
     presentations: snapshot.presentations,
     lyrics: snapshot.lyrics,
-    talks: snapshot.talks,
     slides: snapshot.slides,
-    talkScriptBlocks: [],
     slideElements: snapshot.slideElements,
     mediaAssets: [],
     overlays: snapshot.overlays,
     presentationThemes: snapshot.presentationThemes,
     lyricThemes: snapshot.lyricThemes,
-    talkThemes: snapshot.talkThemes,
     overlayThemes: snapshot.overlayThemes,
     stages: snapshot.stages,
     cues: [],
@@ -163,15 +156,12 @@ function makeProjectContent(snapshot: AppSnapshot): any {
     triggerBindings: [],
     presentationsById,
     lyricsById,
-    talksById,
     slidesByItem: new Map(),
-    talkScriptBlocksBySlideId: new Map(),
-    slideElementsBySlideId: new Map(),
+    slideElementsBySlideId: new Map(snapshot.slides.map((slide) => [slide.id, snapshot.slideElements.filter((element) => element.slideId === slide.id)])),
     mediaAssetsById: new Map(),
     overlaysById: new Map(snapshot.overlays.map((o) => [o.id, o])),
     presentationThemesById: new Map(snapshot.presentationThemes.map((t) => [t.id, t])),
     lyricThemesById: new Map(snapshot.lyricThemes.map((t) => [t.id, t])),
-    talkThemesById: new Map(snapshot.talkThemes.map((t) => [t.id, t])),
     overlayThemesById: new Map(snapshot.overlayThemes.map((t) => [t.id, t])),
     stagesById: new Map(snapshot.stages.map((s) => [s.id, s])),
     cuesById: new Map(),
@@ -179,14 +169,13 @@ function makeProjectContent(snapshot: AppSnapshot): any {
     resolveItemRef: (ref: { type: string; id: Id } | null | undefined) => {
       if (!ref) return null;
       if (ref.type === 'presentation') return presentationsById.get(ref.id) ?? null;
-      if (ref.type === 'lyric') return lyricsById.get(ref.id) ?? null;
-      return talksById.get(ref.id) ?? null;
+      return lyricsById.get(ref.id) ?? null;
     },
     slidesForItemRef: () => [],
   };
 }
 
-function renderThemeHarness(initial: AppSnapshot): { current: ThemeEditorValue } {
+function renderThemeHarness(initial: AppSnapshot): { current: ThemeEditorValue & ReturnType<typeof useDeckEditor> } {
   let snapshot = initial;
   mocks.cast.snapshot = initial;
   mocks.cast.mutatePatch = async (action: () => Promise<SnapshotPatch>): Promise<AppSnapshot> => {
@@ -208,8 +197,8 @@ function renderThemeHarness(initial: AppSnapshot): { current: ThemeEditorValue }
 
   // renderHook returns { result, rerender, unmount }; the hook value lives on
   // result.current, so the harness hands back `result` itself.
-  const { result } = renderHook(() => useThemeEditor(), { wrapper });
-  return result as { current: ThemeEditorValue };
+  const { result } = renderHook(() => ({ ...useThemeEditor(), ...useDeckEditor() }), { wrapper });
+  return result as { current: ThemeEditorValue & ReturnType<typeof useDeckEditor> };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -405,18 +394,15 @@ describe('themesByType', () => {
   it('exposes every family through themesByType while themes stays active-family only', () => {
     const pTheme = makeTheme('P1', 'Pres Theme');
     const lTheme = makeTheme('L1', 'Lyric Theme');
-    const tTheme = makeTheme('T1', 'Talk Theme');
     const oTheme = makeTheme('O1', 'Overlay Theme');
     const harness = renderThemeHarness(makeSnapshot({
       presentationThemes: [pTheme],
       lyricThemes: [lTheme],
-      talkThemes: [tTheme],
       overlayThemes: [oTheme],
     }));
 
     expect(harness.current.themesByType.presentation).toHaveLength(1);
     expect(harness.current.themesByType.lyric).toHaveLength(1);
-    expect(harness.current.themesByType.talk).toHaveLength(1);
     expect(harness.current.themesByType.overlay).toHaveLength(1);
     // themes still means the active family'sthemes
     expect(harness.current.themes).toHaveLength(1);
@@ -526,5 +512,22 @@ describe('call-site boundary — no UI module reimplements or bypasses the prove
         expect(occurrences).toBe(0);
       }
     }
+  });
+});
+
+
+describe('live linked slide editing', () => {
+  it('uses the current theme as the edit baseline and pins only the changed property', () => {
+    const source = makeElement('source', 'Theme');
+    const theme = makeTheme('T1', 'Theme', { elements: [{ ...source, x: 400, y: 500 }] });
+    const row = { ...source, id: 'row', slideId: 'slide', sourceThemeElementId: source.id, themeOverrideKeys: null };
+    const harness = renderThemeHarness(makeSnapshot({
+      presentationThemes: [theme], presentations: [makePresentation('D1', 'Deck', 'T1')],
+      slides: [{ id: 'slide', presentationId: 'D1', lyricId: null, presentationThemeId: null, lyricThemeId: null, overlayThemeId: null, overlayId: null, stageId: null, kind: 'presentation', notes: '', order: 0, width: 1920, height: 1080, background: null, backgroundSource: 'theme', createdAt: source.createdAt, updatedAt: source.updatedAt }],
+      slideElements: [row],
+    }));
+    expect(harness.current.getSlideElements('slide')[0]).toMatchObject({ x: 400, y: 500 });
+    act(() => harness.current.replaceSlideElements('slide', [{ ...harness.current.getSlideElements('slide')[0]!, x: 123 }]));
+    expect(harness.current.getSlideElements('slide')[0]).toMatchObject({ x: 123, y: 500, themeOverrideKeys: ['x'] });
   });
 });

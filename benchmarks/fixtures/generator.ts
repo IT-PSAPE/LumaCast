@@ -41,7 +41,7 @@ export interface GeneratedFixture {
 export function generateFixture(fixtureClass: string, options: GenerateFixtureOptions = {}): GeneratedFixture {
   if (!isFixtureClass(fixtureClass)) {
     throw new Error(
-      `Unknown fixture class '${fixtureClass}'. Expected one of: small, large, media-heavy, theme-heavy, talk-automation-heavy.`
+      `Unknown fixture class '${fixtureClass}'. Expected one of: small, large, media-heavy, theme-heavy, automation-heavy.`
     );
   }
   const seed = options.seed ?? defaultSeedFor(fixtureClass);
@@ -88,8 +88,8 @@ function populateFixture(repo: CastRepository, fixtureClass: FixtureClass, seed:
       return populateMediaHeavy(repo, seed);
     case 'theme-heavy':
       return populateThemeHeavy(repo);
-    case 'talk-automation-heavy':
-      return populateTalkAutomationHeavy(repo);
+    case 'automation-heavy':
+      return populateAutomationHeavy(repo);
   }
 }
 
@@ -103,13 +103,9 @@ function populateSmall(repo: CastRepository): void {
 
   const { itemId: presentationId } = repo.createItem({ type: 'presentation', title: 'Welcome Slides', themeId, playlistId });
   const { itemId: lyricId } = repo.createItem({ type: 'lyric', title: 'Opening Song', playlistId });
-  const { itemId: talkId, patch: talkPatch } = repo.createItem({ type: 'talk', title: 'Message', playlistId });
-
-  repo.createTalkScriptBlock({ slideId: requireId(talkPatch.upserts.slides), text: 'Welcome everyone.' });
 
   void presentationId;
   void lyricId;
-  void talkId;
 }
 
 // ─── large: many items, slides, elements, playlists and separators ─────
@@ -119,7 +115,7 @@ const LARGE_SEPARATORS_PER_PLAYLIST = 2;
 const LARGE_ITEM_COUNT = 24;
 const LARGE_EXTRA_SLIDES_PER_ITEM = 2;
 const LARGE_ELEMENTS_PER_EXTRA_SLIDE = 2;
-const ITEM_TYPES: readonly ItemType[] = ['presentation', 'lyric', 'talk'];
+const ITEM_TYPES: readonly ItemType[] = ['presentation', 'lyric'];
 
 function populateLarge(repo: CastRepository): void {
   const themeIds = [
@@ -214,17 +210,12 @@ function populateThemeHeavy(repo: CastRepository): void {
     repo.createTheme({ name: 'Presentation Theme', themeType: 'presentation' }).upserts.presentationThemes,
   );
   const lyricThemeId = requireId(repo.createTheme({ name: 'Lyric Theme', themeType: 'lyric' }).upserts.lyricThemes);
-  const talkThemeId = requireId(repo.createTheme({ name: 'Talk Theme', themeType: 'talk' }).upserts.talkThemes);
   const overlayThemeId = requireId(repo.createTheme({ name: 'Overlay Theme', themeType: 'overlay' }).upserts.overlayThemes);
 
   const presentationIds: Id[] = [];
-  const talkIds: Id[] = [];
   for (let index = 0; index < THEME_HEAVY_ITEMS_PER_THEME; index += 1) {
     presentationIds.push(
       repo.createItem({ type: 'presentation', title: `Themed Presentation ${index}`, themeId: presentationThemeId }).itemId,
-    );
-    talkIds.push(
-      repo.createItem({ type: 'talk', title: `Themed Talk ${index}`, themeId: talkThemeId }).itemId,
     );
     repo.createItem({ type: 'lyric', title: `Themed Lyric ${index}`, themeId: lyricThemeId });
   }
@@ -236,27 +227,22 @@ function populateThemeHeavy(repo: CastRepository): void {
 
   // Nested provenance: duplicating a themed presentation carries its
   // elements' sourceThemeElementId forward onto a second generation of
-  // items. Talks are not duplicable (decision D1), so only presentations
-  // exercise this path.
+  // items.
   for (const presentationId of presentationIds.slice(0, 3)) {
     repo.duplicateItem({ type: 'presentation', id: presentationId });
   }
 
   // Editing the theme and re-syncing fans the change out across every item
   // still linked to it — the provenance path #104/#113 made non-destructive.
-  // Sync is strictly per-family: a presentation theme never fans out to talks.
+  // Sync is strictly per-family: a presentation theme never fans out to lyrics.
   repo.updateTheme({ id: presentationThemeId, themeType: 'presentation', name: 'Presentation Theme (revised)' });
   repo.syncThemeToLinkedItems(presentationThemeId, 'presentation');
-
-  for (const talkId of talkIds.slice(0, 2)) {
-    repo.applyThemeToItem(talkThemeId, { type: 'talk', id: talkId });
-  }
 }
 
-// ─── talk-automation-heavy: talks, cues, macros, trigger bindings ──────
+// ─── automation-heavy: item slides, cues, macros, trigger bindings ─────
 
-const TALK_COUNT = 12;
-const SCRIPT_BLOCKS_PER_TALK = 6;
+const AUTOMATION_ITEM_COUNT = 12;
+const EXTRA_SLIDES_PER_AUTOMATION_ITEM = 6;
 const CUE_KINDS: readonly CueKind[] = [
   'overlay.activate',
   'overlay.clear',
@@ -273,22 +259,21 @@ const CUE_COUNT = 30;
 const MACRO_COUNT = 15;
 const TRIGGER_BINDING_COUNT = 25;
 
-function populateTalkAutomationHeavy(repo: CastRepository): void {
+function populateAutomationHeavy(repo: CastRepository): void {
   const overlayId = requireId(repo.createOverlay({ name: 'Automation Overlay' }).upserts.overlays);
   const stageId = requireId(repo.createStage({ name: 'Automation Stage' }).upserts.stages);
   const audioAssetId = requireId(
-    repo.createMediaAsset({ name: 'Automation Bed', type: 'audio', src: 'fixture-media://talk-automation-heavy/audio/0000.wav' })
+    repo.createMediaAsset({ name: 'Automation Bed', type: 'audio', src: 'fixture-media://automation-heavy/audio/0000.wav' })
       .upserts.mediaAssets,
   );
 
-  const talkIds: Id[] = [];
-  const talkSlideIds: Id[] = [];
-  for (let talkIndex = 0; talkIndex < TALK_COUNT; talkIndex += 1) {
-    const { itemId, patch } = repo.createItem({ type: 'talk', title: `Talk ${talkIndex}` });
-    talkIds.push(itemId);
-    talkSlideIds.push(requireId(patch.upserts.slides));
-    for (let blockIndex = 0; blockIndex < SCRIPT_BLOCKS_PER_TALK; blockIndex += 1) {
-      repo.createTalkScriptBlock({ slideId: talkSlideIds[talkIndex]!, text: `Point ${blockIndex} for talk ${talkIndex}.` });
+  const itemSlideIds: Id[] = [];
+  for (let itemIndex = 0; itemIndex < AUTOMATION_ITEM_COUNT; itemIndex += 1) {
+    const type = ITEM_TYPES[itemIndex % ITEM_TYPES.length]!;
+    const { itemId, patch } = repo.createItem({ type, title: `Automation ${type} ${itemIndex}` });
+    itemSlideIds.push(requireId(patch.upserts.slides));
+    for (let slideIndex = 0; slideIndex < EXTRA_SLIDES_PER_AUTOMATION_ITEM; slideIndex += 1) {
+      itemSlideIds.push(requireId(repo.createSlide(ownerInputFor(type, itemId)).upserts.slides));
     }
   }
 
@@ -322,7 +307,7 @@ function populateTalkAutomationHeavy(repo: CastRepository): void {
     const triggerType = bindingIndex % 3 === 0 ? 'app.startup' : bindingIndex % 3 === 1 ? 'slide.take' : 'slide.activate';
     repo.createTriggerBinding({
       triggerType,
-      sourceId: triggerType === 'app.startup' ? null : talkSlideIds[bindingIndex % talkSlideIds.length]!,
+      sourceId: triggerType === 'app.startup' ? null : itemSlideIds[bindingIndex % itemSlideIds.length]!,
       targetType: useMacro ? 'macro' : 'cue',
       targetId,
       enabled: bindingIndex % 7 !== 0,
@@ -362,8 +347,7 @@ function requireId(records: Array<{ id: Id }> | undefined): Id {
   return id;
 }
 
-function ownerInputFor(type: ItemType, itemId: Id): { presentationId?: Id; lyricId?: Id; talkId?: Id } {
+function ownerInputFor(type: ItemType, itemId: Id): { presentationId?: Id; lyricId?: Id } {
   if (type === 'presentation') return { presentationId: itemId };
-  if (type === 'lyric') return { lyricId: itemId };
-  return { talkId: itemId };
+  return { lyricId: itemId };
 }

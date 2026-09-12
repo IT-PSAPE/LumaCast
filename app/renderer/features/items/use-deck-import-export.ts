@@ -62,7 +62,7 @@ interface ImportExportSettingsActions {
 }
 
 export function useDeckImportExport(): { state: ImportExportSettingsState; actions: ImportExportSettingsActions } {
-  const { presentations, lyrics, talks } = useProjectContent();
+  const { presentations, lyrics } = useProjectContent();
   const { snapshot, mutate, setStatusText } = useCast();
   const [filterText, setFilterText] = useState('');
   const [selectedItemIds, setSelectedItemIds] = useState<Set<Id>>(new Set());
@@ -82,8 +82,7 @@ export function useDeckImportExport(): { state: ImportExportSettingsState; actio
   const items = useMemo<ExportableItem[]>(() => [
     ...presentations.map((item) => ({ id: item.id, title: item.title, type: 'presentation' as const })),
     ...lyrics.map((item) => ({ id: item.id, title: item.title, type: 'lyric' as const })),
-    ...talks.map((item) => ({ id: item.id, title: item.title, type: 'talk' as const })),
-  ], [presentations, lyrics, talks]);
+  ], [presentations, lyrics]);
 
   const playlists = snapshot?.playlists ?? [];
 

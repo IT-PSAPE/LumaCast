@@ -25,11 +25,10 @@ export function useActiveEditorSource(): ActiveEditorSource {
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
   const { themeType, currentTheme, replaceThemeElements } = useThemeEditor();
   const { currentStage, replaceStageElements } = useStageEditor();
-  const { presentationThemesById, lyricThemesById, talkThemesById, overlayThemesById, overlaysById, stagesById } = useProjectContent();
+  const { presentationThemesById, lyricThemesById, overlayThemesById, overlaysById, stagesById } = useProjectContent();
   const { state: { workbenchMode } } = useWorkbench();
 
   const themesById = themeType === 'lyric' ? lyricThemesById
-    : themeType === 'talk' ? talkThemesById
     : themeType === 'overlay' ? overlayThemesById
     : presentationThemesById;
 

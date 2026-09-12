@@ -60,7 +60,7 @@ describe('CastRepository.createSeparator', () => {
     const { repository: repo, close, cleanup } = createTestRepository({ seed: false });
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      addItemRow(repo, playlistId, 'talk', 'Sermon');
+      addItemRow(repo, playlistId, 'presentation', 'Deck');
 
       const patch = repo.createSeparator(playlistId, 'Opening');
 
@@ -94,8 +94,8 @@ describe('CastRepository.renameSeparator', () => {
     const { repository: repo, close, cleanup } = createTestRepository({ seed: false });
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const talkId = addItemRow(repo, playlistId, 'talk', 'Sermon');
-      const itemRowId = repo.getSnapshot().playlistEntries.find((row) => row.kind === 'item' && row.reference.itemId === talkId)!.id;
+      const presentationId = addItemRow(repo, playlistId, 'presentation', 'Deck');
+      const itemRowId = repo.getSnapshot().playlistEntries.find((row) => row.kind === 'item' && row.reference.itemId === presentationId)!.id;
 
       expect(() => repo.renameSeparator(itemRowId, 'Renamed'))
         .toThrow(new RegExp(`Separator not found: ${itemRowId}`));
@@ -139,8 +139,8 @@ describe('CastRepository.setSeparatorColor', () => {
     const { repository: repo, close, cleanup } = createTestRepository({ seed: false });
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const talkId = addItemRow(repo, playlistId, 'talk', 'Sermon');
-      const itemRowId = repo.getSnapshot().playlistEntries.find((row) => row.kind === 'item' && row.reference.itemId === talkId)!.id;
+      const presentationId = addItemRow(repo, playlistId, 'presentation', 'Deck');
+      const itemRowId = repo.getSnapshot().playlistEntries.find((row) => row.kind === 'item' && row.reference.itemId === presentationId)!.id;
 
       expect(() => repo.setSeparatorColor(itemRowId, 'red'))
         .toThrow(new RegExp(`Separator not found: ${itemRowId}`));
@@ -292,8 +292,8 @@ describe('CastRepository.deletePlaylist cascades its rows', () => {
     const { repository: repo, close, cleanup } = createTestRepository({ seed: false });
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const talkId = createItem(repo, 'talk', 'Sermon');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+      const presentationId = createItem(repo, 'presentation', 'Deck');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
       repo.createSeparator(playlistId, 'Opening');
       const rowIdsBefore = repo
         .getSnapshot()
@@ -310,8 +310,8 @@ describe('CastRepository.deletePlaylist cascades its rows', () => {
       expect(repo.getSnapshot().playlists.some((p) => p.id === playlistId)).toBe(false);
       // Cascade: no orphaned rows survive pointing at the deleted playlist.
       expect(repo.getSnapshot().playlistEntries.some((row) => row.playlistId === playlistId)).toBe(false);
-      // The underlying Talk is untouched by deleting the playlist that referenced it.
-      expect(repo.getSnapshot().talks.some((talk) => talk.id === talkId)).toBe(true);
+      // The underlying Presentation is untouched by deleting the playlist that referenced it.
+      expect(repo.getSnapshot().presentations.some((presentation) => presentation.id === presentationId)).toBe(true);
     } finally {
       close();
       cleanup();
@@ -323,7 +323,7 @@ describe('CastRepository.deletePlaylist cascades its rows', () => {
     try {
       const playlistAId = createPlaylist(repo, 'Service A');
       const playlistBId = createPlaylist(repo, 'Service B');
-      addItemRow(repo, playlistBId, 'talk', 'Sermon');
+      addItemRow(repo, playlistBId, 'presentation', 'Deck');
       const beforeBRows = rowOrdersFor(repo, playlistBId);
 
       repo.deletePlaylist(playlistAId);
@@ -342,11 +342,11 @@ describe('per-playlist dense order invariants', () => {
     const { repository: repo, close, cleanup } = createTestRepository({ seed: false });
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      addItemRow(repo, playlistId, 'talk', 'A');
-      const bId = addItemRow(repo, playlistId, 'talk', 'B');
-      addItemRow(repo, playlistId, 'talk', 'C');
+      addItemRow(repo, playlistId, 'presentation', 'A');
+      const bId = addItemRow(repo, playlistId, 'presentation', 'B');
+      addItemRow(repo, playlistId, 'presentation', 'C');
       repo.createSeparator(playlistId, 'Midpoint');
-      addItemRow(repo, playlistId, 'talk', 'D');
+      addItemRow(repo, playlistId, 'presentation', 'D');
 
       const rowBEntryId = repo.getSnapshot().playlistEntries.find((row) => row.kind === 'item' && row.reference.itemId === bId)!.id;
       repo.removePlaylistRow(rowBEntryId);
@@ -365,9 +365,9 @@ describe('per-playlist dense order invariants', () => {
     try {
       const playlistAId = createPlaylist(repo, 'Service A');
       const playlistBId = createPlaylist(repo, 'Service B');
-      addItemRow(repo, playlistAId, 'talk', 'A1');
-      addItemRow(repo, playlistAId, 'talk', 'A2');
-      addItemRow(repo, playlistBId, 'talk', 'B1');
+      addItemRow(repo, playlistAId, 'presentation', 'A1');
+      addItemRow(repo, playlistAId, 'presentation', 'A2');
+      addItemRow(repo, playlistBId, 'presentation', 'B1');
 
       expect(rowOrdersFor(repo, playlistAId)).toEqual([0, 1]);
       expect(rowOrdersFor(repo, playlistBId)).toEqual([0]);
@@ -383,9 +383,9 @@ describe('playlist mutation patch shapes', () => {
     const { repository: repo, close, cleanup } = createTestRepository({ seed: false });
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const talkId = createItem(repo, 'talk', 'Sermon');
+      const presentationId = createItem(repo, 'presentation', 'Deck');
       const patches = [
-        repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId }),
+        repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId }),
         repo.createSeparator(playlistId, 'Opening'),
         repo.renamePlaylist(playlistId, 'Renamed'),
       ];

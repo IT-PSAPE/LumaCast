@@ -424,7 +424,6 @@ export function maskAppSnapshot(snapshot: AppSnapshot): AppSnapshot {
     slideElements: mapChanged(snapshot.slideElements, maskElement) ?? snapshot.slideElements,
     presentationThemes: mapChanged(snapshot.presentationThemes, maskComposition) ?? snapshot.presentationThemes,
     lyricThemes: mapChanged(snapshot.lyricThemes, maskComposition) ?? snapshot.lyricThemes,
-    talkThemes: mapChanged(snapshot.talkThemes, maskComposition) ?? snapshot.talkThemes,
     overlayThemes: mapChanged(snapshot.overlayThemes, maskComposition) ?? snapshot.overlayThemes,
     overlays: mapChanged(snapshot.overlays, maskComposition) ?? snapshot.overlays,
     stages: mapChanged(snapshot.stages, maskComposition) ?? snapshot.stages,
@@ -452,7 +451,6 @@ export function maskSnapshotPatch(patch: SnapshotPatch): SnapshotPatch {
   assignMasked('slideElements', maskElement);
   assignMasked('presentationThemes', maskComposition);
   assignMasked('lyricThemes', maskComposition);
-  assignMasked('talkThemes', maskComposition);
   assignMasked('overlayThemes', maskComposition);
   assignMasked('overlays', maskComposition);
   assignMasked('stages', maskComposition);

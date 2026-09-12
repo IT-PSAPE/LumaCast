@@ -6,7 +6,7 @@ import type { SlideElement, SlideElementPayload } from '@lumacast/composition';
 import { CastRepository } from '../../../../packages/persistence-sqlite/src/store';
 
 // Covers #211 (ported for the #219 item-model refactor): `getSlides()`
-// deliberately scopes itself to item-owned slides (presentation/lyric/talk)
+// deliberately scopes itself to item-owned slides (presentation/lyric)
 // and documents that theme/overlay/stage container slides are surfaced
 // through their owner's `elements` field instead. `getSlideElements()` must
 // agree -- it must never return a row whose `slideId` belongs to a
@@ -14,10 +14,10 @@ import { CastRepository } from '../../../../packages/persistence-sqlite/src/stor
 //
 // This test pins the scope contract directly: `getSlides()` and
 // `getSlideElements()` must agree on which slides are "in" the snapshot, for
-// a repository holding items, all four theme families, an overlay, and a
+// a repository holding items, all three theme families, an overlay, and a
 // stage together, so a future change to either getter fails loudly here
 // instead of resurfacing as a downstream defect (the #219 refactor split the
-// old single `themes` table into four owner tables, each with its own
+// old single `themes` table into per-owner tables, each with its own
 // container-slide kind -- see schema-final.md D2/SlideKind).
 
 let repo: CastRepository;
@@ -126,14 +126,13 @@ describe('AppSnapshot.slides / AppSnapshot.slideElements scope agreement (#211)'
     expect(snapshot.slideElements.filter((e) => e.slideId === lyricSlide.id)).toHaveLength(1);
   });
 
-  it('excludes container elements from getSlideElements() even when they outnumber item elements, across all four theme families', () => {
+  it('excludes container elements from getSlideElements() even when they outnumber item elements, across all three theme families', () => {
     // A repository with only container content (no items at all) must
     // report zero slides/slide elements from the item-scoped collections,
-    // even though presentation/lyric/talk/overlay theme, overlay, and stage
+    // even though presentation/lyric/overlay theme, overlay, and stage
     // elements all exist in the database.
     repo.createTheme({ name: 'PTheme', themeType: 'presentation', elements: [makeElement('pt-1'), makeElement('pt-2', 2)] });
     repo.createTheme({ name: 'LTheme', themeType: 'lyric', elements: [makeElement('lt-1')] });
-    repo.createTheme({ name: 'TTheme', themeType: 'talk', elements: [makeElement('tt-1')] });
     repo.createTheme({ name: 'OTheme', themeType: 'overlay', elements: [makeElement('ot-1')] });
     repo.createOverlay({ name: 'Overlay', elements: [makeElement('o-1')] });
     repo.createStage({ name: 'Stage', elements: [makeElement('s-1'), makeElement('s-2', 2)] });
@@ -145,7 +144,6 @@ describe('AppSnapshot.slides / AppSnapshot.slideElements scope agreement (#211)'
     // item-scoped collections.
     expect(snapshot.presentationThemes).toHaveLength(1);
     expect(snapshot.lyricThemes).toHaveLength(1);
-    expect(snapshot.talkThemes).toHaveLength(1);
     expect(snapshot.overlayThemes).toHaveLength(1);
   });
 });

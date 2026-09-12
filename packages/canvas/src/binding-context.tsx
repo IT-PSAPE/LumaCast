@@ -7,8 +7,6 @@ const EMPTY_VALUE: BindingValue = {
   currentSlideText: null,
   nextSlideText: null,
   slideNotes: null,
-  talkScriptCurrent: null,
-  talkScriptProgress: null,
   armedAtMs: null,
 };
 

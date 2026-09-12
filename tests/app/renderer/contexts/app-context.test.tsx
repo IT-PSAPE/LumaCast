@@ -409,9 +409,7 @@ describe('AppProvider observability synthesis', () => {
         getSnapshot: vi.fn(() => Promise.resolve({
           presentations: [],
           lyrics: [],
-          talks: [],
           slides: [],
-          talkScriptBlocks: [],
           slideElements: [],
           mediaAssets: [{
             id: 'asset-1',
@@ -429,7 +427,6 @@ describe('AppProvider observability synthesis', () => {
           overlays: [],
           presentationThemes: [],
           lyricThemes: [],
-          talkThemes: [],
           overlayThemes: [],
           stages: [],
           playlists: [],

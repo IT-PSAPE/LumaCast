@@ -40,12 +40,11 @@ function makeElement(id: Id, text: string, zIndex: number): SlideElement {
   };
 }
 
-// One upsert key per theme family (#219 decision D2: four independent
+// One upsert key per theme family (#219 decision D2: three independent
 // per-owner theme tables, no shared `themes` collection any more).
-const THEME_UPSERT_KEY: Record<ThemeOwnerType, 'presentationThemes' | 'lyricThemes' | 'talkThemes' | 'overlayThemes'> = {
+const THEME_UPSERT_KEY: Record<ThemeOwnerType, 'presentationThemes' | 'lyricThemes' | 'overlayThemes'> = {
   presentation: 'presentationThemes',
   lyric: 'lyricThemes',
-  talk: 'talkThemes',
   overlay: 'overlayThemes',
 };
 

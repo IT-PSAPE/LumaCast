@@ -40,12 +40,11 @@ function makeElement(id: Id, text: string, zIndex: number): SlideElement {
   };
 }
 
-// One upsert key per theme family (#219 decision D2: four independent
+// One upsert key per theme family (#219 decision D2: three independent
 // per-owner theme tables, no shared `themes` collection any more).
-const THEME_UPSERT_KEY: Record<ThemeOwnerType, 'presentationThemes' | 'lyricThemes' | 'talkThemes' | 'overlayThemes'> = {
+const THEME_UPSERT_KEY: Record<ThemeOwnerType, 'presentationThemes' | 'lyricThemes' | 'overlayThemes'> = {
   presentation: 'presentationThemes',
   lyric: 'lyricThemes',
-  talk: 'talkThemes',
   overlay: 'overlayThemes',
 };
 
@@ -125,15 +124,6 @@ describe('CastRepository.createItem', () => {
     expect(elements[0].sourceThemeElementId ?? null).toBeNull();
   });
 
-  it('creates an unthemed talk', () => {
-    const { itemId, patch } = repo.createItem({ type: 'talk', title: 'Talk' });
-    expect(patch.upserts.talks?.[0]?.id).toBe(itemId);
-    expect(patch.upserts.talks?.[0]?.themeId).toBeNull();
-    const slide = repo.getSnapshot().slides.find((s) => s.talkId === itemId);
-    expect(slide).toBeTruthy();
-    expect(slide?.backgroundSource).toBe('local');
-  });
-
   it('creates a themed presentation whose first slide already matches the theme', () => {
     const background: SlideBackground = { type: 'color', color: '#ABCDEF' };
     const theme = createTheme('presentation', [makeElement('title-src', 'Title', 1), makeElement('subtitle-src', 'Subtitle', 2)], background);
@@ -174,19 +164,11 @@ describe('CastRepository.createItem', () => {
     expect(slideElements[0].sourceThemeElementId).toBe(theme.elements[0].id);
   });
 
-  it('creates a talk with its own talk theme', () => {
-    const theme = createTheme('talk', [makeElement('t-src', 'Title', 1)]);
-    const { itemId } = repo.createItem({ type: 'talk', title: 'Themed Talk', themeId: theme.id });
-    expect(repo.getSnapshot().talks.find((t) => t.id === itemId)?.themeId).toBe(theme.id);
-  });
-
-  it('rejects a theme id from a different theme family — the four theme tables are independent id spaces (#219 D2)', () => {
-    // A lyric theme id is simply absent from talk_themes; there is no
-    // "compatibility" check any more, just per-table lookup.
+  it('rejects a theme id from a different theme family — the three theme tables are independent id spaces (#219 D2)', () => {
     const lyricTheme = createTheme('lyric', [makeElement('l-src', 'Line', 1)], null);
-    expect(() => repo.createItem({ type: 'talk', title: 'Bad Talk', themeId: lyricTheme.id }))
+    expect(() => repo.createItem({ type: 'presentation', title: 'Bad Deck', themeId: lyricTheme.id }))
       .toThrow(/Theme not found/);
-    expect(repo.getSnapshot().talks).toHaveLength(0);
+    expect(repo.getSnapshot().presentations).toHaveLength(0);
   });
 
   it('rejects an unknown theme id and leaves no rows behind', () => {
@@ -309,9 +291,9 @@ describe('CastRepository.createItem', () => {
 });
 
 // Per-type ordering (#219 decision D1): the global cross-type deck order is
-// gone — movePresentation/moveLyric/moveTalk each act within exactly one
+// gone — movePresentation/moveLyric each act within exactly one
 // table, replacing the old cross-type moveDeckItem.
-describe('CastRepository.movePresentation / moveLyric / moveTalk — per-type ordering', () => {
+describe('CastRepository.movePresentation / moveLyric — per-type ordering', () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-test-'));
     repo = new CastRepository({ dbPath: path.join(tmpDir, 'lumacast.sqlite'), userDataPath: tmpDir, documentsPath: tmpDir, seed: false });
@@ -347,11 +329,7 @@ describe('CastRepository.movePresentation / moveLyric / moveTalk — per-type or
     expect(repo.getSnapshot().lyrics.find((l) => l.id === a)!.order).toBe(orderBefore);
   });
 
-  it('moveTalk throws for a missing id rather than silently no-op-ing', () => {
-    expect(() => repo.moveTalk('no-such-talk', 'up')).toThrow(/Row not found in talks/);
-  });
-
-  it('moving a presentation never touches lyric or talk order (per-table isolation)', () => {
+  it('moving a presentation never touches lyric order (per-table isolation)', () => {
     const { itemId: p1 } = repo.createItem({ type: 'presentation', title: 'P1' });
     repo.createItem({ type: 'presentation', title: 'P2' });
     const { itemId: l1 } = repo.createItem({ type: 'lyric', title: 'L1' });
@@ -368,7 +346,7 @@ describe('CastRepository.movePresentation / moveLyric / moveTalk — per-type or
 // Ported from delete-collection.test.ts (#112) — collections themselves are
 // destroyed (#219 decision D3), but the underlying invariant it protected
 // (deleting an owning row must cascade correctly and never leave a foreign
-// -key violation behind) still applies to deleting a Presentation/Lyric/Talk
+// -key violation behind) still applies to deleting a Presentation/Lyric
 // directly, so it's re-homed here rather than dropped.
 describe('CastRepository delete cascade correctness (ported from #112)', () => {
   beforeEach(() => {

@@ -45,8 +45,8 @@ function makePresentationTheme(id: Id, name: string): PresentationTheme {
 
 function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
   return {
-    presentations: [], lyrics: [], talks: [], slides: [], talkScriptBlocks: [], slideElements: [],
-    mediaAssets: [], overlays: [], presentationThemes: [], lyricThemes: [], talkThemes: [], overlayThemes: [],
+    presentations: [], lyrics: [], slides: [], slideElements: [],
+    mediaAssets: [], overlays: [], presentationThemes: [], lyricThemes: [], overlayThemes: [],
     stages: [], playlists: [], playlistEntries: [], cues: [], macros: [], triggerBindings: [],
     ...partial,
   };
@@ -62,7 +62,6 @@ function renderDialog(type: ItemType, options: {
   snapshot?: AppSnapshot;
   presentationThemes?: PresentationTheme[];
   lyricThemes?: PresentationTheme[];
-  talkThemes?: PresentationTheme[];
   createItem?: ReturnType<typeof vi.fn>;
 } = {}) {
   const createItem = options.createItem ?? vi.fn().mockResolvedValue(undefined);
@@ -72,7 +71,6 @@ function renderDialog(type: ItemType, options: {
   mocks.project.value = {
     presentationThemes: options.presentationThemes ?? [],
     lyricThemes: options.lyricThemes ?? [],
-    talkThemes: options.talkThemes ?? [],
     resolveItemRef: () => null,
   };
   mocks.navigation.value = { createItem };
@@ -148,7 +146,7 @@ describe('create-item dialog', () => {
   });
 
   it('hides the theme and playlist pickers entirely when none are available', () => {
-    renderDialog('talk');
+    renderDialog('presentation');
 
     expect(screen.queryByText('Theme')).toBeNull();
     expect(screen.queryByText('Add to playlist')).toBeNull();

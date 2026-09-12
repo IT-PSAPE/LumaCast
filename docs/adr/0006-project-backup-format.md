@@ -4,9 +4,9 @@
 
 Accepted — the contract's shape (versioned envelope, explicit per-table/
 per-column enumeration, deterministic ordering, restore-side validation
-before promotion) is still current, but issue #219 (the item-model refactor)
-bumped the format to version 2 and changed the table set. See the
-**Amendment (2026-08-18, issue #219)** section before Consequences.
+before promotion) is still current. Issue #219 introduced format version 2;
+the Talk removal introduces format version 3. See both amendments before
+Consequences.
 
 ## Context
 
@@ -131,6 +131,22 @@ named validation gate at the backup boundary.
   columns) and the four theme-owner slide columns replacing the single
   `theme_id` reference; it lost the `actions.collection_id` check described
   above.
+
+## Amendment (2026-09-12, Talk removal)
+
+- **Format version 3, `schemaVersion` 33.** The current `tables` object has 19
+  keys. It removes `talks`, `talk_script_blocks`, and `talk_themes`, removes
+  the Talk owner columns from `slides` and `playlist_entries`, and retains
+  `playback_schedules` from schema 31 plus theme override metadata from schema
+  32.
+- Version 2 backups at schema 30–32 are legacy import inputs. Validation uses
+  their historical table/column sets, then normalization discards Talk-owned
+  rows and references and fills columns introduced by later supported schemas.
+  Version 1/schema 22 continues through migration replay. Neither legacy path
+  exposes Talk in the current `ProjectBackup` contract.
+- Migration v33 performs the same removal for a live database before current
+  backup export can run. Format v3 therefore maps one-to-one to the schema 33
+  table set instead of overloading v2 with an incompatible document shape.
 
 ## Consequences
 

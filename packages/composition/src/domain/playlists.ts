@@ -29,7 +29,6 @@ export interface PlaylistItemEntry {
   // a separator carries none of them.
   presentationId: Id | null;
   lyricId: Id | null;
-  talkId: Id | null;
   order: number;
   createdAt: string;
   updatedAt: string;

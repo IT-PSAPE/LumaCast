@@ -3,11 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import type { ItemRef } from '@lumacast/composition';
 import { useDuplicateItem } from '../../../app/renderer/features/items/deck-bin-panel';
 
-// Covers #219 item-model refactor decision D1: duplication is per-type
-// (presentation|lyric only — there is no `duplicateTalk`), so
-// `useDuplicateItem` returns `null` for a talk `ItemRef` structurally rather
-// than throwing at call time. This exercises the real hook, not a
-// reimplementation of its gating.
+// Covers #219 item-model refactor decision D1: duplication is per-type.
 
 const mocks = vi.hoisted(() => ({
   cast: { mutatePatch: null as unknown, setStatusText: null as unknown },
@@ -42,15 +38,6 @@ afterEach(() => {
 });
 
 describe('useDuplicateItem', () => {
-  it('returns null for a talk, hiding duplication entirely rather than exposing a callback that would fail', () => {
-    setup();
-    const talkRef: ItemRef = { type: 'talk', id: 'TALK-1' };
-
-    const { result } = renderHook(() => useDuplicateItem(talkRef, 'My Talk'));
-
-    expect(result.current).toBeNull();
-  });
-
   it('duplicates a presentation with one IPC call carrying its typed ref, and browses to the returned itemId', async () => {
     const { browseItem, setStatusText } = setup();
     const duplicateItem = vi.fn().mockResolvedValue({

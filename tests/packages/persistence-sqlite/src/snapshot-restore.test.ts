@@ -6,9 +6,9 @@
 // rewrite, see the accompanying report's "runtime defects found+fixed"
 // note): `restoreFromSnapshot` deletes every application-owned table before
 // reinserting the snapshot's rows, all inside one transaction with foreign
-// keys ON. If a live item (`presentations`/`lyrics`/`talks`) currently has a
+// keys ON. If a live item (`presentations`/`lyrics`) currently has a
 // theme applied -- so its `theme_id` column really does reference a live row
-// in one of the four per-owner theme tables -- the DELETE statements must
+// in one of the three per-owner theme tables -- the DELETE statements must
 // run in strict child-before-parent order (items before their theme table)
 // or SQLite's immediate FK enforcement throws `FOREIGN KEY constraint
 // failed` mid-transaction, an undo that should have been silent instead
@@ -85,26 +85,11 @@ describe('restoreFromSnapshot (#219 item-model refactor)', () => {
     expect(foreignKeyViolations(source)).toEqual([]);
   });
 
-  it('restores over a live database where a talk still has an applied talk theme', () => {
-    const talkTheme = source.createTheme({ name: 'Sermon Theme', themeType: 'talk' }).upserts.talkThemes![0]!;
-    const { itemId: talkId } = source.createItem({ type: 'talk', title: 'Sermon', themeId: talkTheme.id });
-    const before = source.getSnapshot();
-
-    source.createItem({ type: 'talk', title: 'Another Sermon', themeId: talkTheme.id });
-
-    expect(() => source.restoreFromSnapshot(before)).not.toThrow();
-
-    const restored = source.getSnapshot();
-    expect(restored.talks.map((t) => t.id)).toEqual([talkId]);
-    expect(restored.talks[0]!.themeId).toBe(talkTheme.id);
-    expect(foreignKeyViolations(source)).toEqual([]);
-  });
-
   it('same-database undo/redo round trips a snapshot back into the repository that produced it', () => {
     const presentationId = source.createItem({ type: 'presentation', title: 'Slides' }).itemId;
     const snapshot = source.getSnapshot();
 
-    source.createItem({ type: 'talk', title: 'Sermon added after snapshot' });
+    source.createItem({ type: 'lyric', title: 'Song added after snapshot' });
     source.createPlaylist('Extra');
 
     expect(() => source.restoreFromSnapshot(snapshot)).not.toThrow();
@@ -112,7 +97,7 @@ describe('restoreFromSnapshot (#219 item-model refactor)', () => {
     const restored = source.getSnapshot();
     expect(restored.presentations.map((p) => p.id)).toEqual(snapshot.presentations.map((p) => p.id));
     expect(restored.presentations.map((p) => p.id)).toContain(presentationId);
-    expect(restored.talks).toHaveLength(0);
+    expect(restored.lyrics).toEqual(snapshot.lyrics);
     expect(restored.playlists.map((p) => p.id).sort()).toEqual(snapshot.playlists.map((p) => p.id).sort());
     expect(foreignKeyViolations(source)).toEqual([]);
   });

@@ -9,14 +9,14 @@ import type { AppSnapshot } from '@lumacast/protocol';
  * another — that mismatch is the point: it makes generator drift visible
  * instead of silently comparing incompatible baselines.
  */
-export const FIXTURE_GENERATOR_VERSION = 1;
+export const FIXTURE_GENERATOR_VERSION = 2;
 
 export const FIXTURE_CLASSES = [
   'small',
   'large',
   'media-heavy',
   'theme-heavy',
-  'talk-automation-heavy',
+  'automation-heavy',
 ] as const;
 
 export type FixtureClass = (typeof FIXTURE_CLASSES)[number];
@@ -32,7 +32,7 @@ export function isFixtureClass(value: string): value is FixtureClass {
  * `deckSlideElements` is the subset attached to a deck-owned slide (i.e. one
  * present in `AppSnapshot.slides`). As of #211, `getSlideElements()` is
  * itself scoped to deck-owned slides (`WHERE presentation_id IS NOT NULL OR
- * lyric_id IS NOT NULL OR talk_id IS NOT NULL`), matching `getSlides()`
+ * lyric_id IS NOT NULL`), matching `getSlides()`
  * exactly — theme/overlay/stage container elements are excluded from
  * `AppSnapshot.slideElements` entirely and only reachable through their
  * owning container's own `elements` field. Before #211 this table was
@@ -45,7 +45,7 @@ export function isFixtureClass(value: string): value is FixtureClass {
  * destroyed, so neither has a count field here. Playlists are global and
  * flat (D4/D5) — `playlistEntries` is the total flat row count and
  * `separators` is the subset of those rows that are divider rows rather
- * than item entries. Themes are four independent per-owner families (D2)
+ * than item entries. Themes are three independent per-owner families (D2)
  * with no shared `themes` table, so the count is per-type rather than one
  * combined `themes` figure.
  */
@@ -55,16 +55,13 @@ export interface FixtureEntityCounts {
   separators: number;
   presentations: number;
   lyrics: number;
-  talks: number;
   slides: number;
-  talkScriptBlocks: number;
   slideElements: number;
   itemSlideElements: number;
   mediaAssets: number;
   overlays: number;
   presentationThemes: number;
   lyricThemes: number;
-  talkThemes: number;
   overlayThemes: number;
   stages: number;
   cues: number;
@@ -108,16 +105,13 @@ export function computeEntityCounts(snapshot: AppSnapshot): FixtureEntityCounts 
     separators,
     presentations: snapshot.presentations.length,
     lyrics: snapshot.lyrics.length,
-    talks: snapshot.talks.length,
     slides: snapshot.slides.length,
-    talkScriptBlocks: snapshot.talkScriptBlocks.length,
     slideElements: snapshot.slideElements.length,
     itemSlideElements: countItemSlideElements(snapshot),
     mediaAssets: snapshot.mediaAssets.length,
     overlays: snapshot.overlays.length,
     presentationThemes: snapshot.presentationThemes.length,
     lyricThemes: snapshot.lyricThemes.length,
-    talkThemes: snapshot.talkThemes.length,
     overlayThemes: snapshot.overlayThemes.length,
     stages: snapshot.stages.length,
     cues: snapshot.cues.length,

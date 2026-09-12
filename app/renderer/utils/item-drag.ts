@@ -14,7 +14,7 @@ interface ItemDragPayload {
 }
 
 function isItemType(value: unknown): value is ItemType {
-  return value === 'presentation' || value === 'lyric' || value === 'talk';
+  return value === 'presentation' || value === 'lyric';
 }
 
 export function writeItemDragData(dataTransfer: DataTransfer, itemRef: ItemRef): void {

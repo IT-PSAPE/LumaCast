@@ -12,7 +12,7 @@ import { createTestRepository } from '../../../../packages/persistence-sqlite/sr
 // group") becomes the explicit `removePlaylistRow(rowId)`, which detaches
 // any row from its playlist but — unlike a group-removal that only ever
 // touched membership — must never delete the underlying
-// Presentation/Lyric/Talk it referenced.
+// Presentation/Lyric it referenced.
 
 function createItem(repo: CastRepository, type: ItemType, title: string): Id {
   const { itemId } = repo.createItem({ type, title });
@@ -60,9 +60,9 @@ describe('CastRepository.movePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstRow = addItemRow(repo, playlistId, 'talk', 'First');
-      const secondRow = addItemRow(repo, playlistId, 'talk', 'Second');
-      const thirdRow = addItemRow(repo, playlistId, 'talk', 'Third');
+      const firstRow = addItemRow(repo, playlistId, 'presentation', 'First');
+      const secondRow = addItemRow(repo, playlistId, 'presentation', 'Second');
+      const thirdRow = addItemRow(repo, playlistId, 'presentation', 'Third');
 
       repo.movePlaylistRow(thirdRow, 0);
 
@@ -77,8 +77,8 @@ describe('CastRepository.movePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstRow = addItemRow(repo, playlistId, 'talk', 'First');
-      const secondRow = addItemRow(repo, playlistId, 'talk', 'Second');
+      const firstRow = addItemRow(repo, playlistId, 'presentation', 'First');
+      const secondRow = addItemRow(repo, playlistId, 'presentation', 'Second');
       const separatorPatch = repo.createSeparator(playlistId, 'Opening');
       const separatorId = separatorPatch.upserts.playlistEntries![0].id;
 
@@ -99,9 +99,9 @@ describe('CastRepository.movePlaylistRow', () => {
     try {
       const playlistId = createPlaylist(repo, 'Service');
       const openingSeparator = repo.createSeparator(playlistId, 'Opening').upserts.playlistEntries![0].id;
-      const firstRow = addItemRow(repo, playlistId, 'talk', 'Welcome');
+      const firstRow = addItemRow(repo, playlistId, 'presentation', 'Welcome');
       const closingSeparator = repo.createSeparator(playlistId, 'Closing').upserts.playlistEntries![0].id;
-      const secondRow = addItemRow(repo, playlistId, 'talk', 'Benediction');
+      const secondRow = addItemRow(repo, playlistId, 'presentation', 'Benediction');
 
       // Move "Closing" separator to sit right after "Opening", before "Welcome".
       repo.movePlaylistRow(closingSeparator, 1);
@@ -117,8 +117,8 @@ describe('CastRepository.movePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstRow = addItemRow(repo, playlistId, 'talk', 'First');
-      const secondRow = addItemRow(repo, playlistId, 'talk', 'Second');
+      const firstRow = addItemRow(repo, playlistId, 'presentation', 'First');
+      const secondRow = addItemRow(repo, playlistId, 'presentation', 'Second');
       const before = rowsFor(repo, playlistId);
 
       const patch = repo.movePlaylistRow(firstRow, 0);
@@ -137,8 +137,8 @@ describe('CastRepository.movePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstRow = addItemRow(repo, playlistId, 'talk', 'First');
-      const secondRow = addItemRow(repo, playlistId, 'talk', 'Second');
+      const firstRow = addItemRow(repo, playlistId, 'presentation', 'First');
+      const secondRow = addItemRow(repo, playlistId, 'presentation', 'Second');
 
       repo.movePlaylistRow(firstRow, 999);
 
@@ -153,8 +153,8 @@ describe('CastRepository.movePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstRow = addItemRow(repo, playlistId, 'talk', 'First');
-      const secondRow = addItemRow(repo, playlistId, 'talk', 'Second');
+      const firstRow = addItemRow(repo, playlistId, 'presentation', 'First');
+      const secondRow = addItemRow(repo, playlistId, 'presentation', 'Second');
 
       repo.movePlaylistRow(secondRow, -5);
 
@@ -169,10 +169,10 @@ describe('CastRepository.movePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      addItemRow(repo, playlistId, 'talk', 'A');
-      addItemRow(repo, playlistId, 'talk', 'B');
-      const rowC = addItemRow(repo, playlistId, 'talk', 'C');
-      addItemRow(repo, playlistId, 'talk', 'D');
+      addItemRow(repo, playlistId, 'presentation', 'A');
+      addItemRow(repo, playlistId, 'presentation', 'B');
+      const rowC = addItemRow(repo, playlistId, 'presentation', 'C');
+      addItemRow(repo, playlistId, 'presentation', 'D');
 
       repo.movePlaylistRow(rowC, 0);
 
@@ -189,18 +189,18 @@ describe('CastRepository.removePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const talkId = createItem(repo, 'talk', 'Sermon');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+      const presentationId = createItem(repo, 'presentation', 'Deck');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
       const rowId = rowsFor(repo, playlistId)[0].id;
 
       const patch = repo.removePlaylistRow(rowId);
 
       expect(patch.deletes.playlistEntries).toEqual([rowId]);
       expect(rowsFor(repo, playlistId)).toHaveLength(0);
-      // The Talk itself was never touched — this is a detach, not a delete.
+      // The Presentation itself was never touched — this is a detach, not a delete.
       const snapshot = repo.getSnapshot();
-      expect(snapshot.talks.some((talk) => talk.id === talkId)).toBe(true);
-      expect(snapshot.talks.find((talk) => talk.id === talkId)?.title).toBe('Sermon');
+      expect(snapshot.presentations.some((presentation) => presentation.id === presentationId)).toBe(true);
+      expect(snapshot.presentations.find((presentation) => presentation.id === presentationId)?.title).toBe('Deck');
     } finally {
       close();
       cleanup();
@@ -212,7 +212,7 @@ describe('CastRepository.removePlaylistRow', () => {
     try {
       const playlistId = createPlaylist(repo, 'Service');
       const separatorId = repo.createSeparator(playlistId, 'Opening').upserts.playlistEntries![0].id;
-      const itemRowId = addItemRow(repo, playlistId, 'talk', 'Sermon');
+      const itemRowId = addItemRow(repo, playlistId, 'presentation', 'Deck');
 
       repo.removePlaylistRow(separatorId);
 
@@ -229,7 +229,7 @@ describe('CastRepository.removePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const rowId = addItemRow(repo, playlistId, 'talk', 'Sermon');
+      const rowId = addItemRow(repo, playlistId, 'presentation', 'Deck');
       repo.removePlaylistRow(rowId);
 
       const patch = repo.removePlaylistRow(rowId);
@@ -246,9 +246,9 @@ describe('CastRepository.removePlaylistRow', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const rowA = addItemRow(repo, playlistId, 'talk', 'A');
-      const rowB = addItemRow(repo, playlistId, 'talk', 'B');
-      const rowC = addItemRow(repo, playlistId, 'talk', 'C');
+      const rowA = addItemRow(repo, playlistId, 'presentation', 'A');
+      const rowB = addItemRow(repo, playlistId, 'presentation', 'B');
+      const rowC = addItemRow(repo, playlistId, 'presentation', 'C');
 
       const patch = repo.removePlaylistRow(rowB);
 
@@ -268,8 +268,8 @@ describe('CastRepository.removePlaylistRow', () => {
     try {
       const playlistAId = createPlaylist(repo, 'Service A');
       const playlistBId = createPlaylist(repo, 'Service B');
-      const rowA = addItemRow(repo, playlistAId, 'talk', 'A');
-      const rowB = addItemRow(repo, playlistBId, 'talk', 'B');
+      const rowA = addItemRow(repo, playlistAId, 'presentation', 'A');
+      const rowB = addItemRow(repo, playlistBId, 'presentation', 'B');
 
       repo.removePlaylistRow(rowA);
 

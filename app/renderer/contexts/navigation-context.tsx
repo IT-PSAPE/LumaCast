@@ -28,7 +28,7 @@ const NavigationActionsContext = createContext<NavigationActionsValue | null>(nu
 
 export function NavigationProvider({ children }: { children: ReactNode }) {
   const { snapshot, mutatePatch, runOperation, setStatusText } = useCast();
-  const { presentationsById, lyricsById, talksById, slides, resolveItemRef } = useProjectContent();
+  const { presentationsById, lyricsById, slides, resolveItemRef } = useProjectContent();
   const { resolveThemeIdForMutation } = useThemeEditor();
 
   const [currentPlaylistId, setCurrentPlaylistIdState] = useState<Id | null>(null);
@@ -46,9 +46,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
 
   const itemExists = useCallback((ref: ItemRef): boolean => {
     if (ref.type === 'presentation') return presentationsById.has(ref.id);
-    if (ref.type === 'lyric') return lyricsById.has(ref.id);
-    return talksById.has(ref.id);
-  }, [presentationsById, lyricsById, talksById]);
+    return lyricsById.has(ref.id);
+  }, [presentationsById, lyricsById]);
 
   const currentPlaylistRows = useMemo<PlaylistRow[]>(() => {
     if (!snapshot || !currentPlaylistId) return [];
@@ -92,7 +91,13 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     }
 
     if (currentOutputItemRef !== null) {
-      const nextOutputItemRef = resolvePinnedLyricItemRef(currentOutputItemRef, rows, itemExists);
+      // Pin any still-existing output item across snapshot churn — not just
+      // lyrics. Direct (rowless) output items never appear in `rows`, so
+      // without this the recovery below would null them on every snapshot
+      // update and kill schedule-driven output.
+      const nextOutputItemRef = itemExists(currentOutputItemRef)
+        ? currentOutputItemRef
+        : resolvePinnedLyricItemRef(currentOutputItemRef, rows, itemExists);
       if (!itemRefsEqual(nextOutputItemRef, currentOutputItemRef)) {
         setCurrentOutputItemRef(nextOutputItemRef);
       }
@@ -219,8 +224,8 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
     if (inFlight) return inFlight;
 
     const run = (async () => {
-      const trimmedName = input.name.trim() || (input.type === 'lyric' ? 'New Lyric' : input.type === 'talk' ? 'New Talk' : 'New Presentation');
-      const labelType = input.type === 'lyric' ? 'lyric' : input.type === 'talk' ? 'talk' : 'deck';
+      const trimmedName = input.name.trim() || (input.type === 'lyric' ? 'New Lyric' : 'New Presentation');
+      const labelType = input.type === 'lyric' ? 'lyric' : 'deck';
 
       await runOperation(`Creating ${labelType}...`, async () => {
         let resolvedThemeId: Id | null = null;
@@ -324,8 +329,6 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const renameItem = useCallback(async (itemRef: ItemRef, title: string) => {
     if (itemRef.type === 'presentation') {
       await mutatePatch(() => window.castApi.renamePresentation(itemRef.id, title));
-    } else if (itemRef.type === 'talk') {
-      await mutatePatch(() => window.castApi.renameTalk(itemRef.id, title));
     } else {
       await mutatePatch(() => window.castApi.renameLyric(itemRef.id, title));
     }
@@ -335,8 +338,6 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const deleteItem = useCallback(async (itemRef: ItemRef) => {
     if (itemRef.type === 'presentation') {
       await mutatePatch(() => window.castApi.deletePresentation(itemRef.id));
-    } else if (itemRef.type === 'talk') {
-      await mutatePatch(() => window.castApi.deleteTalk(itemRef.id));
     } else {
       await mutatePatch(() => window.castApi.deleteLyric(itemRef.id));
     }
@@ -346,8 +347,6 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   const moveItem = useCallback(async (itemRef: ItemRef, direction: 'up' | 'down') => {
     if (itemRef.type === 'presentation') {
       await mutatePatch(() => window.castApi.movePresentation(itemRef.id, direction));
-    } else if (itemRef.type === 'talk') {
-      await mutatePatch(() => window.castApi.moveTalk(itemRef.id, direction));
     } else {
       await mutatePatch(() => window.castApi.moveLyric(itemRef.id, direction));
     }

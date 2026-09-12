@@ -16,11 +16,10 @@ function closeRepo(): void {
 
 // #219 item-model refactor: one per-owner theme table per family — the wire
 // patch key that carries a given family's rows also varies by family.
-type ThemePatchKey = 'presentationThemes' | 'lyricThemes' | 'talkThemes' | 'overlayThemes';
+type ThemePatchKey = 'presentationThemes' | 'lyricThemes' | 'overlayThemes';
 const THEME_PATCH_KEY: Record<ThemeOwnerType, ThemePatchKey> = {
   presentation: 'presentationThemes',
   lyric: 'lyricThemes',
-  talk: 'talkThemes',
   overlay: 'overlayThemes',
 };
 
@@ -43,8 +42,7 @@ function slideIdForItem(type: ItemType, itemId: Id): Id {
   const snapshot = repo.getSnapshot();
   const slide = snapshot.slides.find((entry) =>
     type === 'presentation' ? entry.presentationId === itemId
-    : type === 'lyric' ? entry.lyricId === itemId
-    : entry.talkId === itemId
+    : entry.lyricId === itemId
   );
   if (!slide) throw new Error(`expected a slide owned by ${type} ${itemId}`);
   return slide.id;
@@ -75,7 +73,7 @@ describe('CastRepository.applyThemeToItem', () => {
     expect(() => repo.applyThemeToItem(themeId, { type: 'presentation', id: 'no-such-item' })).toThrow(/Item not found: no-such-item/);
   });
 
-  it('throws for a theme id from a different family — the four theme tables are independent id spaces, so a lyric theme can never be found when applying to a presentation', () => {
+  it('throws for a theme id from a different family — the theme tables are independent id spaces, so a lyric theme can never be found when applying to a presentation', () => {
     const lyricThemeId = createTheme('lyric', 'Lyric Theme');
     const itemId = createItem('presentation', 'Deck');
     expect(() => repo.applyThemeToItem(lyricThemeId, { type: 'presentation', id: itemId })).toThrow(new RegExp(`Theme not found: ${lyricThemeId}`));
@@ -97,13 +95,6 @@ describe('CastRepository.applyThemeToItem', () => {
     const elements = elementsForSlide(snapshot, slideId);
     expect(elements.length).toBeGreaterThan(0);
     expect(elements.every((element) => element.sourceThemeElementId)).toBe(true);
-  });
-
-  it('applies a talk theme to a talk', () => {
-    const themeId = createTheme('talk', 'Talk Theme');
-    const itemId = createItem('talk', 'Talk');
-    const patch = repo.applyThemeToItem(themeId, { type: 'talk', id: itemId });
-    expect(patch.upserts.talks?.[0]?.themeId).toBe(themeId);
   });
 
   it('applies a lyric theme to a lyric', () => {

@@ -34,7 +34,8 @@ vi.mock('../../../../../app/renderer/contexts/app-context', () => ({
   }),
 }));
 
-vi.mock('../../../../../app/renderer/contexts/use-project-content', () => ({
+vi.mock('../../../../../app/renderer/contexts/use-project-content', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../../app/renderer/contexts/use-project-content')>(),
   useProjectContent: () => mocks.project.value,
 }));
 
@@ -126,15 +127,12 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
   return {
     presentations: [],
     lyrics: [],
-    talks: [],
     slides: [],
-    talkScriptBlocks: [],
     slideElements: [],
     mediaAssets: [],
     overlays: [],
     presentationThemes: [],
     lyricThemes: [],
-    talkThemes: [],
     overlayThemes: [],
     stages: [],
     playlists: [],
@@ -150,20 +148,16 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
 function makeProjectContent(snapshot: AppSnapshot): any {
   const presentationsById = new Map(snapshot.presentations.map((p) => [p.id, p]));
   const lyricsById = new Map(snapshot.lyrics.map((l) => [l.id, l]));
-  const talksById = new Map(snapshot.talks.map((t) => [t.id, t]));
 
   return {
     presentations: snapshot.presentations,
     lyrics: snapshot.lyrics,
-    talks: snapshot.talks,
     slides: snapshot.slides,
-    talkScriptBlocks: [],
     slideElements: snapshot.slideElements,
     mediaAssets: [],
     overlays: snapshot.overlays,
     presentationThemes: snapshot.presentationThemes,
     lyricThemes: snapshot.lyricThemes,
-    talkThemes: snapshot.talkThemes,
     overlayThemes: snapshot.overlayThemes,
     stages: snapshot.stages,
     cues: [],
@@ -171,15 +165,12 @@ function makeProjectContent(snapshot: AppSnapshot): any {
     triggerBindings: [],
     presentationsById,
     lyricsById,
-    talksById,
     slidesByItem: new Map(),
-    talkScriptBlocksBySlideId: new Map(),
     slideElementsBySlideId: new Map(),
     mediaAssetsById: new Map(),
     overlaysById: new Map(snapshot.overlays.map((o) => [o.id, o])),
     presentationThemesById: new Map(snapshot.presentationThemes.map((t) => [t.id, t])),
     lyricThemesById: new Map(snapshot.lyricThemes.map((t) => [t.id, t])),
-    talkThemesById: new Map(snapshot.talkThemes.map((t) => [t.id, t])),
     overlayThemesById: new Map(snapshot.overlayThemes.map((t) => [t.id, t])),
     stagesById: new Map(snapshot.stages.map((s) => [s.id, s])),
     cuesById: new Map(),
@@ -187,8 +178,7 @@ function makeProjectContent(snapshot: AppSnapshot): any {
     resolveItemRef: (ref: { type: string; id: Id } | null | undefined) => {
       if (!ref) return null;
       if (ref.type === 'presentation') return presentationsById.get(ref.id) ?? null;
-      if (ref.type === 'lyric') return lyricsById.get(ref.id) ?? null;
-      return talksById.get(ref.id) ?? null;
+      return lyricsById.get(ref.id) ?? null;
     },
     slidesForItemRef: () => [],
   };
@@ -474,14 +464,13 @@ describe('duplicateTheme — family-aware resolution', () => {
     expect(duplicate.name).toBe('Lyric Theme Copy');
   });
 
-  it('duplicates an overlay theme while talk is active', () => {
+  it('duplicates an overlay theme while lyric is active', () => {
     const overlay = makeTheme('O1', 'Overlay Theme');
-    const harness = renderThemeHarness(makeSnapshot({ overlayThemes: [overlay], talkThemes: [] }));
-    // talk is not active by default; switch active to talk then duplicate overlay
-    act(() => harness.current.theme.setThemeType('talk'));
+    const harness = renderThemeHarness(makeSnapshot({ overlayThemes: [overlay], lyricThemes: [] }));
+    act(() => harness.current.theme.setThemeType('lyric'));
     act(() => harness.current.theme.duplicateTheme('O1'));
     expect((harness.current.theme.themesByType.overlay as ThemeFixture[])).toHaveLength(2);
-    expect((harness.current.theme.themesByType.talk as ThemeFixture[])).toHaveLength(0);
+    expect((harness.current.theme.themesByType.lyric as ThemeFixture[])).toHaveLength(0);
   });
 
   it('does not duplicate when id belongs to no family', () => {

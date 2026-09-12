@@ -1,4 +1,5 @@
-import { useCallback, useRef } from 'react';
+import { SlideTimingModal } from '../../features/items/slide-timing-modal';
+import { useCallback, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
@@ -8,7 +9,6 @@ import { Label } from '@renderer/components/display/text';
 import { Dropdown } from '../../components/form/dropdown';
 import { FieldTextarea } from '../../components/form/field';
 import { StagePanel } from '../../features/canvas/stage-panel';
-import { TalkScriptBlocksPanel } from '../../features/items/talk-script-blocks-panel';
 import { useItemEditorScreen } from './screen-context';
 import { ItemPicker } from './item-picker';
 import { ItemEditorSlideList } from './item-editor-slide-list';
@@ -16,6 +16,7 @@ import { ItemEditorLayersPanel } from './layers-panel';
 import { ItemEditorInspectorPanel } from './inspector-panel';
 
 export function ItemEditorScreenContent() {
+  const [timingOpen, setTimingOpen] = useState(false);
   const { state, actions } = useItemEditorScreen();
   const slideListViewportRef = useRef<HTMLDivElement | null>(null);
   const getSlideListScrollElement = useCallback(() => slideListViewportRef.current, []);
@@ -44,10 +45,8 @@ export function ItemEditorScreenContent() {
                       <Dropdown.Item onClick={() => actions.openCreateItem('presentation')}>
                         New presentation
                       </Dropdown.Item>
-                      <Dropdown.Item onClick={() => actions.openCreateItem('talk')}>
-                        New talk
-                      </Dropdown.Item>
                       <Dropdown.Separator />
+                      <Dropdown.Item disabled={!state.currentItemRef} onClick={() => setTimingOpen(true)}>Slide timing</Dropdown.Item>
                       <Dropdown.Item onClick={() => { void actions.createSlide(); }} disabled={!state.currentItem}>
                         New slide
                       </Dropdown.Item>
@@ -110,18 +109,14 @@ export function ItemEditorScreenContent() {
                   </ReacstButton>
                 </div>
               </div> */}
-              {state.currentItemRef?.type === 'talk' && state.currentSlide ? (
-                <TalkScriptBlocksPanel slideId={state.currentSlide.id} />
-              ) : (
-                <FieldTextarea
-                  value={state.notesPanel.notesDraft}
-                  onChange={state.notesPanel.handleNotesChange}
-                  onBlur={state.notesPanel.handleSaveNotes}
-                  placeholder={state.notesPanel.placeholder}
-                  resize="none"
-                  className="h-full min-h-0 w-full resize-none rounded-none border-none bg-transparent p-4 focus:border-0 paragraph-sm"
-                />
-              )}
+              <FieldTextarea
+                value={state.notesPanel.notesDraft}
+                onChange={state.notesPanel.handleNotesChange}
+                onBlur={state.notesPanel.handleSaveNotes}
+                placeholder={state.notesPanel.placeholder}
+                resize="none"
+                className="h-full min-h-0 w-full resize-none rounded-none border-none bg-transparent p-4 focus:border-0 paragraph-sm"
+              />
             </section>
           </SplitPanel.Segment>
         </SplitPanel.Panel>
@@ -131,6 +126,7 @@ export function ItemEditorScreenContent() {
       <SplitPanel.Segment id="edit-right" defaultSize={320} minSize={140} collapsible>
         <ItemEditorInspectorPanel />
       </SplitPanel.Segment>
+      <SlideTimingModal isOpen={timingOpen} onClose={() => setTimingOpen(false)} />
     </SplitPanel.Panel>
   );
 }

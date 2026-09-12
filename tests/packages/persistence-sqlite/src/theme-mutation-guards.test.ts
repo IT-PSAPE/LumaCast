@@ -36,7 +36,6 @@ function createTheme(repo: CastRepository, themeType: ThemeOwnerType, name = 'Th
   const patch = repo.createTheme({ name, themeType });
   const key = themeType === 'presentation' ? 'presentationThemes'
     : themeType === 'lyric' ? 'lyricThemes'
-    : themeType === 'talk' ? 'talkThemes'
     : 'overlayThemes';
   const theme = patch.upserts[key]?.[0];
   if (!theme) throw new Error('createTheme returned no theme');

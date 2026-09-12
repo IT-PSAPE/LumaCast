@@ -1,5 +1,5 @@
 import type { ItemRef, ItemType } from '@lumacast/composition';
-import { FileText, Music, Presentation } from 'lucide-react';
+import { Music, Presentation } from 'lucide-react';
 
 interface ItemIconProps {
   entity: Pick<ItemRef, 'type'> | ItemType;
@@ -14,9 +14,5 @@ export function ItemIcon({ entity, size = 14, strokeWidth = 1.75, className = ''
   if (entityType === 'lyric') {
     return <Music size={size} strokeWidth={strokeWidth} className={className} />;
   }
-  if (entityType === 'talk') {
-    return <FileText size={size} strokeWidth={strokeWidth} className={className} />;
-  }
-
   return <Presentation size={size} strokeWidth={strokeWidth} className={className} />;
 }

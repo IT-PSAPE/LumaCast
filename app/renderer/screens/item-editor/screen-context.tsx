@@ -12,8 +12,8 @@ import { createScreenContext } from '../../contexts/create-screen-context';
 
 // #219 item-model refactor decision D9: there is no merged deckItems array
 // on useProjectContent any more (per-type arrays only), so this screen
-// builds its own small view-model list — one entry per presentation/lyric/
-// talk with its ItemRef attached — purely to drive the item picker below.
+// builds its own small view-model list — one entry per presentation or lyric
+// with its ItemRef attached — purely to drive the item picker below.
 // This mirrors the precedent already set by use-app-menu.ts's exportWorkspace
 // local concat: a screen-local UI view, not a stored merged-array concept.
 interface ItemPickerEntry {
@@ -71,13 +71,12 @@ export function ItemEditorScreenProvider({ children }: { children: ReactNode }) 
   } = useSlides();
   const { getThumbnailScene, commitProgramScene } = useRenderScenes();
   const notesPanel = useSlideNotesPanel();
-  const { presentations, lyrics, talks } = useProjectContent();
+  const { presentations, lyrics } = useProjectContent();
 
   const pickerItems = useMemo<ItemPickerEntry[]>(() => [
     ...presentations.map((item) => ({ itemRef: { type: 'presentation' as const, id: item.id }, title: item.title })),
     ...lyrics.map((item) => ({ itemRef: { type: 'lyric' as const, id: item.id }, title: item.title })),
-    ...talks.map((item) => ({ itemRef: { type: 'talk' as const, id: item.id }, title: item.title })),
-  ], [presentations, lyrics, talks]);
+  ], [presentations, lyrics]);
 
   useEditorLeftPanelNav({
     items: slides,

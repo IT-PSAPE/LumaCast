@@ -269,7 +269,6 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
       expect(patch).toBeDefined();
       expect(patch!.upserts.presentations ?? []).toHaveLength(0);
       expect(patch!.upserts.lyrics ?? []).toHaveLength(0);
-      expect(patch!.upserts.talks ?? []).toHaveLength(0);
       expect(patch!.upserts.slides ?? []).toHaveLength(0);
       expect(patch!.upserts.slideElements ?? []).toHaveLength(0);
       expect(patch!.deletes.slideElements ?? []).toHaveLength(0);
@@ -448,42 +447,4 @@ describe('theme sync integration — Apply, Reset, Sync, Detach, and duplication
     });
   });
 
-  describe('Per-type themes: a presentation theme never fans out to talks (changed from the single themes table)', () => {
-    // Before #219, one shared `themes` table meant a single 'slides'-kind
-    // theme could theme both presentations and talks at once (see the old
-    // theme-apply.test.ts's "applies a slides theme to a talk"). Now
-    // `presentation_themes` and `talk_themes` are independent tables/id
-    // spaces: a presentation theme's id is never present in `talk_themes`,
-    // so it structurally cannot theme, or be synced against, a talk.
-
-    function createTalk(title: string): Id {
-      return repo.createItem({ type: 'talk', title }).itemId;
-    }
-
-    it('createItem rejects assigning a presentation theme id to a talk — the old cross-family sharing is gone', () => {
-      const themeId = createTheme('Slide Theme');
-      expect(() => repo.createItem({ type: 'talk', title: 'Talk', themeId }))
-        .toThrow(new RegExp(`Theme not found: ${themeId}`));
-    });
-
-    it('applyThemeToItem rejects applying a presentation theme to a talk', () => {
-      const themeId = createTheme('Slide Theme');
-      const talkId = createTalk('Talk');
-      expect(() => repo.applyThemeToItem(themeId, { type: 'talk', id: talkId }))
-        .toThrow(new RegExp(`Theme not found: ${themeId}`));
-    });
-
-    it('syncThemeToLinkedItems rejects a presentation theme id when called for itemType talk', () => {
-      const themeId = createTheme('Slide Theme');
-      const itemId = createItemWithTheme('Deck', themeId);
-
-      expect(() => repo.syncThemeToLinkedItems(themeId, 'talk'))
-        .toThrow(new RegExp(`Theme not found: ${themeId}`));
-
-      // The presentation item that actually owns this theme is completely
-      // unaffected by the rejected cross-family sync attempt.
-      const slideId = slideIdForItem(itemId);
-      expect(elementsForSlide(repo.getSnapshot(), slideId)).toHaveLength(1);
-    });
-  });
 });

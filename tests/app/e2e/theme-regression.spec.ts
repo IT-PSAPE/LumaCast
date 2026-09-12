@@ -18,11 +18,11 @@ import type { AppSnapshot } from '@lumacast/protocol';
 // paths in the renderer genuinely run — the thing a plain castApi-only test
 // cannot exercise.
 //
-// #219 item-model refactor decision D2: themes are four independent
-// per-owner families (presentation/lyric/talk/overlay) rather than one
+// #219 item-model refactor decision D2: themes are three independent
+// per-owner families (presentation/lyric/overlay) rather than one
 // `kind`-tagged table, so every theme lookup below is keyed by family. The
 // Theme Editor screen's theme list and the resource drawer's Theme bin both
-// render all four families at once as labelled sections, so a theme is
+// render all three families at once as labelled sections, so a theme is
 // reachable by name without selecting its family first — the fixture theme
 // names below are distinct across families to keep those lookups unambiguous.
 //
@@ -182,7 +182,6 @@ function themesForFamily(snapshot: AppSnapshot, themeType: ThemeOwnerType) {
   switch (themeType) {
     case 'presentation': return snapshot.presentationThemes;
     case 'lyric': return snapshot.lyricThemes;
-    case 'talk': return snapshot.talkThemes;
     case 'overlay': return snapshot.overlayThemes;
   }
 }

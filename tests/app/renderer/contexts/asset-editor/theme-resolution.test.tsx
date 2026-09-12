@@ -33,7 +33,8 @@ vi.mock('../../../../../app/renderer/contexts/app-context', () => ({
   }),
 }));
 
-vi.mock('../../../../../app/renderer/contexts/use-project-content', () => ({
+vi.mock('../../../../../app/renderer/contexts/use-project-content', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../../app/renderer/contexts/use-project-content')>(),
   useProjectContent: () => mocks.project.value,
 }));
 
@@ -104,15 +105,12 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
   return {
     presentations: [],
     lyrics: [],
-    talks: [],
     slides: [],
-    talkScriptBlocks: [],
     slideElements: [],
     mediaAssets: [],
     overlays: [],
     presentationThemes: [],
     lyricThemes: [],
-    talkThemes: [],
     overlayThemes: [],
     stages: [],
     playlists: [],
@@ -128,20 +126,16 @@ function makeSnapshot(partial: Partial<AppSnapshot> = {}): AppSnapshot {
 function makeProjectContent(snapshot: AppSnapshot): any {
   const presentationsById = new Map(snapshot.presentations.map((p) => [p.id, p]));
   const lyricsById = new Map(snapshot.lyrics.map((l) => [l.id, l]));
-  const talksById = new Map(snapshot.talks.map((t) => [t.id, t]));
 
   return {
     presentations: snapshot.presentations,
     lyrics: snapshot.lyrics,
-    talks: snapshot.talks,
     slides: snapshot.slides,
-    talkScriptBlocks: [],
     slideElements: snapshot.slideElements,
     mediaAssets: [],
     overlays: snapshot.overlays,
     presentationThemes: snapshot.presentationThemes,
     lyricThemes: snapshot.lyricThemes,
-    talkThemes: snapshot.talkThemes,
     overlayThemes: snapshot.overlayThemes,
     stages: snapshot.stages,
     cues: [],
@@ -149,15 +143,12 @@ function makeProjectContent(snapshot: AppSnapshot): any {
     triggerBindings: [],
     presentationsById,
     lyricsById,
-    talksById,
     slidesByItem: new Map(),
-    talkScriptBlocksBySlideId: new Map(),
     slideElementsBySlideId: new Map(),
     mediaAssetsById: new Map(),
     overlaysById: new Map(snapshot.overlays.map((o) => [o.id, o])),
     presentationThemesById: new Map(snapshot.presentationThemes.map((t) => [t.id, t])),
     lyricThemesById: new Map(snapshot.lyricThemes.map((t) => [t.id, t])),
-    talkThemesById: new Map(snapshot.talkThemes.map((t) => [t.id, t])),
     overlayThemesById: new Map(snapshot.overlayThemes.map((t) => [t.id, t])),
     stagesById: new Map(snapshot.stages.map((s) => [s.id, s])),
     cuesById: new Map(),
@@ -165,8 +156,7 @@ function makeProjectContent(snapshot: AppSnapshot): any {
     resolveItemRef: (ref: { type: string; id: Id } | null | undefined) => {
       if (!ref) return null;
       if (ref.type === 'presentation') return presentationsById.get(ref.id) ?? null;
-      if (ref.type === 'lyric') return lyricsById.get(ref.id) ?? null;
-      return talksById.get(ref.id) ?? null;
+      return lyricsById.get(ref.id) ?? null;
     },
     slidesForItemRef: () => [],
   };
@@ -502,13 +492,6 @@ describe('family-aware theme mutations', () => {
     expect(harness.current.theme.themesByType.presentation).toHaveLength(1);
   });
 
-  it('renameTheme resolves owning family even when active differs', () => {
-    const t = makeThemeForFamily('T1', 'Talk Theme');
-    const harness = renderThemeHarness(makeSnapshot({ talkThemes: [t] }));
-    act(() => harness.current.theme.renameTheme('T1', 'Renamed Talk'));
-    expect(harness.current.theme.themesByType.talk[0].name).toBe('Renamed Talk');
-  });
-
   it('reorderTheme resolves owning family and passes correct themeType', async () => {
     const o1 = makeThemeForFamily('O1', 'Overlay One');
     const o2 = makeThemeForFamily('O2', 'Overlay Two');
@@ -531,13 +514,12 @@ describe('family-aware theme mutations', () => {
     expect(harness.current.theme.currentThemeId).toBe('L1');
   });
 
-  it('themesByType contains all four families', () => {
+  it('themesByType contains all remaining families', () => {
     const p = makeThemeForFamily('P1', 'Pres');
     const l = makeThemeForFamily('L1', 'Lyric');
-    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [p], lyricThemes: [l], talkThemes: [], overlayThemes: [] }));
+    const harness = renderThemeHarness(makeSnapshot({ presentationThemes: [p], lyricThemes: [l], overlayThemes: [] }));
     expect(harness.current.theme.themesByType.presentation).toHaveLength(1);
     expect(harness.current.theme.themesByType.lyric).toHaveLength(1);
-    expect(harness.current.theme.themesByType.talk).toHaveLength(0);
     expect(harness.current.theme.themesByType.overlay).toHaveLength(0);
   });
 });

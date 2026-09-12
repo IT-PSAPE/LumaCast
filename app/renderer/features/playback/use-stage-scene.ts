@@ -39,21 +39,19 @@ function extractSlideText(elements: Array<{ type: string; payload: unknown }>): 
 
 export function useStageBindingValue(): BindingValue {
   const { armedAtMs } = useStagePlayback();
-  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements, liveTalkScriptBlock, liveTalkScriptProgress } = useSlides();
+  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements } = useSlides();
 
   return useMemo(() => ({
     currentSlideText: liveSlide ? extractSlideText(liveElements) : null,
     nextSlideText: nextLiveSlide ? extractSlideText(nextLiveElements) : null,
     slideNotes: liveSlide ? liveSlide.notes : null,
-    talkScriptCurrent: liveTalkScriptBlock?.text ?? null,
-    talkScriptProgress: liveTalkScriptProgress,
     armedAtMs,
-  }), [armedAtMs, liveElements, liveSlide, liveTalkScriptBlock, liveTalkScriptProgress, nextLiveElements, nextLiveSlide]);
+  }), [armedAtMs, liveElements, liveSlide, nextLiveElements, nextLiveSlide]);
 }
 
 export function useProgramBindingValue(): BindingValue {
   const { currentOutputItemRef, outputArmVersion } = useNavigation();
-  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements, liveTalkScriptBlock, liveTalkScriptProgress } = useSlides();
+  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements } = useSlides();
   const [armedAtMs, setArmedAtMs] = useState<number | null>(null);
 
   useEffect(() => {
@@ -68,8 +66,6 @@ export function useProgramBindingValue(): BindingValue {
     currentSlideText: liveSlide ? extractSlideText(liveElements) : null,
     nextSlideText: nextLiveSlide ? extractSlideText(nextLiveElements) : null,
     slideNotes: liveSlide ? liveSlide.notes : null,
-    talkScriptCurrent: liveTalkScriptBlock?.text ?? null,
-    talkScriptProgress: liveTalkScriptProgress,
     armedAtMs,
-  }), [armedAtMs, liveElements, liveSlide, liveTalkScriptBlock, liveTalkScriptProgress, nextLiveElements, nextLiveSlide]);
+  }), [armedAtMs, liveElements, liveSlide, nextLiveElements, nextLiveSlide]);
 }

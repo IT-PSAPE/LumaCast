@@ -236,7 +236,7 @@ describe('CastRepository.updateMediaAssetSrc reference repointing', () => {
       const theme = patch.upserts.presentationThemes?.find((candidate) => candidate.id === themeId);
       expect(theme?.background).toMatchObject({ type: 'image', src: newSrc });
       // A themed background is not an ordinary content slide (getSlides()
-      // only returns rows with a presentation/lyric/talk owner) — asserting
+      // only returns rows with a presentation/lyric owner) — asserting
       // the theme key alone, and not `patch.upserts.slides`, pins that the
       // container-slide branch is the one exercised.
       expect(patch.upserts.slides).toBeUndefined();

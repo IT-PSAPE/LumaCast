@@ -15,7 +15,6 @@ Source of truth: `app/renderer/types/ui.ts`.
 
 - `WorkbenchMode`: `show | item-editor | overlay-editor | theme-editor | stage-editor | macro-editor | settings`
 - `SlideBrowserMode`: `grid | list`
-- `PlaylistBrowserMode`: `current | tabs | continuous`
 - `ResourceDrawerViewMode`: `grid | list`
 - `DrawerTab`: `deck | image | themes`
 - `InspectorTab`: `presentation | slide | shape | text | theme | stage | binding | video | properties | triggers`
@@ -50,7 +49,7 @@ lazily-loaded screen in `app/renderer/workbench-screen-router.tsx`:
 | Screen directory | Workbench mode | Notes |
 | --- | --- | --- |
 | `show` | `show` | Landing surface; flat playlist browsing (with separator rows), slide/lyric browsing, resource drawer, program panel. Eagerly loaded. |
-| `item-editor` | `item-editor` | Slide/lyric/talk editing: item picker, layers panel, stage, notes (or talk script blocks), inspector. |
+| `item-editor` | `item-editor` | Presentation/lyric editing: item picker, layers panel, stage, notes, inspector. |
 | `overlay-editor` | `overlay-editor` | Overlay editing. |
 | `theme-editor` | `theme-editor` | Theme editing. |
 | `stage-editor` | `stage-editor` | Stage layout editing. |
@@ -68,7 +67,7 @@ Each editor screen (`item-editor`, `overlay-editor`, `theme-editor`,
 | --- | --- |
 | `workbench` | App shell, toolbar, mode switching, resource drawer, status bar, Windows inline menu bar, panel-visibility toggles |
 | `playlists` | Flat playlist browsing and management: playlist panels, playlist rows (items and separators), separator color |
-| `items` | Item (presentation/lyric/talk) browsing and editing support: slide/lyric/talk list and grid views, creation dialogs, import/export, bundle drag-and-drop, talk script blocks |
+| `items` | Presentation/lyric browsing and editing support: slide list and grid views, creation dialogs, and import/export |
 | `canvas` | Stage rendering primitives shared by every editor screen and the show screen (scene graph, stage viewport, element drag/resize, inline text editing). Under active refactor; see `app/renderer/rendering/` for the newer scene-traversal/scene-node-content split. |
 | `inspector` | Presentation, slide, shape, text, theme, stage, and binding property inspectors |
 | `assets` | Media, overlay, stage, and theme asset libraries (`audio`, `media`, `overlays`, `stages`, `themes` subdirectories) |
@@ -124,12 +123,12 @@ domain-coupled (for example, `OutputSettingsPanel` stays in `playback`).
 - Database and IPC payload names are not renamed to match renderer UI terms
   unless required by the renderer.
 - "Item" is the generic word wherever code structurally needs "one of
-  presentation | lyric | talk" — it replaces "deck item" everywhere: types,
-  IPC params, macro scope, drag payloads, UI copy. `ItemType = 'presentation'
-  | 'lyric' | 'talk'`; `ItemRef = { type: ItemType; id: Id }` is the typed
+  presentation | lyric" — it replaces "deck item" everywhere: types, IPC
+  params, macro scope, drag payloads, and UI copy. `ItemType = 'presentation'
+  | 'lyric'`; `ItemRef = { type: ItemType; id: Id }` is the typed
   reference used for selection, playback arming, macro scope contexts, and
   drag payloads (drag MIME `application/x-lumacast-item`, payload
   `{ itemType, itemId }`). There is no `Item` base interface or union entity —
-  `Presentation`, `Lyric`, and `Talk` are separate interfaces that merely
-  happen to share fields; which one an entity is comes from which table/array
-  it came from, never from a discriminant field.
+  `Presentation` and `Lyric` are separate interfaces that merely share fields;
+  which one an entity is comes from its table/array, never from a discriminant
+  field.

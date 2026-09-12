@@ -38,15 +38,15 @@ control.
 
 - Left: `PlaylistPanels` (flat playlist tree: item rows and separator rows,
   no library or group level)
-- Center: `DeckBrowserToolbar`, `SlideBrowserContent` / `ContinuousSlideBrowser`, `ResourceDrawer`
+- Center: playlist tabs in `DeckBrowserToolbar`, the selected item's `SlideBrowserContent`, and `ResourceDrawer`
 - Right: `ProgramPanel`
 
 ### Item Editor (`data-ui-region="item-editor-layout"`)
 
-- Left: item picker (searchable, across presentations/lyrics/talks) + slide
-  list, and a Layers panel (`ItemEditorLayersPanel`)
-- Center: `StagePanel`, and either `TalkScriptBlocksPanel` (for Talk items) or
-  a notes textarea (`data-ui-region="slide-notes-panel"`)
+- Left: item picker (searchable across presentations and lyrics) + slide list,
+  and a Layers panel (`ItemEditorLayersPanel`)
+- Center: `StagePanel` and a notes textarea
+  (`data-ui-region="slide-notes-panel"`)
 - Right: `ItemEditorInspectorPanel` (`data-ui-region="inspector-panel"`)
 
 ### Overlay Editor, Theme Editor, Stage Editor (`data-ui-region="editor-layout"`)
@@ -92,7 +92,7 @@ and seed-data calls against the current screens.
 ## 6. Implementation Guarantees
 
 - Playlist and separator references remain reusable across items — a
-  Presentation, Lyric, or Talk can appear in more than one playlist. There is
+  Presentation or Lyric can appear in more than one playlist. There is
   no library or group level any more (issue #219).
 - Media drag/drop onto the stage remains intact.
 - Persisted `Presentation.kind` remains `canvas | lyrics` in storage.

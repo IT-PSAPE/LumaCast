@@ -41,8 +41,8 @@ describe('CastRepository.addItemToPlaylist', () => {
   it('throws for an unresolvable playlist id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
-      const talkId = createItem(repo, 'talk', 'Sermon');
-      expect(() => repo.addItemToPlaylist('no-such-playlist', { type: 'talk', id: talkId }))
+      const presentationId = createItem(repo, 'presentation', 'Deck');
+      expect(() => repo.addItemToPlaylist('no-such-playlist', { type: 'presentation', id: presentationId }))
         .toThrow(/Playlist not found: no-such-playlist/);
     } finally {
       close();
@@ -54,8 +54,8 @@ describe('CastRepository.addItemToPlaylist', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      expect(() => repo.addItemToPlaylist(playlistId, { type: 'talk', id: 'no-such-item' }))
-        .toThrow(/Item not found: talk no-such-item/);
+      expect(() => repo.addItemToPlaylist(playlistId, { type: 'presentation', id: 'no-such-item' }))
+        .toThrow(/Item not found: presentation no-such-item/);
       expect(itemEntries(repo, playlistId)).toHaveLength(0);
     } finally {
       close();
@@ -86,27 +86,23 @@ describe('CastRepository.addItemToPlaylist', () => {
       const playlistId = createPlaylist(repo, 'Service');
       const presentationId = createItem(repo, 'presentation', 'Slides');
       const lyricId = createItem(repo, 'lyric', 'Song');
-      const talkId = createItem(repo, 'talk', 'Sermon');
 
       repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
       repo.addItemToPlaylist(playlistId, { type: 'lyric', id: lyricId });
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
 
       const entries = itemEntries(repo, playlistId);
-      expect(entries).toHaveLength(3);
-
-      const talkEntry = entries.find((e) => e.reference.itemId === talkId)!;
-      expect(talkEntry.kind).toBe('item');
-      expect(talkEntry.reference).toEqual({ type: 'talk', itemId: talkId });
-      expect(talkEntry.talkId).toBe(talkId);
-      expect(talkEntry.presentationId).toBeNull();
-      expect(talkEntry.lyricId).toBeNull();
+      expect(entries).toHaveLength(2);
 
       const presentationEntry = entries.find((e) => e.reference.itemId === presentationId)!;
+      expect(presentationEntry.kind).toBe('item');
       expect(presentationEntry.reference).toEqual({ type: 'presentation', itemId: presentationId });
+      expect(presentationEntry.presentationId).toBe(presentationId);
+      expect(presentationEntry.lyricId).toBeNull();
 
       const lyricEntry = entries.find((e) => e.reference.itemId === lyricId)!;
       expect(lyricEntry.reference).toEqual({ type: 'lyric', itemId: lyricId });
+      expect(lyricEntry.presentationId).toBeNull();
+      expect(lyricEntry.lyricId).toBe(lyricId);
     } finally {
       close();
       cleanup();
@@ -122,11 +118,11 @@ describe('CastRepository.addItemToPlaylist', () => {
       repo.addItemToPlaylist(playlistId, { type: 'presentation', id: existingA });
       repo.addItemToPlaylist(playlistId, { type: 'lyric', id: existingB });
 
-      const talkId = createItem(repo, 'talk', 'Sermon');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+      const presentationId = createItem(repo, 'presentation', 'Deck');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
       const entries = itemEntries(repo, playlistId);
-      expect(entries.map((e) => e.reference.itemId)).toEqual([existingA, existingB, talkId]);
+      expect(entries.map((e) => e.reference.itemId)).toEqual([existingA, existingB, presentationId]);
       // Dense, gapless order — not just insertion-order tie-breaking.
       expect(entries.map((e) => e.order)).toEqual([0, 1, 2]);
     } finally {
@@ -139,13 +135,13 @@ describe('CastRepository.addItemToPlaylist', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstId = createItem(repo, 'talk', 'First');
-      const secondId = createItem(repo, 'talk', 'Second');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: firstId });
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: secondId });
+      const firstId = createItem(repo, 'presentation', 'First');
+      const secondId = createItem(repo, 'presentation', 'Second');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: firstId });
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: secondId });
 
-      const insertedId = createItem(repo, 'talk', 'Inserted');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: insertedId }, 1);
+      const insertedId = createItem(repo, 'presentation', 'Inserted');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: insertedId }, 1);
 
       const entries = itemEntries(repo, playlistId);
       expect(entries.map((e) => e.reference.itemId)).toEqual([firstId, insertedId, secondId]);
@@ -160,11 +156,11 @@ describe('CastRepository.addItemToPlaylist', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstId = createItem(repo, 'talk', 'First');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: firstId });
+      const firstId = createItem(repo, 'presentation', 'First');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: firstId });
 
-      const insertedId = createItem(repo, 'talk', 'Inserted');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: insertedId }, 0);
+      const insertedId = createItem(repo, 'presentation', 'Inserted');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: insertedId }, 0);
 
       const entries = itemEntries(repo, playlistId);
       expect(entries.map((e) => e.reference.itemId)).toEqual([insertedId, firstId]);
@@ -178,15 +174,15 @@ describe('CastRepository.addItemToPlaylist', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const talkId = createItem(repo, 'talk', 'Sermon');
+      const presentationId = createItem(repo, 'presentation', 'Deck');
 
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
       const entries = itemEntries(repo, playlistId);
       expect(entries).toHaveLength(2);
       expect(entries[0].id).not.toBe(entries[1].id);
-      expect(entries.every((e) => e.reference.itemId === talkId)).toBe(true);
+      expect(entries.every((e) => e.reference.itemId === presentationId)).toBe(true);
     } finally {
       close();
       cleanup();
@@ -198,10 +194,10 @@ describe('CastRepository.addItemToPlaylist', () => {
     try {
       const playlistAId = createPlaylist(repo, 'Service A');
       const playlistBId = createPlaylist(repo, 'Service B');
-      const talkId = createItem(repo, 'talk', 'Sermon');
+      const presentationId = createItem(repo, 'presentation', 'Deck');
 
-      repo.addItemToPlaylist(playlistAId, { type: 'talk', id: talkId });
-      repo.addItemToPlaylist(playlistBId, { type: 'talk', id: talkId });
+      repo.addItemToPlaylist(playlistAId, { type: 'presentation', id: presentationId });
+      repo.addItemToPlaylist(playlistBId, { type: 'presentation', id: presentationId });
 
       expect(itemEntries(repo, playlistAId)).toHaveLength(1);
       expect(itemEntries(repo, playlistBId)).toHaveLength(1);
@@ -216,9 +212,9 @@ describe('CastRepository.addItemToPlaylist', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const talkId = createItem(repo, 'talk', 'Sermon');
+      const presentationId = createItem(repo, 'presentation', 'Deck');
 
-      const patch = repo.addItemToPlaylist(playlistId, { type: 'talk', id: talkId });
+      const patch = repo.addItemToPlaylist(playlistId, { type: 'presentation', id: presentationId });
 
       expect(patch.upserts.playlistEntries).toBeDefined();
       expect(patch.upserts.playlistEntries!.length).toBeGreaterThan(0);
@@ -237,8 +233,8 @@ describe('CastRepository.createItem with playlistId/position (successor to creat
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       const playlistId = createPlaylist(repo, 'Service');
-      const firstId = createItem(repo, 'talk', 'First');
-      repo.addItemToPlaylist(playlistId, { type: 'talk', id: firstId });
+      const firstId = createItem(repo, 'presentation', 'First');
+      repo.addItemToPlaylist(playlistId, { type: 'presentation', id: firstId });
 
       const { itemId, patch } = repo.createItem({ type: 'lyric', title: 'New Song', playlistId, position: 0 });
 

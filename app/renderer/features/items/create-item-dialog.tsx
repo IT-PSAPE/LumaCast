@@ -39,7 +39,7 @@ function buildPositionOptions(rows: PlaylistRow[], resolveItemRef: ReturnType<ty
 
 export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProps) {
   const { snapshot } = useCast();
-  const { presentationThemes, lyricThemes, talkThemes, resolveItemRef } = useProjectContent();
+  const { presentationThemes, lyricThemes, resolveItemRef } = useProjectContent();
   const { createItem } = useNavigation();
   const { open: openLyricEditor } = useLyricEditor();
 
@@ -63,7 +63,7 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
     return () => clearTimeout(handle);
   }, [isOpen]);
 
-  const compatibleThemes = type === 'presentation' ? presentationThemes : type === 'lyric' ? lyricThemes : talkThemes;
+  const compatibleThemes = type === 'presentation' ? presentationThemes : lyricThemes;
 
   const playlistOptions = useMemo(() => (snapshot?.playlists ?? []).map((playlist) => ({
     value: playlist.id,
@@ -115,8 +115,8 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
 
   if (!isOpen) return null;
 
-  const title = type === 'lyric' ? 'New lyric' : type === 'talk' ? 'New talk' : 'New presentation';
-  const placeholder = type === 'lyric' ? 'New Lyric' : type === 'talk' ? 'New Talk' : 'New Presentation';
+  const title = type === 'lyric' ? 'New lyric' : 'New presentation';
+  const placeholder = type === 'lyric' ? 'New Lyric' : 'New Presentation';
 
   return (
     <Dialog.Root open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>

@@ -6,7 +6,7 @@ import { createTestRepository } from '../../../../packages/persistence-sqlite/sr
 
 // Covers #214's group 4: the mutation methods that never checked existence
 // at all. `deleteCue`, `deleteMacro`, `deleteStage`, `renamePlaylist`,
-// `renamePresentation`, `renameLyric`, and `renameTalk` ran their
+// `renamePresentation` and `renameLyric` ran their
 // UPDATE/DELETE and returned a patch claiming success even when zero rows
 // matched. `updateElementsBatch` silently dropped unresolvable ids from the
 // batch (`if (!existing) continue;`) with no signal in the returned patch.
@@ -21,7 +21,7 @@ import { createTestRepository } from '../../../../packages/persistence-sqlite/sr
 //   - `renamePlaylistGroup` tested a destroyed concept (D5: groups become
 //     separator rows) — its invariant (throw-on-unresolvable /
 //     succeed-on-existing) is ported below as `renameSeparator`.
-//   - `renamePresentation`/`renameLyric`/`renameTalk` now throw
+//   - `renamePresentation`/`renameLyric` now throw
 //     "Item not found" (not "Deck item not found" — the vocabulary rename
 //     applies to this error message too) and are created via the unified
 //     `createItem` op rather than the destroyed `createDeckItemWithTheme`.
@@ -265,15 +265,13 @@ describe('CastRepository.renamePlaylist (#214)', () => {
   });
 });
 
-describe('CastRepository.renamePresentation / renameLyric / renameTalk (#214)', () => {
+describe('CastRepository.renamePresentation / renameLyric (#214)', () => {
   it('throws for an unresolvable item id', () => {
     const { repository: repo, close, cleanup } = createTestRepository();
     try {
       expect(() => repo.renamePresentation('no-such-item', 'Renamed'))
         .toThrow(/Item not found: no-such-item/);
       expect(() => repo.renameLyric('no-such-item', 'Renamed'))
-        .toThrow(/Item not found: no-such-item/);
-      expect(() => repo.renameTalk('no-such-item', 'Renamed'))
         .toThrow(/Item not found: no-such-item/);
     } finally {
       close();
@@ -305,17 +303,6 @@ describe('CastRepository.renamePresentation / renameLyric / renameTalk (#214)', 
     }
   });
 
-  it('renames an existing talk without throwing', () => {
-    const { repository: repo, close, cleanup } = createTestRepository();
-    try {
-      const talkId = createItem(repo, 'talk', 'Sermon');
-      const patch = repo.renameTalk(talkId, 'Renamed');
-      expect(patch.upserts.talks?.[0]?.title).toBe('Renamed');
-    } finally {
-      close();
-      cleanup();
-    }
-  });
 });
 
 describe('CastRepository.updateElementsBatch (#214)', () => {

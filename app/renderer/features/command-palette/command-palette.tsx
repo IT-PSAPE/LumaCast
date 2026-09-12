@@ -1,7 +1,7 @@
 import { Layers2, LayoutTemplate, ListMusic, Monitor, Search, Workflow } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getItemTypeLabel } from '@lumacast/composition';
-import type { ItemRef, ItemType, MediaAsset, Overlay, Stage, ThemeOwnerType } from '@lumacast/composition';
+import type { ItemRef, ItemType, MediaAsset, Overlay, Stage } from '@lumacast/composition';
 import { Dialog } from '@renderer/components/overlays/dialog';
 import { ItemIcon, MediaAssetIcon } from '@renderer/components/display/entity-icon';
 import { useCast } from '@renderer/contexts/app-context';
@@ -22,7 +22,6 @@ type ResultKind =
   | 'playlist'
   | 'presentation'
   | 'lyric'
-  | 'talk'
   | 'overlay'
   | 'theme'
   | 'stage'
@@ -43,7 +42,6 @@ const SECTION_ORDER: Array<{ kind: ResultKind; title: string }> = [
   { kind: 'playlist', title: 'Playlists' },
   { kind: 'presentation', title: 'Presentations' },
   { kind: 'lyric', title: 'Lyrics' },
-  { kind: 'talk', title: 'Talks' },
   { kind: 'overlay', title: 'Overlays' },
   { kind: 'theme', title: 'Themes' },
   { kind: 'stage', title: 'Stages' },
@@ -56,20 +54,12 @@ const SECTION_BY_KIND = new Map(SECTION_ORDER.map((entry, index) => [entry.kind,
 
 const RESULT_LIMIT = 50;
 
-// getItemTypeLabel only knows the three item types; the command palette's
-// theme results span all four theme families (items + overlay), so this
-// adds the one extra case rather than widening getItemTypeLabel itself
-// (which composition's #219 decision D2 keeps scoped to ItemType).
-function themeOwnerLabel(themeType: ThemeOwnerType): string {
-  return themeType === 'overlay' ? 'Overlay' : getItemTypeLabel(themeType);
-}
-
 export function CommandPalette() {
   const { isOpen, close } = useCommandPalette();
   const { snapshot } = useCast();
   const {
-    presentations, lyrics, talks, mediaAssets,
-    presentationThemes, lyricThemes, talkThemes, overlayThemes,
+    presentations, lyrics, mediaAssets,
+    presentationThemes, lyricThemes,
   } = useProjectContent();
   const navigation = useNavigation();
   const { actions: workbenchActions } = useWorkbench();
@@ -129,7 +119,6 @@ export function CommandPalette() {
 
     const presentationResults = itemResults('presentation', presentations);
     const lyricResults = itemResults('lyric', lyrics);
-    const talkResults = itemResults('talk', talks);
 
     const overlayResults: ResultItem[] = overlayEditor.overlays.map((overlay: Overlay) => ({
       id: `overlay:${overlay.id}`,
@@ -143,12 +132,12 @@ export function CommandPalette() {
       },
     }));
 
-    function themeResultsFor(themeType: ThemeOwnerType, themes: Array<{ id: string; name: string }>): ResultItem[] {
+    function themeResultsFor(themeType: ItemType, themes: Array<{ id: string; name: string }>): ResultItem[] {
       return themes.map((theme) => ({
         id: `theme:${themeType}:${theme.id}`,
         kind: 'theme',
         label: theme.name,
-        subtitle: `Theme · ${themeOwnerLabel(themeType)}`,
+        subtitle: `Theme · ${getItemTypeLabel(themeType)}`,
         icon: <LayoutTemplate size={16} />,
         onSelect: () => {
           themeEditor.openThemeEditor(themeType, theme.id);
@@ -160,8 +149,6 @@ export function CommandPalette() {
     const themeResults: ResultItem[] = [
       ...themeResultsFor('presentation', presentationThemes),
       ...themeResultsFor('lyric', lyricThemes),
-      ...themeResultsFor('talk', talkThemes),
-      ...themeResultsFor('overlay', overlayThemes),
     ];
 
     const stageResults: ResultItem[] = stageEditor.stages.map((stage: Stage) => ({
@@ -227,7 +214,6 @@ export function CommandPalette() {
       ...playlistItems,
       ...presentationResults,
       ...lyricResults,
-      ...talkResults,
       ...overlayResults,
       ...themeResults,
       ...stageResults,
@@ -248,8 +234,8 @@ export function CommandPalette() {
       .map(({ item }) => item)
       .slice(0, RESULT_LIMIT);
   }, [
-    snapshot, presentations, lyrics, talks, mediaAssets,
-    presentationThemes, lyricThemes, talkThemes, overlayThemes,
+    snapshot, presentations, lyrics, mediaAssets,
+    presentationThemes, lyricThemes,
     overlayEditor, themeEditor, stageEditor, audio, macros, runMacro,
     setMediaLayerAsset, video, query, navigation, workbenchActions,
   ]);

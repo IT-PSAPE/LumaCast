@@ -10,7 +10,7 @@ import {
   type PlaylistItemReferenceType,
 } from '../../../../packages/composition/src/playlist-item-reference';
 
-const TYPES: PlaylistItemReferenceType[] = ['presentation', 'lyric', 'talk'];
+const TYPES: PlaylistItemReferenceType[] = ['presentation', 'lyric'];
 
 describe('makePlaylistItemReference', () => {
   it.each(TYPES)('constructs a reference for type "%s"', (type) => {
@@ -23,7 +23,7 @@ describe('makePlaylistItemReference', () => {
   });
 
   it('includes the provided context in the error message', () => {
-    expect(() => makePlaylistItemReference('talk', '', 'entry-9')).toThrow(/for entry-9/);
+    expect(() => makePlaylistItemReference('lyric', '', 'entry-9')).toThrow(/for entry-9/);
   });
 });
 
@@ -32,7 +32,6 @@ describe('toPlaylistItemOwnerColumns', () => {
     expect(toPlaylistItemOwnerColumns({ type: 'presentation', itemId: 'p1' })).toEqual({
       presentationId: 'p1',
       lyricId: null,
-      talkId: null,
     });
   });
 
@@ -40,15 +39,6 @@ describe('toPlaylistItemOwnerColumns', () => {
     expect(toPlaylistItemOwnerColumns({ type: 'lyric', itemId: 'l1' })).toEqual({
       presentationId: null,
       lyricId: 'l1',
-      talkId: null,
-    });
-  });
-
-  it('sets only talkId for a talk reference', () => {
-    expect(toPlaylistItemOwnerColumns({ type: 'talk', itemId: 't1' })).toEqual({
-      presentationId: null,
-      lyricId: null,
-      talkId: 't1',
     });
   });
 });
@@ -60,45 +50,33 @@ describe('parsePlaylistItemReference', () => {
   });
 
   it('throws when no owner column is populated', () => {
-    const owner: PlaylistItemOwnerColumns = { presentationId: null, lyricId: null, talkId: null };
+    const owner: PlaylistItemOwnerColumns = { presentationId: null, lyricId: null };
     expect(() => parsePlaylistItemReference(owner)).toThrow(PlaylistItemReferenceError);
     expect(() => parsePlaylistItemReference(owner)).toThrow(/missing an owner/);
   });
 
   it('throws when two owner columns are populated', () => {
-    const owner: PlaylistItemOwnerColumns = { presentationId: 'p1', lyricId: 'l1', talkId: null };
-    expect(() => parsePlaylistItemReference(owner)).toThrow(/multiple owners/);
-  });
-
-  it('throws when all three owner columns are populated', () => {
-    const owner: PlaylistItemOwnerColumns = { presentationId: 'p1', lyricId: 'l1', talkId: 't1' };
-    expect(() => parsePlaylistItemReference(owner)).toThrow(/multiple owners/);
-  });
-
-  it('specifically rejects a Talk entry paired with a stray presentationId rather than silently preferring the presentation', () => {
-    // Regression guard: a `presentationId ?? lyricId ?? talkId` chain would
-    // have silently resolved this to the presentation, hiding the corruption.
-    const owner: PlaylistItemOwnerColumns = { presentationId: 'p1', lyricId: null, talkId: 't1' };
+    const owner: PlaylistItemOwnerColumns = { presentationId: 'p1', lyricId: 'l1' };
     expect(() => parsePlaylistItemReference(owner)).toThrow(/multiple owners/);
   });
 
   it('includes the provided context in the error message', () => {
-    const owner: PlaylistItemOwnerColumns = { presentationId: null, lyricId: null, talkId: null };
+    const owner: PlaylistItemOwnerColumns = { presentationId: null, lyricId: null };
     expect(() => parsePlaylistItemReference(owner, 'playlist entry abc')).toThrow(/for playlist entry abc/);
   });
 });
 
 describe('tryParsePlaylistItemReference', () => {
   it('returns the parsed reference for a valid owner', () => {
-    expect(tryParsePlaylistItemReference({ presentationId: null, lyricId: null, talkId: 't1' })).toEqual({
-      type: 'talk',
-      itemId: 't1',
+    expect(tryParsePlaylistItemReference({ presentationId: null, lyricId: 'l1' })).toEqual({
+      type: 'lyric',
+      itemId: 'l1',
     });
   });
 
   it('returns null instead of throwing for an invalid owner', () => {
-    expect(tryParsePlaylistItemReference({ presentationId: null, lyricId: null, talkId: null })).toBeNull();
-    expect(tryParsePlaylistItemReference({ presentationId: 'p1', lyricId: 'l1', talkId: null })).toBeNull();
+    expect(tryParsePlaylistItemReference({ presentationId: null, lyricId: null })).toBeNull();
+    expect(tryParsePlaylistItemReference({ presentationId: 'p1', lyricId: 'l1' })).toBeNull();
   });
 });
 

@@ -47,7 +47,6 @@ function makeEmptySections(): Array<{ type: ItemType; label: string; items: Fake
   return [
     { type: 'presentation', label: 'Presentations', items: [] },
     { type: 'lyric', label: 'Lyrics', items: [] },
-    { type: 'talk', label: 'Talks', items: [] },
   ];
 }
 
@@ -93,15 +92,14 @@ describe('DeckBinPanel', () => {
     expect(screen.queryByText('No presentations yet.')).toBeNull();
     expect(screen.getByRole('button', { name: 'Create presentation' })).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Create lyric' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Create talk' })).not.toBeNull();
   });
 
   it('opens the create-item flow for the section type when a drop-zone is activated', () => {
     const { openCreateItem } = renderDeckPanel();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create talk' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create lyric' }));
 
     expect(openCreateItem).toHaveBeenCalledTimes(1);
-    expect(openCreateItem).toHaveBeenCalledWith('talk');
+    expect(openCreateItem).toHaveBeenCalledWith('lyric');
   });
 });

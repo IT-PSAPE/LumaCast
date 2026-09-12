@@ -2,11 +2,11 @@ import type { Id } from '@lumacast/kernel';
 
 /**
  * Canonical playlist-item reference kinds for this issue's scope (#109).
- * Playlist entries support only these three kinds; extending this union to
+ * Playlist entries support only these two kinds; extending this union to
  * cover another kind requires updating every exhaustive switch in this file,
  * which fails to compile until it does.
  */
-export type PlaylistItemReferenceType = 'presentation' | 'lyric' | 'talk';
+export type PlaylistItemReferenceType = 'presentation' | 'lyric';
 
 /**
  * The canonical runtime type for "what a playlist entry points at." An
@@ -21,14 +21,13 @@ export interface PlaylistItemReference {
 /**
  * The legacy nullable owner columns persisted by `playlist_entries` (and
  * mirrored by the deck-bundle export format's `DeckBundlePlaylistEntry`).
- * Persistence may retain these three columns internally, but exactly one must
+ * Persistence retains these two columns, and exactly one must
  * be populated — mapping to/from `PlaylistItemReference` is the only place
  * allowed to interpret them.
  */
 export interface PlaylistItemOwnerColumns {
   presentationId: Id | null;
   lyricId: Id | null;
-  talkId: Id | null;
 }
 
 // #219 item-model refactor decision D5: a playlist row can also be a
@@ -63,7 +62,6 @@ export function makePlaylistItemReference(
   switch (type) {
     case 'presentation':
     case 'lyric':
-    case 'talk':
       return { type, itemId };
     default:
       return assertNeverPlaylistItemReferenceType(type, context);
@@ -74,11 +72,9 @@ export function makePlaylistItemReference(
 export function toPlaylistItemOwnerColumns(reference: PlaylistItemReference): PlaylistItemOwnerColumns {
   switch (reference.type) {
     case 'presentation':
-      return { presentationId: reference.itemId, lyricId: null, talkId: null };
+      return { presentationId: reference.itemId, lyricId: null };
     case 'lyric':
-      return { presentationId: null, lyricId: reference.itemId, talkId: null };
-    case 'talk':
-      return { presentationId: null, lyricId: null, talkId: reference.itemId };
+      return { presentationId: null, lyricId: reference.itemId };
     default:
       return assertNeverPlaylistItemReferenceType(reference.type);
   }
@@ -93,15 +89,13 @@ function collectPopulatedOwners(owner: PlaylistItemOwnerColumns): PopulatedOwner
   const populated: PopulatedOwner[] = [];
   if (owner.presentationId) populated.push({ type: 'presentation', itemId: owner.presentationId });
   if (owner.lyricId) populated.push({ type: 'lyric', itemId: owner.lyricId });
-  if (owner.talkId) populated.push({ type: 'talk', itemId: owner.talkId });
   return populated;
 }
 
 /**
  * Parses the legacy owner columns into a canonical reference, rejecting zero
  * or multiple populated owners instead of silently picking one via a `??`
- * chain — the exact pattern that previously dropped Talk entries whenever a
- * chain stopped at `presentationId ?? lyricId` without considering `talkId`.
+ * chain.
  */
 export function parsePlaylistItemReference(owner: PlaylistItemOwnerColumns, context?: string): PlaylistItemReference {
   const populated = collectPopulatedOwners(owner);
@@ -109,7 +103,7 @@ export function parsePlaylistItemReference(owner: PlaylistItemOwnerColumns, cont
 
   if (populated.length === 0) {
     throw new PlaylistItemReferenceError(
-      `Playlist item reference${suffix} is missing an owner: exactly one of presentationId, lyricId, or talkId must be set.`,
+      `Playlist item reference${suffix} is missing an owner: exactly one of presentationId or lyricId must be set.`,
     );
   }
   if (populated.length > 1) {
