@@ -548,12 +548,22 @@ describe('MediaDerivativeService', () => {
       toPNG: () => Buffer.from('batch-png'),
     });
     const service = new MediaDerivativeService(repo, tempRoot);
+    let latestProgress: { completed: number; failed: number; total: number; statusText: string | null } | null = null;
+    service.onProgress((progress) => {
+      latestProgress = progress;
+    });
 
     for (const entry of assets) {
       service.scheduleBatch([entry.id]);
     }
     await vi.waitFor(() => {
       expect(nativeImageApi.createThumbnailFromPath).toHaveBeenCalledTimes(10);
+      expect(latestProgress).toEqual(expect.objectContaining({
+        completed: 10,
+        failed: 0,
+        total: 10,
+        statusText: null,
+      }));
     });
   });
 
@@ -712,9 +722,9 @@ describe('MediaDerivativeService', () => {
       ensured.sourceFingerprint ?? 'missing-fingerprint',
       SAFE_FALLBACK_PNG,
     ));
-    await flushNodeTasks(6);
-
-    expect(decodeCalls).toBe(1);
+    await vi.waitFor(() => {
+      expect(decodeCalls).toBe(1);
+    });
 
     patchDeferred.resolve({
       version: 1,
