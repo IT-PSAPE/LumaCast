@@ -1,17 +1,11 @@
 import type { MediaAsset, OverlayAnimation, Slide, SlideElement } from '@lumacast/composition';
-import type { SlideBrowserMode, PlaylistBrowserMode, SlideVisualState } from '../types/ui';
+import type { SlideBrowserMode, SlideVisualState } from '../types/ui';
 import { LAYER_ORDER } from '../types/ui';
 export { clamp } from './math';
 
 export const CANVAS_VIEW_LABELS: Record<SlideBrowserMode, string> = {
   grid: 'Grid',
   list: 'List',
-};
-
-export const PLAYLIST_DISPLAY_MODE_LABELS: Record<PlaylistBrowserMode, string> = {
-  current: 'Current',
-  tabs: 'Tabs',
-  continuous: 'Continuous',
 };
 
 export function sortSlides(slides: Slide[]): Slide[] {
@@ -79,11 +73,19 @@ export function replacePrimaryLine(text: string, nextPrimary: string): string {
   return [trimmedPrimary, ...lines.slice(1)].join('\n');
 }
 
-export function typeFromFile(file: File): MediaAsset['type'] {
+export function detectMediaFileType(file: Pick<File, 'type' | 'name'>): MediaAsset['type'] | null {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
   if (file.type.startsWith('audio/')) return 'audio';
-  return 'video';
+  const extension = file.name.toLowerCase().split('.').pop();
+  if (extension && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(extension)) return 'image';
+  if (extension && ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'aiff', 'aif', 'opus'].includes(extension)) return 'audio';
+  if (extension && ['mp4', 'webm', 'mov', 'm4v'].includes(extension)) return 'video';
+  return null;
+}
+
+export function typeFromFile(file: File): MediaAsset['type'] {
+  return detectMediaFileType(file) ?? 'video';
 }
 
 export function fileSrc(file: File): string {

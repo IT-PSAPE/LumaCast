@@ -42,7 +42,7 @@ export interface ElementContextValue {
   createFromMedia: (asset: MediaAsset, x: number, y: number) => Promise<void>;
   createOverlay: () => Promise<void>;
   toggleOverlay: (overlayId: Id, enabled: boolean) => Promise<void>;
-  importMedia: (files: FileList) => Promise<void>;
+  importMedia: (files: FileList | readonly File[]) => Promise<void>;
   deleteMedia: (id: Id) => Promise<void>;
   changeMediaSrc: (id: Id, file: File) => Promise<void>;
 }

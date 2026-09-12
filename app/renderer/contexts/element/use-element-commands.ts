@@ -250,7 +250,7 @@ export function useElementCommands({ activeEditorSource, currentItemRef, mutateP
     setStatusText(enabled ? 'Overlay enabled' : 'Overlay disabled');
   }, [mutatePatch, setStatusText]);
 
-  const importMedia = useCallback(async (files: FileList) => {
+  const importMedia = useCallback(async (files: FileList | readonly File[]) => {
     if (files.length === 0) return;
     let importedCount = 0;
     let skippedCount = 0;

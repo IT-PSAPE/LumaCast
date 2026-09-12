@@ -24,6 +24,7 @@ import {
 } from './use-bin-sort';
 import { useGridSize } from '../../hooks/use-grid-size';
 import { BinControlsProvider, BinControlsSearchField, BinControlsViewOptions, type BinGridConfig } from '@renderer/components/controls/bin-controls';
+import { detectMediaFileType } from '../../utils/slides';
 import { cn } from '@renderer/utils/cn';
 
 const DECK_SORT_OPTIONS = [
@@ -88,7 +89,7 @@ function hasImportableFiles(transfer: DataTransfer, tab: DrawerTab): boolean {
   if (!isImportTab(tab)) return false;
   return Array.from(transfer.items).some((item) => (
     item.kind === 'file'
-    && IMPORT_TYPE_PREFIXES_BY_TAB[tab].some((type) => item.type.startsWith(type))
+    && (item.type === '' || IMPORT_TYPE_PREFIXES_BY_TAB[tab].some((type) => item.type.startsWith(type)))
   ));
 }
 
@@ -153,10 +154,11 @@ function Root({ children }: { children: ReactNode }) {
   }
 
   function handleDrop(event: React.DragEvent<HTMLElement>) {
-    event.preventDefault();
     setIsDragOver(false);
     if (!isImportTab(drawerTab) || event.dataTransfer.files.length === 0) return;
-    void importMedia(event.dataTransfer.files);
+    event.preventDefault();
+    const accepted = Array.from(event.dataTransfer.files).filter((file) => detectMediaFileType(file) === drawerTab);
+    if (accepted.length > 0) void importMedia(accepted);
   }
 
   function handleTabChange(value: string) {
@@ -282,7 +284,6 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
           <>
             <Dropdown.Item onClick={() => openCreateItem('presentation')}>New presentation</Dropdown.Item>
             <Dropdown.Item onClick={() => openCreateItem('lyric')}>New lyric</Dropdown.Item>
-            <Dropdown.Item onClick={() => openCreateItem('talk')}>New talk</Dropdown.Item>
             <Dropdown.Separator />
             <SortMenuItems options={DECK_SORT_OPTIONS} sort={deckSort.sort} onChange={deckSort.setSort} />
           </>
@@ -312,8 +313,6 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
           <>
             <Dropdown.Item onClick={() => handleCreateTheme('presentation')}>New presentation theme</Dropdown.Item>
             <Dropdown.Item onClick={() => handleCreateTheme('lyric')}>New lyric theme</Dropdown.Item>
-            <Dropdown.Item onClick={() => handleCreateTheme('talk')}>New talk theme</Dropdown.Item>
-            <Dropdown.Item onClick={() => handleCreateTheme('overlay')}>New overlay theme</Dropdown.Item>
             <Dropdown.Separator />
             <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={themeSort.sort} onChange={themeSort.setSort} />
           </>

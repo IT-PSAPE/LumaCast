@@ -95,7 +95,13 @@ export function PlaylistRowList({
 
   if (rows.length === 0) {
     return (
-      <div className="p-1" onDragOver={handleContainerDragOver} onDrop={handleDrop} onDragLeave={handleDragLeave}>
+      <div
+        data-testid="playlist-row-drop-surface"
+        className="h-full min-h-0 p-1"
+        onDragOver={handleContainerDragOver}
+        onDrop={handleDrop}
+        onDragLeave={handleDragLeave}
+      >
         <EmptyState.Root>
           <EmptyState.Title>No items yet</EmptyState.Title>
           <EmptyState.Description>Drag an item from the bin to add it here.</EmptyState.Description>
@@ -144,19 +150,24 @@ export function PlaylistRowList({
           : <PlaylistItemRow row={activeRow} onDragOver={() => undefined} onDrop={() => undefined} overlay />
       ) : null}
     >
-      <VirtualizedList
-        getScrollElement={getScrollElement}
-        estimateSize={PLAYLIST_ROW_ESTIMATE}
-        retainedIndexes={activeRowIndex === -1 ? [] : [activeRowIndex]}
-        itemGap={2}
-        scrollToIndexRef={virtualScrollToIndexRef}
-        className="p-1"
+      <div
+        data-testid="playlist-row-drop-surface"
+        className="h-full min-h-0 w-full"
         onDragOver={handleContainerDragOver}
         onDrop={handleDrop}
         onDragLeave={handleDragLeave}
       >
-        {nodes}
-      </VirtualizedList>
+        <VirtualizedList
+          getScrollElement={getScrollElement}
+          estimateSize={PLAYLIST_ROW_ESTIMATE}
+          retainedIndexes={activeRowIndex === -1 ? [] : [activeRowIndex]}
+          itemGap={2}
+          scrollToIndexRef={virtualScrollToIndexRef}
+          className="p-1"
+        >
+          {nodes}
+        </VirtualizedList>
+      </div>
     </SortableList.Root>
   );
 }

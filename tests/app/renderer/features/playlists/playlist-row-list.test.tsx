@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { PlaylistRow } from '@lumacast/composition';
 import { PlaylistRowList } from '../../../../../app/renderer/features/playlists/playlist-row-list';
 
@@ -77,5 +77,35 @@ describe('PlaylistRowList', () => {
     const virtualizedKeyboard = (mocks.rootProps as { virtualizedKeyboard: { scrollToIndex: (index: number) => void } }).virtualizedKeyboard;
     virtualizedKeyboard.scrollToIndex(17);
     expect(mocks.scrollToIndex).toHaveBeenLastCalledWith(17, { align: 'auto' });
+  });
+
+  it('accepts an item drop anywhere in the full-height playlist surface', () => {
+    const addItemToPlaylist = vi.fn().mockResolvedValue(undefined);
+    mocks.navigation.value = { addItemToPlaylist, movePlaylistRow: vi.fn() };
+    const rows = [{ id: 'entry-1', kind: 'item' }] as PlaylistRow[];
+    render(<PlaylistRowList rows={rows} playlistId="playlist-1" getScrollElement={() => null} />);
+
+    const surface = screen.getByTestId('playlist-row-drop-surface');
+    expect(surface.className).toContain('h-full');
+    const dataTransfer = {
+      types: ['application/x-lumacast-item'],
+      dropEffect: 'none',
+      getData: () => JSON.stringify({ itemType: 'lyric', itemId: 'lyric-1' }),
+    };
+    fireEvent.dragOver(surface, { dataTransfer });
+    fireEvent.drop(surface, { dataTransfer });
+
+    expect(addItemToPlaylist).toHaveBeenCalledWith(
+      'playlist-1',
+      { type: 'lyric', id: 'lyric-1' },
+      rows.length,
+    );
+  });
+
+  it('makes an empty playlist drop surface fill its resized parent', () => {
+    mocks.navigation.value = { addItemToPlaylist: vi.fn(), movePlaylistRow: vi.fn() };
+    mocks.virtualItems = [];
+    render(<PlaylistRowList rows={[]} playlistId="playlist-1" getScrollElement={() => null} />);
+    expect(screen.getByTestId('playlist-row-drop-surface').className).toContain('h-full');
   });
 });

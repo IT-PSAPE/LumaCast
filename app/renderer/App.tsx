@@ -1,13 +1,14 @@
+import { useEffect } from 'react';
 import { AppProvider } from './contexts/app-context';
 import { AssetEditorProvider } from './contexts/asset-editor/asset-editor-context';
 import { CanvasProvider } from './contexts/canvas/canvas-context';
 import { NavigationProvider } from './contexts/navigation-context';
 import { PlaybackProvider } from './contexts/playback/playback-context';
+import { PlaybackSchedulesProvider } from './contexts/playback-schedules-context';
 import { SlideProvider } from './contexts/slide-context';
 import { WorkbenchProvider } from './contexts/workbench-context';
 import { CommandPalette } from './features/command-palette/command-palette';
 import { CommandPaletteProvider } from './features/command-palette/command-palette-context';
-import { BundleDropImport } from './features/items/bundle-drop-import';
 import { CreateItemProvider } from './features/items/create-item';
 import { LyricEditorProvider } from './features/items/lyric-editor';
 import { AutomationProvider } from './features/automation/automation-context';
@@ -24,6 +25,31 @@ function ObservabilityRuntime() {
   return null;
 }
 
+// Navigation safety only: dropping a file outside a scoped drop zone (media
+// bins, upload dialogs) must not navigate the window to the file. This guard
+// claims nothing, shows no overlay, and imports nothing — bundle import stays
+// on the click-driven "Choose bundle…" picker in the import/export panel.
+export function FileDropNavigationGuard() {
+  useEffect(() => {
+    function handleDragOver(event: DragEvent) {
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault();
+    }
+
+    function handleDrop(event: DragEvent) {
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault();
+    }
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, []);
+
+  return null;
+}
+
 export function App() {
   return (
     <ErrorBoundary>
@@ -35,24 +61,26 @@ export function App() {
               <NavigationProvider>
                 <PlaybackProvider>
                   <SlideProvider>
-                    <MediaResidencyBoundary>
-                      <AutomationProvider>
-                        <LyricEditorProvider>
-                          <CreateItemProvider>
-                            <CanvasProvider>
-                              <CommandPaletteProvider>
-                                <NdiOutputsGate />
-                                <SplitPanel>
-                                  <AppLayoutContent />
-                                </SplitPanel>
-                                <CommandPalette />
-                                <BundleDropImport />
-                              </CommandPaletteProvider>
-                            </CanvasProvider>
-                          </CreateItemProvider>
-                        </LyricEditorProvider>
-                      </AutomationProvider>
-                    </MediaResidencyBoundary>
+                    <PlaybackSchedulesProvider>
+                      <MediaResidencyBoundary>
+                        <AutomationProvider>
+                          <LyricEditorProvider>
+                            <CreateItemProvider>
+                              <CanvasProvider>
+                                <CommandPaletteProvider>
+                                  <NdiOutputsGate />
+                                  <SplitPanel>
+                                    <AppLayoutContent />
+                                  </SplitPanel>
+                                  <CommandPalette />
+                                  <FileDropNavigationGuard />
+                                </CommandPaletteProvider>
+                              </CanvasProvider>
+                            </CreateItemProvider>
+                          </LyricEditorProvider>
+                        </AutomationProvider>
+                      </MediaResidencyBoundary>
+                    </PlaybackSchedulesProvider>
                   </SlideProvider>
                 </PlaybackProvider>
               </NavigationProvider>
