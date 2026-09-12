@@ -12,6 +12,7 @@ export interface SerializableMenuItem {
   commandId?: AppMenuCommandId;
   label?: string;
   accelerator?: string;
+  registerAccelerator?: boolean;
   enabled?: boolean;
   visible?: boolean;
   checked?: boolean;
@@ -33,7 +34,6 @@ export interface ApplicationMenuDiagnostics {
 const DEFAULT_APP_MENU_STATE: AppMenuState = {
   workbenchMode: 'show',
   slideBrowserMode: 'grid',
-  playlistBrowserMode: 'current',
   hasCurrentPlaylist: false,
   hasCurrentItem: false,
   hasCurrentSlide: false,
@@ -127,42 +127,50 @@ function buildEditMenu(state: AppMenuState): SerializableMenuItem[] {
     commandDescriptor('edit.undo', {
       label: 'Undo',
       accelerator: process.platform === 'darwin' ? 'Cmd+Z' : 'Ctrl+Z',
+      registerAccelerator: false,
       enabled: state.canUndo,
     }),
     commandDescriptor('edit.redo', {
       label: 'Redo',
       accelerator: process.platform === 'darwin' ? 'Cmd+Shift+Z' : 'Ctrl+Shift+Z',
+      registerAccelerator: false,
       enabled: state.canRedo,
     }),
     { type: 'separator' },
     commandDescriptor('edit.cut', {
       label: 'Cut',
       accelerator: 'CmdOrCtrl+X',
+      registerAccelerator: false,
       enabled: state.canCut,
     }),
     commandDescriptor('edit.copy', {
       label: 'Copy',
       accelerator: 'CmdOrCtrl+C',
+      registerAccelerator: false,
       enabled: state.canCopy,
     }),
     commandDescriptor('edit.paste', {
       label: 'Paste',
       accelerator: 'CmdOrCtrl+V',
+      registerAccelerator: false,
       enabled: state.canPaste,
     }),
     commandDescriptor('edit.duplicate', {
       label: 'Duplicate',
       accelerator: 'CmdOrCtrl+D',
+      registerAccelerator: false,
       enabled: state.canDuplicate,
     }),
     commandDescriptor('edit.delete', {
       label: 'Delete',
       accelerator: 'Delete',
+      registerAccelerator: false,
       enabled: state.canDelete,
     }),
     commandDescriptor('edit.clearSelection', {
       label: 'Select None',
       accelerator: 'Escape',
+      registerAccelerator: false,
       enabled: state.canClearSelection,
     }),
     { type: 'separator' },
@@ -171,6 +179,7 @@ function buildEditMenu(state: AppMenuState): SerializableMenuItem[] {
     commandDescriptor('view.openCommandPalette', {
       label: 'Command Palette…',
       accelerator: 'CmdOrCtrl+K',
+      registerAccelerator: false,
     }),
   ];
 }
@@ -228,26 +237,6 @@ function buildViewMenu(state: AppMenuState): SerializableMenuItem[] {
         }),
       ],
     },
-    {
-      label: 'Playlist Layout',
-      submenu: [
-        commandDescriptor('view.playlistBrowser.current', {
-          label: 'Current',
-          type: 'radio',
-          checked: state.playlistBrowserMode === 'current',
-        }),
-        commandDescriptor('view.playlistBrowser.tabs', {
-          label: 'Tabs',
-          type: 'radio',
-          checked: state.playlistBrowserMode === 'tabs',
-        }),
-        commandDescriptor('view.playlistBrowser.continuous', {
-          label: 'Continuous',
-          type: 'radio',
-          checked: state.playlistBrowserMode === 'continuous',
-        }),
-      ],
-    },
     { type: 'separator' },
     { role: 'reload' },
     { role: 'forceReload' },
@@ -266,16 +255,19 @@ function buildPlaybackMenu(state: AppMenuState): SerializableMenuItem[] {
     commandDescriptor('playback.takeSlide', {
       label: 'Take Slide',
       accelerator: 'Enter',
+      registerAccelerator: false,
       enabled: state.canTakeSlide,
     }),
     commandDescriptor('playback.previousSlide', {
       label: 'Previous Slide',
       accelerator: 'Left',
+      registerAccelerator: false,
       enabled: state.canGoToPreviousSlide,
     }),
     commandDescriptor('playback.nextSlide', {
       label: 'Next Slide',
       accelerator: 'Right',
+      registerAccelerator: false,
       enabled: state.canGoToNextSlide,
     }),
     { type: 'separator' },
@@ -395,6 +387,7 @@ function menuItemEqual(a: SerializableMenuItem, b: SerializableMenuItem): boolea
   if (a.commandId !== b.commandId) return false;
   if (a.label !== b.label) return false;
   if (a.accelerator !== b.accelerator) return false;
+  if (a.registerAccelerator !== b.registerAccelerator) return false;
   if (a.enabled !== b.enabled) return false;
   if (a.visible !== b.visible) return false;
   if (a.checked !== b.checked) return false;
@@ -408,6 +401,7 @@ function toMenuTemplateItem(item: SerializableMenuItem, browserWindow: BrowserWi
     ...(item.id !== undefined ? { id: item.id } : {}),
     ...(item.label !== undefined ? { label: item.label } : {}),
     ...(item.accelerator !== undefined ? { accelerator: item.accelerator } : {}),
+    ...(item.registerAccelerator !== undefined ? { registerAccelerator: item.registerAccelerator } : {}),
     ...(item.enabled !== undefined ? { enabled: item.enabled } : {}),
     ...(item.visible !== undefined ? { visible: item.visible } : {}),
     ...(item.checked !== undefined ? { checked: item.checked } : {}),

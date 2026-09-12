@@ -11,6 +11,12 @@ defined in the codebase:
 
 If either file changes, update this document in the same change.
 
+Twelve chords are declared on both surfaces. The renderer handler is the single
+dispatcher for those; the menu keeps the accelerator text and stays clickable.
+See ADR-0022 for how the duplicate menu command is suppressed, and add any new
+overlapping shortcut to `SHORTCUT_TO_MENU_COMMAND` in
+`packages/commands/src/menu-command-claims.ts`.
+
 ## Application Menu
 
 Native menu accelerators. `CmdOrCtrl` resolves to `Cmd` on macOS and `Ctrl` on
@@ -41,7 +47,7 @@ Windows/Linux.
 | Copy | CmdOrCtrl+C | enabled only with a copyable selection |
 | Paste | CmdOrCtrl+V | |
 | Duplicate | CmdOrCtrl+D | enabled only with a selection |
-| Delete | Delete | |
+| Delete | Delete | enabled with current slide in Show, or selection/slide in editor |
 | Select None | Escape | |
 | Select All | native role default (`selectAll`) | |
 | Command Palette… | CmdOrCtrl+K | |
@@ -51,8 +57,8 @@ Windows/Linux.
 Workbench mode switch (radio items, no accelerator): Show, Slides, Overlays,
 Themes, Stage, Macros, Settings.
 
-Layout switches (radio items, no accelerator): Slide Browser Layout (Grid,
-List); Playlist Layout (Current, Tabs, Continuous).
+The Slide Browser Layout switch selects Grid or List. The Show page always
+uses playlist tabs.
 
 Below that, standard Electron window roles: Reload, Force Reload, Toggle
 Developer Tools, Reset Zoom, Zoom In, Zoom Out, Toggle Fullscreen — all at
@@ -82,7 +88,9 @@ Check for Updates…, and an external website link.
 Defined in `packages/commands/src/shortcuts.ts` and dispatched by
 `use-keyboard-shortcuts.ts`. All entries are suppressed when the focused
 element is an `<input>`, `<textarea>`, a `contenteditable` region, or is
-inside an element marked `data-shortcuts-scope="ignore"`.
+inside an element marked `data-shortcuts-scope="ignore"`. Modifier matching is
+exact: an omitted modifier must not be pressed; `any` allows either state
+(e.g. nudge arrows tolerate Shift).
 
 `context` column: `always` fires in every workbench mode; `editSlideBrowser`
 fires only in `item-editor`, `overlay-editor`, `theme-editor`, or
@@ -100,17 +108,24 @@ element selection.
 | Undo (app-wide) | Cmd+Z | Ctrl+Z | always |
 | Redo (app-wide) | Cmd+Shift+Z | Ctrl+Shift+Z | always |
 | Open command palette | Cmd+K | Ctrl+K | always |
-| Switch playlist view (current / tabs / continuous) | Alt+Shift+1–3 | Alt+Shift+1–3 | always |
 | Switch slide view (grid / list) | Alt+1–2 | Alt+1–2 | always |
 | Take selected slide | Enter / Space | Enter / Space | always |
 | Take slide by index | 1–9 | 1–9 | always |
-| Delete selected element or slide | Delete / Backspace | Delete / Backspace | editSlideBrowser |
+| Delete selected element or slide | Delete / Backspace | Delete / Backspace | always |
 | Clear selection | Escape | Escape | editWithSelection |
 | Nudge right (editing) or next slide | Right Arrow | Right Arrow | always |
 | Nudge left (editing) or previous slide | Left Arrow | Left Arrow | always |
 | Nudge selection up (Shift = 10px) | Up Arrow | Up Arrow | editWithSelection |
 | Nudge selection down (Shift = 10px) | Down Arrow | Down Arrow | editWithSelection |
 
-Note: `deleteSelected`/`globalUndo`/`globalRedo` also fire outside edit modes
-where applicable (deleting the current slide, or the app-wide undo/redo
-stack); see `use-keyboard-shortcuts.ts` for the exact dispatch conditions.
+Note: `deleteSelected` fires in Show to delete the current slide and in
+edit modes to delete the selected element (else the current slide);
+`globalUndo`/`globalRedo` fire app-wide; see `use-keyboard-shortcuts.ts` for
+exact dispatch conditions.
+
+
+## Audio markers and focused editing
+
+`M` records a marker at the exact audio playhead while focus is inside the audio bin or transport. It works while playing or paused. Editable fields, open overlays, modifier chords, and key repeat do not record markers.
+
+Text fields retain native cut/copy/paste and undo. Mouse-driven Edit menu commands also remain owned by the focused field when a native edit cannot run; they never fall through to canvas or global history. Clipboard fallback insertion is discarded if focus, selection, value, or editability changes during the read.

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AppMenuCommandId, AppMenuState } from '@lumacast/commands';
+import { type AppMenuCommandId, type AppMenuState } from '@lumacast/commands';
+import {
+  consumeLiveMenuClaim,
+  getMenuEditableTarget,
+  isMenuScopeIgnored,
+  isReadOnlyEditableTarget,
+  noteMenuCommandKeydown,
+  pasteClipboardTextIntoEditable,
+  tryNativeEditCommand,
+} from '../utils/menu-editable';
 import { useCast, useNdi } from '../contexts/app-context';
 import { useElements } from '../contexts/canvas/canvas-context';
 import { useNavigation } from '../contexts/navigation-context';
@@ -10,32 +19,6 @@ import { hasClipboardContent } from '../contexts/element/use-element-history';
 import { useCommandPalette } from '../features/command-palette/command-palette-context';
 import { useDeckBrowser } from '../features/items/deck-browser-context';
 
-function getEditableTarget(target: HTMLElement | null): HTMLElement | null {
-  if (!target) return null;
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return target;
-  if (target.isContentEditable) return target;
-  return target.closest<HTMLElement>('[contenteditable="true"]');
-}
-
-function execEditableCommand(command: 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'delete'): boolean {
-  const target = getEditableTarget(document.activeElement as HTMLElement | null);
-  if (!target) return false;
-  return document.execCommand(command);
-}
-
-// Copy is broader than the other edit commands: a plain DOM selection (e.g.
-// selecting label text in a panel) is copyable even when nothing editable has
-// focus. Run execCommand directly so that selection gets copied; if nothing is
-// selected at all, execCommand returns false and we fall through to the
-// app-level element copy.
-function execCopyForAnySelection(): boolean {
-  try {
-    return document.execCommand('copy');
-  } catch {
-    return false;
-  }
-}
-
 export function useAppMenu(): void {
   const [editableVersion, setEditableVersion] = useState(0);
   const cast = useCast();
@@ -45,21 +28,22 @@ export function useAppMenu(): void {
   const elements = useElements();
   const workbench = useWorkbench();
   const deckBrowser = useDeckBrowser();
-  const { presentations, lyrics, talks } = useProjectContent();
+  const { presentations, lyrics } = useProjectContent();
   const { open: openCommandPalette } = useCommandPalette();
 
-  const isEditableTargetFocused = Boolean(getEditableTarget(document.activeElement as HTMLElement | null));
+  const isEditableTargetFocused = Boolean(getMenuEditableTarget(document.activeElement as HTMLElement | null));
+  const overlayOpen = workbench.overlayStack.stack.length > 0;
   const isEditWorkbench = workbench.state.workbenchMode === 'item-editor'
     || workbench.state.workbenchMode === 'overlay-editor'
     || workbench.state.workbenchMode === 'theme-editor'
     || workbench.state.workbenchMode === 'stage-editor';
+  const isShowWorkbench = workbench.state.workbenchMode === 'show';
   const hasElementSelection = elements.selectedElementIds.length > 0;
-  const itemCount = presentations.length + lyrics.length + talks.length;
+  const itemCount = presentations.length + lyrics.length;
 
   const menuState = useMemo<AppMenuState>(() => ({
     workbenchMode: workbench.state.workbenchMode,
     slideBrowserMode: deckBrowser.slideBrowserMode,
-    playlistBrowserMode: deckBrowser.playlistBrowserMode,
     hasCurrentPlaylist: navigation.currentPlaylistId !== null,
     hasCurrentItem: navigation.currentItem !== null,
     hasCurrentSlide: slides.currentSlide !== null,
@@ -75,7 +59,9 @@ export function useAppMenu(): void {
     canCopy: true,
     canPaste: isEditableTargetFocused || (isEditWorkbench && hasClipboardContent()),
     canDuplicate: isEditWorkbench && hasElementSelection,
-    canDelete: isEditableTargetFocused || (isEditWorkbench && (hasElementSelection || slides.currentSlide !== null)),
+    canDelete: isEditableTargetFocused
+      || (isEditWorkbench && hasElementSelection)
+      || ((isEditWorkbench || isShowWorkbench) && slides.currentSlide !== null),
     canClearSelection: isEditWorkbench && hasElementSelection,
     canTakeSlide: slides.currentSlide !== null,
     canGoToPreviousSlide: slides.currentSlideIndex > 0,
@@ -86,7 +72,6 @@ export function useAppMenu(): void {
   }), [
     cast.canRedo,
     cast.canUndo,
-    deckBrowser.playlistBrowserMode,
     deckBrowser.slideBrowserMode,
     itemCount,
     editableVersion,
@@ -133,16 +118,28 @@ export function useAppMenu(): void {
     if (itemCount === 0) return;
     const filePath = await window.castApi.chooseBundleExportPath('cast-workspace');
     if (!filePath) return;
-    const allItemIds = [...presentations, ...lyrics, ...talks].map((item) => item.id);
+    const allItemIds = [...presentations, ...lyrics].map((item) => item.id);
     const result = await window.castApi.exportBundle(
       allItemIds,
       filePath,
       { includeAllThemes: true, includeOverlays: true, includeStages: true },
     );
     cast.setStatusText(`Exported ${result.itemCount} item${result.itemCount === 1 ? '' : 's'} plus workspace assets.`);
-  }, [cast, itemCount, lyrics, presentations, talks]);
+  }, [cast, itemCount, lyrics, presentations]);
 
   const handleMenuCommand = useCallback(async (commandId: AppMenuCommandId) => {
+    // Drops the duplicate menu IPC that follows a keyboard chord the
+    // shortcut hook already handled. Stale claims (no matching recent
+    // keydown) are ignored so an explicit mouse click is never swallowed.
+    if (consumeLiveMenuClaim(commandId)) return;
+    // Fire-time focus snapshot: a focused editable field owns its edit
+    // commands even when the native execCommand reports failure, and an
+    // open modal overlay or scope-ignored region owns everything except
+    // text edits on text fields. File/settings/view commands are never
+    // blocked here.
+    const activeElement = document.activeElement as HTMLElement | null;
+    const editableTarget = getMenuEditableTarget(activeElement);
+    const outOfScope = isMenuScopeIgnored(activeElement) || overlayOpen;
     switch (commandId) {
       case 'file.newPresentation':
         await navigation.createPresentation();
@@ -173,7 +170,15 @@ export function useAppMenu(): void {
         await window.castApi.checkForAppUpdates(true);
         return;
       case 'edit.undo':
-        if (execEditableCommand('undo')) return;
+        // An editable target owns undo even when native execCommand fails:
+        // falling through would replay global history behind the field's
+        // own undo stack. A modal/scope region without an editable target
+        // swallows the command so nothing underneath is undone.
+        if (editableTarget) {
+          if (!isReadOnlyEditableTarget(editableTarget)) tryNativeEditCommand('undo');
+          return;
+        }
+        if (outOfScope) return;
         if (isEditWorkbench) {
           // elements.undo → applySnapshot → updateElementsBatch rejects when an
           // element no longer exists (#214), which an undo can race with a
@@ -185,7 +190,11 @@ export function useAppMenu(): void {
         await cast.undo();
         return;
       case 'edit.redo':
-        if (execEditableCommand('redo')) return;
+        if (editableTarget) {
+          if (!isReadOnlyEditableTarget(editableTarget)) tryNativeEditCommand('redo');
+          return;
+        }
+        if (outOfScope) return;
         if (isEditWorkbench) {
           // See edit.undo above: same race, same absorption.
           await elements.redo().catch(() => undefined);
@@ -194,22 +203,50 @@ export function useAppMenu(): void {
         await cast.redo();
         return;
       case 'edit.cut':
-        if (execEditableCommand('cut')) return;
+        if (editableTarget) {
+          if (!isReadOnlyEditableTarget(editableTarget)) tryNativeEditCommand('cut');
+          return;
+        }
+        if (outOfScope) return;
         await elements.cutSelection();
         return;
       case 'edit.copy':
-        if (execCopyForAnySelection()) return;
+        // Copy is broader than the other edit commands: a plain DOM
+        // selection (e.g. selecting label text in a panel) is copyable even
+        // when nothing editable has focus. Run execCommand directly so that
+        // selection gets copied; when it reports nothing copied, an
+        // editable target or an out-of-scope region still owns the command
+        // and only the plain canvas case falls through to element copy.
+        if (tryNativeEditCommand('copy')) return;
+        if (editableTarget || outOfScope) return;
         elements.copySelection();
         return;
       case 'edit.paste':
-        if (execEditableCommand('paste')) return;
+        // Editable paste never reaches canvas state: native paste first,
+        // then the async clipboard-read/insert fallback (a no-op on
+        // read-only fields and on clipboard errors or focus changes).
+        if (editableTarget) {
+          await pasteClipboardTextIntoEditable(editableTarget);
+          return;
+        }
+        if (outOfScope) return;
         await elements.pasteSelection();
         return;
       case 'edit.duplicate':
+        // Duplicate has no text-field meaning; a focused field or an
+        // out-of-scope region blocks the canvas duplicate underneath.
+        if (editableTarget || outOfScope) return;
         await elements.duplicateSelection();
         return;
       case 'edit.delete':
-        if (execEditableCommand('delete')) return;
+        // Like undo: an editable target owns delete even when native
+        // execCommand fails, so canvas/slide deletion never fires while
+        // typing. Read-only fields swallow the command untouched.
+        if (editableTarget) {
+          if (!isReadOnlyEditableTarget(editableTarget)) tryNativeEditCommand('delete');
+          return;
+        }
+        if (outOfScope) return;
         if (elements.selectedElementId) {
           await elements.deleteSelected();
           return;
@@ -219,6 +256,7 @@ export function useAppMenu(): void {
         }
         return;
       case 'edit.clearSelection':
+        if (outOfScope) return;
         elements.clearSelection();
         return;
       case 'view.openCommandPalette':
@@ -248,32 +286,41 @@ export function useAppMenu(): void {
       case 'view.slideBrowser.list':
         deckBrowser.setSlideBrowserMode('list');
         return;
-      case 'view.playlistBrowser.current':
-        deckBrowser.setPlaylistBrowserMode('current');
-        return;
-      case 'view.playlistBrowser.tabs':
-        deckBrowser.setPlaylistBrowserMode('tabs');
-        return;
-      case 'view.playlistBrowser.continuous':
-        deckBrowser.setPlaylistBrowserMode('continuous');
-        return;
       case 'playback.takeSlide':
+        // Playback commands fire underneath modal overlays and
+        // scope-ignored regions via native accelerators; swallow them
+        // there. A merely focused text field does not block an explicit
+        // playback click.
+        if (outOfScope) return;
         slides.takeSlide();
         return;
       case 'playback.previousSlide':
+        if (outOfScope) return;
         slides.goPrev();
         return;
       case 'playback.nextSlide':
+        if (outOfScope) return;
         slides.goNext();
         return;
       case 'playback.toggleAudienceOutput':
+        if (outOfScope) return;
         ndi.actions.toggleAudienceOutput();
         return;
       case 'playback.toggleStageOutput':
+        if (outOfScope) return;
         ndi.actions.toggleStageOutput();
         return;
     }
-  }, [cast, deckBrowser, elements, exportCurrentItem, exportWorkspace, isEditWorkbench, navigation, ndi.actions, openCommandPalette, slides, workbench.actions]);
+  }, [cast, deckBrowser, elements, exportCurrentItem, exportWorkspace, isEditWorkbench, navigation, ndi.actions, openCommandPalette, overlayOpen, slides, workbench.actions]);
+
+  // Records menu-chord keydowns so consumeLiveMenuClaim can tell a genuine
+  // menu echo (milliseconds after its keydown) from a stale claim that must
+  // not swallow an explicit mouse click. Capture phase so overlay-consumed
+  // keys are still observed.
+  useEffect(() => {
+    window.addEventListener('keydown', noteMenuCommandKeydown, true);
+    return () => window.removeEventListener('keydown', noteMenuCommandKeydown, true);
+  }, []);
 
   useEffect(() => {
     return window.castApi.onAppMenuCommand((commandId) => {

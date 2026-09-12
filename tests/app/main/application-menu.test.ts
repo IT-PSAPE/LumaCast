@@ -38,7 +38,6 @@ function makeState(overrides: Partial<AppMenuState> = {}): AppMenuState {
   return {
     workbenchMode: 'show',
     slideBrowserMode: 'grid',
-    playlistBrowserMode: 'current',
     hasCurrentPlaylist: false,
     hasCurrentItem: false,
     hasCurrentSlide: false,
@@ -80,6 +79,18 @@ function lastTemplate(): MenuItemConstructorOptions[] {
 
 function invokeClick(item: MenuItemConstructorOptions): void {
   (item.click as (() => void) | undefined)?.();
+}
+
+function flattenMenuItems(items: MenuItemConstructorOptions[]): MenuItemConstructorOptions[] {
+  const out: MenuItemConstructorOptions[] = [];
+  const walk = (list: MenuItemConstructorOptions[]) => {
+    for (const item of list) {
+      out.push(item);
+      if (Array.isArray(item.submenu)) walk(item.submenu as MenuItemConstructorOptions[]);
+    }
+  };
+  walk(items);
+  return out;
 }
 
 beforeEach(() => {
@@ -173,6 +184,17 @@ describe('applicationMenuDescriptorsEqual', () => {
 });
 
 describe('createApplicationMenu', () => {
+  it('offers Grid/List for slide content without a playlist-layout submenu', () => {
+    createApplicationMenu();
+
+    const labels = flattenMenuItems(lastTemplate()).map((item) => item.label);
+    expect(labels).toContain('Slide Browser Layout');
+    expect(labels).not.toContain('Playlist Layout');
+    expect(labels).not.toContain('Current');
+    expect(labels).not.toContain('Tabs');
+    expect(labels).not.toContain('Continuous');
+  });
+
   it('builds the top-level template for the default state', () => {
     setPlatform('darwin');
 
@@ -198,6 +220,72 @@ describe('createApplicationMenu', () => {
     const fileMenu = template.find((item) => item.id === 'file')!;
     const fileSubmenu = fileMenu.submenu as MenuItemConstructorOptions[];
     expect(fileSubmenu[fileSubmenu.length - 1]).toEqual({ role: 'close' });
+  });
+});
+
+// registerAccelerator is a Linux/Windows-only Electron field: setting it to
+// false stops the native menu from registering its own accelerator, which is
+// what prevents double dispatch on those platforms (the renderer keydown
+// handler runs its shortcut, so the menu must not also trigger it). macOS
+// does not use this field; instead it additionally needs the renderer-side
+// claim registry in @lumacast/commands to drop the duplicate native menu IPC
+// that Electron still delivers after the keydown handler runs.
+describe('registerAccelerator threading', () => {
+  const UNREGISTERED_LABELS = [
+    'Undo',
+    'Redo',
+    'Cut',
+    'Copy',
+    'Paste',
+    'Duplicate',
+    'Delete',
+    'Select None',
+    'Command Palette…',
+    'Take Slide',
+    'Previous Slide',
+    'Next Slide',
+  ];
+
+  it.each(['darwin', 'win32'])(
+    'unregisters every menu item whose accelerator collides with a renderer shortcut (%s)',
+    (platform) => {
+      setPlatform(platform as NodeJS.Platform);
+      createApplicationMenu();
+
+      const labels = flattenMenuItems(lastTemplate())
+        .filter((item) => item.registerAccelerator === false)
+        .map((item) => item.label);
+
+      expect(labels).toEqual(UNREGISTERED_LABELS);
+    },
+  );
+
+  it.each(['darwin', 'win32'])(
+    'leaves the three menu-owned accelerators registered because the renderer has no shortcut for them (%s)',
+    (platform) => {
+      setPlatform(platform as NodeJS.Platform);
+      createApplicationMenu();
+
+      const owned = flattenMenuItems(lastTemplate()).filter((item) =>
+        item.accelerator !== undefined && (
+          item.label === 'New Presentation' ||
+          item.label === 'New Slide' ||
+          item.label === 'Settings'
+        ),
+      );
+
+      expect(owned).toHaveLength(3);
+      for (const item of owned) {
+        expect(item.registerAccelerator).toBeUndefined();
+      }
+    },
+  );
+
+  it('applicationMenuDescriptorsEqual reports unequal when only registerAccelerator differs', () => {
+    expect(applicationMenuDescriptorsEqual(
+      descriptor([{ commandId: 'edit.undo', registerAccelerator: false }]),
+      descriptor([{ commandId: 'edit.undo', registerAccelerator: true }]),
+    )).toBe(false);
   });
 });
 

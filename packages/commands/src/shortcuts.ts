@@ -2,9 +2,21 @@ export type ShortcutCategory = 'editing' | 'navigation' | 'view' | 'playback';
 export type ShortcutContext = 'always' | 'editSlideBrowser' | 'editWithSelection';
 
 export interface ShortcutModifiers {
-  meta?: boolean;
-  shift?: boolean;
-  alt?: boolean;
+  /**
+   * Exact-match contract: an omitted modifier means that modifier MUST NOT be
+   * pressed. Use the literal `'any'` to explicitly tolerate either state.
+   * `'any'` is needed for shortcuts like the nudge actions where the handler
+   * reads `event.shiftKey` at dispatch time to choose a distance (1px vs
+   * 10px) — the shortcut must match both with and without Shift held. All
+   * other shortcuts declare their exact required modifiers so a chord that is
+   * a strict superset does not match.
+   *
+   * `meta` is the Cmd-or-Ctrl union (`event.metaKey || event.ctrlKey`), kept
+   * from the previous contract.
+   */
+  meta?: boolean | 'any';
+  shift?: boolean | 'any';
+  alt?: boolean | 'any';
 }
 
 export interface ShortcutAccelerator {
@@ -22,7 +34,6 @@ export type ShortcutActionId =
   | 'globalUndo'
   | 'globalRedo'
   | 'openCommandPalette'
-  | 'setPlaylistBrowserMode'
   | 'setSlideBrowserMode'
   | 'takeSlide'
   | 'deleteSelected'
@@ -50,7 +61,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editSlideBrowser',
     key: 'c',
-    modifiers: { meta: true },
+    modifiers: { meta: true, shift: false, alt: false },
     accelerator: { mac: 'Cmd+C', other: 'Ctrl+C' },
   },
   {
@@ -59,7 +70,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editWithSelection',
     key: 'x',
-    modifiers: { meta: true },
+    modifiers: { meta: true, shift: false, alt: false },
     accelerator: { mac: 'Cmd+X', other: 'Ctrl+X' },
   },
   {
@@ -68,7 +79,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editSlideBrowser',
     key: 'v',
-    modifiers: { meta: true },
+    modifiers: { meta: true, shift: false, alt: false },
     accelerator: { mac: 'Cmd+V', other: 'Ctrl+V' },
   },
   {
@@ -77,7 +88,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editWithSelection',
     key: 'd',
-    modifiers: { meta: true },
+    modifiers: { meta: true, shift: false, alt: false },
     accelerator: { mac: 'Cmd+D', other: 'Ctrl+D' },
   },
   {
@@ -86,7 +97,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editSlideBrowser',
     key: 'z',
-    modifiers: { meta: true, shift: true },
+    modifiers: { meta: true, shift: true, alt: false },
     accelerator: { mac: 'Cmd+Shift+Z', other: 'Ctrl+Shift+Z' },
   },
   {
@@ -95,7 +106,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editSlideBrowser',
     key: 'z',
-    modifiers: { meta: true, shift: false },
+    modifiers: { meta: true, shift: false, alt: false },
     accelerator: { mac: 'Cmd+Z', other: 'Ctrl+Z' },
   },
   {
@@ -104,7 +115,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'always',
     key: 'z',
-    modifiers: { meta: true, shift: true },
+    modifiers: { meta: true, shift: true, alt: false },
     accelerator: { mac: 'Cmd+Shift+Z', other: 'Ctrl+Shift+Z' },
   },
   {
@@ -113,7 +124,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'always',
     key: 'z',
-    modifiers: { meta: true, shift: false },
+    modifiers: { meta: true, shift: false, alt: false },
     accelerator: { mac: 'Cmd+Z', other: 'Ctrl+Z' },
   },
   {
@@ -122,17 +133,8 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'navigation',
     context: 'always',
     key: 'k',
-    modifiers: { meta: true },
+    modifiers: { meta: true, shift: false, alt: false },
     accelerator: { mac: 'Cmd+K', other: 'Ctrl+K' },
-  },
-  {
-    id: 'setPlaylistBrowserMode',
-    label: 'Switch playlist view (current / tabs / continuous)',
-    category: 'view',
-    context: 'always',
-    key: '1-3',
-    modifiers: { alt: true, shift: true },
-    accelerator: { mac: 'Alt+Shift+1-3', other: 'Alt+Shift+1-3' },
   },
   {
     id: 'setSlideBrowserMode',
@@ -140,7 +142,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'view',
     context: 'always',
     key: '1-2',
-    modifiers: { alt: true, shift: false },
+    modifiers: { meta: false, alt: true, shift: false },
     accelerator: { mac: 'Alt+1-2', other: 'Alt+1-2' },
   },
   {
@@ -149,14 +151,16 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'playback',
     context: 'always',
     key: 'Enter|Space',
+    modifiers: { meta: false, shift: false, alt: false },
     accelerator: { mac: 'Enter / Space', other: 'Enter / Space' },
   },
   {
     id: 'deleteSelected',
     label: 'Delete selected element or slide',
     category: 'editing',
-    context: 'editSlideBrowser',
+    context: 'always',
     key: 'Delete|Backspace',
+    modifiers: { meta: false, shift: false, alt: false },
     accelerator: { mac: 'Delete / Backspace', other: 'Delete / Backspace' },
   },
   {
@@ -165,6 +169,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editWithSelection',
     key: 'Escape',
+    modifiers: { meta: false, shift: false, alt: false },
     accelerator: { mac: 'Escape', other: 'Escape' },
   },
   {
@@ -173,6 +178,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'always',
     key: 'ArrowRight',
+    modifiers: { meta: false, shift: 'any', alt: false },
     accelerator: { mac: 'Right Arrow', other: 'Right Arrow' },
   },
   {
@@ -181,6 +187,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'always',
     key: 'ArrowLeft',
+    modifiers: { meta: false, shift: 'any', alt: false },
     accelerator: { mac: 'Left Arrow', other: 'Left Arrow' },
   },
   {
@@ -189,6 +196,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editWithSelection',
     key: 'ArrowUp',
+    modifiers: { meta: false, shift: 'any', alt: false },
     accelerator: { mac: 'Up Arrow', other: 'Up Arrow' },
   },
   {
@@ -197,6 +205,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'editing',
     context: 'editWithSelection',
     key: 'ArrowDown',
+    modifiers: { meta: false, shift: 'any', alt: false },
     accelerator: { mac: 'Down Arrow', other: 'Down Arrow' },
   },
   {
@@ -205,6 +214,7 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     category: 'playback',
     context: 'always',
     key: '1-9',
+    modifiers: { meta: false, shift: false, alt: false },
     accelerator: { mac: '1-9', other: '1-9' },
   },
 ];

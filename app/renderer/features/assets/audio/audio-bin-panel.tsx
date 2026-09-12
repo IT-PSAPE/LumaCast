@@ -15,7 +15,7 @@ export function AudioBinPanel() {
 
   return (
     <BinShell>
-      <BinShell.Content>
+      <BinShell.Content data-shortcuts-scope="audio-focus">
         {audioAssets.length === 0 ? (
           <EmptyState.Root>
             <EmptyState.Title>No audio files</EmptyState.Title>
