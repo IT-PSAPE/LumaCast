@@ -1,7 +1,7 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PlaybackProvider, usePresentationLayers, usePresentationRenderLayer, useProgramOverlayPlayback } from '../../../../../app/renderer/contexts/playback/playback-context';
+import { PlaybackProvider, useAudio, useVideo, usePresentationLayers, usePresentationRenderLayer, useProgramOverlayPlayback } from '../../../../../app/renderer/contexts/playback/playback-context';
 
 const mocks = vi.hoisted(() => ({
   setStatusText: vi.fn(),
@@ -207,4 +207,28 @@ describe('PlaybackProvider overlay timing isolation', () => {
     expect(renderLayerRenders).toBe(2);
     expect(programOverlayRenders).toBe(3);
   });
+});
+
+
+it('applies audio volume to the existing element and keeps mute independent', () => {
+  let audio: ReturnType<typeof useAudio> | undefined;
+  let video: ReturnType<typeof useVideo> | undefined;
+  const create = vi.spyOn(document, 'createElement');
+  function Probe() { audio = useAudio(); video = useVideo(); return null; }
+  const view = render(<PlaybackProvider><Probe /></PlaybackProvider>);
+  try {
+    const index = create.mock.calls.findIndex(([tag]) => String(tag) === 'audio');
+    const element = create.mock.results[index]?.value as HTMLAudioElement;
+    act(() => { audio!.setVolume(.35); video!.setVolume(.6); });
+    expect(element.volume).toBe(.35);
+    expect(video!.volume).toBe(.6);
+    act(() => audio!.toggleMuted());
+    expect(element.muted).toBe(true);
+    expect(element.volume).toBe(.35);
+    act(() => { audio!.setVolume(2); video!.setVolume(-1); });
+    expect(element.volume).toBe(1);
+    expect(video!.volume).toBe(0);
+    act(() => audio!.setVolume(Number.NaN));
+    expect(element.volume).toBe(1);
+  } finally { view.unmount(); create.mockRestore(); }
 });

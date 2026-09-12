@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createId, nowIso } from '../../../../packages/kernel/src/index';
 
 describe('@lumacast/kernel', () => {
@@ -15,4 +15,12 @@ describe('@lumacast/kernel', () => {
     const iso = nowIso();
     expect(iso).toBe(new Date(iso).toISOString());
   });
+});
+
+
+it('uses browser Web Crypto without requiring a Node builtin', () => {
+  const uuid = '00000000-0000-4000-8000-000000000000';
+  const randomUUID = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(uuid);
+  try { expect(createId()).toBe(uuid); expect(randomUUID).toHaveBeenCalledOnce(); }
+  finally { randomUUID.mockRestore(); }
 });

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ResolvedMediaState } from '@lumacast/composition';
 
 interface UseKVideoOptions {
+  volume?: number;
   autoplay: boolean;
   loop: boolean;
   muted: boolean;
@@ -216,6 +217,7 @@ function createVideoElement(src: string, options: UseKVideoOptions, preload: 'me
   video.autoplay = options.autoplay;
   video.loop = options.loop;
   video.muted = options.muted;
+  if (options.volume !== undefined && Number.isFinite(options.volume)) video.volume = Math.max(0, Math.min(1, options.volume));
   video.playbackRate = options.playbackRate;
   video.playsInline = true;
   video.crossOrigin = 'anonymous';
@@ -230,6 +232,7 @@ function destroyVideoElement(video: HTMLVideoElement) {
 }
 
 function applyVideoOptions(video: HTMLVideoElement, options: UseKVideoOptions) {
+  if (options.volume !== undefined && Number.isFinite(options.volume)) video.volume = Math.max(0, Math.min(1, options.volume));
   video.loop = options.loop;
   if (video.muted !== options.muted) video.muted = options.muted;
   if (video.playbackRate !== options.playbackRate) video.playbackRate = options.playbackRate;

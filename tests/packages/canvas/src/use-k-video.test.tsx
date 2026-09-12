@@ -209,3 +209,14 @@ describe('video pool residency', () => {
     expect(afterRelease).not.toBe(afterWarm);
   });
 });
+
+it('sets retained video volume before autoplay and preserves it across option updates', () => {
+  const handle = retainVideoSource('asset://volume.mp4', { autoplay: false, loop: false, muted: false, playbackRate: 1, volume: .25 });
+  try {
+    const video = getLayerVideoElement('asset://volume.mp4');
+    expect(video?.volume).toBe(.25);
+    handle.setOptions({ autoplay: false, loop: false, muted: true, playbackRate: 1, volume: .4 });
+    expect(video?.volume).toBe(.4);
+    expect(video?.muted).toBe(true);
+  } finally { handle.release(); }
+});

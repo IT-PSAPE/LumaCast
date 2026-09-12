@@ -1,3 +1,4 @@
+import { isAudioElementRunning } from './audio-element-clock';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { MediaAsset, Overlay } from '@lumacast/composition';
@@ -119,6 +120,10 @@ interface AudioValue {
   isPlaying: boolean;
   loopEnabled: boolean;
   muted: boolean;
+  volume: number;
+  setVolume: (volume: number) => void;
+  getCurrentTime: () => number;
+  isPlaybackRunning: () => boolean;
   armAudio: (assetId: Id) => void;
   clearAudio: () => void;
   pause: () => void;
@@ -141,6 +146,8 @@ interface VideoValue {
   isPlaying: boolean;
   loopEnabled: boolean;
   muted: boolean;
+  volume: number;
+  setVolume: (volume: number) => void;
   armVideo: (assetId: Id) => void;
   clearVideo: () => void;
   pause: () => void;
@@ -485,6 +492,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [requestedPlay, setRequestedPlay] = useState(false);
   const [loopEnabled, setLoopEnabled] = useState(true);
   const [audioMuted, setAudioMuted] = useState(false);
+  const [audioVolume, setAudioVolume] = useState(1);
+  const changeAudioVolume = useCallback((volume: number) => {
+    if (Number.isFinite(volume)) setAudioVolume(Math.max(0, Math.min(1, volume)));
+  }, []);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
@@ -606,6 +617,10 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     audioEl.muted = audioMuted;
   }, [audioMuted]);
 
+  useEffect(() => {
+    if (audioElementRef.current) audioElementRef.current.volume = audioVolume;
+  }, [audioVolume]);
+
   // Cleanup-only: if the currently armed asset disappears from the project
   // (deleted, filtered out, etc.), null out our state. The src-sync effect
   // above will then tear the source off the element on the next render.
@@ -682,6 +697,17 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     setRequestedPlay(false);
   }, []);
 
+  const getCurrentTime = useCallback(() => {
+    const audioEl = audioElementRef.current;
+    if (!audioEl) return 0;
+    const t = audioEl.currentTime;
+    return Number.isFinite(t) ? t : 0;
+  }, []);
+
+  const isPlaybackRunning = useCallback(() => (
+    isAudioElementRunning(audioElementRef.current, currentAudioAssetId, requestedPlay)
+  ), [currentAudioAssetId, requestedPlay]);
+
   const audio = useMemo<AudioValue>(() => ({
     audioAssets,
     currentAudioAsset,
@@ -691,8 +717,12 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     isPlaying,
     loopEnabled,
     muted: audioMuted,
+    volume: audioVolume,
+    setVolume: changeAudioVolume,
     armAudio,
     clearAudio,
+    getCurrentTime,
+    isPlaybackRunning,
     pause: pauseAudio,
     play: playAudio,
     playNext,
@@ -702,7 +732,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     toggleLoop,
     toggleMuted: toggleAudioMuted,
     togglePlayback,
-  }), [armAudio, audioAssets, audioMuted, clearAudio, currentAudioAsset, currentTime, duration, isPlaying, loopEnabled, pauseAudio, playAudio, playNext, playPrevious, seekTo, selectAudio, toggleAudioMuted, toggleLoop, togglePlayback]);
+  }), [armAudio, audioAssets, audioMuted, audioVolume, changeAudioVolume, clearAudio, currentAudioAsset, currentTime, duration, getCurrentTime, isPlaybackRunning, isPlaying, loopEnabled, pauseAudio, playAudio, playNext, playPrevious, seekTo, selectAudio, toggleAudioMuted, toggleLoop, togglePlayback]);
 
   // ── Video transport ──
   //
@@ -720,14 +750,22 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoIsPlaying, setVideoIsPlaying] = useState(false);
   const [videoMuted, setVideoMuted] = useState(false);
+  const [videoVolume, setVideoVolume] = useState(1);
+  const changeVideoVolume = useCallback((volume: number) => {
+    if (Number.isFinite(volume)) setVideoVolume(Math.max(0, Math.min(1, volume)));
+  }, []);
+  useEffect(() => {
+    if (layerVideoElement) layerVideoElement.volume = videoVolume;
+  }, [layerVideoElement, videoVolume]);
   const [videoLoopEnabled, setVideoLoopEnabled] = useState(true);
   const [videoRequestedPlay, setVideoRequestedPlay] = useState(false);
   const videoLayerPlayback = useMemo(() => ({
     autoplay: videoRequestedPlay,
     loop: videoLoopEnabled,
     muted: videoMuted,
+    volume: videoVolume,
     playbackRate: 1,
-  }), [videoLoopEnabled, videoMuted, videoRequestedPlay]);
+  }), [videoLoopEnabled, videoMuted, videoVolume, videoRequestedPlay]);
 
   // Keep the armed layer video alive even if the currently visible surface
   // changes and temporarily unmounts the SceneStage that was using it. The
@@ -893,6 +931,8 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     isPlaying: videoIsPlaying,
     loopEnabled: videoLoopEnabled,
     muted: videoMuted,
+    volume: videoVolume,
+    setVolume: changeVideoVolume,
     armVideo,
     clearVideo,
     pause: pauseVideo,
@@ -903,7 +943,7 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
     toggleLoop: toggleVideoLoop,
     toggleMuted: toggleVideoMuted,
     togglePlayback: toggleVideoPlayback,
-  }), [armVideo, clearVideo, pauseVideo, playNextVideo, playPreviousVideo, playVideo, seekVideo, toggleVideoLoop, toggleVideoMuted, toggleVideoPlayback, videoAssets, videoCurrentTime, videoDuration, videoIsPlaying, videoLayerAsset, videoLoopEnabled, videoMuted]);
+  }), [armVideo, changeVideoVolume, videoVolume, clearVideo, pauseVideo, playNextVideo, playPreviousVideo, playVideo, seekVideo, toggleVideoLoop, toggleVideoMuted, toggleVideoPlayback, videoAssets, videoCurrentTime, videoDuration, videoIsPlaying, videoLayerAsset, videoLoopEnabled, videoMuted]);
 
   // ── Stage selection ──
 

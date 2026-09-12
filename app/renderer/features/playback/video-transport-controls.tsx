@@ -1,8 +1,9 @@
+import { VolumeControl } from './volume-control';
 import { useRef, useState } from 'react';
 import { Pause, Play, Repeat, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { useVideo } from '../../contexts/playback/playback-context';
-import { formatPlaybackTime } from './format-playback-time';
+import { VideoFilmstripTrack } from './video-filmstrip-track';
 
 // Transport for the armed video asset. It lives next to the video bin in the
 // resource drawer — arming a clip and driving it are the same operator gesture,
@@ -16,8 +17,7 @@ export function VideoTransportControls() {
   const [draftTime, setDraftTime] = useState(0);
   const resumeAfterScrubRef = useRef(false);
 
-  function handleSeek(event: React.ChangeEvent<HTMLInputElement>) {
-    const next = Number(event.target.value);
+  function handleSeek(next: number) {
     if (!Number.isFinite(next)) return;
     setDraftTime(next);
     video.seekTo(next);
@@ -52,6 +52,7 @@ export function VideoTransportControls() {
         <ReacstButton.Icon variant="ghost" label={video.muted ? 'Unmute video' : 'Mute video'} disabled={!hasVideo} onClick={video.toggleMuted}>
           {video.muted ? <VolumeX /> : <Volume2 />}
         </ReacstButton.Icon>
+        <VolumeControl kind="Video" volume={video.volume} disabled={!hasVideo} onChange={video.setVolume} />
         <ReacstButton.Icon
           variant="ghost"
           active={video.loopEnabled}
@@ -67,28 +68,15 @@ export function VideoTransportControls() {
           {armed?.name ?? 'No video armed'}
         </span>
       </div>
-      <div className="flex flex-col gap-0.5">
-        <input
-          type="range"
-          min={0}
-          max={safeDuration}
-          step={0.1}
-          value={isScrubbing ? draftTime : Math.min(video.currentTime, safeDuration)}
-          onChange={handleSeek}
-          onMouseDown={handleScrubStart}
-          onMouseUp={handleScrubEnd}
-          onTouchStart={handleScrubStart}
-          onTouchEnd={handleScrubEnd}
-          onBlur={handleScrubEnd}
-          disabled={!hasVideo || safeDuration === 0}
-          aria-label="Video scrubber"
-          className="w-full accent-brand_solid disabled:opacity-40"
-        />
-        <div className="flex items-center justify-between text-[10px] tabular-nums text-tertiary">
-          <span>{formatPlaybackTime(isScrubbing ? draftTime : video.currentTime)}</span>
-          <span>{formatPlaybackTime(safeDuration)}</span>
-        </div>
-      </div>
+      <VideoFilmstripTrack
+        src={armed?.src}
+        duration={safeDuration}
+        currentTime={isScrubbing ? draftTime : video.currentTime}
+        disabled={!hasVideo}
+        onSeek={handleSeek}
+        onScrubStart={handleScrubStart}
+        onScrubEnd={handleScrubEnd}
+      />
     </div>
   );
 }
