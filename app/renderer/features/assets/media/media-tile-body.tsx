@@ -8,6 +8,7 @@ import { MediaAssetIcon } from '../../../components/display/entity-icon';
 import { MediaThumbnail } from './media-thumbnail';
 import { MediaContextMenuItems } from './media-context-menu-items';
 import { useWorkbench } from '../../../contexts/workbench-context';
+import { CheckerboardBackdrop } from '../../../components/display/checkerboard-backdrop';
 
 export function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo }: MediaItemProps) {
   const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
@@ -38,7 +39,7 @@ export function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo }: Me
           className={cn(isActive ? 'ring-1 ring-brand/35' : '')}
         >
           <Thumbnail.Body>
-            <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--background-color-tertiary)_0%_25%,var(--background-color-tertiary)_0%_50%)] bg-[length:16px_16px]" />
+            <CheckerboardBackdrop size={16} />
             <MediaThumbnail asset={asset} />
           </Thumbnail.Body>
           <Thumbnail.Caption>

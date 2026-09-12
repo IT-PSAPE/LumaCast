@@ -1,4 +1,5 @@
 import type { SceneFrameBaseProps } from './scene-frame-types';
+import { CheckerboardBackdrop } from './checkerboard-backdrop';
 
 export function FillSceneFrame({ width, height, className = '', stageClassName = '', checkerboard = false, children }: SceneFrameBaseProps) {
   const safeWidth = Math.max(1, width);
@@ -7,7 +8,7 @@ export function FillSceneFrame({ width, height, className = '', stageClassName =
   return (
     <div className={`relative w-full overflow-hidden ${className}`} style={{ aspectRatio: `${safeWidth} / ${safeHeight}` }}>
       {checkerboard ? (
-        <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--background-color-tertiary)_0%_25%,var(--background-color-tertiary)_0%_50%)] bg-[length:24px_24px]" />
+        <CheckerboardBackdrop />
       ) : null}
       <div className={`absolute inset-0 ${stageClassName}`}>
         {children}

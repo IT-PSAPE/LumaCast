@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SceneFrameBaseProps } from './scene-frame-types';
+import { CheckerboardBackdrop } from './checkerboard-backdrop';
 
 interface FrameSize {
   width: number;
@@ -42,7 +43,7 @@ export function ContainedSceneFrame({ width, height, className = '', stageClassN
     <div ref={containerRef} className="relative h-full w-full overflow-hidden">
       <div className={`absolute left-1/2 top-1/2 overflow-hidden -translate-x-1/2 -translate-y-1/2 ${className}`} style={frameStyle}>
         {checkerboard ? (
-          <div className="pointer-events-none absolute inset-0 bg-[repeating-conic-gradient(var(--background-color-tertiary)_0%_25%,var(--background-color-tertiary)_0%_50%)] bg-[length:24px_24px]" />
+          <CheckerboardBackdrop />
         ) : null}
         <div className={`absolute inset-0 ${stageClassName}`}>
           {children}
