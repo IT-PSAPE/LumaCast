@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => {
 
   class MockWorker {
     onmessage: ((event: MessageEvent<Record<string, unknown>>) => void) | null = null;
+    private capturedTelemetry: Record<string, unknown> | null = null;
 
     constructor() {
       workerInstances.push(this);
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(() => {
       if (request.type === 'attach-transport' || request.type === 'reset-transport') return;
       queueMicrotask(() => {
         if (request.type === 'capture') {
+          this.capturedTelemetry = request.telemetry as Record<string, unknown> ?? null;
           this.emit({
             type: 'readback-complete',
             requestId: request.requestId,
@@ -45,14 +47,18 @@ const mocks = vi.hoisted(() => {
             height: 1080,
             readbackDurationMs: 2,
           });
-        } else if (request.type === 'submit-frame') {
+          // Simulate the fallback path: worker cannot send directly to
+          // utility, so it posts the captured frame back to the renderer.
+          // Snapshot telemetry before the readback-complete handler resets
+          // the renderer-side counters.
+          const telemetrySnapshot = { ...this.capturedTelemetry };
           this.emit({
             type: 'captured',
             requestId: request.requestId,
             buffer: new ArrayBuffer(16),
             width: 1920,
             height: 1080,
-            telemetry: request.telemetry,
+            telemetry: telemetrySnapshot,
           });
         }
       });
@@ -157,8 +163,6 @@ vi.mock('@lumacast/canvas', () => ({
     currentSlideText: '',
     nextSlideText: '',
     slideNotes: '',
-    talkScriptCurrent: '',
-    talkScriptProgress: '',
     armedAtMs: null,
   }),
 }));
@@ -614,5 +618,87 @@ describe('NdiFrameCapture integration', () => {
     expect(mocks.sendNdiFrame).toHaveBeenCalledTimes(3);
     expect(mocks.sendNdiFrame.mock.calls[2]?.[4].dropReasons.outputDisabled).toBe(1);
     expect(mocks.sendNdiFrame.mock.calls[2]?.[4].dropReasons.nativeSendFailed).toBe(0);
+  });
+
+  it('carries telemetry in the capture request so the worker can send without a renderer roundtrip', async () => {
+    render(
+      <NdiFrameCapture
+        senderName="audience"
+        scene={createScene() as never}
+        surface="ndi-show"
+        outputScopeKey="entry:playlist-1"
+        enabled
+      />,
+    );
+
+    await flushCapture(40);
+
+    const worker = mocks.workerInstances[0]!;
+    const captureCall = worker.postMessage.mock.calls.find(
+      (call) => (call[0] as Record<string, unknown>).type === 'capture',
+    );
+    expect(captureCall).toBeDefined();
+    const captureRequest = captureCall![0] as Record<string, unknown>;
+    const telemetry = captureRequest.telemetry as Record<string, unknown>;
+
+    expect(telemetry).toBeDefined();
+    expect(typeof telemetry.attemptId).toBe('string');
+    expect(typeof telemetry.captureDurationMs).toBe('number');
+    expect(typeof telemetry.skippedCaptures).toBe('number');
+    expect(typeof telemetry.framesDroppedBackpressure).toBe('number');
+    expect(typeof telemetry.correctiveFrameRetries).toBe('number');
+    expect(typeof telemetry.captureStartedAtMs).toBe('number');
+  });
+
+  it('resets renderer counters on readback-complete before the captured fallback arrives', async () => {
+    render(
+      <NdiFrameCapture
+        senderName="audience"
+        scene={createScene() as never}
+        surface="ndi-show"
+        outputScopeKey="entry:playlist-1"
+        enabled
+      />,
+    );
+
+    await flushCapture(40);
+
+    const worker = mocks.workerInstances[0]!;
+    const captureCall = worker.postMessage.mock.calls.find(
+      (call) => (call[0] as Record<string, unknown>).type === 'capture',
+    );
+    const captureRequest = captureCall![0] as Record<string, unknown>;
+    const telemetry = captureRequest.telemetry as Record<string, unknown>;
+
+    // Telemetry should carry the renderer-side counters at capture time
+    expect(telemetry.skippedCaptures).toBe(0);
+    expect(telemetry.framesDroppedBackpressure).toBe(0);
+    expect(telemetry.correctiveFrameRetries).toBe(0);
+
+    // The fallback path should deliver the same telemetry values
+    expect(mocks.sendNdiFrame).toHaveBeenCalledTimes(1);
+    const sentTelemetry = mocks.sendNdiFrame.mock.calls[0]?.[4];
+    expect(sentTelemetry.attemptId).toBe(telemetry.attemptId);
+    expect(sentTelemetry.captureDurationMs).toBe(telemetry.captureDurationMs);
+  });
+
+  it('does not post submit-frame to the worker after readback-complete', async () => {
+    render(
+      <NdiFrameCapture
+        senderName="audience"
+        scene={createScene() as never}
+        surface="ndi-show"
+        outputScopeKey="entry:playlist-1"
+        enabled
+      />,
+    );
+
+    await flushCapture(40);
+
+    const worker = mocks.workerInstances[0]!;
+    const submitFrameCalls = worker.postMessage.mock.calls.filter(
+      (call) => (call[0] as Record<string, unknown>).type === 'submit-frame',
+    );
+    expect(submitFrameCalls).toHaveLength(0);
   });
 });

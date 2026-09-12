@@ -17,6 +17,10 @@ interface CaptureRequest {
   bitmap: ImageBitmap;
   requestId: number;
   withAlpha: boolean;
+  name: NdiOutputName;
+  attemptId: string;
+  captureStartedAtEpochMs: number;
+  telemetry: Omit<NdiFrameTelemetry, 'readbackDurationMs'>;
 }
 
 interface AttachTransportRequest {
@@ -29,15 +33,7 @@ interface ResetTransportRequest {
   type: 'reset-transport';
 }
 
-interface SubmitFrameRequest {
-  type: 'submit-frame';
-  requestId: number;
-  name: NdiOutputName;
-  attemptId: string;
-  telemetry: NdiFrameTelemetry;
-}
-
-type WorkerInbound = CaptureRequest | AttachTransportRequest | ResetTransportRequest | SubmitFrameRequest;
+type WorkerInbound = CaptureRequest | AttachTransportRequest | ResetTransportRequest;
 
 interface ReadbackCompleteResponse {
   type: 'readback-complete';
@@ -85,14 +81,6 @@ type WorkerOutbound =
   | TransportReadyResponse
   | TransportFallbackResponse;
 
-interface PendingReadback {
-  buffer: ArrayBuffer;
-  width: number;
-  height: number;
-}
-
-const pendingReadbacks = new Map<number, PendingReadback>();
-
 function post(message: WorkerOutbound, transfer?: Transferable[]): void {
   if (transfer) {
     (self as unknown as { postMessage: (value: WorkerOutbound, transfer: Transferable[]) => void })
@@ -109,7 +97,6 @@ const transport = new NdiFrameTransportClient({
 });
 
 function failCapture(requestId: number, error: unknown): void {
-  pendingReadbacks.delete(requestId);
   post({
     type: 'capture-failed',
     requestId,
@@ -118,9 +105,6 @@ function failCapture(requestId: number, error: unknown): void {
 }
 
 function capture(msg: CaptureRequest): void {
-  // Only one frame may be in flight. Drop any stale readback retained after
-  // the renderer watchdog abandoned its request before submitting telemetry.
-  pendingReadbacks.clear();
   if (!ctx) {
     msg.bitmap.close();
     failCapture(msg.requestId, 'OffscreenCanvas 2D context unavailable');
@@ -148,18 +132,29 @@ function capture(msg: CaptureRequest): void {
     msg.bitmap.close();
     const imageData = ctx.getImageData(0, 0, NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT);
     const buffer = imageData.data.buffer as ArrayBuffer;
-    pendingReadbacks.set(msg.requestId, {
-      buffer,
-      width: NDI_OUTPUT_WIDTH,
-      height: NDI_OUTPUT_HEIGHT,
-    });
+    const readbackDurationMs = performance.now() - readbackStartedAt;
+    const telemetry: NdiFrameTelemetry = {
+      ...msg.telemetry,
+      readbackDurationMs,
+      captureDurationMs: Math.max(0, performance.timeOrigin + performance.now() - msg.captureStartedAtEpochMs),
+    };
     post({
       type: 'readback-complete',
       requestId: msg.requestId,
       width: NDI_OUTPUT_WIDTH,
       height: NDI_OUTPUT_HEIGHT,
-      readbackDurationMs: performance.now() - readbackStartedAt,
+      readbackDurationMs,
     });
+    // Submit here: the renderer acknowledgement is informational, never a gate.
+    if (!transport.sendFrame({
+      type: 'frame', name: msg.name, attemptId: msg.attemptId,
+      buffer, width: NDI_OUTPUT_WIDTH, height: NDI_OUTPUT_HEIGHT, telemetry,
+    })) {
+      post({
+        type: 'captured', requestId: msg.requestId, buffer,
+        width: NDI_OUTPUT_WIDTH, height: NDI_OUTPUT_HEIGHT, telemetry,
+      }, [buffer]);
+    }
   } catch (error) {
     try {
       msg.bitmap.close();
@@ -170,42 +165,11 @@ function capture(msg: CaptureRequest): void {
   }
 }
 
-function submitFrame(msg: SubmitFrameRequest): void {
-  const pending = pendingReadbacks.get(msg.requestId);
-  if (!pending) {
-    failCapture(msg.requestId, 'NDI readback buffer is no longer available');
-    return;
-  }
-  pendingReadbacks.delete(msg.requestId);
-  const sentDirectly = transport.sendFrame({
-    type: 'frame',
-    name: msg.name,
-    attemptId: msg.attemptId,
-    buffer: pending.buffer,
-    width: pending.width,
-    height: pending.height,
-    telemetry: msg.telemetry,
-  });
-  if (sentDirectly) return;
-
-  const response: CaptureResponse = {
-    type: 'captured',
-    requestId: msg.requestId,
-    buffer: pending.buffer,
-    width: pending.width,
-    height: pending.height,
-    telemetry: msg.telemetry,
-  };
-  post(response, [pending.buffer]);
-}
-
 self.onmessage = (event: MessageEvent<WorkerInbound>) => {
   const msg = event.data;
   if (!msg) return;
   if (msg.type === 'capture') {
     capture(msg);
-  } else if (msg.type === 'submit-frame') {
-    submitFrame(msg);
   } else if (msg.type === 'attach-transport') {
     transport.attach(msg.name, msg.port as unknown as NdiFrameTransportPort);
   } else if (msg.type === 'reset-transport') {
@@ -221,7 +185,6 @@ export type {
   ReadbackCompleteResponse,
   ReleasedResponse,
   ResetTransportRequest,
-  SubmitFrameRequest,
   TransportFallbackResponse,
   TransportReadyResponse,
   WorkerInbound,

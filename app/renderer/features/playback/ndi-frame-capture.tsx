@@ -9,7 +9,6 @@ import {
   type NdiFrameDropReason,
   type NdiFrameDropReasonCounts,
   type NdiFrameRelease,
-  type NdiFrameTelemetry,
   type NdiOutputName,
 } from '@lumacast/protocol';
 import type { TextBinding } from '@lumacast/composition';
@@ -23,7 +22,6 @@ import type {
   AttachTransportRequest,
   CaptureRequest,
   ResetTransportRequest,
-  SubmitFrameRequest,
   WorkerOutbound,
 } from './ndi-readback-worker';
 import {
@@ -86,8 +84,6 @@ function bindingValueForSignature(binding: TextBinding, runtime: BindingValue): 
   if (binding.kind === 'current-slide-text') return runtime.currentSlideText ?? '';
   if (binding.kind === 'next-slide-text') return runtime.nextSlideText ?? '';
   if (binding.kind === 'slide-notes') return runtime.slideNotes ?? '';
-  if (binding.kind === 'talk-script-current') return runtime.talkScriptCurrent ?? '';
-  if (binding.kind === 'talk-script-progress') return runtime.talkScriptProgress ?? '';
   return null;
 }
 
@@ -159,6 +155,7 @@ interface NdiFrameCaptureProps {
 type CaptureStageLike = Pick<Konva.Stage, 'getLayers' | 'batchDraw'>;
 
 interface InFlightCaptureAttempt {
+  telemetry?: CaptureRequest['telemetry'];
   attemptId: string;
   requestId: number;
   sentAtPerfMs: number;
@@ -324,35 +321,19 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
         return;
       }
       if (data.type === 'readback-complete') {
-        const telemetry: NdiFrameTelemetry = {
-          attemptId: activeAttempt.attemptId,
-          captureDurationMs: performance.now() - captureStartedAtRef.current,
-          readbackDurationMs: data.readbackDurationMs,
-          skippedCaptures: pendingSkippedCapturesRef.current,
-          framesDroppedBackpressure: pendingDroppedBackpressureRef.current,
-          correctiveFrameRetries: pendingCorrectiveRetriesRef.current,
-          dropReasons: pendingDropReasonsRef.current,
-          signatureChangedAtMs: signatureChangedAtMsRef.current,
-          takeKind: activeAttempt.takeCorrelation?.kind,
-          takeReason: activeAttempt.takeCorrelation?.reason,
-          takeSessionId: activeAttempt.takeCorrelation?.sessionId,
-          takeSequenceId: activeAttempt.takeCorrelation?.sequenceId,
-          takeIssuedAtMs: activeAttempt.takeCorrelation?.takeIssuedAtMs,
-          captureStartedAtMs: captureStartedAtMsRef.current,
-        };
-        signatureChangedAtMsRef.current = null;
-        const submit: SubmitFrameRequest = {
-          type: 'submit-frame',
-          requestId: data.requestId,
-          name: senderName,
-          attemptId: activeAttempt.attemptId,
-          telemetry,
-        };
-        worker.postMessage(submit);
-        pendingSkippedCapturesRef.current = 0;
-        pendingDroppedBackpressureRef.current = 0;
-        pendingCorrectiveRetriesRef.current = 0;
-        pendingDropReasonsRef.current = createEmptyFrameDropReasons();
+        // Subtract only the counters carried by this capture. Drops recorded
+        // while readback was busy must survive for the next frame.
+        const sent = activeAttempt.telemetry;
+        if (sent) {
+          if (signatureChangedAtMsRef.current === sent.signatureChangedAtMs) signatureChangedAtMsRef.current = null;
+          pendingSkippedCapturesRef.current = Math.max(0, pendingSkippedCapturesRef.current - sent.skippedCaptures);
+          pendingDroppedBackpressureRef.current = Math.max(0, pendingDroppedBackpressureRef.current - sent.framesDroppedBackpressure);
+          pendingCorrectiveRetriesRef.current = Math.max(0, pendingCorrectiveRetriesRef.current - sent.correctiveFrameRetries);
+          for (const reason of Object.keys(pendingDropReasonsRef.current) as NdiFrameDropReason[]) {
+            pendingDropReasonsRef.current[reason] = Math.max(0, pendingDropReasonsRef.current[reason] - (sent.dropReasons?.[reason] ?? 0));
+          }
+          activeAttempt.telemetry = undefined;
+        }
         return;
       }
       if (data.type === 'captured') {
@@ -442,10 +423,29 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
         }
         const request: CaptureRequest = {
           type: 'capture',
+          name: senderName,
+          attemptId,
+          captureStartedAtEpochMs: performance.timeOrigin + sentAtPerfMs,
           bitmap,
           requestId,
           withAlpha,
+          telemetry: {
+            attemptId: activeAttempt.attemptId,
+            captureDurationMs: performance.now() - captureStartedAtRef.current,
+            skippedCaptures: pendingSkippedCapturesRef.current,
+            framesDroppedBackpressure: pendingDroppedBackpressureRef.current,
+            correctiveFrameRetries: pendingCorrectiveRetriesRef.current,
+            dropReasons: { ...pendingDropReasonsRef.current },
+            signatureChangedAtMs: signatureChangedAtMsRef.current,
+            takeKind: activeAttempt.takeCorrelation?.kind,
+            takeReason: activeAttempt.takeCorrelation?.reason,
+            takeSessionId: activeAttempt.takeCorrelation?.sessionId,
+            takeSequenceId: activeAttempt.takeCorrelation?.sequenceId,
+            takeIssuedAtMs: activeAttempt.takeCorrelation?.takeIssuedAtMs,
+            captureStartedAtMs: captureStartedAtMsRef.current,
+          },
         };
+        activeAttempt.telemetry = request.telemetry;
         activeWorker.postMessage(request, [bitmap]);
       })
       .catch((error) => {
@@ -457,7 +457,7 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
         inFlightAttemptRef.current = null;
       });
     return true;
-  }, [sharedCaptureSource, withAlpha]);
+  }, [senderName, sharedCaptureSource, withAlpha]);
 
   const handleImageLoad = useCallback(() => {
     stageRef.current?.batchDraw();
