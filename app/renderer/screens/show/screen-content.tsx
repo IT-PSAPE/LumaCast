@@ -17,9 +17,9 @@ export function ShowScreenContent() {
       <SplitPanel.Segment id="show-center" defaultSize={840} minSize={360}>
         <SplitPanel.Panel splitId="show-center" orientation="vertical" className="h-full">
           <SplitPanel.Segment id="show-middle" defaultSize={600} minSize={360} className="flex flex-col">
-            <DeckBrowserToolbar items={browser.items} headerVariant={browser.headerVariant} />
+            <DeckBrowserToolbar items={browser.items} showPlaylistTabs={browser.showPlaylistTabs} />
             <div className="min-h-0 flex-1">
-              <ShowBrowserContent variant={browser.contentVariant} items={browser.items} />
+              <ShowBrowserContent variant={browser.contentVariant} />
             </div>
           </SplitPanel.Segment>
           <SplitPanel.Segment id="show-bottom" defaultSize={260} minSize={96} collapsible>

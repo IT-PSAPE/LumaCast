@@ -34,9 +34,6 @@ export type AppMenuCommandId =
   | 'view.mode.settings'
   | 'view.slideBrowser.grid'
   | 'view.slideBrowser.list'
-  | 'view.playlistBrowser.current'
-  | 'view.playlistBrowser.tabs'
-  | 'view.playlistBrowser.continuous'
   | 'playback.takeSlide'
   | 'playback.previousSlide'
   | 'playback.nextSlide'
@@ -46,7 +43,6 @@ export type AppMenuCommandId =
 export interface AppMenuState {
   workbenchMode: 'show' | 'item-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings';
   slideBrowserMode: 'grid' | 'list';
-  playlistBrowserMode: 'current' | 'tabs' | 'continuous';
   hasCurrentPlaylist: boolean;
   hasCurrentItem: boolean;
   hasCurrentSlide: boolean;

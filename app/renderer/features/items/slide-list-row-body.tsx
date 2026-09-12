@@ -43,10 +43,7 @@ export function SlideOutlineRowBody({
   dragHandleProps,
   overlay = false,
 }: SlideOutlineRowProps) {
-  // Gating: this row component is shared between single-mode and continuous-mode
-  // browsers. Slide actions live on the slide-context for the *current* deck item;
-  // in continuous mode the row may belong to a different deck item, so we disable
-  // the menu when the slide isn't part of the active context.
+  // Guard against a stale row during an item switch before offering actions.
   const { slides, duplicateSlide, deleteSlide, moveSlide } = useSlides();
   const confirm = useConfirm();
   const slideIndex = slides.findIndex((s) => s.id === row.slide.id);

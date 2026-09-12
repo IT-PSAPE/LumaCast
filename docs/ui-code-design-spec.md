@@ -102,7 +102,7 @@ for the authoritative feature-to-directory table
 ## 4. Canonical Terminology
 
 See [renderer-taxonomy.md](./renderer-taxonomy.md#1-canonical-modes) for the
-canonical `WorkbenchMode`, `SlideBrowserMode`, `PlaylistBrowserMode`,
+canonical `WorkbenchMode`, `SlideBrowserMode`,
 `DrawerTab`, `InspectorTab`, and program-surface types, and
 [section 7, "Terminology Notes"](./renderer-taxonomy.md#7-terminology-notes)
 for `Item`/`ItemType`/`ItemRef` and the flat-playlist/`Separator` vocabulary.

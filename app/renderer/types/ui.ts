@@ -4,7 +4,6 @@ import type { SlideElement } from '@lumacast/composition';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type SlideBrowserMode = 'grid' | 'list';
 export type ResourceDrawerViewMode = 'grid' | 'list';
-export type PlaylistBrowserMode = 'current' | 'tabs' | 'continuous';
 export type WorkbenchMode = 'show' | 'item-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings';
 export type InteractionMode = 'move' | 'resize';
 export type DrawerTab = 'deck' | 'image' | 'video' | 'audio' | 'themes';
