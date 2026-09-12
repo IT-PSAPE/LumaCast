@@ -86,10 +86,9 @@ test.afterAll(() => {
 async function launchApp(): Promise<{ app: ElectronApplication; page: Page }> {
   const executablePath =
     process.env.ELECTRON_BINARY ?? ((await import('electron')) as unknown as { default: string }).default;
-  const linuxCiArgs = process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [];
   const app = await _electron.launch({
     executablePath,
-    args: [...linuxCiArgs, APP_ENTRY, `--user-data-dir=${userDataDir}`],
+    args: [APP_ENTRY, `--user-data-dir=${userDataDir}`],
   });
   const page = await app.firstWindow();
   await page.locator(APP_TOOLBAR_REGION).waitFor({ state: 'visible', timeout: STARTUP_TIMEOUT_MS });

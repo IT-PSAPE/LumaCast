@@ -740,4 +740,6 @@ Audio and layer-video volume are independent session controls applied to their m
 
 Linux validation runs Electron end-to-end tests under Xvfb and configures the installed `chrome-sandbox` helper with root ownership and mode `4755`. Playwright browser diagnostics expose Electron startup failures in the CI log.
 
+The main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver.
+
 `.github/workflows/ci-release.yml` is the single validation and release pipeline (ADR-0035). Pull requests stop after validation. A validated `main` push proceeds only when `package.json` contains a higher stable version and `v<version>` does not already exist, then packages Windows, macOS, and Linux in parallel and publishes one GitHub Release after all platforms succeed. Manual dispatch supports retrying an unpublished current version; prereleases are not generated.
