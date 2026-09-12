@@ -42,7 +42,11 @@ and live + NDI output). Three non-obvious choices, taken together, define the ar
   lazy tolerance (a missing/`'plain'` format synthesizes one inheriting run) and only rewritten on
   first rich edit. Covers both `slide_elements` rows and embedded `elements_json` arrays.
 - We own line-wrapping, list markers/indent, decoration drawing, and editor⇄renderer measurement
-  parity (shared measure helpers in `app/core/rich-text/`).
+  parity (shared measure helpers in `packages/composition/src/rich-text/`).
+- The renderer keeps `SceneNodeText`'s Konva `sceneFunc` paint-only: wrapped lines, per-piece
+  advances, and baseline metrics are prepared outside draw and reused until their memo key changes.
+  Because late webfont resolution changes wrap metrics, that key includes a renderer-side
+  font-availability epoch driven by `document.fonts.ready` and `loadingdone`.
 - The ≥600 weight collapse is retired; the renderer honors true numeric weights.
 - v1 explicitly excludes per-run font family/size, nested lists, and rich formatting on bound text;
   the schema is shaped to allow them later without a format change.

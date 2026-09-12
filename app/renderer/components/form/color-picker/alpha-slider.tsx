@@ -1,5 +1,5 @@
+import { Slider } from '@base-ui/react/slider';
 import { hsbToHex, type Hsb } from '../../../utils/color';
-import { usePointerCapture } from './use-pointer-capture';
 
 interface AlphaSliderProps {
   hsb: Hsb;
@@ -10,30 +10,28 @@ interface AlphaSliderProps {
 export function AlphaSlider({ hsb, alpha, onChange }: AlphaSliderProps) {
   const solidHex = hsbToHex(hsb);
 
-  const { ref, handlePointerDown, handlePointerMove, handlePointerUp } = usePointerCapture((event) => {
-    const rect = ref.current!.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
-    onChange(Math.round(x * 100));
-  });
-
-  const thumbLeft = `${alpha}%`;
+  function handleValueChange(value: number | number[]) {
+    onChange(typeof value === 'number' ? value : value[0]);
+  }
 
   return (
-    <div
-      ref={ref}
-      className="relative mb-2 h-3 w-full cursor-pointer rounded-full select-none"
-      style={{
-        backgroundImage: `linear-gradient(to right, transparent, ${solidHex}), repeating-conic-gradient(#ccc 0% 25%, white 0% 50%)`,
-        backgroundSize: '100% 100%, 8px 8px',
-      }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-    >
-      <div
-        className="pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
-        style={{ left: thumbLeft, backgroundColor: solidHex }}
-      />
-    </div>
+    <Slider.Root value={alpha} min={0} max={100} step={1} onValueChange={handleValueChange} className="mb-2">
+      <Slider.Control className="relative flex h-3 w-full cursor-pointer touch-none items-center select-none">
+        <Slider.Track
+          className="h-3 w-full rounded-full select-none"
+          style={{
+            backgroundImage: `linear-gradient(to right, transparent, ${solidHex}), repeating-conic-gradient(#ccc 0% 25%, white 0% 50%)`,
+            backgroundSize: '100% 100%, 8px 8px',
+          }}
+        >
+          <Slider.Thumb
+            aria-label="Alpha"
+            getAriaValueText={(_, value) => `Alpha ${Math.round(value)} percent`}
+            className="size-3.5 rounded-full border-2 border-white shadow has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-brand"
+            style={{ backgroundColor: solidHex }}
+          />
+        </Slider.Track>
+      </Slider.Control>
+    </Slider.Root>
   );
 }

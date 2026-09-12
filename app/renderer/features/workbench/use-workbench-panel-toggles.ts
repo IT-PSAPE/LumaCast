@@ -18,7 +18,7 @@ const PANEL_TOGGLE_CONFIGS: Record<WorkbenchMode, PanelToggleConfig[]> = {
     { id: 'bottom', label: 'Bottom', splitId: 'show-center', paneId: 'show-bottom' },
     { id: 'right', label: 'Right', splitId: 'show-main', paneId: 'show-right' },
   ],
-  'deck-editor': [
+  'item-editor': [
     { id: 'left', label: 'Left', splitId: 'edit-main', paneId: 'edit-left' },
     { id: 'bottom', label: 'Bottom', splitId: 'edit-center', paneId: 'edit-bottom' },
     { id: 'right', label: 'Right', splitId: 'edit-main', paneId: 'edit-right' },

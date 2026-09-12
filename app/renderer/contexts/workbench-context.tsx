@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { OverlayAnimation } from '@core/types';
-import type { DrawerTab, DrawerViewModeMap, InspectorTab, LibraryPanelView, PlaylistBrowserMode, ProgramGridDensity, ProgramMode, ProgramSurfaceKind, ResourceDrawerViewMode, SlideBrowserMode, WorkbenchMode } from '../types/ui';
+import type { OverlayAnimation } from '@lumacast/composition';
+import type { DrawerTab, DrawerViewModeMap, InspectorTab, ProgramGridDensity, ProgramMode, ProgramSurfaceKind, ResourceDrawerViewMode, SlideBrowserMode, WorkbenchMode } from '../types/ui';
 import { useGridSize } from '../hooks/use-grid-size';
 import { useLocalStorage } from '../hooks/use-local-storage';
 
@@ -27,12 +27,7 @@ function ensureOverlayRoot(): HTMLElement | null {
   return root;
 }
 
-// ─── Deck browser preferences ───────────────────────────────────────
-
-interface DeckBrowserPreferences {
-  playlistBrowserMode: PlaylistBrowserMode;
-  slideBrowserMode: SlideBrowserMode;
-}
+// ─── Slide browser preference ───────────────────────────────────────
 
 interface OverlayDefaultsState {
   animationKind: OverlayAnimation['kind'];
@@ -48,11 +43,8 @@ type WorkbenchContextValue = {
     deckBrowserGridSizeStep: number;
     drawerTab: DrawerTab;
     drawerViewModes: DrawerViewModeMap;
-    expandedGroupIds: string[];
     inspectorTab: InspectorTab;
-    libraryPanelView: LibraryPanelView;
     overlayDefaults: OverlayDefaultsState;
-    playlistBrowserMode: PlaylistBrowserMode;
     programMode: ProgramMode;
     programSingleSurface: ProgramSurfaceKind;
     programGridDensity: ProgramGridDensity;
@@ -63,11 +55,8 @@ type WorkbenchContextValue = {
     setDeckBrowserGridItemSize: (size: number) => void;
     setDrawerTab: (tab: DrawerTab) => void;
     setDrawerViewMode: (tab: DrawerTab, mode: ResourceDrawerViewMode) => void;
-    setExpandedGroupIds: (groupIds: string[]) => void;
     setInspectorTab: (tab: InspectorTab) => void;
-    setLibraryPanelView: (view: LibraryPanelView) => void;
     updateOverlayDefaults: (next: Partial<OverlayDefaultsState>) => void;
-    setPlaylistBrowserMode: (mode: PlaylistBrowserMode) => void;
     setProgramMode: (mode: ProgramMode) => void;
     setProgramSingleSurface: (surface: ProgramSurfaceKind) => void;
     setProgramGridDensity: (density: ProgramGridDensity) => void;
@@ -81,16 +70,15 @@ const WorkbenchStateContext = createContext<WorkbenchContextValue['state'] | nul
 const WorkbenchActionsContext = createContext<WorkbenchContextValue['actions'] | null>(null);
 const WorkbenchOverlayStackContext = createContext<WorkbenchContextValue['overlayStack'] | null>(null);
 const WORKBENCH_MODE_STORAGE_KEY = 'lumacast.workbench-mode.v1';
-const DECK_BROWSER_STORAGE_KEY = 'lumacast.deck-browser-preferences.v1';
+const SLIDE_BROWSER_MODE_STORAGE_KEY = 'lumacast.slide-browser-mode.v1';
+const LEGACY_DECK_BROWSER_STORAGE_KEY = 'lumacast.deck-browser-preferences.v1';
 const DRAWER_VIEW_MODES_STORAGE_KEY = 'lumacast.drawer-view-modes.v1';
-const DEFAULT_DRAWER_VIEW_MODES: DrawerViewModeMap = { deck: 'grid', image: 'grid', themes: 'grid' };
-const LIBRARY_PANEL_VIEW_STORAGE_KEY = 'lumacast.library-panel-view.v1';
-const EXPANDED_GROUPS_STORAGE_KEY = 'lumacast.library-panel-expanded-groups.v1';
+const DEFAULT_DRAWER_VIEW_MODES: DrawerViewModeMap = { deck: 'grid', image: 'grid', video: 'grid', audio: 'list', themes: 'grid' };
 const OVERLAY_DEFAULTS_STORAGE_KEY = 'lumacast.overlay-defaults.v1';
 const PROGRAM_MODE_STORAGE_KEY = 'lumacast.program-mode.v1';
 const PROGRAM_SINGLE_SURFACE_STORAGE_KEY = 'lumacast.program-single-surface.v1';
 const PROGRAM_GRID_DENSITY_STORAGE_KEY = 'lumacast.program-grid-density.v1';
-const VALID_MODES = new Set<WorkbenchMode>(['show', 'deck-editor', 'overlay-editor', 'theme-editor', 'stage-editor', 'macro-editor', 'settings']);
+const VALID_MODES = new Set<WorkbenchMode>(['show', 'item-editor', 'overlay-editor', 'theme-editor', 'stage-editor', 'macro-editor', 'settings']);
 const DEFAULT_OVERLAY_DEFAULTS: OverlayDefaultsState = {
   animationKind: 'dissolve',
   durationMs: 400,
@@ -106,23 +94,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     parseDrawerViewModes,
     JSON.stringify,
   );
-  const [libraryPanelView, setLibraryPanelViewRaw] = useLocalStorage<LibraryPanelView>(
-    LIBRARY_PANEL_VIEW_STORAGE_KEY,
-    'libraries',
-    parseLibraryPanelView,
-  );
-  const [expandedGroupIds, setExpandedGroupIds] = useLocalStorage<string[]>(
-    EXPANDED_GROUPS_STORAGE_KEY,
-    [],
-    parseExpandedGroupIds,
-    JSON.stringify,
-  );
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('presentation');
-  const [deckBrowserPreferences, setDeckBrowserPreferences] = useLocalStorage<DeckBrowserPreferences>(
-    DECK_BROWSER_STORAGE_KEY,
-    { slideBrowserMode: 'grid', playlistBrowserMode: 'current' },
-    parseDeckBrowserPreferences,
-    JSON.stringify,
+  const [legacySlideBrowserMode] = useState(readLegacySlideBrowserMode);
+  const [slideBrowserMode, setSlideBrowserMode] = useLocalStorage<SlideBrowserMode>(
+    SLIDE_BROWSER_MODE_STORAGE_KEY,
+    legacySlideBrowserMode ?? 'grid',
+    parseSlideBrowserMode,
   );
   const [overlayDefaults, setOverlayDefaults] = useLocalStorage<OverlayDefaultsState>(
     OVERLAY_DEFAULTS_STORAGE_KEY,
@@ -182,23 +159,13 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setDrawerViewModesRaw({ ...drawerViewModes, [tab]: mode });
   }, [drawerViewModes, setDrawerViewModesRaw]);
 
-  const setLibraryPanelView = useCallback((view: LibraryPanelView) => {
-    setLibraryPanelViewRaw(view);
-  }, [setLibraryPanelViewRaw]);
-
-  const setSlideBrowserMode = useCallback((mode: SlideBrowserMode) => {
-    setDeckBrowserPreferences({
-      ...deckBrowserPreferences,
-      slideBrowserMode: mode,
-    });
-  }, [deckBrowserPreferences, setDeckBrowserPreferences]);
-
-  const setPlaylistBrowserMode = useCallback((mode: PlaylistBrowserMode) => {
-    setDeckBrowserPreferences({
-      ...deckBrowserPreferences,
-      playlistBrowserMode: mode,
-    });
-  }, [deckBrowserPreferences, setDeckBrowserPreferences]);
+  useEffect(() => {
+    const storedMode = window.localStorage.getItem(SLIDE_BROWSER_MODE_STORAGE_KEY);
+    if (storedMode === null || parseSlideBrowserMode(storedMode) === null) {
+      window.localStorage.setItem(SLIDE_BROWSER_MODE_STORAGE_KEY, slideBrowserMode);
+    }
+    window.localStorage.removeItem(LEGACY_DECK_BROWSER_STORAGE_KEY);
+  }, [slideBrowserMode]);
 
   const updateOverlayDefaults = useCallback((next: Partial<OverlayDefaultsState>) => {
     setOverlayDefaults(sanitizeOverlayDefaults({
@@ -214,31 +181,26 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     deckBrowserGridSizeStep,
     drawerTab,
     drawerViewModes,
-    expandedGroupIds,
     inspectorTab,
-    libraryPanelView,
     overlayDefaults,
-    playlistBrowserMode: deckBrowserPreferences.playlistBrowserMode,
     programMode,
     programSingleSurface,
     programGridDensity,
-    slideBrowserMode: deckBrowserPreferences.slideBrowserMode,
+    slideBrowserMode,
     workbenchMode,
   }), [
     deckBrowserGridItemSize,
     deckBrowserGridSizeMax,
     deckBrowserGridSizeMin,
     deckBrowserGridSizeStep,
-    deckBrowserPreferences,
     drawerTab,
     drawerViewModes,
-    expandedGroupIds,
     inspectorTab,
-    libraryPanelView,
     overlayDefaults,
     programMode,
     programSingleSurface,
     programGridDensity,
+    slideBrowserMode,
     workbenchMode,
   ]);
 
@@ -246,11 +208,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setDeckBrowserGridItemSize,
     setDrawerTab,
     setDrawerViewMode,
-    setExpandedGroupIds,
     setInspectorTab,
-    setLibraryPanelView,
     updateOverlayDefaults,
-    setPlaylistBrowserMode,
     setProgramMode,
     setProgramSingleSurface,
     setProgramGridDensity,
@@ -260,11 +219,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setDeckBrowserGridItemSize,
     setDrawerTab,
     setDrawerViewMode,
-    setExpandedGroupIds,
     setInspectorTab,
-    setLibraryPanelView,
     updateOverlayDefaults,
-    setPlaylistBrowserMode,
     setProgramMode,
     setProgramSingleSurface,
     setProgramGridDensity,
@@ -313,46 +269,28 @@ function parseDrawerViewModes(raw: string): DrawerViewModeMap | null {
     if (typeof parsed !== 'object' || parsed === null) return null;
     const deck = parsed.deck;
     const image = parsed.image;
+    const video = parsed.video;
+    const audio = parsed.audio;
     const themes = parsed.themes;
-    if (!isValidViewMode(deck) || !isValidViewMode(image) || !isValidViewMode(themes)) return null;
-    return { deck, image, themes };
+    if (!isValidViewMode(deck) || !isValidViewMode(image) || !isValidViewMode(video) || !isValidViewMode(audio) || !isValidViewMode(themes)) return null;
+    return { deck, image, video, audio, themes };
   } catch {
     return null;
   }
 }
 
-function parseLibraryPanelView(raw: string): LibraryPanelView | null {
-  return raw === 'playlist' ? 'playlist' : raw === 'libraries' ? 'libraries' : null;
+function parseSlideBrowserMode(raw: string): SlideBrowserMode | null {
+  return raw === 'grid' || raw === 'list' ? raw : null;
 }
 
-function parseExpandedGroupIds(raw: string): string[] | null {
+function readLegacySlideBrowserMode(): SlideBrowserMode | null {
   try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || !parsed.every((value) => typeof value === 'string')) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function parseDeckBrowserPreferences(raw: string): DeckBrowserPreferences | null {
-  try {
-    const parsed = JSON.parse(raw) as Partial<DeckBrowserPreferences>;
-    const slideBrowserMode = parsed.slideBrowserMode === 'grid' || parsed.slideBrowserMode === 'list'
+    const raw = window.localStorage.getItem(LEGACY_DECK_BROWSER_STORAGE_KEY);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as { slideBrowserMode?: unknown };
+    return parsed.slideBrowserMode === 'grid' || parsed.slideBrowserMode === 'list'
       ? parsed.slideBrowserMode
       : null;
-    const playlistBrowserMode = parsed.playlistBrowserMode === 'current'
-      || parsed.playlistBrowserMode === 'tabs'
-      || parsed.playlistBrowserMode === 'continuous'
-      ? parsed.playlistBrowserMode
-      : null;
-
-    if (!slideBrowserMode || !playlistBrowserMode) return null;
-
-    return {
-      slideBrowserMode,
-      playlistBrowserMode,
-    };
   } catch {
     return null;
   }

@@ -1,4 +1,5 @@
-import type { Id, MediaAsset, SlideElementPayload, SlideElementType } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset, SlideElementPayload, SlideElementType } from '@lumacast/composition';
 import { createId } from '../../utils/create-id';
 
 export function newTextPayload(text: string, fontSize: number, alignment: CanvasTextAlign | 'justify', weight: string) {

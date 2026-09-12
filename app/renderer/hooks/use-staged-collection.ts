@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import type { WorkbenchMode } from '../types/ui';
 import { collectionSignature } from '../utils/staged-editor-utils';
 

@@ -1,34 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useAudio } from '../../../contexts/playback/playback-context';
 import { filterByText } from '../../../utils/filter-by-text';
 import { compareByKey, useAudioBinSort } from '../../workbench/use-bin-sort';
-import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
-import type { ResourceDrawerViewMode } from '../../../types/ui';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
-export function useAudioBin(collections: BinCollectionsApi) {
+export function useAudioBin() {
   const { audioAssets: allAudioAssets, currentAudioAssetId, armAudio } = useAudio();
   const { sort } = useAudioBinSort();
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('list');
-
-  const filteredByCollection = useMemo(
-    () => collections.filterByActiveCollection(allAudioAssets),
-    [allAudioAssets, collections],
-  );
+  const { state: { searchValue } } = useBinControls();
 
   const audioAssets = useMemo(() => {
-    const filtered = filterByText(filteredByCollection, searchValue, (asset) => [asset.name]);
+    const filtered = filterByText(allAudioAssets, searchValue, (asset) => [asset.name]);
     const direction = sort.direction === 'asc' ? 1 : -1;
     return [...filtered].sort((a, b) => direction * compareByKey(a, b, sort.key, (item) => item.name));
-  }, [filteredByCollection, searchValue, sort]);
+  }, [allAudioAssets, searchValue, sort]);
 
   return {
     audioAssets,
     currentAudioAssetId,
     armAudio,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
   };
 }

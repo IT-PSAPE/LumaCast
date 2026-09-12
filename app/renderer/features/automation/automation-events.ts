@@ -1,11 +1,6 @@
-import type { TriggerType, Id } from '@core/types';
+import { AUTOMATION_TRIGGER_EVENT, type AutomationTriggerEventDetail } from '@lumacast/automation';
 
-export const AUTOMATION_TRIGGER_EVENT = 'lumacast:automation-trigger';
-
-export interface AutomationTriggerEventDetail {
-  triggerType: TriggerType;
-  sourceId: Id | null;
-}
+export { AUTOMATION_TRIGGER_EVENT, type AutomationTriggerEventDetail };
 
 export function dispatchAutomationTriggerEvent(detail: AutomationTriggerEventDetail): void {
   if (typeof window === 'undefined') return;

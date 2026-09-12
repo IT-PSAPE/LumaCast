@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties, type MouseEventHandler, type ReactNode } from 'react';
-import type { InlineWindowMenuItem } from '@core/ipc';
+import type { InlineWindowMenuItem } from '@lumacast/protocol';
 import { cn } from '@renderer/utils/cn';
 
-const isMac = window.castApi.platform === 'darwin';
-const isWindows = window.castApi.platform === 'win32';
+const isMac = window.castApi?.platform === 'darwin';
+const isWindows = window.castApi?.platform === 'win32';
 const dragRegionStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
 const WINDOW_MENU_POPUP_OFFSET = 2;

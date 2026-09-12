@@ -3,7 +3,11 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { BrowserWindow, net, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
-import { resolveLocalMediaSourcePath } from '@database/media-source-utils';
+import {
+  resolveManagedMedia,
+  type ManagedMediaFailure,
+  type ManagedMediaUse,
+} from './media-capability';
 
 const DEV_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -72,9 +76,22 @@ function parseSingleByteRange(rangeHeader: string, fileSize: number): { start: n
   return { start, end: Math.min(end, fileSize - 1) };
 }
 
+// The packaged renderer is always loaded from this process's own build
+// output (see loadRendererView in app/main/index.ts, which resolves the same
+// way from its own __dirname). Bundling packs every app/main module into one
+// out/main/index.js, so __dirname here is identical to index.ts's at
+// runtime. Comparing for exact equality (rather than a path suffix) is
+// required: a suffix check like `endsWith('/renderer/index.html')` would
+// wrongly match an attacker-controlled path such as
+// `/tmp/attacker/renderer/index.html`, which is a real local-file escape.
+const PACKAGED_RENDERER_INDEX_PATH = path.normalize(path.join(__dirname, '../renderer/index.html'));
+
 function matchesPackagedRendererPath(targetPath: string): boolean {
-  const normalizedPath = path.normalize(targetPath);
-  return normalizedPath.endsWith(path.normalize('/renderer/index.html'));
+  return path.normalize(targetPath) === PACKAGED_RENDERER_INDEX_PATH;
+}
+
+function hasUrlCredentials(parsed: URL): boolean {
+  return parsed.username !== '' || parsed.password !== '';
 }
 
 function isTrustedAppUrl(value: string): boolean {
@@ -87,6 +104,10 @@ function isTrustedAppUrl(value: string): boolean {
     }
 
     if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      // Reject credentials before trusting the host: `https://user:pass@
+      // localhost/` parses with hostname `localhost` and would otherwise
+      // pass the DEV_ALLOWED_HOSTS check unchanged.
+      if (hasUrlCredentials(parsed)) return false;
       return DEV_ALLOWED_HOSTS.has(parsed.hostname);
     }
   } catch {
@@ -98,6 +119,45 @@ function isTrustedAppUrl(value: string): boolean {
 
 export function isTrustedWebContentsUrl(value: string): boolean {
   return isTrustedAppUrl(value);
+}
+
+// Explicit allow-list of external HTTPS destinations the app may open via
+// shell.openExternal from the window-open handler (issue #158). This is the
+// one place the list may be extended: add an entry here, only for an https:
+// destination the app deliberately links to (e.g. a Help-menu "learn more"
+// item), and record the change in docs/adr/0007-renderer-navigation-trust.md.
+// Never populate this list from renderer input, IPC payloads, or anything
+// else outside this source file.
+const APPROVED_EXTERNAL_ORIGINS: ReadonlySet<string> = new Set([
+  // app/main/application-menu.ts Help menu "Learn more" item.
+  'https://openai.com',
+]);
+
+// Matched by origin (scheme + host + port), not by full URL: approving an
+// origin approves shell.openExternal for any path/query under that origin,
+// not just the exact URL the app currently opens.
+export function isApprovedExternalUrl(value: string): boolean {
+  if (!value) return false;
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'https:') return false;
+    if (hasUrlCredentials(parsed)) return false;
+    return APPROVED_EXTERNAL_ORIGINS.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
+// Used only for denial logging: reports the URL's scheme (or 'unparseable')
+// without ever surfacing the rest of the URL, which for file: URLs can
+// contain absolute filesystem paths.
+export function describeUrlSchemeForLogging(value: string): string {
+  try {
+    return new URL(value).protocol;
+  } catch {
+    return 'unparseable';
+  }
 }
 
 export function assertTrustedIpcSender(event: IpcEvent): void {
@@ -125,9 +185,46 @@ function extractTrustedReferrer(request: CastMediaRequest): string {
   return candidate ?? '';
 }
 
-export function resolveTrustedCastMediaRequest(request: CastMediaRequest): string | null {
+export type CastMediaDenialReason = 'method-not-allowed' | 'untrusted-referrer' | ManagedMediaFailure;
+
+export type CastMediaResolution =
+  | { ok: true; filePath: string }
+  | { ok: false; reason: CastMediaDenialReason };
+
+/**
+ * The intended media use, as the platform reports it. Chromium sets
+ * `Sec-Fetch-Dest` from the element that issued the fetch (`image` for
+ * `<img>`/`new Image()`, `video` for `<video>`, `audio` for `<audio>`), which
+ * is the only trustworthy statement of intent available here — the renderer
+ * cannot forge it and main cannot infer it from the id.
+ *
+ * Anything else (`empty` for `fetch()`, or the header being absent, which
+ * happens for cross-scheme fetches) yields null, meaning "resolve as
+ * declared": the grant's own use applies and no cross-family check runs.
+ * Failing closed on an absent header would break media loading on every
+ * platform where Chromium omits it for this non-standard scheme.
+ */
+function intendedUseFromRequest(request: CastMediaRequest): ManagedMediaUse | null {
+  const destination = readHeaderValue(request, 'sec-fetch-dest');
+  if (destination === 'image' || destination === 'video' || destination === 'audio') {
+    return destination;
+  }
+  return null;
+}
+
+/**
+ * Resolves a `cast-media:` request to a filesystem path (issue #159).
+ *
+ * The URL now carries a managed media id, never a path: the renderer can only
+ * fetch a file main has already granted it a capability for, and the id space
+ * is checked (shape, revocation, declared use) before any filesystem access.
+ * Requests whose URL still carries an encoded path — the pre-#159 form, and
+ * the shape a compromised renderer would construct to read an arbitrary file —
+ * fail as `malformed-id`.
+ */
+export function resolveTrustedCastMediaRequest(request: CastMediaRequest): CastMediaResolution {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return null;
+    return { ok: false, reason: 'method-not-allowed' };
   }
 
   // Chromium strips Referer for cross-scheme fetches by default (e.g. file:// →
@@ -137,25 +234,15 @@ export function resolveTrustedCastMediaRequest(request: CastMediaRequest): strin
   // from issuing cast-media:// requests.
   const referrer = extractTrustedReferrer(request);
   if (referrer && !isTrustedAppUrl(referrer)) {
-    return null;
+    return { ok: false, reason: 'untrusted-referrer' };
   }
 
-  const source = request.url;
-  if (!source.startsWith('cast-media://')) {
-    return null;
+  const resolved = resolveManagedMedia(request.url, intendedUseFromRequest(request));
+  if (!resolved.ok) {
+    return { ok: false, reason: resolved.reason };
   }
 
-  const filePath = resolveLocalMediaSourcePath(source);
-  if (!filePath) {
-    return null;
-  }
-
-  const normalizedPath = path.normalize(path.resolve(filePath));
-  if (!path.isAbsolute(normalizedPath)) {
-    return null;
-  }
-
-  return normalizedPath;
+  return { ok: true, filePath: resolved.filePath };
 }
 
 export function createForbiddenResponse(message = 'Forbidden'): Response {
@@ -185,7 +272,7 @@ const CORS_HEADERS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'GET, HEAD',
   'access-control-allow-headers': 'range',
-  'access-control-expose-headers': 'accept-ranges, content-length, content-range, content-type',
+  'access-control-expose-headers': 'accept-ranges, cache-control, content-length, content-range, content-type, etag, last-modified',
 } as const;
 
 function withCorsHeaders(response: Response): Response {
@@ -195,23 +282,80 @@ function withCorsHeaders(response: Response): Response {
   return response;
 }
 
-export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequest): Promise<Response> {
+const statPromiseByPath = new Map<string, Promise<fs.Stats>>();
+
+function statLocalFile(filePath: string): Promise<fs.Stats> {
+  const existing = statPromiseByPath.get(filePath);
+  if (existing) return existing;
+  const statPromise = fs.promises.stat(filePath).finally(() => {
+    if (statPromiseByPath.get(filePath) === statPromise) {
+      statPromiseByPath.delete(filePath);
+    }
+  });
+  statPromiseByPath.set(filePath, statPromise);
+  return statPromise;
+}
+
+function buildEntityTag(stats: fs.Stats): string {
+  return `W/"${stats.size}-${Math.trunc(stats.mtimeMs)}"`;
+}
+
+function buildLocalFileHeaders(stats: fs.Stats, contentType: string) {
+  return {
+    'accept-ranges': 'bytes',
+    'cache-control': 'private, max-age=0, must-revalidate',
+    'content-type': contentType,
+    etag: buildEntityTag(stats),
+    'last-modified': stats.mtime.toUTCString(),
+  };
+}
+
+function requestMatchesIfNoneMatch(request: CastMediaRequest | undefined, etag: string): boolean {
+  const ifNoneMatch = request ? readHeaderValue(request, 'if-none-match') : null;
+  if (!ifNoneMatch) return false;
+  return ifNoneMatch
+    .split(',')
+    .map((value) => value.trim())
+    .some((value) => value === '*' || value === etag);
+}
+
+function requestAllowsRange(request: CastMediaRequest | undefined, etag: string, lastModified: string): boolean {
+  const ifRange = request ? readHeaderValue(request, 'if-range') : null;
+  if (!ifRange) return true;
+  if (ifRange.startsWith('W/')) return false;
+  if (ifRange === etag || ifRange === lastModified) return true;
+  const parsed = Date.parse(ifRange);
+  if (Number.isNaN(parsed)) return false;
+  return parsed >= Date.parse(lastModified);
+}
+
+export async function fetchLocalFileResponse(filePath: string, request?: CastMediaRequest): Promise<Response> {
   const range = request ? readHeaderValue(request, 'range') : null;
   const method = request?.method ?? 'GET';
+  const stats = await statLocalFile(filePath);
+  const contentType = guessContentType(filePath);
+  const baseHeaders = buildLocalFileHeaders(stats, contentType);
 
-  if (range) {
-    const { size } = fs.statSync(filePath);
-    const resolvedRange = parseSingleByteRange(range, size);
-    const contentType = guessContentType(filePath);
+  if (requestMatchesIfNoneMatch(request, baseHeaders.etag)) {
+    return withCorsHeaders(new Response(null, {
+      status: 304,
+      headers: baseHeaders,
+    }));
+  }
+
+  const effectiveRange = method !== 'HEAD' && range && requestAllowsRange(request, baseHeaders.etag, baseHeaders['last-modified'])
+    ? range
+    : null;
+
+  if (effectiveRange) {
+    const resolvedRange = parseSingleByteRange(effectiveRange, stats.size);
 
     if (!resolvedRange) {
       return Promise.resolve(withCorsHeaders(new Response(null, {
         status: 416,
         headers: {
-          'accept-ranges': 'bytes',
-          'content-range': `bytes */${size}`,
-          'content-type': contentType,
-          'cache-control': 'no-store',
+          ...baseHeaders,
+          'content-range': `bytes */${stats.size}`,
         },
       })));
     }
@@ -219,11 +363,9 @@ export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequ
     const { start, end } = resolvedRange;
     const contentLength = end - start + 1;
     const headers = {
-      'accept-ranges': 'bytes',
+      ...baseHeaders,
       'content-length': String(contentLength),
-      'content-range': `bytes ${start}-${end}/${size}`,
-      'content-type': contentType,
-      'cache-control': 'no-store',
+      'content-range': `bytes ${start}-${end}/${stats.size}`,
     };
 
     if (method === 'HEAD') {
@@ -240,5 +382,20 @@ export function fetchLocalFileResponse(filePath: string, request?: CastMediaRequ
     })));
   }
 
-  return net.fetch(pathToFileURL(filePath).toString(), { method }).then(withCorsHeaders);
+  if (method === 'HEAD') {
+    return withCorsHeaders(new Response(null, {
+      status: 200,
+      headers: {
+        ...baseHeaders,
+        'content-length': String(stats.size),
+      },
+    }));
+  }
+
+  const response = await net.fetch(pathToFileURL(filePath).toString(), { method });
+  const next = withCorsHeaders(response);
+  for (const [name, value] of Object.entries(baseHeaders)) {
+    next.headers.set(name, value);
+  }
+  return next;
 }

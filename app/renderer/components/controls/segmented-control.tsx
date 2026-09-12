@@ -1,4 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react';
+import { Toggle } from '@base-ui/react/toggle';
+import { ToggleGroup } from '@base-ui/react/toggle-group';
+import { createContext, useContext, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@renderer/utils/cn';
 import { cv } from '@renderer/utils/cv';
 
@@ -14,7 +16,7 @@ const rootStyles = cv({
 });
 
 const itemStyles = cv({
-  base: 'inline-flex items-center justify-center rounded-sm transition-colors disabled:pointer-events-none disabled:opacity-50',
+  base: 'inline-flex items-center justify-center rounded-sm transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
   variants: {
     active: {
       true: 'bg-primary text-primary',
@@ -29,22 +31,12 @@ const itemStyles = cv({
   defaultVariants: { active: false, fill: false, variant: 'label' },
 });
 
-interface ContextValue {
-  fill: boolean;
-  selectedValues: string[];
-  onToggle: (value: string) => void;
-}
+// The only bit of our own state Base UI's ToggleGroup/Toggle don't carry —
+// pressed/group membership come straight from their own context.
+const FillContext = createContext(false);
 
-const SegmentContext = createContext<ContextValue | null>(null);
-
-function useSegmentContext() {
-  const context = useContext(SegmentContext);
-  if (!context) throw new Error('SegmentedControl children must be used within SegmentedControl');
-  return context;
-}
-
-function normalizeToArray(value: Value | undefined): string[] {
-  if (value === undefined) return [];
+function normalizeToArray(value: Value | undefined): string[] | undefined {
+  if (value === undefined) return undefined;
   return Array.isArray(value) ? value : value ? [value] : [];
 }
 
@@ -65,45 +57,37 @@ interface ItemProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'child
   onClick?: () => void;
 }
 
-function Root({ children, value, defaultValue, onValueChange, selectionMode = 'single', fill = false, label, className, ...rest }: RootProps) {
-  const [internalValue, setInternalValue] = useState<string[]>(() => normalizeToArray(defaultValue));
-  const isControlled = value !== undefined;
-  const selectedValues = isControlled ? normalizeToArray(value) : internalValue;
-
-  const handleToggle = useCallback((toggled: string) => {
-    const next = selectionMode === 'multiple'
-      ? selectedValues.includes(toggled) ? selectedValues.filter((v) => v !== toggled) : [...selectedValues, toggled]
-      : selectedValues.includes(toggled) ? [] : [toggled];
-
-    if (!isControlled) setInternalValue(next);
-    onValueChange?.(selectionMode === 'multiple' ? next : (next[0] ?? ''));
-  }, [isControlled, onValueChange, selectedValues, selectionMode]);
-
-  const ctx = useMemo(() => ({ fill, selectedValues, onToggle: handleToggle }), [fill, handleToggle, selectedValues]);
-
+function Root({ children, value, defaultValue, onValueChange, selectionMode = 'single', fill = false, label, className, 'aria-label': ariaLabelProp, ...rest }: RootProps) {
   return (
-    <SegmentContext.Provider value={ctx}>
-      <div {...rest} role="group" aria-label={label} className={cn(rootStyles({ fill }), className)}>
+    <FillContext.Provider value={fill}>
+      <ToggleGroup
+        {...rest}
+        aria-label={ariaLabelProp ?? label}
+        multiple={selectionMode === 'multiple'}
+        value={normalizeToArray(value)}
+        defaultValue={normalizeToArray(defaultValue)}
+        onValueChange={(nextValues) => onValueChange?.(selectionMode === 'multiple' ? nextValues : (nextValues[0] ?? ''))}
+        className={cn(rootStyles({ fill }), className)}
+      >
         {children}
-      </div>
-    </SegmentContext.Provider>
+      </ToggleGroup>
+    </FillContext.Provider>
   );
 }
 
-function Item({ children, value, fill, onClick, className, disabled, variant, type = 'button', ...rest }: ItemProps & { variant: 'icon' | 'label' }) {
-  const ctx = useSegmentContext();
-  const isActive = ctx.selectedValues.includes(value);
-
-  const handleClick = useCallback(() => {
-    if (disabled) return;
-    ctx.onToggle(value);
-    onClick?.();
-  }, [ctx, disabled, onClick, value]);
+function Item({ children, value, fill, onClick, className, disabled, variant, ...rest }: ItemProps & { variant: 'icon' | 'label' }) {
+  const contextFill = useContext(FillContext);
 
   return (
-    <button type={type} {...rest} onClick={handleClick} disabled={disabled} aria-pressed={isActive} className={cn(itemStyles({ active: isActive, fill: fill ?? ctx.fill, variant }), className)}>
+    <Toggle
+      {...rest}
+      value={value}
+      disabled={disabled}
+      onPressedChange={() => onClick?.()}
+      className={(state) => cn(itemStyles({ active: state.pressed, fill: fill ?? contextFill, variant }), className)}
+    >
       {children}
-    </button>
+    </Toggle>
   );
 }
 

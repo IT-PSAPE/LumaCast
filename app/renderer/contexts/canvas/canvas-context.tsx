@@ -1,7 +1,8 @@
-import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
-import { isLyricDeckItem } from '@core/deck-items';
-import type { ElementUpdateInput, Id, MediaAsset, Overlay, Slide, SlideElement } from '@core/types';
-import { applyVisualPayload, readVisualPayload } from '@core/element-payload';
+import { createContext, useContext, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset, Overlay, Slide, SlideElement } from '@lumacast/composition';
+import type { ElementUpdateInput } from '@lumacast/protocol';
+import { applyVisualPayload, readVisualPayload } from '@lumacast/composition';
 import { sortElements } from '../../utils/slides';
 import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
@@ -13,12 +14,13 @@ import { useWorkbench } from '../workbench-context';
 import { useElementCommands } from '../element/use-element-commands';
 import { useElementHistory } from '../element/use-element-history';
 import { useElementInspectorSync } from '../element/use-element-inspector-sync';
-import { useElementSelection } from '../element/use-element-selection';
+import { useElementSelection } from '@lumacast/canvas';
 import type { ElementContextValue } from '../../types/element-context.types';
 import { cloneElements } from '../../utils/element-context-utils';
 import { buildLayeredRenderScene, buildRenderScene, buildThumbnailScene } from '../../features/canvas/build-render-scene';
-import type { RenderScene, SceneSourcePolicy, SceneSurface } from '../../features/canvas/scene-types';
+import type { RenderScene, SceneSourcePolicy, SceneSurface } from '@lumacast/composition';
 import { useActiveEditorSource } from './use-active-editor-source';
+import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -36,10 +38,18 @@ interface CanvasContextValue {
   scenes: RenderSceneValue;
 }
 
+const EMPTY_SLIDE_ELEMENTS: SlideElement[] = [];
+
 // ─── Context ────────────────────────────────────────────────────────
 
 const CanvasElementsContext = createContext<ElementContextValue | null>(null);
 const CanvasScenesContext = createContext<RenderSceneValue | null>(null);
+const CanvasEditSceneContext = createContext<RenderScene | null>(null);
+const CanvasShowSceneContext = createContext<RenderScene | null>(null);
+const CanvasLiveSceneContext = createContext<RenderScene | null>(null);
+const CanvasProgramSceneContext = createContext<RenderScene | null>(null);
+const CanvasThumbnailSceneContext = createContext<RenderSceneValue['getThumbnailScene'] | null>(null);
+const CanvasCommitProgramSceneContext = createContext<RenderSceneValue['commitProgramScene'] | null>(null);
 
 // ─── Exports for scene utilities ────────────────────────────────────
 
@@ -59,14 +69,20 @@ export function selectThumbnailElements(policy: SceneSourcePolicy, effectiveElem
 
 export function CanvasProvider({ children }: { children: ReactNode }) {
   const { mutatePatch, setStatusText } = useCast();
-  const { currentDeckItem } = useNavigation();
+  const { currentItemRef } = useNavigation();
   const { currentSlide, liveSlide, liveElements, slideElementsById } = useSlides();
-  const { slides: projectSlides, slideElementsBySlideId: projectSlideElementsBySlideId } = useProjectContent();
+  const {
+    slides: projectSlides,
+    liveSlideElementsBySlideId: projectLiveElementsBySlideId,
+    liveSlidesById: projectLiveSlidesById,
+    resolveElementsForSlide,
+  } = useProjectContent();
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
   const { mediaLayerAsset, videoLayerAsset, videoLayerPlayback, activeOverlays, contentLayerVisible } = usePresentationRenderLayer();
   const { state: { workbenchMode } } = useWorkbench();
   const activeEditorSource = useActiveEditorSource();
-  const isDeckEdit = activeEditorSource.mode === 'deck-editor';
+  const mediaProxyBySource = useMediaProxyMap();
+  const isDeckEdit = activeEditorSource.mode === 'item-editor';
   const isOverlayEdit = activeEditorSource.mode === 'overlay-editor';
   const isThemeEdit = activeEditorSource.mode === 'theme-editor';
 
@@ -74,10 +90,10 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   // Element editing
   // ════════════════════════════════════════════════════════════════════
 
-  const [draftElements, setDraftElements] = useState<Record<Id, Partial<SlideElement>>>({});
+  const [draftElements, setDraftElementsState] = useState<Record<Id, Partial<SlideElement>>>({});
   const [isCanvasInteracting, setCanvasInteracting] = useState(false);
   const previousSlideIdRef = useRef<Id | null>(null);
-  const previousSlideElementsRef = useRef<SlideElement[]>([]);
+  const deckSlideSnapshotsRef = useRef<Map<Id, SlideElement[]>>(new Map());
 
   const baseElements = useMemo(() => sortElements(activeEditorSource.elements), [activeEditorSource.elements]);
 
@@ -85,27 +101,54 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     () => sortElements(baseElements.map((element) => ({ ...element, ...(draftElements[element.id] ?? {}) }))),
     [baseElements, draftElements],
   );
+  const currentDeckSlideId = activeEditorSource.mode === 'item-editor' ? activeEditorSource.meta.slideId : null;
+  const draftElementsRef = useRef(draftElements);
+  const baseElementsRef = useRef(baseElements);
+  const currentDeckSlideIdRef = useRef<Id | null>(currentDeckSlideId);
+  const isDeckEditRef = useRef(isDeckEdit);
+  draftElementsRef.current = draftElements;
+  baseElementsRef.current = baseElements;
+  currentDeckSlideIdRef.current = currentDeckSlideId;
+  isDeckEditRef.current = isDeckEdit;
 
-  useEffect(() => {
+  const setDraftElements = useCallback<React.Dispatch<React.SetStateAction<Record<Id, Partial<SlideElement>>>>>((nextDrafts) => {
+    const resolvedDrafts = typeof nextDrafts === 'function' ? nextDrafts(draftElementsRef.current) : nextDrafts;
+    draftElementsRef.current = resolvedDrafts;
+    if (isDeckEditRef.current && currentDeckSlideIdRef.current) {
+      deckSlideSnapshotsRef.current.set(
+        currentDeckSlideIdRef.current,
+        sortElements(baseElementsRef.current.map((element) => ({ ...element, ...(resolvedDrafts[element.id] ?? {}) }))),
+      );
+    }
+    setDraftElementsState(resolvedDrafts);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!isDeckEdit || !currentDeckSlideId) return;
+    deckSlideSnapshotsRef.current.set(currentDeckSlideId, effectiveElements);
+  }, [currentDeckSlideId, effectiveElements, isDeckEdit]);
+
+  useLayoutEffect(() => {
     const previousSlideId = previousSlideIdRef.current;
-    const previousSlideElements = previousSlideElementsRef.current;
-
-    const currentDeckSlideId = activeEditorSource.mode === 'deck-editor' ? activeEditorSource.meta.slideId : null;
+    const previousSlideElements = previousSlideId
+      ? deckSlideSnapshotsRef.current.get(previousSlideId) ?? EMPTY_SLIDE_ELEMENTS
+      : EMPTY_SLIDE_ELEMENTS;
 
     if (previousSlideId && (!isDeckEdit || previousSlideId !== currentDeckSlideId)) {
-      replaceSlideElements(previousSlideId, previousSlideElements);
-      setDraftElements((current) => removeDraftPatchesForElements(current, previousSlideElements));
+      const committedSlideElements = cloneElements(previousSlideElements);
+      replaceSlideElements(previousSlideId, committedSlideElements);
+      setDraftElementsState((current) => removeDraftPatchesForElements(current, committedSlideElements));
+      deckSlideSnapshotsRef.current.delete(previousSlideId);
     }
 
     if (!isDeckEdit) {
       previousSlideIdRef.current = null;
-      previousSlideElementsRef.current = [];
+      deckSlideSnapshotsRef.current.clear();
       return;
     }
 
     previousSlideIdRef.current = currentDeckSlideId;
-    previousSlideElementsRef.current = cloneElements(effectiveElements);
-  }, [activeEditorSource, effectiveElements, isDeckEdit, replaceSlideElements]);
+  }, [currentDeckSlideId, isDeckEdit, replaceSlideElements]);
 
   const selection = useElementSelection({ effectiveElements });
 
@@ -170,7 +213,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const deleteSelected = useCallback(async () => {
     const protectedLyricTextIds = new Set(getProtectedLyricTextSelectionIds(
       effectiveElements, selection.selectedElementIds,
-      isThemeEdit ? activeEditorSource.meta.themeKind === 'lyrics' : isDeckEdit && isLyricDeckItem(currentDeckItem),
+      isThemeEdit ? activeEditorSource.meta.themeType === 'lyric' : isDeckEdit && currentItemRef?.type === 'lyric',
     ));
     const targetIds = getUnlockedSelectedElementIds(effectiveElements, selection.selectedElementIds)
       .filter((id) => !protectedLyricTextIds.has(id));
@@ -188,7 +231,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     setStatusText('Deleted selected object(s)');
     selection.selectElements(selection.selectedElementIds.filter((id) => protectedLyricTextIds.has(id)));
     setDraftElements({});
-  }, [activeEditorSource, currentDeckItem, effectiveElements, history, isDeckEdit, isThemeEdit, mutatePatch, selection, setStatusText]);
+  }, [activeEditorSource, currentItemRef, effectiveElements, history, isDeckEdit, isThemeEdit, mutatePatch, selection, setStatusText]);
 
   const toggleElementVisibility = useCallback(async (id: Id, visible: boolean) => {
     const target = effectiveElements.find((el) => el.id === id);
@@ -235,7 +278,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   }, [effectiveElements, history]);
 
   const { createText, createShape, createFromMedia, createOverlay, toggleOverlay, importMedia, deleteMedia, changeMediaSrc } = useElementCommands({
-    activeEditorSource, currentDeckItem, mutatePatch, setStatusText, pushHistorySnapshot: history.pushHistorySnapshot,
+    activeEditorSource, currentItemRef, mutatePatch, setStatusText, pushHistorySnapshot: history.pushHistorySnapshot,
   });
 
   const cutSelection = useCallback(async () => {
@@ -285,31 +328,45 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   // Scene rendering
   // ════════════════════════════════════════════════════════════════════
 
+  // Live inherited themes: the item editor paints the resolved slide (current
+  // theme styling with local overrides preserved) while all editing state
+  // (selection, drafts, history, staged writes) keeps operating on the raw
+  // persisted rows underneath — resolved rows keep stable persisted IDs, so
+  // the two layers address the same elements.
   const editScene = useMemo(() => {
-    return buildRenderScene(activeEditorSource.frame, effectiveElements);
-  }, [activeEditorSource.frame, effectiveElements]);
+    if (isDeckEdit && currentDeckSlideId) {
+      const resolvedBase = resolveElementsForSlide(currentDeckSlideId, baseElements);
+      const withDrafts = resolvedBase.map((element) => {
+        const patch = draftElements[element.id];
+        return patch ? { ...element, ...patch } : element;
+      });
+      return buildRenderScene(activeEditorSource.frame, withDrafts, { proxyMediaBySource: mediaProxyBySource });
+    }
+    return buildRenderScene(activeEditorSource.frame, effectiveElements, { proxyMediaBySource: mediaProxyBySource });
+  }, [activeEditorSource.frame, baseElements, currentDeckSlideId, draftElements, effectiveElements, isDeckEdit, mediaProxyBySource, resolveElementsForSlide]);
 
   const showScene = useMemo(() => {
-    const currentElements = currentSlide ? (slideElementsById.get(currentSlide.id) ?? []) : [];
-    return buildRenderScene(currentSlide, currentElements);
-  }, [currentSlide, slideElementsById]);
+    const currentElements = currentSlide ? (slideElementsById.get(currentSlide.id) ?? EMPTY_SLIDE_ELEMENTS) : EMPTY_SLIDE_ELEMENTS;
+    const frame = currentSlide ? (projectLiveSlidesById.get(currentSlide.id) ?? currentSlide) : currentSlide;
+    return buildRenderScene(frame, currentElements, { proxyMediaBySource: mediaProxyBySource });
+  }, [currentSlide, mediaProxyBySource, projectLiveSlidesById, slideElementsById]);
 
   const liveScene = useMemo(() => {
     return buildLayeredRenderScene({
-      slide: liveSlide,
+      slide: liveSlide ? (projectLiveSlidesById.get(liveSlide.id) ?? liveSlide) : liveSlide,
       contentElements: liveElements,
       videoAsset: videoLayerAsset,
       videoPlayback: videoLayerPlayback,
       mediaAsset: mediaLayerAsset,
       overlays: activeOverlays.map((overlay) => ({
         overlay: overlay.overlay,
-        opacityMultiplier: overlay.opacityMultiplier,
+        opacityMultiplier: 1,
         stackOrder: overlay.stackOrder,
         startedAt: overlay.startedAt,
       })),
       includeContent: contentLayerVisible,
-    });
-  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset, videoLayerAsset, videoLayerPlayback]);
+    }, { proxyMediaBySource: mediaProxyBySource });
+  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset, mediaProxyBySource, projectLiveSlidesById, videoLayerAsset, videoLayerPlayback]);
 
   const isEditing = workbenchMode !== 'show';
   const [frozenProgramScene, setFrozenProgramScene] = useState<RenderScene | null>(null);
@@ -361,19 +418,20 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const getThumbnailScene = useCallback((slideId: Id, surface: SceneSurface): RenderScene | null => {
     const slide = projectSlidesById.get(slideId);
     if (!slide) return null;
+    const frame = projectLiveSlidesById.get(slideId) ?? slide;
     const policy = thumbnailSourcePolicy(surface, currentSlide?.id === slideId);
     const elements = policy === 'draft'
-      ? (currentSlide?.id === slideId ? effectiveElements : getSlideElements(slideId))
-      : (projectSlideElementsBySlideId.get(slideId) ?? []);
+      ? resolveElementsForSlide(slideId, currentSlide?.id === slideId ? effectiveElements : getSlideElements(slideId))
+      : (projectLiveElementsBySlideId.get(slideId) ?? []);
     const cache = thumbnailCacheRef.current;
     const cached = cache.get(slideId);
     if (cached && cached.slide === slide && cached.elements === elements) {
       return cached.scene;
     }
-    const scene = buildThumbnailScene(slide, elements);
+    const scene = buildThumbnailScene(frame, elements, { proxyMediaBySource: mediaProxyBySource });
     cache.set(slideId, { slide, elements, scene });
     return scene;
-  }, [currentSlide?.id, effectiveElements, getSlideElements, projectSlideElementsBySlideId, projectSlidesById]);
+  }, [currentSlide?.id, effectiveElements, getSlideElements, mediaProxyBySource, projectLiveElementsBySlideId, projectLiveSlidesById, projectSlidesById, resolveElementsForSlide]);
 
   const scenesValue = useMemo<RenderSceneValue>(() => ({
     editScene, showScene, liveScene, programScene, getThumbnailScene, commitProgramScene,
@@ -385,9 +443,21 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
 
   return (
     <CanvasElementsContext.Provider value={elementsValue}>
-      <CanvasScenesContext.Provider value={scenesValue}>
-        {children}
-      </CanvasScenesContext.Provider>
+      <CanvasEditSceneContext.Provider value={editScene}>
+        <CanvasShowSceneContext.Provider value={showScene}>
+          <CanvasLiveSceneContext.Provider value={liveScene}>
+            <CanvasProgramSceneContext.Provider value={programScene}>
+              <CanvasThumbnailSceneContext.Provider value={getThumbnailScene}>
+                <CanvasCommitProgramSceneContext.Provider value={commitProgramScene}>
+                  <CanvasScenesContext.Provider value={scenesValue}>
+                    {children}
+                  </CanvasScenesContext.Provider>
+                </CanvasCommitProgramSceneContext.Provider>
+              </CanvasThumbnailSceneContext.Provider>
+            </CanvasProgramSceneContext.Provider>
+          </CanvasLiveSceneContext.Provider>
+        </CanvasShowSceneContext.Provider>
+      </CanvasEditSceneContext.Provider>
     </CanvasElementsContext.Provider>
   );
 }
@@ -409,6 +479,42 @@ export function useElements(): ElementContextValue {
 export function useRenderScenes(): RenderSceneValue {
   const ctx = useContext(CanvasScenesContext);
   if (!ctx) throw new Error('useRenderScenes must be used within CanvasProvider');
+  return ctx;
+}
+
+export function useEditScene(): RenderScene {
+  const ctx = useContext(CanvasEditSceneContext);
+  if (!ctx) throw new Error('useEditScene must be used within CanvasProvider');
+  return ctx;
+}
+
+export function useShowScene(): RenderScene {
+  const ctx = useContext(CanvasShowSceneContext);
+  if (!ctx) throw new Error('useShowScene must be used within CanvasProvider');
+  return ctx;
+}
+
+export function useLiveScene(): RenderScene {
+  const ctx = useContext(CanvasLiveSceneContext);
+  if (!ctx) throw new Error('useLiveScene must be used within CanvasProvider');
+  return ctx;
+}
+
+export function useProgramScene(): RenderScene {
+  const ctx = useContext(CanvasProgramSceneContext);
+  if (!ctx) throw new Error('useProgramScene must be used within CanvasProvider');
+  return ctx;
+}
+
+export function useThumbnailScene(): RenderSceneValue['getThumbnailScene'] {
+  const ctx = useContext(CanvasThumbnailSceneContext);
+  if (!ctx) throw new Error('useThumbnailScene must be used within CanvasProvider');
+  return ctx;
+}
+
+export function useCommitProgramScene(): RenderSceneValue['commitProgramScene'] {
+  const ctx = useContext(CanvasCommitProgramSceneContext);
+  if (!ctx) throw new Error('useCommitProgramScene must be used within CanvasProvider');
   return ctx;
 }
 

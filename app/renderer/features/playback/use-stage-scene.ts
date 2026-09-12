@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { TextElementPayload } from '@core/types';
+import type { TextElementPayload } from '@lumacast/composition';
 import { useSlides } from '../../contexts/slide-context';
 import { buildRenderScene } from '../canvas/build-render-scene';
-import type { BindingValue } from '../canvas/binding-context';
-import type { RenderScene } from '../canvas/scene-types';
+import type { BindingValue } from '@lumacast/composition';
+import type { RenderScene } from '@lumacast/composition';
 import { useStagePlayback } from '../../contexts/playback/playback-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useNavigation } from '../../contexts/navigation-context';
+import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 
 // Resolves the RenderScene for the operator-selected stage layout. Returns an
 // empty scene when no stage is active so consumers can always render without
@@ -14,14 +15,16 @@ import { useNavigation } from '../../contexts/navigation-context';
 export function useStageScene(): RenderScene {
   const { currentStageId } = useStagePlayback();
   const { stagesById } = useProjectContent();
+  const mediaProxyBySource = useMediaProxyMap();
 
   return useMemo(() => {
     const stage = currentStageId ? stagesById.get(currentStageId) ?? null : null;
     return buildRenderScene(
-      stage ? { width: stage.width, height: stage.height, background: stage.background ?? null } : null,
+      stage ? { id: stage.id, width: stage.width, height: stage.height, background: stage.background ?? null } : null,
       stage?.elements ?? [],
+      { proxyMediaBySource: mediaProxyBySource },
     );
-  }, [currentStageId, stagesById]);
+  }, [currentStageId, mediaProxyBySource, stagesById]);
 }
 
 function extractSlideText(elements: Array<{ type: string; payload: unknown }>): string {
@@ -36,37 +39,33 @@ function extractSlideText(elements: Array<{ type: string; payload: unknown }>): 
 
 export function useStageBindingValue(): BindingValue {
   const { armedAtMs } = useStagePlayback();
-  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements, liveTalkScriptBlock, liveTalkScriptProgress } = useSlides();
+  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements } = useSlides();
 
   return useMemo(() => ({
     currentSlideText: liveSlide ? extractSlideText(liveElements) : null,
     nextSlideText: nextLiveSlide ? extractSlideText(nextLiveElements) : null,
     slideNotes: liveSlide ? liveSlide.notes : null,
-    talkScriptCurrent: liveTalkScriptBlock?.text ?? null,
-    talkScriptProgress: liveTalkScriptProgress,
     armedAtMs,
-  }), [armedAtMs, liveElements, liveSlide, liveTalkScriptBlock, liveTalkScriptProgress, nextLiveElements, nextLiveSlide]);
+  }), [armedAtMs, liveElements, liveSlide, nextLiveElements, nextLiveSlide]);
 }
 
 export function useProgramBindingValue(): BindingValue {
-  const { currentOutputDeckItemId, outputArmVersion } = useNavigation();
-  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements, liveTalkScriptBlock, liveTalkScriptProgress } = useSlides();
+  const { currentOutputItemRef, outputArmVersion } = useNavigation();
+  const { liveSlide, liveElements, nextLiveSlide, nextLiveElements } = useSlides();
   const [armedAtMs, setArmedAtMs] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!currentOutputDeckItemId) {
+    if (!currentOutputItemRef) {
       setArmedAtMs(null);
       return;
     }
     setArmedAtMs(Date.now());
-  }, [currentOutputDeckItemId, outputArmVersion]);
+  }, [currentOutputItemRef, outputArmVersion]);
 
   return useMemo(() => ({
     currentSlideText: liveSlide ? extractSlideText(liveElements) : null,
     nextSlideText: nextLiveSlide ? extractSlideText(nextLiveElements) : null,
     slideNotes: liveSlide ? liveSlide.notes : null,
-    talkScriptCurrent: liveTalkScriptBlock?.text ?? null,
-    talkScriptProgress: liveTalkScriptProgress,
     armedAtMs,
-  }), [armedAtMs, liveElements, liveSlide, liveTalkScriptBlock, liveTalkScriptProgress, nextLiveElements, nextLiveSlide]);
+  }), [armedAtMs, liveElements, liveSlide, nextLiveElements, nextLiveSlide]);
 }

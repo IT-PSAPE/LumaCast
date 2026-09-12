@@ -1,0 +1,8 @@
+{
+  "name": "@lumacast/playback",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "description": "Headless playback decisions: overlay lifecycle state machine, presentation-layer clear/assign transitions, playlist adjacency (take next/previous), and stage-arming state. DOM media element lifecycle and IPC/NDI wiring stay in the app-side provider."
+}

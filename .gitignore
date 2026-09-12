@@ -5,9 +5,12 @@ dist
 .DS_Store
 *.db
 packages/ndi-native/build
+tests/packages/ndi-native/fixtures/libndi_mock.dylib
+tests/packages/ndi-native/fixtures/mock_report.json
 .electron-dev-dist
 .npm-cache
 .local
+logs
 
 bun.lock
 test-results/

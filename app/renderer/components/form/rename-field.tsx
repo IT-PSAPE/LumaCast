@@ -1,4 +1,5 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent } from "react"
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react"
+import { Input } from "@base-ui/react/input"
 import { cn } from "../../utils/cn"
 
 type RenameFieldProps = {
@@ -78,7 +79,19 @@ export const RenameField = forwardRef<RenameFieldHandle, RenameFieldProps>(funct
         if (!isEditing) event.preventDefault()
     }
 
+    const handlePointerDown = (event: PointerEvent<HTMLInputElement>): void => {
+        // The surrounding row may be a drag activator (SortableList). While
+        // editing, the pointer belongs to the text field — otherwise dragging
+        // across the text to select it would start a reorder. dnd-kit listens
+        // on pointerdown, so the mousedown handler above does not cover this.
+        if (isEditing) event.stopPropagation()
+    }
+
     const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+        // Space and Enter are dnd-kit's keyboard drag activators, and they
+        // reach the row by bubbling out of this input. While editing they are
+        // text input (and Enter is a commit), never a lift.
+        if (isEditing && (event.key === " " || event.key === "Enter")) event.stopPropagation()
         if (event.key === "Enter") {
             event.preventDefault()
             commit()
@@ -89,7 +102,12 @@ export const RenameField = forwardRef<RenameFieldHandle, RenameFieldProps>(funct
     }
 
     return (
-        <input
+        // No `type` prop: the app's Playwright e2e suite locates this input via
+        // `input:not([type])` (see tests/app/e2e/theme-regression.spec.ts) because a
+        // renamed value lives only in the live DOM `.value` property. Base UI's
+        // <Input> renders a bare <input> and never adds a default `type`, so that
+        // selector keeps working unchanged.
+        <Input
             ref={inputRef}
             className={cn( "m-0 w-full min-w-0 appearance-none truncate border-0 bg-transparent p-0 outline-none focus:outline-none focus:ring-0", isEditing ? "cursor-text" : "cursor-pointer", className)}
             readOnly={!isEditing || !enabled}
@@ -101,6 +119,7 @@ export const RenameField = forwardRef<RenameFieldHandle, RenameFieldProps>(funct
             onDoubleClick={handleDoubleClick}
             onKeyDown={handleKeyDown}
             onMouseDown={handleMouseDown}
+            onPointerDown={handlePointerDown}
         />
     )
 })

@@ -1,15 +1,14 @@
-import type { Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type SlideBrowserMode = 'grid' | 'list';
 export type ResourceDrawerViewMode = 'grid' | 'list';
-export type PlaylistBrowserMode = 'current' | 'tabs' | 'continuous';
-export type WorkbenchMode = 'show' | 'deck-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings';
+export type WorkbenchMode = 'show' | 'item-editor' | 'overlay-editor' | 'theme-editor' | 'stage-editor' | 'macro-editor' | 'settings';
 export type InteractionMode = 'move' | 'resize';
-export type DrawerTab = 'deck' | 'image' | 'themes';
+export type DrawerTab = 'deck' | 'image' | 'video' | 'audio' | 'themes';
 export type DrawerViewModeMap = Record<DrawerTab, ResourceDrawerViewMode>;
 export type InspectorTab = 'presentation' | 'slide' | 'shape' | 'text' | 'theme' | 'stage' | 'binding' | 'video' | 'properties' | 'triggers';
-export type LibraryPanelView = 'libraries' | 'playlist';
 export type ProgramSurfaceKind = 'program' | 'monitor' | 'stage';
 export type ProgramMode = 'single' | 'all';
 export type ProgramGridDensity = 1 | 2;

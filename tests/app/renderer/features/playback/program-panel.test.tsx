@@ -1,0 +1,301 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render } from '@testing-library/react';
+import { ProgramPanel } from '../../../../../app/renderer/features/playback/program-panel';
+
+// Covers the program-panel composition refactor: the optional surface label
+// is a compound child decision (all-mode composes a badge into each cell,
+// single-mode composes none), the single/all header controls are explicit
+// variant components, and the bottom tab tree renders through Tabs.Panel.
+
+const mocks = vi.hoisted(() => {
+  const workbenchState = {
+    programMode: 'single',
+    programSingleSurface: 'program',
+    programGridDensity: 1,
+  };
+  return {
+    workbenchState,
+    workbenchActions: {
+      setProgramMode: vi.fn((mode: 'single' | 'all') => { workbenchState.programMode = mode; }),
+      setProgramSingleSurface: vi.fn((surface: 'program' | 'monitor' | 'stage') => { workbenchState.programSingleSurface = surface; }),
+      setProgramGridDensity: vi.fn((density: 1 | 2) => { workbenchState.programGridDensity = density; }),
+      setWorkbenchMode: vi.fn(),
+    },
+    overlayStack: { register: vi.fn(), unregister: vi.fn(), stack: [] as string[], baseZIndex: 100 },
+    automationActions: {
+      createMacro: vi.fn().mockResolvedValue({}),
+      cancelActiveMacros: vi.fn(),
+    },
+    programBackground: 'black',
+    audienceWithAlpha: false,
+    stageWithAlpha: false,
+  };
+});
+
+vi.mock('../../../../../app/renderer/contexts/workbench-context', () => ({
+  useWorkbench: () => ({
+    state: mocks.workbenchState,
+    actions: mocks.workbenchActions,
+    overlayStack: mocks.overlayStack,
+  }),
+}));
+
+vi.mock('../../../../../app/renderer/contexts/app-context', () => ({
+  useNdi: () => ({
+    state: {
+      outputConfigs: {
+        audience: { withAlpha: mocks.audienceWithAlpha },
+        stage: { withAlpha: mocks.stageWithAlpha },
+      },
+      outputState: {},
+      diagnostics: null,
+    },
+    actions: { setOutputEnabled: vi.fn(), toggleAudienceOutput: vi.fn(), toggleStageOutput: vi.fn(), updateOutputConfig: vi.fn() },
+  }),
+}));
+
+vi.mock('../../../../../app/renderer/contexts/navigation-context', () => ({
+  useNavigation: () => ({ currentOutputItemRef: null }),
+}));
+
+vi.mock('../../../../../app/renderer/contexts/playback/playback-context', () => ({
+  usePresentationLayers: () => ({
+    clearLayer: vi.fn(),
+    clearAllLayers: vi.fn(),
+    mediaLayerAsset: null,
+    videoLayerAsset: null,
+    contentLayerVisible: false,
+    activeOverlays: [],
+    overlayMode: 'single',
+    setOverlayMode: vi.fn(),
+  }),
+  useAudio: () => ({ isPlaying: false, currentTime: 0, clearAudio: vi.fn() }),
+  useStagePlayback: () => ({ setCurrentStageId: vi.fn() }),
+}));
+
+vi.mock('../../../../../app/renderer/contexts/asset-editor/asset-editor-context', () => ({
+  useOverlayEditor: () => ({ createOverlay: vi.fn().mockResolvedValue(undefined) }),
+  useStageEditor: () => ({ createStage: vi.fn().mockResolvedValue(null) }),
+}));
+
+vi.mock('../../../../../app/renderer/contexts/canvas/canvas-context', () => ({
+  useRenderScenes: () => ({ showScene: {} }),
+}));
+
+vi.mock('../../../../../app/renderer/features/automation/automation-context', () => ({
+  useAutomation: () => ({ actions: mocks.automationActions }),
+}));
+
+vi.mock('../../../../../app/renderer/features/playback/use-program-output', () => ({
+  useProgramOutput: () => ({ scene: {}, status: 'idle', background: mocks.programBackground }),
+}));
+
+vi.mock('../../../../../app/renderer/features/playback/use-stage-scene', () => ({
+  useProgramBindingValue: () => ({
+    currentSlideText: null,
+    nextSlideText: null,
+    slideNotes: null,
+    armedAtMs: null,
+  }),
+  useStageBindingValue: () => ({
+    currentSlideText: null,
+    nextSlideText: null,
+    slideNotes: null,
+    armedAtMs: null,
+  }),
+  useStageScene: () => ({}),
+}));
+
+vi.mock('../../../../../app/renderer/features/playback/program-mode-header', () => ({
+  ProgramModeHeader: () => (
+    <div>
+      <button
+        aria-label={mocks.workbenchState.programMode === 'single' ? 'Switch to all program views' : 'Switch to single program view'}
+        onClick={() => mocks.workbenchActions.setProgramMode(mocks.workbenchState.programMode === 'single' ? 'all' : 'single')}
+      />
+      {mocks.workbenchState.programMode === 'single' ? (
+        <div>
+          <button>{mocks.workbenchState.programSingleSurface === 'program' ? 'Program' : mocks.workbenchState.programSingleSurface === 'monitor' ? 'Monitor' : 'Stage'}</button>
+          <button role="menuitem" onClick={() => mocks.workbenchActions.setProgramSingleSurface('program')}>Program</button>
+          <button role="menuitem" onClick={() => mocks.workbenchActions.setProgramSingleSurface('monitor')}>Monitor</button>
+          <button role="menuitem" onClick={() => mocks.workbenchActions.setProgramSingleSurface('stage')}>Stage</button>
+        </div>
+      ) : (
+        <label aria-label="Grid columns" />
+      )}
+    </div>
+  ),
+}));
+
+vi.mock('../../../../../app/renderer/features/playback/surfaces-area', () => ({
+  SurfacesArea: () => {
+    const labels = { program: 'Program', monitor: 'Monitor', stage: 'Stage' } as const;
+    const surfaces = mocks.workbenchState.programMode === 'single'
+      ? [mocks.workbenchState.programSingleSurface]
+      : ['program', 'monitor', 'stage'];
+    return (
+      <div>
+        {surfaces.map((surface) => (
+          <div key={surface}>
+            {mocks.workbenchState.programMode === 'all' ? <span className="bg-black/60">{labels[surface as keyof typeof labels]}</span> : null}
+            <div
+              data-testid="scene-stage"
+              data-surface={surface === 'program' ? 'show' : surface}
+              data-ndi-capture={surface === 'program' ? 'audience' : surface === 'stage' ? 'stage' : ''}
+              className={(
+                surface === 'program' && mocks.programBackground === 'transparent'
+              ) || (
+                surface === 'monitor' && mocks.audienceWithAlpha
+              ) || (
+                surface === 'stage' && mocks.stageWithAlpha
+              ) ? 'repeating-conic-gradient' : ''}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  },
+}));
+
+vi.mock('../../../../../app/renderer/features/assets/overlays/overlay-bin-panel', () => ({
+  OverlayBinPanel: () => <div data-testid="overlay-bin" />,
+}));
+
+vi.mock('../../../../../app/renderer/features/assets/stages/stage-bin-panel', () => ({
+  StageBinPanel: () => <div data-testid="stage-bin" />,
+}));
+
+vi.mock('../../../../../app/renderer/features/automation/macro-bin-panel', () => ({
+  MacroBinPanel: () => <div data-testid="macro-bin" />,
+}));
+
+function surfaceBadges() {
+  return Array.from(document.querySelectorAll<HTMLElement>('span[class*="bg-black/60"]'));
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.workbenchState.programMode = 'single';
+  mocks.workbenchState.programSingleSurface = 'program';
+  mocks.workbenchState.programGridDensity = 1;
+  mocks.programBackground = 'black';
+  mocks.audienceWithAlpha = false;
+  mocks.stageWithAlpha = false;
+});
+
+afterEach(() => {
+  cleanup();
+});
+
+describe('ProgramPanel surface composition', () => {
+  it('single mode composes the surface picker and no label badges', () => {
+    const { getByRole, queryByLabelText, queryAllByTestId } = render(<ProgramPanel />);
+
+    expect(getByRole('button', { name: 'Program' })).not.toBeNull();
+    expect(queryByLabelText('Grid columns')).toBeNull();
+    expect(surfaceBadges()).toHaveLength(0);
+
+    const stages = queryAllByTestId('scene-stage');
+    expect(stages).toHaveLength(1);
+    expect(stages[0].getAttribute('data-surface')).toBe('show');
+  });
+
+  it('all mode composes the grid density control and a badge per surface cell', () => {
+    mocks.workbenchState.programMode = 'all';
+    const { getByLabelText, queryByRole, queryAllByTestId } = render(<ProgramPanel />);
+
+    expect(getByLabelText('Grid columns')).not.toBeNull();
+    expect(queryByRole('button', { name: 'Program' })).toBeNull();
+
+    const badges = surfaceBadges();
+    expect(badges.map((badge) => badge.textContent)).toEqual(['Program', 'Monitor', 'Stage']);
+
+    const stages = queryAllByTestId('scene-stage');
+    expect(stages).toHaveLength(3);
+    expect(stages.map((stage) => stage.getAttribute('data-surface'))).toEqual(['show', 'monitor', 'stage']);
+  });
+
+  it('mode toggle switches between the single and all header variant trees', () => {
+    const { getByRole, rerender, queryByLabelText, queryByRole } = render(<ProgramPanel />);
+
+    fireEvent.click(getByRole('button', { name: 'Switch to all program views' }));
+    expect(mocks.workbenchActions.setProgramMode).toHaveBeenCalledWith('all');
+    rerender(<ProgramPanel />);
+    expect(getByRole('button', { name: 'Switch to single program view' })).not.toBeNull();
+    expect(queryByLabelText('Grid columns')).not.toBeNull();
+    expect(surfaceBadges()).toHaveLength(3);
+
+    fireEvent.click(getByRole('button', { name: 'Switch to single program view' }));
+    expect(mocks.workbenchActions.setProgramMode).toHaveBeenCalledWith('single');
+    rerender(<ProgramPanel />);
+    expect(queryByLabelText('Grid columns')).toBeNull();
+    expect(queryByRole('button', { name: 'Program' })).not.toBeNull();
+    expect(surfaceBadges()).toHaveLength(0);
+  });
+
+  it('surface pick replaces the single-mode cell composition', () => {
+    const { getByRole, rerender, queryAllByTestId } = render(<ProgramPanel />);
+
+    fireEvent.click(getByRole('button', { name: 'Program' }));
+    fireEvent.click(getByRole('menuitem', { name: 'Stage' }));
+    expect(mocks.workbenchActions.setProgramSingleSurface).toHaveBeenCalledWith('stage');
+
+    rerender(<ProgramPanel />);
+    expect(getByRole('button', { name: 'Stage' })).not.toBeNull();
+    const stages = queryAllByTestId('scene-stage');
+    expect(stages).toHaveLength(1);
+    expect(stages[0].getAttribute('data-surface')).toBe('stage');
+  });
+
+  it('keeps the semantic checkerboard driven by output background and withAlpha config', () => {
+    mocks.programBackground = 'transparent';
+    const { container } = render(<ProgramPanel />);
+    expect(container.querySelectorAll('[class*="repeating-conic-gradient"]')).toHaveLength(1);
+
+    cleanup();
+    mocks.workbenchState.programMode = 'all';
+    mocks.audienceWithAlpha = true;
+    const all = render(<ProgramPanel />);
+    expect(all.container.querySelectorAll('[class*="repeating-conic-gradient"]')).toHaveLength(2);
+  });
+});
+
+describe('ProgramPanel bottom tabs', () => {
+  it('overlays tab is active by default with its action row and bin content', () => {
+    const { getByLabelText, getByTestId, queryByLabelText, queryByTestId } = render(<ProgramPanel />);
+
+    expect(getByLabelText('Add overlay')).not.toBeNull();
+    expect(getByLabelText('Edit overlays')).not.toBeNull();
+    expect(queryByLabelText('Add stage')).toBeNull();
+    expect(queryByLabelText('Add macro')).toBeNull();
+    expect(getByTestId('overlay-bin')).not.toBeNull();
+    expect(queryByTestId('stage-bin')).toBeNull();
+    expect(queryByTestId('macro-bin')).toBeNull();
+  });
+
+  it('switching tabs swaps the composed action row and bin content', () => {
+    const { getByRole, getByLabelText, getByTestId, queryByLabelText, queryByTestId } = render(<ProgramPanel />);
+
+    fireEvent.click(getByRole('tab', { name: 'Stage' }));
+    expect(getByLabelText('Add stage')).not.toBeNull();
+    expect(getByLabelText('Edit stages')).not.toBeNull();
+    expect(queryByLabelText('Add overlay')).toBeNull();
+    expect(getByTestId('stage-bin')).not.toBeNull();
+    expect(queryByTestId('overlay-bin')).toBeNull();
+
+    fireEvent.click(getByRole('tab', { name: 'Macros' }));
+    expect(getByLabelText('Add macro')).not.toBeNull();
+    expect(getByLabelText('Edit macros')).not.toBeNull();
+    expect(getByLabelText('Cancel active macros')).not.toBeNull();
+    fireEvent.click(getByLabelText('Cancel active macros'));
+    expect(mocks.automationActions.cancelActiveMacros).toHaveBeenCalledTimes(1);
+    expect(queryByLabelText('Add stage')).toBeNull();
+    expect(getByTestId('macro-bin')).not.toBeNull();
+    expect(queryByTestId('stage-bin')).toBeNull();
+
+    fireEvent.click(getByRole('tab', { name: 'Overlays' }));
+    expect(getByLabelText('Add overlay')).not.toBeNull();
+    expect(getByTestId('overlay-bin')).not.toBeNull();
+    expect(queryByTestId('macro-bin')).toBeNull();
+  });
+});

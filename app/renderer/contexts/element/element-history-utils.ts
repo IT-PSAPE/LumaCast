@@ -1,4 +1,6 @@
-import type { ElementCreateInput, ElementUpdateInput, Id, SlideElement } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
+import type { ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
 import { sameElementState } from '../../utils/element-context-utils';
 
 interface SnapshotDiff {
@@ -34,6 +36,11 @@ export function buildSnapshotDiff(current: SlideElement[], target: SlideElement[
         zIndex: targetElement.zIndex,
         layer: targetElement.layer,
         payload: targetElement.payload,
+        // Live inherited themes: a derived theme element edited in the item
+        // editor reaches the push as a create — keep its provenance so the
+        // new row stays linked instead of silently becoming user-owned.
+        sourceThemeElementId: targetElement.sourceThemeElementId ?? null,
+        themeOverrideKeys: targetElement.themeOverrideKeys ?? null,
       });
       continue;
     }
@@ -50,6 +57,7 @@ export function buildSnapshotDiff(current: SlideElement[], target: SlideElement[
         zIndex: targetElement.zIndex,
         layer: targetElement.layer,
         payload: targetElement.payload,
+        themeOverrideKeys: targetElement.themeOverrideKeys ?? null,
       });
     }
   }

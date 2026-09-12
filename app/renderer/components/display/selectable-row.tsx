@@ -6,7 +6,7 @@ export const selectableRowStyles = cv({
   base: 'flex h-7 w-full items-center gap-2 rounded px-1.5 text-left transition-colors',
   variants: {
     selected: {
-      true: ['bg-active text-primary'],
+      true: ['bg-tertiary text-primary'],
       false: ['text-secondary hover:bg-tertiary/55'],
     },
   },

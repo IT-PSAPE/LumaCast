@@ -1,11 +1,12 @@
 import { useCallback } from 'react';
-import { isLyricDeckItem } from '@core/deck-items';
-import type { DeckItem, ElementCreateInput, Id, MediaAsset, SlideElement } from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
+import type { Id } from '@lumacast/kernel';
+import type { ItemRef, MediaAsset, SlideElement } from '@lumacast/composition';
+import type { ElementCreateInput } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
 import { castMediaSrc, getOverlayDefaults, typeFromFile } from '../../utils/slides';
 import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
-import type { ActiveEditorSource } from '../canvas/editor-source';
+import type { ActiveEditorSource } from '@lumacast/canvas';
 import {
   createTextElement,
   newOverlayElement,
@@ -17,15 +18,15 @@ import {
 
 interface CommandsParams {
   activeEditorSource: ActiveEditorSource;
-  currentDeckItem: DeckItem | null;
+  currentItemRef: ItemRef | null;
   mutatePatch: (action: () => Promise<SnapshotPatch>) => Promise<unknown>;
   setStatusText: (text: string) => void;
   pushHistorySnapshot: () => void;
 }
 
-export function useElementCommands({ activeEditorSource, currentDeckItem, mutatePatch, setStatusText, pushHistorySnapshot }: CommandsParams) {
+export function useElementCommands({ activeEditorSource, currentItemRef, mutatePatch, setStatusText, pushHistorySnapshot }: CommandsParams) {
   const { state: { overlayDefaults } } = useWorkbench();
-  const isLyricItem = isLyricDeckItem(currentDeckItem);
+  const isLyricItem = currentItemRef?.type === 'lyric';
   const { slideElementsBySlideId } = useProjectContent();
 
   function resolvePersistentMediaSource(file: File): string | null {
@@ -45,7 +46,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
   }
 
   function resolveSlideIdForDirectCreate(): Id | null {
-    if (activeEditorSource.mode === 'deck-editor') return activeEditorSource.meta.slideId;
+    if (activeEditorSource.mode === 'item-editor') return activeEditorSource.meta.slideId;
     return null;
   }
 
@@ -64,7 +65,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     if (activeEditorSource.mode === 'theme-editor') {
       const currentTheme = activeEditorSource.meta.theme;
       if (!currentTheme) return;
-      if (currentTheme.kind === 'lyrics' && activeEditorSource.elements.some((element) => element.type === 'text')) {
+      if (activeEditorSource.meta.themeType === 'lyric' && activeEditorSource.elements.some((element) => element.type === 'text')) {
         setStatusText('Lyric themes only support the existing lyric text element.');
         return;
       }
@@ -83,7 +84,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
 
     const currentSlideId = resolveSlideIdForDirectCreate();
     if (!currentSlideId) return;
-    if (activeEditorSource.mode === 'deck-editor' && isLyricItem) {
+    if (activeEditorSource.mode === 'item-editor' && isLyricItem) {
       const existingLyricsText = (slideElementsBySlideId.get(currentSlideId) ?? []).find((element) => {
         return element.slideId === currentSlideId && element.type === 'text' && 'text' in element.payload;
       });
@@ -93,7 +94,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
       }
     }
 
-    if (activeEditorSource.mode === 'deck-editor') {
+    if (activeEditorSource.mode === 'item-editor') {
       addToSource(createTextElement(currentSlideId));
       setStatusText('Added text element');
       return;
@@ -142,7 +143,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     const currentSlideId = resolveSlideIdForDirectCreate();
     if (!currentSlideId) return;
 
-    if (activeEditorSource.mode === 'deck-editor') {
+    if (activeEditorSource.mode === 'item-editor') {
       addToSource(newSlideShapeElement(currentSlideId));
       setStatusText('Added shape element');
       return;
@@ -196,7 +197,7 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     const currentSlideId = resolveSlideIdForDirectCreate();
     if (!currentSlideId) return;
 
-    if (activeEditorSource.mode === 'deck-editor') {
+    if (activeEditorSource.mode === 'item-editor') {
       addToSource(newSlideMediaElement(currentSlideId, asset, x, y));
       setStatusText(`Added ${asset.type} element`);
       return;
@@ -249,29 +250,46 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
     setStatusText(enabled ? 'Overlay enabled' : 'Overlay disabled');
   }, [mutatePatch, setStatusText]);
 
-  const importMedia = useCallback(async (files: FileList) => {
+  const importMedia = useCallback(async (files: FileList | readonly File[]) => {
     if (files.length === 0) return;
     let importedCount = 0;
     let skippedCount = 0;
+    let failedCount = 0;
     for (const file of Array.from(files)) {
       const src = resolvePersistentMediaSource(file);
       if (!src) {
         skippedCount += 1;
         continue;
       }
-      await mutatePatch(() => window.castApi.createMediaAsset({
-        name: file.name,
-        type: typeFromFile(file),
-        src,
-      }));
-      importedCount += 1;
+      try {
+        await mutatePatch(() => window.castApi.createMediaAsset({
+          name: file.name,
+          type: typeFromFile(file),
+          src,
+        }));
+        importedCount += 1;
+      } catch (error) {
+        // Import copies the file into the app's media library, so it can fail
+        // on an unreadable source or a full disk. One bad file must not
+        // abandon the rest of the selection.
+        console.error('[importMedia] Failed to import media file:', error);
+        failedCount += 1;
+      }
     }
-    if (importedCount > 0 && skippedCount === 0) {
+    if (importedCount > 0 && skippedCount === 0 && failedCount === 0) {
       setStatusText('Media imported');
       return;
     }
     if (importedCount > 0) {
-      setStatusText(`Imported ${importedCount} media item(s); skipped ${skippedCount} item(s) without file paths.`);
+      const problems = [
+        failedCount > 0 ? `${failedCount} could not be copied` : null,
+        skippedCount > 0 ? `skipped ${skippedCount} without file paths` : null,
+      ].filter((part): part is string => part !== null);
+      setStatusText(`Imported ${importedCount} media item(s); ${problems.join('; ')}.`);
+      return;
+    }
+    if (failedCount > 0) {
+      setStatusText('No media imported. The selected files could not be copied into the media library.');
       return;
     }
     setStatusText('No media imported. Selected files did not expose absolute file paths.');
@@ -288,7 +306,13 @@ export function useElementCommands({ activeEditorSource, currentDeckItem, mutate
       setStatusText('Media source not updated. Selected file did not expose an absolute file path.');
       return;
     }
-    await mutatePatch(() => window.castApi.updateMediaAssetSrc(id, src));
+    try {
+      await mutatePatch(() => window.castApi.updateMediaAssetSrc(id, src));
+    } catch (error) {
+      console.error('[changeMediaSrc] Failed to replace media source:', error);
+      setStatusText('Media source not updated. The selected file could not be copied into the media library.');
+      return;
+    }
     setStatusText('Media source updated');
   }, [mutatePatch, setStatusText]);
 

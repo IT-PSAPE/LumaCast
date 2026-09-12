@@ -1,21 +1,19 @@
 import { useEffect } from 'react';
-import { SHORTCUTS, type ShortcutActionId } from '@core/shortcuts';
-import type { SlideBrowserMode, PlaylistBrowserMode } from '../types/ui';
-import { CANVAS_VIEW_LABELS, PLAYLIST_DISPLAY_MODE_LABELS } from '../utils/slides';
+import { SHORTCUTS, matchesShortcut, menuCommandForEvent, menuCommandClaimRegistry, type ShortcutActionId } from '@lumacast/commands';
+import type { SlideBrowserMode } from '../types/ui';
+import { CANVAS_VIEW_LABELS } from '../utils/slides';
 import { useCast } from '../contexts/app-context';
 import { useSlides } from '../contexts/slide-context';
 import { useElements } from '../contexts/canvas/canvas-context';
-import { useDeckBrowser } from '../features/deck/deck-browser-context';
+import { useDeckBrowser } from '../features/items/deck-browser-context';
 import { useCommandPalette } from '../features/command-palette/command-palette-context';
 import { useWorkbench } from '../contexts/workbench-context';
-import { matchesShortcut } from './use-keyboard-shortcuts-match';
-import { handleEditableTextShortcut } from '../utils/editable-text-shortcuts';
 
 function isEditableTarget(target: HTMLElement | null): boolean {
   if (!target) return false;
-  return target.tagName === 'INPUT'
-    || target.tagName === 'TEXTAREA'
-    || target.getAttribute('contenteditable') === 'true';
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return true;
+  if (target.isContentEditable) return true;
+  return target.closest<HTMLElement>('[contenteditable="true"]') !== null;
 }
 
 // Only block shortcuts when the target is a text-editing surface or has been
@@ -34,71 +32,95 @@ export function useKeyboardShortcuts(): void {
   const { open: openCommandPalette } = useCommandPalette();
   const { slides, currentSlide, currentSlideIndex, isOutputArmedOnCurrent, activateSlide, takeSlide, goNext, goPrev, deleteSlide, setCurrentSlideIndex } = useSlides();
   const { selectedElementId, clearSelection, deleteSelected, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, undo, redo } = useElements();
-  const { setSlideBrowserMode, setPlaylistBrowserMode } = useDeckBrowser();
-  const { state: { workbenchMode } } = useWorkbench();
-  const isEditSlideBrowser = workbenchMode === 'deck-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'theme-editor' || workbenchMode === 'stage-editor';
+  const { setSlideBrowserMode } = useDeckBrowser();
+  const { state: { workbenchMode }, overlayStack } = useWorkbench();
+  const isEditSlideBrowser = workbenchMode === 'item-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'theme-editor' || workbenchMode === 'stage-editor';
+  const isShowMode = workbenchMode === 'show';
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      if (isEditableTarget(target)) {
-        handleEditableTextShortcut(event, target, {
-          readText: () => window.castApi.readClipboardText(),
-          writeText: (text) => window.castApi.writeClipboardText(text),
-        });
+      // A component that already consumed this key owns it. Overlays listen on
+      // `document`, which runs before this `window` listener, so without this
+      // guard Escape would close the topmost dialog *and* clear the canvas
+      // selection behind it from the same keypress.
+      if (event.defaultPrevented) {
+        // Even then a modal overlay can leave the native menu able to fire an
+        // app command underneath it (macOS accelerators cannot be
+        // unregistered), so neutralize the parallel menu command too.
+        if (overlayStack.stack.length > 0) {
+          const menuCommand = menuCommandForEvent(event);
+          if (menuCommand) menuCommandClaimRegistry.claim(menuCommand);
+        }
         return;
       }
-      if (isInteractiveTarget(target)) return;
 
-      const handlers: Record<ShortcutActionId, (event: KeyboardEvent, payload?: string) => void> = {
-        copySelection: () => copySelection(),
-        cutSelection: () => { void cutSelection(); },
-        pasteSelection: () => { void pasteSelection(); },
-        duplicateSelection: () => { void duplicateSelection(); },
-        undo: () => { void undo(); },
-        redo: () => { void redo(); },
-        globalUndo: () => { void globalUndoAction(); },
-        globalRedo: () => { void globalRedoAction(); },
-        openCommandPalette: () => openCommandPalette(),
-        setPlaylistBrowserMode: (_event, digit) => {
-          const modes: PlaylistBrowserMode[] = ['current', 'tabs', 'continuous'];
-          const next = modes[Number(digit) - 1];
-          setPlaylistBrowserMode(next);
-          setStatusText(`Playlist view: ${PLAYLIST_DISPLAY_MODE_LABELS[next]}`);
-        },
+      const target = event.target as HTMLElement | null;
+
+      // Editable surfaces, scope-ignored regions, and open modal overlays are
+      // out of scope for the app-level dispatcher. The browser owns editing
+      // chords in editable fields (rich-text copy, caret paste, per-field undo
+      // history), so we never preventDefault or mirror the clipboard through
+      // IPC here. We do claim the parallel native-menu command so the
+      // duplicate macOS menu IPC is dropped instead of falling through to a
+      // canvas/app action underneath.
+      if (isInteractiveTarget(target) || overlayStack.stack.length > 0) {
+        const menuCommand = menuCommandForEvent(event);
+        if (menuCommand) menuCommandClaimRegistry.claim(menuCommand);
+        return;
+      }
+
+      const handlers: Record<ShortcutActionId, (event: KeyboardEvent, payload?: string) => boolean> = {
+        copySelection: () => { copySelection(); return true; },
+        cutSelection: () => { void cutSelection().catch(() => undefined); return true; },
+        pasteSelection: () => { void pasteSelection().catch(() => undefined); return true; },
+        duplicateSelection: () => { void duplicateSelection().catch(() => undefined); return true; },
+        undo: () => { void undo().catch(() => undefined); return true; },
+        redo: () => { void redo().catch(() => undefined); return true; },
+        globalUndo: () => { void globalUndoAction().catch(() => undefined); return true; },
+        globalRedo: () => { void globalRedoAction().catch(() => undefined); return true; },
+        openCommandPalette: () => { openCommandPalette(); return true; },
         setSlideBrowserMode: (_event, digit) => {
           const modes: SlideBrowserMode[] = ['grid', 'list'];
           const next = modes[Number(digit) - 1];
           setSlideBrowserMode(next);
           setStatusText(`View: ${CANVAS_VIEW_LABELS[next]}`);
+          return true;
         },
-        takeSlide: () => takeSlide(),
+        takeSlide: () => { takeSlide(); return true; },
         deleteSelected: () => {
-          if (selectedElementId) void deleteSelected();
-          else if (currentSlide) void deleteSlide(currentSlide.id);
+          if (isEditSlideBrowser && selectedElementId) { void deleteSelected().catch(() => undefined); return true; }
+          if (currentSlide && (isEditSlideBrowser || isShowMode)) { void deleteSlide(currentSlide.id).catch(() => undefined); return true; }
+          return false;
         },
-        clearSelection: () => clearSelection(),
+        clearSelection: () => { clearSelection(); return true; },
         nudgeOrGoNext: (e) => {
           if (isEditSlideBrowser) {
-            if (selectedElementId) void nudgeSelection(e.shiftKey ? 10 : 1, 0);
-            return;
+            // nudgeSelection → updateElementsBatch rejects when an element no
+            // longer exists (#214); mutatePatch has already reported the
+            // failure, so absorb the rethrow here.
+            if (selectedElementId) { void nudgeSelection(e.shiftKey ? 10 : 1, 0).catch(() => undefined); return true; }
+            return false;
           }
           if (isOutputArmedOnCurrent) goNext();
           else setCurrentSlideIndex(currentSlideIndex + 1);
+          return true;
         },
         nudgeOrGoPrev: (e) => {
           if (isEditSlideBrowser) {
-            if (selectedElementId) void nudgeSelection(e.shiftKey ? -10 : -1, 0);
-            return;
+            // See nudgeOrGoNext: same race, same absorption.
+            if (selectedElementId) { void nudgeSelection(e.shiftKey ? -10 : -1, 0).catch(() => undefined); return true; }
+            return false;
           }
           if (isOutputArmedOnCurrent) goPrev();
           else setCurrentSlideIndex(currentSlideIndex - 1);
+          return true;
         },
-        nudgeUp: (e) => { void nudgeSelection(0, e.shiftKey ? -10 : -1); },
-        nudgeDown: (e) => { void nudgeSelection(0, e.shiftKey ? 10 : 1); },
+        nudgeUp: (e) => { void nudgeSelection(0, e.shiftKey ? -10 : -1).catch(() => undefined); return true; },
+        nudgeDown: (e) => { void nudgeSelection(0, e.shiftKey ? 10 : 1).catch(() => undefined); return true; },
         activateSlide: (_event, digit) => {
           const jumpTo = Number(digit) - 1;
-          if (jumpTo < slides.length) activateSlide(jumpTo);
+          if (jumpTo < slides.length) { activateSlide(jumpTo); return true; }
+          return false;
         },
       };
 
@@ -107,13 +129,16 @@ export function useKeyboardShortcuts(): void {
         if (def.context === 'editWithSelection' && !(isEditSlideBrowser && selectedElementId)) continue;
         const match = matchesShortcut(event, def);
         if (!match) continue;
-        event.preventDefault();
-        handlers[def.id](event, typeof match === 'string' ? match : undefined);
-        return;
+        const acted = handlers[def.id](event, typeof match === 'string' ? match : undefined);
+        if (acted) {
+          menuCommandClaimRegistry.claimForShortcut(def.id);
+          event.preventDefault();
+          return;
+        }
       }
     }
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isEditSlideBrowser, slides.length, selectedElementId, currentSlide, currentSlideIndex, isOutputArmedOnCurrent, activateSlide, takeSlide, goNext, goPrev, setCurrentSlideIndex, clearSelection, deleteSelected, deleteSlide, setSlideBrowserMode, setPlaylistBrowserMode, setStatusText, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, undo, redo, globalUndoAction, globalRedoAction, openCommandPalette]);
+  }, [isEditSlideBrowser, isShowMode, workbenchMode, overlayStack, slides.length, selectedElementId, currentSlide, currentSlideIndex, isOutputArmedOnCurrent, activateSlide, takeSlide, goNext, goPrev, setCurrentSlideIndex, clearSelection, deleteSelected, deleteSlide, setSlideBrowserMode, setStatusText, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, undo, redo, globalUndoAction, globalRedoAction, openCommandPalette]);
 }

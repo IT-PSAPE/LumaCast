@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ElementUpdateInput, Id, SlideElement } from '@core/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
+import type { ElementUpdateInput } from '@lumacast/protocol';
 import type { ElementInspectorDraft } from '../../types/ui';
 import { clamp } from '../../utils/slides';
 import { hasGeometryChange, payloadSignature } from '../../utils/element-context-utils';
@@ -194,7 +196,7 @@ export function useElementInspectorSync({
       autoSaveTimerRef.current = null;
     };
   }, [baseElements, draftOwnerElementId, elementDraft, elementPayloadDraft, isCanvasInteracting, saveElementUpdate, selectedElementId]);
-  return {
+  return useMemo(() => ({
     draftElements,
     elementDraft,
     elementPayloadDraft,
@@ -202,5 +204,13 @@ export function useElementInspectorSync({
     setElementDraft,
     setElementPayloadDraft,
     setLockAspectRatio,
-  };
+  }), [
+    draftElements,
+    elementDraft,
+    elementPayloadDraft,
+    lockAspectRatio,
+    setElementDraft,
+    setElementPayloadDraft,
+    setLockAspectRatio,
+  ]);
 }

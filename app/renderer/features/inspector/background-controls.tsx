@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
-import type { MediaAsset, SlideBackground, SlideBackgroundFit, SlideGradient } from '@core/types';
+import type { MediaAsset, SlideBackground, SlideBackgroundFit, SlideGradient } from '@lumacast/composition';
 import { ColorPicker } from '@renderer/components/form/color-picker';
 import { FieldInput, FieldSelect } from '@renderer/components/form/field';
 import { ReacstButton } from '@renderer/components/controls/button';
@@ -70,7 +70,11 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
     const wantKind = pickerKind;
     setPickerKind(null);
     if (!asset || !wantKind) return;
-    const fit: SlideBackgroundFit = (background?.type === 'image' || background?.type === 'video') ? background.fit : 'cover';
+    const fit: SlideBackgroundFit = wantKind === 'video'
+      ? 'contain'
+      : background?.type === 'image'
+        ? background.fit
+        : 'cover';
     onChange({ type: wantKind, mediaAssetId: asset.id, src: asset.src, fit });
   }
 
@@ -147,11 +151,13 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
 
         {background?.type === 'image' || background?.type === 'video' ? (
           <>
-            <FieldSelect
-              value={background.fit}
-              onChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })}
-              options={FIT_OPTIONS}
-            />
+            {background.type === 'image' ? (
+              <FieldSelect
+                value={background.fit}
+                onChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })}
+                options={FIT_OPTIONS}
+              />
+            ) : null}
             <ReacstButton onClick={() => setPickerKind(background.type === 'image' ? 'image' : 'video')}>
               Replace {background.type}…
             </ReacstButton>

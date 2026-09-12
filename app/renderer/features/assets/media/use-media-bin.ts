@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { usePresentationMediaLayer } from '../../../contexts/playback/playback-context';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';

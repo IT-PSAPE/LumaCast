@@ -1,0 +1,3036 @@
+import type { SqliteDatabase } from '../sqlite';
+import type { Migration } from './types';
+import { toCastMediaSource } from '../media-source-utils';
+import type { SlideBackground, SlideElement } from '@lumacast/composition';
+import {
+  COLLECTION_TABLE_BY_BIN,
+  DEFAULT_H,
+  DEFAULT_W,
+  createCollectionsIndexes,
+  createCommonIndexes,
+  createGlobalContentIndexes,
+  createId,
+  defaultCueName,
+  hasColumn,
+  hasTable,
+  legacyOverlayElement,
+  nowIso,
+  parseJson,
+  renameColumnIfNeeded,
+  renameTableIfNeeded,
+  seedDefaultCollectionsInMigration,
+  slidesHasCheckConstraint,
+  tableHasForeignKeyOn,
+} from './support';
+
+// ---------------------------------------------------------------------------
+// v1 — bootstrap. This is the original, pre-`user_version`-tracking schema.
+// `CREATE TABLE IF NOT EXISTS` makes this a no-op for any database that
+// already has these tables (every previously-installed database, however
+// old) and the sole schema-creation step for a genuinely empty database
+// file. There is deliberately no separate "fresh install" schema anywhere
+// in this module — every database, fresh or upgraded, is built by running
+// this list from wherever its `user_version` currently sits.
+// ---------------------------------------------------------------------------
+function bootstrapLegacySchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS libraries (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS presentations (
+      id TEXT PRIMARY KEY,
+      library_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'canvas',
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(library_id) REFERENCES libraries(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS slides (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS slide_elements (
+      id TEXT PRIMARY KEY,
+      slide_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      width REAL NOT NULL,
+      height REAL NOT NULL,
+      rotation REAL NOT NULL,
+      opacity REAL NOT NULL,
+      z_index INTEGER NOT NULL,
+      layer TEXT NOT NULL DEFAULT 'content',
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(slide_id) REFERENCES slides(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS playlists (
+      id TEXT PRIMARY KEY,
+      library_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(library_id) REFERENCES libraries(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS playlist_segments (
+      id TEXT PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      color_key TEXT,
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(playlist_id) REFERENCES playlists(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS playlist_entries (
+      id TEXT PRIMARY KEY,
+      segment_id TEXT NOT NULL,
+      presentation_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(segment_id) REFERENCES playlist_segments(id),
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS media_assets (
+      id TEXT PRIMARY KEY,
+      library_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      src TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(library_id) REFERENCES libraries(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS overlays (
+      id TEXT PRIMARY KEY,
+      library_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      width REAL NOT NULL,
+      height REAL NOT NULL,
+      opacity REAL NOT NULL,
+      z_index INTEGER NOT NULL,
+      enabled INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      elements_json TEXT NOT NULL DEFAULT '[]',
+      animation_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(library_id) REFERENCES libraries(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS themes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      elements_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS stages (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      elements_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_presentations_library_id ON presentations(library_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);
+    CREATE INDEX IF NOT EXISTS idx_slide_elements_slide_id ON slide_elements(slide_id);
+    CREATE INDEX IF NOT EXISTS idx_playlists_library_id ON playlists(library_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_segments_playlist_id ON playlist_segments(playlist_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_segment_id ON playlist_entries(segment_id);
+    CREATE INDEX IF NOT EXISTS idx_media_assets_library_id ON media_assets(library_id);
+    CREATE INDEX IF NOT EXISTS idx_overlays_library_id ON overlays(library_id);
+    CREATE INDEX IF NOT EXISTS idx_themes_order_index ON themes(order_index);
+    CREATE INDEX IF NOT EXISTS idx_stages_order_index ON stages(order_index);
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// v2 (legacy schema version) — column/data repairs applied on top of the v1
+// bootstrap shape for any database that predates `order_index`/`notes` on
+// certain tables, and a one-time media `src` protocol normalization.
+// ---------------------------------------------------------------------------
+function ensureOrderingColumns(db: SqliteDatabase): void {
+  const presentationColumns = db.prepare('PRAGMA table_info(presentations)').all() as Array<{ name: string }>;
+  if (!presentationColumns.some((column) => column.name === 'order_index')) {
+    db.prepare('ALTER TABLE presentations ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0').run();
+    db
+      .prepare(
+        `WITH ranked AS (
+           SELECT id, ROW_NUMBER() OVER (PARTITION BY library_id ORDER BY created_at ASC, id ASC) - 1 AS next_order
+           FROM presentations
+         )
+         UPDATE presentations
+         SET order_index = (SELECT next_order FROM ranked WHERE ranked.id = presentations.id)`
+      )
+      .run();
+  }
+  if (!presentationColumns.some((column) => column.name === 'kind')) {
+    db.prepare("ALTER TABLE presentations ADD COLUMN kind TEXT NOT NULL DEFAULT 'canvas'").run();
+  }
+
+  const playlistColumns = db.prepare('PRAGMA table_info(playlists)').all() as Array<{ name: string }>;
+  if (!playlistColumns.some((column) => column.name === 'order_index')) {
+    db.prepare('ALTER TABLE playlists ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0').run();
+    db
+      .prepare(
+        `WITH ranked AS (
+           SELECT id, ROW_NUMBER() OVER (PARTITION BY library_id ORDER BY created_at ASC, id ASC) - 1 AS next_order
+           FROM playlists
+         )
+         UPDATE playlists
+         SET order_index = (SELECT next_order FROM ranked WHERE ranked.id = playlists.id)`
+      )
+      .run();
+  }
+
+  const segmentColumns = db.prepare('PRAGMA table_info(playlist_segments)').all() as Array<{ name: string }>;
+  if (!segmentColumns.some((column) => column.name === 'color_key')) {
+    db.prepare('ALTER TABLE playlist_segments ADD COLUMN color_key TEXT').run();
+  }
+}
+
+function ensureOverlayCompositionColumns(db: SqliteDatabase): void {
+  const overlayColumns = db.prepare('PRAGMA table_info(overlays)').all() as Array<{ name: string }>;
+  if (!overlayColumns.some((column) => column.name === 'elements_json')) {
+    db.prepare("ALTER TABLE overlays ADD COLUMN elements_json TEXT NOT NULL DEFAULT '[]'").run();
+  }
+
+  const rows = db
+    .prepare(
+      `SELECT id, type, x, y, width, height, opacity, z_index, payload_json, created_at, updated_at, elements_json
+       FROM overlays`
+    )
+    .all() as Array<{
+    id: string;
+    type: 'text' | 'image' | 'video' | 'shape';
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    opacity: number;
+    z_index: number;
+    payload_json: string;
+    created_at: string;
+    updated_at: string;
+    elements_json: string | null;
+  }>;
+
+  const updateElements = db.prepare('UPDATE overlays SET elements_json = ? WHERE id = ?');
+  for (const row of rows) {
+    if (row.elements_json) continue;
+    updateElements.run(JSON.stringify([legacyOverlayElement(row)]), row.id);
+  }
+}
+
+function ensureSlideNotesColumn(db: SqliteDatabase): void {
+  const slideColumns = db.prepare('PRAGMA table_info(slides)').all() as Array<{ name: string }>;
+  if (!slideColumns.some((column) => column.name === 'notes')) {
+    db.prepare("ALTER TABLE slides ADD COLUMN notes TEXT NOT NULL DEFAULT ''").run();
+  }
+}
+
+function migrateMediaSrcProtocol(db: SqliteDatabase): void {
+  const assets = db
+    .prepare("SELECT id, src FROM media_assets WHERE src LIKE 'cast-media://%' OR src LIKE 'file://%' OR src LIKE 'blob:%'")
+    .all() as Array<{ id: string; src: string }>;
+
+  const updateAsset = db.prepare('UPDATE media_assets SET src = ? WHERE id = ?');
+  const deleteAsset = db.prepare('DELETE FROM media_assets WHERE id = ?');
+  for (const asset of assets) {
+    const newSrc = toCastMediaSource(asset.src);
+    if (!newSrc) {
+      deleteAsset.run(asset.id);
+      continue;
+    }
+    if (newSrc !== asset.src) {
+      updateAsset.run(newSrc, asset.id);
+    }
+  }
+
+  const elements = db
+    .prepare("SELECT id, payload_json FROM slide_elements WHERE type IN ('image', 'video') AND (payload_json LIKE '%cast-media://%' OR payload_json LIKE '%file://%' OR payload_json LIKE '%blob:%')")
+    .all() as Array<{ id: string; payload_json: string }>;
+
+  const updateElement = db.prepare('UPDATE slide_elements SET payload_json = ? WHERE id = ?');
+  const deleteElement = db.prepare('DELETE FROM slide_elements WHERE id = ?');
+  for (const el of elements) {
+    const payload = parseJson<{ src: string }>(el.payload_json);
+    const newSrc = toCastMediaSource(payload.src);
+    if (newSrc) {
+      if (newSrc === payload.src) continue;
+      payload.src = newSrc;
+      updateElement.run(JSON.stringify(payload), el.id);
+    } else {
+      deleteElement.run(el.id);
+    }
+  }
+}
+
+function stabilizeLegacySchema(db: SqliteDatabase): void {
+  ensureOrderingColumns(db);
+  ensureSlideNotesColumn(db);
+  ensureOverlayCompositionColumns(db);
+  migrateMediaSrcProtocol(db);
+}
+
+// ---------------------------------------------------------------------------
+// v3 — drop per-library scoping from decks/media/overlays; content becomes
+// global within the database (libraries remain, but only for playlists).
+// Recreates the three tables through a rename-swap since SQLite cannot drop
+// a column with a FOREIGN KEY reference in one step across all supported
+// versions here.
+// ---------------------------------------------------------------------------
+function migrateLegacyProjectContentToGlobalScope(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE presentations_v3 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'canvas',
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE media_assets_v3 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      src TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE overlays_v3 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      width REAL NOT NULL,
+      height REAL NOT NULL,
+      opacity REAL NOT NULL,
+      z_index INTEGER NOT NULL,
+      enabled INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      elements_json TEXT NOT NULL DEFAULT '[]',
+      animation_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    INSERT INTO presentations_v3 (id, title, kind, theme_id, order_index, created_at, updated_at)
+    SELECT
+      p.id,
+      p.title,
+      p.kind,
+      NULL,
+      ROW_NUMBER() OVER (
+        ORDER BY
+          COALESCE(l.created_at, p.created_at) ASC,
+          COALESCE(lp.order_index, 0) ASC,
+          p.order_index ASC,
+          p.created_at ASC,
+          p.id ASC
+      ) - 1,
+      p.created_at,
+      p.updated_at
+    FROM presentations p
+    LEFT JOIN libraries l ON l.id = p.library_id
+    LEFT JOIN (
+      SELECT library_id, MIN(order_index) AS order_index
+      FROM playlists
+      GROUP BY library_id
+    ) lp ON lp.library_id = p.library_id;
+
+    INSERT INTO media_assets_v3 (id, name, type, src, created_at, updated_at)
+    SELECT id, name, type, src, created_at, updated_at
+    FROM media_assets
+    ORDER BY created_at ASC, id ASC;
+
+    INSERT INTO overlays_v3 (id, name, type, x, y, width, height, opacity, z_index, enabled, payload_json, elements_json, animation_json, created_at, updated_at)
+    SELECT id, name, type, x, y, width, height, opacity, z_index, enabled, payload_json, elements_json, animation_json, created_at, updated_at
+    FROM overlays
+    ORDER BY created_at ASC, id ASC;
+  `);
+
+  db.exec(`
+    DROP INDEX IF EXISTS idx_presentations_library_id;
+    DROP INDEX IF EXISTS idx_media_assets_library_id;
+    DROP INDEX IF EXISTS idx_overlays_library_id;
+
+    DROP TABLE overlays;
+    DROP TABLE media_assets;
+    DROP TABLE presentations;
+
+    ALTER TABLE presentations_v3 RENAME TO presentations;
+    ALTER TABLE media_assets_v3 RENAME TO media_assets;
+    ALTER TABLE overlays_v3 RENAME TO overlays;
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// v4 — themes table (first appearance).
+// ---------------------------------------------------------------------------
+function ensureThemesSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS themes (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      elements_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_themes_order_index ON themes(order_index)');
+}
+
+// ---------------------------------------------------------------------------
+// v5 — presentations.theme_id (unnumbered constant historically; always
+// just "5").
+// ---------------------------------------------------------------------------
+function ensurePresentationThemeSchema(db: SqliteDatabase): void {
+  const presentationColumns = db.prepare('PRAGMA table_info(presentations)').all() as Array<{ name: string }>;
+  if (!presentationColumns.some((column) => column.name === 'theme_id')) {
+    db.prepare('ALTER TABLE presentations ADD COLUMN theme_id TEXT').run();
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_presentations_theme_id ON presentations(theme_id)');
+}
+
+// ---------------------------------------------------------------------------
+// v6 — split the unified `presentations` table (kind = 'canvas' | 'lyrics')
+// into `presentations` (decks) and `lyrics`, and carry `slides` /
+// `playlist_entries` along with the split.
+// ---------------------------------------------------------------------------
+function migratePresentationSchemaToDeckItems(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE decks_v6 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE lyrics_v6 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE slides_v6 (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE playlist_entries_v6 (
+      id TEXT PRIMARY KEY,
+      segment_id TEXT NOT NULL,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  db.exec(`
+    INSERT INTO decks_v6 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at
+    FROM presentations
+    WHERE kind != 'lyrics'
+    ORDER BY order_index ASC, created_at ASC, id ASC;
+
+    INSERT INTO lyrics_v6 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at
+    FROM presentations
+    WHERE kind = 'lyrics'
+    ORDER BY order_index ASC, created_at ASC, id ASC;
+
+    INSERT INTO slides_v6 (id, presentation_id, lyric_id, width, height, notes, order_index, created_at, updated_at)
+    SELECT
+      s.id,
+      CASE WHEN p.kind = 'lyrics' THEN NULL ELSE s.presentation_id END,
+      CASE WHEN p.kind = 'lyrics' THEN s.presentation_id ELSE NULL END,
+      s.width,
+      s.height,
+      s.notes,
+      s.order_index,
+      s.created_at,
+      s.updated_at
+    FROM slides s
+    JOIN presentations p ON p.id = s.presentation_id
+    ORDER BY s.created_at ASC, s.id ASC;
+
+    INSERT INTO playlist_entries_v6 (id, segment_id, presentation_id, lyric_id, order_index, created_at, updated_at)
+    SELECT
+      pe.id,
+      pe.segment_id,
+      CASE WHEN p.kind = 'lyrics' THEN NULL ELSE pe.presentation_id END,
+      CASE WHEN p.kind = 'lyrics' THEN pe.presentation_id ELSE NULL END,
+      pe.order_index,
+      pe.created_at,
+      pe.updated_at
+    FROM playlist_entries pe
+    JOIN presentations p ON p.id = pe.presentation_id
+    ORDER BY pe.created_at ASC, pe.id ASC;
+  `);
+
+  db.exec(`
+    DROP INDEX IF EXISTS idx_slides_presentation_id;
+    DROP INDEX IF EXISTS idx_playlist_entries_presentation_id;
+    DROP INDEX IF EXISTS idx_presentations_order_index;
+    DROP INDEX IF EXISTS idx_presentations_theme_id;
+
+    DROP TABLE playlist_entries;
+    DROP TABLE slides;
+    DROP TABLE presentations;
+
+    ALTER TABLE decks_v6 RENAME TO presentations;
+    ALTER TABLE lyrics_v6 RENAME TO lyrics;
+    ALTER TABLE slides_v6 RENAME TO slides;
+    ALTER TABLE playlist_entries_v6 RENAME TO playlist_entries;
+  `);
+
+  createCommonIndexes(db);
+  createGlobalContentIndexes(db);
+}
+
+// ---------------------------------------------------------------------------
+// v7 — order_index for libraries/media_assets (drag-and-drop reorder).
+// ---------------------------------------------------------------------------
+function ensureReorderColumns(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'libraries', 'order_index')) {
+    db.exec('ALTER TABLE libraries ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+    db.exec(`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) - 1 AS rank FROM libraries
+      )
+      UPDATE libraries SET order_index = (SELECT rank FROM ranked WHERE ranked.id = libraries.id);
+    `);
+  }
+  if (!hasColumn(db, 'media_assets', 'order_index')) {
+    db.exec('ALTER TABLE media_assets ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+    db.exec(`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) - 1 AS rank FROM media_assets
+      )
+      UPDATE media_assets SET order_index = (SELECT rank FROM ranked WHERE ranked.id = media_assets.id);
+    `);
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_libraries_order_index ON libraries(order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_media_assets_order_index ON media_assets(order_index);');
+}
+
+// ---------------------------------------------------------------------------
+// v8 — stages table.
+// ---------------------------------------------------------------------------
+function ensureStagesSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS stages (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      elements_json TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_stages_order_index ON stages(order_index)');
+}
+
+// ---------------------------------------------------------------------------
+// v9 — one collection table per bin kind, plus a nullable `collection_id`
+// column on every collection-scoped item table, backfilled to each bin's
+// (newly seeded) default collection.
+// ---------------------------------------------------------------------------
+function ensureCollectionsSchema(db: SqliteDatabase): void {
+  for (const table of Object.values(COLLECTION_TABLE_BY_BIN)) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ${table} (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        is_default INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  const itemTablesNeedingColumn = ['presentations', 'lyrics', 'media_assets', 'themes', 'overlays', 'stages'];
+  for (const table of itemTablesNeedingColumn) {
+    if (hasTable(db, table) && !hasColumn(db, table, 'collection_id')) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN collection_id TEXT;`);
+    }
+  }
+
+  createCollectionsIndexes(db);
+  seedDefaultCollectionsInMigration(db);
+}
+
+// ---------------------------------------------------------------------------
+// v10 — rename `templates` -> `themes` / `template_collections` ->
+// `theme_collections` / `*.template_id` -> `*.theme_id`, for databases that
+// still carry the pre-rename naming. Requires foreign_keys off around the
+// migration because SQLite forbids toggling the pragma inside a transaction,
+// and this uses ALTER TABLE ... RENAME.
+// ---------------------------------------------------------------------------
+function migrateTemplateNamingToThemes(db: SqliteDatabase): void {
+  renameTableIfNeeded(db, 'templates', 'themes');
+  renameTableIfNeeded(db, 'template_collections', 'theme_collections');
+  renameColumnIfNeeded(db, 'presentations', 'template_id', 'theme_id');
+  renameColumnIfNeeded(db, 'lyrics', 'template_id', 'theme_id');
+
+  if (hasTable(db, 'themes') && hasTable(db, 'theme_collections') && !hasColumn(db, 'themes', 'collection_id')) {
+    db.exec('ALTER TABLE themes ADD COLUMN collection_id TEXT;');
+  }
+
+  db.exec('DROP INDEX IF EXISTS idx_presentations_template_id;');
+  db.exec('DROP INDEX IF EXISTS idx_decks_template_id;');
+  db.exec('DROP INDEX IF EXISTS idx_lyrics_template_id;');
+  db.exec('DROP INDEX IF EXISTS idx_templates_order_index;');
+  db.exec('DROP INDEX IF EXISTS idx_templates_collection_id;');
+  db.exec('DROP INDEX IF EXISTS idx_template_collections_order_index;');
+
+  createGlobalContentIndexes(db);
+  if (hasTable(db, 'theme_collections')) {
+    createCollectionsIndexes(db);
+    seedDefaultCollectionsInMigration(db);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v11 — unify themes/overlays/stages/decks/lyrics under a single `slides`
+// table (one of five nullable owner FKs + a CHECK requiring exactly one),
+// and split `media_assets` into per-type tables with real FKs into their
+// collection tables. See the historical note on `migrateToUnifiedSlides` in
+// git history for the full step-by-step rationale; behavior here is
+// transplanted unchanged. Requires foreign_keys off (multiple table
+// recreations).
+// ---------------------------------------------------------------------------
+function materializeContainerSlides(
+  db: SqliteDatabase,
+  table: 'themes' | 'overlays' | 'stages',
+  kind: 'theme' | 'overlay' | 'stage',
+): void {
+  const widthExpr = hasColumn(db, table, 'width') ? 'width' : `${DEFAULT_W} AS width`;
+  const heightExpr = hasColumn(db, table, 'height') ? 'height' : `${DEFAULT_H} AS height`;
+  const rows = db
+    .prepare(`SELECT id, elements_json, ${widthExpr}, ${heightExpr}, created_at, updated_at FROM ${table}`)
+    .all() as Array<{
+      id: string;
+      elements_json: string;
+      width: number | null;
+      height: number | null;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+  const fkColumn = `${kind}_id`;
+  const insertSlide = db.prepare(
+    `INSERT INTO slides (id, presentation_id, lyric_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at)
+     VALUES (?, NULL, NULL, ?, ?, ?, ?, ?, ?, '', 0, ?, ?)`
+  );
+  const insertElement = db.prepare(
+    `INSERT INTO slide_elements
+      (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const slideExists = db.prepare('SELECT id FROM slides WHERE id = ?');
+  const updateSlideFk = db.prepare(`UPDATE slides SET ${fkColumn} = ?, kind = ? WHERE id = ?`);
+
+  for (const row of rows) {
+    const slideId = `${row.id}:slide`;
+    const width = (row.width && row.width > 0) ? row.width : DEFAULT_W;
+    const height = (row.height && row.height > 0) ? row.height : DEFAULT_H;
+    const existing = slideExists.get(slideId);
+    if (!existing) {
+      insertSlide.run(
+        slideId,
+        kind === 'theme' ? row.id : null,
+        kind === 'overlay' ? row.id : null,
+        kind === 'stage' ? row.id : null,
+        kind,
+        width,
+        height,
+        row.created_at,
+        row.updated_at,
+      );
+    } else {
+      // Already migrated once; just normalize the FK.
+      updateSlideFk.run(row.id, kind, slideId);
+    }
+    const elements = parseJson<SlideElement[]>(row.elements_json) ?? [];
+    db.prepare('DELETE FROM slide_elements WHERE slide_id = ?').run(slideId);
+    for (const element of elements) {
+      insertElement.run(
+        element.id ?? createId(),
+        slideId,
+        element.type,
+        element.x ?? 0,
+        element.y ?? 0,
+        element.width ?? 0,
+        element.height ?? 0,
+        element.rotation ?? 0,
+        element.opacity ?? 1,
+        element.zIndex ?? 0,
+        element.layer ?? 'content',
+        JSON.stringify(element.payload ?? {}),
+        element.createdAt ?? row.created_at,
+        element.updatedAt ?? row.updated_at,
+      );
+    }
+  }
+}
+
+function backfillEmptyOverlayElements(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'overlays', 'payload_json')) return;
+  const rows = db
+    .prepare(
+      `SELECT id, type, x, y, width, height, opacity, z_index, payload_json, elements_json, created_at, updated_at
+       FROM overlays`
+    )
+    .all() as Array<{
+      id: string;
+      type: 'text' | 'image' | 'video' | 'shape';
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      opacity: number;
+      z_index: number;
+      payload_json: string;
+      elements_json: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+  const update = db.prepare('UPDATE overlays SET elements_json = ? WHERE id = ?');
+  for (const row of rows) {
+    const parsed = parseJson<SlideElement[]>(row.elements_json) ?? [];
+    if (parsed.length > 0) continue;
+    const synthetic = legacyOverlayElement(row);
+    update.run(JSON.stringify([synthetic]), row.id);
+  }
+}
+
+function recreateThemesTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE themes_v11 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      collection_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(collection_id) REFERENCES theme_collections(id)
+    );
+
+    INSERT INTO themes_v11 (id, name, kind, width, height, order_index, collection_id, created_at, updated_at)
+    SELECT id, name, kind, width, height, order_index, collection_id, created_at, updated_at
+    FROM themes;
+
+    DROP INDEX IF EXISTS idx_themes_order_index;
+    DROP INDEX IF EXISTS idx_themes_collection_id;
+    DROP TABLE themes;
+    ALTER TABLE themes_v11 RENAME TO themes;
+
+    CREATE INDEX IF NOT EXISTS idx_themes_order_index ON themes(order_index);
+    CREATE INDEX IF NOT EXISTS idx_themes_collection_id ON themes(collection_id);
+  `);
+}
+
+function recreateStagesTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE stages_v11 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      collection_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(collection_id) REFERENCES stage_collections(id)
+    );
+
+    INSERT INTO stages_v11 (id, name, width, height, order_index, collection_id, created_at, updated_at)
+    SELECT id, name, width, height, order_index, collection_id, created_at, updated_at
+    FROM stages;
+
+    DROP INDEX IF EXISTS idx_stages_order_index;
+    DROP INDEX IF EXISTS idx_stages_collection_id;
+    DROP TABLE stages;
+    ALTER TABLE stages_v11 RENAME TO stages;
+
+    CREATE INDEX IF NOT EXISTS idx_stages_order_index ON stages(order_index);
+    CREATE INDEX IF NOT EXISTS idx_stages_collection_id ON stages(collection_id);
+  `);
+}
+
+function recreateOverlaysTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE overlays_v11 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      animation_json TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(collection_id) REFERENCES overlay_collections(id)
+    );
+
+    INSERT INTO overlays_v11 (id, name, enabled, animation_json, collection_id, created_at, updated_at)
+    SELECT id, name, enabled, animation_json, collection_id, created_at, updated_at
+    FROM overlays;
+
+    DROP INDEX IF EXISTS idx_overlays_created_at;
+    DROP INDEX IF EXISTS idx_overlays_collection_id;
+    DROP TABLE overlays;
+    ALTER TABLE overlays_v11 RENAME TO overlays;
+
+    CREATE INDEX IF NOT EXISTS idx_overlays_created_at ON overlays(created_at);
+    CREATE INDEX IF NOT EXISTS idx_overlays_collection_id ON overlays(collection_id);
+  `);
+}
+
+function recreateSlidesTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE slides_v11 (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      theme_id TEXT,
+      overlay_id TEXT,
+      stage_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'presentation',
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      FOREIGN KEY(theme_id) REFERENCES themes(id),
+      FOREIGN KEY(overlay_id) REFERENCES overlays(id),
+      FOREIGN KEY(stage_id) REFERENCES stages(id),
+      CHECK (
+        (presentation_id IS NOT NULL) +
+        (lyric_id IS NOT NULL) +
+        (theme_id IS NOT NULL) +
+        (overlay_id IS NOT NULL) +
+        (stage_id IS NOT NULL) = 1
+      )
+    );
+
+    INSERT INTO slides_v11 (id, presentation_id, lyric_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at)
+    SELECT id, presentation_id, lyric_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at
+    FROM slides;
+
+    DROP INDEX IF EXISTS idx_slides_presentation_id;
+    DROP INDEX IF EXISTS idx_slides_lyric_id;
+    DROP TABLE slides;
+    ALTER TABLE slides_v11 RENAME TO slides;
+
+    CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_lyric_id ON slides(lyric_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_theme_id ON slides(theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_overlay_id ON slides(overlay_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_stage_id ON slides(stage_id);
+  `);
+}
+
+function splitMediaAssetsTable(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS image_assets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      src TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(collection_id) REFERENCES image_collections(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS video_assets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      src TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(collection_id) REFERENCES video_collections(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS audio_assets (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      src TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(collection_id) REFERENCES audio_collections(id)
+    );
+
+    INSERT INTO image_assets (id, name, src, collection_id, order_index, created_at, updated_at)
+    SELECT id, name, src, collection_id, order_index, created_at, updated_at
+    FROM media_assets WHERE type = 'image';
+
+    INSERT INTO video_assets (id, name, src, collection_id, order_index, created_at, updated_at)
+    SELECT id, name, src, collection_id, order_index, created_at, updated_at
+    FROM media_assets WHERE type = 'video' OR type = 'animation';
+
+    INSERT INTO audio_assets (id, name, src, collection_id, order_index, created_at, updated_at)
+    SELECT id, name, src, collection_id, order_index, created_at, updated_at
+    FROM media_assets WHERE type = 'audio';
+
+    DROP INDEX IF EXISTS idx_media_assets_created_at;
+    DROP INDEX IF EXISTS idx_media_assets_collection_id;
+    DROP INDEX IF EXISTS idx_media_assets_order_index;
+    DROP TABLE media_assets;
+
+    CREATE INDEX IF NOT EXISTS idx_image_assets_created_at ON image_assets(created_at);
+    CREATE INDEX IF NOT EXISTS idx_image_assets_collection_id ON image_assets(collection_id);
+    CREATE INDEX IF NOT EXISTS idx_video_assets_created_at ON video_assets(created_at);
+    CREATE INDEX IF NOT EXISTS idx_video_assets_collection_id ON video_assets(collection_id);
+    CREATE INDEX IF NOT EXISTS idx_audio_assets_created_at ON audio_assets(created_at);
+    CREATE INDEX IF NOT EXISTS idx_audio_assets_collection_id ON audio_assets(collection_id);
+  `);
+}
+
+/**
+ * Recreate presentations or lyrics with FOREIGN KEY constraints on
+ * theme_id and collection_id. SQLite can't add FKs to an existing column,
+ * so we copy through a renamed table.
+ */
+function recreateDeckTable(db: SqliteDatabase, table: 'presentations' | 'lyrics'): void {
+  const tempTable = `${table}_v11`;
+  db.exec(`
+    CREATE TABLE ${tempTable} (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      collection_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES themes(id),
+      FOREIGN KEY(collection_id) REFERENCES deck_collections(id)
+    );
+
+    INSERT INTO ${tempTable} (id, title, theme_id, collection_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, collection_id, order_index, created_at, updated_at
+    FROM ${table};
+
+    DROP TABLE ${table};
+    ALTER TABLE ${tempTable} RENAME TO ${table};
+  `);
+
+  if (table === 'presentations') {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_decks_order_index ON presentations(order_index);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_decks_theme_id ON presentations(theme_id);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_presentations_collection_id ON presentations(collection_id);');
+  } else {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_lyrics_order_index ON lyrics(order_index);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_lyrics_theme_id ON lyrics(theme_id);');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_lyrics_collection_id ON lyrics(collection_id);');
+  }
+}
+
+function migrateToUnifiedSlides(db: SqliteDatabase): void {
+  // a) slides: add kind + theme_id/overlay_id/stage_id columns and backfill kind.
+  if (!hasColumn(db, 'slides', 'kind')) {
+    db.exec("ALTER TABLE slides ADD COLUMN kind TEXT NOT NULL DEFAULT 'presentation'");
+    db.exec("UPDATE slides SET kind = 'lyric' WHERE lyric_id IS NOT NULL");
+    db.exec("UPDATE slides SET kind = 'presentation' WHERE lyric_id IS NULL AND presentation_id IS NOT NULL");
+  }
+  if (!hasColumn(db, 'slides', 'theme_id')) {
+    db.exec('ALTER TABLE slides ADD COLUMN theme_id TEXT');
+  }
+  if (!hasColumn(db, 'slides', 'overlay_id')) {
+    db.exec('ALTER TABLE slides ADD COLUMN overlay_id TEXT');
+  }
+  if (!hasColumn(db, 'slides', 'stage_id')) {
+    db.exec('ALTER TABLE slides ADD COLUMN stage_id TEXT');
+  }
+
+  // b) Materialize child slides for each theme/overlay/stage and parse
+  //    elements_json into slide_elements rows.
+  if (hasColumn(db, 'themes', 'elements_json')) {
+    materializeContainerSlides(db, 'themes', 'theme');
+  }
+  if (hasColumn(db, 'stages', 'elements_json')) {
+    materializeContainerSlides(db, 'stages', 'stage');
+  }
+  if (hasColumn(db, 'overlays', 'elements_json')) {
+    backfillEmptyOverlayElements(db);
+    materializeContainerSlides(db, 'overlays', 'overlay');
+  }
+
+  // c) Recreate themes/overlays/stages with the trimmed schema + enforced
+  //    collection FKs.
+  if (hasColumn(db, 'themes', 'elements_json')) {
+    recreateThemesTable(db);
+  }
+  if (hasColumn(db, 'stages', 'elements_json')) {
+    recreateStagesTable(db);
+  }
+  if (hasColumn(db, 'overlays', 'payload_json') || hasColumn(db, 'overlays', 'elements_json')) {
+    recreateOverlaysTable(db);
+  }
+
+  // d) Recreate slides with the new column layout, FK fan-out and CHECK
+  //    constraint enforced. Idempotent: skip if already done.
+  if (hasColumn(db, 'slides', 'kind') && !slidesHasCheckConstraint(db)) {
+    recreateSlidesTable(db);
+  }
+
+  // e) Migrate media_assets into per-type tables (animation -> video).
+  if (hasTable(db, 'media_assets')) {
+    splitMediaAssetsTable(db);
+  }
+
+  // f) Recreate presentations + lyrics with theme_id + collection_id FKs.
+  if (!tableHasForeignKeyOn(db, 'presentations', 'collection_id')) {
+    recreateDeckTable(db, 'presentations');
+  }
+  if (!tableHasForeignKeyOn(db, 'lyrics', 'collection_id')) {
+    recreateDeckTable(db, 'lyrics');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v12 — rename `playlist_segments` -> `playlist_groups`,
+// `playlist_entries.segment_id` -> `group_id`.
+// ---------------------------------------------------------------------------
+function renamePlaylistSegmentsToGroups(db: SqliteDatabase): void {
+  if (hasTable(db, 'playlist_segments') && !hasTable(db, 'playlist_groups')) {
+    db.exec('DROP INDEX IF EXISTS idx_playlist_segments_playlist_id');
+    db.exec('DROP INDEX IF EXISTS idx_playlist_entries_segment_id');
+    db.exec('ALTER TABLE playlist_segments RENAME TO playlist_groups');
+  }
+
+  if (hasColumn(db, 'playlist_entries', 'segment_id') && !hasColumn(db, 'playlist_entries', 'group_id')) {
+    db.exec('ALTER TABLE playlist_entries RENAME COLUMN segment_id TO group_id');
+  }
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_groups_playlist_id ON playlist_groups(playlist_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_group_id ON playlist_entries(group_id)');
+}
+
+// ---------------------------------------------------------------------------
+// v13 — Talk deck items and per-slide script blocks.
+// ---------------------------------------------------------------------------
+function ensureTalksSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS talks (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      collection_id TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES themes(id),
+      FOREIGN KEY(collection_id) REFERENCES deck_collections(id)
+    );
+  `);
+
+  if (!hasColumn(db, 'slides', 'talk_id')) {
+    db.exec('ALTER TABLE slides ADD COLUMN talk_id TEXT REFERENCES talks(id)');
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS talk_script_blocks (
+      id TEXT PRIMARY KEY,
+      slide_id TEXT NOT NULL,
+      text TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(slide_id) REFERENCES slides(id)
+    );
+  `);
+
+  if (!hasColumn(db, 'playlist_entries', 'talk_id')) {
+    db.exec('ALTER TABLE playlist_entries ADD COLUMN talk_id TEXT REFERENCES talks(id)');
+  }
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_talk_id ON slides(talk_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_talk_script_blocks_slide_id ON talk_script_blocks(slide_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_talk_id ON playlist_entries(talk_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_talks_order_index ON talks(order_index)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_talks_collection_id ON talks(collection_id)');
+}
+
+// ---------------------------------------------------------------------------
+// v14 — the v11 CHECK constraint sums only the original five owner FKs; v13
+// added talk_id via ALTER TABLE without updating it, so every Talk-owned
+// slide insert failed. Recreate slides with talk_id included in the CHECK.
+// ---------------------------------------------------------------------------
+function recreateSlidesTableWithTalkCheck(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE slides_v14 (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      talk_id TEXT,
+      theme_id TEXT,
+      overlay_id TEXT,
+      stage_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'presentation',
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      FOREIGN KEY(talk_id) REFERENCES talks(id),
+      FOREIGN KEY(theme_id) REFERENCES themes(id),
+      FOREIGN KEY(overlay_id) REFERENCES overlays(id),
+      FOREIGN KEY(stage_id) REFERENCES stages(id),
+      CHECK (
+        (presentation_id IS NOT NULL) +
+        (lyric_id IS NOT NULL) +
+        (talk_id IS NOT NULL) +
+        (theme_id IS NOT NULL) +
+        (overlay_id IS NOT NULL) +
+        (stage_id IS NOT NULL) = 1
+      )
+    );
+
+    INSERT INTO slides_v14 (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at)
+    SELECT id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at
+    FROM slides;
+
+    DROP INDEX IF EXISTS idx_slides_presentation_id;
+    DROP INDEX IF EXISTS idx_slides_lyric_id;
+    DROP INDEX IF EXISTS idx_slides_talk_id;
+    DROP INDEX IF EXISTS idx_slides_theme_id;
+    DROP INDEX IF EXISTS idx_slides_overlay_id;
+    DROP INDEX IF EXISTS idx_slides_stage_id;
+    DROP TABLE slides;
+    ALTER TABLE slides_v14 RENAME TO slides;
+
+    CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_lyric_id ON slides(lyric_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_talk_id ON slides(talk_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_theme_id ON slides(theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_overlay_id ON slides(overlay_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_stage_id ON slides(stage_id);
+  `);
+}
+
+function repairSlidesCheckConstraintForTalks(db: SqliteDatabase): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'slides'")
+    .get() as { sql: string } | undefined;
+  if (!row?.sql) return;
+  if (row.sql.includes('(talk_id IS NOT NULL)')) return;
+  recreateSlidesTableWithTalkCheck(db);
+}
+
+// ---------------------------------------------------------------------------
+// v15 — macros ("actions") first appearance: actions / action_steps /
+// trigger_bindings (action-only at this point).
+// ---------------------------------------------------------------------------
+function ensureActionsSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS actions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS action_steps (
+      id TEXT PRIMARY KEY,
+      action_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      group_index INTEGER NOT NULL,
+      step_index INTEGER NOT NULL,
+      payload_json TEXT NOT NULL,
+      failure_policy TEXT NOT NULL DEFAULT 'continue',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(action_id) REFERENCES actions(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS trigger_bindings (
+      id TEXT PRIMARY KEY,
+      action_id TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      source_id TEXT,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(action_id) REFERENCES actions(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_action_steps_action_id ON action_steps(action_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_action_id ON trigger_bindings(action_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_trigger_type_source_id ON trigger_bindings(trigger_type, source_id)');
+}
+
+// ---------------------------------------------------------------------------
+// v16 — extract `cues` as their own shareable table; action_steps reference
+// a cue by id instead of embedding kind/payload directly; trigger_bindings
+// gains a generic (target_type, target_id) in addition to action_id.
+// ---------------------------------------------------------------------------
+function ensureCuesAndMacrosSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cues (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      failure_policy TEXT NOT NULL DEFAULT 'continue',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
+  if (!hasColumn(db, 'action_steps', 'cue_id')) {
+    db.exec('ALTER TABLE action_steps ADD COLUMN cue_id TEXT REFERENCES cues(id)');
+  }
+
+  if (!hasColumn(db, 'trigger_bindings', 'target_type')) {
+    db.exec('ALTER TABLE trigger_bindings ADD COLUMN target_type TEXT');
+  }
+  if (!hasColumn(db, 'trigger_bindings', 'target_id')) {
+    db.exec('ALTER TABLE trigger_bindings ADD COLUMN target_id TEXT');
+  }
+
+  const legacySteps = db
+    .prepare(
+      `SELECT id, action_id, kind, payload_json, failure_policy, created_at, updated_at
+       FROM action_steps
+       WHERE cue_id IS NULL`
+    )
+    .all() as Array<{
+      id: string;
+      action_id: string;
+      kind: string;
+      payload_json: string;
+      failure_policy: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+  const insertCue = db.prepare(
+    `INSERT INTO cues (id, name, kind, payload_json, failure_policy, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  );
+  const updateStepCueId = db.prepare('UPDATE action_steps SET cue_id = ? WHERE id = ?');
+
+  for (const step of legacySteps) {
+    const cueId = createId();
+    insertCue.run(
+      cueId,
+      defaultCueName(step.kind as Parameters<typeof defaultCueName>[0]),
+      step.kind,
+      step.payload_json,
+      step.failure_policy || 'continue',
+      step.created_at,
+      step.updated_at,
+    );
+    updateStepCueId.run(cueId, step.id);
+  }
+
+  if (hasColumn(db, 'trigger_bindings', 'action_id')) {
+    db.exec(`
+      UPDATE trigger_bindings
+      SET target_type = COALESCE(target_type, 'macro'),
+          target_id = COALESCE(target_id, action_id)
+      WHERE target_type IS NULL OR target_id IS NULL
+    `);
+  }
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_cues_updated_at ON cues(updated_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_action_steps_cue_id ON action_steps(cue_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_target ON trigger_bindings(target_type, target_id)');
+}
+
+// ---------------------------------------------------------------------------
+// v17 — collapse parallel-group ordering (group_index/step_index) into a
+// single order_index; drop cues.name; add macro_collections +
+// actions.collection_id.
+// ---------------------------------------------------------------------------
+function migrateMacrosSequential(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS macro_collections (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  const existingDefault = db.prepare('SELECT id FROM macro_collections WHERE is_default = 1 LIMIT 1').get() as { id: string } | undefined;
+  let defaultMacroCollectionId = existingDefault?.id ?? null;
+  if (!defaultMacroCollectionId) {
+    defaultMacroCollectionId = createId();
+    const now = nowIso();
+    db
+      .prepare('INSERT INTO macro_collections (id, name, order_index, is_default, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)')
+      .run(defaultMacroCollectionId, 'Default Collection', 0, now, now);
+  }
+
+  if (!hasColumn(db, 'actions', 'collection_id')) {
+    db.exec("ALTER TABLE actions ADD COLUMN collection_id TEXT NOT NULL DEFAULT ''");
+    db.prepare("UPDATE actions SET collection_id = ? WHERE collection_id = '' OR collection_id IS NULL").run(defaultMacroCollectionId);
+  }
+
+  // Add order_index to action_steps and back-fill from group/step indexes.
+  if (!hasColumn(db, 'action_steps', 'order_index')) {
+    db.exec('ALTER TABLE action_steps ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+    if (hasColumn(db, 'action_steps', 'group_index') && hasColumn(db, 'action_steps', 'step_index')) {
+      db.exec(`
+        WITH ranked AS (
+          SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY action_id
+            ORDER BY group_index ASC, step_index ASC, created_at ASC, id ASC
+          ) - 1 AS rank FROM action_steps
+        )
+        UPDATE action_steps SET order_index = (SELECT rank FROM ranked WHERE ranked.id = action_steps.id);
+      `);
+    }
+  }
+
+  // Drop cues.name — the user never sets or sees a per-cue name. Wrapped in
+  // try/catch because SQLite older than 3.35 lacks DROP COLUMN; the column
+  // then just sits unused, which is harmless.
+  if (hasColumn(db, 'cues', 'name')) {
+    try {
+      db.exec('ALTER TABLE cues DROP COLUMN name');
+    } catch (error) {
+      console.warn('[DB migrations] Could not drop cues.name column, leaving in place:', error);
+    }
+  }
+
+  if (hasColumn(db, 'action_steps', 'group_index')) {
+    try {
+      db.exec('ALTER TABLE action_steps DROP COLUMN group_index');
+    } catch (error) {
+      console.warn('[DB migrations] Could not drop action_steps.group_index column, leaving in place:', error);
+    }
+  }
+  if (hasColumn(db, 'action_steps', 'step_index')) {
+    try {
+      db.exec('ALTER TABLE action_steps DROP COLUMN step_index');
+    } catch (error) {
+      console.warn('[DB migrations] Could not drop action_steps.step_index column, leaving in place:', error);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v18 — rebuild trigger_bindings to drop the legacy `action_id` column and
+// promote (target_type, target_id) to NOT NULL. Requires foreign_keys off.
+// ---------------------------------------------------------------------------
+function rebuildTriggerBindingsForTargetColumns(db: SqliteDatabase): void {
+  if (!hasTable(db, 'trigger_bindings')) return;
+  if (!hasColumn(db, 'trigger_bindings', 'action_id')) return;
+
+  db.exec(`
+    CREATE TABLE trigger_bindings_new (
+      id TEXT PRIMARY KEY,
+      trigger_type TEXT NOT NULL,
+      source_id TEXT,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      config_json TEXT NOT NULL DEFAULT '{}',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.exec(`
+    INSERT INTO trigger_bindings_new
+      (id, trigger_type, source_id, target_type, target_id, config_json, enabled, created_at, updated_at)
+    SELECT
+      id,
+      trigger_type,
+      source_id,
+      COALESCE(target_type, 'macro'),
+      COALESCE(target_id, action_id),
+      config_json,
+      enabled,
+      created_at,
+      updated_at
+    FROM trigger_bindings;
+  `);
+  db.exec('DROP TABLE trigger_bindings');
+  db.exec('ALTER TABLE trigger_bindings_new RENAME TO trigger_bindings');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_trigger_type_source_id ON trigger_bindings(trigger_type, source_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_trigger_bindings_target ON trigger_bindings(target_type, target_id)');
+}
+
+// ---------------------------------------------------------------------------
+// v19 — background_json column on slides (already added the storage column
+// in earlier work; this migration is the dedicated schema step for it).
+// ---------------------------------------------------------------------------
+function ensureSlideBackgroundColumn(db: SqliteDatabase): void {
+  if (hasColumn(db, 'slides', 'background_json')) return;
+  db.exec('ALTER TABLE slides ADD COLUMN background_json TEXT');
+}
+
+// ---------------------------------------------------------------------------
+// v20 — fold scope/loop/lifecycle into macros and per-step delays into
+// action_steps; retire the standalone `flow.wait` cue kind by folding each
+// wait into an adjacent step's delay.
+// ---------------------------------------------------------------------------
+function foldFlowWaitStepsIntoDelays(db: SqliteDatabase): void {
+  interface StepRow {
+    stepId: string;
+    orderIndex: number;
+    kind: string;
+    ms: number;
+  }
+  const steps = db
+    .prepare(
+      `SELECT s.id AS stepId, s.action_id AS macroId, s.order_index AS orderIndex,
+              c.kind AS kind, c.payload_json AS payloadJson
+       FROM action_steps s
+       JOIN cues c ON c.id = s.cue_id
+       ORDER BY s.action_id, s.order_index`,
+    )
+    .all() as Array<{ stepId: string; macroId: string; orderIndex: number; kind: string; payloadJson: string }>;
+
+  const byMacro = new Map<string, StepRow[]>();
+  for (const row of steps) {
+    let ms = 0;
+    if (row.kind === 'flow.wait') {
+      try {
+        const parsed = JSON.parse(row.payloadJson ?? '{}') as { ms?: number };
+        ms = Number.isFinite(parsed.ms) ? Math.max(0, Math.round(Number(parsed.ms))) : 0;
+      } catch { ms = 0; }
+    }
+    const list = byMacro.get(row.macroId) ?? [];
+    list.push({ stepId: row.stepId, orderIndex: row.orderIndex, kind: row.kind, ms });
+    byMacro.set(row.macroId, list);
+  }
+
+  const addBefore = db.prepare('UPDATE action_steps SET delay_before_ms = delay_before_ms + ? WHERE id = ?');
+  const addAfter = db.prepare('UPDATE action_steps SET delay_after_ms = delay_after_ms + ? WHERE id = ?');
+
+  for (const list of byMacro.values()) {
+    list.sort((a, b) => a.orderIndex - b.orderIndex);
+    for (let i = 0; i < list.length; i += 1) {
+      const step = list[i];
+      if (step.kind !== 'flow.wait' || step.ms <= 0) continue;
+      const next = list.slice(i + 1).find((s) => s.kind !== 'flow.wait');
+      if (next) {
+        addBefore.run(step.ms, next.stepId);
+      } else {
+        const prev = list.slice(0, i).reverse().find((s) => s.kind !== 'flow.wait');
+        if (prev) addAfter.run(step.ms, prev.stepId);
+      }
+    }
+  }
+
+  // Retire the kind entirely: drop every flow.wait cue along with its macro
+  // steps and any bare-cue trigger bindings that pointed at it.
+  const leftoverWaitCues = db.prepare("SELECT id FROM cues WHERE kind = 'flow.wait'").all() as Array<{ id: string }>;
+  for (const { id } of leftoverWaitCues) {
+    db.prepare("DELETE FROM trigger_bindings WHERE target_type = 'cue' AND target_id = ?").run(id);
+    db.prepare('DELETE FROM action_steps WHERE cue_id = ?').run(id);
+    db.prepare('DELETE FROM cues WHERE id = ?').run(id);
+  }
+}
+
+function migrateMacroScopeLifecycle(db: SqliteDatabase): void {
+  if (hasTable(db, 'actions')) {
+    if (!hasColumn(db, 'actions', 'scope_level')) {
+      db.exec("ALTER TABLE actions ADD COLUMN scope_level TEXT NOT NULL DEFAULT 'global'");
+    }
+    if (!hasColumn(db, 'actions', 'on_scope_exit')) {
+      db.exec("ALTER TABLE actions ADD COLUMN on_scope_exit TEXT NOT NULL DEFAULT 'cancel'");
+    }
+    if (!hasColumn(db, 'actions', 'loop_enabled')) {
+      db.exec('ALTER TABLE actions ADD COLUMN loop_enabled INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!hasColumn(db, 'actions', 'loop_count')) {
+      db.exec('ALTER TABLE actions ADD COLUMN loop_count INTEGER');
+    }
+  }
+
+  if (hasTable(db, 'action_steps')) {
+    if (!hasColumn(db, 'action_steps', 'delay_before_ms')) {
+      db.exec('ALTER TABLE action_steps ADD COLUMN delay_before_ms INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!hasColumn(db, 'action_steps', 'delay_after_ms')) {
+      db.exec('ALTER TABLE action_steps ADD COLUMN delay_after_ms INTEGER NOT NULL DEFAULT 0');
+    }
+    foldFlowWaitStepsIntoDelays(db);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v21 — provenance tracking (slide_elements.source_theme_element_id) and
+// background ownership (slides.background_source).
+// ---------------------------------------------------------------------------
+function migrateProvenance(db: SqliteDatabase): void {
+  // Add source_theme_element_id to slide_elements
+  if (!hasColumn(db, 'slide_elements', 'source_theme_element_id')) {
+    db.exec('ALTER TABLE slide_elements ADD COLUMN source_theme_element_id TEXT');
+
+    // Backfill: for each element whose ID matches the <slideId>:<themeElementId>
+    // convention, extract the themeElementId. Conservative — only matches the
+    // literal prefix pattern.
+    const elements = db.prepare('SELECT se.id, se.slide_id FROM slide_elements se').all() as Array<{ id: string; slide_id: string }>;
+    const update = db.prepare('UPDATE slide_elements SET source_theme_element_id = ? WHERE id = ?');
+    for (const element of elements) {
+      const prefix = `${element.slide_id}:`;
+      if (element.id.startsWith(prefix)) {
+        const themeElementId = element.id.slice(prefix.length);
+        if (themeElementId.length > 0) {
+          update.run(themeElementId, element.id);
+        }
+      }
+    }
+  }
+
+  // Add background_source to slides
+  if (!hasColumn(db, 'slides', 'background_source')) {
+    db.exec("ALTER TABLE slides ADD COLUMN background_source TEXT DEFAULT 'theme'");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v22 — corrective migration for provenance and background ownership.
+// Repairs the v21 migration, which defaulted all backgrounds to 'theme' and
+// derived element provenance from ID prefixes without validating theme
+// assignments. Idempotent and safe to run on both fresh and already-migrated
+// databases.
+// ---------------------------------------------------------------------------
+function migrateProvenanceRepair(db: SqliteDatabase): void {
+  // 1. Recompute background_source for all deck slides.
+  const deckSlides = db
+    .prepare(
+      `SELECT s.id, s.presentation_id, s.lyric_id, s.talk_id, s.theme_id, s.background_json, s.background_source,
+              p.theme_id as p_theme_id, l.theme_id as l_theme_id, t.theme_id as t_theme_id,
+              p.id as p_id, l.id as l_id, t.id as t_id
+       FROM slides s
+       LEFT JOIN presentations p ON p.id = s.presentation_id
+       LEFT JOIN lyrics l ON l.id = s.lyric_id
+       LEFT JOIN talks t ON t.id = s.talk_id
+       WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL`
+    )
+    .all() as Array<{
+      id: string;
+      presentation_id: string | null;
+      lyric_id: string | null;
+      talk_id: string | null;
+      theme_id: string | null;
+      background_json: string | null;
+      background_source: string | null;
+      p_theme_id: string | null;
+      l_theme_id: string | null;
+      t_theme_id: string | null;
+      p_id: string | null;
+      l_id: string | null;
+      t_id: string | null;
+    }>;
+
+  const updateBackgroundSource = db.prepare('UPDATE slides SET background_source = ? WHERE id = ?');
+
+  for (const slide of deckSlides) {
+    let ownerId: string | null = null;
+    let ownerType: 'presentation' | 'lyric' | 'talk' | null = null;
+    let ownerThemeId: string | null = null;
+
+    if (slide.presentation_id) {
+      ownerId = slide.p_id;
+      ownerType = 'presentation';
+      ownerThemeId = slide.p_theme_id;
+    } else if (slide.lyric_id) {
+      ownerId = slide.l_id;
+      ownerType = 'lyric';
+      ownerThemeId = slide.l_theme_id;
+    } else if (slide.talk_id) {
+      ownerId = slide.t_id;
+      ownerType = 'talk';
+      ownerThemeId = slide.t_theme_id;
+    }
+
+    let newBackgroundSource: 'theme' | 'local' = 'local';
+
+    if (ownerId && ownerThemeId) {
+      const theme = db
+        .prepare(
+          `SELECT t.id, t.kind, ts.background_json
+           FROM themes t
+           LEFT JOIN slides ts ON ts.id = t.id || ':slide' AND ts.theme_id = t.id
+           WHERE t.id = ?`
+        )
+        .get(ownerThemeId) as { id: string; kind: string; background_json: string | null } | undefined;
+      const isCompatible = theme && (
+        (theme.kind === 'slides' && (ownerType === 'presentation' || ownerType === 'talk')) ||
+        (theme.kind === 'lyrics' && ownerType === 'lyric')
+      );
+
+      if (theme && isCompatible) {
+        const slideBg = slide.background_json ? parseJson<SlideBackground>(slide.background_json) : null;
+        const themeBg = theme.background_json ? parseJson<SlideBackground>(theme.background_json) : null;
+        newBackgroundSource = (slideBg && themeBg && JSON.stringify(slideBg) === JSON.stringify(themeBg)) ? 'theme' : 'local';
+      } else {
+        newBackgroundSource = 'local';
+      }
+    } else {
+      newBackgroundSource = 'local';
+    }
+
+    if (slide.background_source !== newBackgroundSource) {
+      updateBackgroundSource.run(newBackgroundSource, slide.id);
+    }
+  }
+
+  // 2. Repair element provenance conservatively: start from NULL for every
+  //    element, then only set provenance for proven cases.
+  db.prepare('UPDATE slide_elements SET source_theme_element_id = NULL WHERE slide_id IN (SELECT id FROM slides WHERE presentation_id IS NOT NULL OR lyric_id IS NOT NULL OR talk_id IS NOT NULL)').run();
+
+  const slidesWithThemes = db
+    .prepare(
+      `SELECT s.id as slide_id, s.presentation_id, s.lyric_id, s.talk_id,
+              p.id as p_id, p.theme_id as p_theme_id,
+              l.id as l_id, l.theme_id as l_theme_id,
+              t.id as t_id, t.theme_id as t_theme_id
+       FROM slides s
+       LEFT JOIN presentations p ON p.id = s.presentation_id
+       LEFT JOIN lyrics l ON l.id = s.lyric_id
+       LEFT JOIN talks t ON t.id = s.talk_id
+       WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL`
+    )
+    .all() as Array<{
+      slide_id: string;
+      presentation_id: string | null;
+      lyric_id: string | null;
+      talk_id: string | null;
+      p_id: string | null;
+      p_theme_id: string | null;
+      l_id: string | null;
+      l_theme_id: string | null;
+      t_id: string | null;
+      t_theme_id: string | null;
+    }>;
+
+  const slideThemeMap = new Map<string, { themeId: string; themeElementIds: Set<string> }>();
+
+  for (const slide of slidesWithThemes) {
+    let ownerThemeId: string | null = null;
+    let ownerType: 'presentation' | 'lyric' | 'talk' | null = null;
+
+    if (slide.presentation_id && slide.p_theme_id) {
+      ownerThemeId = slide.p_theme_id;
+      ownerType = 'presentation';
+    } else if (slide.lyric_id && slide.l_theme_id) {
+      ownerThemeId = slide.l_theme_id;
+      ownerType = 'lyric';
+    } else if (slide.talk_id && slide.t_theme_id) {
+      ownerThemeId = slide.t_theme_id;
+      ownerType = 'talk';
+    }
+
+    if (ownerThemeId) {
+      const theme = db.prepare('SELECT id, kind FROM themes WHERE id = ?').get(ownerThemeId) as { id: string; kind: string } | undefined;
+      const isCompatible = theme && (
+        (theme.kind === 'slides' && (ownerType === 'presentation' || ownerType === 'talk')) ||
+        (theme.kind === 'lyrics' && ownerType === 'lyric')
+      );
+
+      if (theme && isCompatible) {
+        const themeSlideId = `${ownerThemeId}:slide`;
+        const themeElements = db.prepare('SELECT id FROM slide_elements WHERE slide_id = ?').all(themeSlideId) as Array<{ id: string }>;
+        const themeElementIds = new Set(themeElements.map((e) => e.id));
+        slideThemeMap.set(slide.slide_id, { themeId: ownerThemeId, themeElementIds });
+      }
+    }
+  }
+
+  const updateProvenance = db.prepare('UPDATE slide_elements SET source_theme_element_id = ? WHERE id = ?');
+
+  for (const [slideId, { themeElementIds }] of slideThemeMap) {
+    const elements = db.prepare('SELECT id FROM slide_elements WHERE slide_id = ?').all(slideId) as Array<{ id: string }>;
+    for (const element of elements) {
+      const prefix = `${slideId}:`;
+      if (element.id.startsWith(prefix)) {
+        const candidateThemeElementId = element.id.slice(prefix.length);
+        if (candidateThemeElementId.length > 0 && themeElementIds.has(candidateThemeElementId)) {
+          // Proven: this element was materialized from the theme element.
+          updateProvenance.run(candidateThemeElementId, element.id);
+        }
+        // Otherwise leave as NULL (unproven).
+      }
+      // Elements not matching the convention remain NULL.
+    }
+  }
+  // Note: recursive group-child provenance is never guessed. Only top-level
+  // elements with proven legacy IDs get provenance set.
+}
+
+// ---------------------------------------------------------------------------
+// v23 — destroy collections (#219 item-model refactor decision D3): every
+// per-bin `*_collections` table, and the `collection_id` column it backed on
+// every collection-scoped item table, are dropped. Nine tables rebuild
+// without the column (nothing else about their shape changes — themes keeps
+// its `kind` column for now; that's v26's job); `actions.collection_id` has
+// no declared FK so it's dropped in place. The eight collection tables are
+// then dropped outright. Requires foreign_keys off (multiple table
+// recreations).
+// ---------------------------------------------------------------------------
+function rebuildDeckItemTableWithoutCollection(db: SqliteDatabase, table: 'presentations' | 'lyrics' | 'talks'): void {
+  if (!hasColumn(db, table, 'collection_id')) return;
+  const tempTable = `${table}_v23`;
+  db.exec(`
+    CREATE TABLE ${tempTable} (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES themes(id)
+    );
+
+    INSERT INTO ${tempTable} (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at
+    FROM ${table};
+
+    DROP TABLE ${table};
+    ALTER TABLE ${tempTable} RENAME TO ${table};
+  `);
+
+  if (table === 'talks') {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_talks_order_index ON talks(order_index);');
+  } else {
+    const orderIndexName = table === 'presentations' ? 'idx_decks_order_index' : 'idx_lyrics_order_index';
+    const themeIndexName = table === 'presentations' ? 'idx_decks_theme_id' : 'idx_lyrics_theme_id';
+    db.exec(`CREATE INDEX IF NOT EXISTS ${orderIndexName} ON ${table}(order_index);`);
+    db.exec(`CREATE INDEX IF NOT EXISTS ${themeIndexName} ON ${table}(theme_id);`);
+  }
+}
+
+function rebuildThemesWithoutCollection(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'themes', 'collection_id')) return;
+  db.exec(`
+    CREATE TABLE themes_v23 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO themes_v23 (id, name, kind, width, height, order_index, created_at, updated_at)
+    SELECT id, name, kind, width, height, order_index, created_at, updated_at
+    FROM themes;
+
+    DROP TABLE themes;
+    ALTER TABLE themes_v23 RENAME TO themes;
+
+    CREATE INDEX IF NOT EXISTS idx_themes_order_index ON themes(order_index);
+  `);
+}
+
+function rebuildStagesWithoutCollection(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'stages', 'collection_id')) return;
+  db.exec(`
+    CREATE TABLE stages_v23 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO stages_v23 (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM stages;
+
+    DROP TABLE stages;
+    ALTER TABLE stages_v23 RENAME TO stages;
+
+    CREATE INDEX IF NOT EXISTS idx_stages_order_index ON stages(order_index);
+  `);
+}
+
+function rebuildOverlaysWithoutCollection(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'overlays', 'collection_id')) return;
+  db.exec(`
+    CREATE TABLE overlays_v23 (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      enabled INTEGER NOT NULL,
+      animation_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO overlays_v23 (id, name, enabled, animation_json, created_at, updated_at)
+    SELECT id, name, enabled, animation_json, created_at, updated_at
+    FROM overlays;
+
+    DROP TABLE overlays;
+    ALTER TABLE overlays_v23 RENAME TO overlays;
+
+    CREATE INDEX IF NOT EXISTS idx_overlays_created_at ON overlays(created_at);
+  `);
+}
+
+function rebuildMediaAssetTableWithoutCollection(
+  db: SqliteDatabase,
+  table: 'image_assets' | 'video_assets' | 'audio_assets',
+): void {
+  if (!hasColumn(db, table, 'collection_id')) return;
+  const tempTable = `${table}_v23`;
+  db.exec(`
+    CREATE TABLE ${tempTable} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      src TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    INSERT INTO ${tempTable} (id, name, src, order_index, created_at, updated_at)
+    SELECT id, name, src, order_index, created_at, updated_at
+    FROM ${table};
+
+    DROP TABLE ${table};
+    ALTER TABLE ${tempTable} RENAME TO ${table};
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_${table}_created_at ON ${table}(created_at);`);
+}
+
+function dropActionsCollectionColumn(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'actions', 'collection_id')) return;
+  try {
+    db.exec('ALTER TABLE actions DROP COLUMN collection_id');
+  } catch (error) {
+    console.warn('[DB migrations] Could not drop actions.collection_id column, leaving in place:', error);
+  }
+}
+
+function migrateDropCollections(db: SqliteDatabase): void {
+  rebuildDeckItemTableWithoutCollection(db, 'presentations');
+  rebuildDeckItemTableWithoutCollection(db, 'lyrics');
+  rebuildDeckItemTableWithoutCollection(db, 'talks');
+  rebuildThemesWithoutCollection(db);
+  rebuildStagesWithoutCollection(db);
+  rebuildOverlaysWithoutCollection(db);
+  rebuildMediaAssetTableWithoutCollection(db, 'image_assets');
+  rebuildMediaAssetTableWithoutCollection(db, 'video_assets');
+  rebuildMediaAssetTableWithoutCollection(db, 'audio_assets');
+  dropActionsCollectionColumn(db);
+
+  for (const table of Object.values(COLLECTION_TABLE_BY_BIN)) {
+    db.exec(`DROP TABLE IF EXISTS ${table};`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v24 — destroy the library concept (#219 item-model refactor decision D4):
+// rebuild `playlists` without `library_id`, folding every library's playlists
+// into one deterministic global order (library order/creation time, then the
+// playlist's own order/creation time, then id — same merge-order shape as
+// v3's cross-library content globalization), then drop `libraries` outright.
+// Requires foreign_keys off.
+// ---------------------------------------------------------------------------
+function migrateGlobalPlaylists(db: SqliteDatabase): void {
+  if (hasColumn(db, 'playlists', 'library_id')) {
+    db.exec(`
+      CREATE TABLE playlists_v24 (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT INTO playlists_v24 (id, name, order_index, created_at, updated_at)
+      SELECT
+        p.id,
+        p.name,
+        ROW_NUMBER() OVER (
+          ORDER BY
+            COALESCE(l.order_index, 0) ASC,
+            COALESCE(l.created_at, p.created_at) ASC,
+            p.order_index ASC,
+            p.created_at ASC,
+            p.id ASC
+        ) - 1,
+        p.created_at,
+        p.updated_at
+      FROM playlists p
+      LEFT JOIN libraries l ON l.id = p.library_id;
+
+      DROP TABLE playlists;
+      ALTER TABLE playlists_v24 RENAME TO playlists;
+
+      CREATE INDEX IF NOT EXISTS idx_playlists_order_index ON playlists(order_index);
+    `);
+  }
+
+  db.exec('DROP TABLE IF EXISTS libraries;');
+}
+
+// ---------------------------------------------------------------------------
+// v25 — playlist groups become separators (#219 item-model refactor decision
+// D5): a group is no longer an accordion container, it's a plain divider row
+// inside the flat entry list. Rebuilds `playlist_entries` directly under
+// `playlist_id` with a `kind` discriminator ('item' | 'separator'),
+// synthesizing one separator row per group — even an empty one — carrying
+// its name (-> label) and color, immediately followed by its own entries,
+// then densely renumbers each playlist's whole row list 0..n. Item entry ids
+// are preserved (live/preview selection and armed-output state key off
+// them); separator rows get new ids. Canonical per-playlist flattening
+// order: groups by (order_index, rowid), then each group's entries the same
+// way. Requires foreign_keys off.
+// ---------------------------------------------------------------------------
+function synthesizePlaylistSeparators(db: SqliteDatabase): void {
+  if (!hasTable(db, 'playlist_groups')) return;
+
+  db.exec(`
+    CREATE TABLE playlist_entries_v25 (
+      id TEXT PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('item', 'separator')),
+      presentation_id TEXT,
+      lyric_id TEXT,
+      talk_id TEXT,
+      label TEXT,
+      color_key TEXT,
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(playlist_id) REFERENCES playlists(id),
+      CHECK (
+        (kind = 'item' AND label IS NULL AND
+          (presentation_id IS NOT NULL) + (lyric_id IS NOT NULL) + (talk_id IS NOT NULL) = 1)
+        OR
+        (kind = 'separator' AND presentation_id IS NULL AND lyric_id IS NULL AND talk_id IS NULL)
+      )
+    );
+  `);
+
+  const insertRow = db.prepare(
+    `INSERT INTO playlist_entries_v25
+      (id, playlist_id, kind, presentation_id, lyric_id, talk_id, label, color_key, order_index, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  const playlists = db.prepare('SELECT id FROM playlists').all() as Array<{ id: string }>;
+  for (const playlist of playlists) {
+    const groups = db
+      .prepare(
+        `SELECT id, name, color_key, created_at, updated_at
+         FROM playlist_groups
+         WHERE playlist_id = ?
+         ORDER BY order_index ASC, rowid ASC`,
+      )
+      .all(playlist.id) as Array<{
+        id: string;
+        name: string;
+        color_key: string | null;
+        created_at: string;
+        updated_at: string;
+      }>;
+
+    let order = 0;
+    for (const group of groups) {
+      insertRow.run(
+        createId(), playlist.id, 'separator', null, null, null,
+        group.name, group.color_key, order, group.created_at, group.updated_at,
+      );
+      order += 1;
+
+      const entries = db
+        .prepare(
+          `SELECT id, presentation_id, lyric_id, talk_id, created_at, updated_at
+           FROM playlist_entries
+           WHERE group_id = ?
+           ORDER BY order_index ASC, rowid ASC`,
+        )
+        .all(group.id) as Array<{
+          id: string;
+          presentation_id: string | null;
+          lyric_id: string | null;
+          talk_id: string | null;
+          created_at: string;
+          updated_at: string;
+        }>;
+
+      for (const entry of entries) {
+        insertRow.run(
+          entry.id, playlist.id, 'item', entry.presentation_id, entry.lyric_id, entry.talk_id,
+          null, null, order, entry.created_at, entry.updated_at,
+        );
+        order += 1;
+      }
+    }
+  }
+
+  // Entries whose group_id doesn't resolve to any playlist_groups row at all
+  // are unassignable: pre-migration `playlist_entries` carried no direct
+  // playlist reference, only via its (unenforced, FK-less) group_id, so a
+  // dangling group_id leaves no way to recover which playlist the entry
+  // belonged to. The store's own mutation paths always cascade a group/
+  // playlist delete onto its entries, so this is unreachable via ordinary
+  // app use — a defensive branch for hand-edited or historically corrupted
+  // files, not a normal case. Such rows are dropped (logged) rather than
+  // inventing an owning playlist for them.
+  const orphaned = db
+    .prepare('SELECT id FROM playlist_entries WHERE group_id NOT IN (SELECT id FROM playlist_groups)')
+    .all() as Array<{ id: string }>;
+  if (orphaned.length > 0) {
+    console.warn(
+      `[DB migrations] Dropping ${orphaned.length} playlist_entries row(s) whose group_id references no ` +
+      'playlist_groups row (unassignable to any playlist).',
+    );
+  }
+
+  db.exec(`
+    DROP TABLE playlist_entries;
+    ALTER TABLE playlist_entries_v25 RENAME TO playlist_entries;
+
+    DROP TABLE playlist_groups;
+
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id ON playlist_entries(playlist_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_presentation_id ON playlist_entries(presentation_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_lyric_id ON playlist_entries(lyric_id);
+    CREATE INDEX IF NOT EXISTS idx_playlist_entries_talk_id ON playlist_entries(talk_id);
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// v26 — per-owner theme tables (#219 item-model refactor decision D2): the
+// single `themes` table (kind 'slides' | 'lyrics' | 'overlays') splits into
+// `presentation_themes` / `lyric_themes` / `talk_themes` / `overlay_themes`,
+// ids preserved for the first three families' direct mapping. A 'slides'
+// theme referenced by at least one talk is additionally *cloned* into
+// talk_themes under a brand-new id (one clone per source theme, shared by
+// every talk that referenced it) — presentations and talks used to be able
+// to share one 'slides' theme row; now each owner family needs its own row,
+// so the talk side gets its own copy rather than a second owner on the same
+// row. Cloning duplicates the theme's container slide
+// (`${themeId}:slide` -> `${newId}:slide`) and its `slide_elements` (new
+// element ids, old->new map), then remaps provenance on the cloning talk's
+// own slides: `slide_elements.source_theme_element_id` pointing at a cloned
+// source element is rewritten via that map, and `slides.background_source`
+// is recomputed the same way v21/v22's provenance repair did. `slides`
+// itself is rebuilt: the single `theme_id` owner column is replaced by four
+// (`presentation_theme_id` / `lyric_theme_id` / `talk_theme_id` /
+// `overlay_theme_id`), the CHECK becomes a 9-way exclusive arc, and a
+// container slide's `kind` ('theme') is rewritten to the per-owner value
+// ('presentationTheme' / 'lyricTheme' / 'talkTheme' / 'overlayTheme').
+// `presentations`/`lyrics`/`talks` are rebuilt with their `theme_id` FK
+// retargeted at the matching per-owner table (talks' value repointed at its
+// clone). Requires foreign_keys off.
+// ---------------------------------------------------------------------------
+function createPerOwnerThemeTable(db: SqliteDatabase, table: string): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ${table} (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+}
+
+/** Clone one talk-referenced theme (container slide + its elements) into `talk_themes` under `newThemeId`. Returns the old->new element-id map, used to remap provenance on the talk's own slides. */
+function cloneTalkTheme(
+  db: SqliteDatabase,
+  sourceThemeId: string,
+  newThemeId: string,
+  orderIndex: number,
+): Map<string, string> {
+  const elementIdMap = new Map<string, string>();
+
+  const theme = db
+    .prepare('SELECT name, width, height, created_at, updated_at FROM themes WHERE id = ?')
+    .get(sourceThemeId) as
+    | { name: string; width: number; height: number; created_at: string; updated_at: string }
+    | undefined;
+  if (!theme) return elementIdMap;
+
+  db
+    .prepare(
+      `INSERT INTO talk_themes (id, name, width, height, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(newThemeId, theme.name, theme.width, theme.height, orderIndex, theme.created_at, theme.updated_at);
+
+  const sourceSlideId = `${sourceThemeId}:slide`;
+  const newSlideId = `${newThemeId}:slide`;
+  const sourceSlide = db
+    .prepare(
+      `SELECT width, height, notes, order_index, created_at, updated_at, background_json, background_source
+       FROM slides WHERE id = ?`,
+    )
+    .get(sourceSlideId) as
+    | {
+        width: number;
+        height: number;
+        notes: string;
+        order_index: number;
+        created_at: string;
+        updated_at: string;
+        background_json: string | null;
+        background_source: string | null;
+      }
+    | undefined;
+  if (!sourceSlide) return elementIdMap;
+
+  db
+    .prepare(
+      `INSERT INTO slides
+        (id, presentation_id, lyric_id, talk_id, theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+       VALUES (?, NULL, NULL, NULL, ?, NULL, NULL, 'theme', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      newSlideId,
+      newThemeId,
+      sourceSlide.width,
+      sourceSlide.height,
+      sourceSlide.notes,
+      sourceSlide.order_index,
+      sourceSlide.created_at,
+      sourceSlide.updated_at,
+      sourceSlide.background_json,
+      sourceSlide.background_source,
+    );
+
+  const sourceElements = db
+    .prepare(
+      `SELECT id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, created_at, updated_at, source_theme_element_id
+       FROM slide_elements WHERE slide_id = ?`,
+    )
+    .all(sourceSlideId) as Array<{
+      id: string;
+      type: string;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      rotation: number;
+      opacity: number;
+      z_index: number;
+      layer: string;
+      payload_json: string;
+      created_at: string;
+      updated_at: string;
+      source_theme_element_id: string | null;
+    }>;
+
+  const insertElement = db.prepare(
+    `INSERT INTO slide_elements
+      (id, slide_id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, created_at, updated_at, source_theme_element_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const element of sourceElements) {
+    const newElementId = createId();
+    elementIdMap.set(element.id, newElementId);
+    insertElement.run(
+      newElementId, newSlideId, element.type, element.x, element.y, element.width, element.height,
+      element.rotation, element.opacity, element.z_index, element.layer, element.payload_json,
+      element.created_at, element.updated_at, element.source_theme_element_id,
+    );
+  }
+
+  return elementIdMap;
+}
+
+function migratePerOwnerThemes(db: SqliteDatabase): void {
+  if (!hasTable(db, 'themes')) return;
+
+  createPerOwnerThemeTable(db, 'presentation_themes');
+  createPerOwnerThemeTable(db, 'lyric_themes');
+  createPerOwnerThemeTable(db, 'talk_themes');
+  createPerOwnerThemeTable(db, 'overlay_themes');
+
+  db.exec(`
+    INSERT INTO presentation_themes (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM themes WHERE kind NOT IN ('lyrics', 'overlays');
+
+    INSERT INTO lyric_themes (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM themes WHERE kind = 'lyrics';
+
+    INSERT INTO overlay_themes (id, name, width, height, order_index, created_at, updated_at)
+    SELECT id, name, width, height, order_index, created_at, updated_at
+    FROM themes WHERE kind = 'overlays';
+  `);
+
+  // Clone each theme referenced by >=1 talk, one clone per source theme,
+  // shared by every talk that referenced it.
+  const talkThemeSources = db
+    .prepare(
+      `SELECT DISTINCT th.id, th.order_index
+       FROM themes th
+       JOIN talks t ON t.theme_id = th.id
+       ORDER BY th.order_index ASC, th.id ASC`,
+    )
+    .all() as Array<{ id: string; order_index: number }>;
+
+  const themeCloneMap = new Map<string, string>(); // source theme id -> new talk_themes id
+  const elementCloneMapByTheme = new Map<string, Map<string, string>>(); // source theme id -> (old element id -> new element id)
+
+  talkThemeSources.forEach((source, index) => {
+    const newThemeId = createId();
+    themeCloneMap.set(source.id, newThemeId);
+    elementCloneMapByTheme.set(source.id, cloneTalkTheme(db, source.id, newThemeId, index));
+  });
+
+  const talkRows = db.prepare('SELECT id, theme_id FROM talks WHERE theme_id IS NOT NULL').all() as Array<{
+    id: string;
+    theme_id: string;
+  }>;
+
+  // Remap provenance + recompute background_source on every talk-owned slide
+  // whose theme was cloned, mirroring v21/v22's provenance repair, BEFORE
+  // repointing talks.theme_id at the clone (the lookups below still need the
+  // *source* theme id).
+  const updateBackgroundSource = db.prepare('UPDATE slides SET background_source = ? WHERE id = ?');
+  const updateElementProvenance = db.prepare('UPDATE slide_elements SET source_theme_element_id = ? WHERE id = ?');
+
+  for (const talk of talkRows) {
+    const sourceThemeId = talk.theme_id;
+    const elementMap = elementCloneMapByTheme.get(sourceThemeId);
+    if (!elementMap) continue;
+
+    const sourceTheme = db.prepare('SELECT kind FROM themes WHERE id = ?').get(sourceThemeId) as
+      | { kind: string }
+      | undefined;
+    const isCompatible = sourceTheme?.kind === 'slides';
+    const themeBackground = db
+      .prepare('SELECT background_json FROM slides WHERE id = ?')
+      .get(`${sourceThemeId}:slide`) as { background_json: string | null } | undefined;
+
+    const ownedSlides = db
+      .prepare('SELECT id, background_json, background_source FROM slides WHERE talk_id = ?')
+      .all(talk.id) as Array<{ id: string; background_json: string | null; background_source: string | null }>;
+
+    for (const slide of ownedSlides) {
+      const slideBg = slide.background_json ? parseJson<SlideBackground>(slide.background_json) : null;
+      const themeBg = themeBackground?.background_json
+        ? parseJson<SlideBackground>(themeBackground.background_json)
+        : null;
+      const newBackgroundSource: 'theme' | 'local' =
+        isCompatible && slideBg && themeBg && JSON.stringify(slideBg) === JSON.stringify(themeBg)
+          ? 'theme'
+          : 'local';
+      if (slide.background_source !== newBackgroundSource) {
+        updateBackgroundSource.run(newBackgroundSource, slide.id);
+      }
+
+      const elements = db
+        .prepare('SELECT id, source_theme_element_id FROM slide_elements WHERE slide_id = ?')
+        .all(slide.id) as Array<{ id: string; source_theme_element_id: string | null }>;
+      for (const element of elements) {
+        if (!element.source_theme_element_id) continue;
+        const newElementId = elementMap.get(element.source_theme_element_id);
+        if (newElementId) {
+          updateElementProvenance.run(newElementId, element.id);
+        }
+      }
+    }
+  }
+
+  const updateTalkTheme = db.prepare('UPDATE talks SET theme_id = ? WHERE id = ?');
+  for (const talk of talkRows) {
+    const newThemeId = themeCloneMap.get(talk.theme_id);
+    if (newThemeId) {
+      updateTalkTheme.run(newThemeId, talk.id);
+    }
+  }
+
+  // Rebuild slides: retire the single `theme_id` owner column for the four
+  // per-owner columns, and rewrite a container slide's `kind` accordingly.
+  db.exec(`
+    CREATE TABLE slides_v26 (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      talk_id TEXT,
+      presentation_theme_id TEXT,
+      lyric_theme_id TEXT,
+      talk_theme_id TEXT,
+      overlay_theme_id TEXT,
+      overlay_id TEXT,
+      stage_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'presentation',
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      background_json TEXT,
+      background_source TEXT DEFAULT 'theme',
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      FOREIGN KEY(talk_id) REFERENCES talks(id),
+      FOREIGN KEY(presentation_theme_id) REFERENCES presentation_themes(id),
+      FOREIGN KEY(lyric_theme_id) REFERENCES lyric_themes(id),
+      FOREIGN KEY(talk_theme_id) REFERENCES talk_themes(id),
+      FOREIGN KEY(overlay_theme_id) REFERENCES overlay_themes(id),
+      FOREIGN KEY(overlay_id) REFERENCES overlays(id),
+      FOREIGN KEY(stage_id) REFERENCES stages(id),
+      CHECK (
+        (presentation_id IS NOT NULL) +
+        (lyric_id IS NOT NULL) +
+        (talk_id IS NOT NULL) +
+        (presentation_theme_id IS NOT NULL) +
+        (lyric_theme_id IS NOT NULL) +
+        (talk_theme_id IS NOT NULL) +
+        (overlay_theme_id IS NOT NULL) +
+        (overlay_id IS NOT NULL) +
+        (stage_id IS NOT NULL) = 1
+      )
+    );
+
+    INSERT INTO slides_v26
+      (id, presentation_id, lyric_id, talk_id, presentation_theme_id, lyric_theme_id, talk_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+    SELECT
+      s.id, s.presentation_id, s.lyric_id, s.talk_id,
+      CASE WHEN s.theme_id IS NOT NULL AND pt.id IS NOT NULL THEN s.theme_id END,
+      CASE WHEN s.theme_id IS NOT NULL AND lt.id IS NOT NULL THEN s.theme_id END,
+      CASE WHEN s.theme_id IS NOT NULL AND tt.id IS NOT NULL THEN s.theme_id END,
+      CASE WHEN s.theme_id IS NOT NULL AND ot.id IS NOT NULL THEN s.theme_id END,
+      s.overlay_id, s.stage_id,
+      CASE
+        WHEN s.theme_id IS NOT NULL AND pt.id IS NOT NULL THEN 'presentationTheme'
+        WHEN s.theme_id IS NOT NULL AND lt.id IS NOT NULL THEN 'lyricTheme'
+        WHEN s.theme_id IS NOT NULL AND tt.id IS NOT NULL THEN 'talkTheme'
+        WHEN s.theme_id IS NOT NULL AND ot.id IS NOT NULL THEN 'overlayTheme'
+        ELSE s.kind
+      END,
+      s.width, s.height, s.notes, s.order_index, s.created_at, s.updated_at, s.background_json, s.background_source
+    FROM slides s
+    LEFT JOIN presentation_themes pt ON pt.id = s.theme_id
+    LEFT JOIN lyric_themes lt ON lt.id = s.theme_id
+    LEFT JOIN talk_themes tt ON tt.id = s.theme_id
+    LEFT JOIN overlay_themes ot ON ot.id = s.theme_id;
+
+    DROP TABLE slides;
+    ALTER TABLE slides_v26 RENAME TO slides;
+
+    CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_lyric_id ON slides(lyric_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_talk_id ON slides(talk_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_presentation_theme_id ON slides(presentation_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_lyric_theme_id ON slides(lyric_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_talk_theme_id ON slides(talk_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_overlay_theme_id ON slides(overlay_theme_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_overlay_id ON slides(overlay_id);
+    CREATE INDEX IF NOT EXISTS idx_slides_stage_id ON slides(stage_id);
+  `);
+
+  // Rebuild presentations/lyrics/talks with their theme_id FK retargeted at
+  // the matching per-owner table (talks' value is already the clone id).
+  db.exec(`
+    CREATE TABLE presentations_v26 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES presentation_themes(id)
+    );
+    INSERT INTO presentations_v26 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at FROM presentations;
+    DROP TABLE presentations;
+    ALTER TABLE presentations_v26 RENAME TO presentations;
+    CREATE INDEX IF NOT EXISTS idx_decks_order_index ON presentations(order_index);
+    CREATE INDEX IF NOT EXISTS idx_decks_theme_id ON presentations(theme_id);
+
+    CREATE TABLE lyrics_v26 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES lyric_themes(id)
+    );
+    INSERT INTO lyrics_v26 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics;
+    DROP TABLE lyrics;
+    ALTER TABLE lyrics_v26 RENAME TO lyrics;
+    CREATE INDEX IF NOT EXISTS idx_lyrics_order_index ON lyrics(order_index);
+    CREATE INDEX IF NOT EXISTS idx_lyrics_theme_id ON lyrics(theme_id);
+
+    CREATE TABLE talks_v26 (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      theme_id TEXT,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(theme_id) REFERENCES talk_themes(id)
+    );
+    INSERT INTO talks_v26 (id, title, theme_id, order_index, created_at, updated_at)
+    SELECT id, title, theme_id, order_index, created_at, updated_at FROM talks;
+    DROP TABLE talks;
+    ALTER TABLE talks_v26 RENAME TO talks;
+    CREATE INDEX IF NOT EXISTS idx_talks_order_index ON talks(order_index);
+    CREATE INDEX IF NOT EXISTS idx_talks_theme_id ON talks(theme_id);
+  `);
+
+  db.exec('DROP TABLE themes;');
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_presentation_themes_order_index ON presentation_themes(order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_lyric_themes_order_index ON lyric_themes(order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_talk_themes_order_index ON talk_themes(order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_overlay_themes_order_index ON overlay_themes(order_index);');
+}
+
+// ---------------------------------------------------------------------------
+// v27 — item-scope (#219 item-model refactor decision D6/D7): rename the
+// persisted macro scope-level value 'deckItem' -> 'item' (Presentation/
+// Lyric/Talk are independent first-class items now, not a unified "deck
+// item"), and densely renormalize order_index 0..n per table for every
+// per-type sequence this refactor introduced (presentations/lyrics/talks —
+// no longer sharing one cross-type order — and the four theme tables).
+// `playlists` and `playlist_entries` already got a fresh dense order from
+// v24/v25 and don't need it again here.
+// ---------------------------------------------------------------------------
+function renumberOrderIndexDense(db: SqliteDatabase, table: string): void {
+  db.exec(`
+    WITH ranked AS (
+      SELECT id, ROW_NUMBER() OVER (ORDER BY order_index ASC, created_at ASC, id ASC) - 1 AS rank
+      FROM ${table}
+    )
+    UPDATE ${table} SET order_index = (SELECT rank FROM ranked WHERE ranked.id = ${table}.id);
+  `);
+}
+
+function migrateItemScope(db: SqliteDatabase): void {
+  if (hasTable(db, 'actions') && hasColumn(db, 'actions', 'scope_level')) {
+    db.exec("UPDATE actions SET scope_level = 'item' WHERE scope_level = 'deckItem'");
+  }
+
+  const orderedTables = [
+    'presentations', 'lyrics', 'talks',
+    'presentation_themes', 'lyric_themes', 'talk_themes', 'overlay_themes',
+  ];
+  for (const table of orderedTables) {
+    if (hasTable(db, table)) {
+      renumberOrderIndexDense(db, table);
+    }
+  }
+}
+
+// #ISSUE list-reorder: overlays and macros (`actions`) were the last two
+// user-facing lists with no persisted position — every other list panel
+// already ordered by an `order_index` column. Both get one here so their
+// panels can be drag-reordered like the rest.
+//
+// Backfill order matches what each list *already showed* before this
+// migration, so upgrading never appears to shuffle anything: overlays read
+// `ORDER BY created_at ASC, id ASC`, macros read `ORDER BY updated_at DESC,
+// created_at DESC, id ASC`. Both readers switch to `order_index` afterwards.
+function ensureListOrderIndexColumns(db: SqliteDatabase): void {
+  if (hasTable(db, 'overlays') && !hasColumn(db, 'overlays', 'order_index')) {
+    db.exec('ALTER TABLE overlays ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+    db.exec(`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) - 1 AS rank
+        FROM overlays
+      )
+      UPDATE overlays SET order_index = (SELECT rank FROM ranked WHERE ranked.id = overlays.id);
+    `);
+  }
+  if (hasTable(db, 'overlays')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_overlays_order_index ON overlays(order_index)');
+  }
+
+  if (hasTable(db, 'actions') && !hasColumn(db, 'actions', 'order_index')) {
+    db.exec('ALTER TABLE actions ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+    db.exec(`
+      WITH ranked AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY updated_at DESC, created_at DESC, id ASC) - 1 AS rank
+        FROM actions
+      )
+      UPDATE actions SET order_index = (SELECT rank FROM ranked WHERE ranked.id = actions.id);
+    `);
+  }
+  if (hasTable(db, 'actions')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_actions_order_index ON actions(order_index)');
+  }
+}
+
+function ensurePerformanceCompositeIndexes(db: SqliteDatabase): void {
+  if (hasTable(db, 'slides')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_id_order_index ON slides(presentation_id, order_index)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_id_order_index ON slides(lyric_id, order_index)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slides_talk_id_order_index ON slides(talk_id, order_index)');
+  }
+
+  if (hasTable(db, 'playlist_entries')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id_order_index ON playlist_entries(playlist_id, order_index)');
+  }
+
+  if (hasTable(db, 'talk_script_blocks')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_talk_script_blocks_slide_id_order_index ON talk_script_blocks(slide_id, order_index)');
+  }
+
+  if (hasTable(db, 'slide_elements')) {
+    db.exec('CREATE INDEX IF NOT EXISTS idx_slide_elements_slide_id_layer_z_index_created_at ON slide_elements(slide_id, layer, z_index, created_at)');
+  }
+}
+
+function addMediaAssetMetadataColumns(db: SqliteDatabase): void {
+  for (const tableName of ['image_assets', 'video_assets', 'audio_assets'] as const) {
+    if (!hasColumn(db, tableName, 'width')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN width INTEGER`);
+    }
+    if (!hasColumn(db, tableName, 'height')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN height INTEGER`);
+    }
+    if (!hasColumn(db, tableName, 'duration')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN duration REAL`);
+    }
+    if (!hasColumn(db, tableName, 'codec')) {
+      db.exec(`ALTER TABLE ${tableName} ADD COLUMN codec TEXT`);
+    }
+  }
+}
+
+function addPlaybackSchedulesTable(db: SqliteDatabase): void {
+  if (hasTable(db, 'playback_schedules')) return;
+  db.exec(`
+    CREATE TABLE playback_schedules (
+      id TEXT PRIMARY KEY,
+      item_ref_json TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      kind TEXT NOT NULL,
+      steps_json TEXT,
+      audio_asset_id TEXT,
+      markers_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) WITHOUT ROWID;
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// v32 — durable explicit theme overrides
+// (`slide_elements.theme_override_keys_json`).
+//
+// Live linked themes resolve at read time; a linked row pins individual
+// geometry/payload properties via `themeOverrideKeys` while everything else
+// follows the theme. Before v32 the keys lived only in staged renderer
+// memory, so every reload silently dropped them. The column stores the sorted
+// key array as JSON text, or NULL when no overrides are recorded.
+//
+// Conservative backfill: every non-authored, non-identity property where a
+// linked same-type row differs from its theme source becomes an explicit key
+// (recursively for group children, whose keys live inside `payload_json`).
+// Type-mismatched and dangling rows yield no keys. Rows without provenance
+// are untouched. Idempotent: reruns only fill rows still NULL that have
+// since gained provenance.
+// ---------------------------------------------------------------------------
+const OVERRIDE_GEOMETRY_KEYS = ['x', 'y', 'width', 'height', 'rotation', 'opacity', 'zIndex', 'layer'] as const;
+const OVERRIDE_AUTHORED_KEYS = new Set(['text', 'format', 'richBody']);
+
+function overrideValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== typeof right) return false;
+  if (left !== null && right !== null && typeof left === 'object') {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function deriveBackfillOverrideKeys(
+  themeGeometry: Record<string, unknown>,
+  themePayload: Record<string, unknown>,
+  rowGeometry: Record<string, unknown>,
+  rowPayload: Record<string, unknown>,
+): string[] {
+  const keys = new Set<string>();
+  for (const key of OVERRIDE_GEOMETRY_KEYS) {
+    if (!overrideValuesEqual(rowGeometry[key], themeGeometry[key])) keys.add(key);
+  }
+  const payloadKeys = new Set([...Object.keys(themePayload), ...Object.keys(rowPayload)]);
+  for (const key of payloadKeys) {
+    if (key === 'children' || OVERRIDE_AUTHORED_KEYS.has(key)) continue;
+    if (!overrideValuesEqual(rowPayload[key], themePayload[key])) keys.add(key);
+  }
+  return [...keys].sort();
+}
+
+function backfillGroupChildrenOverrides(themeChildById: Map<string, SlideElement>, rowChildren: SlideElement[]): { children: SlideElement[]; changed: boolean } {
+  let changed = false;
+  const children = rowChildren.map((child) => {
+    const sourceId = (child as { sourceThemeElementId?: string | null }).sourceThemeElementId;
+    const themeChild = sourceId ? themeChildById.get(sourceId) : undefined;
+    if (!themeChild || themeChild.type !== child.type) return child;
+    const keys = deriveBackfillOverrideKeys(
+      themeChild as unknown as Record<string, unknown>,
+      themeChild.payload as unknown as Record<string, unknown>,
+      child as unknown as Record<string, unknown>,
+      child.payload as unknown as Record<string, unknown>,
+    );
+    let nextChild: SlideElement = child;
+    const previousKeys = Array.isArray((child as { themeOverrideKeys?: unknown }).themeOverrideKeys)
+      ? ((child as { themeOverrideKeys?: string[] }).themeOverrideKeys ?? null)
+      : null;
+    const previousSorted = previousKeys ? [...previousKeys].sort() : null;
+    const nextSorted = keys.length > 0 ? keys : null;
+    if (JSON.stringify(previousSorted) !== JSON.stringify(nextSorted)) {
+      nextChild = { ...child, themeOverrideKeys: nextSorted };
+      changed = true;
+    }
+    if (child.type === 'group') {
+      const themeGrandchildren = new Map<string, SlideElement>();
+      for (const grandchild of ((themeChild.payload as unknown as { children?: SlideElement[] }).children ?? [])) {
+        themeGrandchildren.set(grandchild.id, grandchild);
+      }
+      const restamped = backfillGroupChildrenOverrides(themeGrandchildren, ((nextChild.payload as unknown as { children?: SlideElement[] }).children ?? []) as SlideElement[]);
+      if (restamped.changed) {
+        nextChild = { ...nextChild, payload: { ...(nextChild.payload as object), children: restamped.children } as SlideElement['payload'] };
+        changed = true;
+      }
+    }
+    return nextChild;
+  });
+  return { children, changed };
+}
+
+function addThemeOverrideKeysColumn(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'slide_elements', 'theme_override_keys_json')) {
+    db.exec('ALTER TABLE slide_elements ADD COLUMN theme_override_keys_json TEXT');
+  }
+
+  const themeElementCache = new Map<string, Map<string, { type: string; geometry: Record<string, unknown>; payload: Record<string, unknown>; childrenById: Map<string, SlideElement> }>>();
+  const loadThemeElements = (themeSlideId: string) => {
+    const cached = themeElementCache.get(themeSlideId);
+    if (cached) return cached;
+    const rows = db.prepare('SELECT id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json FROM slide_elements WHERE slide_id = ?').all(themeSlideId) as Array<{
+      id: string; type: string; x: number; y: number; width: number; height: number;
+      rotation: number; opacity: number; z_index: number; layer: string; payload_json: string;
+    }>;
+    const byId = new Map<string, { type: string; geometry: Record<string, unknown>; payload: Record<string, unknown>; childrenById: Map<string, SlideElement> }>();
+    for (const row of rows) {
+      const payload = parseJson<Record<string, unknown>>(row.payload_json) ?? {};
+      const childrenById = new Map<string, SlideElement>();
+      if (row.type === 'group') {
+        for (const child of ((payload as { children?: SlideElement[] }).children ?? [])) {
+          if (child && typeof child.id === 'string') childrenById.set(child.id, child);
+        }
+      }
+      byId.set(row.id, {
+        type: row.type,
+        geometry: { x: row.x, y: row.y, width: row.width, height: row.height, rotation: row.rotation, opacity: row.opacity, zIndex: row.z_index, layer: row.layer },
+        payload,
+        childrenById,
+      });
+    }
+    themeElementCache.set(themeSlideId, byId);
+    return byId;
+  };
+
+  const slides = db.prepare(
+    `SELECT s.id AS slide_id, s.presentation_id, s.lyric_id, s.talk_id,
+            p.theme_id AS p_theme_id, l.theme_id AS l_theme_id, t.theme_id AS t_theme_id
+     FROM slides s
+     LEFT JOIN presentations p ON p.id = s.presentation_id
+     LEFT JOIN lyrics l ON l.id = s.lyric_id
+     LEFT JOIN talks t ON t.id = s.talk_id
+     WHERE s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL OR s.talk_id IS NOT NULL`
+  ).all() as Array<{
+    slide_id: string; presentation_id: string | null; lyric_id: string | null; talk_id: string | null;
+    p_theme_id: string | null; l_theme_id: string | null; t_theme_id: string | null;
+  }>;
+
+  const updateKeys = db.prepare('UPDATE slide_elements SET theme_override_keys_json = ? WHERE id = ?');
+  const updatePayload = db.prepare('UPDATE slide_elements SET payload_json = ?, theme_override_keys_json = ? WHERE id = ?');
+
+  for (const slide of slides) {
+    const themeId = slide.presentation_id ? slide.p_theme_id : slide.lyric_id ? slide.l_theme_id : slide.t_theme_id;
+    if (!themeId) continue;
+    const themeElements = loadThemeElements(`${themeId}:slide`);
+    if (themeElements.size === 0) continue;
+    const rows = db.prepare(
+      'SELECT id, type, x, y, width, height, rotation, opacity, z_index, layer, payload_json, source_theme_element_id, theme_override_keys_json FROM slide_elements WHERE slide_id = ? AND source_theme_element_id IS NOT NULL'
+    ).all(slide.slide_id) as Array<{
+      id: string; type: string; x: number; y: number; width: number; height: number;
+      rotation: number; opacity: number; z_index: number; layer: string; payload_json: string;
+      source_theme_element_id: string | null; theme_override_keys_json: string | null;
+    }>;
+    for (const row of rows) {
+      if (row.theme_override_keys_json !== null) continue;
+      const theme = row.source_theme_element_id ? themeElements.get(row.source_theme_element_id) : undefined;
+      if (!theme || theme.type !== row.type) continue;
+      const rowPayload = parseJson<Record<string, unknown>>(row.payload_json) ?? {};
+      const keys = deriveBackfillOverrideKeys(
+        theme.geometry,
+        theme.payload,
+        { x: row.x, y: row.y, width: row.width, height: row.height, rotation: row.rotation, opacity: row.opacity, zIndex: row.z_index, layer: row.layer },
+        rowPayload,
+      );
+      const keysJson = keys.length > 0 ? JSON.stringify(keys) : null;
+      if (row.type === 'group') {
+        const rowChildren = ((rowPayload as { children?: SlideElement[] }).children ?? []) as SlideElement[];
+        const restamped = backfillGroupChildrenOverrides(theme.childrenById, rowChildren);
+        if (restamped.changed) {
+          updatePayload.run(JSON.stringify({ ...rowPayload, children: restamped.children }), keysJson, row.id);
+          continue;
+        }
+      }
+      if (keysJson !== null) updateKeys.run(keysJson, row.id);
+    }
+  }
+}
+
+export const MIGRATIONS: readonly Migration[] = [
+  { version: 1, name: 'bootstrap-legacy-schema', up: bootstrapLegacySchema },
+  { version: 2, name: 'stabilize-legacy-schema', up: stabilizeLegacySchema },
+  { version: 3, name: 'global-scope', up: migrateLegacyProjectContentToGlobalScope, requiresForeignKeysOff: true },
+  { version: 4, name: 'themes-schema', up: ensureThemesSchema },
+  { version: 5, name: 'presentation-theme-schema', up: ensurePresentationThemeSchema },
+  { version: 6, name: 'deck-items-schema', up: migratePresentationSchemaToDeckItems, requiresForeignKeysOff: true },
+  { version: 7, name: 'reorder-columns', up: ensureReorderColumns },
+  { version: 8, name: 'stages-schema', up: ensureStagesSchema },
+  { version: 9, name: 'collections-schema', up: ensureCollectionsSchema },
+  { version: 10, name: 'theme-naming', up: migrateTemplateNamingToThemes, requiresForeignKeysOff: true },
+  { version: 11, name: 'unified-slides', up: migrateToUnifiedSlides, requiresForeignKeysOff: true },
+  { version: 12, name: 'playlist-groups-rename', up: renamePlaylistSegmentsToGroups },
+  { version: 13, name: 'talks-schema', up: ensureTalksSchema },
+  { version: 14, name: 'talks-slides-check', up: repairSlidesCheckConstraintForTalks, requiresForeignKeysOff: true },
+  { version: 15, name: 'actions-schema', up: ensureActionsSchema },
+  { version: 16, name: 'cues-macros-schema', up: ensureCuesAndMacrosSchema },
+  { version: 17, name: 'macros-sequential', up: migrateMacrosSequential },
+  { version: 18, name: 'trigger-bindings-target-rebuild', up: rebuildTriggerBindingsForTargetColumns, requiresForeignKeysOff: true },
+  { version: 19, name: 'slide-background-column', up: ensureSlideBackgroundColumn },
+  { version: 20, name: 'macro-scope-lifecycle', up: migrateMacroScopeLifecycle },
+  { version: 21, name: 'provenance', up: migrateProvenance },
+  { version: 22, name: 'provenance-repair', up: migrateProvenanceRepair },
+  { version: 23, name: 'drop-collections', up: migrateDropCollections, requiresForeignKeysOff: true },
+  { version: 24, name: 'global-playlists', up: migrateGlobalPlaylists, requiresForeignKeysOff: true },
+  { version: 25, name: 'playlist-separators', up: synthesizePlaylistSeparators, requiresForeignKeysOff: true },
+  { version: 26, name: 'per-owner-themes', up: migratePerOwnerThemes, requiresForeignKeysOff: true },
+  { version: 27, name: 'item-scope', up: migrateItemScope },
+  { version: 28, name: 'list-order-index', up: ensureListOrderIndexColumns },
+  { version: 29, name: 'performance-composite-indexes', up: ensurePerformanceCompositeIndexes },
+  { version: 30, name: 'media-asset-metadata', up: addMediaAssetMetadataColumns },
+  { version: 31, name: 'playback-schedules', up: addPlaybackSchedulesTable },
+  { version: 32, name: 'theme-override-keys', up: addThemeOverrideKeysColumn },
+  { version: 33, name: 'remove-talks', up: removeTalksSchema, requiresForeignKeysOff: true },
+  { version: 34, name: 'slide-tags', up: addSlideTagsSchema },
+];
+
+// ---------------------------------------------------------------------------
+// v33 — remove Talks and talk themes entirely (#219 item-model refactor
+// decision D1/D2 continuation): the Talk item type and its associated
+// talk_themes table, talk_script_blocks table, and all Talk-owned columns
+// (slides.talk_id, slides.talk_theme_id, playlist_entries.talk_id,
+// talks.theme_id) are dropped. Data in these tables/columns is discarded.
+// Earlier migrations (1–32) remain intact so legacy databases upgrade
+// through the full history; this migration is the terminal step that
+// finalizes the item model to Presentations and Lyrics only.
+// ---------------------------------------------------------------------------
+function removeTalksSchema(db: SqliteDatabase): void {
+  const talkOwnedSlideIds = new Set((db.prepare(
+    'SELECT id FROM slides WHERE talk_id IS NOT NULL OR talk_theme_id IS NOT NULL',
+  ).all() as Array<{ id: string }>).map((row) => row.id));
+  db.exec(`
+    UPDATE slide_elements
+    SET source_theme_element_id = NULL, theme_override_keys_json = NULL
+    WHERE source_theme_element_id IN (
+      SELECT se.id
+      FROM slide_elements se
+      JOIN slides s ON s.id = se.slide_id
+      WHERE s.talk_id IS NOT NULL OR s.talk_theme_id IS NOT NULL
+    );
+  `);
+
+  if (hasTable(db, 'trigger_bindings')) {
+    db.exec(`
+      DELETE FROM trigger_bindings
+      WHERE source_id IN (
+        SELECT id FROM slides WHERE talk_id IS NOT NULL OR talk_theme_id IS NOT NULL
+      );
+    `);
+  }
+
+  if (hasTable(db, 'playback_schedules')) {
+    const rows = db.prepare(
+      'SELECT id, item_ref_json, steps_json, markers_json FROM playback_schedules',
+    ).all() as Array<{ id: string; item_ref_json: string | null; steps_json: string | null; markers_json: string | null }>;
+    const deleteSchedule = db.prepare('DELETE FROM playback_schedules WHERE id = ?');
+    for (const row of rows) {
+      let remove = false;
+      try {
+        const itemRef = row.item_ref_json ? JSON.parse(row.item_ref_json) as { type?: unknown } : null;
+        remove = itemRef?.type === 'talk';
+        for (const json of [row.steps_json, row.markers_json]) {
+          if (remove || json === null) continue;
+          const entries = JSON.parse(json) as Array<{ slideId?: unknown }>;
+          remove = Array.isArray(entries) && entries.some((entry) => typeof entry?.slideId === 'string' && talkOwnedSlideIds.has(entry.slideId));
+        }
+      } catch {
+        // Leave malformed non-Talk rows for the existing trust-boundary
+        // decoder to report; this migration only removes identifiable Talk data.
+      }
+      if (remove) deleteSchedule.run(row.id);
+    }
+  }
+
+  db.exec(`
+    DELETE FROM slide_elements
+    WHERE slide_id IN (SELECT id FROM slides WHERE talk_id IS NOT NULL OR talk_theme_id IS NOT NULL);
+  `);
+
+  // Drop talk_script_blocks first (FK to slides)
+  db.exec('DROP TABLE IF EXISTS talk_script_blocks;');
+
+  // Drop indexes on talk columns
+  db.exec('DROP INDEX IF EXISTS idx_slides_talk_id;');
+  db.exec('DROP INDEX IF EXISTS idx_slides_talk_theme_id;');
+  db.exec('DROP INDEX IF EXISTS idx_playlist_entries_talk_id;');
+  db.exec('DROP INDEX IF EXISTS idx_talks_order_index;');
+  db.exec('DROP INDEX IF EXISTS idx_talks_theme_id;');
+  db.exec('DROP INDEX IF EXISTS idx_talk_themes_order_index;');
+
+  // Recreate slides without talk_id and talk_theme_id
+  db.exec(`
+    CREATE TABLE slides_v33 (
+      id TEXT PRIMARY KEY,
+      presentation_id TEXT,
+      lyric_id TEXT,
+      presentation_theme_id TEXT,
+      lyric_theme_id TEXT,
+      overlay_theme_id TEXT,
+      overlay_id TEXT,
+      stage_id TEXT,
+      kind TEXT NOT NULL DEFAULT 'presentation',
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      notes TEXT NOT NULL DEFAULT '',
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      background_json TEXT,
+      background_source TEXT DEFAULT 'theme',
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      FOREIGN KEY(presentation_theme_id) REFERENCES presentation_themes(id),
+      FOREIGN KEY(lyric_theme_id) REFERENCES lyric_themes(id),
+      FOREIGN KEY(overlay_theme_id) REFERENCES overlay_themes(id),
+      FOREIGN KEY(overlay_id) REFERENCES overlays(id),
+      FOREIGN KEY(stage_id) REFERENCES stages(id),
+      CHECK (
+        (presentation_id IS NOT NULL) +
+        (lyric_id IS NOT NULL) +
+        (presentation_theme_id IS NOT NULL) +
+        (lyric_theme_id IS NOT NULL) +
+        (overlay_theme_id IS NOT NULL) +
+        (overlay_id IS NOT NULL) +
+        (stage_id IS NOT NULL) = 1
+      )
+    );
+  `);
+
+  db.exec(`
+    INSERT INTO slides_v33
+      (id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source)
+    SELECT
+      id, presentation_id, lyric_id, presentation_theme_id, lyric_theme_id, overlay_theme_id, overlay_id, stage_id, kind, width, height, notes, order_index, created_at, updated_at, background_json, background_source
+    FROM slides
+    WHERE talk_id IS NULL AND talk_theme_id IS NULL;
+  `);
+
+  db.exec(`
+    DROP TABLE slides;
+    ALTER TABLE slides_v33 RENAME TO slides;
+  `);
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_id ON slides(presentation_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_id ON slides(lyric_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_theme_id ON slides(presentation_theme_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_theme_id ON slides(lyric_theme_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_overlay_theme_id ON slides(overlay_theme_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_overlay_id ON slides(overlay_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_stage_id ON slides(stage_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_presentation_id_order_index ON slides(presentation_id, order_index);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_lyric_id_order_index ON slides(lyric_id, order_index);');
+
+  // Recreate playlist_entries without talk_id
+  db.exec(`
+    CREATE TABLE playlist_entries_v33 (
+      id TEXT PRIMARY KEY,
+      playlist_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('item', 'separator')),
+      presentation_id TEXT,
+      lyric_id TEXT,
+      label TEXT,
+      color_key TEXT,
+      order_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY(playlist_id) REFERENCES playlists(id),
+      FOREIGN KEY(presentation_id) REFERENCES presentations(id),
+      FOREIGN KEY(lyric_id) REFERENCES lyrics(id),
+      CHECK (
+        (kind = 'item' AND label IS NULL AND
+          (presentation_id IS NOT NULL) + (lyric_id IS NOT NULL) = 1)
+        OR
+        (kind = 'separator' AND presentation_id IS NULL AND lyric_id IS NULL)
+      )
+    );
+  `);
+
+  db.exec(`
+    INSERT INTO playlist_entries_v33
+      (id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at)
+    SELECT
+      id, playlist_id, kind, presentation_id, lyric_id, label, color_key, order_index, created_at, updated_at
+    FROM playlist_entries
+    WHERE talk_id IS NULL;
+  `);
+
+  db.exec(`
+    DROP TABLE playlist_entries;
+    ALTER TABLE playlist_entries_v33 RENAME TO playlist_entries;
+  `);
+
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id ON playlist_entries(playlist_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_presentation_id ON playlist_entries(presentation_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_lyric_id ON playlist_entries(lyric_id);');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_playlist_entries_playlist_id_order_index ON playlist_entries(playlist_id, order_index);');
+  db.exec(`
+    WITH ranked AS (
+      SELECT id, ROW_NUMBER() OVER (
+        PARTITION BY playlist_id
+        ORDER BY order_index ASC, created_at ASC, id ASC
+      ) - 1 AS rank
+      FROM playlist_entries
+    )
+    UPDATE playlist_entries
+    SET order_index = (SELECT rank FROM ranked WHERE ranked.id = playlist_entries.id);
+  `);
+
+  // Drop talk_themes and talks tables
+  db.exec('DROP TABLE IF EXISTS talk_themes;');
+  db.exec('DROP TABLE IF EXISTS talks;');
+
+  const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
+  if (foreignKeyViolations.length > 0) {
+    throw new Error(`Migration v33 left ${foreignKeyViolations.length} foreign key violation(s).`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v34 — add slide_tags table and slide.tag_id column.
+// Project-level slide tag definitions (id, name, colorKey, order, createdAt,
+// updatedAt). Every slide gets a nullable tag_id FK. The tag is metadata only
+// and never adds canvas elements. Changing a tag color updates all assigned
+// slide captions through the snapshot immediately.
+// ---------------------------------------------------------------------------
+function addSlideTagsSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE slide_tags (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      color_key TEXT NOT NULL,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slide_tags_order_index ON slide_tags(order_index);');
+
+  // Add tag_id column to slides table
+  if (!hasColumn(db, 'slides', 'tag_id')) {
+    db.exec('ALTER TABLE slides ADD COLUMN tag_id TEXT REFERENCES slide_tags(id)');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_slides_tag_id ON slides(tag_id);');
+}

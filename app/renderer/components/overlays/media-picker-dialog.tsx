@@ -1,17 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent } from 'react';
-import type { Id, MediaAsset } from '@core/types';
-import { Film, Image as ImageIcon, Upload } from 'lucide-react';
-import { cn } from '@renderer/utils/cn';
-import { ReacstButton } from '@renderer/components/controls/button';
+import { useEffect, useMemo, useState } from 'react';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset } from '@lumacast/composition';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { FileTrigger } from '../form/file-trigger';
-import { castMediaSrc, typeFromFile } from '../../utils/slides';
+import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from './dialog';
-import { MediaAssetIcon } from '../display/entity-icon';
-import { useVideoPoster } from '../../hooks/use-video-poster';
+import { type MediaPickerAssetKind } from './media-picker-types';
+import { MediaPickerAssetTile } from './media-picker-asset-tile';
+import { UploadMediaDialog } from './upload-media-dialog';
 
-export type MediaPickerAssetKind = 'image' | 'video';
+export type { MediaPickerAssetKind } from './media-picker-types';
 
 interface MediaPickerDialogProps {
   assets: MediaAsset[];
@@ -20,11 +17,6 @@ interface MediaPickerDialogProps {
   onClose: () => void;
   onImportAssets: (files: FileList) => Promise<void>;
 }
-
-const ACCEPT_BY_KIND: Record<MediaPickerAssetKind, string> = {
-  image: 'image/*',
-  video: 'video/*',
-};
 
 const EMPTY_LABELS: Record<MediaPickerAssetKind, string> = {
   image: 'No images in the project yet. Upload or import images to add an image element.',
@@ -36,54 +28,10 @@ function isAssetAllowed(kind: MediaPickerAssetKind, asset: MediaAsset): boolean 
   return asset.type === 'video';
 }
 
-function buildAcceptedFileList(files: Iterable<File>, kind: MediaPickerAssetKind): FileList | null {
-  const accepted = Array.from(files).filter((file) => {
-    const type = typeFromFile(file);
-    return kind === 'image' ? type === 'image' : type === 'video';
-  });
-  if (accepted.length === 0 || typeof DataTransfer === 'undefined') return null;
-  const transfer = new DataTransfer();
-  for (const file of accepted) {
-    transfer.items.add(file);
-  }
-  return transfer.files;
-}
-
-function expectedAssetSources(files: Iterable<File>, kind: MediaPickerAssetKind): Set<string> {
-  const sources = new Set<string>();
-  for (const file of files) {
-    const type = typeFromFile(file);
-    if (kind === 'image' && type !== 'image') continue;
-    if (kind === 'video' && type !== 'video') continue;
-    const filePath = window.castApi.getPathForFile(file);
-    if (!filePath) continue;
-    sources.add(castMediaSrc(filePath));
-  }
-  return sources;
-}
-
-function MediaThumbnail({ asset }: { asset: MediaAsset }) {
-  const { posterSrc } = useVideoPoster(asset.type === 'video' ? asset.src : null);
-  if (asset.type === 'image') {
-    return <img src={asset.src} alt={asset.name} loading="lazy" draggable={false} className="block h-full w-full object-cover" />;
-  }
-  if (asset.type === 'video') {
-    if (posterSrc) {
-      return <img src={posterSrc} alt={asset.name} loading="lazy" draggable={false} className="block h-full w-full object-cover" />;
-    }
-    return (
-      <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-tertiary">
-        <Film className="size-6" />
-      </div>
-    );
-  }
-  return <span className="text-sm font-bold uppercase tracking-wider text-tertiary">{asset.type}</span>;
-}
-
 export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAssets }: MediaPickerDialogProps) {
   const [selectedIds, setSelectedIds] = useState<Set<Id>>(new Set());
   const [showUploadDialog, setShowUploadDialog] = useState(false);
-  const [pendingUploadedSources, setPendingUploadedSources] = useState<Set<string> | null>(null);
+  const [preUploadAssetIds, setPreUploadAssetIds] = useState<Set<Id> | null>(null);
 
   const filteredAssets = useMemo(
     () => assets.filter((asset) => isAssetAllowed(kind, asset)),
@@ -95,17 +43,17 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
   }, [kind]);
 
   useEffect(() => {
-    if (!pendingUploadedSources || pendingUploadedSources.size === 0) return;
+    if (!preUploadAssetIds) return;
     setSelectedIds((current) => {
       const next = new Set(current);
       for (const asset of filteredAssets) {
-        if (!pendingUploadedSources.has(asset.src)) continue;
+        if (preUploadAssetIds.has(asset.id)) continue;
         next.add(asset.id);
       }
       return next;
     });
-    setPendingUploadedSources(null);
-  }, [filteredAssets, pendingUploadedSources]);
+    setPreUploadAssetIds(null);
+  }, [filteredAssets, preUploadAssetIds]);
 
   function toggleAsset(id: Id) {
     setSelectedIds((prev) => {
@@ -121,69 +69,75 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
     if (selected.length > 0) onConfirm(selected);
   }
 
+  // Newly uploaded assets are identified by *id*, not by source string (issue
+  // #159): a media source that reaches the renderer is an opaque managed media
+  // id minted by main, so it can no longer be predicted here from the selected
+  // file's path. Record what the bin held before the upload; whatever is new
+  // once the import resolves is what the upload produced.
   async function handleImport(files: FileList) {
-    const expectedSources = expectedAssetSources(Array.from(files), kind);
+    const knownAssetIds = new Set(filteredAssets.map((asset) => asset.id));
     await onImportAssets(files);
-    setPendingUploadedSources(expectedSources);
+    setPreUploadAssetIds(knownAssetIds);
     setShowUploadDialog(false);
   }
 
   return (
-    <>
-      <Dialog.Root open onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-        <Dialog.Portal>
-          <Dialog.Backdrop />
-          <Dialog.Positioner>
-            <Dialog.Content data-ui-region="media-picker-dialog" className="max-h-[min(560px,calc(100vh-6rem))] max-w-[560px] overflow-hidden">
-              <Dialog.Header>
-                <Dialog.Title>{kind === 'image' ? 'Add Image Element' : 'Add Video Element'}</Dialog.Title>
-                <Dialog.CloseButton />
-              </Dialog.Header>
-              {/* A single grid track gives the scroll area a definite height; a flex/block body
-                  sized by the dialog's max-height leaves `size-full` nothing to resolve against. */}
-              <Dialog.Body className="grid grid-rows-[minmax(0,1fr)] overflow-hidden">
-                <ScrollArea.Root scrollPadding={16}>
-                  <ScrollArea.Viewport className="p-4">
-                    {filteredAssets.length === 0 ? (
-                      <p className="m-0 text-center text-sm text-tertiary">
-                        {EMPTY_LABELS[kind]}
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
-                        {filteredAssets.map((asset) => (
-                          <MediaPickerAssetTile
-                            key={asset.id}
-                            asset={asset}
-                            isSelected={selectedIds.has(asset.id)}
-                            onToggle={toggleAsset}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </ScrollArea.Viewport>
-                  <ScrollArea.Scrollbar>
-                    <ScrollArea.Thumb />
-                  </ScrollArea.Scrollbar>
-                </ScrollArea.Root>
-              </Dialog.Body>
-              <Dialog.Footer>
-                <span className="text-sm text-tertiary">
-                  {selectedIds.size > 0 ? `${selectedIds.size} selected` : `Select ${kind === 'image' ? 'images' : 'videos'} to add`}
-                </span>
-                <div className="flex gap-2">
-                  <ReacstButton variant="ghost" onClick={() => setShowUploadDialog(true)}>
-                    Upload
-                  </ReacstButton>
-                  <ReacstButton variant="ghost" onClick={onClose}>Cancel</ReacstButton>
-                  <ReacstButton onClick={handleConfirm} disabled={selectedIds.size === 0}>
-                    Add{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
-                  </ReacstButton>
-                </div>
-              </Dialog.Footer>
-            </Dialog.Content>
-          </Dialog.Positioner>
-        </Dialog.Portal>
-      </Dialog.Root>
+    <Dialog.Root open onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content data-ui-region="media-picker-dialog" className="max-h-[min(560px,calc(100vh-6rem))] max-w-[560px] overflow-hidden">
+            <Dialog.Header>
+              <Dialog.Title>{kind === 'image' ? 'Add Image Element' : 'Add Video Element'}</Dialog.Title>
+              <Dialog.CloseButton />
+            </Dialog.Header>
+            {/* A single grid track gives the scroll area a definite height; a flex/block body
+                sized by the dialog's max-height leaves `size-full` nothing to resolve against. */}
+            <Dialog.Body className="grid grid-rows-[minmax(0,1fr)] overflow-hidden">
+              <ScrollArea.Root scrollPadding={16}>
+                <ScrollArea.Viewport className="p-4">
+                  {filteredAssets.length === 0 ? (
+                    <p className="m-0 text-center text-sm text-tertiary">
+                      {EMPTY_LABELS[kind]}
+                    </p>
+                  ) : (
+                    <div role="group" aria-label={kind === 'image' ? 'Project images' : 'Project videos'} className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
+                      {filteredAssets.map((asset) => (
+                        <MediaPickerAssetTile
+                          key={asset.id}
+                          asset={asset}
+                          isSelected={selectedIds.has(asset.id)}
+                          onToggle={toggleAsset}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea.Viewport>
+                <ScrollArea.Scrollbar>
+                  <ScrollArea.Thumb />
+                </ScrollArea.Scrollbar>
+              </ScrollArea.Root>
+            </Dialog.Body>
+            <Dialog.Footer>
+              <span className="text-sm text-tertiary">
+                {selectedIds.size > 0 ? `${selectedIds.size} selected` : `Select ${kind === 'image' ? 'images' : 'videos'} to add`}
+              </span>
+              <div className="flex gap-2">
+                <ReacstButton variant="ghost" onClick={() => setShowUploadDialog(true)}>
+                  Upload
+                </ReacstButton>
+                <ReacstButton variant="ghost" onClick={onClose}>Cancel</ReacstButton>
+                <ReacstButton onClick={handleConfirm} disabled={selectedIds.size === 0}>
+                  Add{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+                </ReacstButton>
+              </div>
+            </Dialog.Footer>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Dialog.Portal>
+      {/* Inside the picker's root, so Base UI treats the upload dialog as a
+          nested dialog: the picker stays put behind it and keeps its focus
+          trap ordered instead of two sibling traps fighting over focus. */}
       {showUploadDialog ? (
         <UploadMediaDialog
           kind={kind}
@@ -191,148 +145,6 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
           onImport={handleImport}
         />
       ) : null}
-    </>
-  );
-}
-
-function MediaPickerAssetTile({
-  asset,
-  isSelected,
-  onToggle,
-}: {
-  asset: MediaAsset;
-  isSelected: boolean;
-  onToggle: (id: Id) => void;
-}) {
-  function handleClick() {
-    onToggle(asset.id);
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      className={cn(
-        'group cursor-pointer rounded border bg-primary p-0 text-left transition-colors',
-        isSelected ? 'border-brand ring-1 ring-brand-400' : 'border-primary',
-      )}
-    >
-      <div className="grid aspect-square place-items-center overflow-hidden rounded-t">
-        <MediaThumbnail asset={asset} />
-      </div>
-      <p className="m-0 flex items-center gap-1.5 truncate px-1.5 py-1 text-sm text-secondary group-hover:text-primary">
-        <MediaAssetIcon asset={asset} size={12} strokeWidth={1.75} className="shrink-0 text-tertiary" />
-        <span className="truncate">{asset.name}</span>
-      </p>
-    </button>
-  );
-}
-
-function UploadMediaDialog({
-  kind,
-  onClose,
-  onImport,
-}: {
-  kind: MediaPickerAssetKind;
-  onClose: () => void;
-  onImport: (files: FileList) => Promise<void>;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-
-  async function importAcceptedFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setIsUploading(true);
-    try {
-      await onImport(files);
-    } finally {
-      setIsUploading(false);
-    }
-  }
-
-  function handleFileSelect(files: FileList, event: ChangeEvent<HTMLInputElement>) {
-    void importAcceptedFiles(buildAcceptedFileList(Array.from(files), kind));
-    event.target.value = '';
-  }
-
-  function handleDrop(event: DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    setIsDragOver(false);
-    void importAcceptedFiles(buildAcceptedFileList(Array.from(event.dataTransfer.files), kind));
-  }
-
-  function handleDragOver(event: DragEvent<HTMLButtonElement>) {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    setIsDragOver(true);
-  }
-
-  function handleDragLeave(event: DragEvent<HTMLButtonElement>) {
-    if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-    setIsDragOver(false);
-  }
-
-  const noun = kind === 'image' ? 'images' : 'videos';
-  const Icon = kind === 'image' ? ImageIcon : Film;
-
-  return (
-    <Dialog.Root open onOpenChange={(isOpen) => { if (!isOpen && !isUploading) onClose(); }}>
-      <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content className="max-w-[520px]">
-            <Dialog.Header>
-              <Dialog.Title>Upload {kind === 'image' ? 'Images' : 'Videos'}</Dialog.Title>
-              <Dialog.CloseButton disabled={isUploading} />
-            </Dialog.Header>
-            <Dialog.Body className="p-4">
-              <FileTrigger.Root
-                hidden
-                inputRef={inputRef}
-                accept={ACCEPT_BY_KIND[kind]}
-                multiple
-                onSelect={handleFileSelect}
-              />
-              <button
-                type="button"
-                onClick={() => inputRef.current?.click()}
-                onDrop={handleDrop}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                disabled={isUploading}
-                className={cn(
-                  'flex h-64 w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed px-6 text-center transition-colors',
-                  isDragOver ? 'border-brand bg-brand/10' : 'border-secondary bg-secondary/30 hover:bg-secondary/50',
-                  isUploading ? 'cursor-progress opacity-70' : 'cursor-pointer',
-                )}
-              >
-                <div className="rounded-full bg-tertiary/80 p-3 text-tertiary">
-                  {isUploading ? <Upload className="size-5 animate-pulse" /> : <Icon className="size-5" />}
-                </div>
-                <div className="space-y-1">
-                  <div className="text-sm font-medium text-primary">
-                    {isUploading ? `Importing ${noun}…` : `Drop ${noun} here or click to browse`}
-                  </div>
-                  <div className="text-xs text-tertiary">
-                    {kind === 'image' ? 'PNG, JPG, GIF, WEBP and other image formats' : 'MP4, MOV, WEBM, M4V and other video formats'}
-                  </div>
-                </div>
-              </button>
-            </Dialog.Body>
-            <Dialog.Footer>
-              <span className="text-sm text-tertiary">
-                Imported assets will appear in this picker automatically.
-              </span>
-              <div className="flex gap-2">
-                <ReacstButton variant="ghost" onClick={onClose} disabled={isUploading}>
-                  Close
-                </ReacstButton>
-              </div>
-            </Dialog.Footer>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Dialog.Portal>
     </Dialog.Root>
   );
 }

@@ -1,4 +1,4 @@
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useAutomation } from './automation-context';
 import { MACRO_ICON, getCueIcon } from './cue-icons';

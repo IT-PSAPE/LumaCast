@@ -1,19 +1,24 @@
-import { app, BrowserWindow, Menu, nativeImage, protocol, type BrowserWindowConstructorOptions } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, protocol, shell, type BrowserWindowConstructorOptions } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CastRepository } from '@database/store';
+import { PERSISTENCE_EVENTS, type PersistenceProgress } from '@lumacast/protocol';
 import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';
 import { initializeLogger, getLogFilePath } from './logger';
 import { NdiServiceProxy } from './ndi/ndi-service-proxy';
-import { NoopNdiService } from './ndi/ndi-noop-service';
-import { NdiConfigStore } from './ndi/ndi-config-store';
-import type { NdiServiceLike } from './ndi/ndi-protocol';
+import { NoopNdiService, NdiConfigStore, type NdiServiceLike } from '@lumacast/engine';
+import { resolveAppIdentity } from './app-identity';
+import { PersistenceServiceProxy } from './persistence/persistence-service-proxy';
+import { startPersistenceShell } from './persistence/start-persistence-shell';
+import { forkPersistenceHost } from './persistence/utility-process-transport';
 import {
   createForbiddenResponse,
   createNotFoundResponse,
+  describeUrlSchemeForLogging,
   fetchLocalFileResponse,
+  isApprovedExternalUrl,
+  isTrustedWebContentsUrl,
   resolveTrustedCastMediaRequest,
 } from './security';
 
@@ -29,8 +34,7 @@ interface CliOptions {
 
 type RendererView = CliOptions['rendererView'];
 
-const APP_NAME = 'LumaCast';
-const APP_ID = 'com.lumacast.app';
+const { name: APP_NAME, id: APP_ID } = resolveAppIdentity(import.meta.env);
 const cliOptions = resolveCliOptions(process.argv);
 app.setName(APP_NAME);
 if (cliOptions.userDataDir) {
@@ -45,7 +49,8 @@ try {
   console.error('[Main process documents dir mkdir failed]', error);
 }
 initializeLogger(documentsDataDir, { appVersion: app.getVersion() });
-console.log(`[main] userData=${app.getPath('userData')}`);
+const userDataPath = app.getPath('userData');
+console.log(`[main] userData=${userDataPath}`);
 console.log(`[main] documentsDataDir=${documentsDataDir}`);
 console.log(`[main] logFile=${getLogFilePath()}`);
 console.log(`[main] argv=${process.argv.slice(1).join(' ')}`);
@@ -53,9 +58,12 @@ console.log(`[main] argv=${process.argv.slice(1).join(' ')}`);
 let mainWindow: BrowserWindow | null = null;
 const WORKBENCH_MIN_WIDTH = 140 + 360 + 140;
 const WORKBENCH_MIN_HEIGHT = Math.max(360 + 96, 240 + 120) + 96;
-const repository = new CastRepository();
-const ndiConfigStore = new NdiConfigStore();
+const ndiConfigStore = new NdiConfigStore(userDataPath);
 let ndiService: NdiServiceLike | null = null;
+let persistenceService: PersistenceServiceProxy | null = null;
+let latestPersistenceProgress: PersistenceProgress | null = null;
+let persistenceShutdownPromise: Promise<void> | null = null;
+let persistenceShutdownComplete = false;
 let isShuttingDown = false;
 const appUpdater = new AppUpdater({
   getMainWindow: () => mainWindow,
@@ -73,6 +81,17 @@ function teardownNdi(reason: string, error?: unknown) {
     ndiService.destroy();
   } catch (destroyError) {
     console.error('[Main process NDI teardown failure]', destroyError);
+  }
+}
+
+function reportPersistenceProgress(progress: PersistenceProgress): void {
+  latestPersistenceProgress = progress;
+  const window = mainWindow;
+  if (!window || window.isDestroyed()) return;
+  try {
+    window.webContents.send(PERSISTENCE_EVENTS.progress, progress);
+  } catch {
+    // Progress is observational and cannot alter persistence work.
   }
 }
 
@@ -238,6 +257,27 @@ function createMainWindow(): void {
     console.warn('[window] unresponsive');
   });
 
+  // Deny-by-default renderer trust boundary (issue #158): navigation may
+  // only stay within the application's own origin, and new-window requests
+  // are never fulfilled — an approved https: destination is instead handed
+  // to the OS default browser via shell.openExternal, and window creation is
+  // still denied either way. Never log the denied URL itself: a file: URL
+  // can carry an absolute filesystem path.
+  window.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedWebContentsUrl(url)) return;
+    event.preventDefault();
+    console.warn('[security] denied navigation to untrusted origin', { scheme: describeUrlSchemeForLogging(url) });
+  });
+
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isApprovedExternalUrl(url)) {
+      void shell.openExternal(url);
+    } else {
+      console.warn('[security] denied window-open request', { scheme: describeUrlSchemeForLogging(url) });
+    }
+    return { action: 'deny' };
+  });
+
   loadRendererView(window, cliOptions.rendererView);
   window.on('closed', () => {
     if (mainWindow === window) {
@@ -251,13 +291,18 @@ app.whenReady().then(() => {
     app.setAppUserModelId(APP_ID);
   }
 
+  // Managed media only (issue #159): the URL carries an opaque capability id
+  // that `resolveTrustedCastMediaRequest` resolves through the main-owned
+  // registry. Denials log the reason code alone — never the URL, which for the
+  // pre-#159 encoded-path form would be an absolute filesystem path.
   protocol.handle('cast-media', (request) => {
-    const filePath = resolveTrustedCastMediaRequest(request);
-    if (!filePath) {
+    const resolved = resolveTrustedCastMediaRequest(request);
+    if (!resolved.ok) {
+      console.warn('[cast-media] denied media request', { reason: resolved.reason });
       return createForbiddenResponse();
     }
 
-    return fetchLocalFileResponse(filePath, request).catch((error: unknown) => {
+    return fetchLocalFileResponse(resolved.filePath, request).catch((error: unknown) => {
       console.error('[cast-media] Failed to fetch local media', error);
       return createNotFoundResponse();
     });
@@ -293,8 +338,49 @@ app.whenReady().then(() => {
     console.error('[Main process NDI init failed — continuing without NDI]', error);
     ndiService = new NoopNdiService(initialNdiConfigs, `NDI service unavailable: ${message}`);
   }
-  registerIpcHandlers(repository, ndiService, () => mainWindow, appUpdater);
-  createMainWindow();
+  persistenceService = startPersistenceShell({
+    createService: () => {
+      const service = new PersistenceServiceProxy({
+        transport: forkPersistenceHost(path.join(__dirname, 'persistence-host.js')),
+        repositoryOptions: {
+          dbPath: path.join(userDataPath, 'lumacast.sqlite'),
+          userDataPath,
+          documentsPath: documentsDataDir,
+        },
+        onFatal: (error) => quitAfterFatalMainProcessError('persistence host failure', error),
+        onShutdownDelayed: () => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.hide();
+          }
+        },
+      });
+      service.onProgress(({ requestId: _requestId, ...progress }) => {
+        reportPersistenceProgress(progress);
+      });
+      return service;
+    },
+    registerHandlers: (service) => registerIpcHandlers(
+      service,
+      ndiService!,
+      () => mainWindow,
+      appUpdater,
+      {
+        onPersistenceProgress: reportPersistenceProgress,
+        getLatestPersistenceProgress: () => latestPersistenceProgress,
+        createNdiFrameTransport: (name) => (
+          ndiService instanceof NdiServiceProxy
+            ? ndiService.createFrameTransport(name)
+            : null
+        ),
+        createNdiAudioTransport: (name) => (
+          ndiService instanceof NdiServiceProxy
+            ? ndiService.createAudioTransport(name)
+            : null
+        ),
+      },
+    ),
+    createWindow: createMainWindow,
+  });
   appUpdater.initialize();
   appUpdater.scheduleStartupCheck();
 
@@ -304,16 +390,28 @@ app.whenReady().then(() => {
     }
   });
 }).catch((error) => {
-  console.error('[Main process app.whenReady failure]', error);
+  quitAfterFatalMainProcessError('app.whenReady failure', error);
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
   isShuttingDown = true;
   teardownNdi('before-quit');
+  if (persistenceShutdownComplete) return;
+  event.preventDefault();
+  if (persistenceShutdownPromise) return;
+
+  persistenceShutdownPromise = (persistenceService?.destroy(2_000) ?? Promise.resolve())
+    .catch((error) => {
+      console.error('[Main process persistence shutdown failure]', error);
+    })
+    .finally(() => {
+      persistenceShutdownComplete = true;
+      app.quit();
+    });
 });
 
 app.on('will-quit', () => {

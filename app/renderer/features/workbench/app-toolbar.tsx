@@ -8,8 +8,9 @@ import { cv } from '@renderer/utils/cv';
 import { useWorkbenchPanelToggles } from './use-workbench-panel-toggles';
 import { useNdi } from '@renderer/contexts/app-context';
 import { useCommandPalette } from '../command-palette/command-palette-context';
+import { OverflowViewMenu } from './overflow-view-menu';
 
-const isMac = window.castApi.platform === 'darwin';
+const isMac = window.castApi?.platform === 'darwin';
 
 const dragStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
 const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
@@ -18,8 +19,8 @@ const outputDotStyles = cv({
   base: 'inline-block h-2 w-2 rounded-full transition-colors',
   variants: {
     active: {
-      true: ['bg-green-500'],
-      false: ['bg-red-500'],
+      true: ['bg-success'],
+      false: ['bg-error'],
     },
   },
 });
@@ -28,7 +29,7 @@ const outputBorderStyles = cv({
   base: 'flex items-center gap-1.5 rounded border bg-tertiary px-2 py-1 text-sm cursor-pointer transition-colors hover:border-text-muted',
   variants: {
     active: {
-      true: ['border-green-500/40'],
+      true: ['border-success/40'],
       false: ['border-red-500/40'],
     },
   },
@@ -77,11 +78,9 @@ export function AppToolbar() {
       <div style={noDragStyle}>
         <SegmentedControl value={workbenchMode} onValueChange={handleWorkbenchModeChange} label="Application views">
           <SegmentedControl.Label value="show">Show</SegmentedControl.Label>
-          <SegmentedControl.Label value="deck-editor">Edit</SegmentedControl.Label>
-          <SegmentedControl.Label value="overlay-editor">Overlay</SegmentedControl.Label>
+          <SegmentedControl.Label value="item-editor">Edit</SegmentedControl.Label>
           <SegmentedControl.Label value="theme-editor">Themes</SegmentedControl.Label>
-          <SegmentedControl.Label value="stage-editor">Stage</SegmentedControl.Label>
-          <SegmentedControl.Label value="macro-editor">Macros</SegmentedControl.Label>
+          <OverflowViewMenu value={workbenchMode} onSelect={handleWorkbenchModeChange} />
         </SegmentedControl>
       </div>
 
@@ -93,7 +92,7 @@ export function AppToolbar() {
           onClick={openCommandPalette}
           aria-label="Open command palette"
           title={`Search commands (${isMac ? '⌘' : 'Ctrl+'}K)`}
-          className="group flex h-7 w-full min-w-0 items-center gap-2 rounded-md border border-primary bg-tertiary px-2 text-left text-sm text-tertiary transition-colors hover:border-secondary hover:bg-quaternary hover:text-secondary"
+          className="group flex h-7 w-full min-w-0 items-center gap-2 rounded-md border border-primary bg-tertiary px-2 text-left text-sm text-tertiary transition-colors hover:border-secondary hover:bg-tertiary hover:text-secondary"
         >
           <Search className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 truncate">Search commands</span>
@@ -154,7 +153,7 @@ function renderPanelToggleItem(toggle: PanelToggleButton) {
 }
 
 function isWorkbenchMode(value: string): value is WorkbenchMode {
-  return value === 'show' || value === 'deck-editor' || value === 'overlay-editor' || value === 'theme-editor' || value === 'stage-editor' || value === 'macro-editor' || value === 'settings';
+  return value === 'show' || value === 'item-editor' || value === 'overlay-editor' || value === 'theme-editor' || value === 'stage-editor' || value === 'macro-editor' || value === 'settings';
 }
 
 function panelToggleIcon(id: PanelToggleButton['id']) {

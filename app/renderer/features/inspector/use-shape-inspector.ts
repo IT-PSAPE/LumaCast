@@ -1,4 +1,4 @@
-import { applyVisualPayload, readVisualPayload, type VisualPayloadState } from '@core/element-payload';
+import { applyVisualPayload, readVisualPayload, type VisualPayloadState } from '@lumacast/composition';
 import { parseNumber } from '../../utils/slides';
 import { useElements, useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { alignElementDraft } from '../canvas/align-element-draft';

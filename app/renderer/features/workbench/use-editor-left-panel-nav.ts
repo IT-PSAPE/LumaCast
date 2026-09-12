@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { Id } from '@core/types';
+import type { Id } from '@lumacast/kernel';
 import { useElements } from '../../contexts/canvas/canvas-context';
 
 function isReservedTarget(target: HTMLElement | null): boolean {

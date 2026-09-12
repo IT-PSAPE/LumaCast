@@ -1,21 +1,21 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { Button } from '@base-ui/react/button';
 import { cn } from '@renderer/utils/cn';
 import { cv } from '@renderer/utils/cv';
 
 export type ButtonVariant = 'default' | 'take' | 'danger' | 'ghost';
 
+// Disabled styling keys off Base UI's `data-disabled` attribute (present
+// whenever `disabled` is true) instead of a bespoke variant, per the app's
+// convention of styling Base UI state through its data attributes.
 const buttonVariants = cv({
-  base: 'cursor-pointer transition-colors px-3 py-1.5 rounded-sm text-center label-xs',
+  base: 'cursor-pointer transition-colors px-3 py-1.5 rounded-sm text-center label-xs data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
   variants: {
     variant: {
-      default: 'bg-tertiary text-primary hover:border-focus hover:text-primary',
-      take: 'bg-success_primary text-primary',
-      danger: 'bg-error_primary text-primary',
-      ghost: 'bg-transparent text-secondary hover:bg-quaternary hover:text-primary',
-    },
-    disabled: {
-      true: 'opacity-50 cursor-not-allowed pointer-events-none',
-      false: null,
+      default: 'bg-tertiary text-primary hover:bg-brand/10',
+      take: 'bg-success/15 text-primary hover:bg-success/25',
+      danger: 'bg-error/15 text-primary hover:bg-error/25',
+      ghost: 'bg-transparent text-secondary hover:bg-tertiary hover:text-primary',
     },
     active: {
       true: null,
@@ -24,29 +24,24 @@ const buttonVariants = cv({
   },
   defaultVariants: {
     variant: 'default',
-    disabled: false,
     active: false,
   },
   compoundVariants: [
-    { variant: 'default', active: true, className: 'bg-quaternary text-primary' },
-    { variant: 'take', active: true, className: 'bg-success_primary text-primary' },
-    { variant: 'danger', active: true, className: 'bg-error_primary text-primary' },
-    { variant: 'ghost', active: true, className: 'bg-active text-primary' },
+    { variant: 'default', active: true, className: 'bg-tertiary text-primary' },
+    { variant: 'take', active: true, className: 'bg-success/15 text-primary' },
+    { variant: 'danger', active: true, className: 'bg-error/15 text-primary' },
+    { variant: 'ghost', active: true, className: 'bg-tertiary text-primary' },
   ],
 });
 
 const iconButtonVariants = cv({
-  base: 'cursor-pointer transition-colors p-1.5 rounded-sm *:size-4',
+  base: 'cursor-pointer transition-colors p-1.5 rounded-sm *:size-4 data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
   variants: {
     variant: {
-      default: 'bg-tertiary text-primary hover:border-focus hover:text-primary',
-      take: 'bg-success_primary text-primary',
-      danger: 'bg-error_primary text-primary',
-      ghost: 'bg-transparent text-tertiary hover:bg-quaternary hover:text-primary',
-    },
-    disabled: {
-      true: 'opacity-50 cursor-not-allowed pointer-events-none',
-      false: null,
+      default: 'bg-tertiary text-primary hover:bg-brand/10',
+      take: 'bg-success/15 text-primary hover:bg-success/25',
+      danger: 'bg-error/15 text-primary hover:bg-error/25',
+      ghost: 'bg-transparent text-tertiary hover:bg-tertiary hover:text-primary',
     },
     active: {
       true: null,
@@ -55,14 +50,13 @@ const iconButtonVariants = cv({
   },
   defaultVariants: {
     variant: 'default',
-    disabled: false,
     active: false,
   },
   compoundVariants: [
-    { variant: 'default', active: true, className: 'bg-quaternary text-primary' },
-    { variant: 'take', active: true, className: 'bg-success_primary text-primary' },
-    { variant: 'danger', active: true, className: 'bg-error_primary text-primary' },
-    { variant: 'ghost', active: true, className: 'bg-active text-primary' },
+    { variant: 'default', active: true, className: 'bg-tertiary text-primary' },
+    { variant: 'take', active: true, className: 'bg-success/15 text-primary' },
+    { variant: 'danger', active: true, className: 'bg-error/15 text-primary' },
+    { variant: 'ghost', active: true, className: 'bg-tertiary text-primary' },
   ],
 });
 
@@ -76,16 +70,16 @@ interface ButtonRootProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
 
 function Root({ active = false, children, className, disabled = false, label, type = 'button', variant = 'default', ...buttonProps }: ButtonRootProps) {
   return (
-    <button
+    <Button
       type={type}
       disabled={disabled}
       aria-label={label}
       title={label}
       {...buttonProps}
-      className={cn(buttonVariants({ active, disabled, variant }), className)}
+      className={cn(buttonVariants({ active, variant }), className)}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -99,16 +93,16 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
 
 function Icon({ active = false, children, className, disabled = false, label, type = 'button', variant = 'default', ...buttonProps }: IconButtonProps) {
   return (
-    <button
+    <Button
       type={type}
       disabled={disabled}
       aria-label={label}
       title={label}
       {...buttonProps}
-      className={cn(iconButtonVariants({ active, disabled, variant }), className)}
+      className={cn(iconButtonVariants({ active, variant }), className)}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 

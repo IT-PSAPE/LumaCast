@@ -1,11 +1,12 @@
-import type { Cue, Id, TriggerBinding } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Cue, TriggerBinding } from '@lumacast/automation';
+import { describeCue } from '@lumacast/automation';
 import { ContextMenu } from '@renderer/components/overlays/context-menu';
 import { useOverlayEditor, useStageEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { useAutomation } from './automation-context';
 import { MACRO_ICON, getCueIcon } from './cue-icons';
-import { describeCue } from './describe-cue';
 
 export function SlideBindingsMenu({ slideId }: { slideId: Id }) {
   const {

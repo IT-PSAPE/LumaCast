@@ -1,47 +1,66 @@
-import { useCallback, useMemo, useState } from 'react';
-import type { Theme } from '@core/types';
-import { isThemeCompatibleWithDeckItem } from '@core/themes';
-import { useCast } from '../../../contexts/app-context';
+import { useCallback, useMemo } from 'react';
+import type { EditorThemeSource } from '@lumacast/canvas';
+import type { ThemeOwnerType } from '@lumacast/composition';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useNavigation } from '../../../contexts/navigation-context';
 import { filterByText } from '../../../utils/filter-by-text';
-import { compareByKey, useThemeBinSort } from '../../workbench/use-bin-sort';
-import { useBinCollections } from '../../workbench/use-bin-collections';
-import type { ResourceDrawerViewMode } from '../../../types/ui';
+import { compareByKey, useThemeBinSort, type BinSort, type BinTabSortKey } from '../../workbench/use-bin-sort';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
+export interface ThemeBinSection {
+  type: ThemeOwnerType;
+  label: string;
+  themes: EditorThemeSource[];
+}
+
+// Section order and labels match the item theme families. Every family renders
+// its own section regardless of the search filter
+// — a family whose themes all filter out still shows its section, emptied.
+// Overlay themes are removed from the UI; overlay single-slide and duplicate
+// overlay serve reuse. Legacy overlay_themes records remain readable for compat.
+const THEME_SECTIONS: ReadonlyArray<{ type: ThemeOwnerType; label: string }> = [
+  { type: 'presentation', label: 'Presentations' },
+  { type: 'lyric', label: 'Lyrics' },
+];
+
+// #219 item-model refactor decision D2: theme/item compatibility is now
+// structural — a theme applied via the bin's quick-apply click only ever
+// targets the current item when its type matches the family of the section
+// the clicked theme lives in. Because the bin renders every family at once,
+// the owning family is resolved from the theme id (ids are unique across
+// families), never from a single active family.
 export function useThemeBin() {
-  const { themes } = useThemeEditor();
-  const { currentDeckItem } = useNavigation();
-  const { mutatePatch } = useCast();
+  const { themesByType, applyThemeToTarget } = useThemeEditor();
+  const { currentItemRef } = useNavigation();
   const { sort } = useThemeBinSort();
-  const collections = useBinCollections('theme');
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>('grid');
+  const { state: { searchValue } } = useBinControls();
 
-  const filteredByCollection = useMemo(
-    () => collections.filterByActiveCollection(themes),
-    [themes, collections],
-  );
+  const sections = useMemo<ThemeBinSection[]>(() => (
+    THEME_SECTIONS.map(({ type, label }) => ({
+      type,
+      label,
+      themes: filterAndSortThemes(themesByType[type], searchValue, sort),
+    }))
+  ), [searchValue, sort, themesByType]);
 
-  const filteredThemes = useMemo(() => {
-    const filtered = filterByText(filteredByCollection, searchValue, (t) => [t.name, t.kind]);
-    const direction = sort.direction === 'asc' ? 1 : -1;
-    return [...filtered].sort((a, b) => direction * compareByKey(a, b, sort.key, (item) => item.name));
-  }, [filteredByCollection, searchValue, sort]);
-
-  const handleApplyTheme = useCallback((theme: Theme) => {
-    if (!currentDeckItem) return;
-    if (!isThemeCompatibleWithDeckItem(theme, currentDeckItem.type)) return;
-    void mutatePatch(() => window.castApi.applyThemeToDeckItem(theme.id, currentDeckItem.id));
-  }, [currentDeckItem, mutatePatch]);
+  const handleApplyTheme = useCallback(async (theme: EditorThemeSource) => {
+    const owningType = THEME_SECTIONS.find(({ type }) => themesByType[type].some((t) => t.id === theme.id))?.type;
+    if (!owningType || !currentItemRef || currentItemRef.type !== owningType) return;
+    await applyThemeToTarget(theme.id, { type: 'item', itemRef: currentItemRef });
+  }, [applyThemeToTarget, currentItemRef, themesByType]);
 
   return {
-    filteredThemes,
+    sections,
     handleApplyTheme,
-    collections,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
   };
+}
+
+function filterAndSortThemes(
+  themes: EditorThemeSource[],
+  searchValue: string,
+  sort: BinSort<BinTabSortKey>,
+): EditorThemeSource[] {
+  const filtered = filterByText(themes, searchValue, (t) => [t.name]);
+  const direction = sort.direction === 'asc' ? 1 : -1;
+  return [...filtered].sort((a, b) => direction * compareByKey(a, b, sort.key, (item) => item.name));
 }

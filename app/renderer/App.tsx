@@ -1,110 +1,93 @@
-import { useCast } from './contexts/app-context';
+import { useEffect } from 'react';
 import { AppProvider } from './contexts/app-context';
 import { AssetEditorProvider } from './contexts/asset-editor/asset-editor-context';
 import { CanvasProvider } from './contexts/canvas/canvas-context';
 import { NavigationProvider } from './contexts/navigation-context';
 import { PlaybackProvider } from './contexts/playback/playback-context';
+import { PlaybackSchedulesProvider } from './contexts/playback-schedules-context';
 import { SlideProvider } from './contexts/slide-context';
 import { WorkbenchProvider } from './contexts/workbench-context';
 import { CommandPalette } from './features/command-palette/command-palette';
 import { CommandPaletteProvider } from './features/command-palette/command-palette-context';
-import { BundleDropImport } from './features/deck/bundle-drop-import';
-import { CreateDeckItemProvider } from './features/deck/create-deck-item';
-import { LyricEditorProvider } from './features/deck/lyric-editor';
+import { CreateItemProvider } from './features/items/create-item';
+import { LyricEditorProvider } from './features/items/lyric-editor';
 import { AutomationProvider } from './features/automation/automation-context';
-import { NdiOutputs } from './features/playback/ndi-outputs';
+import { NdiOutputsGate } from './features/playback/ndi-outputs-gate';
+import { MediaResidencyBoundary } from './features/playback/media-residency-boundary';
+import { useObservabilityRuntime } from './features/observability/observability-runtime';
 import { ConfirmProvider } from './components/overlays/confirm-dialog';
 import { ErrorBoundary } from './components/feedback/error-boundary';
-import { AppToolbar } from './features/workbench/app-toolbar';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { StatusBar } from './features/workbench/status-bar';
-import { WindowsInlineMenuBar } from './features/workbench/windows-inline-menu-bar';
-import { useAppMenu } from './hooks/use-app-menu';
-import { WorkbenchScreenRouter } from './workbench-screen-router';
+import { AppLayoutContent } from './app-layout-content';
+
+function ObservabilityRuntime() {
+  useObservabilityRuntime();
+  return null;
+}
+
+// Navigation safety only: dropping a file outside a scoped drop zone (media
+// bins, upload dialogs) must not navigate the window to the file. This guard
+// claims nothing, shows no overlay, and imports nothing — bundle import stays
+// on the click-driven "Choose bundle…" picker in the import/export panel.
+export function FileDropNavigationGuard() {
+  useEffect(() => {
+    function handleDragOver(event: DragEvent) {
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault();
+    }
+
+    function handleDrop(event: DragEvent) {
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault();
+    }
+
+    window.addEventListener('dragover', handleDragOver);
+    window.addEventListener('drop', handleDrop);
+    return () => {
+      window.removeEventListener('dragover', handleDragOver);
+      window.removeEventListener('drop', handleDrop);
+    };
+  }, []);
+
+  return null;
+}
 
 export function App() {
   return (
     <ErrorBoundary>
       <WorkbenchProvider>
+        <ObservabilityRuntime />
         <ConfirmProvider>
           <AppProvider>
-            <NavigationProvider>
-              <PlaybackProvider>
-                <SlideProvider>
-                  <AutomationProvider>
-                    <AssetEditorProvider>
-                      <LyricEditorProvider>
-                        <CreateDeckItemProvider>
-                          <CanvasProvider>
-                            <CommandPaletteProvider>
-                              <NdiOutputs />
-                              <SplitPanel>
-                                <AppLayoutContent />
-                              </SplitPanel>
-                              <CommandPalette />
-                              <BundleDropImport />
-                            </CommandPaletteProvider>
-                          </CanvasProvider>
-                        </CreateDeckItemProvider>
-                      </LyricEditorProvider>
-                    </AssetEditorProvider>
-                  </AutomationProvider>
-                </SlideProvider>
-              </PlaybackProvider>
-            </NavigationProvider>
+            <AssetEditorProvider>
+              <NavigationProvider>
+                <PlaybackProvider>
+                  <SlideProvider>
+                    <PlaybackSchedulesProvider>
+                      <MediaResidencyBoundary>
+                        <AutomationProvider>
+                          <LyricEditorProvider>
+                            <CreateItemProvider>
+                              <CanvasProvider>
+                                <CommandPaletteProvider>
+                                  <NdiOutputsGate />
+                                  <SplitPanel>
+                                    <AppLayoutContent />
+                                  </SplitPanel>
+                                  <CommandPalette />
+                                  <FileDropNavigationGuard />
+                                </CommandPaletteProvider>
+                              </CanvasProvider>
+                            </CreateItemProvider>
+                          </LyricEditorProvider>
+                        </AutomationProvider>
+                      </MediaResidencyBoundary>
+                    </PlaybackSchedulesProvider>
+                  </SlideProvider>
+                </PlaybackProvider>
+              </NavigationProvider>
+            </AssetEditorProvider>
           </AppProvider>
         </ConfirmProvider>
       </WorkbenchProvider>
     </ErrorBoundary>
-  );
-}
-
-function AppLayoutContent() {
-  const { snapshot, isLoadingSnapshot, snapshotLoadError, retrySnapshotLoad } = useCast();
-  useAppMenu();
-
-  if (isLoadingSnapshot) {
-    return (
-      <div className="flex items-center justify-center h-full text-secondary">
-        Loading LumaCast App
-      </div>
-    );
-  }
-
-  if (!snapshot) {
-    return (
-      <div className="flex h-full items-center justify-center p-6">
-        <div className="flex max-w-xl flex-col gap-3 rounded-lg border border-secondary bg-secondary/30 p-5 text-left">
-          <div className="text-base font-semibold text-primary">LumaCast could not load its project data.</div>
-          <div className="text-sm text-secondary">
-            {snapshotLoadError ?? 'Unknown startup error.'}
-          </div>
-          <div className="text-xs text-tertiary">
-            This often points to a corrupted or incompatible local database on this machine.
-          </div>
-          <div>
-            <button
-              type="button"
-              onClick={() => { void retrySnapshotLoad(); }}
-              className="rounded-sm bg-brand_solid px-3 py-1.5 text-sm font-medium text-primary transition-opacity hover:opacity-90"
-            >
-              Retry startup
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative flex h-screen flex-col">
-      <WindowsInlineMenuBar>
-        <AppToolbar />
-      </WindowsInlineMenuBar>
-      <main className="min-h-0 flex-1">
-        <WorkbenchScreenRouter />
-      </main>
-      <StatusBar />
-    </div>
   );
 }

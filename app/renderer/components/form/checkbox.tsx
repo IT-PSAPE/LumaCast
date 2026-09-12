@@ -1,18 +1,19 @@
+import { Checkbox as BaseCheckbox } from '@base-ui/react/checkbox';
 import { Check } from 'lucide-react';
-import { createContext, useContext, useId, useMemo, useState, type InputHTMLAttributes, type LabelHTMLAttributes, type ReactNode } from 'react';
+import { createContext, useContext, useId, type ComponentPropsWithoutRef, type InputHTMLAttributes, type LabelHTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@renderer/utils/cn';
 import { cv } from '@renderer/utils/cv';
 
-interface CheckboxContextValue {
-  state: { checked: boolean; disabled: boolean };
-  actions: { setChecked: (checked: boolean) => void };
-  meta: { inputId: string };
+// Only Label needs the generated id (to point `aria-labelledby` at itself);
+// Root/Indicator get checked/disabled straight from Base UI's own state.
+interface CheckboxMetaValue {
+  inputId: string;
 }
 
-const CheckboxContext = createContext<CheckboxContextValue | null>(null);
+const CheckboxMetaContext = createContext<CheckboxMetaValue | null>(null);
 
-function useCheckbox() {
-  const context = useContext(CheckboxContext);
+function useCheckboxMeta() {
+  const context = useContext(CheckboxMetaContext);
   if (!context) throw new Error('Checkbox sub-components must be used within Checkbox.Root');
   return context;
 }
@@ -30,25 +31,24 @@ const checkboxRootStyles = cv({
   },
 });
 
-const checkboxIndicatorStyles = cv({
-  base: 'grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors',
+// Base UI's Checkbox.Root is itself the focusable, clickable box
+// (role="checkbox"), so the border/background that used to live on our
+// Indicator now live here; Indicator keeps only the checkmark, matching
+// Base UI's own Root+Indicator split.
+const checkboxBoxStyles = cv({
+  base: 'grid h-4 w-4 shrink-0 place-items-center rounded border outline-none transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand',
   variants: {
     checked: {
-      true: 'border-brand bg-brand_primary text-brand-700',
+      true: 'border-brand bg-brand/15 text-brand',
       false: 'border-primary bg-primary text-transparent',
-    },
-    disabled: {
-      true: null,
-      false: 'group-focus-within:outline-2 group-focus-within:outline-offset-1 group-focus-within:outline-border-brand',
     },
   },
   defaultVariants: {
     checked: false,
-    disabled: false,
   },
 });
 
-interface CheckboxRootProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'checked' | 'defaultChecked' | 'onChange' | 'type'> {
+interface CheckboxRootProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'checked' | 'defaultChecked' | 'onChange' | 'type' | 'value'> {
   checked?: boolean;
   children: ReactNode;
   defaultChecked?: boolean;
@@ -58,55 +58,40 @@ interface CheckboxRootProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
 function Root({ checked, children, className, defaultChecked = false, disabled = false, id, onCheckedChange, ...inputProps }: CheckboxRootProps) {
   const generatedId = useId();
   const inputId = id ?? generatedId;
-  const [internalChecked, setInternalChecked] = useState(defaultChecked);
-  const isControlled = checked !== undefined;
-  const resolvedChecked = isControlled ? checked : internalChecked;
-
-  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const nextChecked = event.target.checked;
-    if (!isControlled) setInternalChecked(nextChecked);
-    onCheckedChange?.(nextChecked);
-  }
-
-  const value = useMemo<CheckboxContextValue>(() => ({
-    state: { checked: resolvedChecked, disabled },
-    actions: { setChecked: onCheckedChange ?? (() => undefined) },
-    meta: { inputId },
-  }), [disabled, inputId, onCheckedChange, resolvedChecked]);
 
   return (
-    <CheckboxContext.Provider value={value}>
+    <CheckboxMetaContext.Provider value={{ inputId }}>
       <label className={cn('group', checkboxRootStyles({ disabled, className }))}>
-        <input
-          {...inputProps}
+        <BaseCheckbox.Root
+          {...(inputProps as ComponentPropsWithoutRef<typeof BaseCheckbox.Root>)}
           id={inputId}
-          type="checkbox"
-          checked={resolvedChecked}
+          checked={checked}
+          defaultChecked={defaultChecked}
           disabled={disabled}
-          onChange={handleChange}
-          className="sr-only"
-        />
-        {children}
+          onCheckedChange={(nextChecked) => onCheckedChange?.(nextChecked)}
+          aria-labelledby={`${inputId}-label`}
+          className={(state) => checkboxBoxStyles({ checked: state.checked })}
+        >
+          {children}
+        </BaseCheckbox.Root>
       </label>
-    </CheckboxContext.Provider>
+    </CheckboxMetaContext.Provider>
   );
 }
 
 function Indicator({ children, className, ...rest }: LabelHTMLAttributes<HTMLSpanElement>) {
-  const { state } = useCheckbox();
-
   return (
-    <span {...rest} aria-hidden="true" className={checkboxIndicatorStyles({ checked: state.checked, disabled: state.disabled, className })}>
-      {children ?? (state.checked ? <Check size={11} strokeWidth={2.5} /> : null)}
-    </span>
+    <BaseCheckbox.Indicator {...rest} aria-hidden="true" className={className}>
+      {children ?? <Check size={11} strokeWidth={2.5} />}
+    </BaseCheckbox.Indicator>
   );
 }
 
 function Label({ children, className, ...rest }: LabelHTMLAttributes<HTMLSpanElement>) {
-  const { meta } = useCheckbox();
+  const { inputId } = useCheckboxMeta();
 
   return (
-    <span {...rest} className={cn('min-w-0', className)} id={`${meta.inputId}-label`}>
+    <span {...rest} className={cn('min-w-0', className)} id={`${inputId}-label`}>
       {children}
     </span>
   );

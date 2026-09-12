@@ -2,6 +2,9 @@
 
 Date: 2026-06-02
 Status: Approved (pre-implementation)
+Amended: 2026-08-22 — per-Run **font size** moved from out-of-scope (§10) to supported, for
+PowerPoint-style span sizing. Affects §1, §4, §6, §8, §10, §12. Per-Run font *family* is unchanged
+and still out of scope.
 Related: [CONTEXT.md](../../../CONTEXT.md) "Rich Text" glossary · ADR 0002
 
 ## 1. Goal
@@ -17,11 +20,14 @@ Users can select a span of text and set:
 - **italic**
 - **underline**
 - **strikethrough**
+- **font size** (per-Run, absolute px; auto-fit scales proportionally)
 
 and turn lines into **bullet or numbered lists** (single level).
 
-**Font size and font family remain Box-level** (whole-box, component-managed). Per-run font size
-and per-run font family are explicitly out of scope for v1.
+**Font family remains Box-level** (whole-box, component-managed); per-run font family is explicitly out
+of scope. **Font size** is Box-level *and* per-Run overridable (amended — see the header): a Run's size
+is an absolute px value in the same unit as the Box-level size, and auto-fit scales it proportionally
+rather than leaving it fixed while the box shrinks (§6).
 
 ## 2. Definitions
 
@@ -77,6 +83,7 @@ export interface RichRun {
   italic?: boolean;
   underline?: boolean;
   strikethrough?: boolean;
+  fontSize?: number;        // absolute px, same unit as Box-level fontSize; absent ⇒ inherit Box-level size
 }
 
 export interface RichBlock {
@@ -142,13 +149,16 @@ Draw algorithm (extends `drawTextOnCanvas` / `text-layout.ts`):
    lines. List blocks reserve an indent and a marker column (`• ` for bullet, `1.`/`2.`… counter
    per list run for number).
 4. For each line, honor Box-level `align` (incl. justify) and the block's indent; honor Box-level
-   `verticalAlign` over the whole frame; line advance uses Box-level `fontSize` × `lineHeight`.
-5. Per run: set `ctx.font` from Box-level family/size + the run's **true numeric weight** + italic;
+   `verticalAlign` over the whole frame; line advance and baseline are driven by the largest resolved
+   size on that line (`maxSizeOnLine × lineHeight`, accumulated per line) — a body with no size
+   overrides lays out identically to the previous Box-level-only arithmetic.
+5. Per run: set `ctx.font` from Box-level family + the run's resolved size (Box-level size, or explicit
+   Run size × `fontScale` when auto-fit is active) + the run's **true numeric weight** + italic;
    `ctx.fillStyle` from the resolved color; `fillText`; then draw underline / strikethrough as
-   rects under/over the run's advance width.
+   rects under/over the run's advance width (thickness/offset from each piece's own resolved size).
 6. Box-level effects unchanged: the inside-stroke offscreen composite (`scene-node-text.tsx:264-302`)
    now composites the multi-run render; outside/center stroke, shadow, and `autoFit` (binary-search
-   on Box-level `fontSize`) wrap the whole node exactly as today.
+   on Box-level `fontSize`, with explicit Run sizes scaled proportionally via `fontScale = fittedSize / authoredBoxSize`) wrap the whole node exactly as today.
 
 Weight: retire the ≥600 collapse (`resolve-konva-text-style.ts:6`); pass the true numeric weight to
 the canvas font string, falling back to bold/normal only if the chosen family lacks that face.
@@ -182,11 +192,11 @@ positioned over the canvas on double-click as today.
 
 ## 8. Inspector behavior
 
-- Run-level controls (color, B / I / U / S) act on the **active selection** when the editor has
-  one, and reflect that selection's resolved style (mixed → indeterminate). With no selection /
+- Run-level controls (color, B / I / U / S, font size) act on the **active selection** when the editor has
+  one, and reflect that selection's resolved style (mixed → indeterminate; font size blank with placeholder when mixed). With no selection /
   not editing, they edit the **Box-level default**, which cascades to non-overridden runs.
 - List toggles (bullet / number) act on the selected block(s).
-- Font **family** and font **size** remain Box-level controls (component-managed), unchanged.
+- Font **family** remains a Box-level control (component-managed); font **size** is Box-level default in the inspector (unchanged) with per-**Run** override in the inline toolbar next to the color picker.
 - The inline toolbar and the inspector invoke the **same** formatting actions from
   `core/rich-text` — one behavior, two entry points.
 - When a **binding** is active, Run-level / list controls are disabled (Bound text is Box-level).
@@ -206,9 +216,10 @@ text through one code path with one set of defaults.
 
 ## 10. Out of scope (v1)
 
-Per-run font family · per-run font size · nested lists (indent > 0) · rich formatting on bound
+Per-run font family · nested lists (indent > 0) · rich formatting on bound
 text · importing styled HTML on paste. The schema (`RichBlock.indent`, optional Run fields) is
-shaped so these can be added later without a format change.
+shaped so these can be added later without a format change — which is how per-run font size later
+landed additively (see the amendment note in the header).
 
 ## 11. Risks & validation
 
@@ -225,9 +236,9 @@ shaped so these can be added later without a format change.
 ## 12. Acceptance criteria
 
 - A user can select a span inside any text box (deck/overlay/theme/stage) and apply color, bold,
-  italic, underline, strikethrough; multiple styles coexist in one box.
+  italic, underline, strikethrough, and font size; multiple styles coexist in one box.
 - A user can turn lines into bullet or numbered lists (single level).
-- Box-level font size and font family continue to govern the whole box.
+- Box-level font family continues to govern the whole box; Box-level font size governs the default size and any Run without an explicit override.
 - Existing decks/overlays/themes/stages open and render unchanged with no migration step.
 - The same `RichBody` renders identically in the editor, on the stage, in preview, and over NDI.
 - All text creation flows through one `createTextElement` initializer.

@@ -41,3 +41,4 @@ Typical library names searched:
 - `sendRgbaFrame` accepts RGBA bitmap order and sends RGBA or RGBX frames so the renderer's byte layout stays intact.
 - When alpha is disabled, the bridge normalizes the fourth byte to opaque `255` before NDI send.
 - When the installed NDI runtime exposes `NDIlib_send_send_video_async_v2`, frame submission uses the async send path with the addon's ping-pong buffers and falls back to synchronous send otherwise.
+- Audio frames enter a bounded, lossless FIFO per sender and are submitted from a dedicated native thread. Web Audio keeps supplying the sample clock while NDI synthesizes A/V timecodes; native audio and video clocking remain disabled so the new thread does not add a second timing source.

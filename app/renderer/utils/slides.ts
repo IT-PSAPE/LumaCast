@@ -1,17 +1,11 @@
-import type { MediaAsset, OverlayAnimation, Slide, SlideElement } from '@core/types';
-import type { SlideBrowserMode, PlaylistBrowserMode, SlideVisualState } from '../types/ui';
+import type { MediaAsset, OverlayAnimation, Slide, SlideElement } from '@lumacast/composition';
+import type { SlideBrowserMode, SlideVisualState } from '../types/ui';
 import { LAYER_ORDER } from '../types/ui';
 export { clamp } from './math';
 
 export const CANVAS_VIEW_LABELS: Record<SlideBrowserMode, string> = {
   grid: 'Grid',
   list: 'List',
-};
-
-export const PLAYLIST_DISPLAY_MODE_LABELS: Record<PlaylistBrowserMode, string> = {
-  current: 'Current',
-  tabs: 'Tabs',
-  continuous: 'Continuous',
 };
 
 export function sortSlides(slides: Slide[]): Slide[] {
@@ -56,12 +50,6 @@ export function slideTextDetails(elements: SlideElement[]): SlideTextDetails {
   return { textElement, text: raw, primaryLine, secondaryLine };
 }
 
-export function slideTextPreview(elements: SlideElement[]): string {
-  const details = slideTextDetails(elements);
-  if (!details.text) return details.primaryLine;
-  return compactText(details.text, 72);
-}
-
 export function getSlideVisualState(index: number, liveSlideIndex: number, currentSlideIndex: number, elements: SlideElement[]): SlideVisualState {
   if (index === liveSlideIndex) return 'live';
   if (index === currentSlideIndex) return 'selected';
@@ -79,11 +67,19 @@ export function replacePrimaryLine(text: string, nextPrimary: string): string {
   return [trimmedPrimary, ...lines.slice(1)].join('\n');
 }
 
-export function typeFromFile(file: File): MediaAsset['type'] {
+export function detectMediaFileType(file: Pick<File, 'type' | 'name'>): MediaAsset['type'] | null {
   if (file.type.startsWith('image/')) return 'image';
   if (file.type.startsWith('video/')) return 'video';
   if (file.type.startsWith('audio/')) return 'audio';
-  return 'video';
+  const extension = file.name.toLowerCase().split('.').pop();
+  if (extension && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp'].includes(extension)) return 'image';
+  if (extension && ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'aiff', 'aif', 'opus'].includes(extension)) return 'audio';
+  if (extension && ['mp4', 'webm', 'mov', 'm4v'].includes(extension)) return 'video';
+  return null;
+}
+
+export function typeFromFile(file: File): MediaAsset['type'] {
+  return detectMediaFileType(file) ?? 'video';
 }
 
 export function fileSrc(file: File): string {
@@ -92,8 +88,28 @@ export function fileSrc(file: File): string {
   return castMediaSrc(fileWithPath.path);
 }
 
+/**
+ * Builds the *import capability* form of a media source: the encoded path of a
+ * file the user just selected in a dialog or dropped on the window, addressed
+ * to main so it can be persisted.
+ *
+ * This is not a renderable URL (issue #159). The `cast-media:` protocol handler
+ * only serves opaque managed media ids minted by main, so fetching this string
+ * is denied; the renderable source for a persisted asset is the `src` main
+ * returns on the asset itself. Pass the result of this function to an IPC
+ * mutation and render what comes back.
+ *
+ * The scheme prefix is overridable via `window.__castMediaBase`, a global the
+ * browser-preview shim (tool/browser-preview/shim.ts) sets before this module
+ * evaluates. The Electron app never sets that global, so `CAST_MEDIA_BASE`
+ * resolves to the literal `cast-media://` prefix and this function's behavior
+ * there is byte-identical to before.
+ */
+const CAST_MEDIA_BASE: string =
+  (globalThis as { __castMediaBase?: string }).__castMediaBase ?? 'cast-media://';
+
 export function castMediaSrc(filePath: string): string {
-  return `cast-media://${encodeURIComponent(filePath)}`;
+  return `${CAST_MEDIA_BASE}${encodeURIComponent(filePath)}`;
 }
 
 export function parseNumber(value: string, fallback: number): number {

@@ -1,7 +1,7 @@
 {
   "name": "lumacast",
   "productName": "LumaCast",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "private": true,
   "description": "Cross-platform presentation tool with reusable content hierarchy, slide rendering, and NDI output",
   "author": "IT-PSAPE",
@@ -15,6 +15,9 @@
   "engines": {
     "node": ">=22.13.0"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "overrides": {
     "@electron/rebuild": "4.2.0"
   },
@@ -27,13 +30,19 @@
     "build": "electron-vite build",
     "prepreview": "npm run ensure:native-deps",
     "preview": "electron-vite preview",
+    "preview:browser": "node tool/browser-preview/build.mjs && node out/tool/server.js",
     "typecheck": "tsc --noEmit",
     "pretest": "npm run ensure:native-deps",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run && npm run test:ndi-native && npm run test:ndi-transport",
+    "test:ndi-native": "npm --prefix packages/ndi-native test",
+    "test:ndi-transport": "node tool/test-ndi-frame-transport.mjs",
     "pretest:watch": "npm run ensure:native-deps",
     "test:watch": "vitest --watch",
+    "fixtures:generate": "vitest run benchmarks/fixtures",
+    "check:architecture": "node tool/check_electron_architecture.mjs",
+    "test:architecture": "node tool/check_electron_architecture.mjs --test",
     "pretest:e2e": "npm run build && npm run e2e:install",
-    "test:e2e": "playwright test --pass-with-no-tests",
+    "test:e2e": "playwright test",
     "e2e:install": "playwright install chromium",
     "capture:ui-screenshots": "npm run build && node app/e2e/capture-ui-screenshots.mjs",
     "pack": "electron-vite build && electron-builder --dir",
@@ -46,10 +55,20 @@
     "rebuild:ndi-native": "npm --prefix packages/ndi-native run rebuild"
   },
   "dependencies": {
+    "@base-ui/react": "^1.8.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@lumacast/automation": "file:packages/automation",
+    "@lumacast/canvas": "file:packages/canvas",
+    "@lumacast/commands": "file:packages/commands",
+    "@lumacast/composition": "file:packages/composition",
+    "@lumacast/engine": "file:packages/engine",
+    "@lumacast/kernel": "file:packages/kernel",
     "@lumacast/ndi-native": "file:packages/ndi-native",
+    "@lumacast/persistence-sqlite": "file:packages/persistence-sqlite",
+    "@lumacast/playback": "file:packages/playback",
+    "@lumacast/protocol": "file:packages/protocol",
     "@tailwindcss/vite": "^4.2.1",
     "@tanstack/react-virtual": "^3.13.24",
     "electron-updater": "^6.8.3",
@@ -61,7 +80,6 @@
     "react-konva": "^19.2.3",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
-    "vitest": "^4.0.18",
     "zustand": "^5.0.13"
   },
   "devDependencies": {

@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef } from 'react';
-import type { AppSnapshot, ElementCreateInput, ElementUpdateInput, Id, SlideElement } from '@core/types';
-import type { SnapshotPatch } from '@core/snapshot-patch';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import type { Id } from '@lumacast/kernel';
+import type { SlideElement } from '@lumacast/composition';
+import type { AppSnapshot, ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
+import type { SnapshotPatch } from '@lumacast/protocol';
 import { createId } from '../../utils/create-id';
 import { buildSnapshotDiff } from './element-history-utils';
 import { cloneElements, payloadSignature } from '../../utils/element-context-utils';
@@ -225,7 +227,25 @@ export function useElementHistory({
     setStatusText('Redo');
   }, [applySnapshot, baseElements, setStatusText]);
 
-  return { pushHistorySnapshot, commitElementUpdates, copySelection, pasteSelection, duplicateSelection, nudgeSelection, undo, redo };
+  return useMemo(() => ({
+    pushHistorySnapshot,
+    commitElementUpdates,
+    copySelection,
+    pasteSelection,
+    duplicateSelection,
+    nudgeSelection,
+    undo,
+    redo,
+  }), [
+    commitElementUpdates,
+    copySelection,
+    duplicateSelection,
+    nudgeSelection,
+    pasteSelection,
+    pushHistorySnapshot,
+    redo,
+    undo,
+  ]);
 }
 
 export function hasClipboardContent(): boolean {

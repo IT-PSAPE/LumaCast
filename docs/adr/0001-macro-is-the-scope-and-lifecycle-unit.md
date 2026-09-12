@@ -20,6 +20,22 @@ content-deduped and shared across macros, so a delay placed on the shared cue ro
 every macro using that cue (and the `flow.wait` migration could double-count). Delays are a
 per-occurrence property, so they belong on the step.
 
+The runtime also owns two guardrails on top of that model:
+
+- **Loop pacing is a deadline floor, not an added delay.** A looping macro yields between
+  iterations often enough to stay cancellable and keep the renderer responsive, but authored
+  cue-step delays still set the cadence when they already exceed the floor. We explicitly rejected
+  "always add a minimum delay" because it would silently slow currently-correct macros.
+- **Revert bookkeeping is bounded by canonical cue identity.** A run records only the first
+  application of each cue object, then applies static inverses in reverse first-application order.
+  We rejected per-iteration undo logs because they grow unbounded on long-running loops while
+  producing the same steady-state clears for idempotent inverses.
+
+Because **Cancel** intentionally leaves applied effects live, any operator control that targets all
+running macros must be described as cancellation, not stop/reset/revert. The renderer therefore
+exposes a global cancel surface for active macro runs, while keeping Revert as a separate lifecycle
+action with different semantics.
+
 Both choices are hard to reverse (they shape the data model and the operator's mental model),
 surprising to a future reader (who might expect a Group entity or a true state rollback), and the
 result of weighing real alternatives.

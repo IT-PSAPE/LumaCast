@@ -1,7 +1,7 @@
-import type { SlideElement } from '@core/types';
+import type { SlideElement } from '@lumacast/composition';
 import type { ElementInspectorDraft } from '../types/ui';
 
-export { cloneElement, cloneElements } from '@core/clone';
+export { cloneElement, cloneElements } from '@lumacast/composition';
 
 export function payloadSignature(payload: SlideElement['payload'] | null): string {
   return JSON.stringify(payload ?? null);
@@ -21,6 +21,7 @@ export function sameElementState(a: SlideElement, b: SlideElement): boolean {
     a.opacity === b.opacity &&
     a.zIndex === b.zIndex &&
     a.layer === b.layer &&
+    JSON.stringify(a.themeOverrideKeys ?? null) === JSON.stringify(b.themeOverrideKeys ?? null) &&
     payloadSignature(a.payload) === payloadSignature(b.payload)
   );
 }

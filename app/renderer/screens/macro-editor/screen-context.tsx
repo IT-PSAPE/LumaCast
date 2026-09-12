@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Cue, CueFailurePolicy, CueKind, CuePayload, Id, LifecycleAction, LifecycleTarget, Macro, MacroCue } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { Cue, CueFailurePolicy, CueKind, CuePayload, LifecycleAction, LifecycleTarget, Macro, MacroCue } from '@lumacast/automation';
 import { useAutomation } from '@renderer/features/automation/automation-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
@@ -222,7 +223,10 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
     previousWorkbenchModeRef.current = workbenchMode;
     if (previous !== 'macro-editor' || workbenchMode === 'macro-editor') return;
     if (!hasPendingChangesRef.current || !draftRef.current) return;
-    void saveDraft(draftRef.current);
+    // saveDraft → updateMacroFields/setMacroCues → updateMacro rejects when
+    // the macro no longer exists (#214); mutatePatch has already reported
+    // the failure (#221), so absorb the rethrow here.
+    void saveDraft(draftRef.current).catch(() => undefined);
   }, [workbenchMode, saveDraft]);
 
   const selectMacro = useCallback((id: Id | null) => {
@@ -231,7 +235,10 @@ export function MacroEditorScreenProvider({ children }: { children: ReactNode })
     // currentMacroId.
     const pending = draftRef.current;
     if (pending && hasPendingChangesRef.current) {
-      void saveDraft(pending);
+      // saveDraft rejects when the outgoing macro no longer exists (#214);
+      // mutatePatch has already reported the failure (#221), so absorb the
+      // rethrow here.
+      void saveDraft(pending).catch(() => undefined);
     }
     setCurrentMacroId(id);
     setSelectedRowId(null);

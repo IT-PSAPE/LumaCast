@@ -1,6 +1,8 @@
 import type { LucideIcon } from 'lucide-react';
 import { Ban, Film, Image, Layers2, RectangleHorizontal, Volume2, Workflow, XCircle } from 'lucide-react';
-import type { Cue, Id, MediaAsset } from '@core/types';
+import type { Id } from '@lumacast/kernel';
+import type { MediaAsset } from '@lumacast/composition';
+import type { Cue } from '@lumacast/automation';
 
 export const MACRO_ICON: LucideIcon = Workflow;
 

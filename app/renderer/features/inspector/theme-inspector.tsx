@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
+import type { SlideBackground } from '@lumacast/composition';
 import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
-import { useProjectContent } from '../../contexts/use-project-content';
 import { EntityBackgroundInspector } from './entity-background-inspector';
 import { Section } from './inspector-section';
 
 export function ThemeInspector() {
   const { setStatusText } = useCast();
-  const { currentTheme, renameTheme, nameFocusRequest } = useThemeEditor();
-  const { themesById } = useProjectContent();
+  const { currentTheme, renameTheme, updateThemeDraft, nameFocusRequest } = useThemeEditor();
   const [nameDraft, setNameDraft] = useState('');
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,8 +38,13 @@ export function ThemeInspector() {
     setStatusText('Theme renamed');
   }
 
+  function handleBackgroundChange(background: SlideBackground | null) {
+    if (!currentTheme) return;
+    updateThemeDraft({ id: currentTheme.id, background });
+  }
+
   if (!currentTheme) {
-    return <div className="text-sm text-tertiary">No theme selected.</div>;
+    return <div className="text-sm text-tertiary p-2">No theme selected.</div>;
   }
 
   return (
@@ -58,7 +62,7 @@ export function ThemeInspector() {
           />
         </Section.Body>
       </Section.Root>
-      <EntityBackgroundInspector ownerId={currentTheme.id} background={themesById.get(currentTheme.id)?.background ?? null} />
+      <EntityBackgroundInspector ownerId={currentTheme.id} background={currentTheme.background ?? null} onChange={handleBackgroundChange} />
     </>
   );
 }

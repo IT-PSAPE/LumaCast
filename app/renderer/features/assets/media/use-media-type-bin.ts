@@ -1,12 +1,11 @@
-import { useMemo, useState } from 'react';
-import type { CollectionBinKind, Id, MediaAsset } from '@core/types';
+import { useMemo } from 'react';
+import type { MediaAsset } from '@lumacast/composition';
 import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
 import { compareByKey, useMediaBinSort } from '../../workbench/use-bin-sort';
-import type { BinCollectionsApi } from '../../workbench/use-bin-collections';
-import type { ResourceDrawerViewMode } from '../../../types/ui';
+import { useBinControls } from '@renderer/components/controls/bin-controls';
 
-export type MediaBinKind = Extract<CollectionBinKind, 'image' | 'video' | 'audio'>;
+export type MediaBinKind = 'image' | 'video' | 'audio';
 
 const TYPE_FILTERS: Record<MediaBinKind, (asset: MediaAsset) => boolean> = {
   image: (asset) => asset.type === 'image',
@@ -16,45 +15,27 @@ const TYPE_FILTERS: Record<MediaBinKind, (asset: MediaAsset) => boolean> = {
 
 export function useMediaTypeBin(
   binKind: MediaBinKind,
-  collections: BinCollectionsApi,
-  defaultViewMode: ResourceDrawerViewMode = 'grid',
 ) {
   const { mediaAssets: allMediaAssets } = useProjectContent();
   const { sort } = useMediaBinSort();
-
-  const [searchValue, setSearchValue] = useState('');
-  const [viewMode, setViewMode] = useState<ResourceDrawerViewMode>(defaultViewMode);
+  const { state: { searchValue } } = useBinControls();
 
   const filteredByType = useMemo(
     () => allMediaAssets.filter(TYPE_FILTERS[binKind]),
     [allMediaAssets, binKind],
   );
 
-  const filteredByCollection = useMemo(
-    () => collections.filterByActiveCollection(filteredByType),
-    [filteredByType, collections],
-  );
-
   const mediaAssets = useMemo(() => {
     const filtered = filterByText(
-      filteredByCollection,
+      filteredByType,
       searchValue,
       (asset) => [asset.name, asset.type],
     );
     const direction = sort.direction === 'asc' ? 1 : -1;
     return [...filtered].sort((a, b) => direction * compareByKey(a, b, sort.key, (item) => item.name));
-  }, [filteredByCollection, searchValue, sort]);
-
-  function moveAssetToCollection(assetId: Id, collectionId: Id) {
-    return collections.assignItem('media_asset', assetId, collectionId);
-  }
+  }, [filteredByType, searchValue, sort]);
 
   return {
     mediaAssets,
-    searchValue,
-    setSearchValue,
-    viewMode,
-    setViewMode,
-    moveAssetToCollection,
   };
 }

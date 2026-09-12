@@ -22,7 +22,7 @@ const lineStyles = cv({
       vertical: ['left-0 right-0 top-1/2 h-px -translate-y-1/2'],
     },
     highlighted: {
-      true: ['bg-brand-400'],
+      true: ['bg-brand'],
       false: ['bg-transparent'],
     },
   },

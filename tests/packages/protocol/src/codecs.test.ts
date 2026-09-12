@@ -1,0 +1,1642 @@
+import { describe, expect, it } from 'vitest';
+import {
+  CodecError,
+  BUNDLE_FORMAT,
+  BUNDLE_VERSION,
+  MAX_PLAYBACK_SCHEDULE_DURATION_MS,
+  buildAudioSyncScheduleId,
+  buildSlideTimingScheduleId,
+  decodeAppSnapshotShape,
+  decodeSnapshotPatchShape,
+  decodeCueCreateInput,
+  decodeCuePayload,
+  decodeCuePayloadJson,
+  decodeCueUpdateInput,
+  decodeBundleBrokenReferenceDecision,
+  decodeBundleExportOptions,
+  decodeBundleManifest,
+  decodeElementCreateInput,
+  decodeElementUpdateInput,
+  decodeInlineWindowMenuBounds,
+  decodeItemCreateInput,
+  decodeItemDuplicateInput,
+  decodeMacroCreateInput,
+  decodeMediaAssetCreateInput,
+  decodeNdiOutputConfigInput,
+  decodeNdiOutputName,
+  decodeOverlayAnimation,
+  decodeOverlayCreateInput,
+  decodePersisted,
+  decodePlaybackSchedule,
+  sanitizeNdiFrameTelemetry,
+  decodeSlideBackground,
+  decodeSlideBackgroundUpdateInput,
+  decodeSlideCreateInput,
+  decodeSlideTagAssignInput,
+  decodeSlideTagCreateInput,
+  decodeSlideTagUpdateInput,
+  decodeSlideElement,
+  decodeSlideElementPayload,
+  decodeSlideElementPayloadJson,
+  decodeStageCreateInput,
+  decodeStoredNdiOutputConfigMap,
+  decodeThemeCreateInput,
+  decodeTriggerBindingCreateInput,
+  expectRpcPrimitiveArgs,
+  type CodecContext,
+} from '../../../../packages/protocol/src/codecs';
+import type { BundleManifest } from '../../../../packages/protocol/src/deck-bundle-manifest';
+import type { SlideElement } from '@lumacast/composition';
+
+const CONTEXT: CodecContext = { boundary: 'test', operation: 'unit', path: '' };
+
+function textPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    text: 'Hello',
+    fontFamily: 'Arial',
+    fontSize: 32,
+    color: '#FFFFFF',
+    alignment: 'left',
+    ...overrides,
+  };
+}
+
+function imagePayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { src: 'asset://logo', ...overrides };
+}
+
+function textElement(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 'e-1',
+    slideId: 'slide-1',
+    type: 'text',
+    x: 10,
+    y: 20,
+    width: 100,
+    height: 50,
+    rotation: 0,
+    opacity: 1,
+    zIndex: 5,
+    layer: 'content',
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+    payload: textPayload(),
+    ...overrides,
+  };
+}
+
+function decodeBundleManifestWith(value: unknown): BundleManifest {
+  return decodeBundleManifest(value, CONTEXT);
+}
+
+function expectCodecError(action: () => unknown, pathPart: string): void {
+  let error: unknown;
+  try {
+    action();
+  } catch (caught) {
+    error = caught;
+  }
+  expect(error).toBeInstanceOf(CodecError);
+  expect(error).toMatchObject({ boundary: 'test', operation: 'unit' });
+  const message = error instanceof Error ? error.message : '';
+  expect(message).toContain(pathPart);
+}
+
+function buildValidManifest(): Record<string, unknown> {
+  return {
+    format: BUNDLE_FORMAT,
+    version: BUNDLE_VERSION,
+    exportedAt: '2024-01-01T00:00:00.000Z',
+    items: [
+      {
+        id: 'pres-1',
+        type: 'presentation',
+        title: 'Deck',
+        themeId: 'theme-1',
+        order: 0,
+        slides: [
+          {
+            id: 'slide-1',
+            width: 1920,
+            height: 1080,
+            notes: '',
+            order: 0,
+            background: { type: 'color', color: '#000000' },
+            backgroundSource: 'theme',
+            elements: [textElement()],
+          },
+        ],
+      },
+    ],
+    themes: [
+      {
+        id: 'theme-1',
+        name: 'Theme',
+        themeType: 'presentation',
+        width: 1920,
+        height: 1080,
+        order: 0,
+        elements: [textElement({ id: 't-1', slideId: 'theme-1:slide' })],
+      },
+    ],
+    mediaReferences: [{ source: 'asset://logo', elementTypes: ['image'], occurrenceCount: 1 }],
+    overlays: [
+      {
+        id: 'ov-1',
+        name: 'Overlay',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        opacity: 1,
+        zIndex: 10,
+        enabled: true,
+        elements: [],
+        animation: { kind: 'none', durationMs: 0, autoClearDurationMs: null },
+      },
+    ],
+    stages: [{ id: 'stage-1', name: 'Stage', width: 1920, height: 1080, order: 0, elements: [] }],
+    playlists: [
+      {
+        id: 'playlist-1',
+        name: 'Sunday',
+        order: 0,
+        rows: [
+          { id: 'sep-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+          { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
+        ],
+      },
+    ],
+  };
+}
+
+// Golden v1 fixture (pre-#219): entries nested inside groups, themes tagged
+// by `kind`, and a `libraryName` on every playlist. Kept as a legacy-import
+// regression fixture. The Talk item and its playlist row must be discarded,
+// while the presentation and both separators survive normalization to v3.
+function buildLegacyV1Manifest(): Record<string, unknown> {
+  return {
+    format: BUNDLE_FORMAT,
+    version: 1,
+    exportedAt: '2024-01-01T00:00:00.000Z',
+    items: [
+      {
+        id: 'pres-1',
+        type: 'presentation',
+        title: 'Deck',
+        themeId: 'theme-1',
+        order: 0,
+        slides: [
+          {
+            id: 'slide-1',
+            width: 1920,
+            height: 1080,
+            notes: '',
+            order: 0,
+            background: { type: 'color', color: '#000000' },
+            backgroundSource: 'theme',
+            elements: [textElement()],
+          },
+        ],
+      },
+      {
+        id: 'talk-1',
+        type: 'talk',
+        title: 'Sermon',
+        themeId: 'theme-1',
+        order: 0,
+        slides: [
+          {
+            id: 'slide-2',
+            width: 1920,
+            height: 1080,
+            notes: '',
+            order: 0,
+            elements: [],
+          },
+        ],
+      },
+    ],
+    themes: [
+      {
+        id: 'theme-1',
+        name: 'Theme',
+        kind: 'slides',
+        width: 1920,
+        height: 1080,
+        order: 0,
+        elements: [textElement({ id: 't-1', slideId: 'theme-1:slide' })],
+      },
+    ],
+    mediaReferences: [{ source: 'asset://logo', elementTypes: ['image'], occurrenceCount: 1 }],
+    overlays: [
+      {
+        id: 'ov-1',
+        name: 'Overlay',
+        type: 'image',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        opacity: 1,
+        zIndex: 10,
+        enabled: true,
+        elements: [],
+        animation: { kind: 'none', durationMs: 0, autoClearDurationMs: null },
+      },
+    ],
+    stages: [{ id: 'stage-1', name: 'Stage', width: 1920, height: 1080, order: 0, elements: [] }],
+    playlists: [
+      {
+        id: 'playlist-1',
+        name: 'Sunday',
+        libraryName: 'Main',
+        order: 0,
+        groups: [
+          {
+            id: 'group-2',
+            name: 'Closing',
+            colorKey: 'red',
+            order: 1,
+            entries: [],
+          },
+          {
+            id: 'group-1',
+            name: 'Opening',
+            colorKey: null,
+            order: 0,
+            entries: [
+              { id: 'entry-1', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 },
+              { id: 'entry-talk', presentationId: null, lyricId: null, talkId: 'talk-1', order: 1 },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+describe('decodePersisted', () => {
+  it('reports invalid JSON with the boundary context', () => {
+    expectCodecError(() => decodePersisted('{not json', (value) => value, CONTEXT), 'invalid JSON');
+  });
+});
+
+describe('decodeSlideElementPayload', () => {
+  it('decodes a valid text payload', () => {
+    const payload = decodeSlideElementPayload(textPayload(), 'text', CONTEXT);
+    expect(payload).toMatchObject({ text: 'Hello', fontSize: 32 });
+  });
+
+  it('decodes a valid group payload with recursive children', () => {
+    const group = { children: [textElement()] };
+    const payload = decodeSlideElementPayload(group, 'group', CONTEXT);
+    expect((payload as { children: SlideElement[] }).children).toHaveLength(1);
+  });
+
+  it('rejects a missing required text field', () => {
+    // Called directly (not via decodeSlideElement), so the context is the
+    // payload's own root — no extra `payload.` segment is added on top of
+    // whatever path the caller already supplied (e.g. a persisted-column
+    // path already ending in `.payload_json`).
+    const payload = textPayload();
+    delete payload.text;
+    expectCodecError(() => decodeSlideElementPayload(payload, 'text', CONTEXT), 'text');
+  });
+
+  it('rejects a wrong-typed required field', () => {
+    expectCodecError(
+      () => decodeSlideElementPayload(textPayload({ fontSize: 'huge' }), 'text', CONTEXT),
+      'fontSize',
+    );
+  });
+
+  it('rejects an unknown element type', () => {
+    expectCodecError(
+      () => decodeSlideElementPayload(imagePayload(), 'unknown' as SlideElement['type'], CONTEXT),
+      'unknown element type',
+    );
+  });
+
+  it('rejects a corrupt nested group child', () => {
+    const group = { children: [textElement({ type: 'shape' })] };
+    expectCodecError(() => decodeSlideElementPayload(group, 'group', CONTEXT), 'children[0].payload');
+  });
+
+  it('decodes a persisted JSON payload column', () => {
+    const payload = decodeSlideElementPayloadJson(JSON.stringify(textPayload()), 'text', CONTEXT);
+    expect(payload).toMatchObject({ text: 'Hello' });
+  });
+
+  it('rejects a corrupt persisted JSON payload column', () => {
+    expectCodecError(
+      () => decodeSlideElementPayloadJson('{"text": 7}', 'text', CONTEXT),
+      'text',
+    );
+  });
+});
+
+describe('decodeSlideElement', () => {
+  it('decodes a valid element with nullable provenance', () => {
+    const element = decodeSlideElement(textElement({ sourceThemeElementId: null }), CONTEXT);
+    expect(element.id).toBe('e-1');
+  });
+
+  it('rejects a non-finite z-index', () => {
+    expectCodecError(() => decodeSlideElement(textElement({ zIndex: 'top' }), CONTEXT), 'zIndex');
+  });
+
+  it('rejects an invalid layer', () => {
+    expectCodecError(() => decodeSlideElement(textElement({ layer: 'front' }), CONTEXT), 'layer');
+  });
+
+  it('rejects a missing payload', () => {
+    const element = textElement();
+    delete element.payload;
+    expectCodecError(() => decodeSlideElement(element, CONTEXT), 'payload');
+  });
+});
+
+describe('decodeSlideBackground', () => {
+  it('decodes color, gradient, and image backgrounds', () => {
+    expect(decodeSlideBackground({ type: 'color', color: '#000000' }, CONTEXT)).toMatchObject({ type: 'color' });
+    const gradient = decodeSlideBackground(
+      {
+        type: 'gradient',
+        gradient: {
+          kind: 'linear',
+          angle: 90,
+          stops: [
+            { color: '#000000', position: 0 },
+            { color: '#FFFFFF', position: 100 },
+          ],
+        },
+      },
+      CONTEXT,
+    );
+    expect(gradient).toMatchObject({ type: 'gradient' });
+    expect(
+      decodeSlideBackground({ type: 'image', mediaAssetId: null, src: 'asset://bg', fit: 'cover' }, CONTEXT),
+    ).toMatchObject({ type: 'image', fit: 'cover' });
+  });
+
+  it('rejects a gradient with fewer than two stops', () => {
+    expectCodecError(
+      () =>
+        decodeSlideBackground(
+          { type: 'gradient', gradient: { kind: 'linear', stops: [{ color: '#000000', position: 0 }] } },
+          CONTEXT,
+        ),
+      'gradient.stops',
+    );
+  });
+
+  it('rejects an invalid fit', () => {
+    expectCodecError(
+      () => decodeSlideBackground({ type: 'image', mediaAssetId: null, src: 'asset://bg', fit: 'stretch' }, CONTEXT),
+      'fit',
+    );
+  });
+
+  it('rejects an image background without a source', () => {
+    expectCodecError(
+      () => decodeSlideBackground({ type: 'image', mediaAssetId: null, fit: 'cover' }, CONTEXT),
+      'src',
+    );
+  });
+});
+
+describe('decodeOverlayAnimation', () => {
+  it('decodes a valid animation and preserves the null/omitted distinction', () => {
+    const explicit = decodeOverlayAnimation({ kind: 'fade', durationMs: 250, autoClearDurationMs: null }, CONTEXT);
+    expect(explicit).toEqual({ kind: 'fade', durationMs: 250, autoClearDurationMs: null });
+    const omitted = decodeOverlayAnimation({ kind: 'fade', durationMs: 250 }, CONTEXT);
+    expect(omitted).toMatchObject({ kind: 'fade', durationMs: 250 });
+    expect(omitted).not.toHaveProperty('autoClearDurationMs');
+  });
+
+  it('rejects an unknown kind', () => {
+    expectCodecError(() => decodeOverlayAnimation({ kind: 'zoom', durationMs: 0 }, CONTEXT), 'kind');
+  });
+
+  it('rejects a negative duration', () => {
+    expectCodecError(() => decodeOverlayAnimation({ kind: 'none', durationMs: -1 }, CONTEXT), 'durationMs');
+  });
+});
+
+describe('decodeCuePayload', () => {
+  it('decodes every discriminator branch', () => {
+    expect(decodeCuePayload({ overlayId: 'ov-1' }, CONTEXT)).toEqual({ overlayId: 'ov-1' });
+    expect(decodeCuePayload({ assetId: 'asset-1' }, CONTEXT)).toEqual({ assetId: 'asset-1' });
+    expect(decodeCuePayload({ stageId: 'stage-1' }, CONTEXT)).toEqual({ stageId: 'stage-1' });
+    expect(decodeCuePayload({ layer: 'media' }, CONTEXT)).toEqual({ layer: 'media' });
+    expect(decodeCuePayload({ action: 'cancel', target: '*' }, CONTEXT)).toEqual({ action: 'cancel', target: '*' });
+  });
+
+  it('decodes the empty payload', () => {
+    expect(decodeCuePayload({}, CONTEXT)).toEqual({});
+  });
+
+  it('rejects multiple discriminators', () => {
+    expectCodecError(() => decodeCuePayload({ overlayId: 'ov-1', assetId: 'asset-1' }, CONTEXT), 'exactly one');
+  });
+
+  it('rejects an unknown key', () => {
+    expectCodecError(() => decodeCuePayload({ mystery: 'x' }, CONTEXT), 'unknown cue payload key');
+  });
+
+  it('rejects an action without a target', () => {
+    expectCodecError(() => decodeCuePayload({ action: 'revert' }, CONTEXT), 'target');
+  });
+
+  it('rejects a lifecycle action with a non-string target', () => {
+    expectCodecError(() => decodeCuePayload({ action: 'cancel', target: 42 }, CONTEXT), 'target');
+  });
+
+  it('decodes a persisted cue payload column', () => {
+    expect(decodeCuePayloadJson(JSON.stringify({ layer: 'video' }), CONTEXT)).toEqual({ layer: 'video' });
+  });
+});
+
+describe('decodeBundleManifest', () => {
+  it('decodes a valid current (v3) manifest, including flat playlist rows', () => {
+    const manifest = decodeBundleManifestWith(buildValidManifest());
+    expect(manifest.items).toHaveLength(1);
+    expect(manifest.themes[0].elements[0].payload).toMatchObject({ text: 'Hello' });
+    expect(manifest.themes[0]).toMatchObject({ themeType: 'presentation' });
+    expect(manifest.overlays?.[0].animation).toEqual({ kind: 'none', durationMs: 0, autoClearDurationMs: null });
+    expect(manifest.playlists?.[0].rows).toEqual([
+      { id: 'sep-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
+    ]);
+  });
+
+  it('rejects an unsupported format explicitly', () => {
+    const manifest = buildValidManifest();
+    manifest.format = 'cast-backup';
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'unsupported bundle format');
+  });
+
+  it('normalizes a v1 manifest by discarding Talk content and retaining non-Talk content', () => {
+    const manifest = decodeBundleManifestWith(buildLegacyV1Manifest());
+
+    expect(manifest.format).toBe(BUNDLE_FORMAT);
+    expect(manifest.version).toBe(BUNDLE_VERSION);
+
+    const presentation = manifest.items.find((item) => item.id === 'pres-1')!;
+    expect(presentation.themeId).toBe('theme-1');
+    expect(manifest.items.some((item) => item.id === 'talk-1')).toBe(false);
+
+    expect(manifest.themes).toHaveLength(1);
+    const presentationTheme = manifest.themes.find((theme) => theme.id === 'theme-1')!;
+    expect(presentationTheme).toMatchObject({ themeType: 'presentation', name: 'Theme', width: 1920, height: 1080 });
+
+    // group-1 (order 0, "Opening") sorts before group-2 (order 1, "Closing")
+    // despite appearing second in the source array; every group -- including
+    // the empty one -- yields a separator, and the whole row list is
+    // renumbered 0..n. The item entry keeps its original id.
+    expect(manifest.playlists?.[0].rows).toEqual([
+      { id: 'group-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 1 },
+      { id: 'group-2', kind: 'separator', label: 'Closing', colorKey: 'red', order: 2 },
+    ]);
+    expect(manifest.playlists?.[0]).not.toHaveProperty('libraryName');
+  });
+
+  it('normalizes a v2 manifest by discarding Talk items, themes, rows, and script blocks', () => {
+    const legacyV2 = {
+      ...buildValidManifest(),
+      version: 2,
+      items: [
+        ...(buildValidManifest().items as unknown[]),
+        {
+          id: 'talk-1', type: 'talk', title: 'Legacy Talk', themeId: 'talk-theme-1', order: 1,
+          slides: [{ id: 'talk-slide-1', width: 1920, height: 1080, notes: '', order: 0, elements: [], scriptBlocks: [{ id: 'block-1', text: 'Legacy', order: 0 }] }],
+        },
+      ],
+      themes: [
+        ...(buildValidManifest().themes as unknown[]),
+        { id: 'talk-theme-1', name: 'Talk Theme', themeType: 'talk', width: 1920, height: 1080, order: 1, elements: [] },
+      ],
+      playlists: [{
+        id: 'playlist-1', name: 'Sunday', order: 0,
+        rows: [
+          { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, talkId: null, order: 0 },
+          { id: 'entry-talk', kind: 'item', presentationId: null, lyricId: null, talkId: 'talk-1', order: 1 },
+        ],
+      }],
+    };
+
+    const manifest = decodeBundleManifestWith(legacyV2);
+    expect(manifest.version).toBe(3);
+    expect(manifest.items.map((item) => item.id)).toEqual(['pres-1']);
+    expect(manifest.themes.map((theme) => theme.id)).toEqual(['theme-1']);
+    expect(manifest.playlists?.[0].rows).toEqual([
+      { id: 'entry-1', kind: 'item', presentationId: 'pres-1', lyricId: null, order: 0 },
+    ]);
+  });
+
+  it('rejects a structurally invalid v1 manifest with a field path (not silently misparsed)', () => {
+    const manifest = buildLegacyV1Manifest();
+    (manifest.themes as Record<string, unknown>[])[0].kind = 'bogus';
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'themes[0].kind');
+  });
+
+  it('rejects a future version explicitly without partial results', () => {
+    const manifest = buildValidManifest();
+    manifest.version = 4;
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'future bundle version 4');
+  });
+
+  it('rejects an unsupported version', () => {
+    const manifest = buildValidManifest();
+    manifest.version = 0;
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'unsupported bundle version');
+  });
+
+  it('rejects a corrupt item with a field path', () => {
+    const manifest = buildValidManifest();
+    delete (manifest.items as Record<string, unknown>[])[0].title;
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'items[0].title');
+  });
+
+  it('rejects a corrupt nested slide element with a field path', () => {
+    const manifest = buildValidManifest();
+    ((manifest.items as Record<string, unknown>[])[0].slides as Record<string, unknown>[])[0].elements = [
+      textElement({ type: 'bogus' }),
+    ];
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'items[0].slides[0].elements[0].type');
+  });
+
+  it('rejects a corrupt slide background with a field path', () => {
+    const manifest = buildValidManifest();
+    ((manifest.items as Record<string, unknown>[])[0].slides as Record<string, unknown>[])[0].background = {
+      type: 'gradient',
+      gradient: { kind: 'linear', stops: [{ color: '#000000', position: 0 }] },
+    };
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'items[0].slides[0].background.gradient.stops');
+  });
+
+  it('rejects a playlist row with an invalid kind', () => {
+    const manifest = buildValidManifest();
+    ((manifest.playlists as Record<string, unknown>[])[0].rows as Record<string, unknown>[])[0].kind = 'group';
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'playlists[0].rows[0].kind');
+  });
+
+  it('rejects a separator row missing its label', () => {
+    const manifest = buildValidManifest();
+    delete ((manifest.playlists as Record<string, unknown>[])[0].rows as Record<string, unknown>[])[0].label;
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'playlists[0].rows[0].label');
+  });
+
+  it('rejects an invalid media reference', () => {
+    const manifest = buildValidManifest();
+    (manifest.mediaReferences as Record<string, unknown>[])[0].elementTypes = ['gif'];
+    expectCodecError(() => decodeBundleManifestWith(manifest), 'mediaReferences[0].elementTypes[0]');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Renderer-originated RPC input codecs (issue #150)
+// ---------------------------------------------------------------------------
+
+describe('expectRpcPrimitiveArgs', () => {
+  it('accepts a valid mix of primitive kinds', () => {
+    expect(() =>
+      expectRpcPrimitiveArgs(
+        ['id-1', null, 5, true, undefined, ['a', 'b'], 'up'],
+        [
+          { name: 'id', kind: 'string' },
+          { name: 'groupId', kind: 'nullableString' },
+          { name: 'count', kind: 'number' },
+          { name: 'flag', kind: 'boolean' },
+          { name: 'manual', kind: 'optionalBoolean' },
+          { name: 'ids', kind: 'stringArray' },
+          { name: 'direction', kind: 'enum', values: ['up', 'down'] },
+        ],
+        CONTEXT,
+      ),
+    ).not.toThrow();
+  });
+
+  it('rejects a wrong-typed primitive with the field name in the path', () => {
+    expectCodecError(
+      () => expectRpcPrimitiveArgs([42], [{ name: 'id', kind: 'string' }], CONTEXT),
+      'id',
+    );
+  });
+
+  it('rejects an out-of-range enum value', () => {
+    expectCodecError(
+      () => expectRpcPrimitiveArgs(['sideways'], [{ name: 'direction', kind: 'enum', values: ['up', 'down'] }], CONTEXT),
+      'direction',
+    );
+  });
+
+  it('rejects a non-string entry inside a stringArray argument', () => {
+    expectCodecError(
+      () => expectRpcPrimitiveArgs([['a', 7]], [{ name: 'ids', kind: 'stringArray' }], CONTEXT),
+      'ids.1',
+    );
+  });
+
+  it('allows an omitted optionalBoolean but rejects a wrong-typed one', () => {
+    expect(() =>
+      expectRpcPrimitiveArgs([undefined], [{ name: 'manual', kind: 'optionalBoolean' }], CONTEXT),
+    ).not.toThrow();
+    expectCodecError(
+      () => expectRpcPrimitiveArgs(['yes'], [{ name: 'manual', kind: 'optionalBoolean' }], CONTEXT),
+      'manual',
+    );
+  });
+});
+
+describe('decodeInlineWindowMenuBounds', () => {
+  it('decodes valid bounds', () => {
+    expect(decodeInlineWindowMenuBounds({ x: 1, y: 2 }, CONTEXT)).toEqual({ x: 1, y: 2 });
+  });
+
+  it('rejects an unknown field', () => {
+    expectCodecError(() => decodeInlineWindowMenuBounds({ x: 1, y: 2, z: 3 }, CONTEXT), 'z');
+  });
+
+  it('rejects a non-finite coordinate', () => {
+    expectCodecError(() => decodeInlineWindowMenuBounds({ x: Number.NaN, y: 2 }, CONTEXT), 'x');
+  });
+});
+
+describe('decodeCueCreateInput / decodeCueUpdateInput', () => {
+  it('decodes a valid create input, reusing decodeCuePayload', () => {
+    const input = decodeCueCreateInput({ kind: 'overlay.activate', payload: { overlayId: 'ov-1' } }, CONTEXT);
+    expect(input).toMatchObject({ kind: 'overlay.activate', payload: { overlayId: 'ov-1' } });
+  });
+
+  it('rejects an unknown top-level field', () => {
+    expectCodecError(
+      () => decodeCueCreateInput({ kind: 'overlay.activate', payload: {}, extra: true }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('rejects an invalid cue kind', () => {
+    expectCodecError(() => decodeCueCreateInput({ kind: 'bogus.kind', payload: {} }, CONTEXT), 'kind');
+  });
+
+  it('propagates a nested cue payload error with its field path', () => {
+    expectCodecError(
+      () => decodeCueCreateInput({ kind: 'overlay.activate', payload: { mystery: 'x' } }, CONTEXT),
+      'payload',
+    );
+  });
+
+  it('decodes an update input with only id required', () => {
+    const input = decodeCueUpdateInput({ id: 'cue-1' }, CONTEXT);
+    expect(input).toEqual({ id: 'cue-1' });
+  });
+
+  it('preserves operation and field path across the boundary', () => {
+    let error: unknown;
+    try {
+      decodeCueCreateInput({ kind: 'bogus' }, { boundary: 'rpc', operation: 'createCue', path: '' });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(CodecError);
+    expect(error).toMatchObject({ boundary: 'rpc', operation: 'createCue', fieldPath: 'kind' });
+    expect((error as Error).message).toBe('[rpc/createCue] kind: must be one of [overlay.activate, overlay.clear, overlay.clearAll, mediaLayer.set, video.arm, video.clear, audio.arm, audio.clear, stage.set, stage.clear, layer.clear, layer.clearAll, flow.lifecycle], got "bogus"');
+  });
+});
+
+describe('decodeMacroCreateInput', () => {
+  it('decodes a valid macro with nested cue entries', () => {
+    const macro = decodeMacroCreateInput(
+      { name: 'My Macro', loopEnabled: true, cues: [{ cueId: 'cue-1', orderIndex: 0, delayBeforeMs: 100 }] },
+      CONTEXT,
+    );
+    expect(macro).toMatchObject({ name: 'My Macro', loopEnabled: true });
+  });
+
+  it('rejects an unknown field on a nested cue entry', () => {
+    expectCodecError(
+      () => decodeMacroCreateInput({ name: 'M', cues: [{ cueId: 'cue-1', orderIndex: 0, bogus: 1 }] }, CONTEXT),
+      'cues[0]',
+    );
+  });
+
+  it('rejects an id on a create-input cue entry (create never carries one)', () => {
+    expectCodecError(
+      () => decodeMacroCreateInput({ name: 'M', cues: [{ id: 'x', cueId: 'cue-1', orderIndex: 0 }] }, CONTEXT),
+      'cues[0]',
+    );
+  });
+
+  it('allows loopCount to be explicitly null', () => {
+    expect(() => decodeMacroCreateInput({ name: 'M', loopCount: null }, CONTEXT)).not.toThrow();
+  });
+});
+
+describe('decodeTriggerBindingCreateInput', () => {
+  it('decodes a valid input with a nullable sourceId and free-form config', () => {
+    const input = decodeTriggerBindingCreateInput(
+      { triggerType: 'slide.take', sourceId: null, targetType: 'cue', targetId: 'cue-1', config: { anything: 'goes' } },
+      CONTEXT,
+    );
+    expect(input).toMatchObject({ triggerType: 'slide.take', targetType: 'cue' });
+  });
+
+  it('rejects a non-object config', () => {
+    expectCodecError(
+      () => decodeTriggerBindingCreateInput(
+        { triggerType: 'slide.take', sourceId: null, targetType: 'cue', targetId: 'cue-1', config: 'nope' },
+        CONTEXT,
+      ),
+      'config',
+    );
+  });
+});
+
+describe('decodeElementCreateInput / decodeElementUpdateInput', () => {
+  function baseElementCreate(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      slideId: 'slide-1',
+      type: 'text',
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      payload: { text: 'Hi', fontFamily: 'Arial', fontSize: 12, color: '#fff', alignment: 'left' },
+      ...overrides,
+    };
+  }
+
+  it('decodes a valid create input, reusing full per-type payload validation', () => {
+    const input = decodeElementCreateInput(baseElementCreate(), CONTEXT);
+    expect(input).toMatchObject({ slideId: 'slide-1', type: 'text' });
+  });
+
+  it('rejects a malformed payload with the nested field path (regression: create must not bypass payload validation)', () => {
+    expectCodecError(
+      () => decodeElementCreateInput(baseElementCreate({ payload: { text: 'Hi' } }), CONTEXT),
+      'payload.fontFamily',
+    );
+  });
+
+  it('rejects an unknown top-level field', () => {
+    expectCodecError(() => decodeElementCreateInput(baseElementCreate({ bogus: 1 }), CONTEXT), 'unknown field');
+  });
+
+  it('decodes a valid update input with only id required', () => {
+    expect(decodeElementUpdateInput({ id: 'e-1' }, CONTEXT)).toEqual({ id: 'e-1' });
+  });
+
+  it('rejects a non-object replacement payload on update (regression: previously reached the repository unchecked)', () => {
+    expectCodecError(() => decodeElementUpdateInput({ id: 'e-1', payload: 'not-an-object' }, CONTEXT), 'payload');
+  });
+
+  it('accepts any object-shaped replacement payload on update (documented shallow-check gap: type-specific fields are not cross-checked)', () => {
+    expect(() => decodeElementUpdateInput({ id: 'e-1', payload: { anything: 'goes' } }, CONTEXT)).not.toThrow();
+  });
+});
+
+describe('decodeOverlayCreateInput / decodeThemeCreateInput / decodeStageCreateInput', () => {
+  it('decodes overlay elements and animation, reusing decodeSlideElement/decodeOverlayAnimation', () => {
+    const overlay = decodeOverlayCreateInput(
+      { name: 'Lower Third', elements: [], animation: { kind: 'fade', durationMs: 200 } },
+      CONTEXT,
+    );
+    expect(overlay).toMatchObject({ name: 'Lower Third' });
+  });
+
+  it('rejects an invalid nested element on an overlay', () => {
+    expectCodecError(
+      () => decodeOverlayCreateInput({ name: 'X', elements: [{ id: 'e', slideId: 's', type: 'bogus' }] }, CONTEXT),
+      'elements[0].type',
+    );
+  });
+
+  it('decodes theme background via decodeSlideBackground', () => {
+    const theme = decodeThemeCreateInput(
+      { name: 'Theme', themeType: 'presentation', background: { type: 'color', color: '#000' } },
+      CONTEXT,
+    );
+    expect(theme).toMatchObject({ themeType: 'presentation' });
+  });
+
+  it('rejects an invalid theme type', () => {
+    expectCodecError(() => decodeThemeCreateInput({ name: 'Theme', themeType: 'bogus' }, CONTEXT), 'themeType');
+  });
+
+  it('decodes a minimal stage create input', () => {
+    expect(decodeStageCreateInput({ name: 'Stage A' }, CONTEXT)).toEqual({ name: 'Stage A' });
+  });
+});
+
+describe('decodeSlideCreateInput / decodeSlideBackgroundUpdateInput', () => {
+  it('decodes a minimal slide create input', () => {
+    expect(decodeSlideCreateInput({ presentationId: 'pres-1' }, CONTEXT)).toEqual({ presentationId: 'pres-1' });
+  });
+
+  it('rejects a wrong-typed nullable owner field', () => {
+    expectCodecError(() => decodeSlideCreateInput({ presentationId: 42 }, CONTEXT), 'presentationId');
+  });
+
+  it('decodes a background update, reusing decodeSlideBackground', () => {
+    const input = decodeSlideBackgroundUpdateInput({ slideId: 's-1', background: { type: 'color', color: '#000' } }, CONTEXT);
+    expect(input).toMatchObject({ slideId: 's-1' });
+  });
+
+  it('allows an explicit null background but rejects an omitted one', () => {
+    expect(decodeSlideBackgroundUpdateInput({ slideId: 's-1', background: null }, CONTEXT)).toEqual({
+      slideId: 's-1',
+      background: null,
+    });
+    expectCodecError(() => decodeSlideBackgroundUpdateInput({ slideId: 's-1' }, CONTEXT), 'background');
+  });
+});
+
+describe('decodeMediaAssetCreateInput / decodeItemCreateInput / decodeItemDuplicateInput', () => {
+  it('decodes a valid media asset input', () => {
+    const asset = decodeMediaAssetCreateInput({ name: 'Logo', type: 'image', src: 'asset://logo.png' }, CONTEXT);
+    expect(asset).toMatchObject({ type: 'image' });
+  });
+
+  it('rejects an invalid media asset type', () => {
+    expectCodecError(() => decodeMediaAssetCreateInput({ name: 'Logo', type: 'pdf', src: 'x' }, CONTEXT), 'type');
+  });
+
+  it('rejects an unknown field (capability boundary)', () => {
+    expectCodecError(
+      () => decodeMediaAssetCreateInput({ name: 'Logo', type: 'image', src: 'x', path: '/etc/passwd' }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('decodes a valid item create input with no collection/group fields', () => {
+    const input = decodeItemCreateInput({ type: 'presentation', title: 'New', themeId: null }, CONTEXT);
+    expect(input).toMatchObject({ type: 'presentation', title: 'New' });
+  });
+
+  it('decodes a minimal item create input (title, themeId, playlistId, position all optional)', () => {
+    expect(decodeItemCreateInput({ type: 'lyric' }, CONTEXT)).toEqual({ type: 'lyric' });
+  });
+
+  it('decodes an item create input placed into a playlist at a position', () => {
+    const input = decodeItemCreateInput({ type: 'lyric', playlistId: 'pl-1', position: 2 }, CONTEXT);
+    expect(input).toMatchObject({ playlistId: 'pl-1', position: 2 });
+  });
+
+  it('rejects an unknown field on item create (no collectionId/groupId survive)', () => {
+    expectCodecError(
+      () => decodeItemCreateInput({ type: 'presentation', collectionId: 'col-1' }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('decodes a valid item duplicate input for presentation/lyric', () => {
+    expect(decodeItemDuplicateInput({ type: 'lyric', id: 'lyr-1' }, CONTEXT)).toEqual({ type: 'lyric', id: 'lyr-1' });
+  });
+
+});
+
+describe('decodeBundleExportOptions / decodeBundleBrokenReferenceDecision', () => {
+  it('decodes valid export options', () => {
+    expect(decodeBundleExportOptions({ includeAllThemes: true, playlistIds: ['p-1'] }, CONTEXT)).toEqual({
+      includeAllThemes: true,
+      playlistIds: ['p-1'],
+    });
+  });
+
+  it('rejects an unknown export option (filesystem export boundary)', () => {
+    expectCodecError(() => decodeBundleExportOptions({ includeAllThemes: true, bogus: 1 }, CONTEXT), 'unknown field');
+  });
+
+  it('decodes a valid broken-reference decision', () => {
+    expect(
+      decodeBundleBrokenReferenceDecision({ source: 'asset://x', action: 'replace', replacementPath: '/tmp/y.png' }, CONTEXT),
+    ).toMatchObject({ action: 'replace' });
+  });
+
+  it('rejects an invalid decision action', () => {
+    expectCodecError(
+      () => decodeBundleBrokenReferenceDecision({ source: 'asset://x', action: 'ignore' }, CONTEXT),
+      'action',
+    );
+  });
+});
+
+describe('NDI RPC input vs. persisted config file: unknown-field policy contrast', () => {
+  it('decodeNdiOutputName accepts only the known output names', () => {
+    expect(decodeNdiOutputName('audience', CONTEXT)).toBe('audience');
+    expectCodecError(() => decodeNdiOutputName('program', CONTEXT), 'name');
+  });
+
+  it('decodeNdiOutputConfigInput (RPC, capability boundary) rejects an unknown field', () => {
+    expect(decodeNdiOutputConfigInput({ senderName: 'Cast' }, CONTEXT)).toEqual({ senderName: 'Cast' });
+    expectCodecError(
+      () => decodeNdiOutputConfigInput({ senderName: 'Cast', groupName: 'Studio' }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('decodeStoredNdiOutputConfigMap (persisted file) tolerates and ignores the same unknown field', () => {
+    const decoded = decodeStoredNdiOutputConfigMap(
+      {
+        audience: { senderName: 'Cast Audience', withAlpha: false, groupName: 'Studio' },
+        stage: { senderName: 'Cast Stage', withAlpha: true },
+      },
+      CONTEXT,
+    );
+    expect(decoded).toEqual({
+      audience: { senderName: 'Cast Audience', withAlpha: false },
+      stage: { senderName: 'Cast Stage', withAlpha: true },
+    });
+  });
+
+  it('decodeStoredNdiOutputConfigMap still rejects a wrong-typed known field', () => {
+    expectCodecError(
+      () =>
+        decodeStoredNdiOutputConfigMap(
+          { audience: { senderName: 42, withAlpha: false }, stage: { senderName: 'Cast Stage', withAlpha: true } },
+          CONTEXT,
+        ),
+      'audience.senderName',
+    );
+  });
+
+  it('decodeStoredNdiOutputConfigMap rejects a missing required output', () => {
+    expectCodecError(
+      () => decodeStoredNdiOutputConfigMap({ audience: { senderName: 'Cast', withAlpha: false } }, CONTEXT),
+      'stage',
+    );
+  });
+});
+
+describe('decodeAppSnapshotShape', () => {
+  // #219 item-model refactor decisions D3/D4/D2: no libraries, libraryBundles,
+  // or collections; `themes` splits into three per-owner arrays; playlists
+  // ship as two ordinary flat-row families (playlists/playlistEntries), not
+  // a derived tree.
+  const EMPTY_SNAPSHOT_FIELDS = [
+    'presentations', 'lyrics', 'slides',
+    'slideElements', 'mediaAssets', 'overlays',
+    'presentationThemes', 'lyricThemes', 'overlayThemes',
+    'stages', 'playlists', 'playlistEntries', 'cues', 'macros', 'triggerBindings',
+  ];
+
+  function emptySnapshot(): Record<string, unknown> {
+    return Object.fromEntries(EMPTY_SNAPSHOT_FIELDS.map((field) => [field, []]));
+  }
+
+  it('decodes a minimal snapshot with every array present but empty', () => {
+    expect(() => decodeAppSnapshotShape(emptySnapshot(), CONTEXT)).not.toThrow();
+  });
+
+  it('decodes a snapshot with well-formed entity rows', () => {
+    const snapshot = emptySnapshot();
+    snapshot.presentations = [{ id: 'pres-1', title: 'Deck', order: 0 }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a missing entity array before touching the repository', () => {
+    const snapshot = emptySnapshot();
+    delete snapshot.macros;
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'macros');
+  });
+
+  it('rejects a non-object row inside an entity array', () => {
+    const snapshot = emptySnapshot();
+    snapshot.cues = ['not-an-object'];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'cues[0]');
+  });
+
+  it('rejects a row missing a string id', () => {
+    const snapshot = emptySnapshot();
+    snapshot.presentationThemes = [{ name: 'Theme without id' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'presentationThemes[0].id');
+  });
+
+  // --- issue #219: playlists are ordinary flat-row families now ------------
+
+  it('decodes a well-formed playlist with an item entry and a separator row', () => {
+    const snapshot = emptySnapshot();
+    snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
+    snapshot.playlistEntries = [
+      { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: null, order: 0 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', reference: { type: 'presentation', id: 'pres-1' }, presentationId: 'pres-1', lyricId: null, order: 1 },
+    ];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a playlist entry row missing a string id', () => {
+    const snapshot = emptySnapshot();
+    snapshot.playlistEntries = [{ playlistId: 'pl-1', kind: 'separator', label: 'Opening' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playlistEntries[0].id');
+  });
+
+  it('rejects a separator row whose label is the wrong type', () => {
+    const snapshot = emptySnapshot();
+    snapshot.playlistEntries = [{ id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 7, colorKey: null, order: 0 }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playlistEntries[0].label');
+  });
+
+  // --- issue #224: wrong-typed fields on otherwise well-shaped rows --------
+
+  it('rejects a numeric field supplied as a string', () => {
+    // SQLite INTEGER affinity would coerce this silently and it would survive
+    // the restore transaction as a corrupt row.
+    const snapshot = emptySnapshot();
+    snapshot.presentationThemes = [{ id: 'pt-1', name: 'Theme', order: '3' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'presentationThemes[0].order');
+  });
+
+  it('rejects a string field supplied as a number', () => {
+    const snapshot = emptySnapshot();
+    snapshot.mediaAssets = [{ id: 'm-1', name: 42, type: 'image', src: 'cast-media://x' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'mediaAssets[0].name');
+  });
+
+  it('rejects a slide tag reference supplied as a non-string value', () => {
+    const snapshot = emptySnapshot();
+    snapshot.slides = [{ id: 's-1', tagId: { id: 'tag-1' } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'slides[0].tagId');
+  });
+
+  it('rejects a boolean field supplied as a string', () => {
+    const snapshot = emptySnapshot();
+    snapshot.macros = [{ id: 'm-1', name: 'M', loopEnabled: 'yes', cues: [] }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'macros[0].loopEnabled');
+  });
+
+  it('rejects a non-finite number where a number is expected', () => {
+    const snapshot = emptySnapshot();
+    snapshot.playlists = [{ id: 'playlist-1', name: 'Sunday', order: Number.NaN }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playlists[0].order');
+  });
+
+  it('rejects an object where a primitive field is expected', () => {
+    const snapshot = emptySnapshot();
+    snapshot.presentations = [{ id: 'pres-1', title: { first: 'Deck' } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'presentations[0].title');
+  });
+
+  it('accepts null and undefined for any recognized field, and ignores unknown field names', () => {
+    // Both leniencies are deliberate: nullability varies per family, and this
+    // pass must only ever narrow what is accepted.
+    const snapshot = emptySnapshot();
+    snapshot.slides = [{
+      id: 's-1',
+      presentationId: null,
+      lyricId: null,
+      presentationThemeId: undefined,
+      order: 0,
+      // Not in the field-kind map: not this boundary's business.
+      somethingNewFromAFutureMigration: { nested: true },
+    }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('accepts media-asset metadata fields and an optional thumbnailSrc on snapshot rows', () => {
+    const snapshot = emptySnapshot();
+    snapshot.mediaAssets = [{
+      id: 'media-1',
+      name: 'Clip',
+      type: 'video',
+      src: 'cast-media://video-1',
+      width: 1280,
+      height: 720,
+      duration: 12.5,
+      codec: 'h264',
+      thumbnailSrc: 'cast-media://thumb-1',
+      order: 0,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a media-asset metadata field with the wrong primitive type', () => {
+    const snapshot = emptySnapshot();
+    snapshot.mediaAssets = [{
+      id: 'media-1',
+      name: 'Clip',
+      type: 'video',
+      src: 'cast-media://video-1',
+      duration: '12.5',
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'mediaAssets[0].duration');
+  });
+
+  // --- issue #224: structured fields delegate to their owning decoders -----
+
+  it('rejects a slide element whose payload does not match its own type', () => {
+    const snapshot = emptySnapshot();
+    snapshot.slideElements = [{
+      ...textElement(),
+      id: 'el-1',
+      type: 'video',
+      // A video payload requires src, autoplay, and loop.
+      payload: { src: 'cast-media://x' },
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'slideElements[0].payload');
+  });
+
+  it('rejects a malformed slide background', () => {
+    const snapshot = emptySnapshot();
+    snapshot.slides = [{ id: 's-1', background: { type: 'gradient', gradient: { kind: 'linear', stops: [] } } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'slides[0].background');
+  });
+
+  it('rejects a theme whose owned element is malformed', () => {
+    const snapshot = emptySnapshot();
+    snapshot.lyricThemes = [{
+      id: 'th-1',
+      name: 'Theme',
+      elements: [{ ...textElement(), id: 'el-1', type: 'text', payload: { text: 'hi' } }],
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'lyricThemes[0].elements[0].payload');
+  });
+
+  it('rejects a theme whose elements array is missing', () => {
+    const snapshot = emptySnapshot();
+    snapshot.overlayThemes = [{ id: 'th-1', name: 'Theme' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'overlayThemes[0].elements');
+  });
+
+  it('rejects a malformed cue payload', () => {
+    const snapshot = emptySnapshot();
+    snapshot.cues = [{ id: 'cue-1', kind: 'overlay.activate', payload: { overlayId: 7 } }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'cues[0].payload');
+  });
+
+  it("rejects a malformed cue payload nested in a macro's steps", () => {
+    const snapshot = emptySnapshot();
+    snapshot.macros = [{
+      id: 'mac-1',
+      name: 'Macro',
+      cues: [{
+        id: 'mc-1',
+        macroId: 'mac-1',
+        cueId: 'cue-1',
+        cue: { id: 'cue-1', kind: 'overlay.activate', payload: { unknownKey: 'x' } },
+        orderIndex: 0,
+        delayBeforeMs: 0,
+        delayAfterMs: 0,
+      }],
+    }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'macros[0].cues[0].cue.payload');
+  });
+
+  it('rejects a trigger binding whose config is not an object', () => {
+    const snapshot = emptySnapshot();
+    snapshot.triggerBindings = [{ id: 'tb-1', triggerType: 'slide.take', targetType: 'cue', targetId: 'cue-1', config: 'nope' }];
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'triggerBindings[0].config');
+  });
+
+  it('accepts a well-formed populated snapshot across every structured family', () => {
+    const snapshot = emptySnapshot();
+    snapshot.playlists = [{ id: 'pl-1', name: 'Sunday', order: 0, createdAt: 'now', updatedAt: 'now' }];
+    snapshot.playlistEntries = [
+      { id: 'sep-1', playlistId: 'pl-1', kind: 'separator', label: 'Opening', colorKey: 'blue', order: 0 },
+      { id: 'entry-1', playlistId: 'pl-1', kind: 'item', reference: { type: 'presentation', id: 'pres-1' }, presentationId: 'pres-1', lyricId: null, order: 1 },
+    ];
+    snapshot.slides = [{ id: 's-1', background: { type: 'color', color: '#000' }, order: 0, notes: '', width: 1920, height: 1080 }];
+    snapshot.slideElements = [{ ...textElement(), id: 'el-1', type: 'shape', payload: { fillColor: '#fff' } }];
+    snapshot.presentationThemes = [{ id: 'pt-1', name: 'Theme', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.lyricThemes = [{ id: 'lt-1', name: 'Lyric Theme', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.overlayThemes = [{ id: 'ot-1', name: 'Overlay Theme', elements: [], background: null, width: 1920, height: 1080 }];
+    snapshot.overlays = [{ id: 'ov-1', name: 'Lower third', enabled: true, elements: [], animation: { kind: 'fade', durationMs: 250 } }];
+    snapshot.stages = [{ id: 'st-1', name: 'Stage', elements: [], width: 1920, height: 1080 }];
+    snapshot.cues = [{ id: 'cue-1', kind: 'overlay.activate', payload: { overlayId: 'ov-1' }, failurePolicy: 'continue' }];
+    snapshot.triggerBindings = [{ id: 'tb-1', triggerType: 'slide.take', targetType: 'cue', targetId: 'cue-1', config: {}, enabled: true }];
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+});
+
+describe('decodeSnapshotPatchShape', () => {
+  it('accepts a patch that only touches present tables', () => {
+    const patch = {
+      version: 7,
+      upserts: {
+        slides: [{ id: 'slide-1', background: { type: 'color', color: '#000' }, order: 0, notes: '', width: 1920, height: 1080 }],
+        overlays: [{ id: 'ov-1', name: 'Overlay', enabled: true, elements: [], animation: { kind: 'fade', durationMs: 250 } }],
+      },
+      deletes: {
+        triggerBindings: ['binding-1'],
+      },
+    };
+
+    expect(() => decodeSnapshotPatchShape(patch, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects an invalid row inside a present upsert table', () => {
+    const patch = {
+      version: 7,
+      upserts: {
+        cues: [{ id: 'cue-1', kind: 'overlay.activate', payload: 'bad', failurePolicy: 'continue' }],
+      },
+      deletes: {},
+    };
+
+    expectCodecError(() => decodeSnapshotPatchShape(patch, CONTEXT), 'upserts.cues[0].payload');
+  });
+
+  it('rejects a wrong-typed delete id only on the present delete table', () => {
+    const patch = {
+      version: 7,
+      upserts: {},
+      deletes: {
+        playlists: ['pl-1'],
+        playlistEntries: [42],
+      },
+    };
+
+    expectCodecError(() => decodeSnapshotPatchShape(patch, CONTEXT), 'deletes.playlistEntries[0]');
+  });
+});
+
+describe('decodePlaybackSchedule', () => {
+  const timing = {
+    id: 'timing:presentation:pres-1',
+    itemRef: { type: 'presentation', id: 'pres-1' },
+    enabled: true,
+    kind: 'slide-timing',
+    steps: [
+      { slideId: 'slide-1', durationMs: 5000 },
+      { slideId: 'slide-2', durationMs: 3000 },
+    ],
+  };
+
+  const audioSync = {
+    id: 'audio:audio-1',
+    itemRef: { type: 'lyric', id: 'lyric-1' },
+    enabled: true,
+    kind: 'audio-sync',
+    audioAssetId: 'audio-1',
+    markers: [
+      { id: 'm-1', timeMs: 0, slideId: 'slide-1' },
+      { id: 'm-2', timeMs: 2500, slideId: 'slide-2' },
+    ],
+  };
+
+  it('accepts a well-formed slide-timing schedule and a disabled unbound draft', () => {
+    expect(decodePlaybackSchedule(structuredClone(timing), CONTEXT)).toEqual(timing);
+    const draft = { id: 'timing:draft', itemRef: null, enabled: false, kind: 'slide-timing', steps: [] };
+    expect(decodePlaybackSchedule(draft, CONTEXT)).toEqual(draft);
+  });
+
+  it('accepts a well-formed audio-sync schedule and a disabled draft with null bindings', () => {
+    expect(decodePlaybackSchedule(structuredClone(audioSync), CONTEXT)).toEqual(audioSync);
+    const draft = { id: 'audio:audio-9', itemRef: null, enabled: false, kind: 'audio-sync', audioAssetId: 'audio-9', markers: [{ id: 'm-1', timeMs: 100, slideId: null }] };
+    expect(decodePlaybackSchedule(draft, CONTEXT)).toEqual(draft);
+  });
+
+  it('builds the stable UI schedule ids', () => {
+    expect(buildSlideTimingScheduleId({ type: 'presentation', id: 'pres-1' })).toBe('timing:presentation:pres-1');
+    expect(buildAudioSyncScheduleId('audio-1')).toBe('audio:audio-1');
+  });
+
+  it('rejects an unknown discriminant, unknown keys, and a malformed itemRef', () => {
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, kind: 'metronome' }, CONTEXT), 'kind');
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, extra: 1 }, CONTEXT), 'extra');
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, itemRef: { type: 'deck', id: 'x' } }, CONTEXT), 'itemRef.type');
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, itemRef: { type: 'presentation', id: '' } }, CONTEXT), 'itemRef.id');
+  });
+
+  it('rejects cross-discriminant keys', () => {
+    expectCodecError(() => decodePlaybackSchedule({ ...timing, audioAssetId: 'audio-1' }, CONTEXT), 'audioAssetId');
+    expectCodecError(() => decodePlaybackSchedule({ ...audioSync, steps: [] }, CONTEXT), 'steps');
+  });
+
+  it('rejects non-finite, non-positive, and over-bound durations and times', () => {
+    const badDurations = [0, -5, Number.NaN, Infinity, MAX_PLAYBACK_SCHEDULE_DURATION_MS + 1];
+    for (const durationMs of badDurations) {
+      expectCodecError(
+        () => decodePlaybackSchedule({ ...timing, steps: [{ slideId: 'slide-1', durationMs }] }, CONTEXT),
+        'durationMs',
+      );
+    }
+    const badTimes = [-1, Number.NaN, Infinity, MAX_PLAYBACK_SCHEDULE_DURATION_MS + 1];
+    for (const timeMs of badTimes) {
+      expectCodecError(
+        () => decodePlaybackSchedule({ ...audioSync, markers: [{ id: 'm-1', timeMs, slideId: null }] }, CONTEXT),
+        'timeMs',
+      );
+    }
+  });
+
+  it('rejects duplicate step slides and duplicate marker ids or times', () => {
+    expectCodecError(
+      () => decodePlaybackSchedule({ ...timing, steps: [{ slideId: 's-1', durationMs: 100 }, { slideId: 's-1', durationMs: 200 }] }, CONTEXT),
+      'slideId',
+    );
+    expectCodecError(
+      () => decodePlaybackSchedule({ ...audioSync, markers: [{ id: 'm-1', timeMs: 0, slideId: null }, { id: 'm-1', timeMs: 5, slideId: null }] }, CONTEXT),
+      'id',
+    );
+    expectCodecError(
+      () => decodePlaybackSchedule({ ...audioSync, markers: [{ id: 'm-1', timeMs: 100, slideId: null }, { id: 'm-2', timeMs: 100, slideId: null }] }, CONTEXT),
+      'timeMs',
+    );
+  });
+});
+
+describe('slide-tag codecs', () => {
+  it('accepts the separator color palette and a many-slide assignment', () => {
+    expect(decodeSlideTagCreateInput({ name: 'Chorus', colorKey: 'indigo' }, CONTEXT)).toEqual({ name: 'Chorus', colorKey: 'indigo' });
+    expect(decodeSlideTagUpdateInput({ id: 'tag-1', name: 'Bridge', colorKey: 'teal', order: 2 }, CONTEXT)).toEqual({
+      id: 'tag-1',
+      name: 'Bridge',
+      colorKey: 'teal',
+      order: 2,
+    });
+    expect(decodeSlideTagAssignInput({ slideIds: ['slide-1', 'slide-2'], tagId: 'tag-1' }, CONTEXT)).toEqual({
+      slideIds: ['slide-1', 'slide-2'],
+      tagId: 'tag-1',
+    });
+  });
+
+  it('rejects invalid colors, empty names, and duplicate assignment ids', () => {
+    expectCodecError(() => decodeSlideTagCreateInput({ name: '', colorKey: 'red' }, CONTEXT), 'name');
+    expectCodecError(() => decodeSlideTagCreateInput({ name: 'Verse', colorKey: 'purple' }, CONTEXT), 'colorKey');
+    expectCodecError(() => decodeSlideTagAssignInput({ slideIds: ['slide-1', 'slide-1'], tagId: null }, CONTEXT), 'slideIds');
+  });
+
+  it('decodes older snapshots without tags and validates tag rows when present', () => {
+    const legacy = Object.fromEntries([
+      'presentations', 'lyrics', 'slides', 'slideElements', 'mediaAssets', 'overlays',
+      'presentationThemes', 'lyricThemes', 'overlayThemes', 'stages', 'playlists',
+      'playlistEntries', 'cues', 'macros', 'triggerBindings',
+    ].map((field) => [field, []]));
+    expect(decodeAppSnapshotShape(legacy, CONTEXT).slideTags).toEqual([]);
+
+    const current = {
+      ...legacy,
+      slideTags: [{ id: 'tag-1', name: 'Verse', colorKey: 'red', order: 0, createdAt: 'now', updatedAt: 'now' }],
+    };
+    expect(() => decodeAppSnapshotShape(current, CONTEXT)).not.toThrow();
+    expectCodecError(
+      () => decodeAppSnapshotShape({ ...current, slideTags: [{ ...current.slideTags[0], colorKey: 'purple' }] }, CONTEXT),
+      'slideTags[0].colorKey',
+    );
+  });
+});
+
+describe('playback-schedule snapshot compatibility', () => {
+  const snapshotFields = [
+    'presentations', 'lyrics', 'slides',
+    'slideElements', 'mediaAssets', 'overlays',
+    'presentationThemes', 'lyricThemes', 'overlayThemes',
+    'stages', 'playlists', 'playlistEntries', 'cues', 'macros', 'triggerBindings',
+  ];
+
+  function snapshotWithoutSchedules(): Record<string, unknown> {
+    return Object.fromEntries(snapshotFields.map((field) => [field, []]));
+  }
+
+  it('decodes a pre-schedule snapshot with no playbackSchedules key as an empty schedule list', () => {
+    const decoded = decodeAppSnapshotShape(snapshotWithoutSchedules(), CONTEXT);
+    expect(decoded.playbackSchedules).toEqual([]);
+  });
+
+  it('decodes a snapshot carrying structurally valid schedules', () => {
+    const snapshot = {
+      ...snapshotWithoutSchedules(),
+      playbackSchedules: [{
+        id: 'timing:presentation:pres-1',
+        itemRef: { type: 'presentation', id: 'pres-1' },
+        enabled: false,
+        kind: 'slide-timing',
+        steps: [{ slideId: 'slide-1', durationMs: 1000 }],
+      }],
+    };
+    expect(() => decodeAppSnapshotShape(snapshot, CONTEXT)).not.toThrow();
+  });
+
+  it('rejects a snapshot carrying a structurally invalid schedule', () => {
+    const snapshot = {
+      ...snapshotWithoutSchedules(),
+      playbackSchedules: [{
+        id: 'timing:presentation:pres-1',
+        itemRef: { type: 'presentation', id: 'pres-1' },
+        enabled: false,
+        kind: 'slide-timing',
+        steps: [{ slideId: 'slide-1', durationMs: 0 }],
+      }],
+    };
+    expectCodecError(() => decodeAppSnapshotShape(snapshot, CONTEXT), 'playbackSchedules[0].steps[0].durationMs');
+  });
+
+  it('accepts schedule upserts and deletes on a snapshot patch, rejecting malformed schedule rows', () => {
+    const valid = {
+      version: 3,
+      upserts: {
+        playbackSchedules: [{
+          id: 'audio:audio-1',
+          itemRef: null,
+          enabled: false,
+          kind: 'audio-sync',
+          audioAssetId: 'audio-1',
+          markers: [],
+        }],
+      },
+      deletes: { playbackSchedules: ['audio:audio-2'] },
+    };
+    expect(() => decodeSnapshotPatchShape(valid, CONTEXT)).not.toThrow();
+
+    const invalid = {
+      version: 3,
+      upserts: {
+        playbackSchedules: [{ id: 'audio:audio-1', itemRef: null, enabled: false, kind: 'audio-sync', audioAssetId: 'audio-1', markers: [{ id: 'm-1', timeMs: -2, slideId: null }] }],
+      },
+      deletes: {},
+    };
+    expectCodecError(() => decodeSnapshotPatchShape(invalid, CONTEXT), 'upserts.playbackSchedules[0].markers[0].timeMs');
+  });
+});
+
+describe('sanitizeNdiFrameTelemetry', () => {
+  it('returns undefined for non-object telemetry', () => {
+    expect(sanitizeNdiFrameTelemetry(null)).toBeUndefined();
+    expect(sanitizeNdiFrameTelemetry('bogus')).toBeUndefined();
+  });
+
+  it('drops malformed optional fields and zeroes malformed required counters', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: '',
+      captureDurationMs: Number.NaN,
+      readbackDurationMs: Infinity,
+      skippedCaptures: -1,
+      framesDroppedBackpressure: 'oops',
+      correctiveFrameRetries: -4,
+      dropReasons: {
+        backpressure: 2,
+        ackTimeout: 'bad',
+        captureFailed: -3,
+        bitmapFailed: 1,
+        invalidPayload: 9,
+        outputDisabled: 7,
+        senderUnavailable: 6,
+        nativeSendFailed: 5,
+      },
+      signatureChangedAtMs: 10,
+      takeKind: 'bogus',
+      takeReason: 'jump',
+      takeSessionId: '',
+      takeSequenceId: 1.5,
+      takeIssuedAtMs: -1,
+      captureStartedAtMs: 12,
+      rendererSendAtMs: 'later',
+      mainReceivedAtMs: 14,
+      proxyForwardedAtMs: -2,
+      hostReceivedAtMs: 16,
+    })).toEqual({
+      captureDurationMs: 0,
+      readbackDurationMs: 0,
+      skippedCaptures: 0,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 0,
+      dropReasons: {
+        backpressure: 2,
+        bitmapFailed: 1,
+      },
+      signatureChangedAtMs: 10,
+      captureStartedAtMs: 12,
+      mainReceivedAtMs: 14,
+      hostReceivedAtMs: 16,
+    });
+  });
+
+  it('preserves valid take telemetry and timestamps', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      dropReasons: {
+        backpressure: 4,
+        ackTimeout: 5,
+        captureFailed: 6,
+        bitmapFailed: 7,
+      },
+      signatureChangedAtMs: 8,
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: 'take-session-1',
+      takeSequenceId: 9,
+      takeIssuedAtMs: 10,
+      captureStartedAtMs: 11,
+      rendererSendAtMs: 12,
+      mainReceivedAtMs: 13,
+      proxyForwardedAtMs: 14,
+      hostReceivedAtMs: 15,
+    })).toEqual({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      dropReasons: {
+        backpressure: 2,
+        ackTimeout: 5,
+        captureFailed: 6,
+        bitmapFailed: 7,
+      },
+      signatureChangedAtMs: 8,
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: 'take-session-1',
+      takeSequenceId: 9,
+      takeIssuedAtMs: 10,
+      captureStartedAtMs: 11,
+      rendererSendAtMs: 12,
+      mainReceivedAtMs: 13,
+      proxyForwardedAtMs: 14,
+      hostReceivedAtMs: 15,
+    });
+  });
+
+  it('preserves a fully valid activate correlation tuple', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      takeKind: 'activate',
+      takeReason: 'crossItem',
+      takeSessionId: 'take-session-activate',
+      takeSequenceId: 12,
+      takeIssuedAtMs: 15,
+    })).toEqual({
+      attemptId: 'session:1',
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      takeKind: 'activate',
+      takeReason: 'crossItem',
+      takeSessionId: 'take-session-activate',
+      takeSequenceId: 12,
+      takeIssuedAtMs: 15,
+    });
+  });
+
+  it('drops oversized telemetry ids', () => {
+    const oversized = `take-${'x'.repeat(200)}`;
+    expect(sanitizeNdiFrameTelemetry({
+      attemptId: oversized,
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: oversized,
+      takeSequenceId: 9,
+      takeIssuedAtMs: 10,
+    })).toEqual({
+      captureDurationMs: 5,
+      readbackDurationMs: 6,
+      skippedCaptures: 1,
+      framesDroppedBackpressure: 2,
+      correctiveFrameRetries: 3,
+    });
+  });
+
+  it('bounds counts to nonnegative integers, canonicalizes backpressure, and drops partial take tuples', () => {
+    expect(sanitizeNdiFrameTelemetry({
+      captureDurationMs: 12.5,
+      readbackDurationMs: Number.MAX_VALUE,
+      skippedCaptures: 1.25,
+      framesDroppedBackpressure: 3,
+      correctiveFrameRetries: Number.MAX_VALUE,
+      dropReasons: {
+        backpressure: 7,
+        ackTimeout: 2.5,
+      },
+      takeKind: 'take',
+      takeReason: 'jump',
+      takeSessionId: 'take-session-1',
+      takeSequenceId: 5,
+      signatureChangedAtMs: Number.MAX_VALUE,
+      takeIssuedAtMs: undefined,
+      captureStartedAtMs: Number.MAX_VALUE,
+    })).toEqual({
+      captureDurationMs: 12.5,
+      readbackDurationMs: 0,
+      skippedCaptures: 0,
+      framesDroppedBackpressure: 3,
+      correctiveFrameRetries: 0,
+      dropReasons: {
+        backpressure: 3,
+      },
+    });
+  });
+});

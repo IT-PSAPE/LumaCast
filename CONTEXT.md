@@ -1,7 +1,7 @@
 # Automation (Macros & Cues)
 
 The automation context drives presentation side-effects (overlays, media, stages, layers) from
-triggers fired by slides, deck items, or app startup. This glossary fixes the language around
+triggers fired by slides, items, or app startup. This glossary fixes the language around
 macros, cues, scope, and lifecycle so that code, UI, and discussion stay aligned.
 
 ## Language
@@ -22,10 +22,11 @@ are per-step (per occurrence), not part of the shared Cue identity — the same 
 different delays in different Macros.
 
 **Scope**:
-The context a Macro's lifetime is bound to. Levels: **global**, **deck item**, **slide**. The
-*level* is authored on the Macro; the *concrete context* (which slide / deck item) is captured
+The context a Macro's lifetime is bound to. Levels: **global**, **item**, **slide**. The
+*level* is authored on the Macro; the *concrete context* (which slide / item) is captured
 from the trigger at run time.
-_Avoid_: Context (overloaded), Boundary.
+_Avoid_: Context (overloaded), Boundary, "deck item" (there is no unified deck-item concept —
+an item is a Presentation, Lyric, or Talk, referenced by its `ItemRef`).
 
 **Macro Run** (instance):
 One triggered execution of a Macro, bound to a concrete Scope context, with its own run id.
@@ -34,7 +35,7 @@ _Avoid_: Execution, Invocation (use Run consistently).
 
 **Scope exit**:
 The moment a Run's bound context stops being live — advancing off the bound slide, or switching
-to a different deck item. Global Runs never exit (until app close).
+to a different item. Global Runs never exit (until app close).
 
 **Cancel**:
 Stop a Run's pending delays and future loop iterations. Already-applied effects stay on screen.
@@ -100,14 +101,15 @@ _Avoid_: Span, segment, fragment.
 
 **Run-level style**:
 Styling that may vary per character within a box: **color**, **weight**, **italic**, **underline**,
-**strikethrough**. A Run stores only the attributes it *overrides*; unset attributes inherit the
-**Box-level style**.
+**strikethrough**, **font size**. A Run stores only the attributes it *overrides*; unset attributes inherit the
+**Box-level style**. A Run's font size is an absolute px value in the same unit as the Box-level size.
 _Avoid_: Inline style, character style.
 
 **Box-level style**:
-Styling that applies uniformly to the whole text box and cannot vary per character: **font family**,
-**font size**, alignment, vertical alignment, line height, case transform, auto-fit, stroke, shadow.
-Box-level values are the defaults a Run inherits when it does not override them.
+Styling that applies to the whole text box: **font family**, **font size**, alignment, vertical
+alignment, line height, case transform, auto-fit, stroke, shadow. Box-level values are the defaults a
+Run inherits when it does not override them. Everything here except **font size** is uniform across
+the box and cannot vary per character.
 _Avoid_: Global style, default style (reserve "default" for the inherited-fallback role only).
 
 **Bound text**:
@@ -122,7 +124,11 @@ _Avoid_: Dynamic style (the binding is dynamic; its styling is plain/box-level).
 - A **Block** contains one or more **Runs**, and carries its own list state.
 - A **Run** carries only **Run-level style** overrides; anything unset resolves to the **Box-level style**.
 - A box is either **Rich** (has a Rich Body) or plain/**Bound** (renders one Box-level style over a string).
-- **Font size** is always **Box-level** and is managed at the component level, never per **Run**.
+- **Font family** is always **Box-level** and is managed at the component level, never per **Run**.
+- **Font size** is **Box-level** by default and may be overridden per **Run**. Under **auto-fit** an
+  overridden size shrinks in proportion with the Box-level size rather than staying fixed.
+- A line's advance and baseline follow the largest size resolved on that line, so an enlarged **Run**
+  opens up the line it sits on rather than overlapping its neighbours.
 
 ## Example dialogue
 
@@ -130,10 +136,15 @@ _Avoid_: Dynamic style (the binding is dynamic; its styling is plain/box-level).
 > **Domain expert:** "The Box-level style. A Run stores overrides only — unset attributes inherit the box."
 > **Dev:** "And a text box bound to the clock — can the operator make the seconds bold?"
 > **Domain expert:** "No. Bound text has no Runs; it renders one Box-level style over the resolved string."
+> **Dev:** "If one word is sized to 96 and auto-fit shrinks the box, does that word stay 96?"
+> **Domain expert:** "No — it scales with the box. Auto-fit shrinks the whole box's text together, so
+> the word stays proportionally larger than the rest instead of staying at a fixed size."
 
 ## Flagged ambiguities
 
 - "Bold" was used to mean both the per-Run weight toggle and a fixed heavy weight — resolved: a Run's
   **weight** is a true numeric value; the editor exposes a regular↔bold toggle over it for v1.
 - "Style" was overloaded across the box and the character span — resolved: **Box-level style** vs.
-  **Run-level style** are distinct, and **font size** belongs only to the former.
+  **Run-level style** are distinct, and **font family** belongs only to the former.
+- **Font size** was originally scoped as Box-level only — resolved: it is Box-level *and* per-**Run**
+  overridable, so it is the one attribute that appears at both levels.

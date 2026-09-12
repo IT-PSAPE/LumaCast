@@ -1,0 +1,185 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>NDI frame transport integration</title>
+  </head>
+  <body>
+    <script>
+      const FRAME_BYTES = 1920 * 1080 * 4;
+      const workerSource = `
+        const WIDTH = 1920;
+        const HEIGHT = 1080;
+        const FRAME_BYTES = WIDTH * HEIGHT * 4;
+        const generations = {
+          1: [11, 22, 33],
+          2: [44, 55],
+          4: [66, 77],
+        };
+        const releases = [];
+        const retainedByteLengths = [];
+        const fallbacks = [];
+        const oldPorts = [];
+        let port = null;
+        let generation = 0;
+        let frameIndex = 0;
+
+        function markerRgb(marker, slot) {
+          return [
+            (marker + slot * 17) & 255,
+            (marker * 3 + slot * 29) & 255,
+            (marker ^ (165 + slot)) & 255,
+          ];
+        }
+
+        function createFrame(marker) {
+          const buffer = new ArrayBuffer(FRAME_BYTES);
+          const bytes = new Uint8Array(buffer);
+          const pixelCount = WIDTH * HEIGHT;
+          const pixels = [0, Math.floor(pixelCount / 3), Math.floor(pixelCount * 2 / 3), pixelCount - 1];
+          for (let slot = 0; slot < pixels.length; slot += 1) {
+            const offset = pixels[slot] * 4;
+            const rgb = markerRgb(marker, slot);
+            bytes[offset] = rgb[0];
+            bytes[offset + 1] = rgb[1];
+            bytes[offset + 2] = rgb[2];
+            bytes[offset + 3] = marker;
+          }
+          return buffer;
+        }
+
+        function sendNextFrame() {
+          const marker = generations[generation][frameIndex];
+          const attemptId = 'electron-direct-' + generation + '-' + marker;
+          const buffer = createFrame(marker);
+          // This is the production transport invariant under test: a normal
+          // structured clone, with no transfer list, keeps the worker buffer
+          // valid and delivers an intact ArrayBuffer to the utility process.
+          port.postMessage({
+            type: 'frame',
+            name: 'audience',
+            attemptId,
+            buffer,
+            width: WIDTH,
+            height: HEIGHT,
+          });
+          retainedByteLengths.push(buffer.byteLength);
+        }
+
+        function handlePortMessage(event) {
+          const message = event.data;
+          if (message?.type === 'ready') {
+            if (message.version !== 1 || message.name !== 'audience') {
+              throw new Error('invalid transport ready message');
+            }
+            frameIndex = 0;
+            sendNextFrame();
+            return;
+          }
+          if (message?.type === 'fallback') {
+            if (generation !== 3 || message.reason !== 'invalidHandshake') {
+              throw new Error('unexpected direct transport fallback: ' + message.reason);
+            }
+            fallbacks.push(message);
+            self.postMessage({ type: 'fallback-observed' });
+            return;
+          }
+          if (message?.type !== 'released') return;
+          const expectedMarker = generations[generation][frameIndex];
+          const expectedAttemptId = 'electron-direct-' + generation + '-' + expectedMarker;
+          if (!message.release.accepted || message.release.reason !== 'sent' ||
+              message.release.attemptId !== expectedAttemptId) {
+            throw new Error('invalid direct frame release: ' + JSON.stringify(message.release));
+          }
+          releases.push(message.release);
+          frameIndex += 1;
+          if (frameIndex < generations[generation].length) {
+            sendNextFrame();
+          } else if (generation === 1) {
+            self.postMessage({ type: 'replace' });
+          } else if (generation === 2) {
+            self.postMessage({ type: 'cycle-output' });
+          } else {
+            self.postMessage({
+              type: 'complete',
+              generation,
+              fallbacks,
+              releases,
+              retainedByteLengths,
+            });
+          }
+        }
+
+        self.onmessage = (event) => {
+          if (event.data?.type !== 'attach' || !event.data.port) return;
+          if (port) oldPorts.push(port);
+          port = event.data.port;
+          generation += 1;
+          port.onmessage = handlePortMessage;
+          port.start();
+          port.postMessage({
+            type: 'handshake',
+            version: event.data.mode === 'invalid' ? 999 : 1,
+            name: 'audience',
+          });
+        };
+
+        self.addEventListener('error', (event) => {
+          self.postMessage({ type: 'error', error: event.message });
+        });
+      `;
+
+      const workerUrl = URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' }));
+      const worker = new Worker(workerUrl);
+      window.__ndiTransportResult = null;
+      let nextTransportMode = 'valid';
+
+      async function cycleOutputAndRequestFallback() {
+        for (let cycle = 0; cycle < 2; cycle += 1) {
+          await window.castApi.setNdiOutputEnabled('audience', false);
+          await window.castApi.setNdiOutputEnabled('audience', true);
+        }
+        nextTransportMode = 'invalid';
+        window.castApi.requestNdiFrameTransport('audience');
+      }
+
+      worker.onmessage = (event) => {
+        if (event.data?.type === 'replace') {
+          window.castApi.requestNdiFrameTransport('audience');
+        } else if (event.data?.type === 'cycle-output') {
+          cycleOutputAndRequestFallback().catch((error) => {
+            window.__ndiTransportResult = { ok: false, error: String(error) };
+          });
+        } else if (event.data?.type === 'fallback-observed') {
+          window.castApi.requestNdiFrameTransport('audience');
+        } else if (event.data?.type === 'complete') {
+          window.__ndiTransportResult = { ok: true, ...event.data };
+        } else if (event.data?.type === 'error') {
+          window.__ndiTransportResult = { ok: false, error: event.data.error };
+        }
+      };
+      worker.onerror = (event) => {
+        window.__ndiTransportResult = { ok: false, error: event.message };
+      };
+
+      window.addEventListener('message', (event) => {
+        if (event.source !== window || event.origin !== window.location.origin) {
+          for (const candidate of event.ports) candidate.close();
+          return;
+        }
+        const announcement = event.data;
+        if (announcement?.type !== 'lumacast:ndi-frame-transport-port' ||
+            announcement.version !== 1 || announcement.name !== 'audience' ||
+            event.ports.length !== 1) {
+          for (const candidate of event.ports) candidate.close();
+          return;
+        }
+        const mode = nextTransportMode;
+        nextTransportMode = 'valid';
+        worker.postMessage({ type: 'attach', mode, port: event.ports[0] }, [event.ports[0]]);
+      });
+
+      window.castApi.requestNdiFrameTransport('audience');
+    </script>
+  </body>
+</html>

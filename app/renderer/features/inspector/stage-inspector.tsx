@@ -40,7 +40,7 @@ export function StageInspector() {
   }
 
   if (!currentStage) {
-    return <div className="text-sm text-tertiary">No stage selected.</div>;
+    return <div className="text-sm text-tertiary p-2">No stage selected.</div>;
   }
 
   return (

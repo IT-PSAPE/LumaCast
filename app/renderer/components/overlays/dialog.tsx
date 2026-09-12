@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from 'react';
+import { Dialog as BaseDialog } from '@base-ui/react/dialog';
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from 'react';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { cn } from '@renderer/utils/cn';
-import { useWorkbench } from '@renderer/contexts/workbench-context';
-import { OverlayBackdrop, OverlayClose, OverlayPortal, OverlayTrigger } from './overlay-primitives';
+import { useOverlayContainer, useOverlayStackEntry } from './overlay-primitives';
 
 interface DialogContextValue {
   state: { isOpen: boolean; isTopmost: boolean; zIndex: number };
@@ -35,16 +35,12 @@ interface DialogRootProps {
 }
 
 function Root({ children, closeOnBackdropClick = true, closeOnEscape = true, defaultOpen = false, onOpenChange, open }: DialogRootProps) {
-  const dialogId = useId();
   const isControlled = open !== undefined;
   const [uncontrolledOpen, setUncontrolledOpen] = useState(defaultOpen);
   const [titleId, setTitleId] = useState<string | undefined>(undefined);
   const [descriptionId, setDescriptionId] = useState<string | undefined>(undefined);
-  const { overlayStack } = useWorkbench();
   const isOpen = isControlled ? open : uncontrolledOpen;
-  const stackIndex = overlayStack.stack.indexOf(dialogId);
-  const isTopmost = stackIndex === overlayStack.stack.length - 1 && stackIndex >= 0;
-  const zIndex = overlayStack.baseZIndex + Math.max(stackIndex, 0) * 10;
+  const { isTopmost, zIndex } = useOverlayStackEntry(isOpen);
 
   const setOpenState = useCallback((nextOpen: boolean) => {
     if (!isControlled) setUncontrolledOpen(nextOpen);
@@ -59,30 +55,18 @@ function Root({ children, closeOnBackdropClick = true, closeOnEscape = true, def
     setOpenState(false);
   }, [setOpenState]);
 
-  const { register: registerOverlay, unregister: unregisterOverlay } = overlayStack;
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    registerOverlay(dialogId);
-    return () => {
-      unregisterOverlay(dialogId);
-    };
-  }, [dialogId, isOpen, registerOverlay, unregisterOverlay]);
-
-  useEffect(() => {
-    if (!closeOnEscape || !isOpen || !isTopmost) return undefined;
-
-    function handleDocumentKeyDown(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      closeDialog();
+  // Base UI dismisses on Escape and outside press itself. Two app rules ride on
+  // top: `closeOnEscape` opts out entirely, and Escape only reaches the topmost
+  // entry of the workbench overlay stack — sibling dialogs (a picker and the
+  // upload dialog it spawns) are separate Base UI roots, so only the stack knows
+  // which one is on top.
+  const handleBaseOpenChange = useCallback((nextOpen: boolean, details: BaseDialog.Root.ChangeEventDetails) => {
+    if (!nextOpen && details.reason === 'escape-key' && (!closeOnEscape || !isTopmost)) {
+      details.cancel();
+      return;
     }
-
-    document.addEventListener('keydown', handleDocumentKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleDocumentKeyDown);
-    };
-  }, [closeDialog, closeOnEscape, isOpen, isTopmost]);
+    setOpenState(nextOpen);
+  }, [closeOnEscape, isTopmost, setOpenState]);
 
   const context = useMemo<DialogContextValue>(() => ({
     state: { isOpen, isTopmost, zIndex },
@@ -90,60 +74,65 @@ function Root({ children, closeOnBackdropClick = true, closeOnEscape = true, def
     meta: { closeOnBackdropClick, descriptionId, setDescriptionId, setTitleId, titleId },
   }), [closeDialog, closeOnBackdropClick, descriptionId, isOpen, isTopmost, openDialog, setOpenState, titleId, zIndex]);
 
-  return <DialogContext.Provider value={context}>{children}</DialogContext.Provider>;
+  return (
+    <DialogContext.Provider value={context}>
+      <BaseDialog.Root open={isOpen} onOpenChange={handleBaseOpenChange} disablePointerDismissal={!closeOnBackdropClick}>
+        {children}
+      </BaseDialog.Root>
+    </DialogContext.Provider>
+  );
 }
 
 function Trigger(props: HTMLAttributes<HTMLSpanElement>) {
-  const { actions } = useDialog();
-  return <OverlayTrigger onOpen={actions.open} {...props} />;
+  // Historically a span; `nativeButton={false}` is what tells Base UI to add the
+  // button role and Enter/Space activation a real <button> would have given us.
+  return <BaseDialog.Trigger nativeButton={false} render={<span />} {...props} />;
 }
 
 function Close(props: HTMLAttributes<HTMLSpanElement>) {
-  const { actions } = useDialog();
-  return <OverlayClose onClose={actions.close} {...props} />;
+  return <BaseDialog.Close nativeButton={false} render={<span />} {...props} />;
 }
 
 function Portal({ children }: { children: ReactNode }) {
   const { state } = useDialog();
-  return <OverlayPortal isOpen={state.isOpen} zIndex={state.zIndex}>{children}</OverlayPortal>;
+  const container = useOverlayContainer();
+  return (
+    <BaseDialog.Portal container={container} className="pointer-events-none fixed inset-0" style={{ zIndex: state.zIndex }}>
+      {children}
+    </BaseDialog.Portal>
+  );
 }
 
-function Backdrop(props: HTMLAttributes<HTMLDivElement>) {
-  const { actions, meta } = useDialog();
-  return <OverlayBackdrop closeOnClick={meta.closeOnBackdropClick} onClose={actions.close} {...props} />;
+function Backdrop({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <BaseDialog.Backdrop
+      {...props}
+      className={cn('pointer-events-auto fixed inset-0 bg-black/60 backdrop-blur-sm', className)}
+    />
+  );
 }
 
 function Positioner({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn('pointer-events-none fixed inset-0 flex items-center justify-center p-4', className)} {...props}>
+    <BaseDialog.Viewport {...props} className={cn('pointer-events-none fixed inset-0 flex items-center justify-center p-4', className)}>
       {children}
-    </div>
+    </BaseDialog.Viewport>
   );
 }
 
 function Content({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const { meta, state } = useDialog();
-
-  useEffect(() => {
-    if (!state.isOpen || !state.isTopmost) return;
-    contentRef.current?.focus();
-  }, [state.isOpen, state.isTopmost]);
-
   return (
-    <div
+    <BaseDialog.Popup
       {...props}
-      ref={contentRef}
-      role="dialog"
-      tabIndex={-1}
+      // Base UI makes the rest of the page inert rather than emitting
+      // `aria-modal`; keep the attribute so assistive tech that predates inert
+      // still treats the surface as modal.
       aria-modal="true"
-      aria-describedby={meta.descriptionId}
-      aria-labelledby={meta.titleId}
       data-shortcuts-scope="ignore"
       className={cn('pointer-events-auto flex w-full max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-lg border border-primary bg-primary shadow-2xl outline-none', className)}
     >
       {children}
-    </div>
+    </BaseDialog.Popup>
   );
 }
 
@@ -165,47 +154,49 @@ function Body({ children, className, ...props }: HTMLAttributes<HTMLDivElement>)
 
 function Title({ children, className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
   const generatedId = useId();
-  const { meta } = useDialog();
+  const { setTitleId } = useDialog().meta;
 
   useEffect(() => {
-    meta.setTitleId(generatedId);
+    setTitleId(generatedId);
     return () => {
-      meta.setTitleId(undefined);
+      setTitleId(undefined);
     };
-  }, [generatedId, meta]);
+  }, [generatedId, setTitleId]);
 
   return (
-    <h2 {...props} id={generatedId} className={cn('m-0 text-lg font-semibold text-primary', className)}>
+    <BaseDialog.Title {...props} id={generatedId} className={cn('m-0 text-lg font-semibold text-primary', className)}>
       {children}
-    </h2>
+    </BaseDialog.Title>
   );
 }
 
 function Description({ children, className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
   const generatedId = useId();
-  const { meta } = useDialog();
+  const { setDescriptionId } = useDialog().meta;
 
   useEffect(() => {
-    meta.setDescriptionId(generatedId);
+    setDescriptionId(generatedId);
     return () => {
-      meta.setDescriptionId(undefined);
+      setDescriptionId(undefined);
     };
-  }, [generatedId, meta]);
+  }, [generatedId, setDescriptionId]);
 
   return (
-    <p {...props} id={generatedId} className={cn('text-sm text-secondary', className)}>
+    <BaseDialog.Description {...props} id={generatedId} className={cn('text-sm text-secondary', className)}>
       {children}
-    </p>
+    </BaseDialog.Description>
   );
 }
 
 function CloseButton({ className, label = 'Close', ...props }: Omit<ComponentProps<typeof ReacstButton.Icon>, 'children' | 'label'> & { label?: string }) {
-  const { actions } = useDialog();
-
   return (
-    <ReacstButton.Icon {...props} label={label} variant="ghost" onClick={actions.close} className={cn('shrink-0', className)}>
-      <X/>
-    </ReacstButton.Icon>
+    <BaseDialog.Close
+      render={(
+        <ReacstButton.Icon {...props} label={label} variant="ghost" className={cn('shrink-0', className)}>
+          <X/>
+        </ReacstButton.Icon>
+      )}
+    />
   );
 }
 

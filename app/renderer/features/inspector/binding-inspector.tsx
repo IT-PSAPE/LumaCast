@@ -1,4 +1,4 @@
-import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload, TimerFormat } from '@core/types';
+import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload, TimerFormat } from '@lumacast/composition';
 import { Label } from '@renderer/components/display/text';
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { FieldInput, FieldSelect } from '@renderer/components/form/field';
@@ -13,8 +13,6 @@ const BINDING_OPTIONS: Array<{ value: TextBindingKind | 'none'; label: string }>
   { value: 'current-slide-text', label: 'Current slide text' },
   { value: 'next-slide-text', label: 'Next slide text' },
   { value: 'slide-notes', label: 'Slide notes' },
-  { value: 'talk-script-current', label: 'Talk script current' },
-  { value: 'talk-script-progress', label: 'Talk script progress' },
 ];
 
 const CLOCK_FORMAT_OPTIONS: Array<{ value: ClockFormat; label: string }> = [
@@ -140,7 +138,7 @@ export function BindingInspector() {
         </Section.Root>
       )}
 
-      {(binding?.kind === 'current-slide-text' || binding?.kind === 'next-slide-text' || binding?.kind === 'slide-notes' || binding?.kind === 'talk-script-current' || binding?.kind === 'talk-script-progress') && (
+      {(binding?.kind === 'current-slide-text' || binding?.kind === 'next-slide-text' || binding?.kind === 'slide-notes') && (
         <Section.Root>
           <Section.Body>
             <p className="text-xs text-tertiary">

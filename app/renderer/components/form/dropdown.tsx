@@ -1,6 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
+import { Menu } from '@base-ui/react/menu';
 import { cn } from '@renderer/utils/cn';
-import { Popover, PopoverPlacement } from '../overlays/popover';
+import { useOverlayContainer, useOverlayStackEntry } from '../overlays/overlay-primitives';
+import type { PopoverPlacement } from '../overlays/popover';
+
+// Every consumer uses this as an action menu — items fire a callback, nothing
+// is bound to a value — so it is built on Base UI's Menu rather than Select.
+// Base UI owns roles, roving focus, typeahead, dismissal and focus return; this
+// module keeps the app's trigger-width sizing and overlay-root conventions.
 
 // ─── Context ─────────────────────────────────────────────
 
@@ -32,117 +39,32 @@ interface RootProps {
 
 function Root({ className, children }: RootProps) {
   const [open, setOpen] = useState(false);
-  const [typeAhead, setTypeAhead] = useState('');
   const [triggerWidth, setTriggerWidth] = useState<number | undefined>(undefined);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const highlightedRef = useRef(-1);
-  const typeAheadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  function getItemNodes(): HTMLElement[] {
-    if (!panelRef.current) return [];
-    return Array.from(panelRef.current.querySelectorAll<HTMLElement>('[data-dropdown-item]:not([data-disabled])'));
-  }
-
-  function setHighlight(index: number) {
-    const items = getItemNodes();
-    const prev = items[highlightedRef.current];
-    if (prev) prev.removeAttribute('data-highlighted');
-    const next = items[index];
-    if (next) {
-      next.setAttribute('data-highlighted', '');
-      next.scrollIntoView({ block: 'nearest' });
-    }
-    highlightedRef.current = index;
-  }
-
-  const handleOpen = useCallback(() => {
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
     // Snapshot the trigger's width so the panel can size to match it.
-    setTriggerWidth(triggerRef.current?.offsetWidth);
-    setOpen(true);
-    highlightedRef.current = -1;
+    if (nextOpen) setTriggerWidth(triggerRef.current?.offsetWidth);
+    setOpen(nextOpen);
   }, []);
 
-  const handleClose = useCallback(() => {
-    setOpen(false);
-    highlightedRef.current = -1;
-    setTypeAhead('');
-  }, []);
+  const handleOpen = useCallback(() => handleOpenChange(true), [handleOpenChange]);
+  const handleClose = useCallback(() => handleOpenChange(false), [handleOpenChange]);
 
-  function handleTypeAheadChar(char: string) {
-    const next = typeAhead + char.toLowerCase();
-    setTypeAhead(next);
-    clearTimeout(typeAheadTimer.current);
-    typeAheadTimer.current = setTimeout(() => setTypeAhead(''), 500);
-
-    const items = getItemNodes();
-    const matchIndex = items.findIndex((n) => (n.textContent ?? '').toLowerCase().startsWith(next));
-    if (matchIndex >= 0) setHighlight(matchIndex);
-  }
-
+  // Base UI's trigger and popup own the keyboard now. Kept on the context so a
+  // caller wiring a hand-rolled trigger still gets the open/close chords.
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
-    if (!open) {
-      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
-        event.preventDefault();
-        handleOpen();
-      }
-      return;
+    if (event.defaultPrevented) return;
+    if (!open && ['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+      event.preventDefault();
+      handleOpen();
+    } else if (open && event.key === 'Escape') {
+      event.preventDefault();
+      handleClose();
+      triggerRef.current?.focus();
     }
-
-    const items = getItemNodes();
-    const count = items.length;
-    if (count === 0) return;
-
-    switch (event.key) {
-      case 'ArrowDown': {
-        event.preventDefault();
-        setHighlight(Math.min(highlightedRef.current + 1, count - 1));
-        break;
-      }
-      case 'ArrowUp': {
-        event.preventDefault();
-        setHighlight(Math.max(highlightedRef.current - 1, 0));
-        break;
-      }
-      case 'Home': {
-        event.preventDefault();
-        setHighlight(0);
-        break;
-      }
-      case 'End': {
-        event.preventDefault();
-        setHighlight(count - 1);
-        break;
-      }
-      case 'Enter':
-      case ' ': {
-        event.preventDefault();
-        const highlighted = items[highlightedRef.current];
-        if (highlighted) highlighted.click();
-        break;
-      }
-      case 'Escape': {
-        event.preventDefault();
-        handleClose();
-        triggerRef.current?.focus();
-        break;
-      }
-      case 'Tab': {
-        handleClose();
-        break;
-      }
-      default: {
-        if (event.key.length === 1) {
-          event.preventDefault();
-          handleTypeAheadChar(event.key);
-        }
-      }
-    }
-  }, [open, handleOpen, handleClose]);
-
-  useEffect(() => {
-    return () => clearTimeout(typeAheadTimer.current);
-  }, []);
+  }, [handleClose, handleOpen, open]);
 
   const ctx = useMemo<DropdownContextValue>(() => ({
     open,
@@ -156,9 +78,11 @@ function Root({ className, children }: RootProps) {
 
   return (
     <DropdownContext.Provider value={ctx}>
-      <div className={cn('relative min-w-0', className)}>
-        {children}
-      </div>
+      <Menu.Root modal={false} open={open} onOpenChange={handleOpenChange}>
+        <div className={cn('relative min-w-0', className)}>
+          {children}
+        </div>
+      </Menu.Root>
     </DropdownContext.Provider>
   );
 }
@@ -172,31 +96,14 @@ interface TriggerProps extends Omit<HTMLAttributes<HTMLButtonElement>, 'onClick'
 function Trigger({ children, className, ...rest }: TriggerProps) {
   const ctx = useDropdown();
 
-  // Toggle on pointerdown rather than click. The Popover registers its
-  // outside-close listener on `window` for `pointerdown`; using `click` here
-  // means another open dropdown closes during pointerdown and the click that
-  // should open this one can be lost when React re-renders between events.
-  // Handling both on pointerdown keeps the toggle in the same event tick.
-  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    if (ctx.open) ctx.onClose();
-    else ctx.onOpen();
-  }
-
   return (
-    <button
+    <Menu.Trigger
       {...rest}
-      ref={ctx.triggerRef}
-      type="button"
-      aria-expanded={ctx.open}
-      aria-haspopup="menu"
-      onPointerDown={handlePointerDown}
-      onKeyDown={ctx.handleKeyDown}
+      ref={(node: HTMLElement | null) => { ctx.triggerRef.current = node as HTMLButtonElement | null; }}
       className={className}
     >
       {children}
-    </button>
+    </Menu.Trigger>
   );
 }
 
@@ -208,23 +115,32 @@ interface PanelProps {
   placement?: PopoverPlacement;
 }
 
-function Panel({ children, className, placement }: PanelProps) {
+function Panel({ children, className, placement = 'bottom' }: PanelProps) {
   const ctx = useDropdown();
+  const container = useOverlayContainer();
+  const { zIndex } = useOverlayStackEntry(ctx.open);
+  const separator = placement.indexOf('-');
+  const side = (separator === -1 ? placement : placement.slice(0, separator)) as 'top' | 'bottom' | 'left' | 'right';
+  const align = (separator === -1 ? 'center' : placement.slice(separator + 1)) as 'start' | 'center' | 'end';
 
   return (
-    <Popover anchor={ctx.triggerRef.current} open={ctx.open} onClose={ctx.onClose} placement={placement} offset={4} axisLock>
-      <div
-        ref={ctx.panelRef}
-        role="menu"
-        onKeyDown={ctx.handleKeyDown}
-        // Match the trigger's width. The `min-w-30` floor means a narrow trigger
-        // still gets a usable panel: the used width is max(triggerWidth, 7.5rem).
-        style={{ width: ctx.triggerWidth }}
-        className={cn('min-w-30 rounded-md border border-primary bg-primary shadow-lg max-h-60 overflow-y-auto p-1', className)}
-      >
-        {children}
-      </div>
-    </Popover>
+    <Menu.Portal container={container} className="pointer-events-none fixed inset-0" style={{ zIndex }}>
+      {/* Menu's default collision avoidance never falls back to a perpendicular
+          side, so the panel flips bottom↔top instead of appearing beside its
+          trigger — the `axisLock` the popover version asked for. */}
+      <Menu.Positioner side={side} align={align} sideOffset={4} className="outline-hidden">
+        <Menu.Popup
+          ref={ctx.panelRef}
+          data-popover-content="true"
+          // Match the trigger's width. The `min-w-30` floor means a narrow trigger
+          // still gets a usable panel: the used width is max(triggerWidth, 7.5rem).
+          style={{ width: ctx.triggerWidth }}
+          className={cn('pointer-events-auto min-w-30 rounded-md border border-primary bg-primary shadow-lg max-h-[min(32rem,70vh)] overflow-y-auto p-1 outline-hidden', className)}
+        >
+          {children}
+        </Menu.Popup>
+      </Menu.Positioner>
+    </Menu.Portal>
   );
 }
 
@@ -238,32 +154,24 @@ interface ItemProps {
 }
 
 function Item({ children, onClick, disabled = false, className }: ItemProps) {
-  const { onClose } = useDropdown();
-
-  function handleClick() {
-    if (disabled) return;
-    onClick?.();
-    onClose();
-  }
-
   return (
-    <button
-      type="button"
+    <Menu.Item
+      render={<button type="button" />}
+      nativeButton
+      disabled={disabled}
       data-dropdown-item=""
-      data-disabled={disabled || undefined}
-      role="menuitem"
-      onClick={handleClick}
-      onPointerDown={(e) => e.preventDefault()}
-      className={cn('w-full flex gap-2 rounded px-2 py-1.5 text-sm text-left select-none text-secondary data-[highlighted]:bg-secondary hover:bg-tertiary data-[highlighted]:text-primary', disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer', className)}>
+      onClick={() => onClick?.()}
+      className={cn('w-full flex gap-2 rounded px-2 py-1.5 text-sm text-left select-none outline-hidden text-secondary data-[highlighted]:bg-secondary hover:bg-tertiary data-[highlighted]:text-primary', disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer', className)}
+    >
       {children}
-    </button>
+    </Menu.Item>
   );
 }
 
 // ─── Separator ───────────────────────────────────────────
 
 function Separator() {
-  return <div role="separator" className="my-1 h-px bg-tertiary" />;
+  return <Menu.Separator className="my-1 h-px bg-tertiary" />;
 }
 
 // ─── Export ──────────────────────────────────────────────

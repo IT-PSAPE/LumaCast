@@ -69,19 +69,13 @@ export function ThemeEditorInspectorPanel() {
         <LumaCastPanel.Footer className="p-3">
           <div className="flex flex-col gap-2">
             {state.hasPendingChanges && (
-              <ReacstButton onClick={() => { void actions.saveChanges(); }} disabled={state.isPushingChanges} className="w-full">
+              // saveChanges → pushChanges → updateTheme rejects when the theme no
+              // longer exists (#214); mutatePatch has already reported the
+              // failure (#221), so absorb the rethrow here.
+              <ReacstButton onClick={() => { void actions.saveChanges().catch(() => undefined); }} disabled={state.isPushingChanges} className="w-full">
                 {state.isPushingChanges ? 'Pushing…' : 'Save Changes'}
               </ReacstButton>
             )}
-            <ReacstButton
-              variant="ghost"
-              onClick={() => { void actions.syncLinkedItems(); }}
-              disabled={state.linkedItemCount === 0 || state.isSyncing || state.hasPendingChanges}
-              title={state.hasPendingChanges ? 'Push theme changes first' : state.linkedItemCount === 0 ? 'No deck items use this theme' : undefined}
-              className="w-full"
-            >
-              {state.isSyncing ? 'Syncing…' : `Sync ${state.linkedItemCount} linked ${state.linkedItemCount === 1 ? 'item' : 'items'}`}
-            </ReacstButton>
           </div>
         </LumaCastPanel.Footer>
       )}

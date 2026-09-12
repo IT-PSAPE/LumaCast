@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { VideoElementPayload } from '@core/types';
+import type { VideoElementPayload } from '@lumacast/composition';
 import { FieldCheckbox, FieldInput } from '@renderer/components/form/field';
 import { EmptyState } from '../../components/display/empty-state';
 import { Section } from './inspector-section';

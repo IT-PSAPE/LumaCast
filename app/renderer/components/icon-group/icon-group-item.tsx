@@ -3,10 +3,10 @@ import { cn } from '@renderer/utils/cn';
 import { cv } from '@renderer/utils/cv';
 
 const iconGroupItemStyles = cv({
-  base: 'flex min-h-7 flex-1 items-center justify-center bg-tertiary px-2 text-secondary transition-colors hover:bg-quaternary hover:text-primary disabled:pointer-events-none disabled:opacity-50',
+  base: 'flex min-h-7 flex-1 items-center justify-center bg-tertiary px-2 text-secondary transition-colors hover:bg-tertiary hover:text-primary disabled:pointer-events-none disabled:opacity-50',
   variants: {
     active: {
-      true: ['text-brand-400 hover:text-brand-400'],
+      true: ['text-brand hover:text-brand'],
       false: [],
     },
   },

@@ -1,9 +1,10 @@
 import { Film, Image, Square, Type } from 'lucide-react';
+import { useStagePanelController } from '@lumacast/canvas';
 import { ReacstButtonGroup } from '@renderer/components/controls/button-group';
 import { MediaPickerDialog } from '../../components/overlays/media-picker-dialog';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { useActiveEditorSource } from '../../contexts/canvas/use-active-editor-source';
-import { useStagePanelController } from './use-stage-panel-controller';
+import { useProjectContent } from '../../contexts/use-project-content';
 import { StageViewport } from './stage-viewport';
 import { EmptyState } from '../../components/display/empty-state';
 
@@ -13,10 +14,13 @@ function formatMetric(value: number | null): string {
 }
 
 export function StagePanel() {
-  const { actions, state } = useStagePanelController();
-  const { x, y, width, height } = state.selectionMetrics;
-  const { createText, createShape } = useElements();
   const activeEditorSource = useActiveEditorSource();
+  const { selectedElement, elementDraft, createFromMedia, importMedia, createText, createShape } = useElements();
+  const { mediaAssets } = useProjectContent();
+  const { actions, state } = useStagePanelController({
+    activeEditorSource, selectedElement, elementDraft, createFromMedia, importMedia, mediaAssets,
+  });
+  const { x, y, width, height } = state.selectionMetrics;
 
   return (
     <section
