@@ -1,4 +1,5 @@
-import type { ChangeEvent } from 'react';
+import type { KeyboardEvent } from 'react';
+import { Slider } from '@base-ui/react/slider';
 
 interface InspectorSliderProps {
   value: number;
@@ -19,8 +20,12 @@ export function InspectorSlider({
   label = 'Size',
   ariaLabel,
 }: InspectorSliderProps) {
-  function handleChange(event: ChangeEvent<HTMLInputElement>) {
-    const raw = Number(event.target.value);
+  // Base UI only clamps to [min, max] for the underlying input's native
+  // change event (keyboard/drag interactions already step correctly on their
+  // own); snapping to `step` here keeps every path — typed, dragged, or
+  // keyboard-stepped — landing on the same rounded value.
+  function handleValueChange(next: number | number[]) {
+    const raw = Array.isArray(next) ? next[0]! : next;
     const snapped = Math.round(raw / step) * step;
     const clamped = Math.min(Math.max(snapped, min), max);
     const rounded = Number.isInteger(step)
@@ -35,7 +40,7 @@ export function InspectorSlider({
   // slider and leave the menu's own keys alone. Note this must never
   // preventDefault() on pointerdown: that suppresses the compatibility mouse
   // events the native range thumb relies on, which kills drag and click-to-seek.
-  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape' || event.key === 'Tab') return;
     event.stopPropagation();
   }
@@ -44,7 +49,14 @@ export function InspectorSlider({
   const remaining = step === 0 ? 0 : Math.max(0, Math.round((max - value) / step));
 
   return (
-    <div className="relative flex h-8 w-full items-center overflow-hidden rounded-lg bg-tertiary px-2.5 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-brand">
+    <Slider.Root
+      value={value}
+      min={min}
+      max={max}
+      step={step}
+      onValueChange={handleValueChange}
+      className="relative flex h-8 w-full items-center overflow-hidden rounded-lg bg-tertiary px-2.5 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-brand"
+    >
       {/* filled portion */}
       <div
         aria-hidden
@@ -66,7 +78,7 @@ export function InspectorSlider({
           ))}
         </div>
       )}
-      {/* Thumb. Travel is inset by the thumb's own width so it stays inside
+      {/* Thumb visual. Travel is inset by the thumb's own width so it stays inside
           the pill's rounded ends instead of clipping at 0% and 100%. */}
       <div
         aria-hidden
@@ -81,18 +93,14 @@ export function InspectorSlider({
       <span className="pointer-events-none relative ml-auto text-xs tabular-nums text-secondary">
         {value}
       </span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        aria-label={ariaLabel ?? label}
-        className="absolute inset-0 h-full w-full cursor-pointer appearance-none bg-transparent opacity-0"
-      />
-    </div>
+      {/* Interactive layer: covers the whole pill so click-anywhere-to-seek and
+          drag keep working, exactly like the invisible full-size range input
+          before it. The thumb itself stays visually hidden — the dressing
+          above already draws the fill, ticks and thumb line. */}
+      <Slider.Control className="absolute inset-0 h-full w-full cursor-pointer">
+        <Slider.Thumb aria-label={ariaLabel ?? label} onKeyDown={handleKeyDown} className="outline-none" />
+      </Slider.Control>
+    </Slider.Root>
   );
 }
 

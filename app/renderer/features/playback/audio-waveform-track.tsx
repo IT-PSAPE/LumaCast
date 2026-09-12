@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Slider } from '@base-ui/react/slider';
 import { Popover } from '@renderer/components/overlays/popover';
 import { MarkerRow, type AudioSyncController } from './audio-sync-editor';
 import { useAudioWaveform } from './use-audio-waveform';
@@ -33,12 +34,24 @@ export function AudioWaveformTrack({ src, duration, currentTime, disabled, contr
           {path ? <path d={path} stroke="currentColor" strokeWidth="1.5" /> : <path d="M0 29H1200" stroke="currentColor" strokeOpacity="0.3" />}
         </svg>
         {waveform.status !== 'ready' && src ? <span className="pointer-events-none absolute bottom-1 left-2 text-[10px] text-tertiary">{waveform.status === 'loading' ? 'Loading waveform…' : 'Waveform unavailable'}</span> : null}
-        <input type="range" min={0} max={duration} step={0.01} value={Math.min(currentTime, duration)}
-          disabled={disabled || duration <= 0} aria-label="Audio scrubber"
-          onChange={(event) => onSeek(Number(event.target.value))}
-          onPointerDown={(event) => { event.currentTarget.setPointerCapture?.(event.pointerId); onScrubStart(); }}
-          onPointerUp={onScrubEnd} onPointerCancel={onScrubEnd} onBlur={onScrubEnd}
-          className="absolute inset-0 h-full w-full cursor-crosshair opacity-0 focus:opacity-20" />
+        <Slider.Root
+          value={Math.min(currentTime, duration)}
+          min={0}
+          max={duration > 0 ? duration : 0.01}
+          step={0.01}
+          disabled={disabled || duration <= 0}
+          onValueChange={(next) => onSeek(Array.isArray(next) ? next[0]! : next)}
+          className="absolute inset-0 h-full w-full"
+        >
+          <Slider.Control
+            onPointerDown={() => onScrubStart()}
+            onPointerUp={onScrubEnd}
+            onPointerCancel={onScrubEnd}
+            className="absolute inset-0 h-full w-full cursor-crosshair has-[input:focus-visible]:bg-white/20"
+          >
+            <Slider.Thumb aria-label="Audio scrubber" onBlur={onScrubEnd} className="outline-none" />
+          </Slider.Control>
+        </Slider.Root>
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 w-px bg-white" style={{ left: `${progress}%` }} />
         {duration > 0 ? controller.markers.map((entry, index) => {
           const slideIndex = controller.boundSlides.findIndex((slide) => slide.id === entry.slideId);

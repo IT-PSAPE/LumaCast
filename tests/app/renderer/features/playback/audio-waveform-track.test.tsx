@@ -24,3 +24,21 @@ it('shows markers on the waveform and opens only the selected marker editor', ()
   fireEvent.change(screen.getByLabelText('Audio scrubber'), { target: { value: '3.25' } });
   expect(seek).toHaveBeenCalledWith(3.25);
 });
+
+it('steps the scrubber with the keyboard', () => {
+  const controller: AudioSyncController = {
+    assetId: 'a', enabled: false, itemRef: null, markers: [], error: null,
+    syncSuspended: false, candidateItems: [], boundSlides: [], hasSavedSchedule: false,
+    record: vi.fn(), setEnabled: vi.fn(), setItemRef: vi.fn(), setMarkerSlide: vi.fn(), setMarkerTime: vi.fn(), removeMarker: vi.fn(),
+    seekToMarker: vi.fn(), removeSchedule: vi.fn(), resumeSync: vi.fn(),
+  };
+  const seek = vi.fn();
+  render(<AudioWaveformTrack duration={10} currentTime={2} disabled={false} controller={controller} onSeek={seek} onScrubStart={vi.fn()} onScrubEnd={vi.fn()} />);
+  const scrubber = screen.getByRole('slider', { name: 'Audio scrubber' });
+  fireEvent.keyDown(scrubber, { key: 'ArrowRight' });
+  expect(seek).toHaveBeenCalledWith(2.01);
+  fireEvent.keyDown(scrubber, { key: 'Home' });
+  expect(seek).toHaveBeenCalledWith(0);
+  fireEvent.keyDown(scrubber, { key: 'End' });
+  expect(seek).toHaveBeenCalledWith(10);
+});

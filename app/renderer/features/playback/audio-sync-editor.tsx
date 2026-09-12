@@ -3,6 +3,7 @@ import { ChevronDown, LocateFixed, Trash2 } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, Slide } from '@lumacast/composition';
 import { createAudioSlideMarker, roundToMs, type AudioSlideMarker, type PlaybackSchedule } from '@lumacast/automation';
+import { Switch } from '@base-ui/react/switch';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Field } from '@renderer/components/form/field';
 import { Dropdown } from '@renderer/components/form/dropdown';
@@ -516,14 +517,19 @@ export function AudioSyncEditor({ controller }: AudioSyncEditorProps) {
       {controller.syncSuspended ? (
         <ReacstButton variant="ghost" onClick={controller.resumeSync}>Resume sync</ReacstButton>
       ) : null}
-      <button type="button" role="switch" aria-label="Audio sync" aria-checked={controller.enabled}
-        onClick={() => controller.setEnabled(!controller.enabled)}
-        className="flex h-7 items-center gap-1.5 text-xs text-secondary">
+      <Switch.Root
+        nativeButton
+        render={<button type="button" />}
+        aria-label="Audio sync"
+        checked={controller.enabled}
+        onCheckedChange={(next) => controller.setEnabled(next)}
+        className="group flex h-7 items-center gap-1.5 text-xs text-secondary"
+      >
         <span>Sync</span>
-        <span className={`flex h-4 w-7 items-center rounded-full px-0.5 ${controller.enabled ? 'bg-brand' : 'bg-tertiary'}`}>
-          <span className={`size-3 rounded-full bg-white transition-transform ${controller.enabled ? 'translate-x-3' : ''}`} />
+        <span className="flex h-4 w-7 items-center rounded-full bg-tertiary px-0.5 group-data-checked:bg-brand">
+          <Switch.Thumb className="size-3 rounded-full bg-white transition-transform data-checked:translate-x-3" />
         </span>
-      </button>
+      </Switch.Root>
       <Dropdown className="w-44 shrink-0">
         <Dropdown.Trigger aria-label="Bind item" className="flex h-7 w-full min-w-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary">
           <span className="min-w-0 flex-1 truncate text-left">{itemTriggerLabel(controller)}</span>

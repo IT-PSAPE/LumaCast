@@ -1,3 +1,4 @@
+import { Slider } from '@base-ui/react/slider';
 import { formatPlaybackTime } from './format-playback-time';
 import { useVideoFilmstrip } from './use-video-filmstrip';
 
@@ -52,24 +53,24 @@ export function VideoFilmstripTrack({
             {filmstrip.status === 'loading' ? 'Loading preview…' : 'Preview unavailable'}
           </span>
         ) : null}
-        <input
-          type="range"
-          min={0}
-          max={duration}
-          step={0.01}
+        <Slider.Root
           value={safeTime}
+          min={0}
+          max={duration > 0 ? duration : 0.01}
+          step={0.01}
           disabled={disabled || duration <= 0}
-          aria-label="Video scrubber"
-          onChange={(event) => onSeek(Number(event.target.value))}
-          onPointerDown={(event) => {
-            event.currentTarget.setPointerCapture?.(event.pointerId);
-            onScrubStart();
-          }}
-          onPointerUp={onScrubEnd}
-          onPointerCancel={onScrubEnd}
-          onBlur={onScrubEnd}
-          className="absolute inset-0 h-full w-full cursor-ew-resize opacity-0 focus:opacity-20"
-        />
+          onValueChange={(next) => onSeek(Array.isArray(next) ? next[0]! : next)}
+          className="absolute inset-0 h-full w-full"
+        >
+          <Slider.Control
+            onPointerDown={() => onScrubStart()}
+            onPointerUp={onScrubEnd}
+            onPointerCancel={onScrubEnd}
+            className="absolute inset-0 h-full w-full cursor-ew-resize has-[input:focus-visible]:bg-white/20"
+          >
+            <Slider.Thumb aria-label="Video scrubber" onBlur={onScrubEnd} className="outline-none" />
+          </Slider.Control>
+        </Slider.Root>
         <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 w-px bg-white shadow-sm" style={{ left: `${progress}%` }} />
       </div>
       <div className="mt-0.5 flex justify-between text-[10px] tabular-nums text-tertiary">

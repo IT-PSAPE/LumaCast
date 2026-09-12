@@ -84,4 +84,29 @@ describe('InspectorSlider', () => {
     input.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
   });
+
+  it('exposes the implicit slider role with a live aria-valuenow', () => {
+    const { getByRole } = renderSlider();
+    const slider = getByRole('slider', { name: 'Grid size' });
+    expect(slider.getAttribute('aria-valuenow')).toBe('6');
+  });
+
+  it.each([
+    ['ArrowRight', 7],
+    ['ArrowUp', 7],
+    ['ArrowLeft', 5],
+    ['ArrowDown', 5],
+  ] as const)('steps the value on %s', (key, expected) => {
+    const { input, onChange } = renderSlider();
+    fireEvent.keyDown(input, { key });
+    expect(onChange).toHaveBeenCalledWith(expected);
+  });
+
+  it('jumps to the bounds on Home and End', () => {
+    const { input, onChange } = renderSlider();
+    fireEvent.keyDown(input, { key: 'End' });
+    expect(onChange).toHaveBeenCalledWith(8);
+    fireEvent.keyDown(input, { key: 'Home' });
+    expect(onChange).toHaveBeenCalledWith(4);
+  });
 });

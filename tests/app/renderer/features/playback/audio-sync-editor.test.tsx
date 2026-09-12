@@ -164,6 +164,28 @@ describe('AudioSyncEditor', () => {
     expect(screen.getByRole('switch', { name: 'Audio sync' })).not.toBeNull();
   });
 
+  it('toggles the sync switch and reflects aria-checked, as a real focusable button', () => {
+    const controller = makeController({ enabled: false });
+    const { rerender } = render(<AudioSyncEditor controller={controller} />);
+    const toggle = screen.getByRole('switch', { name: 'Audio sync' });
+    // A native <button> gets Space/Enter activation for free from the browser
+    // (jsdom does not simulate that default action), so this confirms the
+    // element keyboard users would actually operate is a real, focusable button.
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle).not.toBeDisabled();
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+
+    fireEvent.click(toggle);
+    expect(controller.setEnabled).toHaveBeenCalledWith(true);
+
+    const enabledController = makeController({ enabled: true });
+    rerender(<AudioSyncEditor controller={enabledController} />);
+    const enabledToggle = screen.getByRole('switch', { name: 'Audio sync' });
+    expect(enabledToggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(enabledToggle);
+    expect(enabledController.setEnabled).toHaveBeenCalledWith(false);
+  });
+
   it('renders each marker with editable time, formatted label, seek and remove controls', () => {
     const controller = makeController({
       itemRef: { type: 'lyric', id: 'song-1' },
@@ -229,7 +251,7 @@ describe('AudioSyncEditor', () => {
     expect(screen.getByLabelText('Marker 1 slide').textContent).toContain('Slide 2');
     expect(screen.getByLabelText('Marker 2 slide').textContent).toContain('Unassigned');
 
-    fireEvent.pointerDown(screen.getByLabelText('Marker 2 slide'));
+    fireEvent.click(screen.getByLabelText('Marker 2 slide'));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Slide 1' }));
     expect(controller.setMarkerSlide).toHaveBeenCalledWith('m2', 's1');
   });
@@ -245,7 +267,7 @@ describe('AudioSyncEditor', () => {
     render(<AudioSyncEditor controller={controller} />);
     expect(screen.getByLabelText('Bind item').textContent).toContain('Song');
 
-    fireEvent.pointerDown(screen.getByLabelText('Bind item'));
+    fireEvent.click(screen.getByLabelText('Bind item'));
     expect(screen.getByRole('menuitem', { name: 'No item' })).not.toBeNull();
     expect(screen.getByRole('menuitem', { name: 'Deck' })).not.toBeNull();
   });
