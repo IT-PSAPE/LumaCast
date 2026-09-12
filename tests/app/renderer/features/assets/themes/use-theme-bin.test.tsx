@@ -5,7 +5,7 @@ import type { ItemRef, ThemeOwnerType } from '@lumacast/composition';
 import type { BinSort, BinTabSortKey } from '../../../../../../app/renderer/features/workbench/use-bin-sort';
 import { useThemeBin } from '../../../../../../app/renderer/features/assets/themes/use-theme-bin';
 
-// Covers the sectioning behaviour: four theme families rendered at once from
+// Covers the sectioning behaviour: item theme families rendered at once from
 // `themesByType`, per-family search/sort, and quick-apply keyed to the family
 // of the section the clicked theme lives in.
 
@@ -53,7 +53,7 @@ function makeTheme(id: string, name: string, updatedAt: string): EditorThemeSour
 }
 
 function emptyThemes(): Record<ThemeOwnerType, EditorThemeSource[]> {
-  return { presentation: [], lyric: [], talk: [], overlay: [] };
+  return { presentation: [], lyric: [], overlay: [] };
 }
 
 interface HarnessOptions {
@@ -88,22 +88,19 @@ afterEach(() => {
 // ─── Sections ────────────────────────────────────────────────────────
 
 describe('useThemeBin sections', () => {
-  it('exposes every theme family as a labelled section in THEME_OWNER_TYPES order', () => {
+  it('exposes three theme families as labelled sections in THEME_OWNER_TYPES order (overlay excluded)', () => {
     const { result } = renderThemeBin({
       themesByType: {
         presentation: [makeTheme('p1', 'Alpha', 't1')],
         lyric: [makeTheme('l1', 'Beta', 't2')],
-        talk: [],
         overlay: [makeTheme('o1', 'Gamma', 't3')],
       },
     });
 
-    expect(result.current.sections.map((s) => s.type)).toEqual(['presentation', 'lyric', 'talk', 'overlay']);
-    expect(result.current.sections.map((s) => s.label)).toEqual(['Presentations', 'Lyrics', 'Talks', 'Overlays']);
+    expect(result.current.sections.map((s) => s.type)).toEqual(['presentation', 'lyric']);
+    expect(result.current.sections.map((s) => s.label)).toEqual(['Presentations', 'Lyrics']);
     expect(result.current.sections[0].themes.map((t) => t.id)).toEqual(['p1']);
     expect(result.current.sections[1].themes.map((t) => t.id)).toEqual(['l1']);
-    expect(result.current.sections[2].themes).toEqual([]);
-    expect(result.current.sections[3].themes.map((t) => t.id)).toEqual(['o1']);
   });
 
   it('filters each section independently and keeps a fully-filtered section present', () => {
@@ -112,16 +109,13 @@ describe('useThemeBin sections', () => {
       themesByType: {
         presentation: [makeTheme('p1', 'Summit', 't1'), makeTheme('p2', 'Breeze', 't2')],
         lyric: [makeTheme('l1', 'Summit', 't3')],
-        talk: [makeTheme('k1', 'Dune', 't4')],
         overlay: [],
       },
     });
 
-    expect(result.current.sections).toHaveLength(4);
+    expect(result.current.sections).toHaveLength(2);
     expect(result.current.sections[0].themes.map((t) => t.id)).toEqual(['p1']);
     expect(result.current.sections[1].themes.map((t) => t.id)).toEqual(['l1']);
-    expect(result.current.sections[2].themes).toEqual([]);
-    expect(result.current.sections[3].themes).toEqual([]);
   });
 
   it('sorts each section by the shared sort key', () => {
@@ -130,7 +124,6 @@ describe('useThemeBin sections', () => {
       themesByType: {
         presentation: [makeTheme('p2', 'Zulu', 't1'), makeTheme('p1', 'Alpha', 't2')],
         lyric: [makeTheme('l2', 'Yankee', 't3'), makeTheme('l1', 'Bravo', 't4')],
-        talk: [],
         overlay: [],
       },
     });
@@ -145,7 +138,7 @@ describe('useThemeBin sections', () => {
 describe('useThemeBin quick-apply', () => {
   it('applies a theme when the current item type matches the theme\'s owning family', async () => {
     const { result, applyThemeToTarget } = renderThemeBin({
-      themesByType: { presentation: [makeTheme('p1', 'Alpha', 't1')], lyric: [], talk: [], overlay: [] },
+      themesByType: { presentation: [makeTheme('p1', 'Alpha', 't1')], lyric: [], overlay: [] },
       currentItemRef: { type: 'presentation', id: 'D1' },
     });
 
@@ -159,7 +152,7 @@ describe('useThemeBin quick-apply', () => {
 
   it('does not apply when the current item type differs from the theme\'s owning family', async () => {
     const { result, applyThemeToTarget } = renderThemeBin({
-      themesByType: { presentation: [makeTheme('p1', 'Alpha', 't1')], lyric: [], talk: [], overlay: [] },
+      themesByType: { presentation: [makeTheme('p1', 'Alpha', 't1')], lyric: [], overlay: [] },
       currentItemRef: { type: 'lyric', id: 'L1' },
     });
 
@@ -170,14 +163,17 @@ describe('useThemeBin quick-apply', () => {
     expect(applyThemeToTarget).not.toHaveBeenCalled();
   });
 
-  it('never applies an overlay-family theme since no current item is an overlay', async () => {
+  it('never applies an overlay-family theme since overlay themes are excluded from sections', async () => {
     const { result, applyThemeToTarget } = renderThemeBin({
-      themesByType: { presentation: [], lyric: [], talk: [], overlay: [makeTheme('o1', 'Gamma', 't1')] },
+      themesByType: { presentation: [], lyric: [], overlay: [makeTheme('o1', 'Gamma', 't1')] },
       currentItemRef: { type: 'presentation', id: 'D1' },
     });
 
+    // Overlay themes are not in any section, so there are no themes to apply
+    expect(result.current.sections.flatMap((s) => s.themes)).toHaveLength(0);
+
     await act(async () => {
-      await result.current.handleApplyTheme(result.current.sections[3].themes[0]);
+      await result.current.handleApplyTheme(makeTheme('o1', 'Gamma', 't1'));
     });
 
     expect(applyThemeToTarget).not.toHaveBeenCalled();
@@ -185,7 +181,7 @@ describe('useThemeBin quick-apply', () => {
 
   it('does not apply when there is no current item', async () => {
     const { result, applyThemeToTarget } = renderThemeBin({
-      themesByType: { presentation: [makeTheme('p1', 'Alpha', 't1')], lyric: [], talk: [], overlay: [] },
+      themesByType: { presentation: [makeTheme('p1', 'Alpha', 't1')], lyric: [], overlay: [] },
       currentItemRef: null,
     });
 

@@ -48,7 +48,6 @@ function renderPanel() {
     sections: [
       { type: 'presentation', label: 'Presentations', themes: [{ id: 'p-1', name: 'Summit', width: 1, height: 1, elements: [], createdAt: 't', updatedAt: 't', slideId: 's' }] },
       { type: 'lyric', label: 'Lyrics', themes: [] },
-      { type: 'talk', label: 'Talks', themes: [{ id: 't-1', name: 'Dune', width: 1, height: 1, elements: [], createdAt: 't', updatedAt: 't', slideId: 's' }] },
       { type: 'overlay', label: 'Overlays', themes: [] },
     ],
     handleApplyTheme: vi.fn(),
@@ -88,6 +87,7 @@ describe('ThemeBinPanel virtualization', () => {
     expect(screen.getByText('Summit')).not.toBeNull();
     expect(screen.getByText('Lyrics')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Create lyric theme' })).not.toBeNull();
-    expect(screen.queryByText('Dune')).toBeNull();
+    // Overlay themes excluded from sections
+    expect(screen.queryByText('Overlays')).toBeNull();
   });
 });

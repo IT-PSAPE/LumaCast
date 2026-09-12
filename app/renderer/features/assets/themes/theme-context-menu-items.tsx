@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { ItemType, Lyric, Overlay, Presentation, Talk, ThemeOwnerType } from '@lumacast/composition';
+import type { ItemType, Lyric, Presentation, ThemeOwnerType } from '@lumacast/composition';
 import type { EditorThemeSource } from '@lumacast/canvas';
 import { ContextMenu } from '../../../components/overlays/context-menu';
 import { type RenameFieldHandle } from '../../../components/form/rename-field';
@@ -10,9 +10,9 @@ import { useProjectContent } from '../../../contexts/use-project-content';
 // A theme family's items are always its exclusive apply targets — structural
 // gating (#219 D2) means there is no cross-family compatibility to filter,
 // unlike the old single-table Theme.kind matrix this replaces.
-type ApplyTargets =
-  | { kind: 'item'; itemType: ItemType; items: (Presentation | Lyric | Talk)[]; label: string }
-  | { kind: 'overlay'; items: Overlay[]; label: string };
+// Overlay themes are removed from the UI; overlay single-slide and duplicate
+// overlay serve reuse. Only item families remain as apply targets.
+type ApplyTargets = { kind: 'item'; itemType: ItemType; items: (Presentation | Lyric)[]; label: string };
 
 export function ThemeContextMenuItems({
   theme,
@@ -27,14 +27,13 @@ export function ThemeContextMenuItems({
 }) {
   const { applyThemeToTarget } = useThemeEditor();
   const { setStatusText } = useCast();
-  const { presentations, lyrics, talks, overlays } = useProjectContent();
+  const { presentations, lyrics } = useProjectContent();
 
-  const targets = useMemo<ApplyTargets>(() => {
+  const targets = useMemo<ApplyTargets | null>(() => {
     if (themeType === 'presentation') return { kind: 'item', itemType: 'presentation', items: presentations, label: 'presentations' };
     if (themeType === 'lyric') return { kind: 'item', itemType: 'lyric', items: lyrics, label: 'lyrics' };
-    if (themeType === 'talk') return { kind: 'item', itemType: 'talk', items: talks, label: 'talks' };
-    return { kind: 'overlay', items: overlays, label: 'overlays' };
-  }, [themeType, presentations, lyrics, talks, overlays]);
+    return null;
+  }, [themeType, presentations, lyrics]);
 
   async function handleApplyToItem(itemId: string, itemType: ItemType) {
     try {
@@ -45,15 +44,7 @@ export function ThemeContextMenuItems({
     }
   }
 
-  async function handleApplyToOverlay(overlayId: string) {
-    try {
-      await applyThemeToTarget(theme.id, { type: 'overlay', overlayId });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setStatusText(`Failed to apply theme: ${message}`);
-    }
-  }
-
+  if (!targets) return null;
   const hasTargets = targets.items.length > 0;
 
   return (
@@ -63,12 +54,6 @@ export function ThemeContextMenuItems({
         <ContextMenu.Submenu label="Apply to" disabled={!hasTargets}>
           {!hasTargets ? (
             <ContextMenu.Item disabled onSelect={() => {}}>No compatible {targets.label}</ContextMenu.Item>
-          ) : targets.kind === 'overlay' ? (
-            targets.items.map((overlay) => (
-              <ContextMenu.Item key={overlay.id} onSelect={() => { void handleApplyToOverlay(overlay.id); }}>
-                {overlay.name}
-              </ContextMenu.Item>
-            ))
           ) : (
             targets.items.map((item) => (
               <ContextMenu.Item key={item.id} onSelect={() => { void handleApplyToItem(item.id, targets.itemType); }}>

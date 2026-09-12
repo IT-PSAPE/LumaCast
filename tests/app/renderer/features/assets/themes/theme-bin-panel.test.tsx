@@ -5,7 +5,7 @@ import type { ThemeOwnerType } from '@lumacast/composition';
 import { BinControlsProvider } from '@renderer/components/controls/bin-controls';
 import { ThemeBinPanel } from '../../../../../../app/renderer/features/assets/themes/theme-bin-panel';
 
-// Covers the sectioned theme bin: all four families visible at once from
+// Covers the sectioned theme bin: item theme families visible at once from
 // `themesByType`, no family selector, and an accessible create drop-zone in
 // each empty section that creates the theme and enters the theme editor.
 
@@ -59,7 +59,7 @@ function makeTheme(id: string, name: string, updatedAt: string): EditorThemeSour
 }
 
 function emptyThemes(): Record<ThemeOwnerType, EditorThemeSource[]> {
-  return { presentation: [], lyric: [], talk: [], overlay: [] };
+  return { presentation: [], lyric: [], overlay: [] };
 }
 
 function renderPanel(options: {
@@ -103,14 +103,14 @@ afterEach(() => {
 });
 
 describe('ThemeBinPanel', () => {
-  it('renders all four theme family sections with headers instead of a family selector', () => {
+  it('renders two theme family sections with headers instead of a family selector', () => {
     renderPanel();
 
     expect(screen.queryByLabelText('Theme family')).toBeNull();
     expect(screen.getByText('Presentations')).not.toBeNull();
     expect(screen.getByText('Lyrics')).not.toBeNull();
-    expect(screen.getByText('Talks')).not.toBeNull();
-    expect(screen.getByText('Overlays')).not.toBeNull();
+    // Overlay themes removed from UI
+    expect(screen.queryByText('Overlays')).toBeNull();
   });
 
   it('renders an accessible create drop-zone for each empty section', () => {
@@ -118,8 +118,8 @@ describe('ThemeBinPanel', () => {
 
     expect(screen.getByRole('button', { name: 'Create presentation theme' })).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Create lyric theme' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Create talk theme' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Create overlay theme' })).not.toBeNull();
+    // Overlay theme creation removed
+    expect(screen.queryByRole('button', { name: 'Create overlay theme' })).toBeNull();
   });
 
   it('creates the theme and switches to the theme editor when a drop-zone is activated', () => {
@@ -137,14 +137,13 @@ describe('ThemeBinPanel', () => {
       themesByType: {
         presentation: [makeTheme('p1', 'Summit', 't1')],
         lyric: [],
-        talk: [makeTheme('k1', 'Dune', 't2')],
         overlay: [],
       },
     });
 
     expect(screen.getByText('Presentations')).not.toBeNull();
-    expect(screen.getByText('Talks')).not.toBeNull();
+    expect(screen.getByText('Lyrics')).not.toBeNull();
     expect(screen.getByRole('button', { name: 'Create presentation theme' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Create talk theme' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Create lyric theme' })).not.toBeNull();
   });
 });

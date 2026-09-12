@@ -13,15 +13,14 @@ export interface ThemeBinSection {
   themes: EditorThemeSource[];
 }
 
-// Section order and labels match THEME_OWNER_TYPES: Presentations, Lyrics,
-// Talks, Overlays. Every family renders its own section regardless of the
-// search filter — a family whose themes all filter out still shows its
-// section, emptied.
+// Section order and labels match the item theme families. Every family renders
+// its own section regardless of the search filter
+// — a family whose themes all filter out still shows its section, emptied.
+// Overlay themes are removed from the UI; overlay single-slide and duplicate
+// overlay serve reuse. Legacy overlay_themes records remain readable for compat.
 const THEME_SECTIONS: ReadonlyArray<{ type: ThemeOwnerType; label: string }> = [
   { type: 'presentation', label: 'Presentations' },
   { type: 'lyric', label: 'Lyrics' },
-  { type: 'talk', label: 'Talks' },
-  { type: 'overlay', label: 'Overlays' },
 ];
 
 // #219 item-model refactor decision D2: theme/item compatibility is now
