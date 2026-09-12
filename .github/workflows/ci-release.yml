@@ -54,6 +54,11 @@ jobs:
       - name: Install Playwright browser dependencies
         run: npx playwright install --with-deps chromium
 
+      - name: Configure Electron sandbox helper
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
       - name: Run end-to-end tests
         env:
           # Include Electron stderr when Playwright reports only "Process failed to launch!".

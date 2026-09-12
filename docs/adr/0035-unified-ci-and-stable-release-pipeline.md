@@ -12,4 +12,6 @@ Reject version downgrades and prerelease version strings. A manual dispatch may 
 
 ## Consequences
 
+Linux end-to-end validation requires Xvfb and a correctly installed Electron SUID sandbox helper. The validation job sets root ownership and mode `4755` on `node_modules/electron/dist/chrome-sandbox` before launch; this setup is confined to the disposable CI runner. Browser diagnostics remain enabled to expose startup failures. The existing Electron smoke and theme regression tests exercise this launch setup.
+
 Validation and release status appear in one workflow run. Release packaging cannot start before the validated commit passes, and a failed platform prevents publication. The standard runner architectures produce Windows x64, macOS x64, and Linux x64 artifacts; signing remains conditional on repository secrets.
