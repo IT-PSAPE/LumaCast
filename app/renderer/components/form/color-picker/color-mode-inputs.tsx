@@ -3,6 +3,8 @@ import {
   hexToHsb, hsbToRgb, rgbToHex, rgbToHsb, rgbToHsl, hslToRgb,
 } from '../../../utils/color';
 import { ChevronDown } from 'lucide-react';
+import { Field } from '@base-ui/react/field';
+import { NumberField } from '@base-ui/react/number-field';
 import { Dropdown } from '../dropdown';
 import { MiniHexInput } from './mini-hex-input';
 import { SplitInput } from './split-input';
@@ -17,10 +19,8 @@ const COLOR_MODE_OPTIONS = [
   { value: 'hsl', label: 'HSL' },
 ];
 
-function clampInt(value: string, min: number, max: number): number {
-  const n = parseInt(value, 10);
-  if (Number.isNaN(n)) return min;
-  return Math.max(min, Math.min(max, n));
+function clampInt(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 interface ColorModeInputsProps {
@@ -41,17 +41,16 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
     onModeChange(value as ColorMode);
   }
 
-  function handleRgbChange(channel: keyof Rgb, value: string) {
-    const n = clampInt(value, 0, 255);
-    onHsbChange(rgbToHsb({ ...rgb, [channel]: n }));
+  function handleRgbChange(channel: keyof Rgb, value: number) {
+    onHsbChange(rgbToHsb({ ...rgb, [channel]: clampInt(value, 0, 255) }));
   }
 
-  function handleHsbChange(channel: keyof Hsb, value: string) {
+  function handleHsbChange(channel: keyof Hsb, value: number) {
     const max = channel === 'h' ? 360 : 100;
     onHsbChange({ ...hsb, [channel]: clampInt(value, 0, max) });
   }
 
-  function handleHslChange(channel: keyof Hsl, value: string) {
+  function handleHslChange(channel: keyof Hsl, value: number) {
     const max = channel === 'h' ? 360 : 100;
     onHsbChange(rgbToHsb(hslToRgb({ ...hsl, [channel]: clampInt(value, 0, max) })));
   }
@@ -66,8 +65,8 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
     }
   }
 
-  function handleAlphaInput(value: string) {
-    onAlphaChange(clampInt(value, 0, 100));
+  function handleAlphaInput(value: number | null) {
+    if (value !== null) onAlphaChange(clampInt(value, 0, 100));
   }
 
   return (
@@ -85,38 +84,34 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
       {mode === 'hex' ? <MiniHexInput value={rgbToHex(rgb)} onCommit={handleHexCommit} /> : null}
       {mode === 'rgb' ? (
         <SplitInputGroup>
-          <SplitInput value={rgb.r} onChange={(v) => handleRgbChange('r', v)} />
-          <SplitInput value={rgb.g} onChange={(v) => handleRgbChange('g', v)} />
-          <SplitInput value={rgb.b} onChange={(v) => handleRgbChange('b', v)} />
+          <SplitInput label="Red" value={rgb.r} min={0} max={255} onChange={(v) => handleRgbChange('r', v)} />
+          <SplitInput label="Green" value={rgb.g} min={0} max={255} onChange={(v) => handleRgbChange('g', v)} />
+          <SplitInput label="Blue" value={rgb.b} min={0} max={255} onChange={(v) => handleRgbChange('b', v)} />
         </SplitInputGroup>
       ) : null}
       {mode === 'hsb' ? (
         <SplitInputGroup>
-          <SplitInput value={hsb.h} onChange={(v) => handleHsbChange('h', v)} />
-          <SplitInput value={hsb.s} onChange={(v) => handleHsbChange('s', v)} />
-          <SplitInput value={hsb.b} onChange={(v) => handleHsbChange('b', v)} />
+          <SplitInput label="Hue" value={hsb.h} min={0} max={360} onChange={(v) => handleHsbChange('h', v)} />
+          <SplitInput label="Saturation" value={hsb.s} min={0} max={100} onChange={(v) => handleHsbChange('s', v)} />
+          <SplitInput label="Brightness" value={hsb.b} min={0} max={100} onChange={(v) => handleHsbChange('b', v)} />
         </SplitInputGroup>
       ) : null}
       {mode === 'hsl' ? (
         <SplitInputGroup>
-          <SplitInput value={hsl.h} onChange={(v) => handleHslChange('h', v)} />
-          <SplitInput value={hsl.s} onChange={(v) => handleHslChange('s', v)} />
-          <SplitInput value={hsl.l} onChange={(v) => handleHslChange('l', v)} />
+          <SplitInput label="Hue" value={hsl.h} min={0} max={360} onChange={(v) => handleHslChange('h', v)} />
+          <SplitInput label="Saturation" value={hsl.s} min={0} max={100} onChange={(v) => handleHslChange('s', v)} />
+          <SplitInput label="Lightness" value={hsl.l} min={0} max={100} onChange={(v) => handleHslChange('l', v)} />
         </SplitInputGroup>
       ) : null}
 
       {showAlpha ? (
-        <div className="flex shrink-0 items-center rounded-r bg-tertiary">
-          <input
-            type="number"
-            value={alpha}
-            onChange={(e) => handleAlphaInput(e.target.value)}
-            min={0}
-            max={100}
-            className="w-8 min-w-0 bg-transparent py-1 text-center text-sm text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          />
-          <span className="pr-1 text-sm text-tertiary">%</span>
-        </div>
+        <Field.Root className="flex shrink-0 items-center rounded-r bg-tertiary">
+          <Field.Label className="sr-only">Alpha percent</Field.Label>
+          <NumberField.Root value={alpha} min={0} max={100} onValueChange={handleAlphaInput}>
+            <NumberField.Input className="w-8 min-w-0 bg-transparent py-1 text-center text-sm text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />
+          </NumberField.Root>
+          <span aria-hidden="true" className="pr-1 text-sm text-tertiary">%</span>
+        </Field.Root>
       ) : null}
     </div>
   );

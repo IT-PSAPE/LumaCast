@@ -66,6 +66,9 @@ export function ColorPicker({ value, onChange, showAlpha = true }: ColorPickerPr
         ref={triggerRef}
         type="button"
         onClick={handleToggle}
+        aria-label="Open color picker"
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
         className="ml-1.5 size-5 shrink-0 overflow-hidden rounded border border-primary cursor-pointer"
         style={{
           backgroundImage: 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%)',

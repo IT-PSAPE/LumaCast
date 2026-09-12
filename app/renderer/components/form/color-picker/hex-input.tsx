@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { Field } from '@base-ui/react/field';
+import { Input } from '@base-ui/react/input';
 
 export function HexInput({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
   const [draft, setDraft] = useState('');
@@ -24,15 +26,18 @@ export function HexInput({ value, onChange }: { value: string; onChange: (hex: s
   }
 
   return (
-    <input
-      type="text"
-      value={editing ? draft : display}
-      onFocus={handleFocus}
-      onChange={handleChange}
-      onBlur={handleBlur}
-      onKeyDown={handleKeyDown}
-      maxLength={8}
-      className="min-w-0 w-full bg-transparent py-1 pr-2 outline-none font-mono text-sm"
-    />
+    <Field.Root className="min-w-0 w-full">
+      <Field.Label className="sr-only">Hex color</Field.Label>
+      <Input
+        type="text"
+        value={editing ? draft : display}
+        onFocus={handleFocus}
+        onChange={handleChange}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        maxLength={8}
+        className="min-w-0 w-full bg-transparent py-1 pr-2 outline-none font-mono text-sm"
+      />
+    </Field.Root>
   );
 }

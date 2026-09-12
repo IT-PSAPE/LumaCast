@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { Field } from '@base-ui/react/field';
+import { Input } from '@base-ui/react/input';
 
 export function MiniHexInput({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
   const display = value.startsWith('#') ? value.slice(1).toUpperCase() : value.toUpperCase();
@@ -28,8 +30,9 @@ export function MiniHexInput({ value, onCommit }: { value: string; onCommit: (v:
   }
 
   return (
-    <div className="flex min-w-0 flex-1 items-center bg-tertiary">
-      <input
+    <Field.Root className="flex min-w-0 flex-1 items-center bg-tertiary">
+      <Field.Label className="sr-only">Hex value</Field.Label>
+      <Input
         type="text"
         value={editing ? draft : display}
         onFocus={handleFocus}
@@ -39,6 +42,6 @@ export function MiniHexInput({ value, onCommit }: { value: string; onCommit: (v:
         maxLength={8}
         className="w-full min-w-0 bg-transparent px-1.5 py-1 text-center font-mono text-sm text-primary outline-none"
       />
-    </div>
+    </Field.Root>
   );
 }
