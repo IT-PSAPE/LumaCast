@@ -32,9 +32,7 @@ export type TextBindingKind =
   | 'clock'
   | 'current-slide-text'
   | 'next-slide-text'
-  | 'slide-notes'
-  | 'talk-script-current'
-  | 'talk-script-progress';
+  | 'slide-notes';
 
 export type ClockFormat = '12h' | '12h-seconds' | '24h' | '24h-seconds';
 export type TimerFormat = 'mm:ss' | 'hh:mm:ss';
@@ -132,4 +130,19 @@ export interface SlideElement extends SlideElementBase {
   payload: SlideElementPayload;
   /** ID of the theme element this was derived from, if any. Null for user-created elements. */
   sourceThemeElementId?: Id | null;
+  /**
+   * Explicit local overrides on a theme-linked element: geometry keys
+   * (`x`, `y`, `width`, `height`, `rotation`, `opacity`, `zIndex`, `layer`)
+   * and/or top-level payload keys whose persisted value wins over the linked
+   * theme at resolve time. Sorted, stable, JSON-serializable.
+   *
+   * Authored content (`text`, `format`, `richBody` on text elements) is
+   * always local and is never recorded here. Absent/null means "no recorded
+   * overrides" — the resolver then preserves authored content and inherits
+   * everything else. Durably persisted in the `v32`
+   * `slide_elements.theme_override_keys_json` column, carried over RPC
+   * (`ElementCreateInput`/`ElementUpdateInput`), snapshots, undo, backups,
+   * and bundle export/import.
+   */
+  themeOverrideKeys?: string[] | null;
 }

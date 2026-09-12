@@ -21,6 +21,7 @@ export function sameElementState(a: SlideElement, b: SlideElement): boolean {
     a.opacity === b.opacity &&
     a.zIndex === b.zIndex &&
     a.layer === b.layer &&
+    JSON.stringify(a.themeOverrideKeys ?? null) === JSON.stringify(b.themeOverrideKeys ?? null) &&
     payloadSignature(a.payload) === payloadSignature(b.payload)
   );
 }

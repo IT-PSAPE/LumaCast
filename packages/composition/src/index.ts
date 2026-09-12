@@ -1,6 +1,6 @@
 // Public entry point for @lumacast/composition (issue #219; item-model
 // refactor wave A). This package is the visual-document domain model: the
-// three independent item entities (Presentation/Lyric/Talk) and the global
+// two independent item entities (Presentation/Lyric) and the global
 // playlists built from them, slide/element/theme/overlay/stage entities,
 // rich text, and the headless scene-normalization contract (RenderScene /
 // ResolvedRenderScene) every rendering surface — editor preview, NDI
@@ -44,6 +44,7 @@ export * from './element-payload';
 export * from './items';
 export * from './playlist-item-reference';
 export * from './presentation-layers';
+export * from './theme-inheritance';
 export * from './themes';
 
 // ---------------------------------------------------------------------------

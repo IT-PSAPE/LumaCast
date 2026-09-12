@@ -1,8 +1,7 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import type { ItemType, ThemeOwnerType } from '@lumacast/composition';
+import { useCallback, useMemo, type ReactNode } from 'react';
+import type { ThemeOwnerType } from '@lumacast/composition';
 import { useRenderScenes } from '../../contexts/canvas/canvas-context';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
-import { useProjectContent } from '../../contexts/use-project-content';
 import { useEditorLeftPanelNav } from '../../features/workbench/use-editor-left-panel-nav';
 import { createScreenContext } from '../../contexts/create-screen-context';
 
@@ -15,8 +14,6 @@ interface ThemeEditorScreenContextValue {
     currentTheme: ReturnType<typeof useThemeEditor>['currentTheme'];
     hasPendingChanges: boolean;
     isPushingChanges: boolean;
-    linkedItemCount: number;
-    isSyncing: boolean;
   };
   actions: {
     setThemeType: (themeType: ThemeOwnerType) => void;
@@ -24,7 +21,6 @@ interface ThemeEditorScreenContextValue {
     requestThemeNameFocus: (id: string) => void;
     createTheme: (themeType: ThemeOwnerType) => void;
     saveChanges: () => Promise<void>;
-    syncLinkedItems: () => Promise<void>;
   };
 }
 
@@ -42,39 +38,21 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     isPushingChanges,
     openThemeEditor,
     requestNameFocus,
-    syncLinkedItems,
     createTheme,
     pushChanges,
   } = useThemeEditor();
   const { commitProgramScene } = useRenderScenes();
-  const { presentations, lyrics, talks } = useProjectContent();
-  const [isSyncing, setIsSyncing] = useState(false);
 
-  // #219 item-model refactor decision D2: theme sync is strictly per-family
-  // now, and overlays don't carry a persisted themeId at all (theming an
-  // overlay is a one-shot apply, not a linked reference) — so the overlay
-  // family simply has no "linked items" concept to count or sync.
-  const itemsForFamily = themeType === 'presentation' ? presentations : themeType === 'lyric' ? lyrics : themeType === 'talk' ? talks : null;
-
-  const linkedItemCount = currentTheme && itemsForFamily
-    ? itemsForFamily.filter((item) => item.themeId === currentTheme.id).length
-    : 0;
+  // Live inherited themes: linked slides resolve the current theme at read
+  // time, so there is no manual sync step — pushing the theme (Save or
+  // leaving the editor) propagates to every linked slide, including staged
+  // drafts via the theme draft projection.
 
   useEditorLeftPanelNav({
     items: themes,
     currentId: currentThemeId,
     activate: (id) => openThemeEditor(themeType, id),
   });
-
-  async function handleSyncLinkedItems() {
-    if (!currentTheme || linkedItemCount === 0 || themeType === 'overlay') return;
-    setIsSyncing(true);
-    try {
-      await syncLinkedItems(currentTheme.id, themeType as ItemType);
-    } finally {
-      setIsSyncing(false);
-    }
-  }
 
   const handleSaveChanges = useCallback(async () => {
     if (!hasPendingChanges) return;
@@ -91,8 +69,6 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
       currentTheme,
       hasPendingChanges,
       isPushingChanges,
-      linkedItemCount,
-      isSyncing,
     },
     actions: {
       setThemeType,
@@ -100,7 +76,6 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
       requestThemeNameFocus: requestNameFocus,
       createTheme: (nextThemeType) => createTheme(nextThemeType),
       saveChanges: handleSaveChanges,
-      syncLinkedItems: handleSyncLinkedItems,
     },
   }), [
     createTheme,
@@ -109,8 +84,6 @@ export function ThemeEditorScreenProvider({ children }: { children: ReactNode })
     handleSaveChanges,
     hasPendingChanges,
     isPushingChanges,
-    isSyncing,
-    linkedItemCount,
     openThemeEditor,
     requestNameFocus,
     setThemeType,

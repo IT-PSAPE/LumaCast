@@ -11,7 +11,7 @@ import { createId } from '@lumacast/kernel';
 
 /**
  * Structural shape the theme->element algorithms below need. Any of the
- * four per-owner theme entities (see ./domain/theme.ts) satisfies this —
+ * three per-owner theme entities (see ./domain/theme.ts) satisfies this —
  * this is a typing convenience for these kind-agnostic algorithms, not a
  * domain entity in its own right.
  */
@@ -71,6 +71,7 @@ function materializeThemeElement(
     id: newId,
     slideId,
     sourceThemeElementId: themeElement.id,
+    themeOverrideKeys: null,
     payload,
     createdAt: themeElement.createdAt,
     updatedAt: now,
@@ -156,6 +157,7 @@ export function syncThemeToElements(
         layer: themeElement.layer,
         payload: updatedPayload,
         sourceThemeElementId: themeElement.id,
+        themeOverrideKeys: existingElement.themeOverrideKeys ?? null,
         updatedAt: now,
         ...(materializedChildren ? { payload: { ...updatedPayload, children: materializedChildren } } : {}),
       });
@@ -223,6 +225,7 @@ function mergeGroupChildren(
         layer: themeChild.layer,
         payload: updatedPayload,
         sourceThemeElementId: themeChild.id,
+        themeOverrideKeys: existingChild.themeOverrideKeys ?? null,
         updatedAt: now,
         ...(childMergedChildren ? { payload: { ...updatedPayload, children: childMergedChildren } } : {}),
       });

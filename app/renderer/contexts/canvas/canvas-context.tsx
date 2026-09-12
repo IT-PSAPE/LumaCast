@@ -71,7 +71,12 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const { mutatePatch, setStatusText } = useCast();
   const { currentItemRef } = useNavigation();
   const { currentSlide, liveSlide, liveElements, slideElementsById } = useSlides();
-  const { slides: projectSlides, slideElementsBySlideId: projectSlideElementsBySlideId } = useProjectContent();
+  const {
+    slides: projectSlides,
+    liveSlideElementsBySlideId: projectLiveElementsBySlideId,
+    liveSlidesById: projectLiveSlidesById,
+    resolveElementsForSlide,
+  } = useProjectContent();
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
   const { mediaLayerAsset, videoLayerAsset, videoLayerPlayback, activeOverlays, contentLayerVisible } = usePresentationRenderLayer();
   const { state: { workbenchMode } } = useWorkbench();
@@ -323,18 +328,32 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   // Scene rendering
   // ════════════════════════════════════════════════════════════════════
 
+  // Live inherited themes: the item editor paints the resolved slide (current
+  // theme styling with local overrides preserved) while all editing state
+  // (selection, drafts, history, staged writes) keeps operating on the raw
+  // persisted rows underneath — resolved rows keep stable persisted IDs, so
+  // the two layers address the same elements.
   const editScene = useMemo(() => {
+    if (isDeckEdit && currentDeckSlideId) {
+      const resolvedBase = resolveElementsForSlide(currentDeckSlideId, baseElements);
+      const withDrafts = resolvedBase.map((element) => {
+        const patch = draftElements[element.id];
+        return patch ? { ...element, ...patch } : element;
+      });
+      return buildRenderScene(activeEditorSource.frame, withDrafts, { proxyMediaBySource: mediaProxyBySource });
+    }
     return buildRenderScene(activeEditorSource.frame, effectiveElements, { proxyMediaBySource: mediaProxyBySource });
-  }, [activeEditorSource.frame, effectiveElements, mediaProxyBySource]);
+  }, [activeEditorSource.frame, baseElements, currentDeckSlideId, draftElements, effectiveElements, isDeckEdit, mediaProxyBySource, resolveElementsForSlide]);
 
   const showScene = useMemo(() => {
     const currentElements = currentSlide ? (slideElementsById.get(currentSlide.id) ?? EMPTY_SLIDE_ELEMENTS) : EMPTY_SLIDE_ELEMENTS;
-    return buildRenderScene(currentSlide, currentElements, { proxyMediaBySource: mediaProxyBySource });
-  }, [currentSlide, mediaProxyBySource, slideElementsById]);
+    const frame = currentSlide ? (projectLiveSlidesById.get(currentSlide.id) ?? currentSlide) : currentSlide;
+    return buildRenderScene(frame, currentElements, { proxyMediaBySource: mediaProxyBySource });
+  }, [currentSlide, mediaProxyBySource, projectLiveSlidesById, slideElementsById]);
 
   const liveScene = useMemo(() => {
     return buildLayeredRenderScene({
-      slide: liveSlide,
+      slide: liveSlide ? (projectLiveSlidesById.get(liveSlide.id) ?? liveSlide) : liveSlide,
       contentElements: liveElements,
       videoAsset: videoLayerAsset,
       videoPlayback: videoLayerPlayback,
@@ -347,7 +366,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
       })),
       includeContent: contentLayerVisible,
     }, { proxyMediaBySource: mediaProxyBySource });
-  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset, mediaProxyBySource, videoLayerAsset, videoLayerPlayback]);
+  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset, mediaProxyBySource, projectLiveSlidesById, videoLayerAsset, videoLayerPlayback]);
 
   const isEditing = workbenchMode !== 'show';
   const [frozenProgramScene, setFrozenProgramScene] = useState<RenderScene | null>(null);
@@ -399,19 +418,20 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const getThumbnailScene = useCallback((slideId: Id, surface: SceneSurface): RenderScene | null => {
     const slide = projectSlidesById.get(slideId);
     if (!slide) return null;
+    const frame = projectLiveSlidesById.get(slideId) ?? slide;
     const policy = thumbnailSourcePolicy(surface, currentSlide?.id === slideId);
     const elements = policy === 'draft'
-      ? (currentSlide?.id === slideId ? effectiveElements : getSlideElements(slideId))
-      : (projectSlideElementsBySlideId.get(slideId) ?? []);
+      ? resolveElementsForSlide(slideId, currentSlide?.id === slideId ? effectiveElements : getSlideElements(slideId))
+      : (projectLiveElementsBySlideId.get(slideId) ?? []);
     const cache = thumbnailCacheRef.current;
     const cached = cache.get(slideId);
     if (cached && cached.slide === slide && cached.elements === elements) {
       return cached.scene;
     }
-    const scene = buildThumbnailScene(slide, elements, { proxyMediaBySource: mediaProxyBySource });
+    const scene = buildThumbnailScene(frame, elements, { proxyMediaBySource: mediaProxyBySource });
     cache.set(slideId, { slide, elements, scene });
     return scene;
-  }, [currentSlide?.id, effectiveElements, getSlideElements, mediaProxyBySource, projectSlideElementsBySlideId, projectSlidesById]);
+  }, [currentSlide?.id, effectiveElements, getSlideElements, mediaProxyBySource, projectLiveElementsBySlideId, projectLiveSlidesById, projectSlidesById, resolveElementsForSlide]);
 
   const scenesValue = useMemo<RenderSceneValue>(() => ({
     editScene, showScene, liveScene, programScene, getThumbnailScene, commitProgramScene,
