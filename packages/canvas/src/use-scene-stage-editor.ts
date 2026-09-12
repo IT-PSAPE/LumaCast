@@ -11,6 +11,7 @@ import { useSceneStageShift } from './use-scene-stage-shift';
 import { useSceneStageMarquee } from './use-scene-stage-marquee';
 import { useSceneStageDraftBuffer } from './use-scene-stage-draft-buffer';
 import { bindFixedClientRect } from './scene-node-bounds';
+import { fitTextElementToBody } from './inline-text-editor-utils';
 
 // The narrow slice of the app-shell's element context this editor actually
 // touches. The app (contexts/canvas/canvas-context.tsx) owns the full
@@ -150,17 +151,27 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     });
   }, [setDraftElements]);
 
-  // Live edit: push the in-progress body into the draft so the SAME canvas node
-  // re-renders it as the user types. The editor renders no visible text of its
-  // own — there is one render path (the canvas), so nothing shifts on enter/exit.
+  // A text box grows to hold what is typed into it and keeps that height when
+  // the edit is committed; it never shrinks below its authored height. The
+  // growth is computed from the BASE geometry each time so it tracks the live
+  // body exactly, and the grown box is placed where the canvas already draws
+  // the overflowing text (see fitTextElementToBody), so nothing moves on commit.
+  const textGeometryFor = useCallback((element: SlideElement, payload: TextElementPayload, body: RichBody): Pick<ElementUpdateInput, 'y' | 'height'> => {
+    const fit = fitTextElementToBody(element, payload, body);
+    return fit ? { y: fit.y, height: fit.height } : { y: element.y, height: element.height };
+  }, []);
+
+  // Live edit: push the in-progress body (and the box height it needs) into the
+  // draft. The inline editor renders the text itself while editing; the draft
+  // keeps the element's geometry, the inspector, and any output in step.
   const liveUpdateTextEdit = useCallback((body: RichBody) => {
     if (!editingTextId) return;
     const element = baseElementsRef.current.find((el) => el.id === editingTextId);
     if (!element || element.type !== 'text') return;
     const payload = element.payload as TextElementPayload;
     const nextPayload: TextElementPayload = { ...payload, format: 'rich', richBody: body, text: richBodyToText(body) };
-    applyDraftPatch(editingTextId, { payload: nextPayload });
-  }, [editingTextId, applyDraftPatch]);
+    applyDraftPatch(editingTextId, { payload: nextPayload, ...textGeometryFor(element, payload, body) });
+  }, [editingTextId, applyDraftPatch, textGeometryFor]);
 
   const commitTextEdit = useCallback(async (body: RichBody) => {
     if (!editingTextId) return;
@@ -186,7 +197,8 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       || payload.format !== nextPayload.format
       || JSON.stringify(payload.richBody) !== JSON.stringify(nextPayload.richBody);
     if (changed) {
-      await commitElementUpdates([{ id: targetId, payload: nextPayload }]);
+      const fit = fitTextElementToBody(element, payload, body);
+      await commitElementUpdates([{ id: targetId, payload: nextPayload, ...(fit ? { y: fit.y, height: fit.height } : {}) }]);
     }
     clearTextDraft(targetId);
     setEditingTextId(null);

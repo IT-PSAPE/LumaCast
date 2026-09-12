@@ -72,8 +72,6 @@ const SceneNode = memo(function SceneNode({
         width={frame.width}
         height={frame.height}
         rotation={frame.rotation}
-        // The text stays rendered on the canvas while editing — the inline editor
-        // is a transparent input overlay, so there is one render path (no swap).
         opacity={frame.opacity}
         scaleX={frame.scaleX}
         scaleY={frame.scaleY}
@@ -92,7 +90,10 @@ const SceneNode = memo(function SceneNode({
         onTransformEnd={editable ? onTransformEnd : undefined}
         onContextMenu={editable ? handleContextMenu : undefined}
       >
-        {renderSceneNodeContent(node, surface)}
+        {/* While a text element is being edited the inline editor renders its
+            text in the DOM (one layout engine for text, caret, and selection),
+            so the canvas draws only the element's background for it. */}
+        {renderSceneNodeContent(node, surface, { hideText: isBeingEdited })}
       </Group>
     </Fragment>
   );

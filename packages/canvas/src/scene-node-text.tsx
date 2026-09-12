@@ -388,9 +388,11 @@ function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout 
 
 interface SceneNodeTextProps {
   node: RenderNode;
+  /** While the inline editor shows this element's text in the DOM, the canvas draws only the background. */
+  hideText?: boolean;
 }
 
-export function SceneNodeText({ node }: SceneNodeTextProps) {
+export function SceneNodeText({ node, hideText = false }: SceneNodeTextProps) {
   const element = node.element;
   const payload = element.payload as TextElementPayload;
   const fontEpoch = useFontAvailabilityEpoch();
@@ -536,6 +538,7 @@ export function SceneNodeText({ node }: SceneNodeTextProps) {
         listening={false}
       />
       <Shape
+        visible={!hideText}
         x={0}
         y={textFrameY}
         width={element.width}

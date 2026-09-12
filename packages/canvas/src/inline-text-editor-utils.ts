@@ -1,4 +1,5 @@
-import type { TextElementPayload, TextVerticalAlign } from '@lumacast/composition';
+import type { RichBody, SlideElement, TextElementPayload } from '@lumacast/composition';
+import { boxStyleFromPayload, normalizeFontFamily, prepareRichLayout } from '@lumacast/composition';
 
 interface MeasureInlineTextHeightInput {
   text: string;
@@ -44,38 +45,34 @@ export function measureInlineTextHeight({ text, width, fontSize, lineHeight, fon
   return Math.max(height, fontSize * lineHeight);
 }
 
-function textLineBleedPadding(fontSize: number, lineHeight: number): number {
-  return Math.max(0, (fontSize - fontSize * lineHeight) / 2);
+export interface TextElementFit {
+  y: number;
+  height: number;
 }
 
-function textOverflowOffset(verticalAlign: TextVerticalAlign, containerHeight: number, textHeight: number): number {
-  if (verticalAlign === 'bottom') return Math.min(0, containerHeight - textHeight);
-  if (verticalAlign === 'middle') return Math.min(0, (containerHeight - textHeight) / 2);
-  return 0;
-}
-
-interface InlineTextVerticalOffsetInput {
-  verticalAlign: TextVerticalAlign;
-  elementHeight: number;
-  fontSize: number;
-  lineHeight: number;
-  autoFitEnabled: boolean;
-  textContentHeight: number;
-}
-
-export function calculateInlineTextVerticalOffset({
-  verticalAlign,
-  elementHeight,
-  fontSize,
-  lineHeight,
-  autoFitEnabled,
-  textContentHeight,
-}: InlineTextVerticalOffsetInput): number {
-  const bleedPadding = textLineBleedPadding(fontSize, lineHeight);
-  const frameContentHeight = autoFitEnabled
-    ? elementHeight
-    : Math.max(elementHeight, textContentHeight);
-  const overflowOffset = textOverflowOffset(verticalAlign, elementHeight, frameContentHeight);
-  const textFrameY = overflowOffset - bleedPadding;
-  return -textFrameY;
+// The smallest box that holds `body` at the element's own font, placed so the
+// text stays exactly where the canvas already draws it while it overflows: a
+// middle-aligned box grows equally up and down, a bottom-aligned box grows
+// upward, a top-aligned box grows downward. Returns null when the text already
+// fits (a box never shrinks below its authored height) and when auto-fit is on
+// (auto-fit shrinks the font to the box, so the box must not chase the text).
+export function fitTextElementToBody(
+  element: Pick<SlideElement, 'y' | 'width' | 'height'>,
+  payload: TextElementPayload,
+  body: RichBody,
+): TextElementFit | null {
+  if (payload.autoFit) return null;
+  const base = boxStyleFromPayload(payload);
+  const box = { ...base, fontFamily: normalizeFontFamily(base.fontFamily || 'sans-serif') };
+  const lineHeight = payload.lineHeight ?? 1.25;
+  const layout = prepareRichLayout({ body, box, width: element.width, lineHeight, align: resolveInlineTextAlign(payload.alignment) });
+  // Same frame the canvas reserves for overflowing text (scene-node-text.tsx):
+  // the taller of the line stack and the glyph stack, so a line-height below 1
+  // still keeps its bleed inside the box.
+  const contentHeight = Math.ceil(Math.max(layout.layoutHeight, layout.contentHeight));
+  if (contentHeight <= element.height) return null;
+  const delta = contentHeight - element.height;
+  const verticalAlign = payload.verticalAlign ?? 'middle';
+  const y = verticalAlign === 'top' ? element.y : verticalAlign === 'bottom' ? element.y - delta : element.y - delta / 2;
+  return { y, height: contentHeight };
 }

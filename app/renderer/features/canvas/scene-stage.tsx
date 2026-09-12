@@ -422,6 +422,7 @@ function EditableSceneStage({
       </div>
       {editor.editingTextId ? (
         <InlineTextEditor
+          key={editor.editingTextId}
           editingTextId={editor.editingTextId}
           effectiveElements={editor.effectiveElements}
           sceneOffsetX={viewport.sceneOffsetX}

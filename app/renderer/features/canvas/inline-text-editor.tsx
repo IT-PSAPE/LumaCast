@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SlideElement, TextElementPayload } from '@lumacast/composition';
 import {
   type RichBody,
@@ -12,16 +12,18 @@ import {
   resolveRangeStyle,
   setListType,
   isRangeCollapsed,
-  normalizeRange,
   type RichPosition,
   type RichRange,
+  normalizeFontFamily,
+  computeAutoFitRichTextFontSize,
+  createCanvasMeasurer,
+  runFontString,
 } from '@lumacast/composition';
 import { Bold, Italic, List, ListOrdered, Strikethrough, Underline } from 'lucide-react';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { ColorPicker } from '@renderer/components/form/color-picker';
 import { FieldInput } from '@renderer/components/form/field';
-import { resolveInlineTextAlign, useFontAvailabilityEpoch, textLineBleedPadding, textOverflowOffset } from '@lumacast/canvas';
-import { normalizeFontFamily, computeAutoFitRichTextFontSize, prepareRichLayout, alignRichLayout, buildBoxWithAutoFit } from '@lumacast/composition';
+import { resolveInlineTextAlign, useFontAvailabilityEpoch, textLineBleedPadding } from '@lumacast/canvas';
 
 interface InlineTextEditorProps {
   editingTextId: string;
@@ -34,54 +36,56 @@ interface InlineTextEditorProps {
   onLiveChange?: (body: RichBody) => void;
 }
 
+// ── How the editor is laid out ───────────────────────────────
+//
+// While an element is being edited the canvas stops drawing its text
+// (scene-node-text.tsx `hideText`) and this contentEditable renders it
+// instead, visibly, with the element's own font, size, color, decorations,
+// case, stroke, and shadow. Text, caret, and selection therefore come from
+// ONE layout engine (the browser's) and always agree with each other. Nothing
+// is measured or cached to position them.
+//
+// The geometry is declarative: a frame div sits exactly on the element bounds
+// (the same box the transformer shows) and is a column flexbox whose
+// `justify-content` is the element's vertical alignment. That single rule
+// reproduces both of the canvas's vertical placements — content shorter than
+// the box is centred/bottom-aligned inside it, and content taller than the
+// box overflows equally above and below (middle), upward (bottom), or
+// downward (top) — which is exactly what the canvas draws once the edit is
+// committed, so nothing shifts on enter or exit.
+
 // ── Model ⇄ contentEditable DOM ──────────────────────────────
 // Runs carry their overrides on data-* attributes so the DOM serializes back to
 // the model exactly; the visible styling is the resolved inline style. Blocks are
 // <div>s; list markers are CSS ::before content (never part of the editable text).
 
-const LIST_STYLE_ID = 'rich-text-editor-list-style';
+const EDITOR_STYLE_ID = 'rich-text-editor-style';
+const SELECTION_HIGHLIGHT = 'rt-editor-selection';
+const SELECTION_COLOR = 'rgba(77,163,255,0.35)';
 
-// Focusing the toolbar's font-size field (a native <input>) discards the
-// browser's document Selection outright — the Range object is gone, not
-// merely unpainted, so no ::selection tweak can recover it. When that happens
-// we paint the tracked model range as a background on the generated markup
-// itself instead of the native selection; see the `rt-highlight` usage below.
-const HIGHLIGHT_CLASS = 'rt-highlight';
-
-function ensureListStyle(): void {
-  if (typeof document === 'undefined' || document.getElementById(LIST_STYLE_ID)) return;
+function ensureEditorStyle(): void {
+  if (typeof document === 'undefined' || document.getElementById(EDITOR_STYLE_ID)) return;
   const style = document.createElement('style');
-  style.id = LIST_STYLE_ID;
+  style.id = EDITOR_STYLE_ID;
   style.textContent = [
-    '.rt-block{min-height:1em;}',
-    '.rt-bullet{padding-left:1.2em;}',
-    '.rt-bullet::before{content:"• ";margin-left:-1.2em;display:inline-block;width:1.2em;}',
-    '.rt-number{padding-left:1.6em;counter-increment:rt-counter;}',
-    '.rt-number::before{content:counter(rt-counter) ". ";margin-left:-1.6em;display:inline-block;width:1.6em;}',
-    // The editor's text is transparent (the canvas is the single render path), so a
-    // solid native selection band would hide the canvas text it sits over. A
-    // translucent highlight lets the real text show through, giving a natural
-    // drag-to-select look across one or many blocks.
-    '.rt-editor::selection{background:rgba(77,163,255,0.35);}',
-    '.rt-editor ::selection{background:rgba(77,163,255,0.35);}',
-    // Same translucent blue, same reason, for the synthetic highlight painted
-    // into the markup when the native selection has been destroyed (see
-    // HIGHLIGHT_CLASS above).
-    `.${HIGHLIGHT_CLASS}{background:rgba(77,163,255,0.35);}`,
-    // When focus returns to the editor, the highlight markup is left in place
-    // rather than stripped by rewriting the DOM (that would destroy the caret
-    // the browser just positioned). Hiding it with a `:focus`-scoped rule
-    // instead means zero DOM mutation happens on refocus. The stale markup is
-    // harmless while hidden: the model round-trip ignores nested spans, and
-    // the next structural edit repaints the markup without a highlight
-    // argument anyway.
-    `.rt-editor:focus .${HIGHLIGHT_CLASS}{background:none;}`,
+    // A list block reserves the marker column the canvas measures for it
+    // (`--rt-marker-w`, in em of the block font, set per block by bodyToHtml)
+    // and hangs the marker into it, so the text starts where the canvas
+    // starts it and wrapped lines indent by the same amount.
+    '.rt-editor [data-marker]{padding-left:var(--rt-marker-w);}',
+    '.rt-editor [data-marker]::before{content:attr(data-marker);display:inline-block;width:var(--rt-marker-w);margin-left:calc(-1 * var(--rt-marker-w));white-space:pre;}',
+    `.rt-editor::selection{background:${SELECTION_COLOR};}`,
+    `.rt-editor ::selection{background:${SELECTION_COLOR};}`,
+    // The same colour, painted through the CSS Custom Highlight API over the
+    // tracked model range while focus is in a toolbar field (focusing a native
+    // <input> discards the document selection). See the highlight effect.
+    `.rt-editor::highlight(${SELECTION_HIGHLIGHT}){background:${SELECTION_COLOR};}`,
   ].join('');
   document.head.appendChild(style);
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function rangesEqual(a: RichRange | null, b: RichRange | null): boolean {
@@ -91,34 +95,37 @@ function rangesEqual(a: RichRange | null, b: RichRange | null): boolean {
     && a.end.block === b.end.block && a.end.offset === b.end.offset;
 }
 
-// Overlap of the run's [runStart, runEnd) character span (in block-text
-// coordinates) with a highlight interval, returned in run-local coordinates.
-// null means no overlap (nothing to paint for this run).
-function overlapInRun(runStart: number, runEnd: number, highlight: readonly [number, number]): [number, number] | null {
-  const [highlightStart, highlightEnd] = highlight;
-  const start = Math.min(Math.max(highlightStart, runStart), runEnd) - runStart;
-  const end = Math.min(Math.max(highlightEnd, runStart), runEnd) - runStart;
-  return end > start ? [start, end] : null;
+function blockLength(block: RichBlock | undefined): number {
+  return block ? block.runs.reduce((sum, run) => sum + run.text.length, 0) : 0;
 }
 
-function runSpanHtml(run: RichRun, box: RichBoxStyle, highlight?: readonly [number, number] | null): string {
+// Same marker text (and numbering) the canvas draws — prepareRichLayout resets
+// the counter on every non-numbered block.
+export function blockMarkers(body: RichBody): (string | undefined)[] {
+  let counter = 0;
+  return body.map((block) => {
+    counter = block.listType === 'number' ? counter + 1 : 0;
+    if (block.listType === 'bullet') return '• ';
+    if (block.listType === 'number') return `${counter}. `;
+    return undefined;
+  });
+}
+
+function runSpanHtml(run: RichRun, box: RichBoxStyle): string {
   const resolved = resolveRun(run, box);
-  // Only weight/style/size affect layout (and thus caret/selection geometry).
-  // Color and decorations are intentionally omitted: the canvas draws the visible
-  // text, and the editor's own text is transparent — this is the single render path.
-  // The visible size is an em ratio to the Box-level size, never absolute px: the
-  // container already carries the auto-fit size × scene scale, so an em ratio
-  // inherits both automatically and the caret geometry stays where the canvas draws.
-  // A run with no override emits no font-size and inherits the container at 1em.
+  // The visible size is an em ratio to the box size, never absolute px: the
+  // container carries the (auto-fit) size × scene scale, so an em ratio
+  // inherits both. A run with no override emits no font-size (1em).
   const styleParts = [
     `font-weight:${resolved.weight}`,
     `font-style:${resolved.italic ? 'italic' : 'normal'}`,
+    `color:${resolved.color}`,
   ];
+  const decorations = [resolved.underline ? 'underline' : '', resolved.strikethrough ? 'line-through' : ''].filter(Boolean);
+  styleParts.push(`text-decoration:${decorations.length > 0 ? decorations.join(' ') : 'none'}`);
   if (run.fontSize !== undefined) {
     // box.fontSize can be 0 or undefined (the persistence layer permits both),
-    // which would make the em ratio Infinity/NaN and silently drop the span's
-    // size. Fall back to an absolute px size so the caret/selection geometry
-    // still lands where the canvas draws.
+    // which would make the em ratio Infinity/NaN; fall back to absolute px.
     if (box.fontSize && Number.isFinite(box.fontSize)) {
       const ratio = resolved.fontSize / box.fontSize;
       if (Number.isFinite(ratio)) styleParts.push(`font-size:${ratio}em`);
@@ -126,7 +133,6 @@ function runSpanHtml(run: RichRun, box: RichBoxStyle, highlight?: readonly [numb
       styleParts.push(`font-size:${resolved.fontSize}px`);
     }
   }
-  const style = styleParts.join(';');
   const data: string[] = [];
   if (run.color !== undefined) data.push(`data-c="${escapeHtml(run.color)}"`);
   if (run.weight !== undefined) data.push(`data-w="${run.weight}"`);
@@ -134,46 +140,36 @@ function runSpanHtml(run: RichRun, box: RichBoxStyle, highlight?: readonly [numb
   if (run.underline !== undefined) data.push(`data-u="${run.underline ? 1 : 0}"`);
   if (run.strikethrough !== undefined) data.push(`data-s="${run.strikethrough ? 1 : 0}"`);
   if (run.fontSize !== undefined) data.push(`data-fs="${run.fontSize}"`);
-  // The highlight is a SPAN nested inside the run's own span, wrapping only the
-  // highlighted character slice. `collectRuns` (below) never recurses into a
-  // SPAN — it reads the outer span's textContent (which includes the nested
-  // span's text) and its own data-* attributes, then returns. So this nested
-  // span is invisible to the model round-trip: it cannot add, drop, or
-  // reattribute a single character.
-  const text = run.text;
-  const inner = highlight
-    ? `${escapeHtml(text.slice(0, highlight[0]))}<span class="${HIGHLIGHT_CLASS}">${escapeHtml(text.slice(highlight[0], highlight[1]))}</span>${escapeHtml(text.slice(highlight[1]))}`
-    : escapeHtml(text);
-  return `<span style="${style}" ${data.join(' ')}>${inner}</span>`;
+  const attrs = [`style="${styleParts.join(';')}"`, ...data].join(' ');
+  return `<span ${attrs}>${escapeHtml(run.text)}</span>`;
 }
 
-// `highlightRange` is optional, in model (block, offset) coordinates. When
-// given (and non-collapsed) it is painted as a translucent background nested
-// inside the run span(s) it covers — see runSpanHtml / overlapInRun above.
-export function bodyToHtml(body: RichBody, box: RichBoxStyle, highlightRange?: RichRange | null): string {
-  const highlight = highlightRange && !isRangeCollapsed(highlightRange) ? normalizeRange(highlightRange) : null;
+export interface BodyToHtmlOptions {
+  // Width of a list marker in em of the box font. The component measures it
+  // with the same canvas measurer the renderer uses; tests may omit it.
+  markerWidthEm?: (marker: string) => number;
+}
+
+function estimateMarkerWidthEm(marker: string): number {
+  return marker.length * 0.55;
+}
+
+export function bodyToHtml(body: RichBody, box: RichBoxStyle, options?: BodyToHtmlOptions | null): string {
+  const markerWidthEm = options?.markerWidthEm ?? estimateMarkerWidthEm;
+  const markers = blockMarkers(body);
   return body
     .map((block, blockIndex) => {
       const classes = ['rt-block'];
       if (block.listType === 'bullet') classes.push('rt-bullet');
       if (block.listType === 'number') classes.push('rt-number');
-      const blockLength = block.runs.reduce((sum, run) => sum + run.text.length, 0);
-      const blockHighlight: [number, number] | null = highlight && blockIndex >= highlight.start.block && blockIndex <= highlight.end.block
-        ? [
-            blockIndex === highlight.start.block ? Math.max(0, Math.min(highlight.start.offset, blockLength)) : 0,
-            blockIndex === highlight.end.block ? Math.max(0, Math.min(highlight.end.offset, blockLength)) : blockLength,
-          ]
-        : null;
-      let pos = 0;
+      const marker = markers[blockIndex];
+      const markerAttrs = marker
+        ? ` data-marker="${escapeHtml(marker)}" style="--rt-marker-w:${markerWidthEm(marker)}em"`
+        : '';
       const inner = block.runs.some((run) => run.text.length > 0)
-        ? block.runs.map((run) => {
-            const runStart = pos;
-            pos += run.text.length;
-            const runHighlight = blockHighlight ? overlapInRun(runStart, pos, blockHighlight) : null;
-            return runSpanHtml(run, box, runHighlight);
-          }).join('')
+        ? block.runs.map((run) => runSpanHtml(run, box)).join('')
         : '<br>';
-      return `<div class="${classes.join(' ')}" data-block>${inner}</div>`;
+      return `<div class="${classes.join(' ')}" data-block${markerAttrs}>${inner}</div>`;
     })
     .join('');
 }
@@ -230,8 +226,18 @@ export function domToBody(root: HTMLElement): RichBody {
   return blocks.length > 0 ? blocks : [{ runs: [{ text: '' }], indent: 0 }];
 }
 
-// Caret (block, offset) ⇄ DOM, using Range.toString() length so ::before markers
-// and element/text containers are all handled by the browser's own counting.
+// The browser merges/removes blocks on Backspace, Delete, cut, and typing over
+// a multi-block selection. Those need a structural re-render (markers
+// renumber, the DOM is normalized); plain typing must not touch the DOM.
+export function blockStructureChanged(previous: RichBody, next: RichBody): boolean {
+  if (previous.length !== next.length) return true;
+  return previous.some((block, index) => block.listType !== next[index].listType || block.indent !== next[index].indent);
+}
+
+// ── Caret (block, offset) ⇄ DOM ──────────────────────────────
+// Uses Range.toString() length so ::before markers and element/text containers
+// are all handled by the browser's own counting.
+
 function blockIndexOf(root: HTMLElement, container: Node): number {
   let el: Node | null = container.nodeType === Node.TEXT_NODE ? container.parentNode : container;
   while (el && el.parentNode !== root) el = el.parentNode;
@@ -252,10 +258,7 @@ function positionOf(root: HTMLElement, container: Node, offset: number): RichPos
   return { block: blockIndex, offset: range.toString().length };
 }
 
-function readRange(root: HTMLElement): RichRange | null {
-  const selection = window.getSelection();
-  if (!selection || selection.rangeCount === 0) return null;
-  const domRange = selection.getRangeAt(0);
+export function richRangeFromDom(root: HTMLElement, domRange: Range): RichRange | null {
   if (!root.contains(domRange.startContainer) || !root.contains(domRange.endContainer)) return null;
   return {
     start: positionOf(root, domRange.startContainer, domRange.startOffset),
@@ -263,50 +266,60 @@ function readRange(root: HTMLElement): RichRange | null {
   };
 }
 
-function placeCaret(root: HTMLElement, position: RichPosition): void {
+function readRange(root: HTMLElement): RichRange | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  return richRangeFromDom(root, selection.getRangeAt(0));
+}
+
+interface DomPoint {
+  node: Node;
+  offset: number;
+}
+
+function domPointOf(root: HTMLElement, position: RichPosition): DomPoint | null {
   const blockEl = root.children[position.block] as HTMLElement | undefined;
-  if (!blockEl) return;
+  if (!blockEl) return null;
   const walker = document.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
   let remaining = position.offset;
   let lastText: Text | null = null;
   let node = walker.nextNode() as Text | null;
-  const selection = window.getSelection();
-  if (!selection) return;
-  const range = document.createRange();
   while (node) {
     lastText = node;
     const length = node.textContent?.length ?? 0;
-    if (remaining <= length) {
-      range.setStart(node, remaining);
-      range.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return;
-    }
+    if (remaining <= length) return { node, offset: remaining };
     remaining -= length;
     node = walker.nextNode() as Text | null;
   }
-  if (lastText) range.setStart(lastText, lastText.textContent?.length ?? 0);
-  else range.setStart(blockEl, 0);
-  range.collapse(true);
-  selection.removeAllRanges();
-  selection.addRange(range);
+  if (lastText) return { node: lastText, offset: lastText.textContent?.length ?? 0 };
+  return { node: blockEl, offset: 0 };
+}
+
+export function domRangeFromRich(root: HTMLElement, richRange: RichRange): Range | null {
+  const start = domPointOf(root, richRange.start);
+  const end = domPointOf(root, richRange.end);
+  if (!start || !end) return null;
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, end.offset);
+  if (range.collapsed && !(richRange.start.block === richRange.end.block && richRange.start.offset === richRange.end.offset)) {
+    // start came after end in DOM order: setEnd collapsed the range. Rebuild reversed.
+    range.setStart(end.node, end.offset);
+    range.setEnd(start.node, start.offset);
+  }
+  return range;
 }
 
 function placeRange(root: HTMLElement, richRange: RichRange): void {
   const selection = window.getSelection();
-  if (!selection) return;
-  placeCaret(root, richRange.start);
-  const startRange = selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
-  placeCaret(root, richRange.end);
-  const endRange = selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
-  if (startRange && endRange) {
-    const range = document.createRange();
-    range.setStart(startRange.startContainer, startRange.startOffset);
-    range.setEnd(endRange.startContainer, endRange.startOffset);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
+  const range = domRangeFromRich(root, richRange);
+  if (!selection || !range) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function placeCaret(root: HTMLElement, position: RichPosition): void {
+  placeRange(root, { start: position, end: position });
 }
 
 // Split the caret's block into two blocks for Enter.
@@ -338,21 +351,92 @@ function splitBlockAt(body: RichBody, position: RichPosition): RichBody {
   return result;
 }
 
+// ── Element → DOM styling ────────────────────────────────────
+
+const markerMeasurer = createCanvasMeasurer();
+
+function initialBodyFor(payload: TextElementPayload | null): RichBody {
+  if (!payload) return [{ runs: [{ text: '' }], indent: 0 }];
+  return payload.format === 'rich' && payload.richBody && payload.richBody.length > 0
+    ? payload.richBody
+    : synthesizePlain(payload);
+}
+
+// Largest size any run resolves to, in em of the box size. Only used for the
+// line-height < 1 bleed below, where the canvas nudges top/bottom-aligned text
+// outward by half the glyph overshoot so it stays inside the element bounds.
+function bodyMaxFontSizeEm(body: RichBody, box: RichBoxStyle): number {
+  let max = 1;
+  if (!box.fontSize || !Number.isFinite(box.fontSize)) return max;
+  for (const block of body) {
+    for (const run of block.runs) {
+      if (run.fontSize !== undefined && Number.isFinite(run.fontSize)) max = Math.max(max, run.fontSize / box.fontSize);
+    }
+  }
+  return max;
+}
+
+function textStrokeStyle(payload: TextElementPayload, scale: number): React.CSSProperties {
+  const width = payload.textStrokeWidth ?? 0;
+  if (!payload.textStrokeEnabled || width <= 0) return {};
+  const color = payload.textStrokeColor ?? '#111111';
+  const position = payload.textStrokePosition ?? 'outside';
+  // The canvas draws an outside stroke at twice the width underneath the fill;
+  // paint-order reproduces that. Center and inside strokes both draw over the
+  // fill at the authored width (CSS cannot clip a stroke to the glyph interior;
+  // an inside stroke therefore reads a hair thinner while editing).
+  return position === 'outside'
+    ? { WebkitTextStroke: `${width * 2 * scale}px ${color}`, paintOrder: 'stroke fill' }
+    : { WebkitTextStroke: `${width * scale}px ${color}` };
+}
+
+function textShadowStyle(payload: TextElementPayload, scale: number): React.CSSProperties {
+  if (!payload.textShadowEnabled) return {};
+  const x = (payload.textShadowOffsetX ?? 0) * scale;
+  const y = (payload.textShadowOffsetY ?? 0) * scale;
+  const blur = (payload.textShadowBlur ?? 0) * scale;
+  return { textShadow: `${x}px ${y}px ${blur}px ${payload.textShadowColor ?? '#000000'}` };
+}
+
+// Same transform order as the Konva Group (scene-node.tsx / sceneNodeFrame):
+// offset for a flip, then scale, then rotate, all about the element origin.
+function frameTransform(element: SlideElement, payload: TextElementPayload, width: number, height: number): string | undefined {
+  const parts: string[] = [];
+  if (element.rotation) parts.push(`rotate(${element.rotation}deg)`);
+  const flipX = payload.flipX ? -1 : 1;
+  const flipY = payload.flipY ? -1 : 1;
+  if (flipX < 0 || flipY < 0) {
+    parts.push(`scale(${flipX}, ${flipY})`);
+    parts.push(`translate(${flipX < 0 ? -width : 0}px, ${flipY < 0 ? -height : 0}px)`);
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
+const JUSTIFY_FOR_VERTICAL_ALIGN = { top: 'flex-start', middle: 'center', bottom: 'flex-end' } as const;
+
+function highlightRegistry(): HighlightRegistry | null {
+  if (typeof CSS === 'undefined' || typeof Highlight === 'undefined') return null;
+  return CSS.highlights ?? null;
+}
+
 export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffsetX, sceneOffsetY, sceneScale, onCommit, onCancel, onLiveChange }: InlineTextEditorProps) {
+  const frameRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const bodyRef = useRef<RichBody>([]);
   const composingRef = useRef(false);
   const committedRef = useRef(false);
   const [range, setRange] = useState<RichRange | null>(null);
-  const [version, setVersion] = useState(0);
   const fontEpoch = useFontAvailabilityEpoch();
-  // Whether the contentEditable host itself currently has DOM focus — the
-  // signal that drives the synthetic highlight below. Deliberately independent
-  // of the blur-guard/commit logic in handleBlur (which decides whether the
-  // editor stays open), since the highlight needs to react to every focus
-  // change, including ones the guard swallows.
+  // Whether the contentEditable host itself currently has DOM focus — drives
+  // the highlight painted while a toolbar field holds focus. Independent of
+  // the blur-guard/commit logic in handleBlur (which decides whether the
+  // editor stays open).
   const [editorHasFocus, setEditorHasFocus] = useState(false);
+  // How far the rendered text starts above the frame's top edge (negative
+  // while content overflows upward), read from the DOM so the toolbar can sit
+  // above the text rather than over its first line. Not part of the text
+  // geometry itself — that is pure CSS (see the frame's flex rule).
+  const [textOverflowTop, setTextOverflowTop] = useState(0);
   // Draft text for the font-size field. `null` means "not editing" — the field
   // shows the resolved selection value. While focused it holds the raw text the
   // user is typing, and is only committed on Enter/blur when it changed.
@@ -368,102 +452,128 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
   const payload = element?.type === 'text' ? (element.payload as unknown as TextElementPayload) : null;
   const isBound = Boolean(payload?.binding);
 
+  // The body lives in state (render-time derivations: auto-fit size, toolbar
+  // state) and in a ref (synchronous reads inside event handlers). Both are
+  // always written together, through setBody/renderBody only.
+  const [body, setBodyState] = useState<RichBody>(() => initialBodyFor(payload));
+  const bodyRef = useRef<RichBody>(body);
+  const setBody = useCallback((next: RichBody) => {
+    bodyRef.current = next;
+    setBodyState(next);
+  }, []);
+
   const box = useMemo<RichBoxStyle>(() => {
     const base = payload ? boxStyleFromPayload(payload) : ({} as RichBoxStyle);
     return { ...base, fontFamily: normalizeFontFamily(base.fontFamily || 'sans-serif') };
   }, [payload]);
 
-  const setBody = useCallback((next: RichBody) => {
-    bodyRef.current = next;
-  }, []);
+  // Marker widths in em of the box font, from the same canvas measurer the
+  // renderer wraps with, so a list block's text starts where the canvas starts it.
+  const markerWidthEm = useCallback((marker: string) => {
+    if (!box.fontSize || !Number.isFinite(box.fontSize)) return estimateMarkerWidthEm(marker);
+    const width = markerMeasurer(marker, runFontString(box)) / box.fontSize;
+    return Number.isFinite(width) && width > 0 ? width : estimateMarkerWidthEm(marker);
+  }, [box]);
 
   // Re-render the DOM from the model and restore the caret. Used for structural
-  // edits (style apply, list toggle, Enter) — NOT for plain typing.
+  // edits (style apply, list toggle, Enter, block merges) — NOT for plain typing.
   const renderBody = useCallback((next: RichBody, caret: RichRange | null) => {
     const root = editorRef.current;
     if (!root) return;
     setBody(next);
-    root.innerHTML = bodyToHtml(next, box);
-    // Only restore the DOM selection when the editor itself currently holds
-    // DOM focus. `Selection.addRange` targeting a node inside a
-    // contentEditable implicitly moves focus there — even away from an
-    // unrelated focused <input> — so restoring unconditionally would yank
-    // focus back onto the editor whenever a toolbar control (the font-size
-    // field, the color picker popover) drives an edit while the editor is
-    // unfocused. That focus theft is what broke click-outside-to-commit: it
-    // fires even mid-flight inside the stealing input's own blur handler, so
-    // the editor's blur (the only handler that used to reach `commit()`)
-    // never got a chance to run. When the editor isn't focused, `caret` lives
-    // only in the `range` React state (see `syncRange`), and the synthetic
-    // highlight below is what the user sees instead of a native caret.
+    root.innerHTML = bodyToHtml(next, box, { markerWidthEm });
+    // Only restore the DOM selection when the editor itself holds DOM focus:
+    // `Selection.addRange` into a contentEditable moves focus there, which
+    // would yank focus off a toolbar field driving this edit and defeat
+    // click-outside-to-commit. When the editor isn't focused the caret lives
+    // in the `range` state and the highlight effect paints it.
     if (caret && document.activeElement === root) placeRange(root, caret);
     onLiveChange?.(next);
-    setVersion((value) => value + 1);
-  }, [box, setBody, onLiveChange]);
-
-  // Mount: seed the draft from the model and focus.
-  useEffect(() => {
-    const root = editorRef.current;
-    if (!root || !payload) return;
-    ensureListStyle();
-    const initial = payload.format === 'rich' && payload.richBody && payload.richBody.length > 0
-      ? payload.richBody
-      : synthesizePlain(payload);
-    setBody(initial);
-    committedRef.current = false;
-    root.innerHTML = bodyToHtml(initial, box);
-    requestAnimationFrame(() => {
-      root.focus();
-      const selection = window.getSelection();
-      if (selection) selection.selectAllChildren(root);
-      setRange(readRange(root));
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingTextId]);
+  }, [box, markerWidthEm, setBody, onLiveChange]);
 
   const syncRange = useCallback(() => {
     const root = editorRef.current;
     if (!root) return;
-    // Reading the DOM selection comes back empty (not stale) while focus is
-    // elsewhere — the font-size field or the color popover. Since
-    // `renderBody` now skips restoring the DOM selection in that case (see
-    // above), preserve the last tracked range instead of clobbering it to
-    // null: it is exactly the value `applyToggle`/`applyListSet` need for a
-    // second toolbar-driven edit (another arrow-key step, another color
-    // change) without the user clicking back into the editor first.
+    // The DOM selection is elsewhere (a toolbar field) rather than stale when
+    // this returns null; keep the last tracked range so a second toolbar-driven
+    // edit still has its target.
     const next = readRange(root);
-    if (next) setRange(next);
+    if (next) setRange((current) => (rangesEqual(current, next) ? current : next));
   }, []);
+
+  // Mount: paint the model into the DOM, focus, select all.
+  useEffect(() => {
+    const root = editorRef.current;
+    if (!root || !payload) return;
+    ensureEditorStyle();
+    committedRef.current = false;
+    root.innerHTML = bodyToHtml(bodyRef.current, box, { markerWidthEm });
+    const focusAndSelect = () => {
+      root.focus();
+      const selection = window.getSelection();
+      if (selection) selection.selectAllChildren(root);
+      syncRange();
+    };
+    if (typeof requestAnimationFrame !== 'function') {
+      focusAndSelect();
+      return;
+    }
+    const frame = requestAnimationFrame(focusAndSelect);
+    return () => cancelAnimationFrame(frame);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingTextId]);
+
+  // The document's own selection event covers keyboard, mouse (including drags
+  // that end outside the editor), and programmatic changes alike.
+  useEffect(() => {
+    document.addEventListener('selectionchange', syncRange);
+    return () => document.removeEventListener('selectionchange', syncRange);
+  }, [syncRange]);
 
   const handleFocus = useCallback(() => setEditorHasFocus(true), []);
 
-  // Paint the synthetic highlight only while the editor does NOT have DOM
-  // focus (the toolbar's font-size field or the color popover stole it).
-  // While focused, the native Selection is the only highlight (::selection in
-  // the injected stylesheet) — this effect must not touch the DOM in that
-  // case at all, or it would stomp the caret the browser just placed there.
-  // Any stale highlight markup left over from before is inert: hidden by the
-  // `:focus`-scoped CSS rule above, and replaced outright on the next
-  // structural edit since `renderBody` always paints without a highlight
-  // argument. Re-runs whenever `version` bumps (a structural edit reassigned
-  // innerHTML — the existing invalidation signal, reused rather than adding a
-  // competing one), `range` changes, or focus is lost.
+  useLayoutEffect(() => {
+    const root = editorRef.current;
+    if (!root) return;
+    const measure = () => setTextOverflowTop(Math.min(0, root.offsetTop));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [element?.height, sceneScale]);
+
+  // While a toolbar field holds focus the document selection is gone, so paint
+  // the tracked range through the CSS Custom Highlight API: the browser draws
+  // it at the true glyph positions and no DOM node is touched. Cleared as soon
+  // as the editor is focused again (the native selection takes over).
   useEffect(() => {
     const root = editorRef.current;
-    if (!root || editorHasFocus) return;
-    if (!range || isRangeCollapsed(range)) return;
-    root.innerHTML = bodyToHtml(bodyRef.current, box, range);
-  }, [version, editorHasFocus, range, box]);
+    const registry = highlightRegistry();
+    if (!root || !registry) return;
+    if (editorHasFocus || !range || isRangeCollapsed(range)) {
+      registry.delete(SELECTION_HIGHLIGHT);
+      return;
+    }
+    const domRange = domRangeFromRich(root, range);
+    if (!domRange) return;
+    registry.set(SELECTION_HIGHLIGHT, new Highlight(domRange));
+    return () => { registry.delete(SELECTION_HIGHLIGHT); };
+  }, [editorHasFocus, range, body]);
 
   const handleInput = useCallback(() => {
     if (composingRef.current) return;
     const root = editorRef.current;
     if (!root) return;
     const next = domToBody(root);
-    setBody(next);
-    onLiveChange?.(next);
+    if (blockStructureChanged(bodyRef.current, next)) {
+      renderBody(next, readRange(root));
+    } else {
+      setBody(next);
+      onLiveChange?.(next);
+    }
     syncRange();
-  }, [setBody, onLiveChange, syncRange]);
+  }, [renderBody, setBody, onLiveChange, syncRange]);
 
   const commit = useCallback(() => {
     if (committedRef.current) return;
@@ -472,9 +582,9 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
   }, [onCommit]);
 
   // A blur caused by interacting with the toolbar or its (portaled) ColorPicker
-  // popover must not commit/close the editor. The container's onMouseDown
-  // preventDefault covers in-toolbar buttons, but the popover panel is rendered
-  // in a portal outside it, so detect that case here and keep the editor open.
+  // popover must not commit/close the editor. The toolbar's onMouseDown
+  // preventDefault covers its buttons, but the popover panel is rendered in a
+  // portal outside it, so detect that case here and keep the editor open.
   const handleBlur = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
     setEditorHasFocus(false);
     const next = event.relatedTarget as HTMLElement | null;
@@ -484,6 +594,21 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     commit();
   }, [commit]);
 
+  // A click on the frame beside the text (above or below it when the text is
+  // shorter than the box) is a click in the box, not outside it: keep focus in
+  // the editor and put the caret at the nearest end, as a document margin does.
+  const handleFrameMouseDown = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const root = editorRef.current;
+    if (!root || event.target !== event.currentTarget) return;
+    event.preventDefault();
+    const rect = root.getBoundingClientRect();
+    const atStart = event.clientY < rect.top;
+    root.focus();
+    const current = bodyRef.current;
+    const lastIndex = current.length - 1;
+    placeCaret(root, atStart ? { block: 0, offset: 0 } : { block: lastIndex, offset: blockLength(current[lastIndex]) });
+    syncRange();
+  }, [syncRange]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {
@@ -567,28 +692,16 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
   }, [applyFontSize, range]);
 
   // Click-outside-to-commit. `handleBlur` only fires when DOM focus actually
-  // moves to another focusable element, and with the `renderBody` focus steal
-  // fixed a toolbar-driven edit no longer yanks focus back onto the editor mid
-  // click — so a genuine outside click needs its own detector.
-  //
-  // Declared here, after `commitFontSizeDraft`, because ORDER MATTERS:
-  // `pointerdown` fires BEFORE the focus change that blurs the size field, so
-  // committing straight away would persist the body as it was and drop a size
-  // the user had typed but not yet confirmed with Enter. Flush the field's
-  // pending draft into the body first, then commit — that is the whole reason
-  // this is not a plain click-outside hook.
-  //
-  // The "inside" set mirrors `handleBlur`'s exactly (editor host, toolbar, any
-  // portaled popover content). `useClickOutside`
-  // (app/renderer/components/overlays/overlay-primitives.tsx) is importable
-  // here — features may depend on shared overlays, only the reverse is barred —
-  // but its handler receives no event, so it cannot exclude a dynamically
-  // portaled `[data-popover-content]` node. Hence the local listener.
+  // moves to another focusable element, so a genuine outside click needs its
+  // own detector. `pointerdown` fires BEFORE the focus change that blurs the
+  // size field, so the field's pending draft is flushed into the body first,
+  // then the body is committed. The "inside" set mirrors `handleBlur`'s: the
+  // frame (which contains the editor), the toolbar, any portaled popover.
   useEffect(() => {
     function handlePointerDown(event: PointerEvent) {
       const target = event.target as Node | null;
       if (!target) return;
-      if (editorRef.current?.contains(target)) return;
+      if (frameRef.current?.contains(target)) return;
       if (toolbarRef.current?.contains(target)) return;
       if (target instanceof Element && target.closest('[data-popover-content]')) return;
       commitFontSizeDraft();
@@ -598,11 +711,7 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     return () => document.removeEventListener('pointerdown', handlePointerDown);
   }, [commit, commitFontSizeDraft]);
 
-  const rangeStyle = useMemo(() => {
-    if (!range) return null;
-    return resolveRangeStyle(bodyRef.current, range, box);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range, box, version]);
+  const rangeStyle = useMemo(() => (range ? resolveRangeStyle(body, range, box) : null), [range, body, box]);
 
   // The display value is rounded (a size is an integer px on the canvas); a
   // fractional box size therefore shows a rounded number. We only compare the
@@ -613,20 +722,18 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
     ? ''
     : String(Math.round(resolvedSize));
 
-  // lineHeight/baseFontSize must be computed before the early return below
-  // (every hook must run on every render), so both are null-safe: `element`/
-  // `payload` can be absent on the render where the editing target has just
-  // disappeared, and the resulting value is never read in that case since the
-  // component returns null right after. baseFontSize is UNSCALED (element
-  // units, matching scene-node-text.tsx's own `fontSize`) — the DOM font-size
-  // below and the rich-layout math further down both derive from it, scaled
-  // only where a screen px is actually needed.
+  // Everything below is null-safe because every hook must run on every render:
+  // `element`/`payload` can be absent on the render where the editing target
+  // has just disappeared, and the component returns null right after.
   const lineHeight = payload?.lineHeight ?? 1.25;
+  // UNSCALED element units (matching scene-node-text.tsx's own `fontSize`).
+  // With auto-fit this is the size the canvas will draw the committed text at,
+  // recomputed from the live body on every change.
   const baseFontSize = useMemo(() => {
     if (!element || !payload) return 0;
     return payload.autoFit
       ? computeAutoFitRichTextFontSize({
-          body: bodyRef.current,
+          body,
           box,
           width: element.width,
           height: element.height,
@@ -634,68 +741,23 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
           maxFontSize: payload.autoFitMaxFontSize ?? payload.fontSize,
         })
       : payload.fontSize;
-  }, [payload?.autoFit, payload?.autoFitMaxFontSize, payload?.fontSize, payload?.lineHeight, bodyRef, box, element?.width, element?.height, fontEpoch]);
-
-  // Also null-safe for the same reason as baseFontSize above, and computed
-  // once here (rather than after the early return) so both this const block
-  // and the textFrameLayout memo just below can see them.
-  const verticalAlign = payload?.verticalAlign ?? 'middle';
-  const autoFitEnabled = payload?.autoFit ?? false;
-  const textAlign = payload ? resolveInlineTextAlign(payload.alignment) : 'left';
-
-  // Runs the literal same rich-layout math scene-node-text.tsx uses
-  // (packages/canvas/src/scene-node-text.tsx:435-471), in UNSCALED element
-  // units against the same body/box/width/lineHeight/align the editor already
-  // tracks — not an approximation of it via a plain-text DOM measurement.
-  // wrapRuns' binary search plus canvas measureText makes this expensive, so
-  // it's memoized exactly like scene-node-text.tsx memoizes preparedRichContent/
-  // richTextLayout — otherwise it reran as plain consts on every render
-  // (toolbar keystrokes, syncRange on every mouseup/keyup, focus/blur).
-  // bodyRef is a mutable ref React can't see into, so this depends on
-  // `version` instead (bumped whenever the body model changes) — the same
-  // trick rangeStyle uses above.
-  const textFrameLayout = useMemo(() => {
-    if (!element || !payload) return { textFrameY: 0, textFrameHeight: 0, alignY: 0 };
-    const layoutBox = autoFitEnabled ? buildBoxWithAutoFit(box, baseFontSize, box.fontSize) : box;
-    const preparedRichContent = prepareRichLayout({ body: bodyRef.current, box: layoutBox, width: element.width, lineHeight, align: textAlign });
-    const textBleedPadding = textLineBleedPadding(preparedRichContent.maxFontSize, lineHeight);
-    // autoFit locks the frame to the element bounds regardless of the fitted
-    // layout's own height (mirrors scene-node-text.tsx:449-451), so measurement
-    // overshoot at wrap boundaries doesn't briefly expand the box and snap back
-    // while typing.
-    const textFrameContentHeight = autoFitEnabled
-      ? element.height
-      : Math.max(element.height, preparedRichContent.contentHeight, preparedRichContent.layoutHeight);
-    const textFrameY = textOverflowOffset(verticalAlign, element.height, textFrameContentHeight) - textBleedPadding;
-    const textFrameHeight = textFrameContentHeight + textBleedPadding * 2;
-    const { alignY } = alignRichLayout(preparedRichContent, textFrameHeight, verticalAlign);
-    return { textFrameY, textFrameHeight, alignY };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, box, element?.width, element?.height, lineHeight, textAlign, verticalAlign, autoFitEnabled, baseFontSize, fontEpoch]);
+  }, [payload?.autoFit, payload?.autoFitMaxFontSize, payload?.fontSize, lineHeight, body, box, element?.width, element?.height, fontEpoch]);
+  const maxFontSizeEm = useMemo(() => bodyMaxFontSizeEm(body, box), [body, box]);
 
   if (!element || !payload) return null;
 
-  // The input overlay sits exactly on the element bounds (the same box the
-  // transformer shows), so the box never grows-then-snaps between edit and view.
-  // The canvas renders the (possibly overflowing) text; the overlay only captures input.
   const left = sceneOffsetX + element.x * sceneScale;
-  const fontSize = baseFontSize * sceneScale;
-  // Screen px only appear once, in the final left/top/width/height/
-  // contentAlignOffset below — everything above stays in unscaled element units.
-  const { textFrameY, textFrameHeight, alignY } = textFrameLayout;
-
-  const verticalOffset = textFrameY * sceneScale;
-  const top = sceneOffsetY + element.y * sceneScale + verticalOffset;
+  const top = sceneOffsetY + element.y * sceneScale;
   const width = element.width * sceneScale;
-  const height = textFrameHeight * sceneScale;
-  // The frame position above only ever shifts the box for OVERFLOW (content
-  // taller than the box). When content is shorter than the box, the canvas
-  // still centers/bottom-aligns the glyphs *within* the frame (alignRichLayout)
-  // — the DOM has no such intra-frame stage, so the caret falls back to
-  // top-of-box. Reproduce it as padding on the content itself, leaving
-  // top/height (and therefore the toolbar and rotation pivot, which both key
-  // off `top`) untouched.
-  const contentAlignOffset = alignY * sceneScale;
+  const height = element.height * sceneScale;
+  const fontSize = baseFontSize * sceneScale;
+  const verticalAlign = payload.verticalAlign ?? 'middle';
+  const textAlign = resolveInlineTextAlign(payload.alignment);
+  // With line-height < 1 the glyphs overshoot their line boxes; the canvas
+  // shifts top-aligned text up and bottom-aligned text down by that overshoot
+  // (its frame "bleed"), and middle stays put. Mirror it as a negative margin.
+  const bleed = textLineBleedPadding(fontSize * maxFontSizeEm, lineHeight);
 
   const activeFormatting: string[] = [];
   if (rangeStyle?.bold.value && !rangeStyle.bold.mixed) activeFormatting.push('bold');
@@ -719,7 +781,7 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
         <div
           ref={toolbarRef}
           className="absolute z-20 flex items-center gap-1.5 rounded-md border border-primary bg-primary px-1.5 py-1 shadow-lg"
-          style={{ left, top: Math.max(0, top - 46) }}
+          style={{ left, top: Math.max(0, top + textOverflowTop - 46) }}
           onMouseDown={(event) => event.preventDefault()}
         >
           <SegmentedControl label="Text formatting" selectionMode="multiple" value={activeFormatting} onValueChange={handleFormattingToggle}>
@@ -806,60 +868,64 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
         </div>
       ) : null}
       <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        role="textbox"
-        aria-multiline="true"
-        onInput={handleInput}
-        onKeyUp={syncRange}
-        onMouseUp={syncRange}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        onCompositionStart={() => { composingRef.current = true; }}
-        onCompositionEnd={() => { composingRef.current = false; handleInput(); }}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        className="rt-editor absolute z-10 overflow-visible bg-transparent"
+        ref={frameRef}
+        data-testid="inline-text-editor-frame"
+        className="absolute z-10 flex flex-col"
+        onMouseDown={handleFrameMouseDown}
         style={{
           left,
           top,
           width,
-          height: `${height}px`,
-          boxSizing: 'border-box',
-          // A `border` would sit inside the border-box and push the content
-          // origin (top/left of the actual text) a couple px down and right of
-          // `top`/`left` above — exactly what those are computed to align with
-          // the canvas's border-less text Shape. `outline` never participates in
-          // the box model, so the selection-box indicator can't perturb it;
-          // outline-offset:-2px keeps it flush inside the frame edge rather than
-          // straddling it, and this replaces the old `outline-none` reset too
-          // (an explicit outline is always drawn here, not just on :focus).
+          height,
+          justifyContent: JUSTIFY_FOR_VERTICAL_ALIGN[verticalAlign],
+          overflow: 'visible',
+          opacity: element.opacity,
+          // `outline` never participates in the box model, so the selection
+          // indicator cannot shift the text; -2px keeps it inside the frame edge.
           outline: '2px solid #4DA3FF',
           outlineOffset: '-2px',
-          fontSize,
-          lineHeight,
-          fontFamily: box.fontFamily,
-          // The editor's own text is transparent — the canvas is the single render
-          // path. Only the caret is visible (caretColor), and weight/style are kept
-          // so the transparent text lays out where the canvas draws it. Bound text is
-          // the exception: the canvas shows the resolved binding (not the editable
-          // fallback), so keep that text visible to edit.
-          color: isBound ? payload.color : 'transparent',
-          caretColor: payload.color,
-          fontWeight: box.weight,
-          fontStyle: box.italic ? 'italic' : 'normal',
-          textAlign,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          counterReset: 'rt-counter',
-          margin: 0,
-          padding: 0,
-          paddingTop: contentAlignOffset,
-          transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
+          transform: frameTransform(element, payload, width, height),
           transformOrigin: 'top left',
         }}
-      />
+      >
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          spellCheck={false}
+          role="textbox"
+          aria-multiline="true"
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          onCompositionStart={() => { composingRef.current = true; }}
+          onCompositionEnd={() => { composingRef.current = false; handleInput(); }}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          className="rt-editor bg-transparent outline-none"
+          style={{
+            flex: 'none',
+            width: '100%',
+            boxSizing: 'border-box',
+            margin: 0,
+            padding: 0,
+            marginTop: verticalAlign === 'top' && bleed > 0 ? -bleed : undefined,
+            marginBottom: verticalAlign === 'bottom' && bleed > 0 ? -bleed : undefined,
+            fontSize,
+            lineHeight,
+            fontFamily: box.fontFamily,
+            fontWeight: box.weight,
+            fontStyle: box.italic ? 'italic' : 'normal',
+            color: box.color,
+            textAlign,
+            textTransform: payload.caseTransform === 'uppercase' ? 'uppercase' : 'none',
+            whiteSpace: 'pre-wrap',
+            overflowWrap: 'break-word',
+            ...textStrokeStyle(payload, sceneScale),
+            ...textShadowStyle(payload, sceneScale),
+          }}
+        />
+      </div>
     </>
   );
 }

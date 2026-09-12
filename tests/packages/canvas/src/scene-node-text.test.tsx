@@ -16,6 +16,8 @@ vi.mock('react-konva', () => ({
     lastShapeProps = props;
     return null;
   },
+  // Only needed so scene-node-content's media branch can be imported below.
+  Image: () => null,
 }));
 
 vi.mock('@lumacast/composition', async () => {
@@ -31,6 +33,7 @@ vi.mock('../../../../packages/canvas/src/use-font-availability-epoch', () => ({
 }));
 
 import { SceneNodeText } from '../../../../packages/canvas/src/scene-node-text';
+import { renderSceneNodeContent } from '../../../../packages/canvas/src/scene-node-content';
 import { useFontAvailabilityEpoch } from '../../../../packages/canvas/src/use-font-availability-epoch';
 
 const VISUAL: VisualPayloadState = {
@@ -838,5 +841,55 @@ describe('SceneNodeText', () => {
     const runSize = Math.max(...sizes);
     expect(boxSize).toBeLessThan(authored);
     expect(runSize / boxSize).toBeCloseTo(explicit / authored, 5);
+  });
+
+  // While the inline text editor is open it renders this element's text in the
+  // DOM, so the canvas must stop drawing its own copy — but keep drawing the
+  // element's background, which the DOM editor never reproduces.
+  describe('hideText', () => {
+    it('draws the text shape when hideText is not set', () => {
+      const { shapeProps } = renderScene(renderNode());
+      expect(shapeProps.visible).toBe(true);
+    });
+
+    it('draws the text shape when hideText is explicitly false', () => {
+      render(<SceneNodeText node={renderNode()} hideText={false} />);
+      expect(lastShapeProps?.visible).toBe(true);
+    });
+
+    it('hides only the text shape while hideText is set', () => {
+      render(<SceneNodeText node={renderNode()} hideText />);
+
+      expect(lastShapeProps?.visible).toBe(false);
+      // The Shape is still mounted (its geometry and draw callbacks are intact),
+      // so re-showing it costs no relayout.
+      expect(typeof lastShapeProps?.sceneFunc).toBe('function');
+      expect(lastRectProps).not.toBeNull();
+      expect(lastRectProps).toEqual(expect.objectContaining({ name: 'element-bounds', width: 240, height: 100 }));
+    });
+
+    it('renders the background rect identically whether or not the text is hidden', () => {
+      render(<SceneNodeText node={renderNode({ fillEnabled: true, fillColor: '#123456' } as never)} />);
+      const shown = { ...lastRectProps };
+      cleanup();
+
+      render(<SceneNodeText node={renderNode({ fillEnabled: true, fillColor: '#123456' } as never)} hideText />);
+
+      expect({ ...lastRectProps }).toEqual(shown);
+    });
+
+    it('passes hideText through renderSceneNodeContent', () => {
+      render(<>{renderSceneNodeContent(renderNode(), 'deck-editor', { hideText: true })}</>);
+      expect(lastShapeProps?.visible).toBe(false);
+      cleanup();
+
+      render(<>{renderSceneNodeContent(renderNode(), 'deck-editor', { hideText: false })}</>);
+      expect(lastShapeProps?.visible).toBe(true);
+      cleanup();
+
+      // No option at all is the ordinary render path: the canvas owns the text.
+      render(<>{renderSceneNodeContent(renderNode(), 'deck-editor')}</>);
+      expect(lastShapeProps?.visible).toBe(true);
+    });
   });
 });

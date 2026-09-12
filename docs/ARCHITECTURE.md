@@ -96,6 +96,15 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   `useKImage`, adjacent/armed image sources acquire advisory `warmImage`
   handles with T1 grace / T2 priority, and predictable video paints acquire a
   bounded set of dedicated `warmVideoClaim` prerolls plus a shared-layer
+- Inline text editing renders through the DOM (ADR 0032). While an element is
+  being edited, `SceneNodeText` draws only its background (`hideText`) and the
+  editor's `contentEditable` renders the text visibly inside a frame on the
+  element bounds, so text, caret, and selection share one layout engine. The
+  frame's vertical alignment is a flexbox rule that reproduces the canvas's
+  in-box alignment and overflow placement without measuring anything; the
+  auto-fit size is the canvas's own `computeAutoFitRichTextFontSize`. A text
+  box grows around text taller than itself, live and on commit
+  (`fitTextElementToBody`), and never shrinks below its authored height.
   `warmVideoSource` pool. Plan replacement releases abandoned warms instead of
   letting speculative work finish.
 - `PlaybackProvider` publishes dissolve timing and opacity through a separate

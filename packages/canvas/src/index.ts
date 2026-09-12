@@ -19,7 +19,8 @@ export { isEditorWorkbenchMode } from './editor-source';
 export type { ImageHandle, ImageCacheEntry, WarmImageHandle, WarmImageOptions, WarmImageTier } from './image-cache';
 export { warmImage, peekImageEntry, retainImage, getImageCacheStats, subscribeImageCacheStats } from './image-cache';
 
-export { resolveInlineTextAlign, measureInlineTextHeight } from './inline-text-editor-utils';
+export type { TextElementFit } from './inline-text-editor-utils';
+export { resolveInlineTextAlign, measureInlineTextHeight, fitTextElementToBody } from './inline-text-editor-utils';
 
 export { resolveKonvaTextStyle } from './resolve-konva-text-style';
 
