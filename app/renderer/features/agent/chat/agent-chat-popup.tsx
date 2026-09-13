@@ -95,7 +95,7 @@ function Root() {
       data-popover-content="true"
       data-shortcuts-scope="ignore"
       style={{ zIndex }}
-      className="fixed bottom-11 right-3 flex h-160 max-h-[calc(100vh-4.5rem)] w-105 min-w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-lg border border-primary bg-primary shadow-2xl"
+      className="pointer-events-auto fixed bottom-11 right-3 flex h-160 max-h-[calc(100vh-4.5rem)] w-105 min-w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-lg border border-primary bg-primary shadow-2xl"
     >
       <Header />
       {state.view === 'threads' ? (
@@ -451,6 +451,7 @@ function Composer() {
           variant="default"
           onClick={() => {
             actions.close();
+            workbenchActions.setSettingsTab('assistant');
             workbenchActions.setWorkbenchMode('settings');
           }}
         >
@@ -529,6 +530,8 @@ function ModelPicker() {
   const { state, actions } = useAgentChat();
   const [models, setModels] = useState<AgentModelInfo[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const thread = state.activeThread;
   const provider = thread?.provider ?? state.config?.provider ?? null;
   const model = thread?.model ?? state.config?.model ?? null;
@@ -538,28 +541,51 @@ function ModelPicker() {
   useEffect(() => {
     if (!provider) {
       setModels([]);
+      setModelLoadError(null);
       return undefined;
     }
     let cancelled = false;
     setLoadingModels(true);
+    setModelLoadError(null);
     window.castApi.agentListModels({ provider, baseUrl })
-      .then((list) => { if (!cancelled) setModels(list); })
-      .catch(() => { if (!cancelled) setModels([]); })
+      .then((list) => {
+        if (!cancelled) {
+          setModels([...list].sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base', numeric: true })));
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setModels([]);
+          setModelLoadError(error instanceof Error ? error.message : String(error));
+        }
+      })
       .finally(() => { if (!cancelled) setLoadingModels(false); });
     return () => { cancelled = true; };
-  }, [provider, baseUrl]);
+  }, [provider, baseUrl, loadAttempt]);
 
   if (!provider) return null;
 
-  // Mirrors the "Default" menu item's own label: the trigger names the
-  // per-thread override when one is set, and reads literally "Default"
-  // (not the resolved model id) otherwise.
-  const label = isOverride && model ? model : 'Default';
+  const selectedModel = models.find((entry) => entry.id === model);
+  const label = selectedModel?.label ?? model ?? (loadingModels ? 'Loading models…' : 'Model');
 
   // No thread yet (nothing to attach a per-thread override to): show the
   // effective default as plain, non-interactive text.
   if (!thread) {
-    return <span className="self-start px-2 py-1 text-xs text-tertiary">Default</span>;
+    return (
+      <div className="flex items-center gap-2 self-start px-2 py-1 text-xs text-tertiary">
+        {modelLoadError ? (
+          <>
+            <span role="alert" title={modelLoadError} className="text-error">Couldn’t load models.</span>
+            <ReacstButton variant="ghost" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</ReacstButton>
+          </>
+        ) : (
+          <>
+            <span>{label}</span>
+            {selectedModel?.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+          </>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -576,9 +602,19 @@ function ModelPicker() {
         </Dropdown.Item>
         <Dropdown.Separator />
         {loadingModels ? <div className="px-2 py-1.5 text-xs text-tertiary">Loading…</div> : null}
+        {!loadingModels && modelLoadError ? (
+          <div className="flex items-center gap-2 px-2 py-1.5">
+            <span role="alert" title={modelLoadError} className="flex-1 text-xs text-error">Couldn’t load models.</span>
+            <ReacstButton variant="ghost" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</ReacstButton>
+          </div>
+        ) : null}
+        {!loadingModels && !modelLoadError && models.length === 0 ? (
+          <div className="px-2 py-1.5 text-xs text-tertiary">No models available.</div>
+        ) : null}
         {models.map((entry) => (
           <Dropdown.Item key={entry.id} onClick={() => void actions.setThreadModel(thread.id, provider, entry.id)}>
             <span className="flex-1 truncate">{entry.label}</span>
+            {entry.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
             {isOverride && model === entry.id ? <Check size={14} /> : null}
           </Dropdown.Item>
         ))}
