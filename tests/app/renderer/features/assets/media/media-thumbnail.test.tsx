@@ -72,6 +72,23 @@ describe('MediaThumbnail derivative rendering', () => {
     expect(image.className).not.toContain('object-cover');
   });
 
+  it('fits an image inside the tile without cropping and leaves the checkerboard visible behind it', () => {
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
+    const tallImage: MediaAsset = { ...videoAsset(), id: 'image-1', name: 'Portrait', type: 'image', width: 300, height: 900, duration: null, codec: null };
+    vi.mocked(useMediaDerivative).mockReturnValue({
+      asset: { ...tallImage, thumbnailSrc: 'managed://thumb-2' },
+      displaySrc: 'managed://thumb-2',
+      status: 'ready',
+    });
+
+    render(<MediaThumbnail asset={tallImage} />);
+
+    const image = screen.getByRole('img');
+    expect(image.className).toContain('object-contain');
+    expect(image.className).not.toContain('object-cover');
+    expect(image.className).not.toContain('bg-black');
+  });
+
   it('shows the explicit missing-source state when derivative generation fails', () => {
     vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver);
     vi.mocked(useMediaDerivative).mockReturnValue({

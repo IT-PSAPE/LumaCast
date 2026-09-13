@@ -67,7 +67,7 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
           draggable={false}
           crossOrigin="anonymous"
           onError={() => setBrokenSrc(displaySrc)}
-          className={`absolute inset-0 h-full w-full ${resolvedAsset.type === 'video' ? 'object-contain bg-black' : 'object-cover'}`}
+          className={`absolute inset-0 h-full w-full object-contain${resolvedAsset.type === 'video' ? ' bg-black' : ''}`}
         />
       )}
       {!showMissingSource && !displaySrc && (resolvedAsset.type === 'video' || resolvedAsset.type === 'image') && (
