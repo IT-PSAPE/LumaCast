@@ -136,6 +136,18 @@ imports Base UI directly. Overlays portal into `#overlay-root`, carry the
 click-outside guards rely on, and register with the workbench overlay stack
 while open.
 
+Renderer composition follows the same named-part model (ADR 0036). A visual
+state owns its markup locally, and a screen or feature composes the concrete
+parts explicitly where they render. Unique empty, loading, toolbar, tab,
+collection, and variant states are not represented as one-use `ReactNode`
+arrays or configuration registries elsewhere in the module. One-use UI values
+stay inline; a constant, provider, or shared hook is warranted only by actual
+reuse, domain meaning, or state that must coordinate distant consumers.
+Necessary control-flow guards remain direct code rather than being disguised
+as generic conditional-rendering helpers. A shared primitive may normalize its
+explicit child parts into metadata required by the underlying UI library; callers
+still compose the visible parts directly.
+
 ## 5a. Design Tokens
 
 `app/renderer/theme.css` holds the whole colour system in two tiers. The

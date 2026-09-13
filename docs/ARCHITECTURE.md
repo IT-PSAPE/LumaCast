@@ -22,6 +22,16 @@ shrink.
   imports no Electron, main-process, or database code.
 - `app/renderer/components`, `utils`, and `types` are UI/rendering primitives
   and import no feature implementations.
+- Renderer UI is composed declaratively from named components. Shared and
+  feature-owned primitives expose compound parts where a visual structure has
+  meaningful slots (`Tabs.*`, `EmptyState.*`, `Section.*`, `Thumbnail.*`), and
+  screens list those parts explicitly at the point of use. A visual state and
+  its markup stay in the component that owns that state; unique UI is not
+  hidden behind one-use React-node arrays, configuration registries, or remote
+  aliases. Values are lifted only when they are reused or carry shared domain
+  meaning. Control-flow guards remain appropriate for validation, events,
+  async work, algorithms, exhaustive domain dispatch, and rendering hot paths
+  (ADR 0036).
 - Features (`app/renderer/features/*`) have no cross-feature imports except
   directed, documented public edges; bidirectional feature dependencies must be
   removed, never allow-listed. Features import no screens or application shell
