@@ -1,5 +1,7 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type IpcMainInvokeEvent, type MessagePortMain } from 'electron';
-import { MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, validateProjectBackupAsync } from '@lumacast/protocol';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, safeStorage, shell, type IpcMainInvokeEvent, type MessagePortMain } from 'electron';
+import { randomBytes } from 'node:crypto';
+import { basename, join } from 'node:path';
+import { AGENT_EVENTS, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, matrixForTier, validateProjectBackupAsync } from '@lumacast/protocol';
 import {
   IPC,
   NDI_AUDIO_TRANSPORT_PORT_CHANNEL,
@@ -18,6 +20,7 @@ import {
   type RpcOperations,
 } from '@lumacast/protocol';
 import type { AppMenuState } from '@lumacast/commands';
+import { createId, nowIso } from '@lumacast/kernel';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
 import type { PlaybackSchedule } from '@lumacast/automation';
@@ -27,13 +30,19 @@ import type {
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ItemListInput,
+  ItemGetInput,
   MacroCreateInput,
   MacroUpdateInput,
   MediaAssetCreateInput,
+  MediaAssetListInput,
   OverlayCreateInput,
   OverlayUpdateInput,
+  PlaylistGetInput,
+  SearchContentInput,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
+  SlideGetInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
   SlideTagAssignInput,
@@ -42,6 +51,7 @@ import type {
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
+  ThemeListInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
 } from '@lumacast/protocol';
@@ -66,14 +76,20 @@ import {
   decodeMacroCreateInput,
   decodeMacroUpdateInput,
   decodeMediaAssetCreateInput,
+  decodeMediaAssetListInput,
   sanitizeNdiFrameTelemetry,
   decodeNdiOutputConfigInput,
   decodeNdiOutputName,
   decodeOverlayCreateInput,
   decodeOverlayUpdateInput,
   decodePlaybackSchedule,
+  decodePlaylistGetInput,
+  decodeItemListInput,
+  decodeItemGetInput,
+  decodeSearchContentInput,
   decodeSlideBackgroundUpdateInput,
   decodeSlideCreateInput,
+  decodeSlideGetInput,
   decodeSlideNotesUpdateInput,
   decodeSlideOrderUpdateInput,
   decodeSlideTagAssignInput,
@@ -82,10 +98,64 @@ import {
   decodeStageCreateInput,
   decodeStageUpdateInput,
   decodeThemeCreateInput,
+  decodeThemeListInput,
   decodeThemeUpdateInput,
   decodeTriggerBindingCreateInput,
+  decodeAgentActionResponse,
+  decodeAgentConfigUpdate,
+  decodeAgentExtractDocumentInput,
+  decodeAgentFilesystemRootInput,
+  decodeAgentImportMediaInput,
+  decodeAgentListModelsInput,
+  decodeAgentMcpClientCreateInput,
+  decodeAgentMcpClientIdInput,
+  decodeAgentMcpClientPermissionsInput,
+  decodeAgentMcpEnabledInput,
+  decodeAgentProviderInput,
+  decodeAgentRenameThreadInput,
+  decodeAgentReplaceMediaSourceInput,
+  decodeAgentSendMessageInput,
+  decodeAgentSetCredentialInput,
+  decodeAgentSetThreadModelInput,
+  decodeAgentThreadCreateInput,
+  decodeAgentThreadIdInput,
+  decodeAgentValidateModelInput,
+  type AgentActionResponse,
+  type AgentConfig,
+  type AgentConfigUpdate,
+  type AgentExtractDocumentInput,
+  type AgentFilesystemRootInput,
+  type AgentImportMediaInput,
+  type AgentListModelsInput,
+  type AgentMcpClient,
+  type AgentMcpClientCreateInput,
+  type AgentMcpClientCreated,
+  type AgentMcpClientIdInput,
+  type AgentMcpClientPermissionsInput,
+  type AgentMcpEnabledInput,
+  type AgentMcpStatus,
+  type AgentProviderInput,
+  type AgentRenameThreadInput,
+  type AgentReplaceMediaSourceInput,
+  type AgentSendMessageInput,
+  type AgentSetCredentialInput,
+  type AgentSetThreadModelInput,
+  type AgentThreadCreateInput,
+  type AgentThreadIdInput,
+  type AgentValidateModelInput,
   type CodecContext,
 } from '@lumacast/protocol';
+import { AgentActionBroker } from './agent/action-broker';
+import { AgentConfigStore } from './agent/agent-config-store';
+import { AgentRuntime } from './agent/agent-runtime';
+import { AgentCredentialStore } from './agent/credential-store';
+import { extractDocumentText } from './agent/document-extraction';
+import { PathAuthorizer } from './agent/path-authorization';
+import { SessionGrants, hashMcpToken } from './agent/permission-policy';
+import { AgentThreadStore } from './agent/thread-store';
+import { createProviderAdapter } from './agent/providers';
+import type { AgentMcpServiceLike } from './mcp/mcp-service';
+import { McpService } from './mcp/mcp-service-proxy';
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
 import type { AppUpdater } from './app-updater';
 import { readDeckBundleArchive, writeDeckBundleArchive } from './deck-bundle-archive';
@@ -342,6 +412,37 @@ function registerRpcHandlers(
   }
 }
 
+// The single broker instance the agent runtime and the MCP server dispatch
+// through, published here because `registerIpcHandlers` is where the window
+// getter it needs is already in scope. It exists only between
+// `registerIpcHandlers` and application shutdown; callers must handle `null`
+// rather than assume IPC is registered.
+let agentActionBroker: AgentActionBroker | null = null;
+
+export function getAgentActionBroker(): AgentActionBroker | null {
+  return agentActionBroker;
+}
+
+// The agent runtime and the MCP host, published for the same reason the
+// broker is: they are constructed where the window getter and the userData
+// path are already in scope, and the MCP host (which lands separately) needs
+// to reach both. Both are `null` before `registerIpcHandlers` runs.
+let agentRuntime: AgentRuntime | null = null;
+let agentMcpService: AgentMcpServiceLike | null = null;
+
+export function getAgentRuntime(): AgentRuntime | null {
+  return agentRuntime;
+}
+
+export function getAgentMcpService(): AgentMcpServiceLike | null {
+  return agentMcpService;
+}
+
+/** Replaces the default `NoopMcpService` once the real host is available. */
+export function setAgentMcpService(service: AgentMcpServiceLike): void {
+  agentMcpService = service;
+}
+
 export const registerIpcHandlers = (
   repo: PersistenceServiceLike,
   ndiService: NdiServiceLike,
@@ -356,6 +457,92 @@ export const registerIpcHandlers = (
 ): void => {
   const mediaDerivatives = new MediaDerivativeService(repo, app.getPath('userData'));
   const mediaLibrary = new MediaLibraryService(app.getPath('userData'));
+  agentActionBroker = new AgentActionBroker(getMainWindow);
+
+  // --- Agent runtime (ADR-0038) ---------------------------------------------
+  // Provider credentials, the model loop, and every agent-originated
+  // filesystem read live here in main. The renderer drives them over the
+  // `agent:*` RPCs below and renders the event stream; it never sees a key.
+  const agentConfigStore = new AgentConfigStore(app.getPath('userData'));
+  const agentCredentialStore = new AgentCredentialStore(app.getPath('userData'), safeStorage);
+  const agentThreadStore = new AgentThreadStore(app.getPath('userData'));
+  const agentGrants = new SessionGrants();
+  // Reading every stored key once at startup registers it with the log
+  // redactor (`AgentCredentialStore.getKey` does that on every read), so a
+  // key cannot reach a log line before its first use.
+  for (const status of agentCredentialStore.status()) {
+    if (status.hasKey) agentCredentialStore.getKey(status.provider);
+  }
+  const agentPathAuthorizer = new PathAuthorizer(() => agentConfigStore.load().filesystem.allowedRoots);
+  agentRuntime = new AgentRuntime({
+    configStore: agentConfigStore,
+    credentialStore: agentCredentialStore,
+    threadStore: agentThreadStore,
+    broker: agentActionBroker,
+    grants: agentGrants,
+    emit: (event) => {
+      const window = getMainWindow();
+      if (!window || window.isDestroyed()) return;
+      window.webContents.send(AGENT_EVENTS.threadEvent, event);
+    },
+  });
+  agentMcpService = new McpService({
+    configStore: agentConfigStore,
+    broker: agentActionBroker,
+    grants: agentGrants,
+    getWindow: getMainWindow,
+    hostModulePath: join(__dirname, 'mcp-host.js'),
+  });
+  agentMcpService.onStatus((status) => {
+    const window = getMainWindow();
+    if (!window || window.isDestroyed()) return;
+    window.webContents.send(AGENT_EVENTS.mcpStatus, status);
+  });
+  // Fire-and-forget: the same reasoning as forking the persistence/NDI hosts
+  // eagerly in app/main/index.ts (ADR-0014) — window creation does not wait
+  // on this, and a fork failure is reported through status() rather than
+  // thrown here.
+  if (agentConfigStore.load().mcp.enabled) void agentMcpService.start();
+
+  function requireAgentRuntime(): AgentRuntime {
+    if (!agentRuntime) throw new Error('The assistant is not available.');
+    return agentRuntime;
+  }
+
+  function mcpStatus(): AgentMcpStatus {
+    if (!agentMcpService) throw new Error('The MCP server is not available.');
+    return agentMcpService.status();
+  }
+
+  /** The one place a provider adapter is built for a non-run call (model listing/validation). */
+  function agentAdapterFor(provider: AgentConfig['provider'], baseUrl: string | null | undefined) {
+    if (!provider) throw new Error('No provider selected.');
+    const apiKey = agentCredentialStore.getKey(provider);
+    if (!apiKey) throw new Error(`No API key is stored for ${provider}.`);
+    return createProviderAdapter(provider, { apiKey, baseUrl: baseUrl ?? agentConfigStore.load().baseUrl });
+  }
+
+  /**
+   * A ready-to-paste Claude Desktop entry. The token appears exactly once, in
+   * `env`, so the command line a user might paste into a terminal or a support
+   * thread does not carry it.
+   */
+  function mcpConfigSnippet(token: string, port: number | null): string {
+    const endpoint = `http://127.0.0.1:${port ?? 'PORT'}/mcp`;
+    return JSON.stringify(
+      {
+        mcpServers: {
+          lumacast: {
+            command: 'npx',
+            args: ['-y', 'mcp-remote', endpoint, '--header', 'Authorization:${AUTH_HEADER}'],
+            env: { AUTH_HEADER: `Bearer ${token}` },
+          },
+        },
+      },
+      null,
+      2,
+    );
+  }
 
   function reportPersistenceProgress(progress: PersistenceProgress): void {
     try {
@@ -1092,6 +1279,203 @@ export const registerIpcHandlers = (
       await shell.openPath(dir);
     },
     obsGetSystemMetrics: () => sampleSystemMetrics(),
+    listPlaylists: () => repo.listPlaylists(),
+    getPlaylist: (_event, input: PlaylistGetInput) =>
+      repo.getPlaylist(decodePlaylistGetInput(input, rpcContext('getPlaylist'))),
+    listItems: (_event, input: ItemListInput) =>
+      repo.listItems(decodeItemListInput(input, rpcContext('listItems'))),
+    getItem: (_event, input: ItemGetInput) =>
+      repo.getItem(decodeItemGetInput(input, rpcContext('getItem'))),
+    getSlide: (_event, input: SlideGetInput) =>
+      repo.getSlide(decodeSlideGetInput(input, rpcContext('getSlide'))),
+    listMediaAssets: (_event, input: MediaAssetListInput) =>
+      repo.listMediaAssets(decodeMediaAssetListInput(input, rpcContext('listMediaAssets'))),
+    listThemes: (_event, input: ThemeListInput) =>
+      repo.listThemes(decodeThemeListInput(input, rpcContext('listThemes'))),
+    listOverlays: () => repo.listOverlays(),
+    listStages: () => repo.listStages(),
+    getProjectOverview: () => repo.getProjectOverview(),
+    searchContent: (_event, input: SearchContentInput) =>
+      repo.searchContent(decodeSearchContentInput(input, rpcContext('searchContent'))),
+    // The renderer answering one dispatched agent action. Decoded before the
+    // broker sees it: this is the untrusted leg of the action protocol, and a
+    // malformed response would otherwise settle a pending request with
+    // whatever the renderer sent.
+    agentRespondAction: (_event, response: AgentActionResponse) => {
+      agentActionBroker?.handleResponse(decodeAgentActionResponse(response, rpcContext('agentRespondAction')));
+    },
+
+    // --- Agent threads -----------------------------------------------------
+    agentListThreads: () => agentThreadStore.list(),
+    agentGetThread: (_event, input: AgentThreadIdInput) =>
+      agentThreadStore.get(decodeAgentThreadIdInput(input, rpcContext('agentGetThread')).id),
+    agentCreateThread: (_event, input: AgentThreadCreateInput) =>
+      agentThreadStore.create(decodeAgentThreadCreateInput(input, rpcContext('agentCreateThread'))),
+    agentDeleteThread: (_event, input: AgentThreadIdInput) => {
+      const { id } = decodeAgentThreadIdInput(input, rpcContext('agentDeleteThread'));
+      // A thread whose run is still streaming would otherwise keep writing to
+      // a file that no longer exists.
+      agentRuntime?.stopGeneration(id);
+      agentThreadStore.delete(id);
+    },
+    agentRenameThread: (_event, input: AgentRenameThreadInput) => {
+      const { id, title } = decodeAgentRenameThreadInput(input, rpcContext('agentRenameThread'));
+      return agentThreadStore.rename(id, title);
+    },
+    agentSetThreadModel: (_event, input: AgentSetThreadModelInput) => {
+      const { id, provider, model } = decodeAgentSetThreadModelInput(input, rpcContext('agentSetThreadModel'));
+      return agentThreadStore.setThreadModel(id, provider, model);
+    },
+    agentSendMessage: (_event, input: AgentSendMessageInput) =>
+      requireAgentRuntime().sendMessage(decodeAgentSendMessageInput(input, rpcContext('agentSendMessage'))),
+    agentStopGeneration: (_event, input: AgentThreadIdInput) => {
+      requireAgentRuntime().stopGeneration(decodeAgentThreadIdInput(input, rpcContext('agentStopGeneration')).id);
+    },
+
+    // --- Agent configuration and credentials -------------------------------
+    agentGetConfig: () => agentConfigStore.load(),
+    agentUpdateConfig: (_event, update: AgentConfigUpdate) =>
+      agentConfigStore.update(decodeAgentConfigUpdate(update, rpcContext('agentUpdateConfig'))),
+    agentGetCredentialStatus: () => agentCredentialStore.status(),
+    agentSetCredential: (_event, input: AgentSetCredentialInput) => {
+      const { provider, apiKey } = decodeAgentSetCredentialInput(input, rpcContext('agentSetCredential'));
+      agentCredentialStore.setKey(provider, apiKey);
+      return agentCredentialStore.status();
+    },
+    agentDeleteCredential: (_event, input: AgentProviderInput) => {
+      const { provider } = decodeAgentProviderInput(input, rpcContext('agentDeleteCredential'));
+      agentCredentialStore.deleteKey(provider);
+      return agentCredentialStore.status();
+    },
+    agentListModels: (_event, input: AgentListModelsInput) => {
+      const { provider, baseUrl } = decodeAgentListModelsInput(input, rpcContext('agentListModels'));
+      return agentAdapterFor(provider, baseUrl).listModels();
+    },
+    agentValidateModel: (_event, input: AgentValidateModelInput) => {
+      const { provider, model, baseUrl } = decodeAgentValidateModelInput(input, rpcContext('agentValidateModel'));
+      return agentAdapterFor(provider, baseUrl).validateModel(model);
+    },
+
+    // --- Agent filesystem grants -------------------------------------------
+    // A granted root is the standing equivalent of a file picker: it is what
+    // lets an agent read a path nobody just chose by hand. `PathAuthorizer`
+    // enforces it on every read below.
+    agentGrantFilesystemRoot: async (event) => {
+      const result = await showOpenDialogForEvent(event, {
+        title: 'Allow the assistant to read a folder',
+        properties: ['openDirectory'],
+      });
+      if (result.canceled || result.filePaths.length === 0) return null;
+      const current = agentConfigStore.load();
+      const allowedRoots = [...new Set([...current.filesystem.allowedRoots, ...result.filePaths])];
+      return agentConfigStore.update({ filesystem: { allowedRoots } });
+    },
+    agentRevokeFilesystemRoot: (_event, input: AgentFilesystemRootInput) => {
+      const { path: root } = decodeAgentFilesystemRootInput(input, rpcContext('agentRevokeFilesystemRoot'));
+      const current = agentConfigStore.load();
+      return agentConfigStore.update({
+        filesystem: { allowedRoots: current.filesystem.allowedRoots.filter((candidate) => candidate !== root) },
+      });
+    },
+
+    // --- Agent filesystem reads --------------------------------------------
+    // These three are the only paths by which an agent touches the disk. Each
+    // authorizes first and then uses `authorized.path` — the realpath — never
+    // the string the caller sent.
+    agentImportMedia: async (_event, input: AgentImportMediaInput) => {
+      const decoded = decodeAgentImportMediaInput(input, rpcContext('agentImportMedia'));
+      const authorized = await agentPathAuthorizer.authorizeRead(decoded.path, {
+        purpose: 'media',
+        declaredType: decoded.type,
+      });
+      const type = decoded.type ?? authorized.detectedType;
+      if (!type) throw new Error(`Could not determine a media type for ${basename(authorized.path)}`);
+      const src = await mediaLibrary.adopt(authorized.path);
+      const patch = await repo.createMediaAsset({ name: decoded.name ?? basename(authorized.path), type, src });
+      const assetId = patch.upserts.mediaAssets?.[0]?.id;
+      if (assetId) mediaDerivatives.schedule(assetId);
+      return patch;
+    },
+    agentReplaceMediaSource: async (_event, input: AgentReplaceMediaSourceInput) => {
+      const decoded = decodeAgentReplaceMediaSourceInput(input, rpcContext('agentReplaceMediaSource'));
+      const authorized = await agentPathAuthorizer.authorizeRead(decoded.path, { purpose: 'media' });
+      const patch = await repo.updateMediaAssetSrc(decoded.id, await mediaLibrary.adopt(authorized.path));
+      mediaDerivatives.invalidate(decoded.id);
+      mediaDerivatives.schedule(decoded.id);
+      return patch;
+    },
+    agentExtractDocumentText: async (_event, input: AgentExtractDocumentInput) => {
+      const decoded = decodeAgentExtractDocumentInput(input, rpcContext('agentExtractDocumentText'));
+      const authorized = await agentPathAuthorizer.authorizeRead(decoded.path, { purpose: 'document' });
+      const extracted = await extractDocumentText(authorized.path, { maxChars: decoded.maxChars });
+      return {
+        fileName: extracted.fileName,
+        kind: extracted.kind,
+        text: extracted.text,
+        charCount: extracted.charCount,
+        truncated: extracted.truncated,
+        pageCount: extracted.pageCount,
+        title: extracted.title,
+      };
+    },
+
+    // --- MCP host ----------------------------------------------------------
+    // Client records are config, not transport, so they are maintained here
+    // rather than inside `AgentMcpServiceLike`: a user can add and revoke
+    // clients with the server switched off, and switching it on never has to
+    // reconcile two sources of truth.
+    agentGetMcpStatus: () => mcpStatus(),
+    agentSetMcpEnabled: async (_event, input: AgentMcpEnabledInput) => {
+      const { enabled } = decodeAgentMcpEnabledInput(input, rpcContext('agentSetMcpEnabled'));
+      agentConfigStore.update({ mcp: { enabled } });
+      if (enabled) await agentMcpService?.start();
+      else await agentMcpService?.stop();
+      return mcpStatus();
+    },
+    agentCreateMcpClient: (_event, input: AgentMcpClientCreateInput): AgentMcpClientCreated => {
+      const { name, tier } = decodeAgentMcpClientCreateInput(input, rpcContext('agentCreateMcpClient'));
+      // 32 bytes of CSPRNG output. Only its SHA-256 is stored; the token
+      // itself is returned once here and never again.
+      const token = randomBytes(32).toString('base64url');
+      const client: AgentMcpClient = {
+        id: createId(),
+        name,
+        createdAt: nowIso(),
+        lastSeenAt: null,
+        permissions: { matrix: matrixForTier(tier ?? 'content'), showSafetyInterlock: true },
+        tokenHash: hashMcpToken(token),
+      };
+      const current = agentConfigStore.load();
+      agentConfigStore.update({ mcp: { clients: [...current.mcp.clients, client] } });
+      agentMcpService?.refreshClients?.();
+      return { client, token, configSnippet: mcpConfigSnippet(token, current.mcp.port) };
+    },
+    agentRevokeMcpClient: (_event, input: AgentMcpClientIdInput) => {
+      const { clientId } = decodeAgentMcpClientIdInput(input, rpcContext('agentRevokeMcpClient'));
+      const current = agentConfigStore.load();
+      agentConfigStore.update({ mcp: { clients: current.mcp.clients.filter((client) => client.id !== clientId) } });
+      // A revoked client's standing "always allow" answers die with it.
+      agentGrants.clear(`mcp:${clientId}`);
+      agentMcpService?.refreshClients?.();
+      return mcpStatus();
+    },
+    agentUpdateMcpClientPermissions: (_event, input: AgentMcpClientPermissionsInput) => {
+      const { clientId, permissions } = decodeAgentMcpClientPermissionsInput(
+        input,
+        rpcContext('agentUpdateMcpClientPermissions'),
+      );
+      const current = agentConfigStore.load();
+      if (!current.mcp.clients.some((client) => client.id === clientId)) throw new Error('Unknown MCP client');
+      agentConfigStore.update({
+        mcp: {
+          clients: current.mcp.clients.map((client) => (client.id === clientId ? { ...client, permissions } : client)),
+        },
+      });
+      // Narrowing the matrix must not leave a wider session grant standing.
+      agentGrants.clear(`mcp:${clientId}`);
+      agentMcpService?.refreshClients?.();
+      return mcpStatus();
+    },
   };
   registerRpcHandlers(rpcHandlers, (result) => mediaDerivatives.attachToResult(result));
 

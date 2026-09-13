@@ -29,6 +29,7 @@ vi.mock('electron', () => ({
   dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
   shell: { openPath: vi.fn(), openExternal: vi.fn() },
   nativeImage: nativeImageApi,
+  safeStorage: { isEncryptionAvailable: () => false, encryptString: vi.fn(), decryptString: vi.fn() },
 }));
 
 vi.mock('music-metadata', () => ({
