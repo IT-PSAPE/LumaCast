@@ -175,8 +175,8 @@ describe('Field.Select', () => {
 
     const options = screen.getAllByRole('option');
     expect(options.map((option) => option.textContent)).toEqual(['No letter', 'Alpha', 'Beta']);
-    fireEvent.pointerDown(options[0], { pointerType: 'mouse' });
-    fireEvent.click(options[0]);
+    options[0].focus();
+    fireEvent.keyDown(options[0], { key: 'Enter' });
     await settle();
     expect(onChange).toHaveBeenCalledWith('');
   });
