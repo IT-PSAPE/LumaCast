@@ -19,6 +19,8 @@ vi.mock('electron', () => ({
 }));
 
 import {
+  AGENT_ACTION_EVENTS,
+  AGENT_EVENTS,
   APP_MENU_EVENTS,
   IPC,
   MEDIA_DERIVATIVE_EVENTS,
@@ -74,6 +76,17 @@ const MEDIA_LIBRARY_EVENT_METHOD_NAMES: Record<keyof typeof MEDIA_LIBRARY_EVENTS
   progress: 'onMediaLibraryProgress',
 };
 
+const AGENT_ACTION_EVENT_METHOD_NAMES: Record<keyof typeof AGENT_ACTION_EVENTS, string> = {
+  request: 'onAgentActionRequest',
+  batch: 'onAgentBatch',
+  cancelled: 'onAgentActionCancelled',
+};
+
+const AGENT_EVENT_METHOD_NAMES: Record<keyof typeof AGENT_EVENTS, string> = {
+  threadEvent: 'onAgentThreadEvent',
+  mcpStatus: 'onAgentMcpStatus',
+};
+
 const UTIL_METHOD_NAMES = ['platform', 'getPathForFile'];
 
 const frameNames: readonly string[] = NDI_FRAME_CHANNEL_NAMES;
@@ -84,6 +97,8 @@ const eventMethodNames = [
   ...Object.values(PERSISTENCE_EVENT_METHOD_NAMES),
   ...Object.values(MEDIA_DERIVATIVE_EVENT_METHOD_NAMES),
   ...Object.values(MEDIA_LIBRARY_EVENT_METHOD_NAMES),
+  ...Object.values(AGENT_ACTION_EVENT_METHOD_NAMES),
+  ...Object.values(AGENT_EVENT_METHOD_NAMES),
 ];
 
 describe('ipc contract: RPC/event/frame classification', () => {
@@ -105,6 +120,8 @@ describe('ipc contract: RPC/event/frame classification', () => {
       ...Object.values(PERSISTENCE_CHANNELS),
       ...Object.values(MEDIA_DERIVATIVE_EVENTS),
       ...Object.values(MEDIA_LIBRARY_EVENTS),
+      ...Object.values(AGENT_ACTION_EVENTS),
+      ...Object.values(AGENT_EVENTS),
     ];
     expect(new Set(allChannelStrings).size).toBe(allChannelStrings.length);
   });

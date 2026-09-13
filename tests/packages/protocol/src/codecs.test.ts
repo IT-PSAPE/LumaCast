@@ -20,18 +20,24 @@ import {
   decodeInlineWindowMenuBounds,
   decodeItemCreateInput,
   decodeItemDuplicateInput,
+  decodeItemGetInput,
+  decodeItemListInput,
   decodeMacroCreateInput,
   decodeMediaAssetCreateInput,
+  decodeMediaAssetListInput,
   decodeNdiOutputConfigInput,
   decodeNdiOutputName,
   decodeOverlayAnimation,
   decodeOverlayCreateInput,
   decodePersisted,
   decodePlaybackSchedule,
+  decodePlaylistGetInput,
+  decodeSearchContentInput,
   sanitizeNdiFrameTelemetry,
   decodeSlideBackground,
   decodeSlideBackgroundUpdateInput,
   decodeSlideCreateInput,
+  decodeSlideGetInput,
   decodeSlideTagAssignInput,
   decodeSlideTagCreateInput,
   decodeSlideTagUpdateInput,
@@ -41,6 +47,7 @@ import {
   decodeStageCreateInput,
   decodeStoredNdiOutputConfigMap,
   decodeThemeCreateInput,
+  decodeThemeListInput,
   decodeTriggerBindingCreateInput,
   expectRpcPrimitiveArgs,
   type CodecContext,
@@ -63,6 +70,10 @@ function textPayload(overrides: Record<string, unknown> = {}): Record<string, un
 
 function imagePayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { src: 'asset://logo', ...overrides };
+}
+
+function videoPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return { src: 'asset://clip.mp4', autoplay: false, loop: false, ...overrides };
 }
 
 function textElement(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -334,6 +345,63 @@ describe('decodeSlideElementPayload', () => {
       () => decodeSlideElementPayloadJson('{"text": 7}', 'text', CONTEXT),
       'text',
     );
+  });
+
+  describe('image/video fit', () => {
+    it('accepts an absent fit on both image and video', () => {
+      expect(decodeSlideElementPayload(imagePayload(), 'image', CONTEXT)).toMatchObject({ src: 'asset://logo' });
+      expect(decodeSlideElementPayload(videoPayload(), 'video', CONTEXT)).toMatchObject({ src: 'asset://clip.mp4' });
+    });
+
+    it.each(['cover', 'contain', 'fill'])('accepts a %s fit on an image', (fit) => {
+      expect(decodeSlideElementPayload(imagePayload({ fit }), 'image', CONTEXT)).toMatchObject({ fit });
+    });
+
+    it.each(['cover', 'contain', 'fill'])('accepts a %s fit on a video', (fit) => {
+      expect(decodeSlideElementPayload(videoPayload({ fit }), 'video', CONTEXT)).toMatchObject({ fit });
+    });
+
+    it('rejects an invalid fit value on an image', () => {
+      expectCodecError(() => decodeSlideElementPayload(imagePayload({ fit: 'stretch' }), 'image', CONTEXT), 'fit');
+    });
+
+    it('rejects an invalid fit value on a video', () => {
+      expectCodecError(() => decodeSlideElementPayload(videoPayload({ fit: 'zoom' }), 'video', CONTEXT), 'fit');
+    });
+
+    it('rejects a wrong-typed fit value', () => {
+      expectCodecError(() => decodeSlideElementPayload(imagePayload({ fit: 3 }), 'image', CONTEXT), 'fit');
+    });
+  });
+
+  describe('image/video fillColor and borderRadius (visual payload, shared with shape/text)', () => {
+    it('accepts fillColor, strokeEnabled, and borderRadius on an image', () => {
+      const payload = imagePayload({ fillEnabled: true, fillColor: '#ff00aa', borderRadius: 12, strokeEnabled: true, strokeColor: '#123456', strokeWidth: 2 });
+      expect(decodeSlideElementPayload(payload, 'image', CONTEXT)).toMatchObject({ fillColor: '#ff00aa', borderRadius: 12 });
+    });
+
+    it('accepts fillColor and borderRadius on a video', () => {
+      const payload = videoPayload({ fillEnabled: true, fillColor: '#00ff00', borderRadius: 4 });
+      expect(decodeSlideElementPayload(payload, 'video', CONTEXT)).toMatchObject({ fillColor: '#00ff00', borderRadius: 4 });
+    });
+
+    it('rejects a wrong-typed borderRadius on an image', () => {
+      expectCodecError(() => decodeSlideElementPayload(imagePayload({ borderRadius: '12' }), 'image', CONTEXT), 'borderRadius');
+    });
+  });
+
+  describe('text letterSpacing', () => {
+    it('accepts an absent letterSpacing', () => {
+      expect(decodeSlideElementPayload(textPayload(), 'text', CONTEXT)).toMatchObject({ text: 'Hello' });
+    });
+
+    it('accepts a numeric letterSpacing', () => {
+      expect(decodeSlideElementPayload(textPayload({ letterSpacing: 2.5 }), 'text', CONTEXT)).toMatchObject({ letterSpacing: 2.5 });
+    });
+
+    it('rejects a wrong-typed letterSpacing', () => {
+      expectCodecError(() => decodeSlideElementPayload(textPayload({ letterSpacing: 'wide' }), 'text', CONTEXT), 'letterSpacing');
+    });
   });
 });
 
@@ -1638,5 +1706,104 @@ describe('sanitizeNdiFrameTelemetry', () => {
         backpressure: 3,
       },
     });
+  });
+});
+
+describe('read-projection RPC inputs', () => {
+  it('decodes a playlist get input', () => {
+    expect(decodePlaylistGetInput({ id: 'pl-1' }, CONTEXT)).toEqual({ id: 'pl-1' });
+  });
+
+  it('rejects a playlist get input with an unknown field', () => {
+    expectCodecError(() => decodePlaylistGetInput({ id: 'pl-1', extra: 1 }, CONTEXT), 'unknown field');
+  });
+
+  it('rejects a playlist get input with an empty id', () => {
+    expectCodecError(() => decodePlaylistGetInput({ id: '' }, CONTEXT), 'id');
+  });
+
+  it('decodes a minimal item list input (every field optional)', () => {
+    expect(decodeItemListInput({}, CONTEXT)).toEqual({});
+  });
+
+  it('decodes a fully-specified item list input', () => {
+    const input = decodeItemListInput({ type: 'presentation', query: 'verse', limit: 10, offset: 5 }, CONTEXT);
+    expect(input).toEqual({ type: 'presentation', query: 'verse', limit: 10, offset: 5 });
+  });
+
+  it('rejects an invalid item type', () => {
+    expectCodecError(() => decodeItemListInput({ type: 'talk' }, CONTEXT), 'type');
+  });
+
+  it('rejects a negative limit or offset', () => {
+    expectCodecError(() => decodeItemListInput({ limit: -1 }, CONTEXT), 'limit');
+    expectCodecError(() => decodeItemListInput({ offset: -1 }, CONTEXT), 'offset');
+  });
+
+  it('rejects an unknown field on item list', () => {
+    expectCodecError(() => decodeItemListInput({ search: 'x' }, CONTEXT), 'unknown field');
+  });
+
+  it('decodes an item get input with a nested item ref', () => {
+    const input = decodeItemGetInput({ ref: { type: 'lyric', id: 'lyric-1' }, includeSlides: true }, CONTEXT);
+    expect(input).toEqual({ ref: { type: 'lyric', id: 'lyric-1' }, includeSlides: true, includeElements: undefined });
+  });
+
+  it('rejects an item get input with a malformed ref', () => {
+    expectCodecError(() => decodeItemGetInput({ ref: { type: 'overlay', id: 'x' } }, CONTEXT), 'type');
+    expectCodecError(() => decodeItemGetInput({ ref: { type: 'presentation' } }, CONTEXT), 'id');
+    expectCodecError(() => decodeItemGetInput({ ref: 'presentation:1' }, CONTEXT), 'ref');
+  });
+
+  it('rejects an unknown field on item get', () => {
+    expectCodecError(
+      () => decodeItemGetInput({ ref: { type: 'presentation', id: 'p-1' }, includeThemes: true }, CONTEXT),
+      'unknown field',
+    );
+  });
+
+  it('decodes a slide get input', () => {
+    expect(decodeSlideGetInput({ slideId: 'slide-1', includeElements: true }, CONTEXT)).toEqual({
+      slideId: 'slide-1',
+      includeElements: true,
+    });
+  });
+
+  it('rejects a slide get input missing slideId', () => {
+    expectCodecError(() => decodeSlideGetInput({}, CONTEXT), 'slideId');
+  });
+
+  it('decodes a media asset list input', () => {
+    const input = decodeMediaAssetListInput({ type: 'video', query: 'intro', limit: 20, offset: 0 }, CONTEXT);
+    expect(input).toEqual({ type: 'video', query: 'intro', limit: 20, offset: 0 });
+  });
+
+  it('rejects an invalid media asset type on list', () => {
+    expectCodecError(() => decodeMediaAssetListInput({ type: 'pdf' }, CONTEXT), 'type');
+  });
+
+  it('decodes a theme list input', () => {
+    expect(decodeThemeListInput({ ownerType: 'overlay' }, CONTEXT)).toEqual({ ownerType: 'overlay' });
+    expect(decodeThemeListInput({}, CONTEXT)).toEqual({});
+  });
+
+  it('rejects an invalid theme owner type', () => {
+    expectCodecError(() => decodeThemeListInput({ ownerType: 'talk' }, CONTEXT), 'ownerType');
+  });
+
+  it('decodes a search content input', () => {
+    expect(decodeSearchContentInput({ query: 'chorus', limit: 25 }, CONTEXT)).toEqual({ query: 'chorus', limit: 25 });
+  });
+
+  it('rejects an empty search query', () => {
+    expectCodecError(() => decodeSearchContentInput({ query: '' }, CONTEXT), 'query');
+  });
+
+  it('rejects a negative search limit', () => {
+    expectCodecError(() => decodeSearchContentInput({ query: 'x', limit: -5 }, CONTEXT), 'limit');
+  });
+
+  it('rejects an unknown field on search content', () => {
+    expectCodecError(() => decodeSearchContentInput({ query: 'x', kind: 'slide' }, CONTEXT), 'unknown field');
   });
 });

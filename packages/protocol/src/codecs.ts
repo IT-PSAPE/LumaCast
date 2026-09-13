@@ -1,19 +1,25 @@
 import type { CueClearLayer, CuePayload, LifecycleAction, PlaybackSchedule } from '@lumacast/automation';
 import { SLIDE_TAG_COLOR_KEYS } from '@lumacast/composition';
-import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, SlideTag, SlideTagColorKey, OverlayAnimation, ItemType, ThemeOwnerType } from '@lumacast/composition';
+import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, SlideTag, SlideTagColorKey, OverlayAnimation, ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
 import type {
   CueCreateInput,
   CueUpdateInput,
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ItemListInput,
+  ItemGetInput,
   MacroCreateInput,
   MacroUpdateInput,
   MediaAssetCreateInput,
+  MediaAssetListInput,
   OverlayCreateInput,
   OverlayUpdateInput,
+  PlaylistGetInput,
+  SearchContentInput,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
+  SlideGetInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
   SlideTagCreateInput,
@@ -22,6 +28,7 @@ import type {
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
+  ThemeListInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
 } from './rpc-inputs';
@@ -86,7 +93,7 @@ export class CodecError extends Error {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -96,7 +103,7 @@ function describe(value: unknown): string {
   return String(value);
 }
 
-function fail(context: CodecContext, message: string): never {
+export function fail(context: CodecContext, message: string): never {
   throw new CodecError(context, message);
 }
 
@@ -104,7 +111,7 @@ function child(context: CodecContext, segment: string | number): CodecContext {
   return { ...context, path: context.path ? `${context.path}.${segment}` : String(segment) };
 }
 
-function expectString(value: unknown, context: CodecContext, field: string): string {
+export function expectString(value: unknown, context: CodecContext, field: string): string {
   if (typeof value !== 'string') fail(child(context, field), `must be a string, got ${describe(value)}`);
   return value;
 }
@@ -126,7 +133,7 @@ function expectArray(value: unknown, context: CodecContext, field: string): unkn
   return value;
 }
 
-function expectEnum<T extends string>(value: unknown, context: CodecContext, field: string, allowed: readonly T[]): T {
+export function expectEnum<T extends string>(value: unknown, context: CodecContext, field: string, allowed: readonly T[]): T {
   if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
     fail(child(context, field), `must be one of [${allowed.join(', ')}], got ${describe(value)}`);
   }
@@ -195,6 +202,9 @@ const VISUAL_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | '
   strokeColor: 'string',
   strokeWidth: 'number',
   strokePosition: 'string',
+  // Shared by every element type (`ElementVisualPayload`), not just
+  // text/shape: image/video elements can carry a corner-radius clip too.
+  borderRadius: 'number',
   shadowEnabled: 'boolean',
   shadowColor: 'string',
   shadowBlur: 'number',
@@ -204,7 +214,6 @@ const VISUAL_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | '
 
 const TEXT_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | 'record'> = {
   ...VISUAL_OPTIONAL_FIELDS,
-  borderRadius: 'number',
   verticalAlign: 'string',
   autoFit: 'boolean',
   autoFitMaxFontSize: 'number',
@@ -213,6 +222,7 @@ const TEXT_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | 're
   underline: 'boolean',
   strikethrough: 'boolean',
   lineHeight: 'number',
+  letterSpacing: 'number',
   weight: 'string',
   textStrokeEnabled: 'boolean',
   textStrokeColor: 'string',
@@ -236,11 +246,15 @@ const VIDEO_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | 'r
 // required, but persisted and legacy data (and the renderer's own `??`
 // fallbacks in scene-node-shape.tsx) already tolerate a fill-only shape.
 // Only `fillColor` is enforced as required here to match that real leniency.
+// `borderRadius` is validated via the shared `VISUAL_OPTIONAL_FIELDS` above.
 const SHAPE_OPTIONAL_FIELDS: Record<string, 'string' | 'number' | 'boolean' | 'record'> = {
   borderColor: 'string',
   borderWidth: 'number',
-  borderRadius: 'number',
 };
+
+// Image/video object-fit: matches `SlideBackgroundFit` (`decodeSlideBackground`
+// below validates the same three values for slide backgrounds).
+const MEDIA_FIT_VALUES = ['cover', 'contain', 'fill'] as const;
 
 const RICH_LIST_TYPES = ['bullet', 'number'] as const;
 
@@ -308,12 +322,14 @@ export function decodeSlideElementPayload(
     case 'image':
       expectString(value.src, context, 'src');
       checkOptionalFields(value, context, VISUAL_OPTIONAL_FIELDS);
+      if (value.fit !== undefined) expectEnum(value.fit, context, 'fit', MEDIA_FIT_VALUES);
       break;
     case 'video':
       expectString(value.src, context, 'src');
       expectBoolean(value.autoplay, context, 'autoplay');
       expectBoolean(value.loop, context, 'loop');
       checkOptionalFields(value, context, { ...VISUAL_OPTIONAL_FIELDS, ...VIDEO_OPTIONAL_FIELDS });
+      if (value.fit !== undefined) expectEnum(value.fit, context, 'fit', MEDIA_FIT_VALUES);
       break;
     case 'shape':
       expectString(value.fillColor, context, 'fillColor');
@@ -1013,7 +1029,7 @@ export function decodeBundleManifest(value: unknown, context: CodecContext): Bun
 // always treated as corruption, never silently ignored.
 // ---------------------------------------------------------------------------
 
-function rejectUnknownKeys(value: Record<string, unknown>, context: CodecContext, known: readonly string[]): void {
+export function rejectUnknownKeys(value: Record<string, unknown>, context: CodecContext, known: readonly string[]): void {
   const allowed = new Set(known);
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) fail(child(context, key), 'unknown field');
@@ -1581,6 +1597,97 @@ export function decodeItemDuplicateInput(value: unknown, context: CodecContext):
   expectEnum(value.type, context, 'type', RPC_ITEM_DUPLICATE_TYPES);
   expectString(value.id, context, 'id');
   return value as unknown as ItemDuplicateInput;
+}
+
+// ---------------------------------------------------------------------------
+// Read-projection RPC inputs (selective, paginated, name-resolvable reads
+// alongside the mutation inputs above). Reuses `RPC_ITEM_CREATE_TYPES`
+// (item type), `RPC_MEDIA_ASSET_TYPES` (media type), and `THEME_OWNER_TYPES`
+// (theme owner type) declared earlier in this file.
+// ---------------------------------------------------------------------------
+
+/**
+ * `ItemRef` is structural (`{ type, id }`) rather than a named RPC input
+ * type in rpc-inputs.ts, mirroring `decodeScheduleItemRef` above — this is
+ * its read-projection counterpart, nested inside `ItemGetInput.ref`.
+ */
+function decodeItemRefValue(value: unknown, context: CodecContext): ItemRef {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['type', 'id']);
+  const type = expectEnum(value.type, context, 'type', RPC_ITEM_CREATE_TYPES);
+  const id = expectNonEmptyString(value.id, context, 'id');
+  return { type, id };
+}
+
+/** Shared bound for `limit`/`offset` fields: finite and non-negative. Upper clamping (e.g. "max 500") is the repository's job, not the codec's. */
+function expectOptionalNonNegativeNumber(value: unknown, context: CodecContext, field: string): void {
+  if (value === undefined) return;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    fail(child(context, field), `must be a non-negative number, got ${describe(value)}`);
+  }
+}
+
+export function decodePlaylistGetInput(value: unknown, context: CodecContext): PlaylistGetInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id']);
+  expectNonEmptyString(value.id, context, 'id');
+  return value as unknown as PlaylistGetInput;
+}
+
+export function decodeItemListInput(value: unknown, context: CodecContext): ItemListInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['type', 'query', 'limit', 'offset']);
+  if (value.type !== undefined) expectEnum(value.type, context, 'type', RPC_ITEM_CREATE_TYPES);
+  checkOptionalFields(value, context, { query: 'string', limit: 'number', offset: 'number' });
+  expectOptionalNonNegativeNumber(value.limit, context, 'limit');
+  expectOptionalNonNegativeNumber(value.offset, context, 'offset');
+  return value as unknown as ItemListInput;
+}
+
+export function decodeItemGetInput(value: unknown, context: CodecContext): ItemGetInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['ref', 'includeSlides', 'includeElements']);
+  const ref = decodeItemRefValue(value.ref, child(context, 'ref'));
+  checkOptionalFields(value, context, { includeSlides: 'boolean', includeElements: 'boolean' });
+  return {
+    ref,
+    includeSlides: value.includeSlides as boolean | undefined,
+    includeElements: value.includeElements as boolean | undefined,
+  };
+}
+
+export function decodeSlideGetInput(value: unknown, context: CodecContext): SlideGetInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['slideId', 'includeElements']);
+  expectNonEmptyString(value.slideId, context, 'slideId');
+  checkOptionalFields(value, context, { includeElements: 'boolean' });
+  return value as unknown as SlideGetInput;
+}
+
+export function decodeMediaAssetListInput(value: unknown, context: CodecContext): MediaAssetListInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['type', 'query', 'limit', 'offset']);
+  if (value.type !== undefined) expectEnum(value.type, context, 'type', RPC_MEDIA_ASSET_TYPES);
+  checkOptionalFields(value, context, { query: 'string', limit: 'number', offset: 'number' });
+  expectOptionalNonNegativeNumber(value.limit, context, 'limit');
+  expectOptionalNonNegativeNumber(value.offset, context, 'offset');
+  return value as unknown as MediaAssetListInput;
+}
+
+export function decodeThemeListInput(value: unknown, context: CodecContext): ThemeListInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['ownerType']);
+  if (value.ownerType !== undefined) expectEnum(value.ownerType, context, 'ownerType', THEME_OWNER_TYPES);
+  return value as unknown as ThemeListInput;
+}
+
+export function decodeSearchContentInput(value: unknown, context: CodecContext): SearchContentInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['query', 'limit']);
+  expectNonEmptyString(value.query, context, 'query');
+  checkOptionalFields(value, context, { limit: 'number' });
+  expectOptionalNonNegativeNumber(value.limit, context, 'limit');
+  return value as unknown as SearchContentInput;
 }
 
 // ---------------------------------------------------------------------------
