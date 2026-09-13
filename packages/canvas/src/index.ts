@@ -33,7 +33,7 @@ export type { DragSession } from './scene-stage-drag-session';
 export { createDragSession } from './scene-stage-drag-session';
 
 export type { SelectionBox } from './scene-stage-editor-utils';
-export { normalizeRect, mapSnapBoxes, collectMarqueeHits } from './scene-stage-editor-utils';
+export { normalizeRect, mapSnapBoxes, collectMarqueeHits, scaleGroupChildren } from './scene-stage-editor-utils';
 
 export type { SnapBox, TransformSnapResult } from './snap-guides';
 export { resolveSnap, resolveTransformSnap } from './snap-guides';
@@ -86,6 +86,7 @@ export { BindingProvider, useBinding } from './binding-context';
 export type { SceneNodeContentOptions } from './scene-node-content';
 export { renderSceneNodeContent } from './scene-node-content';
 
+export { SceneNodeGroup } from './scene-node-group';
 export { SceneNodeMedia } from './scene-node-media';
 export { SceneNodeShape } from './scene-node-shape';
 export { SceneNodeText } from './scene-node-text';

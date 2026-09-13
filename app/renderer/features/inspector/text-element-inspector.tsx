@@ -6,6 +6,7 @@ import { useTextInspector } from './use-text-inspector';
 
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight,
+  AlignHorizontalSpaceBetween,
   AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Baseline, Bold, Italic,
   MoveHorizontal,
@@ -32,7 +33,7 @@ export function TextElementInspector() {
   const {
     handleTextChange, handleFontFamilyChange, handleWeightChange,
     handleFontSizeChange, handleAutoFitToggle, handleMaxFontSizeChange,
-    handleLineHeightChange, handleTextColorChange,
+    handleLineHeightChange, handleLetterSpacingChange, handleTextColorChange,
     handleCaseChange, handleTextStyleToggle, handleVerticalAlighmentChange,
     handleHorizontalAlighmentChange, updateTextVisual,
   } = actions;
@@ -73,6 +74,11 @@ export function TextElementInspector() {
             )}
             <FieldInput type="number" value={formatting.lineHeight} onChange={handleLineHeightChange}>
               <FieldIcon><Baseline className="size-4" /></FieldIcon>
+            </FieldInput>
+          </Section.Row>
+          <Section.Row>
+            <FieldInput type="number" value={formatting.letterSpacing} onChange={handleLetterSpacingChange} step={0.5} ariaLabel="Letter spacing">
+              <FieldIcon><AlignHorizontalSpaceBetween className="size-4" /></FieldIcon>
             </FieldInput>
           </Section.Row>
         </Section.Body>
@@ -179,7 +185,7 @@ export function TextElementInspector() {
               <FieldInput type="number" value={textVisual.shadowOffsetX} onChange={(value: string) => { updateTextVisual({ shadowOffsetX: parseNumber(value, textVisual.shadowOffsetX) }); }}>
                 <FieldIcon><MoveHorizontal size={14} /></FieldIcon>
               </FieldInput>
-              <FieldInput type="number" value={textVisual.shadowOffsetY} onChange={(value: string) => { updateTextVisual({ shadowOffsetX: parseNumber(value, textVisual.shadowOffsetY) }); }}>
+              <FieldInput type="number" value={textVisual.shadowOffsetY} onChange={(value: string) => { updateTextVisual({ shadowOffsetY: parseNumber(value, textVisual.shadowOffsetY) }); }}>
                 <FieldIcon><MoveVertical size={14} /></FieldIcon>
               </FieldInput>
             </Section.Row>

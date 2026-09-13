@@ -112,6 +112,7 @@ describe('boxStyleFromPayload', () => {
       italic: true,
       underline: false,
       strikethrough: false,
+      letterSpacing: 0,
     });
   });
 
@@ -119,6 +120,11 @@ describe('boxStyleFromPayload', () => {
     const box = boxStyleFromPayload(textPayload({ fontFamily: '' }));
     expect(box.weight).toBe(400);
     expect(box.fontFamily).toBe('sans-serif');
+  });
+
+  it('reads an authored letterSpacing through the seam', () => {
+    const box = boxStyleFromPayload(textPayload({ letterSpacing: 4 }));
+    expect(box.letterSpacing).toBe(4);
   });
 });
 

@@ -26,6 +26,8 @@ export interface RichBoxStyle {
   italic: boolean;
   underline: boolean;
   strikethrough: boolean;
+  /** Extra space between characters, in px at the box's current `fontSize`. Absent/0 ⇒ none. */
+  letterSpacing?: number;
 }
 
 // The fully-resolved style for one Run after applying inheritance — same shape as
@@ -68,6 +70,7 @@ export function boxStyleFromPayload(payload: TextElementPayload): RichBoxStyle {
     italic: formatting.italic,
     underline: formatting.underline,
     strikethrough: formatting.strikethrough,
+    letterSpacing: formatting.letterSpacing,
   };
 }
 

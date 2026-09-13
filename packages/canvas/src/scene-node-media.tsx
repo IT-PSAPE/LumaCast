@@ -1,19 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type Konva from 'konva';
-import { Image as KonvaImage, Rect } from 'react-konva';
-import { LAYER_VIDEO_NODE_ID } from '@lumacast/composition';
-import type { VideoElementPayload } from '@lumacast/composition';
-import type { RenderNode, ResolvedMediaState, SceneSurface } from '@lumacast/composition';
+import type { Context } from 'konva/lib/Context';
+import { Group, Image as KonvaImage, Rect } from 'react-konva';
+import type { Id } from '@lumacast/kernel';
+import { LAYER_VIDEO_NODE_ID, readMediaFit } from '@lumacast/composition';
+import type { ImageElementPayload, VideoElementPayload } from '@lumacast/composition';
+import type { RenderNode, ResolvedMediaState, SceneSurface, SlideBackgroundFit } from '@lumacast/composition';
 import { MISSING_MEDIA_SURFACES, MissingMediaPlaceholder } from './missing-media-placeholder';
 import { resolveMediaFit } from './resolve-media-cover';
 import { useKImage } from './use-k-image';
 import { useKVideo } from './use-k-video';
 import { buildVideoNodeClaimKey } from './video-claim-keys';
 
+/** Empty/no-fill sentinel: fully transparent, but a real color so the element
+ *  stays hit-testable in its own bounds (Konva hit-tests a Rect's painted
+ *  shape, not its alpha) even when no visible fill is authored. */
+const NO_FILL_COLOR = '#2b303900';
+
 interface SceneNodeMediaProps {
   node: RenderNode;
   surface?: SceneSurface;
-  onLoad?: () => void;
+  /** Called with this node's own id (see SceneNodeContentOptions.onMediaLoad). */
+  onLoad?: (nodeId: Id) => void;
 }
 
 type LoadedMedia =
@@ -58,10 +66,32 @@ function getMediaRequestKey(node: RenderNode): string | null {
   return null;
 }
 
-function resolveDraw(media: LoadedMedia, isVideoNode: boolean, width: number, height: number) {
+function resolveDraw(media: LoadedMedia, fit: SlideBackgroundFit, width: number, height: number) {
   const sourceWidth = media.kind === 'image' ? media.resource.naturalWidth : media.resource.videoWidth;
   const sourceHeight = media.kind === 'image' ? media.resource.naturalHeight : media.resource.videoHeight;
-  return resolveMediaFit(sourceWidth, sourceHeight, width, height, isVideoNode ? 'contain' : 'cover');
+  return resolveMediaFit(sourceWidth, sourceHeight, width, height, fit);
+}
+
+// Konva's Image has no `cornerRadius`, so a rounded corner clips the media
+// (and, via the same Group, the fill painted behind it) through an explicit
+// path instead. Paint-only (path construction calls only), memoized on the
+// geometry that determines it, per the canvas package's paint-only-sceneFunc
+// convention (see docs/ARCHITECTURE.md's rich-text note).
+function roundedRectClipFunc(radius: number, width: number, height: number): (ctx: Context) => void {
+  const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+  return (ctx) => {
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(width - r, 0);
+    ctx.arcTo(width, 0, width, r, r);
+    ctx.lineTo(width, height - r);
+    ctx.arcTo(width, height, width - r, height, r);
+    ctx.lineTo(r, height);
+    ctx.arcTo(0, height, 0, height - r, r);
+    ctx.lineTo(0, r);
+    ctx.arcTo(0, 0, r, 0, r);
+    ctx.closePath();
+  };
 }
 
 function resolveLoadedMedia(
@@ -88,9 +118,12 @@ function resolveLoadedMedia(
 export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMediaProps) {
   const imageRef = useRef<Konva.Image | null>(null);
   const isThumbnailSurface = surface === 'list';
-  const imageSrc = node.element.type === 'image' ? (node.element.payload as { src: string }).src ?? null : null;
-  const videoPayload = node.element.type === 'video' ? node.element.payload as VideoElementPayload : null;
+  const isVideoNode = node.element.type === 'video';
+  const imagePayload = node.element.type === 'image' ? node.element.payload as ImageElementPayload : null;
+  const imageSrc = imagePayload?.src ?? null;
+  const videoPayload = isVideoNode ? node.element.payload as VideoElementPayload : null;
   const videoSrc = videoPayload?.src ?? null;
+  const fit = readMediaFit(isVideoNode ? 'video' : 'image', (isVideoNode ? videoPayload : imagePayload) ?? { src: '' });
   const proxyImageSrc = node.proxyMediaKey && node.proxyMediaKey !== imageSrc && node.proxyMediaKey !== videoSrc
     ? node.proxyMediaKey
     : null;
@@ -146,7 +179,7 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
     if (!loadedMedia || !onLoad) return;
 
     const frameId = requestAnimationFrame(() => {
-      onLoad();
+      onLoad(node.id);
     });
 
     return () => {
@@ -196,7 +229,7 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   }, [displayedMedia]);
 
   const draw = displayedMedia
-    ? resolveDraw(displayedMedia, node.element.type === 'video', node.element.width, node.element.height)
+    ? resolveDraw(displayedMedia, fit, node.element.width, node.element.height)
     : null;
   // Thumbnail surfaces never decode the full source (ADR-0013 keeps them
   // derivative-only), so there the proxy is the only thing that can report a
@@ -206,19 +239,58 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
     && proxyImageState.status !== 'loaded'
     && MISSING_MEDIA_SURFACES.has(surface);
 
-  return displayedMedia && draw ? (
-    <KonvaImage
-      ref={imageRef}
-      image={displayedMedia.resource}
-      x={draw.x}
-      y={draw.y}
-      width={draw.width}
-      height={draw.height}
-      crop={draw.crop}
-    />
-  ) : shouldRenderMissingPlaceholder ? (
-    <MissingMediaPlaceholder width={node.element.width} height={node.element.height} />
-  ) : (
-    <Rect x={0} y={0} width={node.element.width} height={node.element.height} fill="#2b303900" />
+  const { visual } = node;
+  const cornerRadius = Math.max(0, visual.borderRadius);
+  const clipFunc = useMemo(
+    () => (cornerRadius > 0 ? roundedRectClipFunc(cornerRadius, node.element.width, node.element.height) : undefined),
+    [cornerRadius, node.element.width, node.element.height],
+  );
+
+  return (
+    <>
+      {/* Fill + shadow behind the media: visible in any letterboxed margin a
+          'contain'/'fill' fit leaves uncovered, and (like scene-node-shape.tsx)
+          left unclipped so a blurred/offset shadow can extend past the box. */}
+      <Rect
+        x={0}
+        y={0}
+        width={node.element.width}
+        height={node.element.height}
+        fill={visual.fillEnabled ? visual.fillColor : NO_FILL_COLOR}
+        cornerRadius={cornerRadius}
+        shadowEnabled={visual.shadowEnabled}
+        shadowColor={visual.shadowColor}
+        shadowBlur={visual.shadowBlur}
+        shadowOffsetX={visual.shadowOffsetX}
+        shadowOffsetY={visual.shadowOffsetY}
+      />
+      {displayedMedia && draw ? (
+        <Group clipFunc={clipFunc}>
+          <KonvaImage
+            ref={imageRef}
+            image={displayedMedia.resource}
+            x={draw.x}
+            y={draw.y}
+            width={draw.width}
+            height={draw.height}
+            crop={draw.crop}
+          />
+        </Group>
+      ) : shouldRenderMissingPlaceholder ? (
+        <MissingMediaPlaceholder width={node.element.width} height={node.element.height} />
+      ) : null}
+      {visual.strokeEnabled ? (
+        <Rect
+          x={0}
+          y={0}
+          width={node.element.width}
+          height={node.element.height}
+          stroke={visual.strokeColor}
+          strokeWidth={visual.strokeWidth}
+          cornerRadius={cornerRadius}
+          listening={false}
+        />
+      ) : null}
+    </>
   );
 }

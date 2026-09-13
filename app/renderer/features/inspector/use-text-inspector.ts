@@ -28,6 +28,7 @@ interface TextInspectorActions {
   handleAutoFitToggle: (enabled: boolean) => void;
   handleMaxFontSizeChange: (value: string) => void;
   handleLineHeightChange: (value: string) => void;
+  handleLetterSpacingChange: (value: string) => void;
   handleTextColorChange: (value: string) => void;
   handleCaseChange: (value: string) => void;
   handleTextStyleToggle: (value: string | string[]) => void;
@@ -67,6 +68,7 @@ export function useTextInspector(): TextInspectorResult {
   }
   function handleMaxFontSizeChange(value: string) { updateText({ autoFitMaxFontSize: Math.max(1, parseNumber(value, formatting.autoFitMaxFontSize)) }); }
   function handleLineHeightChange(value: string) { updateText({ lineHeight: Math.max(0.6, parseNumber(value, formatting.lineHeight)) }); }
+  function handleLetterSpacingChange(value: string) { updateText({ letterSpacing: parseNumber(value, formatting.letterSpacing) }); }
   function handleTextColorChange(value: string) { updateTextVisual({ color: value }); }
   function handleCaseChange(value: string) { updateText({ caseTransform: value as TextCaseTransform }); }
 
@@ -120,6 +122,7 @@ export function useTextInspector(): TextInspectorResult {
       handleAutoFitToggle,
       handleMaxFontSizeChange,
       handleLineHeightChange,
+      handleLetterSpacingChange,
       handleTextColorChange,
       handleCaseChange,
       handleTextStyleToggle,

@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { MediaAsset, SlideElement } from '@lumacast/composition';
+import type { AlignEdge, AlignTarget, DistributeAxis, MediaAsset, RichBody, SlideElement } from '@lumacast/composition';
 import type { ElementUpdateInput } from '@lumacast/protocol';
 import type { ElementInspectorDraft } from './ui';
 
@@ -30,6 +30,11 @@ export interface ElementContextValue {
   toggleElementLock: (id: Id, locked: boolean) => Promise<void>;
   renameElement: (id: Id, name: string) => Promise<void>;
   reorderElements: (idsBackToFront: Id[]) => Promise<void>;
+  setElementRichText: (id: Id, body: RichBody) => Promise<void>;
+  groupSelection: (elementIds?: Id[], name?: string) => Promise<Id | null>;
+  ungroupSelection: (groupId?: Id) => Promise<Id[]>;
+  alignSelection: (edge: AlignEdge, target: AlignTarget, elementIds?: Id[]) => Promise<void>;
+  distributeSelection: (axis: DistributeAxis, elementIds?: Id[]) => Promise<void>;
   nudgeSelection: (dx: number, dy: number) => Promise<void>;
   copySelection: () => void;
   cutSelection: () => Promise<void>;

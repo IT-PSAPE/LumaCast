@@ -318,3 +318,165 @@ describe('useSceneStageEditor text editing geometry', () => {
     expect(updates[0]).not.toHaveProperty('height');
   });
 });
+
+// Group resize (#111 group rendering): a group's live transform intentionally
+// never touches its Konva children or the draft state — Konva's own transform
+// stack already previews the whole (recursively rendered) subtree scaling
+// correctly, for free, so handleNodeTransform no-ops for a group id and
+// handleNodeTransformEnd bakes the cumulative scale into the group's own
+// geometry and, recursively, into every child's geometry (and non-autoFit
+// text font size) exactly once.
+describe('useSceneStageEditor group transform', () => {
+  const scene = {
+    width: 1920,
+    height: 1080,
+    slide: { background: null },
+    nodes: [],
+  } as never;
+
+  function createGroupElement() {
+    return {
+      id: 'group-1',
+      slideId: 'slide-1',
+      type: 'group',
+      x: 100,
+      y: 100,
+      width: 200,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+      zIndex: 0,
+      layer: 'content',
+      payload: {
+        locked: false,
+        visible: true,
+        children: [
+          {
+            id: 'child-shape',
+            slideId: 'slide-1',
+            type: 'shape',
+            x: 10,
+            y: 10,
+            width: 50,
+            height: 20,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 0,
+            layer: 'content',
+            payload: { fillEnabled: true, fillColor: '#ffffff', borderColor: '#000000', borderWidth: 0, borderRadius: 0 },
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            id: 'child-text',
+            slideId: 'slide-1',
+            type: 'text',
+            x: 0,
+            y: 40,
+            width: 100,
+            height: 30,
+            rotation: 0,
+            opacity: 1,
+            zIndex: 1,
+            layer: 'content',
+            payload: { text: 'hi', fontFamily: 'Arial', fontSize: 20, color: '#ffffff', alignment: 'left' },
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+      },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as const;
+  }
+
+  function createGroupNode(scaleX: number, scaleY: number) {
+    return {
+      x: () => 100,
+      y: () => 100,
+      width: () => 200,
+      height: () => 100,
+      rotation: () => 0,
+      scaleX: () => scaleX,
+      scaleY: () => scaleY,
+      setAttrs: vi.fn(),
+      children: [],
+    };
+  }
+
+  function setup(element: ReturnType<typeof createGroupElement>) {
+    const commitElementUpdates = vi.fn(async () => undefined);
+    const setDraftElements = vi.fn();
+    const hook = renderHook(() => useSceneStageEditor({
+      scene,
+      editable: true,
+      elements: {
+        effectiveElements: [element] as never,
+        baseElements: [element] as never,
+        selectedElementIds: ['group-1'],
+        selectElements: vi.fn(),
+        toggleElementSelection: vi.fn(),
+        selectElement: vi.fn(),
+        clearSelection: vi.fn(),
+        setDraftElements,
+        commitElementUpdates,
+        setCanvasInteracting: vi.fn(),
+      },
+    }));
+    return { hook, commitElementUpdates, setDraftElements };
+  }
+
+  beforeEach(() => {
+    mocks.applyDraftPatch.mockReset();
+    mocks.flushDraftBuffer.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('does not touch the Konva children or the draft while a group is being resized', () => {
+    const { hook } = setup(createGroupElement());
+    const node = createGroupNode(1.5, 1.2);
+    act(() => {
+      hook.result.current.setNodeRef('group-1', node as never);
+    });
+
+    act(() => {
+      hook.result.current.handleNodeTransform();
+    });
+
+    expect(node.setAttrs).not.toHaveBeenCalled();
+    expect(mocks.applyDraftPatch).not.toHaveBeenCalled();
+  });
+
+  it('bakes the cumulative scale into the group and its children exactly once, on transform end', async () => {
+    const { hook, commitElementUpdates } = setup(createGroupElement());
+    // The Konva Transformer already left the node at 2x width, 1.5x height —
+    // handleNodeTransform never touched it (see the test above).
+    const node = createGroupNode(2, 1.5);
+    act(() => {
+      hook.result.current.setNodeRef('group-1', node as never);
+    });
+
+    await act(async () => {
+      await hook.result.current.handleNodeTransformEnd();
+    });
+
+    expect(commitElementUpdates).toHaveBeenCalledTimes(1);
+    const [updates] = commitElementUpdates.mock.calls[0] as unknown as [Array<Record<string, unknown>>];
+    expect(updates).toHaveLength(1);
+    expect(updates[0]).toEqual(expect.objectContaining({
+      id: 'group-1', x: 100, y: 100, width: 400, height: 150, rotation: 0,
+    }));
+
+    const payload = updates[0].payload as { children: Array<Record<string, unknown>> };
+    const shapeChild = payload.children.find((child) => child.id === 'child-shape')!;
+    // x/width scale by the group's own width ratio (2); y/height by its height ratio (1.5).
+    expect(shapeChild).toEqual(expect.objectContaining({ x: 20, y: 15, width: 100, height: 30 }));
+
+    const textChild = payload.children.find((child) => child.id === 'child-text') as { payload: { fontSize: number } };
+    // Non-autoFit text scales its font size by the geometric mean of the two ratios.
+    expect(textChild.payload.fontSize).toBeCloseTo(20 * Math.sqrt(2 * 1.5));
+  });
+});

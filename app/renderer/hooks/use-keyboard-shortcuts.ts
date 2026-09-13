@@ -28,8 +28,8 @@ function isInteractiveTarget(target: HTMLElement | null): boolean {
 export function useKeyboardShortcuts(): void {
   const { setStatusText, undo: globalUndoAction, redo: globalRedoAction } = useCast();
   const { open: openCommandPalette } = useCommandPalette();
-  const { slides, currentSlide, currentSlideIndex, isOutputArmedOnCurrent, activateSlide, takeSlide, goNext, goPrev, deleteSlide, setCurrentSlideIndex } = useSlides();
-  const { selectedElementId, clearSelection, deleteSelected, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, undo, redo } = useElements();
+  const { slides, currentSlide, activateSlide, takeSlide, goNext, goPrev, deleteSlide } = useSlides();
+  const { selectedElementId, clearSelection, deleteSelected, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, groupSelection, ungroupSelection, undo, redo } = useElements();
   const { setSlideBrowserMode } = useDeckBrowser();
   const { state: { workbenchMode }, overlayStack } = useWorkbench();
   const isEditSlideBrowser = workbenchMode === 'item-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'theme-editor' || workbenchMode === 'stage-editor';
@@ -72,6 +72,8 @@ export function useKeyboardShortcuts(): void {
         cutSelection: () => { void cutSelection().catch(() => undefined); return true; },
         pasteSelection: () => { void pasteSelection().catch(() => undefined); return true; },
         duplicateSelection: () => { void duplicateSelection().catch(() => undefined); return true; },
+        groupSelection: () => { void groupSelection().catch(() => undefined); return true; },
+        ungroupSelection: () => { void ungroupSelection().catch(() => undefined); return true; },
         undo: () => { void undo().catch(() => undefined); return true; },
         redo: () => { void redo().catch(() => undefined); return true; },
         globalUndo: () => { void globalUndoAction().catch(() => undefined); return true; },
@@ -106,8 +108,10 @@ export function useKeyboardShortcuts(): void {
             if (selectedElementId) { void nudgeSelection(e.shiftKey ? 10 : 1, 0).catch(() => undefined); return true; }
             return false;
           }
-          if (isOutputArmedOnCurrent) goNext();
-          else setCurrentSlideIndex(currentSlideIndex + 1);
+          // goNext already decides armed-advance vs browse-only — the menu
+          // command (use-app-menu.ts) shares the same decision by calling the
+          // same context method.
+          goNext();
           return true;
         },
         nudgeOrGoPrev: (e) => {
@@ -116,8 +120,7 @@ export function useKeyboardShortcuts(): void {
             if (selectedElementId) { void nudgeSelection(e.shiftKey ? -10 : -1, 0).catch(() => undefined); return true; }
             return false;
           }
-          if (isOutputArmedOnCurrent) goPrev();
-          else setCurrentSlideIndex(currentSlideIndex - 1);
+          goPrev();
           return true;
         },
         nudgeUp: (e) => { void nudgeSelection(0, e.shiftKey ? -10 : -1).catch(() => undefined); return true; },
@@ -145,5 +148,5 @@ export function useKeyboardShortcuts(): void {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isEditSlideBrowser, isShowMode, workbenchMode, overlayStack, slides.length, selectedElementId, currentSlide, currentSlideIndex, isOutputArmedOnCurrent, activateSlide, takeSlide, goNext, goPrev, setCurrentSlideIndex, clearSelection, deleteSelected, deleteSlide, setSlideBrowserMode, setStatusText, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, undo, redo, globalUndoAction, globalRedoAction, openCommandPalette]);
+  }, [isEditSlideBrowser, isShowMode, workbenchMode, overlayStack, slides.length, selectedElementId, currentSlide, activateSlide, takeSlide, goNext, goPrev, clearSelection, deleteSelected, deleteSlide, setSlideBrowserMode, setStatusText, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, groupSelection, ungroupSelection, undo, redo, globalUndoAction, globalRedoAction, openCommandPalette]);
 }

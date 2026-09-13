@@ -140,16 +140,14 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
 
         {background?.type === 'image' || background?.type === 'video' ? (
           <>
-            {background.type === 'image' ? (
-              <FieldSelect
-                value={background.fit}
-                onChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })}
-              >
-                <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
-                <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
-                <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
-              </FieldSelect>
-            ) : null}
+            <FieldSelect
+              value={background.fit}
+              onChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })}
+            >
+              <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
+              <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
+              <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
+            </FieldSelect>
             <ReacstButton onClick={() => setPickerKind(background.type === 'image' ? 'image' : 'video')}>
               Replace {background.type}…
             </ReacstButton>

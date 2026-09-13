@@ -154,4 +154,28 @@ describe('wrapRuns (Konva-faithful)', () => {
     const lines = wrapRuns([{ text: 'aa ' }, { text: 'bb', fontSize: 20 }], box(10, { fontScale: 0.5 }), { width: 30, measure });
     expect(lines.map(lineText)).toEqual(['aa bb']);
   });
+
+  it('folds letterSpacing into the reported line width (measure computation, not just a draw prop)', () => {
+    // Base 'aa aa' = 5 graphemes * 5 = 25; letterSpacing 2 adds 2 per grapheme.
+    const lines = wrapRuns([{ text: 'aa aa' }], box(10, { letterSpacing: 2 }), { width: 1000, measure });
+    expect(lines[0].width).toBe(35);
+  });
+
+  it('wraps earlier with letterSpacing than a spacing-free measurement would', () => {
+    // At width 25 the spacing-free line fits exactly (25 <= 25, existing behavior).
+    const noSpacing = wrapRuns([{ text: 'aa aa' }], box(10), { width: 25, measure }).map(lineText);
+    expect(noSpacing).toEqual(['aa aa']);
+    // The same text with 1px letterSpacing per grapheme now measures 30 (25 + 5*1)
+    // and must wrap, proving the wrap decision — not just the draw step — accounts
+    // for it.
+    const spaced = wrapRuns([{ text: 'aa aa' }], box(10, { letterSpacing: 1 }), { width: 25, measure }).map(lineText);
+    expect(spaced).toEqual(['aa', 'aa']);
+  });
+
+  it('treats an absent letterSpacing as zero (unchanged legacy behavior)', () => {
+    const withUndefined = wrapRuns([{ text: 'aa aa' }], box(10), { width: 1000, measure });
+    const withZero = wrapRuns([{ text: 'aa aa' }], box(10, { letterSpacing: 0 }), { width: 1000, measure });
+    expect(withUndefined[0].width).toBe(25);
+    expect(withZero[0].width).toBe(25);
+  });
 });

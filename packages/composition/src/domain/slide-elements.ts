@@ -3,6 +3,7 @@
 // plus the payload variants and text-binding shapes it carries.
 import type { RichBody } from '../rich-text/types';
 import type { Id } from '@lumacast/kernel';
+import type { SlideBackgroundFit } from './slides';
 
 export type SlideElementType = 'text' | 'image' | 'video' | 'shape' | 'group';
 
@@ -56,6 +57,7 @@ export interface ElementVisualPayload {
   strokeColor?: string;
   strokeWidth?: number;
   strokePosition?: StrokePosition;
+  borderRadius?: number;
   shadowEnabled?: boolean;
   shadowColor?: string;
   shadowBlur?: number;
@@ -65,7 +67,6 @@ export interface ElementVisualPayload {
 
 export interface TextElementPayload extends ElementVisualPayload {
   text: string;
-  borderRadius?: number;
   fontFamily: string;
   fontSize: number;
   color: string;
@@ -78,6 +79,8 @@ export interface TextElementPayload extends ElementVisualPayload {
   underline?: boolean;
   strikethrough?: boolean;
   lineHeight?: number;
+  /** Extra space between characters, in px at the authored font size. Default 0. */
+  letterSpacing?: number;
   weight?: string;
   textStrokeEnabled?: boolean;
   textStrokeColor?: string;
@@ -98,6 +101,8 @@ export interface TextElementPayload extends ElementVisualPayload {
 
 export interface ImageElementPayload extends ElementVisualPayload {
   src: string;
+  /** Object-fit mode for the image inside its element bounds. Default 'cover'. */
+  fit?: SlideBackgroundFit;
 }
 
 export interface VideoElementPayload extends ElementVisualPayload {
@@ -106,6 +111,8 @@ export interface VideoElementPayload extends ElementVisualPayload {
   loop: boolean;
   muted?: boolean;
   playbackRate?: number;
+  /** Object-fit mode for the video inside its element bounds. Default 'contain'. */
+  fit?: SlideBackgroundFit;
 }
 
 export interface ShapeElementPayload extends ElementVisualPayload {

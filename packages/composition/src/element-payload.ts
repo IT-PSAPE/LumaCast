@@ -3,11 +3,14 @@ import type {
   SlideElementPayload,
   ShapeElementPayload,
   TextElementPayload,
+  ImageElementPayload,
+  VideoElementPayload,
   TextCaseTransform,
   TextHorizontalAlign,
   TextVerticalAlign,
   StrokePosition,
 } from './domain/slide-elements';
+import type { SlideBackgroundFit } from './domain/slides';
 
 export interface VisualPayloadState {
   visible: boolean;
@@ -39,6 +42,7 @@ export interface TextFormattingState {
   verticalAlign: TextVerticalAlign;
   caseTransform: TextCaseTransform;
   lineHeight: number;
+  letterSpacing: number;
   autoFit: boolean;
   autoFitMaxFontSize: number;
 }
@@ -64,6 +68,15 @@ const DEFAULT_BOX_SHADOW_COLOR = '#00000099';
 const DEFAULT_BOX_SHADOW_BLUR = 12;
 const DEFAULT_BOX_SHADOW_OFFSET_X = 0;
 const DEFAULT_BOX_SHADOW_OFFSET_Y = 6;
+
+/** Per-type default object-fit when an image/video element has no explicit `fit`. */
+export const DEFAULT_IMAGE_FIT: SlideBackgroundFit = 'cover';
+export const DEFAULT_VIDEO_FIT: SlideBackgroundFit = 'contain';
+
+/** Resolves an image/video element's effective fit, defaulting per type when absent. */
+export function readMediaFit(type: 'image' | 'video', payload: ImageElementPayload | VideoElementPayload): SlideBackgroundFit {
+  return payload.fit ?? (type === 'image' ? DEFAULT_IMAGE_FIT : DEFAULT_VIDEO_FIT);
+}
 
 export function supportsVisualStyling(type: SlideElement['type']): boolean {
   return type === 'shape' || type === 'text';
@@ -97,21 +110,26 @@ export function readVisualPayload(type: SlideElement['type'], payload: SlideElem
 }
 
 export function applyVisualPayload(type: SlideElement['type'], payload: SlideElementPayload, next: VisualPayloadState): SlideElementPayload {
+  // Shared by every element type (including image/video, which have no
+  // dedicated branch below): fill/stroke/shadow and the corner-radius clip
+  // are visual-payload fields regardless of what draws inside the box.
   const basePatch = {
     visible: next.visible,
     locked: next.locked,
     flipX: next.flipX,
     flipY: next.flipY,
+    fillEnabled: next.fillEnabled,
+    fillColor: next.fillColor,
+    strokeEnabled: next.strokeEnabled,
+    strokeColor: next.strokeColor,
+    strokeWidth: next.strokeWidth,
+    strokePosition: next.strokePosition,
+    borderRadius: Math.max(0, next.borderRadius),
     shadowEnabled: next.shadowEnabled,
     shadowColor: next.shadowColor,
     shadowBlur: next.shadowBlur,
     shadowOffsetX: next.shadowOffsetX,
     shadowOffsetY: next.shadowOffsetY,
-    strokeEnabled: next.strokeEnabled,
-    strokeColor: next.strokeColor,
-    strokeWidth: next.strokeWidth,
-    strokePosition: next.strokePosition,
-    fillEnabled: next.fillEnabled,
   };
 
   if (type === 'shape') {
@@ -119,19 +137,10 @@ export function applyVisualPayload(type: SlideElement['type'], payload: SlideEle
     return {
       ...shapePayload,
       ...basePatch,
-      fillColor: next.fillColor,
+      // Legacy shape-only mirrors of the shared stroke fields, still read by
+      // scene-node-shape.tsx's `?? ` fallbacks.
       borderColor: next.strokeColor,
       borderWidth: next.strokeEnabled ? next.strokeWidth : 0,
-      borderRadius: Math.max(0, next.borderRadius),
-    };
-  }
-  if (type === 'text') {
-    const textPayload = payload as TextElementPayload;
-    return {
-      ...textPayload,
-      ...basePatch,
-      fillColor: next.fillColor,
-      borderRadius: Math.max(0, next.borderRadius),
     };
   }
   return { ...payload, ...basePatch };
@@ -149,6 +158,7 @@ export function readTextFormatting(payload: TextElementPayload): TextFormattingS
     verticalAlign: payload.verticalAlign ?? 'middle',
     caseTransform: payload.caseTransform ?? 'none',
     lineHeight: payload.lineHeight ?? 1.25,
+    letterSpacing: payload.letterSpacing ?? 0,
     autoFit: payload.autoFit ?? false,
     autoFitMaxFontSize: payload.autoFitMaxFontSize ?? payload.fontSize,
   };

@@ -206,6 +206,50 @@ describe('resolveLinkedSlideElements', () => {
     expect((children[0].payload as { fontSize: number }).fontSize).toBe(44);
   });
 
+  it('resolves a group nested inside another group, preserving overrides at both levels', () => {
+    // #111 group rendering: groups can now nest arbitrarily deep, so the
+    // theme resolver's own group recursion (resolveGroupChildren /
+    // stampGroupChildren) needs to hold up more than one level deep, not
+    // just for a single group of leaf children.
+    const grandchildV1 = textElement('gc', {
+      payload: { text: 'Theme Grandchild', fontFamily: 'Arial', fontSize: 20, color: '#FFFFFF', alignment: 'left' },
+    });
+    const grandchildV2 = textElement('gc', {
+      payload: { text: 'Theme Grandchild', fontFamily: 'Georgia', fontSize: 40, color: '#00FF00', alignment: 'left' },
+    });
+    const innerGroupTheme = groupElement('inner', [grandchildV2]);
+    const outerGroupTheme = groupElement('outer', [innerGroupTheme]);
+    const theme = themeSource([outerGroupTheme]);
+
+    const existingGrandchild = linkedRow(grandchildV1, 'row-gc', {
+      payload: { ...grandchildV1.payload, text: 'Authored Grandchild' },
+      themeOverrideKeys: ['color'],
+    });
+    const existingInnerGroup = linkedRow(groupElement('inner', [grandchildV1]), 'row-inner', {
+      payload: { children: [existingGrandchild] },
+    });
+    const existingOuterGroup = linkedRow(groupElement('outer', [innerGroupTheme]), 'row-outer', {
+      payload: { children: [existingInnerGroup] },
+    });
+
+    const resolved = resolveLinkedSlideElements(theme, 'slide-1', [existingOuterGroup]);
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0].id).toBe('row-outer');
+    const innerChildren = (resolved[0].payload as { children: SlideElement[] }).children;
+    expect(innerChildren).toHaveLength(1);
+    expect(innerChildren[0].id).toBe('row-inner');
+    const grandchildren = (innerChildren[0].payload as { children: SlideElement[] }).children;
+    expect(grandchildren).toHaveLength(1);
+    expect(grandchildren[0].id).toBe('row-gc');
+    // Authored text and the pinned override survive at the deepest level...
+    expect((grandchildren[0].payload as { text: string }).text).toBe('Authored Grandchild');
+    expect((grandchildren[0].payload as { color: string }).color).toBe('#FFFFFF');
+    // ...while every other property follows the theme live, two levels deep.
+    expect((grandchildren[0].payload as { fontFamily: string }).fontFamily).toBe('Georgia');
+    expect((grandchildren[0].payload as { fontSize: number }).fontSize).toBe(40);
+  });
+
   it('propagates theme geometry edits to rows without overrides', () => {
     const v1 = textElement('title', { x: 10, y: 10 });
     const v2 = textElement('title', { x: 99, y: 88 });

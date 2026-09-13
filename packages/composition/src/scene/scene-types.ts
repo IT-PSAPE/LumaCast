@@ -20,6 +20,14 @@ export interface RenderNode {
   isVideo: boolean;
   proxyMediaKey?: string | null;
   bindingOverride?: BindingOverride;
+  /**
+   * Group elements carry their children as fully-resolved `RenderNode`s
+   * (recursive — a nested group's own children are resolved the same way),
+   * built by `buildRenderScene`'s `toRenderNode` so nested media gets the
+   * same proxy-media resolution as a top-level node. Absent for every other
+   * element kind.
+   */
+  children?: RenderNode[];
 }
 
 export type RenderSceneBackground =
@@ -110,6 +118,7 @@ export interface ResolvedMediaRenderNode extends ResolvedRenderNodeBase {
   media: ResolvedMediaState;
   proxyMediaKey: string | null;
   proxyMedia: ResolvedMediaState;
+  fit: SlideBackgroundFit;
 }
 
 export interface ResolvedShapeRenderNode extends ResolvedRenderNodeBase {
