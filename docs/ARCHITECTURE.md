@@ -362,6 +362,115 @@ Each rule is also proven by a committed fixture scenario under
   from the main event loop, but cloning a very large payload can still incur a
   bounded main/host serialization cost; streaming is deferred.
 
+## Agent Action Dispatch (ADR-0037)
+
+- The in-app assistant runtime and the MCP server both live in main and neither
+  touches the repository. They send an `AgentActionRequest`
+  (`packages/protocol/src/agent-actions.ts`) to the renderer over
+  `AGENT_ACTION_EVENTS.request` and receive exactly one `AgentActionResponse`
+  back through the `agentRespondAction` RPC, decoded at that boundary with
+  `decodeAgentActionResponse`. `app/main/agent/action-broker.ts` correlates the
+  two; `getAgentActionBroker()` in `app/main/ipc.ts` publishes the instance.
+- `app/renderer/features/agent/use-agent-action-dispatcher.ts` is the single
+  execution gate. It processes requests sequentially, checks permission,
+  flushes the active editor's staged edits before any write, executes — via
+  `window.castApi` for `site: 'main'` actions and renderer contexts for
+  `site: 'renderer'` actions — and answers. Mutations that return a
+  `SnapshotPatch` go through `useCast().mutatePatch`, so agent changes share
+  the user's undo history. Undo, live-show verbs, and `enqueueStoreWork`'s
+  mutation ordering are all renderer-owned, which is why execution is too.
+- `packages/protocol/src/action-bindings.ts` maps each `ActionId` to its RPC
+  method and argument order (`ACTION_RPC_BINDINGS`) or to its renderer
+  parameter shape (`RendererActionParams`). A compile-time assertion fails the
+  build when an action id has neither. Element grouping/alignment/distribution,
+  rich-text editing, and slide/contact-sheet rendering (`element.group`,
+  `element.ungroup`, `element.align`, `element.distribute`,
+  `element.setRichText`, `slide.render`, `slide.renderContactSheet`) execute in
+  the renderer against the canvas context and the `features/render` slide-image
+  pipeline, not over IPC.
+- A `broadcast` action always prompts while an NDI output is enabled, whatever
+  the principal's permission matrix says, and that interlock prompt withholds
+  "Always allow". Agent-facing media references are asset ids and are resolved
+  to the snapshot's managed `src` before the RPC call; mutation results are
+  reported as changed ids, never as raw patches.
+- `beginHistoryBatch`/`endHistoryBatch` on the app store collapse a batched
+  agent turn into one snapshot history entry. Begin calls nest; only the
+  outermost end commits.
+
+## In-App Agent Runtime (ADR-0038)
+
+- `app/main/agent/agent-runtime.ts` runs the assistant's model loop in main,
+  on the user's own provider key (`AgentCredentialStore`, OS keychain via
+  `safeStorage`). The renderer drives it over the `agent:*` RPCs and renders
+  the `AgentThreadEvent` stream that arrives on `AGENT_EVENTS.threadEvent`; it
+  never holds a credential and never opens a provider connection.
+  `agentSendMessage` returns a `runId` immediately — a run outlives the panel
+  that started it, and one thread may have only one run in flight.
+- Tools are generated from the canonical action registry
+  (`buildActionToolDefinitions`), so a model sees every `ActionId` with the
+  same JSON Schema `decodeActionParams` validates against, minus the
+  deliberately withheld `project.getSnapshot`, `logs.*` and `clipboard.*`
+  actions. An unknown tool name, invalid params, or a `deny` decision from
+  `app/main/agent/permission-policy.ts` is answered as a tool error inside
+  main and never reaches the renderer as a request.
+- One assistant turn's tool calls run sequentially inside a single
+  `broker.beginBatch`/`endBatch` pair, so a multi-action turn is one undo
+  entry for the user and each call sees the previous call's result. Tool
+  results are capped at 100 KB for the model; the stored message part keeps
+  the full value.
+- The three filesystem-reading actions (`media.import`,
+  `media.replaceSource`, `document.extractText`) bind to dedicated `agent*`
+  RPCs that take a raw path, which `PathAuthorizer` checks against the user's
+  granted roots in main before anything is read; handlers then use the
+  returned realpath. With no granted root they fail regardless of the
+  permission matrix.
+- MCP client records live in the agent config, not in the MCP host: creating
+  one mints a 32-byte token, stores only its SHA-256 (`tokenHash`), and
+  returns the token once with a paste-ready `mcp-remote` snippet.
+  `getAgentRuntime()`/`getAgentMcpService()`/`setAgentMcpService()` in
+  `app/main/ipc.ts` publish both the runtime and the MCP service; see the MCP
+  Server section below for the latter.
+
+## MCP Server (ADR-0039)
+
+- `app/main/mcp/mcp-host.ts` is a third utility process (bundled to
+  `out/main/mcp-host.js` alongside `ndi-host.js`/`persistence-host.js`) that
+  binds an `http.Server` to **127.0.0.1 only** and speaks MCP Streamable HTTP
+  at `/mcp`, using the SDK's low-level `Server` (raw JSON Schema tool
+  definitions from the action registry, not hand-authored zod) and one
+  `StreamableHTTPServerTransport` session per `Mcp-Session-Id`. It is a
+  protocol translator only: it never touches the repository, the filesystem,
+  or the agent config, and never auto-restarts after an unexpected exit
+  (fail-stop, matching ADR-0014's persistence/NDI hosts).
+- Every `tools/call`/`resources/read` a connected client makes is forwarded
+  to main as a `call` message over the same `process.parentPort` channel the
+  other utility hosts use, and is answered by exactly one `call-result`.
+  `McpService` (`app/main/mcp/mcp-service-proxy.ts`) is the sole resolver: it
+  decodes params, resolves the calling client's permissions
+  (`resolvePrincipalPermissions`/`decideAction`), and dispatches through the
+  **same** `AgentActionBroker` the in-app assistant uses — there is no second
+  execution path. Each call runs inside its own `beginBatch`/`endBatch` pair
+  (one undo entry per call) and requires an open application window.
+- Before any of that, the host itself enforces loopback security: a present
+  `Origin` header must name this exact host/port (403 otherwise, DNS-rebinding
+  protection), any path but `/mcp` is 404, and a `Bearer` token is required,
+  hashed the same way `hashMcpToken` does and compared in constant time
+  against the client roster main forwards on `start`/`update-clients` — an
+  unknown or missing token is 401. Tokens are never logged.
+- `AgentConfig.mcp.port` (default `43117`, `null` for ephemeral) is the
+  loopback port the host tries first; it falls back to an OS-assigned port
+  itself if that one is taken and reports the real port back through `ready`.
+  Creating, revoking, or re-permissioning a client calls
+  `McpService.refreshClients()`, which pushes the new roster to a running
+  host without restarting it.
+- Resources are read-only projections: `resources/list` advertises only the
+  enumerable ones (`lumacast://project/overview`, `lumacast://playlists`);
+  parameterized shapes (`lumacast://playlist/{id}`,
+  `lumacast://item/{type}/{id}`, `lumacast://slide/{id}[/image]`) are
+  readable but not listed, forwarded opaquely by the host and mapped to an
+  action only by `McpService`. See ADR-0039 for the full security and
+  boundary rationale.
+
 ## Automation Runtime Guardrails
 
 - `@lumacast/automation` owns macro-run pacing, lifecycle, and revert bookkeeping in the headless runtime (`packages/automation/src/runtime.ts`); `AutomationProvider` in `app/renderer/features/automation/automation-context.tsx` remains the renderer composition boundary that supplies playback, clock, observability, and status-text ports.
@@ -381,7 +490,7 @@ Each rule is also proven by a committed fixture scenario under
   returns `{ action: 'deny' }` — no new `BrowserWindow` is ever created from
   renderer-requested navigation — and, only for a URL matching the explicit
   `APPROVED_EXTERNAL_ORIGINS` allow-list in `security.ts` (currently
-  `https://openai.com`, the Help menu's "Learn more" item), calls
+  `https://github.com`, the Help menu's "Learn more" item), calls
   `shell.openExternal(url)` as a side effect before still returning deny.
 - Both allow-lists live in source (`app/main/security.ts`) and are extended
   only by editing that file; neither is ever populated from renderer input,
