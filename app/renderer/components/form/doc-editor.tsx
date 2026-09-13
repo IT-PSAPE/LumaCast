@@ -610,7 +610,7 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
             // write must not destroy the selected blocks.
             void window.castApi.writeClipboardText(text)
                 .then(() => { if (keyLower === 'x') deleteSelectedBlocks() })
-                .catch(() => {})
+                .catch((error) => { console.error('[DocEditor] clipboard failed', error) })
             return
         }
 

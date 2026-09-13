@@ -8,11 +8,11 @@ import { CueIcon, MacroIcon } from './cue-icons';
 export function SlideBindingsBadge({ slideId }: { slideId: Id }) {
   const {
     state: { cues, macros },
-    actions: { getBindingsForSource },
+    actions: { getBindingsForSourceTriggers },
   } = useAutomation();
   const { mediaAssets } = useProjectContent();
 
-  const bindings = getBindingsForSource('slide.activate', slideId);
+  const bindings = getBindingsForSourceTriggers(['slide.activate', 'slide.take'], slideId);
   if (bindings.length === 0) return null;
 
   const cueById = new Map(cues.map((cue) => [cue.id, cue]));

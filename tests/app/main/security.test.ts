@@ -65,13 +65,13 @@ describe('isTrustedWebContentsUrl (will-navigate allow-list)', () => {
 
 describe('isApprovedExternalUrl (window-open shell.openExternal allow-list)', () => {
   const cases: Array<{ name: string; url: string; expected: boolean }> = [
-    { name: 'approved external origin (openai.com)', url: 'https://openai.com', expected: true },
-    { name: 'approved origin with a path', url: 'https://openai.com/some/path', expected: true },
-    { name: 'approved origin, host differs only by case', url: 'https://OpenAI.COM', expected: true },
-    { name: 'approved host over http is still denied', url: 'http://openai.com', expected: false },
-    { name: 'approved host with trailing dot is a different origin', url: 'https://openai.com./', expected: false },
+    { name: 'approved external origin (github.com)', url: 'https://github.com', expected: true },
+    { name: 'approved origin with a path', url: 'https://github.com/IT-PSAPE/LumaCast', expected: true },
+    { name: 'approved origin, host differs only by case', url: 'https://GitHub.COM', expected: true },
+    { name: 'approved host over http is still denied', url: 'http://github.com', expected: false },
+    { name: 'approved host with trailing dot is a different origin', url: 'https://github.com./', expected: false },
     { name: 'unapproved https host', url: 'https://example.com', expected: false },
-    { name: 'credentials embedded in the URL', url: 'https://user:pass@openai.com/', expected: false },
+    { name: 'credentials embedded in the URL', url: 'https://user:pass@github.com/', expected: false },
     { name: 'javascript: scheme', url: 'javascript:alert(1)', expected: false },
     { name: 'malformed/unparseable URL', url: 'not a url', expected: false },
     { name: 'the app dev origin is not an approved external destination', url: 'http://localhost:5173/', expected: false },

@@ -7,9 +7,12 @@ import { SlideBindingsMenu } from '../automation/slide-bindings-menu';
 import { SlideTagMenu } from './slide-tag-menu';
 
 export function SlideActionsMenu({ slideIds }: { slideIds: Id[] }) {
-  const { duplicateSlide, deleteSlide } = useSlides();
+  const { slides, duplicateSlide, deleteSlide, moveSlide } = useSlides();
   const confirm = useConfirm();
   const count = slideIds.length;
+  const singleIndex = count === 1 ? slides.findIndex((slide) => slide.id === slideIds[0]) : -1;
+  const isFirst = singleIndex <= 0;
+  const isLast = singleIndex === -1 || singleIndex === slides.length - 1;
 
   async function duplicateSelected() {
     for (const slideId of slideIds) await duplicateSlide(slideId);
@@ -30,6 +33,22 @@ export function SlideActionsMenu({ slideIds }: { slideIds: Id[] }) {
 
   return (
     <>
+      {count === 1 ? (
+        <>
+          <ContextMenu.Item disabled={isFirst} onSelect={() => {
+            // moveSlide rejects when the slide no longer exists (#214), which
+            // a context-menu action can race with a concurrent delete.
+            // mutatePatch has already reported the failure, so absorb the
+            // rethrow here.
+            void moveSlide(slideIds[0], 'up').catch(() => undefined);
+          }}>Move up</ContextMenu.Item>
+          <ContextMenu.Item disabled={isLast} onSelect={() => {
+            // See "Move up" above: same race, same absorption.
+            void moveSlide(slideIds[0], 'down').catch(() => undefined);
+          }}>Move down</ContextMenu.Item>
+          <ContextMenu.Separator />
+        </>
+      ) : null}
       <ContextMenu.Item onSelect={() => { void duplicateSelected(); }}>
         {count === 1 ? 'Duplicate' : `Duplicate ${count} slides`}
       </ContextMenu.Item>

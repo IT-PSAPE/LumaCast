@@ -12,14 +12,14 @@ import { CueIcon, MacroIcon } from './cue-icons';
 export function SlideBindingsMenu({ slideId }: { slideId: Id }) {
   const {
     state: { cues, macros },
-    actions: { deleteBinding, getBindingsForSource, setCurrentMacroId },
+    actions: { deleteBinding, getBindingsForSourceTriggers, setCurrentMacroId },
   } = useAutomation();
   const { overlays, mediaAssets, stages } = useProjectContent();
   const { setCurrentOverlayId } = useOverlayEditor();
   const { setCurrentStageId } = useStageEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
 
-  const bindings = getBindingsForSource('slide.activate', slideId);
+  const bindings = getBindingsForSourceTriggers(['slide.activate', 'slide.take'], slideId);
   if (bindings.length === 0) return null;
 
   const cueById = new Map(cues.map((cue) => [cue.id, cue]));
@@ -90,7 +90,10 @@ function MacroBindingMenuItem({ binding, cue, macro, onEdit, onRemove }: Paramet
       label={(
         <span className="inline-flex min-w-0 items-center gap-2">
           <MacroIcon className="size-3.5 shrink-0 text-tertiary" />
-          <span className="min-w-0 truncate">{macro?.name ?? 'Unknown macro'}</span>
+          <span className="min-w-0 truncate">
+            {macro?.name ?? 'Unknown macro'}
+            {binding.triggerType === 'slide.take' ? ' · take' : ''}
+          </span>
         </span>
       )}
     >
@@ -107,7 +110,10 @@ function CueBindingMenuItem({ binding, cue, overlays, stages, mediaAssets, macro
       label={(
         <span className="inline-flex min-w-0 items-center gap-2">
           {cue && <CueIcon cue={cue} mediaAssets={mediaAssets} className="size-3.5 shrink-0 text-tertiary" />}
-          <span className="min-w-0 truncate">{describeCue(cue, { overlays, stages, mediaAssets, macros })}</span>
+          <span className="min-w-0 truncate">
+            {describeCue(cue, { overlays, stages, mediaAssets, macros })}
+            {binding.triggerType === 'slide.take' ? ' · take' : ''}
+          </span>
         </span>
       )}
     >

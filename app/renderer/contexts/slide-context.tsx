@@ -214,17 +214,30 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     if (!selectionKey || !currentItemRef || slides.length === 0) return;
     const nextIndex = clamp(index, 0, slides.length - 1);
     updateVisibleSelectedSlideIndex(selectionKey, nextIndex);
-    if (!canDriveOutput || !currentPlaylistEntryId) return;
-    liveSelection.update(currentPlaylistEntryId, nextIndex);
-    armOutputPlaylistEntry(currentPlaylistEntryId);
+
+    let armedEntryId: Id | null = null;
+    if (canDriveOutput && currentPlaylistEntryId) {
+      armedEntryId = currentPlaylistEntryId;
+      liveSelection.update(currentPlaylistEntryId, nextIndex);
+      armOutputPlaylistEntry(currentPlaylistEntryId);
+    } else if (isDetachedDeckBrowser) {
+      // Direct (rowless) item opened from the Deck bin: arm the output item
+      // directly, mirroring activateScheduledSlide's rowless fallback below —
+      // there is no playlist entry to arm instead.
+      liveSelection.update(itemRefKey(currentItemRef), nextIndex);
+      armOutputItem(currentItemRef);
+    } else {
+      return;
+    }
+
     const activatedSlideId = slides[nextIndex]?.id;
     if (activatedSlideId) {
       noteOutputTakeIntent({
         kind: 'activate',
         slideId: activatedSlideId,
-        outputScopeKey: buildNdiTakeScopeKey(currentPlaylistEntryId, currentItemRef),
+        outputScopeKey: buildNdiTakeScopeKey(armedEntryId, currentItemRef),
         reason: classifyTakeReason({
-          targetEntryId: currentPlaylistEntryId,
+          targetEntryId: armedEntryId,
           targetItemRef: currentItemRef,
           targetIndex: nextIndex,
           currentOutputEntryId: currentOutputPlaylistEntryId,
@@ -236,6 +249,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     }
     setStatusText(`Live slide ${nextIndex + 1}`);
   }, [
+    armOutputItem,
     armOutputPlaylistEntry,
     canDriveOutput,
     currentPlaylistEntryId,
@@ -252,17 +266,31 @@ export function SlideProvider({ children }: { children: ReactNode }) {
   ]);
 
   const takeSlide = useCallback(() => {
-    if (!canDriveOutput || !currentPlaylistEntryId || slides.length === 0 || currentSlideIndex < 0) return;
-    liveSelection.update(currentPlaylistEntryId, currentSlideIndex);
-    armOutputPlaylistEntry(currentPlaylistEntryId);
+    if (!currentItemRef || slides.length === 0 || currentSlideIndex < 0) return;
+
+    let armedEntryId: Id | null = null;
+    if (canDriveOutput && currentPlaylistEntryId) {
+      armedEntryId = currentPlaylistEntryId;
+      liveSelection.update(currentPlaylistEntryId, currentSlideIndex);
+      armOutputPlaylistEntry(currentPlaylistEntryId);
+    } else if (isDetachedDeckBrowser) {
+      // Direct (rowless) item opened from the Deck bin: arm the output item
+      // directly, mirroring activateScheduledSlide's rowless fallback below —
+      // there is no playlist entry to arm instead.
+      liveSelection.update(itemRefKey(currentItemRef), currentSlideIndex);
+      armOutputItem(currentItemRef);
+    } else {
+      return;
+    }
+
     const takenSlideId = slides[currentSlideIndex]?.id;
     if (takenSlideId) {
       noteOutputTakeIntent({
         kind: 'take',
         slideId: takenSlideId,
-        outputScopeKey: buildNdiTakeScopeKey(currentPlaylistEntryId, currentItemRef),
+        outputScopeKey: buildNdiTakeScopeKey(armedEntryId, currentItemRef),
         reason: classifyTakeReason({
-          targetEntryId: currentPlaylistEntryId,
+          targetEntryId: armedEntryId,
           targetItemRef: currentItemRef,
           targetIndex: currentSlideIndex,
           currentOutputEntryId: currentOutputPlaylistEntryId,
@@ -275,6 +303,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     }
     setStatusText(`Taken slide ${currentSlideIndex + 1}`);
   }, [
+    armOutputItem,
     armOutputPlaylistEntry,
     canDriveOutput,
     currentPlaylistEntryId,
@@ -282,6 +311,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     currentSlideIndex,
     currentOutputItemRef,
     currentOutputPlaylistEntryId,
+    isDetachedDeckBrowser,
     liveSlideIndex,
     setStatusText,
     slides.length,
@@ -326,15 +356,20 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     liveSelection.update,
   ]);
 
+  // Shared by both the keyboard shortcut and the app-menu command so the two
+  // never diverge: advance the live output only when it is already armed on
+  // the browsed slide, otherwise just move the browse cursor.
   const goNext = useCallback(() => {
     if (slides.length === 0) return;
-    activateSlide(currentSlideIndex + 1);
-  }, [activateSlide, currentSlideIndex, slides.length]);
+    if (isOutputArmedOnCurrent) activateSlide(currentSlideIndex + 1);
+    else setCurrentSlideIndex(currentSlideIndex + 1);
+  }, [activateSlide, currentSlideIndex, isOutputArmedOnCurrent, setCurrentSlideIndex, slides.length]);
 
   const goPrev = useCallback(() => {
     if (slides.length === 0) return;
-    activateSlide(currentSlideIndex - 1);
-  }, [activateSlide, currentSlideIndex, slides.length]);
+    if (isOutputArmedOnCurrent) activateSlide(currentSlideIndex - 1);
+    else setCurrentSlideIndex(currentSlideIndex - 1);
+  }, [activateSlide, currentSlideIndex, isOutputArmedOnCurrent, setCurrentSlideIndex, slides.length]);
 
   const createSlideAction = useCallback(async () => {
     if (!currentItemRef) return;

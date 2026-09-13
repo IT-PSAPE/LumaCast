@@ -207,9 +207,11 @@ describe('DocEditor', () => {
         expect(last[0].content).not.toContain('\u2028')
     })
 
-    it('handles readClipboardText rejection gracefully on Cmd+V (does nothing)', async () => {
-        const readClipboardText = vi.fn().mockRejectedValue(new Error('denied'))
+    it('handles readClipboardText rejection gracefully on Cmd+V (does nothing) but logs the failure', async () => {
+        const clipboardError = new Error('denied')
+        const readClipboardText = vi.fn().mockRejectedValue(clipboardError)
         setCastApi({ readClipboardText })
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
         const initial: Block[] = [{ id: 'a', content: 'hello' }]
         const onChange = vi.fn()
         const { container } = render(<DocEditor initialBlocks={initial} onChange={onChange} />)
@@ -228,6 +230,7 @@ describe('DocEditor', () => {
         // No extra onChange beyond the initial mount — the rejected paste is swallowed
         expect(onChange.mock.calls.length).toBe(callCountBefore)
         expect(readClipboardText).toHaveBeenCalled()
+        expect(consoleError).toHaveBeenCalledWith('[DocEditor] clipboard failed', clipboardError)
     })
 
     it('keeps the latest onChange in a ref — replacing onChange identity does not re-fire without block change', async () => {
@@ -332,6 +335,38 @@ describe('DocEditor', () => {
         // Deleting all blocks keeps one empty block
         expect(last).toHaveLength(1)
         expect(last[0].content).toBe('')
+    })
+
+    it('logs and keeps the blocks intact when the clipboard write fails on cut', async () => {
+        const clipboardError = new Error('write denied')
+        const writeClipboardText = vi.fn().mockRejectedValue(clipboardError)
+        setCastApi({ writeClipboardText })
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        const initial: Block[] = [
+            { id: 'a', content: 'A' },
+            { id: 'b', content: 'B' },
+        ]
+        const onChange = vi.fn()
+        const { container } = render(<DocEditor initialBlocks={initial} onChange={onChange} />)
+        const root = getRoot(container)
+        const callCountBefore = onChange.mock.calls.length
+
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+        root.focus()
+
+        await act(async () => {
+            selectAllViaKeyboard(root)
+        })
+
+        await act(async () => {
+            cutViaKeyboard(root)
+            await Promise.resolve()
+            await Promise.resolve()
+        })
+
+        // A failed clipboard write must not destroy the selected blocks.
+        expect(onChange.mock.calls.length).toBe(callCountBefore)
+        expect(consoleError).toHaveBeenCalledWith('[DocEditor] clipboard failed', clipboardError)
     })
 
     it('copy/cut/select-all do not fire when a textarea has focus', async () => {

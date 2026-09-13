@@ -5,6 +5,8 @@ import type { PlaylistItemEntry } from '@lumacast/composition';
 import type { Slide } from '@lumacast/composition';
 import { SlideProvider, useSlides } from '../../../../app/renderer/contexts/slide-context';
 
+type SlidesCtx = ReturnType<typeof useSlides>;
+
 const ITEM_REF = { type: 'presentation', id: 'item1' } as const;
 
 const mocks = vi.hoisted(() => ({
@@ -74,9 +76,12 @@ function makeSlides(): Slide[] {
 }
 
 let activateScheduledSlide: ((itemRef: typeof ITEM_REF, slideId: string) => void) | null = null;
+let slidesCtx: SlidesCtx | null = null;
 
 function Probe() {
-  activateScheduledSlide = useSlides().activateScheduledSlide;
+  const ctx = useSlides();
+  activateScheduledSlide = ctx.activateScheduledSlide;
+  slidesCtx = ctx;
   return null;
 }
 
@@ -94,6 +99,7 @@ beforeEach(() => {
   cleanup();
   seen = [];
   activateScheduledSlide = null;
+  slidesCtx = null;
   mocks.mutatePatch.mockClear();
   mocks.runOperation.mockClear();
   mocks.setStatusText.mockClear();
@@ -178,5 +184,105 @@ describe('SlideProvider activateScheduledSlide', () => {
     expect(mocks.armOutputPlaylistEntry).not.toHaveBeenCalled();
     expect(mocks.armOutputItem).not.toHaveBeenCalled();
     expect(seen).toEqual([]);
+  });
+});
+
+// Regression coverage for the "Take is silently inert while browsing a
+// detached item" defect: browsing an item opened from the Deck bin
+// (isDetachedDeckBrowser=true) has no playlist entry to drive output through,
+// so activateSlide/takeSlide must fall back to arming the output item
+// directly — the same fallback activateScheduledSlide already used above.
+describe('SlideProvider activateSlide/takeSlide — detached Deck-bin browsing', () => {
+  it('activateSlide arms the output item directly when browsing a detached item', () => {
+    mocks.isDetachedDeckBrowser = true;
+    mocks.currentItemRef = { ...ITEM_REF } as any;
+    render(<Harness />);
+    expect(slidesCtx).not.toBeNull();
+
+    act(() => { slidesCtx?.activateSlide(1); });
+
+    expect(mocks.armOutputItem).toHaveBeenCalledWith(ITEM_REF);
+    expect(mocks.armOutputPlaylistEntry).not.toHaveBeenCalled();
+    expect(triggerTypes()).toEqual(['slide.activate']);
+  });
+
+  it('takeSlide arms the output item directly when browsing a detached item', () => {
+    mocks.isDetachedDeckBrowser = true;
+    mocks.currentItemRef = { ...ITEM_REF } as any;
+    render(<Harness />);
+
+    act(() => { slidesCtx?.setCurrentSlideIndex(1); });
+    act(() => { slidesCtx?.takeSlide(); });
+
+    expect(mocks.armOutputItem).toHaveBeenCalledWith(ITEM_REF);
+    expect(mocks.armOutputPlaylistEntry).not.toHaveBeenCalled();
+    expect(triggerTypes()).toEqual(['slide.activate', 'slide.take']);
+  });
+
+  it('still does nothing when not detached and the playlist selection is unresolved', () => {
+    // Regression guard: outside the detached-browser case, an unresolved
+    // playlist selection must keep behaving exactly as before this fix —
+    // the browse index still moves (selectionKey path), but nothing arms.
+    mocks.isDetachedDeckBrowser = false;
+    mocks.currentItemRef = { ...ITEM_REF } as any;
+    mocks.currentPlaylistItemRef = null;
+    mocks.currentPlaylistEntryId = null;
+    render(<Harness />);
+
+    act(() => { slidesCtx?.activateSlide(1); });
+    act(() => { slidesCtx?.takeSlide(); });
+
+    expect(mocks.armOutputItem).not.toHaveBeenCalled();
+    expect(mocks.armOutputPlaylistEntry).not.toHaveBeenCalled();
+    expect(seen).toEqual([]);
+  });
+});
+
+// Regression coverage for "Next/Previous slide behave differently from
+// keyboard vs menu": goNext/goPrev now make the armed-vs-browse decision
+// themselves, so both the keyboard shortcut and the app-menu command (which
+// both call these same methods) share one behaviour.
+describe('SlideProvider goNext/goPrev — shared armed-vs-browse decision', () => {
+  function armPlaylistScenario(armed: boolean) {
+    mocks.currentItemRef = { ...ITEM_REF } as any;
+    mocks.currentPlaylistItemRef = { ...ITEM_REF } as any;
+    mocks.currentPlaylistEntryId = 'entry-a';
+    mocks.currentOutputPlaylistEntryId = armed ? 'entry-a' : 'entry-other';
+    mocks.currentOutputItemRef = armed ? ({ ...ITEM_REF } as any) : ({ type: 'lyric', id: 'other' } as any);
+  }
+
+  it('goNext arms the next slide when output is already armed on the current entry', () => {
+    armPlaylistScenario(true);
+    render(<Harness />);
+    act(() => { slidesCtx?.setCurrentSlideIndex(0); });
+    expect(slidesCtx?.isOutputArmedOnCurrent).toBe(true);
+
+    act(() => { slidesCtx?.goNext(); });
+
+    expect(mocks.armOutputPlaylistEntry).toHaveBeenCalledWith('entry-a');
+    expect(slidesCtx?.currentSlideIndex).toBe(1);
+  });
+
+  it('goNext only moves the browse cursor (no arming) when output is not armed on the current entry', () => {
+    armPlaylistScenario(false);
+    render(<Harness />);
+    act(() => { slidesCtx?.setCurrentSlideIndex(0); });
+    expect(slidesCtx?.isOutputArmedOnCurrent).toBe(false);
+
+    act(() => { slidesCtx?.goNext(); });
+
+    expect(mocks.armOutputPlaylistEntry).not.toHaveBeenCalled();
+    expect(slidesCtx?.currentSlideIndex).toBe(1);
+  });
+
+  it('goPrev only moves the browse cursor (no arming) when output is not armed on the current entry', () => {
+    armPlaylistScenario(false);
+    render(<Harness />);
+    act(() => { slidesCtx?.setCurrentSlideIndex(1); });
+
+    act(() => { slidesCtx?.goPrev(); });
+
+    expect(mocks.armOutputPlaylistEntry).not.toHaveBeenCalled();
+    expect(slidesCtx?.currentSlideIndex).toBe(0);
   });
 });

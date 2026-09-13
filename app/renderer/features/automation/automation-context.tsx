@@ -70,6 +70,8 @@ interface AutomationContextValue {
     createBinding: (input: { triggerType: TriggerType; sourceId: Id | null; targetType: TriggerBindingTargetType; targetId: Id }) => Promise<void>;
     deleteBinding: (bindingId: Id) => Promise<void>;
     getBindingsForSource: (triggerType: TriggerType, sourceId: Id | null) => TriggerBinding[];
+    /** Same as `getBindingsForSource`, but matches any of several trigger types (e.g. both slide.activate and slide.take). */
+    getBindingsForSourceTriggers: (triggerTypes: TriggerType[], sourceId: Id | null) => TriggerBinding[];
     getBindingsForMacro: (macroId: Id) => TriggerBinding[];
   };
 }
@@ -256,6 +258,10 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     return triggerBindings.filter((binding) => binding.triggerType === triggerType && binding.sourceId === sourceId);
   }, [triggerBindings]);
 
+  const getBindingsForSourceTriggers = useCallback((triggerTypes: TriggerType[], sourceId: Id | null) => {
+    return triggerBindings.filter((binding) => triggerTypes.includes(binding.triggerType) && binding.sourceId === sourceId);
+  }, [triggerBindings]);
+
   const getBindingsForMacro = useCallback((macroId: Id) => {
     return triggerBindings.filter((binding) => binding.targetType === 'macro' && binding.targetId === macroId);
   }, [triggerBindings]);
@@ -305,9 +311,10 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
       createBinding,
       deleteBinding,
       getBindingsForSource,
+      getBindingsForSourceTriggers,
       getBindingsForMacro,
     },
-  }), [cancelActiveMacros, triggerBindings, createBinding, createMacro, cues, currentMacroId, deleteBinding, deleteMacro, duplicateMacro, ensureCue, getBindingsForMacro, getBindingsForSource, isLoading, macros, reorderMacro, runCue, runMacro, setMacroCues, updateMacroFields]);
+  }), [cancelActiveMacros, triggerBindings, createBinding, createMacro, cues, currentMacroId, deleteBinding, deleteMacro, duplicateMacro, ensureCue, getBindingsForMacro, getBindingsForSource, getBindingsForSourceTriggers, isLoading, macros, reorderMacro, runCue, runMacro, setMacroCues, updateMacroFields]);
 
   return (
     <AutomationContext.Provider value={value}>
