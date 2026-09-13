@@ -19,6 +19,7 @@ function buildUtilityHostBundlesPlugin(): Plugin {
         for (const host of [
           { source: 'app/main/ndi/ndi-host.ts', output: 'ndi-host.js' },
           { source: 'app/main/persistence/persistence-host.ts', output: 'persistence-host.js' },
+          { source: 'app/main/mcp/mcp-host.ts', output: 'mcp-host.js' },
         ]) {
           await viteBuild({
             configFile: false,
