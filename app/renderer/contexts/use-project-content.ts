@@ -133,6 +133,18 @@ function stableArray<T extends { id: Id; updatedAt: string }>(prev: T[] | null, 
   return prev;
 }
 
+function stableMediaAssets(prev: MediaAsset[] | null, next: MediaAsset[]): MediaAsset[] {
+  if (!prev || prev.length !== next.length) return next;
+  for (let i = 0; i < next.length; i++) {
+    if (
+      prev[i].id !== next[i].id
+      || prev[i].updatedAt !== next[i].updatedAt
+      || prev[i].thumbnailSrc !== next[i].thumbnailSrc
+    ) return next;
+  }
+  return prev;
+}
+
 interface ThemeLookup {
   presentationsById: ReadonlyMap<Id, Presentation>;
   lyricsById: ReadonlyMap<Id, Lyric>;
@@ -224,7 +236,7 @@ export function useProjectContent(): ProjectContent {
       slides: stableArray(prev?.slides ?? null, raw.slides),
       slideTags: stableArray(prev?.slideTags ?? null, raw.slideTags),
       slideElements: stableArray(prev?.slideElements ?? null, raw.slideElements),
-      mediaAssets: stableArray(prev?.mediaAssets ?? null, raw.mediaAssets),
+      mediaAssets: stableMediaAssets(prev?.mediaAssets ?? null, raw.mediaAssets),
       overlays: stableArray(prev?.overlays ?? null, raw.overlays),
       presentationThemes: stableArray(prev?.presentationThemes ?? null, raw.presentationThemes),
       lyricThemes: stableArray(prev?.lyricThemes ?? null, raw.lyricThemes),

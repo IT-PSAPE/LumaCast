@@ -42,6 +42,16 @@ metadata, and no clear ownership boundary for derivative files.
   id plus stored-source fingerprint and use (`thumbnail`). The cache is
   deduplicated and bounded to three concurrent jobs, and stale/missing/corrupt
   entries are regenerated or discarded.
+- **Backfill the cache once at renderer startup.** After the background media
+  library adoption pass completes, main queues every current media asset through
+  the bounded derivative service. This restores thumbnails for upgraded
+  projects and cleared caches without depending on a media-bin component to
+  request each derivative. Scheduling follows adoption so any repointed asset
+  is fingerprinted against its final managed-library source. If adoption fails,
+  already-managed assets are still queued; if the renderer window is gone, the
+  backfill is skipped. Each successful background job publishes its patch over
+  the derivative progress event so the renderer receives the new
+  `thumbnailSrc` without reloading its full snapshot.
 - **Keep derivatives out of durable interchange.** Project backups and deck
   bundles carry media metadata but never derivative files or manifest state.
   Derivatives are rebuildable cache, not source of truth.
@@ -68,6 +78,9 @@ metadata, and no clear ownership boundary for derivative files.
   image/video thumbnails on macOS and Windows. On Linux, unsupported image/video
   formats rely on the typed fallback upload path. Audio embedded artwork remains
   main-owned and does not need that fallback.
+- Existing projects recover missing derivative manifests automatically during
+  startup, so slide, overlay, and stage thumbnails do not depend on whether the
+  image or video bin has been opened first.
 - The renderer no longer uses the full asset source as a thumbnail fallback in
   bin/tile surfaces. Until a derivative exists, those surfaces show loading or
   type-icon states instead of leaking source-specific rendering behavior.

@@ -16,17 +16,16 @@ Cross-platform Electron prototype for a ProPresenter-style presentation workflow
 - npm `11.6.2` or newer (`package.json#packageManager`)
 
 For the native NDI addon build, also install the toolchain for your
-platform. Only the Windows path below is currently exercised by CI; the
-`packages/ndi-native` build configuration also contains macOS and Linux
-paths, but they are unverified — see `docs/release-setup.md` for the full
-platform/architecture matrix.
+platform. CI compiles and packages the addon on Windows, macOS, and Linux;
+the transport tests use a mock NDI runtime. Installed applications still
+need the platform NDI runtime described below.
 
-- **Windows** (CI-verified): Visual Studio Build Tools with the C++
+- **Windows**: Visual Studio Build Tools with the C++
   workload, Python `3.12` or newer, and an NDI Runtime/Tools install
   providing `Processing.NDI.Lib.x64.dll`.
-- **macOS** (unverified by CI): Xcode Command Line Tools, and an NDI SDK/
+- **macOS**: Xcode Command Line Tools, and an NDI SDK/
   runtime install providing `libndi.dylib`.
-- **Linux** (unverified by CI): a C++17 toolchain, and an NDI SDK/runtime
+- **Linux**: a C++17 toolchain, and an NDI SDK/runtime
   install providing `libndi.so`.
 
 ## Install
@@ -103,8 +102,8 @@ If the addon is missing or the runtime library cannot be found, the app falls ba
 
 ## CI and releases
 
-- Pull requests and every branch push run the validation workflow in [.github/workflows/ci.yml](.github/workflows/ci.yml) (typecheck, architecture check, unit tests, Playwright e2e).
-- A version bump pushed to `main` triggers [.github/workflows/release.yml](.github/workflows/release.yml); the same pushed to `testing` triggers [.github/workflows/prerelease.yml](.github/workflows/prerelease.yml) (`vX.Y.Z-beta.N`). Both currently build and release **Windows only** — see [docs/release-setup.md](docs/release-setup.md) for the full platform/architecture matrix and why macOS/Linux are unverified.
+- [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml) runs validation on pull requests and `main`. After a successful `main` run, a stable `package.json` version increase builds Windows, macOS, and Linux packages and publishes one GitHub Release. An unchanged version ends after validation.
+- Releases are stable only; there is no prerelease workflow.
 - Release note grouping is configured in [.github/release.yml](.github/release.yml).
 
 See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release conventions, and [docs/release-setup.md](docs/release-setup.md) for signing, packaging, and platform-support detail.

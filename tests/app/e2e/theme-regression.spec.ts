@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import type { Presentation, Slide, SlideBackground, SlideElement, ThemeOwnerType } from '@lumacast/composition';
+import { resolveLinkedSlideBackground } from '@lumacast/composition';
 import type { AppSnapshot } from '@lumacast/protocol';
 
 // End-to-end regression test for GitHub issue #100 (root theme epic). The
@@ -34,11 +35,13 @@ import type { AppSnapshot } from '@lumacast/protocol';
 // Theme bin click, create-item dialog, sync button) matches it end to end in
 // the packaged app.
 
-const APP_ENTRY = path.resolve('out/main/index.js');
+// Launch the package so Electron reads its version and main entry from package.json.
+const APP_ENTRY = path.resolve('.');
 const APP_TOOLBAR_REGION = '[data-ui-region="app-toolbar"]';
 const EDITOR_LAYOUT_REGION = '[data-ui-region="editor-layout"]';
 const ITEM_EDITOR_LAYOUT_REGION = '[data-ui-region="item-editor-layout"]';
 const RESOURCE_DRAWER_REGION = '[data-ui-region="resource-drawer"]';
+const INSPECTOR_PANEL_REGION = '[data-ui-region="inspector-panel"]';
 const CREATE_ITEM_DIALOG_REGION = '[data-ui-region="create-item-dialog"]';
 const STARTUP_TIMEOUT_MS = 30_000;
 
@@ -57,7 +60,7 @@ const LYRIC_TITLE = 'Regression Lyric';
 // C2/D2  = step 3's unsaved edit, present when the Presentation/Lyric are created.
 // C3     = step 5's distractor edit: persisted but never synced, so slide
 //          duplication (step 5) must NOT pick it up.
-// C4     = step 7's edit, explicitly saved then synced onto linked items.
+// C4     = step 7's edit, inherited live by every linked item after save.
 // C5     = step 8's edit to the *duplicate* theme, proving independence.
 const COLOR_C0 = '101010FF';
 const COLOR_D0 = '202020FF';
@@ -108,6 +111,10 @@ async function openDrawerTab(page: Page, name: 'Deck' | 'Themes') {
   await page.getByRole('tab', { name }).click();
 }
 
+function drawerMoreActions(page: Page) {
+  return page.locator(RESOURCE_DRAWER_REGION).getByRole('button', { name: 'More actions' });
+}
+
 // Bin tiles/rows (theme bin, deck bin) render their name through a
 // `RenameField`, which is a controlled `<input readOnly>` — its current text
 // lives only in the live DOM `.value` property, not in an HTML attribute or
@@ -146,6 +153,10 @@ function backgroundHexInput(page: Page) {
   return page.locator('input[maxlength="8"]');
 }
 
+function backgroundKindSelect(page: Page) {
+  return page.locator(INSPECTOR_PANEL_REGION).getByRole('combobox');
+}
+
 async function setBackgroundColorHex(page: Page, hex: string) {
   const input = backgroundHexInput(page);
   await input.click();
@@ -176,6 +187,14 @@ function elementsForSlide(snapshot: AppSnapshot, slideId: string): SlideElement[
 
 function colorOf(background: SlideBackground | null | undefined): string | null {
   return background?.type === 'color' ? background.color : null;
+}
+
+function resolvedPresentationSlideColor(snapshot: AppSnapshot, presentationId: string, slide: Slide): string | null {
+  const presentation = snapshot.presentations.find((item) => item.id === presentationId);
+  const theme = presentation?.themeId
+    ? snapshot.presentationThemes.find((item) => item.id === presentation.themeId)
+    : undefined;
+  return colorOf(resolveLinkedSlideBackground(theme?.background, slide.background, slide.backgroundSource));
 }
 
 function themesForFamily(snapshot: AppSnapshot, themeType: ThemeOwnerType) {
@@ -214,24 +233,24 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       // Presentation-family theme, background = C0.
       await selectView(page, 'Show');
       await openDrawerTab(page, 'Themes');
-      await page.getByRole('button', { name: 'More actions' }).click();
+      await drawerMoreActions(page).click();
       await page.getByRole('menuitem', { name: 'New presentation theme' }).click();
       await page.getByLabel('Name').fill(THEME_SLIDES_NAME);
       await page.getByLabel('Name').press('Tab');
-      await page.getByRole('button', { name: 'None' }).click();
-      await page.getByRole('menuitem', { name: 'Solid color' }).click();
+      await backgroundKindSelect(page).click();
+      await page.getByRole('option', { name: 'Solid color' }).click();
       await setBackgroundColorHex(page, COLOR_C0);
       await saveChanges(page);
 
       // Lyric-family theme, background = D0.
       await selectView(page, 'Show');
       await openDrawerTab(page, 'Themes');
-      await page.getByRole('button', { name: 'More actions' }).click();
+      await drawerMoreActions(page).click();
       await page.getByRole('menuitem', { name: 'New lyric theme' }).click();
       await page.getByLabel('Name').fill(THEME_LYRICS_NAME);
       await page.getByLabel('Name').press('Tab');
-      await page.getByRole('button', { name: 'None' }).click();
-      await page.getByRole('menuitem', { name: 'Solid color' }).click();
+      await backgroundKindSelect(page).click();
+      await page.getByRole('option', { name: 'Solid color' }).click();
       await setBackgroundColorHex(page, COLOR_D0);
       await saveChanges(page);
 
@@ -245,7 +264,7 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       // through the same dialog real users use.
       await selectView(page, 'Show');
       await openDrawerTab(page, 'Deck');
-      await page.getByRole('button', { name: 'More actions' }).click();
+      await drawerMoreActions(page).click();
       await page.getByRole('menuitem', { name: 'New presentation' }).click();
       await page.locator(`${CREATE_ITEM_DIALOG_REGION} input[type="text"]`).fill(TARGET_PRESENTATION_TITLE);
       await page.getByRole('button', { name: 'New', exact: true }).click();
@@ -300,18 +319,18 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       await selectView(page, 'Show');
       await openDrawerTab(page, 'Deck');
 
-      await page.getByRole('button', { name: 'More actions' }).click();
+      await drawerMoreActions(page).click();
       await page.getByRole('menuitem', { name: 'New presentation' }).click();
       await page.locator(`${CREATE_ITEM_DIALOG_REGION} input[type="text"]`).fill(PRESENTATION_TITLE);
       await page.getByLabel('Theme').click();
-      await page.getByRole('menuitem', { name: THEME_SLIDES_NAME, exact: true }).click();
+      await page.getByRole('option', { name: THEME_SLIDES_NAME, exact: true }).click();
       await page.getByRole('button', { name: 'New', exact: true }).click();
 
-      await page.getByRole('button', { name: 'More actions' }).click();
+      await drawerMoreActions(page).click();
       await page.getByRole('menuitem', { name: 'New lyric' }).click();
       await page.locator(`${CREATE_ITEM_DIALOG_REGION} input[type="text"]`).fill(LYRIC_TITLE);
       await page.getByLabel('Theme').click();
-      await page.getByRole('menuitem', { name: THEME_LYRICS_NAME, exact: true }).click();
+      await page.getByRole('option', { name: THEME_LYRICS_NAME, exact: true }).click();
       await page.getByRole('button', { name: 'Save', exact: true }).click();
 
       const snapshot = await getSnapshot(page);
@@ -424,9 +443,9 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       }
     });
 
-    // ── Step 7: add custom slide content, synchronize the theme, confirm the
-    // custom content survives while theme-owned content updates. ──
-    await test.step('step 7: custom content survives theme sync', async () => {
+    // ── Step 7: add custom slide content, update the linked theme, confirm the
+    // custom content survives while inherited content updates live. ──
+    await test.step('step 7: custom content survives a linked theme update', async () => {
       await selectView(page, 'Edit');
       await page.getByRole('button', { name: 'Select item' }).click();
       await page.getByRole('option', { name: PRESENTATION_TITLE, exact: true }).click();
@@ -437,45 +456,39 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       await expect(page.getByRole('button', { name: 'Save Changes' })).toBeVisible();
       await saveChanges(page);
 
-      const beforeSync = await getSnapshot(page);
-      const firstSlideBeforeSync = slidesForOwner(beforeSync, presentationId)[0];
-      const elementsBeforeSync = elementsForSlide(beforeSync, firstSlideBeforeSync.id);
-      const customShape = elementsBeforeSync.find((element) => element.type === 'shape' && !element.sourceThemeElementId);
-      expect(customShape, 'custom shape element should exist before sync').toBeTruthy();
+      const beforeThemeUpdate = await getSnapshot(page);
+      const firstSlideBeforeThemeUpdate = slidesForOwner(beforeThemeUpdate, presentationId)[0];
+      const elementsBeforeThemeUpdate = elementsForSlide(beforeThemeUpdate, firstSlideBeforeThemeUpdate.id);
+      const customShape = elementsBeforeThemeUpdate.find((element) => element.type === 'shape' && !element.sourceThemeElementId);
+      expect(customShape, 'custom shape element should exist before the theme update').toBeTruthy();
 
       await selectView(page, 'Themes');
       await clickThemeInEditorList(page, THEME_SLIDES_NAME);
       await setBackgroundColorHex(page, COLOR_C4);
-      // The Sync button is disabled while the theme itself has pending
-      // changes (rule 1: persist staged edits before the dependent
-      // mutation), so this Save is required before Sync becomes clickable.
       await saveChanges(page);
-      const syncButton = page.getByRole('button', { name: /^Sync \d+ linked items?$/ });
-      await expect(syncButton).toBeEnabled();
-      await syncButton.click();
 
       await expect
         .poll(async () => {
           const snapshot = await getSnapshot(page);
           const slide = slidesForOwner(snapshot, presentationId)[0];
-          return colorOf(slide.background);
+          return resolvedPresentationSlideColor(snapshot, presentationId, slide);
         })
         .toBe(`#${COLOR_C4}`);
 
-      const afterSync = await getSnapshot(page);
-      const firstSlideAfterSync = slidesForOwner(afterSync, presentationId)[0];
-      const elementsAfterSync = elementsForSlide(afterSync, firstSlideAfterSync.id);
-      const survivingShape = elementsAfterSync.find((element) => element.id === customShape!.id);
-      expect(survivingShape, 'custom shape must survive theme sync unchanged').toBeTruthy();
+      const afterThemeUpdate = await getSnapshot(page);
+      const firstSlideAfterThemeUpdate = slidesForOwner(afterThemeUpdate, presentationId)[0];
+      const elementsAfterThemeUpdate = elementsForSlide(afterThemeUpdate, firstSlideAfterThemeUpdate.id);
+      const survivingShape = elementsAfterThemeUpdate.find((element) => element.id === customShape!.id);
+      expect(survivingShape, 'custom shape must survive a linked theme update unchanged').toBeTruthy();
       expect(survivingShape?.type).toBe('shape');
       expect(survivingShape?.sourceThemeElementId).toBeFalsy();
-      // Every other linked item (target presentation from step 2, the item
-      // duplicate from step 6) is synced too.
-      const targetAfterSync = slidesForOwner(afterSync, targetPresentationId)[0];
-      expect(colorOf(targetAfterSync.background)).toBe(`#${COLOR_C4}`);
-      const copyAfterSync = slidesForOwner(afterSync, presentationCopyId);
-      for (const slide of copyAfterSync) {
-        expect(colorOf(slide.background)).toBe(`#${COLOR_C4}`);
+      // Every other linked item (target presentation from step 2 and the item
+      // duplicate from step 6) resolves the same current theme.
+      const targetAfterThemeUpdate = slidesForOwner(afterThemeUpdate, targetPresentationId)[0];
+      expect(resolvedPresentationSlideColor(afterThemeUpdate, targetPresentationId, targetAfterThemeUpdate)).toBe(`#${COLOR_C4}`);
+      const copyAfterThemeUpdate = slidesForOwner(afterThemeUpdate, presentationCopyId);
+      for (const slide of copyAfterThemeUpdate) {
+        expect(resolvedPresentationSlideColor(afterThemeUpdate, presentationCopyId, slide)).toBe(`#${COLOR_C4}`);
       }
     });
 
@@ -530,14 +543,15 @@ test('theme epic #100 manual regression sequence, driven through the real UI', a
       const targetPresentation = findPresentation(snapshot, TARGET_PRESENTATION_TITLE);
       expect(targetPresentation.id).toBe(targetPresentationId);
       expect(targetPresentation.themeId).toBe(themeSlidesId);
-      expect(colorOf(slidesForOwner(snapshot, targetPresentation.id)[0]?.background)).toBe(`#${COLOR_C4}`);
+      const targetSlide = slidesForOwner(snapshot, targetPresentation.id)[0];
+      expect(resolvedPresentationSlideColor(snapshot, targetPresentation.id, targetSlide)).toBe(`#${COLOR_C4}`);
 
       const presentation = findPresentation(snapshot, PRESENTATION_TITLE);
       expect(presentation.id).toBe(presentationId);
       const slides = slidesForOwner(snapshot, presentation.id);
       expect(slides).toHaveLength(3);
       for (const slide of slides) {
-        expect(colorOf(slide.background)).toBe(`#${COLOR_C4}`);
+        expect(resolvedPresentationSlideColor(snapshot, presentation.id, slide)).toBe(`#${COLOR_C4}`);
       }
       const firstSlideElements = elementsForSlide(snapshot, slides[0].id);
       expect(firstSlideElements.some((element) => element.type === 'shape' && !element.sourceThemeElementId)).toBe(true);

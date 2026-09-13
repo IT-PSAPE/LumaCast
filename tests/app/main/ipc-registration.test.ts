@@ -600,6 +600,132 @@ describe('main IPC registration (issue #152)', () => {
     );
   });
 
+  it('backfills media derivatives once after startup adoption completes', async () => {
+    handleRegistrations.clear();
+    onRegistrations.clear();
+    const mediaAssets = [
+      {
+        id: 'legacy-image',
+        name: 'Legacy image',
+        type: 'image' as const,
+        src: 'cast-media://library/image.png',
+        thumbnailSrc: null,
+        width: 640,
+        height: 360,
+        duration: null,
+        codec: null,
+        order: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      {
+        id: 'legacy-video',
+        name: 'Legacy video',
+        type: 'video' as const,
+        src: 'cast-media://library/video.mp4',
+        thumbnailSrc: null,
+        width: 1920,
+        height: 1080,
+        duration: 12,
+        codec: 'h264',
+        order: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ];
+    repositoryMethods.getSnapshot = vi.fn().mockResolvedValue({ ...emptySnapshot(), mediaAssets });
+    const adoptExistingAssets = vi.spyOn(MediaLibraryService.prototype, 'adoptExistingAssets')
+      .mockResolvedValue({ adopted: 2, unreadable: 0, failed: 0, cancelled: false });
+    const scheduleBatch = vi.spyOn(MediaDerivativeService.prototype, 'scheduleBatch').mockImplementation(() => {});
+    const mainWindow = {
+      isDestroyed: () => false,
+      webContents: { send: vi.fn() },
+    };
+
+    registerIpcHandlers(
+      repositoryMethods as unknown as PersistenceServiceLike,
+      ndiService,
+      () => mainWindow as never,
+      {} as unknown as AppUpdater,
+      { getLatestPersistenceProgress: () => latestPersistenceProgress },
+    );
+
+    const subscribeListener = onRegistrations.get(PERSISTENCE_CHANNELS.subscribe);
+    expect(subscribeListener).toBeDefined();
+    const fakeSubscribeEvent = { sender: { isDestroyed: () => false, send: vi.fn() } };
+    subscribeListener!(fakeSubscribeEvent);
+    subscribeListener!(fakeSubscribeEvent);
+
+    await vi.waitFor(() => {
+      expect(scheduleBatch).toHaveBeenCalledWith(['legacy-image', 'legacy-video']);
+    });
+    expect(adoptExistingAssets).toHaveBeenCalledTimes(1);
+    expect(scheduleBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('still backfills managed assets when startup adoption fails', async () => {
+    handleRegistrations.clear();
+    onRegistrations.clear();
+    repositoryMethods.getSnapshot = vi.fn().mockResolvedValue({
+      ...emptySnapshot(),
+      mediaAssets: [{
+        id: 'managed-image',
+        name: 'Managed image',
+        type: 'image',
+        src: 'cast-media://library/image.png',
+        thumbnailSrc: null,
+        width: 640,
+        height: 360,
+        duration: null,
+        codec: null,
+        order: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }],
+    });
+    vi.spyOn(MediaLibraryService.prototype, 'adoptExistingAssets').mockRejectedValue(new Error('adoption failed'));
+    const scheduleBatch = vi.spyOn(MediaDerivativeService.prototype, 'scheduleBatch').mockImplementation(() => {});
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const mainWindow = { isDestroyed: () => false, webContents: { send: vi.fn() } };
+
+    registerIpcHandlers(
+      repositoryMethods as unknown as PersistenceServiceLike,
+      ndiService,
+      () => mainWindow as never,
+      {} as unknown as AppUpdater,
+    );
+    onRegistrations.get(PERSISTENCE_CHANNELS.subscribe)!({ sender: { isDestroyed: () => false, send: vi.fn() } });
+
+    await vi.waitFor(() => {
+      expect(scheduleBatch).toHaveBeenCalledWith(['managed-image']);
+    });
+    expect(consoleError).toHaveBeenCalledWith('[MediaLibrary] Background adoption pass failed', expect.any(Error));
+  });
+
+  it('does not start the derivative backfill after the renderer window is gone', async () => {
+    handleRegistrations.clear();
+    onRegistrations.clear();
+    let destroyed = false;
+    const adoptExistingAssets = vi.spyOn(MediaLibraryService.prototype, 'adoptExistingAssets')
+      .mockResolvedValue({ adopted: 0, unreadable: 0, failed: 0, cancelled: true });
+    const scheduleBatch = vi.spyOn(MediaDerivativeService.prototype, 'scheduleBatch').mockImplementation(() => {});
+    const mainWindow = { isDestroyed: () => destroyed, webContents: { send: vi.fn() } };
+
+    registerIpcHandlers(
+      repositoryMethods as unknown as PersistenceServiceLike,
+      ndiService,
+      () => mainWindow as never,
+      {} as unknown as AppUpdater,
+    );
+    onRegistrations.get(PERSISTENCE_CHANNELS.subscribe)!({ sender: { isDestroyed: () => false, send: vi.fn() } });
+    destroyed = true;
+    await adoptExistingAssets.mock.results[0]?.value;
+    await Promise.resolve();
+
+    expect(repositoryMethods.getSnapshot).not.toHaveBeenCalled();
+    expect(scheduleBatch).not.toHaveBeenCalled();
+  });
+
   it('masks media library adoption progress before sending it to the renderer', () => {
     handleRegistrations.clear();
     onRegistrations.clear();

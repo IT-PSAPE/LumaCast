@@ -23,6 +23,7 @@ export class AppUpdater {
   }
 
   initialize(): void {
+    if (!app.isPackaged) return;
     if (this.isInitialized) return;
     this.isInitialized = true;
 

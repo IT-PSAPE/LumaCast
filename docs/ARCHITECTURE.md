@@ -128,6 +128,11 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   alpha at the final program monitor / audience-feed consumption point, so
   overlay fades rerender only those consumers while preserving the existing
   per-element compositing semantics.
+- `PlaybackProvider` is mounted above the screen router and owns the persistent
+  audio element plus the retained layer-video source. Resource tabs and editor
+  pages only subscribe to those transports, so navigation cannot replace their
+  playback clocks. Waveform and filmstrip analysis use their own bounded,
+  source-keyed jobs and likewise outlive a tab subscriber.
 - `packages/canvas/src/image-cache.ts` now enforces two distinct residency
   classes for images:
   - hard/soft paint safety (`retainImage`, `reserveImageEntry`) that must never
@@ -460,6 +465,16 @@ Each rule is also proven by a committed fixture scenario under
   asset id plus stored-source fingerprint. Cache entries are invalidated when
   the source path, size, mtime, or decoded thumbnail no longer matches. Project
   backups and deck bundles never include derivative files or the manifest.
+- On the first renderer persistence subscription, main adopts legacy media into
+  the managed library and then queues every current asset through the bounded
+  derivative service. This once-per-process backfill rebuilds an absent or
+  cleared cache without requiring the user to visit the media bin, and runs
+  after adoption so fingerprints use the asset's final stored source.
+  Background completion publishes its ready asset patch through the derivative
+  progress event, keeping the renderer snapshot and every thumbnail surface in
+  step with the rebuilt manifest. Project-content stabilization treats
+  `thumbnailSrc` as a media-row identity field because this session capability
+  can change without altering the asset's durable `updatedAt` value.
 - The renderer requests derivatives through typed IPC (`ensureMediaDerivative`
   and the bounded `uploadMediaDerivativeFallback` escape hatch) and receives an
   optional `thumbnailSrc` only as another managed-media capability. Main mints a
@@ -730,8 +745,16 @@ Bundle import uses the existing Choose bundle picker, inspection, broken-referen
 
 ### Audio waveform, video filmstrip, and media volume
 
-The audio transport uses a compact waveform with on-track marker popovers and a fixed-width binding selector (ADR-0028). `use-audio-waveform.ts` decodes audio for analysis only and caches four peak arrays; the existing media element remains the playback clock. Renderer fetches may use the capability-checked `cast-media:` scheme. Failed analysis leaves scrubbing and playback available.
+The audio transport uses a compact waveform with on-track marker popovers and a fixed-width binding selector (ADR-0028). `use-audio-waveform.ts` decodes audio with an `OfflineAudioContext` for analysis only and keeps a bounded source-keyed job/cache outside the tab component lifecycle; the existing media element remains the playback clock. Hiding the tab unsubscribes its UI without aborting analysis or reconfiguring the live playback and NDI audio device. Renderer fetches may use the capability-checked `cast-media:` scheme. Failed analysis leaves scrubbing and playback available.
 
-The video transport uses the same compact strip shape as a filmstrip scrubber. `use-video-filmstrip.ts` samples twelve frames through a detached muted video element and canvas, cancels stale extraction, and retains four completed filmstrips. It never seeks the live layer-video element, and preview failure leaves the ordinary video transport usable.
+The video transport uses the same compact strip shape as a filmstrip scrubber. `use-video-filmstrip.ts` samples twelve frames through a detached muted video element and canvas, keeping a bounded source-keyed extraction job/cache outside the tab component lifecycle. Navigation unsubscribes the visible strip without destroying an in-flight decoder for the armed source. It never seeks the live layer-video element, and preview failure leaves the ordinary video transport usable.
 
 Audio and layer-video volume are independent session controls applied to their media elements, shared by local playback and NDI capture. Muting preserves the chosen level. The kernel ID primitive uses ambient Web Crypto rather than importing a Node builtin into renderer consumers.
+
+## CI and stable releases
+
+Linux validation runs Electron end-to-end tests under Xvfb and configures the installed `chrome-sandbox` helper with root ownership and mode `4755`. Playwright browser diagnostics expose Electron startup failures in the CI log.
+
+The main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver.
+
+`.github/workflows/ci-release.yml` is the single validation and release pipeline (ADR-0035). Pull requests stop after validation. A validated `main` push proceeds only when `package.json` contains a higher stable version and `v<version>` does not already exist, then packages Windows, macOS, and Linux in parallel and publishes one GitHub Release after all platforms succeed. Manual dispatch supports retrying an unpublished current version; prereleases are not generated.

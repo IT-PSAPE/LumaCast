@@ -1,0 +1,253 @@
+name: CI and Release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ci-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure native packages
+        run: node scripts/ensure-rollup-native.cjs
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Check architecture boundaries
+        run: npm run check:architecture
+
+      - name: Test architecture checker
+        run: npm run test:architecture
+
+      - name: Run unit and NDI tests
+        run: npm test
+
+      - name: Install Playwright browser dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Configure Electron sandbox helper
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
+      - name: Run end-to-end tests
+        env:
+          # Include Electron stderr when Playwright reports only "Process failed to launch!".
+          DEBUG: pw:browser
+        run: xvfb-run --auto-servernum npm run test:e2e
+
+  release-gate:
+    name: Check release version
+    needs: validate
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      should_release: ${{ steps.detect.outputs.should_release }}
+
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect stable version bump
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE_SHA: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          PREVIOUS_VERSION=""
+
+          if [ "$GITHUB_EVENT_NAME" = "push" ] &&
+             [ -n "${BEFORE_SHA:-}" ] &&
+             [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] &&
+             git cat-file -e "$BEFORE_SHA:package.json" 2>/dev/null; then
+            PREVIOUS_VERSION="$(git show "$BEFORE_SHA:package.json" | node -e "let input='';process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>process.stdout.write(JSON.parse(input).version));")"
+          fi
+
+          TAG_EXISTS=false
+          if gh release view "v$CURRENT_VERSION" --json tagName >/dev/null 2>&1; then
+            TAG_EXISTS=true
+          fi
+
+          CURRENT_VERSION="$CURRENT_VERSION" \
+          PREVIOUS_VERSION="$PREVIOUS_VERSION" \
+          TAG_EXISTS="$TAG_EXISTS" \
+          node tool/release-version.mjs >> "$GITHUB_OUTPUT"
+
+  package:
+    name: Package (${{ matrix.platform }})
+    needs: release-gate
+    if: needs.release-gate.outputs.should_release == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            builder_flag: --win
+          - os: macos-14
+            platform: macos
+            builder_flag: --mac
+          - os: ubuntu-latest
+            platform: linux
+            builder_flag: --linux
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Setup Python on Windows
+        if: matrix.platform == 'windows'
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure native packages
+        run: node scripts/ensure-rollup-native.cjs
+
+      - name: Build native NDI addon
+        run: npm run build:ndi-native
+
+      - name: Build application
+        run: npm run build
+
+      - name: Configure macOS signing
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          APPLE_CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
+          APPLE_CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD_SECRET: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APPLE_CSC_LINK:-}" ]; then
+            {
+              echo "CSC_LINK=$APPLE_CSC_LINK"
+              echo "CSC_KEY_PASSWORD=$APPLE_CSC_KEY_PASSWORD"
+              echo "APPLE_ID=$APPLE_ID_SECRET"
+              echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD_SECRET"
+              echo "APPLE_TEAM_ID=$APPLE_TEAM_ID_SECRET"
+            } >> "$GITHUB_ENV"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "::warning::Apple signing secrets are absent; producing unsigned macOS artifacts."
+          fi
+
+      - name: Configure Windows signing
+        if: matrix.platform == 'windows'
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${WIN_CSC_LINK:-}" ]; then
+            {
+              echo "CSC_LINK=$WIN_CSC_LINK"
+              echo "CSC_KEY_PASSWORD=$WIN_CSC_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+          else
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "::warning::Windows signing secrets are absent; producing unsigned Windows artifacts."
+          fi
+
+      - name: Package application
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: npx electron-builder ${{ matrix.builder_flag }} --publish never
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: lumacast-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/*.AppImage
+            dist/*.blockmap
+            dist/*.deb
+            dist/*.dmg
+            dist/*.exe
+            dist/*.zip
+            dist/latest*.yml
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - release-gate
+      - package
+    if: needs.release-gate.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          pattern: lumacast-*
+          merge-multiple: true
+
+      - name: Publish stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release-gate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "v$VERSION" \
+            --generate-notes \
+            --target "$GITHUB_SHA" \
+            artifacts/*
