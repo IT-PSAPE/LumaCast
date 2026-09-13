@@ -78,7 +78,17 @@ export function LyricLayoutConfigDialog({ isOpen, onClose, config, onSave }: Lyr
                 <Section.Body>
                   <Section.Row>
                     <FieldSelect value={draft.fontFamily} onChange={(v) => patch('fontFamily', v)} options={fontOptions} />
-                    <FieldSelect value={draft.fontWeight} onChange={(v) => patch('fontWeight', v)} options={FONT_WEIGHT_OPTIONS} />
+                    <FieldSelect value={draft.fontWeight} onChange={(v) => patch('fontWeight', v)}>
+                      <FieldSelect.Option value="100">100</FieldSelect.Option>
+                      <FieldSelect.Option value="200">200</FieldSelect.Option>
+                      <FieldSelect.Option value="300">300</FieldSelect.Option>
+                      <FieldSelect.Option value="400">400</FieldSelect.Option>
+                      <FieldSelect.Option value="500">500</FieldSelect.Option>
+                      <FieldSelect.Option value="600">600</FieldSelect.Option>
+                      <FieldSelect.Option value="700">700</FieldSelect.Option>
+                      <FieldSelect.Option value="800">800</FieldSelect.Option>
+                      <FieldSelect.Option value="900">900</FieldSelect.Option>
+                    </FieldSelect>
                   </Section.Row>
                   <Section.Row>
                     <FieldInput type="number" value={draft.fontSize} min={LYRIC_LAYOUT_CONFIG_LIMITS.fontSize.min} max={LYRIC_LAYOUT_CONFIG_LIMITS.fontSize.max} onChange={(v) => numericPatch('fontSize', v, DEFAULT_LYRIC_LAYOUT_CONFIG.fontSize)}>
@@ -115,6 +125,3 @@ export function LyricLayoutConfigDialog({ isOpen, onClose, config, onSave }: Lyr
     </Dialog.Root>
   );
 }
-
-const FONT_WEIGHT_OPTIONS = ['100', '200', '300', '400', '500', '600', '700', '800', '900']
-  .map((value) => ({ value, label: value }));

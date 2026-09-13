@@ -1,12 +1,13 @@
 import type { Id } from '@lumacast/kernel';
-import type { Cue, TriggerBinding } from '@lumacast/automation';
+import type { MediaAsset, Overlay, Stage } from '@lumacast/composition';
+import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import { describeCue } from '@lumacast/automation';
 import { ContextMenu } from '@renderer/components/overlays/context-menu';
 import { useOverlayEditor, useStageEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { useAutomation } from './automation-context';
-import { MACRO_ICON, getCueIcon } from './cue-icons';
+import { CueIcon, MacroIcon } from './cue-icons';
 
 export function SlideBindingsMenu({ slideId }: { slideId: Id }) {
   const {
@@ -50,41 +51,74 @@ export function SlideBindingsMenu({ slideId }: { slideId: Id }) {
 
   return (
     <>
-      {bindings.map((binding) => {
-        const cue = binding.targetType === 'cue' ? cueById.get(binding.targetId) : undefined;
-        const macro = binding.targetType === 'macro' ? macroById.get(binding.targetId) : undefined;
-        const Icon = binding.targetType === 'macro'
-          ? MACRO_ICON
-          : cue ? getCueIcon(cue, mediaAssets) : null;
-        const label = binding.targetType === 'macro'
-          ? (macro?.name ?? 'Unknown macro')
-          : describeCue(cue, { overlays, stages, mediaAssets, macros });
-        const canEdit = binding.targetType === 'macro'
-          ? Boolean(macro)
-          : cue?.kind === 'stage.set'
-            || cue?.kind === 'overlay.activate'
-            || cue?.kind === 'overlay.clear';
-
-        return (
-          <ContextMenu.Submenu
-            key={binding.id}
-            label={(
-              <span className="inline-flex min-w-0 items-center gap-2">
-                {Icon ? <Icon className="size-3.5 shrink-0 text-tertiary" /> : null}
-                <span className="min-w-0 truncate">{label}</span>
-              </span>
-            )}
-          >
-            <ContextMenu.Item disabled={!canEdit} onSelect={() => editTarget(binding, cue)}>
-              Edit
-            </ContextMenu.Item>
-            <ContextMenu.Separator />
-            <ContextMenu.Item variant="destructive" onSelect={() => { void deleteBinding(binding.id); }}>
-              Remove
-            </ContextMenu.Item>
-          </ContextMenu.Submenu>
-        );
-      })}
+      {bindings.map((binding) => (
+        <SlideBindingMenuItem
+          key={binding.id}
+          binding={binding}
+          cue={cueById.get(binding.targetId)}
+          macro={macroById.get(binding.targetId)}
+          overlays={overlays}
+          stages={stages}
+          mediaAssets={mediaAssets}
+          macros={macros}
+          onEdit={editTarget}
+          onRemove={deleteBinding}
+        />
+      ))}
     </>
+  );
+}
+
+function SlideBindingMenuItem(props: {
+  binding: TriggerBinding;
+  cue: Cue | undefined;
+  macro: Macro | undefined;
+  overlays: Overlay[];
+  stages: Stage[];
+  mediaAssets: MediaAsset[];
+  macros: Macro[];
+  onEdit: (binding: TriggerBinding, cue: Cue | undefined) => void;
+  onRemove: (bindingId: Id) => Promise<void>;
+}) {
+  if (props.binding.targetType === 'macro') return <MacroBindingMenuItem {...props} />;
+  return <CueBindingMenuItem {...props} />;
+}
+
+function MacroBindingMenuItem({ binding, cue, macro, onEdit, onRemove }: Parameters<typeof SlideBindingMenuItem>[0]) {
+  return (
+    <ContextMenu.Submenu
+      label={(
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <MacroIcon className="size-3.5 shrink-0 text-tertiary" />
+          <span className="min-w-0 truncate">{macro?.name ?? 'Unknown macro'}</span>
+        </span>
+      )}
+    >
+      <ContextMenu.Item disabled={!macro} onSelect={() => onEdit(binding, cue)}>Edit</ContextMenu.Item>
+      <ContextMenu.Separator />
+      <ContextMenu.Item variant="destructive" onSelect={() => { void onRemove(binding.id); }}>Remove</ContextMenu.Item>
+    </ContextMenu.Submenu>
+  );
+}
+
+function CueBindingMenuItem({ binding, cue, overlays, stages, mediaAssets, macros, onEdit, onRemove }: Parameters<typeof SlideBindingMenuItem>[0]) {
+  return (
+    <ContextMenu.Submenu
+      label={(
+        <span className="inline-flex min-w-0 items-center gap-2">
+          {cue && <CueIcon cue={cue} mediaAssets={mediaAssets} className="size-3.5 shrink-0 text-tertiary" />}
+          <span className="min-w-0 truncate">{describeCue(cue, { overlays, stages, mediaAssets, macros })}</span>
+        </span>
+      )}
+    >
+      <ContextMenu.Item
+        disabled={cue?.kind !== 'stage.set' && cue?.kind !== 'overlay.activate' && cue?.kind !== 'overlay.clear'}
+        onSelect={() => onEdit(binding, cue)}
+      >
+        Edit
+      </ContextMenu.Item>
+      <ContextMenu.Separator />
+      <ContextMenu.Item variant="destructive" onSelect={() => { void onRemove(binding.id); }}>Remove</ContextMenu.Item>
+    </ContextMenu.Submenu>
   );
 }

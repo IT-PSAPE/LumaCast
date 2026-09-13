@@ -31,33 +31,36 @@ const SettingsScreen = lazy(() =>
 
 type EditorWorkbenchMode = Exclude<WorkbenchMode, 'show'>;
 
-// Exhaustive by construction: a new WorkbenchMode value must be mapped here
-// before it can render, so an unhandled mode is a compile error instead of a
-// blank shell. Every editor screen is a zero-prop lazy component, so they
-// share the ItemEditorScreen's component type.
-const EDITOR_SCREENS: Record<EditorWorkbenchMode, typeof ItemEditorScreen> = {
-  'item-editor': ItemEditorScreen,
-  'overlay-editor': OverlayEditorScreen,
-  'theme-editor': ThemeEditorScreen,
-  'stage-editor': StageEditorScreen,
-  'macro-editor': MacroEditorScreen,
-  settings: SettingsScreen,
-};
-
 export function WorkbenchScreenRouter() {
   const { state: { workbenchMode } } = useWorkbench();
 
   useKeyboardShortcuts();
 
-  if (workbenchMode === 'show') {
-    return <ShowScreen />;
+  switch (workbenchMode) {
+    case 'show':
+      return <ShowScreen />;
+    default:
+      return (
+        <Suspense fallback={null}>
+          <EditorScreen mode={workbenchMode} />
+        </Suspense>
+      );
+  }
+}
+
+function EditorScreen({ mode }: { mode: EditorWorkbenchMode }) {
+  switch (mode) {
+    case 'item-editor': return <ItemEditorScreen />;
+    case 'overlay-editor': return <OverlayEditorScreen />;
+    case 'theme-editor': return <ThemeEditorScreen />;
+    case 'stage-editor': return <StageEditorScreen />;
+    case 'macro-editor': return <MacroEditorScreen />;
+    case 'settings': return <SettingsScreen />;
   }
 
-  const Screen = EDITOR_SCREENS[workbenchMode];
+  return assertNever(mode);
+}
 
-  return (
-    <Suspense fallback={null}>
-      <Screen />
-    </Suspense>
-  );
+function assertNever(value: never): never {
+  throw new Error(`Unhandled workbench mode: ${String(value)}`);
 }

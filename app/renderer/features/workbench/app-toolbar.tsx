@@ -1,11 +1,12 @@
-import { useMemo, type CSSProperties } from 'react';
+import { Children, isValidElement, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import { PanelBottom, PanelLeft, PanelRight, Search, Settings } from 'lucide-react';
 import { useWorkbench } from '../../contexts/workbench-context';
 import type { WorkbenchMode } from '../../types/ui';
+import type { PaneId, SplitId } from '@renderer/components/layout/panel-split/workbench-panel-layout';
+import { usePanelRoute } from '@renderer/components/layout/panel-split/split-panel';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
 import { cv } from '@renderer/utils/cv';
-import { useWorkbenchPanelToggles } from './use-workbench-panel-toggles';
 import { useNdi } from '@renderer/contexts/app-context';
 import { useCommandPalette } from '../command-palette/command-palette-context';
 import { OverflowViewMenu } from './overflow-view-menu';
@@ -35,36 +36,23 @@ const outputBorderStyles = cv({
   },
 });
 
-export interface PanelToggleButton {
+interface PanelToggleProps {
   id: 'left' | 'right' | 'bottom';
   label: string;
-  active: boolean;
-  onToggle: () => void;
+  splitId: SplitId;
+  paneId: PaneId;
+  children: ReactNode;
 }
 
 export function AppToolbar() {
   const { state: { workbenchMode }, actions: { setWorkbenchMode } } = useWorkbench();
-  const panelToggles = useWorkbenchPanelToggles();
   const { state: { outputState }, actions: { toggleAudienceOutput, toggleStageOutput } } = useNdi();
   const { open: openCommandPalette } = useCommandPalette();
-
-  const activePanelIds = useMemo(
-    () => panelToggles.filter((toggle) => toggle.active).map((toggle) => toggle.id),
-    [panelToggles],
-  );
 
   function handleWorkbenchModeChange(nextValue: string | string[]) {
     if (Array.isArray(nextValue)) return;
     if (!isWorkbenchMode(nextValue) || nextValue === workbenchMode) return;
     setWorkbenchMode(nextValue);
-  }
-
-  function handlePanelToggleChange(nextValue: string | string[]) {
-    if (!Array.isArray(nextValue)) return;
-    for (const toggle of panelToggles) {
-      const shouldBeActive = nextValue.includes(toggle.id);
-      if (shouldBeActive !== toggle.active) toggle.onToggle();
-    }
   }
 
   function handleOpenSettings() {
@@ -126,14 +114,7 @@ export function AppToolbar() {
           <span className="text-primary">Stage</span>
         </ReacstButton>
 
-        <SegmentedControl
-          label="Panel visibility"
-          selectionMode="multiple"
-          value={activePanelIds}
-          onValueChange={handlePanelToggleChange}
-        >
-          {panelToggles.map(renderPanelToggleItem)}
-        </SegmentedControl>
+        <PanelVisibilityControls mode={workbenchMode} />
 
         <ReacstButton.Icon label="Settings" onClick={handleOpenSettings}>
           <Settings />
@@ -143,21 +124,85 @@ export function AppToolbar() {
   );
 }
 
-function renderPanelToggleItem(toggle: PanelToggleButton) {
+function PanelVisibilityControls({ mode }: { mode: WorkbenchMode }) {
+  switch (mode) {
+    case 'show':
+      return (
+        <PanelToggles.Root>
+          <PanelToggles.Toggle id="left" label="Left" splitId="show-main" paneId="show-left"><PanelLeft size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+          <PanelToggles.Toggle id="bottom" label="Bottom" splitId="show-center" paneId="show-bottom"><PanelBottom size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+          <PanelToggles.Toggle id="right" label="Right" splitId="show-main" paneId="show-right"><PanelRight size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+        </PanelToggles.Root>
+      );
+    case 'item-editor':
+      return (
+        <PanelToggles.Root>
+          <PanelToggles.Toggle id="left" label="Left" splitId="edit-main" paneId="edit-left"><PanelLeft size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+          <PanelToggles.Toggle id="bottom" label="Bottom" splitId="edit-center" paneId="edit-bottom"><PanelBottom size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+          <PanelToggles.Toggle id="right" label="Right" splitId="edit-main" paneId="edit-right"><PanelRight size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+        </PanelToggles.Root>
+      );
+    case 'overlay-editor':
+    case 'theme-editor':
+    case 'stage-editor':
+    case 'macro-editor':
+      return (
+        <PanelToggles.Root>
+          <PanelToggles.Toggle id="left" label="Left" splitId="editor-main" paneId="editor-left"><PanelLeft size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+          <PanelToggles.Toggle id="right" label="Right" splitId="editor-main" paneId="editor-right"><PanelRight size={14} strokeWidth={1.5} /></PanelToggles.Toggle>
+        </PanelToggles.Root>
+      );
+    case 'settings':
+      return null;
+  }
+
+  return assertNever(mode);
+}
+
+function PanelTogglesRoot({ children }: { children: ReactNode }) {
+  const panelRoute = usePanelRoute();
+  const toggles = Children.toArray(children).filter(
+    (child): child is ReactElement<PanelToggleProps> => isValidElement<PanelToggleProps>(child) && child.type === PanelToggle,
+  );
+  const activePanelIds = toggles
+    .filter((toggle) => panelRoute.meta.isPanelVisible(toggle.props.splitId, toggle.props.paneId))
+    .map((toggle) => toggle.props.id);
+
+  function handleChange(nextValue: string | string[]) {
+    if (!Array.isArray(nextValue)) return;
+    for (const toggle of toggles) {
+      const active = panelRoute.meta.isPanelVisible(toggle.props.splitId, toggle.props.paneId);
+      if (nextValue.includes(toggle.props.id) !== active) {
+        panelRoute.actions.togglePanel(toggle.props.splitId, toggle.props.paneId);
+      }
+    }
+  }
+
   return (
-    <SegmentedControl.Icon key={toggle.id} value={toggle.id} title={`${toggle.active ? 'Hide' : 'Show'} ${toggle.label} panel`}>
-      {panelToggleIcon(toggle.id)}
-      <span className="sr-only">{toggle.label}</span>
+    <SegmentedControl label="Panel visibility" selectionMode="multiple" value={activePanelIds} onValueChange={handleChange}>
+      {toggles}
+    </SegmentedControl>
+  );
+}
+
+function PanelToggle({ id, label, splitId, paneId, children }: PanelToggleProps) {
+  const panelRoute = usePanelRoute();
+  const active = panelRoute.meta.isPanelVisible(splitId, paneId);
+
+  return (
+    <SegmentedControl.Icon value={id} title={`${active ? 'Hide' : 'Show'} ${label} panel`}>
+      {children}
+      <span className="sr-only">{label}</span>
     </SegmentedControl.Icon>
   );
 }
+
+const PanelToggles = { Root: PanelTogglesRoot, Toggle: PanelToggle };
 
 function isWorkbenchMode(value: string): value is WorkbenchMode {
   return value === 'show' || value === 'item-editor' || value === 'overlay-editor' || value === 'theme-editor' || value === 'stage-editor' || value === 'macro-editor' || value === 'settings';
 }
 
-function panelToggleIcon(id: PanelToggleButton['id']) {
-  if (id === 'left') return <PanelLeft size={14} strokeWidth={1.5} />;
-  if (id === 'bottom') return <PanelBottom size={14} strokeWidth={1.5} />;
-  return <PanelRight size={14} strokeWidth={1.5} />;
+function assertNever(value: never): never {
+  throw new Error(`Unhandled workbench mode: ${String(value)}`);
 }

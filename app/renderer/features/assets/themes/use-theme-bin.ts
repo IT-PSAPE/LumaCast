@@ -13,16 +13,6 @@ export interface ThemeBinSection {
   themes: EditorThemeSource[];
 }
 
-// Section order and labels match the item theme families. Every family renders
-// its own section regardless of the search filter
-// — a family whose themes all filter out still shows its section, emptied.
-// Overlay themes are removed from the UI; overlay single-slide and duplicate
-// overlay serve reuse. Legacy overlay_themes records remain readable for compat.
-const THEME_SECTIONS: ReadonlyArray<{ type: ThemeOwnerType; label: string }> = [
-  { type: 'presentation', label: 'Presentations' },
-  { type: 'lyric', label: 'Lyrics' },
-];
-
 // #219 item-model refactor decision D2: theme/item compatibility is now
 // structural — a theme applied via the bin's quick-apply click only ever
 // targets the current item when its type matches the family of the section
@@ -36,15 +26,24 @@ export function useThemeBin() {
   const { state: { searchValue } } = useBinControls();
 
   const sections = useMemo<ThemeBinSection[]>(() => (
-    THEME_SECTIONS.map(({ type, label }) => ({
-      type,
-      label,
-      themes: filterAndSortThemes(themesByType[type], searchValue, sort),
-    }))
+    [
+      {
+        type: 'presentation',
+        label: 'Presentations',
+        themes: filterAndSortThemes(themesByType.presentation, searchValue, sort),
+      },
+      {
+        type: 'lyric',
+        label: 'Lyrics',
+        themes: filterAndSortThemes(themesByType.lyric, searchValue, sort),
+      },
+    ]
   ), [searchValue, sort, themesByType]);
 
   const handleApplyTheme = useCallback(async (theme: EditorThemeSource) => {
-    const owningType = THEME_SECTIONS.find(({ type }) => themesByType[type].some((t) => t.id === theme.id))?.type;
+    const owningType = themesByType.presentation.some((candidate) => candidate.id === theme.id)
+      ? 'presentation'
+      : themesByType.lyric.some((candidate) => candidate.id === theme.id) ? 'lyric' : null;
     if (!owningType || !currentItemRef || currentItemRef.type !== owningType) return;
     await applyThemeToTarget(theme.id, { type: 'item', itemRef: currentItemRef });
   }, [applyThemeToTarget, currentItemRef, themesByType]);

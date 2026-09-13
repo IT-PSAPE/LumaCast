@@ -3,16 +3,6 @@ import type { NdiOutputName } from '@lumacast/protocol';
 import { FieldCheckbox as CheckboxField, FieldInput } from '../../components/form/field';
 import { useNdi } from '../../contexts/app-context';
 
-const OUTPUT_TITLES: Record<NdiOutputName, string> = {
-  audience: 'Audience NDI',
-  stage: 'Stage NDI',
-};
-
-const OUTPUT_DESCRIPTIONS: Record<NdiOutputName, string | null> = {
-  audience: null,
-  stage: 'Output dedicated to a presenter / on-stage monitor. Renders the active stage layout selected from the Show screen.',
-};
-
 // Per-output controls block. Rendered once per `NdiOutputName` so audience and
 // stage senders are configured side-by-side with identical UX.
 export function OutputControls({ name }: { name: NdiOutputName }) {
@@ -44,14 +34,9 @@ export function OutputControls({ name }: { name: NdiOutputName }) {
     updateOutputConfig(name, { withAlpha });
   }, [name, updateOutputConfig]);
 
-  const description = OUTPUT_DESCRIPTIONS[name];
-
   return (
     <section className="flex flex-col gap-3 border-b border-primary pb-5">
-      <header className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold text-primary">{OUTPUT_TITLES[name]}</h2>
-      </header>
-      {description ? <p className="text-sm text-tertiary">{description}</p> : null}
+      <OutputIdentity name={name} />
       <CheckboxField checked={enabled} label="Enabled" onChange={handleSetOutputEnabled} />
       <div className="flex flex-col gap-3">
         <FieldInput label="Sender name" value={senderNameDraft} onChange={setSenderNameDraft} onBlur={handleCommitSenderName} wide />
@@ -63,4 +48,32 @@ export function OutputControls({ name }: { name: NdiOutputName }) {
       </p>
     </section>
   );
+}
+
+function OutputIdentity({ name }: { name: NdiOutputName }) {
+  switch (name) {
+    case 'audience':
+      return (
+        <header className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-primary">Audience NDI</h2>
+        </header>
+      );
+    case 'stage':
+      return (
+        <>
+          <header className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-primary">Stage NDI</h2>
+          </header>
+          <p className="text-sm text-tertiary">
+            Output dedicated to a presenter / on-stage monitor. Renders the active stage layout selected from the Show screen.
+          </p>
+        </>
+      );
+  }
+
+  return assertNever(name);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled NDI output: ${String(value)}`);
 }

@@ -38,20 +38,15 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
     };
   }, [scrollRootRef]);
 
-  if (showMissingSource) {
-    return (
-      <div ref={hostRef} className="block h-full w-full">
+  return (
+    <div ref={hostRef} className="block h-full w-full">
+      {showMissingSource && (
         <div className="flex h-full w-full flex-col items-center justify-center gap-1 border border-error/50 bg-error/15 text-error">
           <AlertTriangle size={16} strokeWidth={1.75} />
           <span className="px-2 text-center text-xs uppercase tracking-wider">Missing media</span>
         </div>
-      </div>
-    );
-  }
-
-  if (displaySrc) {
-    return (
-      <div ref={hostRef} className="block h-full w-full">
+      )}
+      {!showMissingSource && displaySrc && (
         <img
           src={displaySrc}
           alt={resolvedAsset.name}
@@ -61,21 +56,17 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
           onError={() => setBrokenSrc(displaySrc)}
           className={`block h-full w-full ${resolvedAsset.type === 'video' ? 'object-contain bg-black' : 'object-cover'}`}
         />
-      </div>
-    );
-  }
-  if (resolvedAsset.type === 'video' || resolvedAsset.type === 'image') {
-    return (
-      <div ref={hostRef} className="block h-full w-full">
+      )}
+      {!showMissingSource && !displaySrc && (resolvedAsset.type === 'video' || resolvedAsset.type === 'image') && (
         <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-tertiary">
           <Film className={status === 'generating' || status === 'uploading' ? 'size-6 animate-pulse' : 'size-6'} />
         </div>
-      </div>
-    );
-  }
-  return (
-    <div ref={hostRef} className="flex h-full w-full items-center justify-center">
-      <span className="text-sm font-bold uppercase tracking-wider text-tertiary">{resolvedAsset.type}</span>
+      )}
+      {!showMissingSource && !displaySrc && resolvedAsset.type !== 'video' && resolvedAsset.type !== 'image' && (
+        <div className="flex h-full w-full items-center justify-center">
+          <span className="text-sm font-bold uppercase tracking-wider text-tertiary">{resolvedAsset.type}</span>
+        </div>
+      )}
     </div>
   );
 }

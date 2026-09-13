@@ -8,17 +8,6 @@ import { parseNumber } from '@renderer/utils/slides';
 import { useMacroEditorScreen } from './screen-context';
 import type { OnScopeExit, ScopeLevel } from '@lumacast/automation';
 
-const SCOPE_LEVEL_OPTIONS: Array<{ value: ScopeLevel; label: string }> = [
-  { value: 'global', label: 'Global (runs until cancelled)' },
-  { value: 'item', label: 'Item (stops when leaving the item)' },
-  { value: 'slide', label: 'Slide (stops when leaving the slide)' },
-];
-const ON_SCOPE_EXIT_OPTIONS: Array<{ value: OnScopeExit; label: string }> = [
-  { value: 'cancel', label: 'Cancel pending work' },
-  { value: 'revert', label: 'Revert (undo effects)' },
-  { value: 'none', label: 'Keep running' },
-];
-
 export function MacroInspector() {
   const {
     state: { currentMacro, rows, pendingName, pendingDescription },
@@ -59,21 +48,27 @@ export function MacroInspector() {
           <FieldSelect
             label="Scope"
             value={currentMacro.scopeLevel}
-            options={SCOPE_LEVEL_OPTIONS}
             // updateMacroFields → updateMacro rejects when the macro no longer
             // exists (#214); mutatePatch has already reported the failure (#221),
             // so absorb the rethrow here.
             onChange={(value) => { void updateMacroFields(macroId, { scopeLevel: value as ScopeLevel }).catch(() => undefined); }}
             wide
-          />
+          >
+            <FieldSelect.Option value={'global' satisfies ScopeLevel}>Global (runs until cancelled)</FieldSelect.Option>
+            <FieldSelect.Option value={'item' satisfies ScopeLevel}>Item (stops when leaving the item)</FieldSelect.Option>
+            <FieldSelect.Option value={'slide' satisfies ScopeLevel}>Slide (stops when leaving the slide)</FieldSelect.Option>
+          </FieldSelect>
           {currentMacro.scopeLevel !== 'global' && (
             <FieldSelect
               label="On scope exit"
               value={currentMacro.onScopeExit}
-              options={ON_SCOPE_EXIT_OPTIONS}
               onChange={(value) => { void updateMacroFields(macroId, { onScopeExit: value as OnScopeExit }).catch(() => undefined); }}
               wide
-            />
+            >
+              <FieldSelect.Option value={'cancel' satisfies OnScopeExit}>Cancel pending work</FieldSelect.Option>
+              <FieldSelect.Option value={'revert' satisfies OnScopeExit}>Revert (undo effects)</FieldSelect.Option>
+              <FieldSelect.Option value={'none' satisfies OnScopeExit}>Keep running</FieldSelect.Option>
+            </FieldSelect>
           )}
         </Section.Body>
       </Section.Root>
@@ -83,13 +78,15 @@ export function MacroInspector() {
           <FieldSelect
             label="Loop"
             value={loopEnabled ? 'on' : 'off'}
-            options={[{ value: 'off', label: 'Run once' }, { value: 'on', label: 'Repeat' }]}
             // updateMacroFields → updateMacro rejects when the macro no longer
             // exists (#214); mutatePatch has already reported the failure (#221),
             // so absorb the rethrow here.
             onChange={(value) => { void updateMacroFields(macroId, { loopEnabled: value === 'on' }).catch(() => undefined); }}
             wide
-          />
+          >
+            <FieldSelect.Option value="off">Run once</FieldSelect.Option>
+            <FieldSelect.Option value="on">Repeat</FieldSelect.Option>
+          </FieldSelect>
           {loopEnabled && (
             <FieldInput
               label="Max iterations (blank = until scope exit / cancel)"

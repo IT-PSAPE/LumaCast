@@ -1,13 +1,9 @@
-import type { ThemeMode } from '../../types/ui';
 import { useTheme } from '../../contexts/app-context';
 import { SegmentedControl } from '@renderer/components/controls/segmented-control';
-
-const THEME_OPTIONS: ThemeMode[] = ['light', 'dark', 'system'];
+import type { ThemeMode } from '../../types/ui';
 
 export function AppearanceSettingsPanel() {
   const { state: { themeMode }, actions: { setThemeMode } } = useTheme();
-  const themeOptions = THEME_OPTIONS.map(renderThemeOption);
-
   function handleThemeModeChange(value: string | string[]) {
     if (Array.isArray(value)) return;
     if (value === 'light' || value === 'dark' || value === 'system') {
@@ -22,23 +18,11 @@ export function AppearanceSettingsPanel() {
       </header>
       <div className="flex flex-col gap-2">
         <SegmentedControl value={themeMode} onValueChange={handleThemeModeChange} aria-label="Theme mode">
-          {themeOptions}
+          <SegmentedControl.Label value={'light' satisfies ThemeMode}>Light</SegmentedControl.Label>
+          <SegmentedControl.Label value={'dark' satisfies ThemeMode}>Dark</SegmentedControl.Label>
+          <SegmentedControl.Label value={'system' satisfies ThemeMode}>System</SegmentedControl.Label>
         </SegmentedControl>
       </div>
     </section>
-  );
-}
-
-function labelForTheme(mode: ThemeMode | 'light' | 'dark'): string {
-  if (mode === 'light') return 'Light';
-  if (mode === 'dark') return 'Dark';
-  return 'System';
-}
-
-function renderThemeOption(option: ThemeMode) {
-  return (
-    <SegmentedControl.Label key={option} value={option}>
-      {labelForTheme(option)}
-    </SegmentedControl.Label>
   );
 }

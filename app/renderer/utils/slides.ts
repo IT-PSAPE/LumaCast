@@ -1,12 +1,7 @@
 import type { MediaAsset, OverlayAnimation, Slide, SlideElement } from '@lumacast/composition';
-import type { SlideBrowserMode, SlideVisualState } from '../types/ui';
+import type { SlideVisualState } from '../types/ui';
 import { LAYER_ORDER } from '../types/ui';
 export { clamp } from './math';
-
-export const CANVAS_VIEW_LABELS: Record<SlideBrowserMode, string> = {
-  grid: 'Grid',
-  list: 'List',
-};
 
 export function sortSlides(slides: Slide[]): Slide[] {
   return slides.slice().sort((a, b) => a.order - b.order);

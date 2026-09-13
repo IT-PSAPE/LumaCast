@@ -30,7 +30,6 @@ export function DeckBinPanel() {
     key: section.type,
     label: section.label,
     items: section.items,
-    emptyState: <CreateItemDropZone itemType={section.type} onActivate={() => openCreateItem(section.type)} />,
   }));
 
   return (
@@ -43,6 +42,12 @@ export function DeckBinPanel() {
           listItemEstimate={44}
           gridRowEstimate={180}
           emptyEstimate={208}
+          renderEmptyState={(section) => (
+            <CreateItemDropZone
+              itemType={section.key as ItemRef['type']}
+              onActivate={() => openCreateItem(section.key as ItemRef['type'])}
+            />
+          )}
           getItemKey={(item) => item.id}
           renderListItem={(item, index, section) => renderItemBinNode({
             item,

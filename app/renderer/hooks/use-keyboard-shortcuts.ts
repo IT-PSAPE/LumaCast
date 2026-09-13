@@ -1,7 +1,5 @@
 import { useEffect } from 'react';
 import { SHORTCUTS, matchesShortcut, menuCommandForEvent, menuCommandClaimRegistry, type ShortcutActionId } from '@lumacast/commands';
-import type { SlideBrowserMode } from '../types/ui';
-import { CANVAS_VIEW_LABELS } from '../utils/slides';
 import { useCast } from '../contexts/app-context';
 import { useSlides } from '../contexts/slide-context';
 import { useElements } from '../contexts/canvas/canvas-context';
@@ -80,11 +78,18 @@ export function useKeyboardShortcuts(): void {
         globalRedo: () => { void globalRedoAction().catch(() => undefined); return true; },
         openCommandPalette: () => { openCommandPalette(); return true; },
         setSlideBrowserMode: (_event, digit) => {
-          const modes: SlideBrowserMode[] = ['grid', 'list'];
-          const next = modes[Number(digit) - 1];
-          setSlideBrowserMode(next);
-          setStatusText(`View: ${CANVAS_VIEW_LABELS[next]}`);
-          return true;
+          switch (digit) {
+            case '1':
+              setSlideBrowserMode('grid');
+              setStatusText('View: Grid');
+              return true;
+            case '2':
+              setSlideBrowserMode('list');
+              setStatusText('View: List');
+              return true;
+            default:
+              return false;
+          }
         },
         takeSlide: () => { takeSlide(); return true; },
         deleteSelected: () => {

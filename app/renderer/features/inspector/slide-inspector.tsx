@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import type { OverlayAnimation } from '@lumacast/composition';
 import { FieldInput, FieldSelect } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useOverlayEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useWorkbench } from '../../contexts/workbench-context';
 import { Section } from './inspector-section';
-
-const TRANSITION_OPTIONS = [
-  { value: 'none', label: 'Cut' },
-  { value: 'dissolve', label: 'Dissolve' },
-];
 
 export function SlideInspector() {
   const { setStatusText } = useCast();
@@ -122,9 +118,11 @@ export function SlideInspector() {
                 value={transitionKindDraft}
                 onChange={handleTransitionKindChange}
                 onBlur={handleOverlaySettingsBlur}
-                options={TRANSITION_OPTIONS}
                 label="Transition"
-              />
+              >
+                <FieldSelect.Option value={'none' satisfies OverlayAnimation['kind']}>Cut</FieldSelect.Option>
+                <FieldSelect.Option value={'dissolve' satisfies OverlayAnimation['kind']}>Dissolve</FieldSelect.Option>
+              </FieldSelect>
               <FieldInput
                 type="number"
                 value={transitionDurationDraft}

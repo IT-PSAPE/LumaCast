@@ -12,13 +12,6 @@ import { SplitInputGroup } from './split-input-group';
 
 type ColorMode = 'hex' | 'rgb' | 'hsb' | 'hsl';
 
-const COLOR_MODE_OPTIONS = [
-  { value: 'hex', label: 'Hex' },
-  { value: 'rgb', label: 'RGB' },
-  { value: 'hsb', label: 'HSB' },
-  { value: 'hsl', label: 'HSL' },
-];
-
 function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
@@ -37,8 +30,8 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
   const rgb = hsbToRgb(hsb);
   const hsl = rgbToHsl(rgb);
 
-  function handleModeSelect(value: string) {
-    onModeChange(value as ColorMode);
+  function handleModeSelect(value: ColorMode) {
+    onModeChange(value);
   }
 
   function handleRgbChange(channel: keyof Rgb, value: number) {
@@ -73,11 +66,19 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
     <div className="flex items-stretch gap-px">
       <Dropdown className="shrink-0">
         <Dropdown.Trigger className="flex items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
-          <span className="truncate px-1.5">{COLOR_MODE_OPTIONS.find((o) => o.value === mode)?.label}</span>
+          <span className="truncate px-1.5">
+            {mode === 'hex' && 'Hex'}
+            {mode === 'rgb' && 'RGB'}
+            {mode === 'hsb' && 'HSB'}
+            {mode === 'hsl' && 'HSL'}
+          </span>
           <ChevronDown className="shrink-0 size-3.5 mr-1.5 text-tertiary" />
         </Dropdown.Trigger>
         <Dropdown.Panel>
-          {COLOR_MODE_OPTIONS.map((opt) => <Dropdown.Item key={opt.value} onClick={() => handleModeSelect(opt.value)}>{opt.label}</Dropdown.Item>)}
+          <Dropdown.Item onClick={() => handleModeSelect('hex')}>Hex</Dropdown.Item>
+          <Dropdown.Item onClick={() => handleModeSelect('rgb')}>RGB</Dropdown.Item>
+          <Dropdown.Item onClick={() => handleModeSelect('hsb')}>HSB</Dropdown.Item>
+          <Dropdown.Item onClick={() => handleModeSelect('hsl')}>HSL</Dropdown.Item>
         </Dropdown.Panel>
       </Dropdown>
 

@@ -65,7 +65,7 @@ function Root({ children }: PanelRouteRootProps) {
   return <PanelRouteContext.Provider value={value}>{children}</PanelRouteContext.Provider>;
 }
 
-function Segment({ splitId, orientation, className = '', children, ...props }: PanelRouteSplitProps & HTMLAttributes<HTMLDivElement>) {
+function Panel({ splitId, orientation, className = '', children, ...props }: PanelRouteSplitProps & HTMLAttributes<HTMLDivElement>) {
   const context = usePanelRoute();
   const panels = useMemo(() => collectPanels(children), [children]);
   const definition = useMemo(() => createSplitDefinition(splitId, orientation, panels), [orientation, panels, splitId]);
@@ -109,7 +109,7 @@ function Segment({ splitId, orientation, className = '', children, ...props }: P
   );
 }
 
-function Panel({ children }: PanelRoutePanelProps) {
+function Segment({ children }: PanelRoutePanelProps) {
   return <>{children}</>;
 }
 
@@ -149,7 +149,7 @@ function collectPanels(children: ReactNode): PanelElementData[] {
 }
 
 function isPanelElement(value: ReactNode): value is ReactElement<PanelRoutePanelProps> {
-  return isValidElement<PanelRoutePanelProps>(value) && value.type === Panel;
+  return isValidElement<PanelRoutePanelProps>(value) && value.type === Segment;
 }
 
 function createSplitDefinition(splitId: SplitId, orientation: 'horizontal' | 'vertical', panels: PanelElementData[]): SplitDefinition {
@@ -201,8 +201,8 @@ function buildResizablePanes(
 }
 
 export const SplitPanel = Object.assign(Root, {
-  Panel: Segment,
-  Segment: Panel
+  Panel,
+  Segment
 });
 
 

@@ -19,9 +19,6 @@ export interface BinControlsContextValue {
     onSearchChange: (value: string) => void;
     onViewModeChange: (mode: ResourceDrawerViewMode) => void;
   };
-  meta: {
-    searchPlaceholder: string;
-  };
 }
 
 export const BinControlsContext = createContext<BinControlsContextValue | null>(null);

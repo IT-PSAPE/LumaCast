@@ -16,12 +16,6 @@ import type { StrokePosition } from '@lumacast/composition';
 import { parseNumber } from '@renderer/utils/slides';
 import { Label } from '@renderer/components/display/text';
 
-const STROKE_POSITION_OPTIONS = [
-  { value: 'inside', label: 'Inside' },
-  { value: 'center', label: 'Center' },
-  { value: 'outside', label: 'Outside' },
-];
-
 export function ShapeElementInspector() {
   const result = useShapeInspector();
 
@@ -161,7 +155,11 @@ export function ShapeElementInspector() {
               <ColorPicker value={visual.strokeColor} onChange={(value: string) => { updateVisual({ strokeColor: value }); }} />
             </Section.Row>
             <Section.Row>
-              <FieldSelect value={visual.strokePosition} onChange={(value: string) => { updateVisual({ strokePosition: value as StrokePosition }); }} options={STROKE_POSITION_OPTIONS} />
+              <FieldSelect value={visual.strokePosition} onChange={(value: string) => { updateVisual({ strokePosition: value as StrokePosition }); }}>
+                <FieldSelect.Option value={'inside' satisfies StrokePosition}>Inside</FieldSelect.Option>
+                <FieldSelect.Option value={'center' satisfies StrokePosition}>Center</FieldSelect.Option>
+                <FieldSelect.Option value={'outside' satisfies StrokePosition}>Outside</FieldSelect.Option>
+              </FieldSelect>
               <FieldInput type="number" value={visual.strokeWidth} onChange={(value: string) => { updateVisual({ strokeWidth: Math.max(0, parseNumber(value, visual.strokeWidth)) }); }}>
                 <FieldIcon><RulerDimensionLine size={14} /></FieldIcon>
               </FieldInput>

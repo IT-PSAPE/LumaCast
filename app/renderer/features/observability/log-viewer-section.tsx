@@ -2,15 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogReadResult, LogSessionSummary } from '@lumacast/protocol';
 import { SectionShell } from './section-shell';
 import { FilterChips } from './filter-chips';
-import { LEVEL_FILTERS } from './observability-constants';
 import { formatBytes, lineColor } from './observability-format';
+
+type LogLevelFilter = 'all' | 'INFO' | 'WARN' | 'ERROR';
 
 export function LogViewerSection() {
   const [sessions, setSessions] = useState<LogSessionSummary[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [lines, setLines] = useState<string[]>([]);
   const [tailOffset, setTailOffset] = useState(0);
-  const [levelFilter, setLevelFilter] = useState<'all' | 'INFO' | 'WARN' | 'ERROR'>('all');
+  const [levelFilter, setLevelFilter] = useState<LogLevelFilter>('all');
   const [loading, setLoading] = useState(false);
   const lineContainerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -151,11 +152,15 @@ export function LogViewerSection() {
           )}
         </div>
         <div className="flex min-h-72 flex-col gap-2">
-          <FilterChips
+          <FilterChips.Root
             value={levelFilter}
-            options={LEVEL_FILTERS}
             onChange={(next) => setLevelFilter(next)}
-          />
+          >
+            <FilterChips.Option value={'all' satisfies LogLevelFilter}>All</FilterChips.Option>
+            <FilterChips.Option value={'INFO' satisfies LogLevelFilter}>Info</FilterChips.Option>
+            <FilterChips.Option value={'WARN' satisfies LogLevelFilter}>Warn</FilterChips.Option>
+            <FilterChips.Option value={'ERROR' satisfies LogLevelFilter}>Error</FilterChips.Option>
+          </FilterChips.Root>
           <div
             ref={lineContainerRef}
             onScroll={handleScroll}
