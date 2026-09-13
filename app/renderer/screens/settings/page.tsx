@@ -3,13 +3,14 @@ import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SelectableRow } from '../../components/display/selectable-row';
 import { AppearanceSettingsPanel } from './appearance-settings-panel';
 import { MediaLibrarySettingsPanel } from './media-library-settings-panel';
+import { AgentSettingsPanel } from './agent-settings-panel';
 import { ObservabilityPanel } from '../../features/observability/observability-panel';
 import { OutputSettingsPanel } from '../../features/playback/output-settings-panel';
 import { OverlaySettingsPanel } from '../../features/assets/overlays/overlay-settings-panel';
 import { ImportExportPanel } from '../../features/items/import-export-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 
-type SettingsTabId = 'appearance' | 'output' | 'overlays' | 'media' | 'observability' | 'transfer';
+type SettingsTabId = 'appearance' | 'output' | 'overlays' | 'media' | 'assistant' | 'observability' | 'transfer';
 
 export function SettingsScreen() {
   const [activeTab, setActiveTab] = useState<SettingsTabId>('appearance');
@@ -33,6 +34,9 @@ export function SettingsScreen() {
                 <SelectableRow.Root selected={activeTab === 'media'} onClick={() => setActiveTab('media')}>
                   <SelectableRow.Label>Media</SelectableRow.Label>
                 </SelectableRow.Root>
+                <SelectableRow.Root selected={activeTab === 'assistant'} onClick={() => setActiveTab('assistant')}>
+                  <SelectableRow.Label>Assistant</SelectableRow.Label>
+                </SelectableRow.Root>
                 <SelectableRow.Root selected={activeTab === 'observability'} onClick={() => setActiveTab('observability')}>
                   <SelectableRow.Label>Observability</SelectableRow.Label>
                 </SelectableRow.Root>
@@ -54,6 +58,7 @@ export function SettingsScreen() {
               {activeTab === 'output' && <OutputSettingsPanel />}
               {activeTab === 'overlays' && <OverlaySettingsPanel />}
               {activeTab === 'media' && <MediaLibrarySettingsPanel />}
+              {activeTab === 'assistant' && <AgentSettingsPanel />}
               {activeTab === 'observability' && <ObservabilityPanel />}
               {activeTab === 'transfer' && <ImportExportPanel />}
             </div>

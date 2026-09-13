@@ -56,7 +56,7 @@ function FieldIcon({ children, className, ...rest }: HTMLAttributes<HTMLSpanElem
 interface FieldInputProps {
   children?: ReactNode;
   disabled?: boolean;
-  type?: 'number' | 'text';
+  type?: 'number' | 'text' | 'password';
   value: string | number;
   onChange: (value: string) => void;
   onBlur?: () => void;
@@ -132,7 +132,7 @@ function FieldInput({ children, disabled = false, type = 'text', value, onChange
         {iconNode}
         <BaseInput
           ref={inputRef}
-          type="text"
+          type={type === 'password' ? 'password' : 'text'}
           value={value}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
