@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => {
     workbenchActions: {
       setWorkbenchMode: vi.fn((mode: WorkbenchMode) => { workbenchState.workbenchMode = mode; }),
     },
+    isPanelVisible: vi.fn(() => true),
+    togglePanel: vi.fn(),
     overlayStack: {
       rootElement: null as HTMLElement | null,
       stack: [] as string[],
@@ -44,8 +46,11 @@ vi.mock('../../../../../app/renderer/features/command-palette/command-palette-co
   useCommandPalette: () => ({ open: vi.fn() }),
 }));
 
-vi.mock('../../../../../app/renderer/features/workbench/use-workbench-panel-toggles', () => ({
-  useWorkbenchPanelToggles: () => [],
+vi.mock('../../../../../app/renderer/components/layout/panel-split/split-panel', () => ({
+  usePanelRoute: () => ({
+    meta: { isPanelVisible: mocks.isPanelVisible },
+    actions: { togglePanel: mocks.togglePanel },
+  }),
 }));
 
 // app-toolbar reads window.castApi.platform at module load for the search
@@ -123,5 +128,15 @@ describe('AppToolbar "Application views" switcher', () => {
     rerender(<AppToolbar />);
     const updated = within(getByRole('group', { name: 'Application views' }));
     expect(updated.getByRole('button', { name: 'More views' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('wires the explicit show-screen panel parts to their split panes', () => {
+    mocks.isPanelVisible.mockReturnValue(true);
+    const { getByRole } = render(<AppToolbar />);
+    const group = within(getByRole('group', { name: 'Panel visibility' }));
+
+    fireEvent.click(group.getByRole('button', { name: 'Left' }));
+
+    expect(mocks.togglePanel).toHaveBeenCalledWith('show-main', 'show-left');
   });
 });

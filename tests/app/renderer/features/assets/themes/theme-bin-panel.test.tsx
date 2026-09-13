@@ -86,7 +86,6 @@ function renderPanel(options: {
     <BinControlsProvider
       searchValue={options.searchValue ?? ''}
       onSearchChange={vi.fn()}
-      searchPlaceholder="Search…"
       viewMode="grid"
       onViewModeChange={vi.fn()}
       grid={null}

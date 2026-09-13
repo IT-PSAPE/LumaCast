@@ -133,6 +133,19 @@ describe('Field.Select', () => {
     expect(within(trigger).getByText('Alpha')).not.toBeNull();
   });
 
+  it('renders explicitly composed option parts without an options array', () => {
+    render(
+      <WorkbenchProvider>
+        <FieldSelect label="Letter" value="b" onChange={vi.fn()}>
+          <FieldSelect.Option value="a">Alpha</FieldSelect.Option>
+          <FieldSelect.Option value="b">Beta</FieldSelect.Option>
+        </FieldSelect>
+      </WorkbenchProvider>,
+    );
+
+    expect(within(screen.getByRole('combobox')).getByText('Beta')).not.toBeNull();
+  });
+
   // Base UI settles the popup's floating position/focus asynchronously after
   // it opens; a subsequent key press needs a tick for that to land, and by
   // then it can have moved DOM focus off the trigger, so re-read
@@ -140,6 +153,32 @@ describe('Field.Select', () => {
   async function settle() {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
   }
+
+  it('opens and selects a composed option while preserving child-before-dynamic order', async () => {
+    const onChange = vi.fn();
+    render(
+      <WorkbenchProvider>
+        <FieldSelect
+          label="Letter"
+          value="a"
+          onChange={onChange}
+          options={[{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }]}
+        >
+          <FieldSelect.Option value="">No letter</FieldSelect.Option>
+        </FieldSelect>
+      </WorkbenchProvider>,
+    );
+
+    const trigger = screen.getByRole('combobox');
+    fireEvent.click(trigger);
+    await settle();
+
+    const options = screen.getAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual(['No letter', 'Alpha', 'Beta']);
+    fireEvent.click(options[0]);
+    await settle();
+    expect(onChange).toHaveBeenCalledWith('');
+  });
 
   it('opens a listbox portaled into #overlay-root with data-popover-content, and selects by keyboard', async () => {
     const { onChange } = renderSelect();

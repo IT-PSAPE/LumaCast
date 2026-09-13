@@ -28,12 +28,11 @@ function renderControls(options: RenderOptions = {}) {
       <BinControlsProvider
         searchValue={options.searchValue ?? ''}
         onSearchChange={onSearchChange}
-        searchPlaceholder={options.searchPlaceholder ?? 'Search…'}
         viewMode={options.viewMode ?? 'grid'}
         onViewModeChange={onViewModeChange}
         grid={grid}
       >
-        <BinControlsSearchField />
+        <BinControlsSearchField placeholder={options.searchPlaceholder ?? 'Search…'} />
         <Dropdown>
           <Dropdown.Trigger aria-label="More actions">open</Dropdown.Trigger>
           <Dropdown.Panel placement="bottom-end" className="min-w-64">
@@ -55,12 +54,11 @@ function renderAudioControls() {
       <BinControlsProvider
         searchValue=""
         onSearchChange={vi.fn()}
-        searchPlaceholder="Search audio…"
         viewMode="list"
         onViewModeChange={vi.fn()}
         grid={null}
       >
-        <BinControlsSearchField />
+        <BinControlsSearchField placeholder="Search audio…" />
         <Dropdown>
           <Dropdown.Trigger aria-label="More actions">open</Dropdown.Trigger>
           <Dropdown.Panel placement="bottom-end" className="min-w-64">
@@ -178,7 +176,7 @@ describe('BinControls', () => {
       return null;
     }
     expect(() => render(<Outside />)).toThrow();
-    expect(() => render(<BinControlsSearchField />)).toThrow();
+    expect(() => render(<BinControlsSearchField placeholder="Search…" />)).toThrow();
     expect(() => render(<BinControlsViewOptions />)).toThrow();
   });
 });
