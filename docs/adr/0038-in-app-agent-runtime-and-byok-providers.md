@@ -75,6 +75,14 @@ all — which is another reason not to make any of it renderer-shaped.
   returns the token once with a paste-ready `mcp-remote` snippet.
   `AgentMcpServiceLike` covers only the transport, defaulting to
   `NoopMcpService` until the host lands.
+- **OpenCode Zen is a first-class mixed-protocol provider.** Its default base
+  URL is `https://opencode.ai/zen/v1`; the adapter intersects the live Zen
+  `/models` catalog with public Models.dev metadata for display names,
+  capabilities, limits, free status, and protocol selection. GPT/Grok/Muse
+  requests use OpenAI Responses, Claude/Qwen use Anthropic Messages, Gemini
+  uses `streamGenerateContent`, and remaining models use Chat Completions.
+  Family fallbacks preserve routing when optional metadata is unavailable.
+  Models.dev never receives the user's Zen credential.
 
 ## Consequences
 
@@ -93,3 +101,5 @@ all — which is another reason not to make any of it renderer-shaped.
 - A provider that reports no usage leaves `usage` null rather than guessing;
   token accounting is per-message and only as good as the provider's own
   reporting.
+- Zen's catalog remains live even if Models.dev is unavailable; in that case
+  the UI derives readable names from model IDs and omits unknown limits.

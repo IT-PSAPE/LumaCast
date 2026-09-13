@@ -35,6 +35,16 @@ describe('AGENT_PROVIDERS / AGENT_PROVIDER_IDS', () => {
       expect(provider.requiresBaseUrl).toBe(provider.id === 'openai-compatible');
     }
   });
+
+  it('exposes OpenCode Zen with its agent API base URL', () => {
+    expect(AGENT_PROVIDERS.find((provider) => provider.id === 'opencode')).toEqual({
+      id: 'opencode',
+      label: 'OpenCode Zen',
+      requiresBaseUrl: false,
+      defaultBaseUrl: 'https://opencode.ai/zen/v1',
+      docsUrl: 'https://opencode.ai/docs/zen',
+    });
+  });
 });
 
 describe('permission tiers <-> matrices round-trip', () => {

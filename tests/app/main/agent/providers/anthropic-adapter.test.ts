@@ -385,8 +385,8 @@ describe('AnthropicAdapter.listModels', () => {
     const models = await adapter.listModels();
 
     expect(models).toEqual([
-      { id: 'claude-opus-5', label: 'Claude Opus 5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true },
-      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000, maxOutputTokens: 8192, supportsTools: true },
+      { id: 'claude-opus-5', label: 'Claude Opus 5', contextWindow: 1_000_000, maxOutputTokens: 128_000, supportsTools: true, isFree: false },
+      { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000, maxOutputTokens: 8192, supportsTools: true, isFree: false },
     ]);
   });
 
