@@ -123,23 +123,45 @@ import type {
   ElementUpdateInput,
   ItemCreateInput,
   ItemCreateResult,
+  ItemDetail,
   ItemDuplicateInput,
   ItemDuplicateResult,
+  ItemGetInput,
+  ItemListInput,
+  ItemSummary,
   MacroCreateInput,
   MacroUpdateInput,
   MediaAssetCreateInput,
+  MediaAssetListInput,
+  MediaAssetSummary,
   OverlayCreateInput,
+  OverlaySummary as OverlayProjectionSummary,
   OverlayUpdateInput,
+  PlaylistDetail,
+  PlaylistGetInput,
+  PlaylistRowDetail,
+  PlaylistSummary,
+  ProjectOverview,
+  ProjectOverviewCounts,
+  SearchContentInput,
+  SearchResult,
+  SlideBackgroundSummary,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
+  SlideDetail,
+  SlideElementDetail,
+  SlideGetInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
   SlideTagCreateInput,
   SlideTagUpdateInput,
   SlideTagAssignInput,
   StageCreateInput,
+  StageSummary,
   StageUpdateInput,
   ThemeCreateInput,
+  ThemeListInput,
+  ThemeSummary,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
 } from '@lumacast/protocol';
@@ -7087,6 +7109,579 @@ export class CastRepository {
     return { snapshot: this.getSnapshot(), retainedDatabasePath: retainedPath };
   }
 
+  // ─── Read projections ──────────────────────────────────────────────
+  // Selective, paginated, name-resolvable reads: an alternative to
+  // `getSnapshot()` returning the entire database. Every method below is
+  // read-only, does its filtering/counting in SQL rather than materializing
+  // the whole snapshot, and never returns a `src`/`thumbnailSrc` string —
+  // only stable ids (see @lumacast/protocol's rpc-results.ts header comment
+  // for why: `src` is rewritten into session-scoped `cast-media://` tokens
+  // by the RPC layer).
+
+  listPlaylists(): PlaylistSummary[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.id, p.name, p.order_index,
+                COUNT(pe.id) AS row_count,
+                COALESCE(SUM(CASE WHEN pe.kind = 'item' THEN 1 ELSE 0 END), 0) AS item_count,
+                COALESCE(SUM(CASE WHEN pe.kind = 'separator' THEN 1 ELSE 0 END), 0) AS separator_count
+         FROM playlists p
+         LEFT JOIN playlist_entries pe ON pe.playlist_id = p.id
+         GROUP BY p.id
+         ORDER BY p.order_index ASC, p.created_at ASC, p.id ASC`
+      )
+      .all() as Array<{
+        id: string;
+        name: string;
+        order_index: number;
+        row_count: number;
+        item_count: number;
+        separator_count: number;
+      }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      order: row.order_index,
+      rowCount: row.row_count,
+      itemCount: row.item_count,
+      separatorCount: row.separator_count,
+    }));
+  }
+
+  getPlaylist(input: PlaylistGetInput): PlaylistDetail {
+    const playlist = this.db
+      .prepare('SELECT id, name, order_index FROM playlists WHERE id = ?')
+      .get(input.id) as { id: string; name: string; order_index: number } | undefined;
+    if (!playlist) throw new Error(`Playlist not found: ${input.id}`);
+
+    const rows = this.db
+      .prepare(
+        `SELECT pe.id, pe.kind, pe.order_index, pe.label, pe.color_key, pe.presentation_id, pe.lyric_id,
+                COALESCE(p.title, l.title) AS item_title,
+                (SELECT COUNT(*) FROM slides s
+                  WHERE (pe.presentation_id IS NOT NULL AND s.presentation_id = pe.presentation_id)
+                     OR (pe.lyric_id IS NOT NULL AND s.lyric_id = pe.lyric_id)) AS slide_count
+         FROM playlist_entries pe
+         LEFT JOIN presentations p ON p.id = pe.presentation_id
+         LEFT JOIN lyrics l ON l.id = pe.lyric_id
+         WHERE pe.playlist_id = ?
+         ORDER BY pe.order_index ASC`
+      )
+      .all(input.id) as Array<{
+        id: string;
+        kind: 'item' | 'separator';
+        order_index: number;
+        label: string | null;
+        color_key: string | null;
+        presentation_id: string | null;
+        lyric_id: string | null;
+        item_title: string | null;
+        slide_count: number;
+      }>;
+
+    const detailRows: PlaylistRowDetail[] = rows.map((row) => {
+      if (row.kind === 'separator') {
+        return {
+          rowId: row.id,
+          order: row.order_index,
+          kind: 'separator',
+          label: row.label ?? '',
+          colorKey: row.color_key,
+        };
+      }
+      const reference = parsePlaylistItemReference(
+        { presentationId: row.presentation_id, lyricId: row.lyric_id },
+        `playlist entry ${row.id}`,
+      );
+      return {
+        rowId: row.id,
+        order: row.order_index,
+        kind: 'item',
+        itemRef: { type: reference.type, id: reference.itemId },
+        title: row.item_title ?? '',
+        slideCount: row.slide_count,
+      };
+    });
+
+    return {
+      id: playlist.id,
+      name: playlist.name,
+      order: playlist.order_index,
+      rows: detailRows,
+    };
+  }
+
+  listItems(input: ItemListInput): ItemSummary[] {
+    const limit = Math.min(input.limit ?? 100, 500);
+    const offset = Math.max(input.offset ?? 0, 0);
+
+    const selectPresentations = `SELECT id, 'presentation' AS type, title, theme_id, updated_at FROM presentations`;
+    const selectLyrics = `SELECT id, 'lyric' AS type, title, theme_id, updated_at FROM lyrics`;
+    const unionSql = input.type === 'presentation'
+      ? selectPresentations
+      : input.type === 'lyric'
+        ? selectLyrics
+        : `${selectPresentations} UNION ALL ${selectLyrics}`;
+
+    const params: unknown[] = [];
+    let filteredSql = `SELECT * FROM (${unionSql})`;
+    if (input.query) {
+      filteredSql += ` WHERE title LIKE ? ESCAPE '\\' COLLATE NOCASE`;
+      params.push(`%${escapeLikePattern(input.query)}%`);
+    }
+
+    const rows = this.db
+      .prepare(`${filteredSql} ORDER BY title COLLATE NOCASE ASC, id ASC LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as Array<{
+        id: string;
+        type: ItemType;
+        title: string;
+        theme_id: string | null;
+        updated_at: string;
+      }>;
+
+    const ids = rows.map((row) => row.id);
+    const slideCounts = this.getSlideCountsByOwnerIds(ids);
+    const playlistIdsByOwner = this.getPlaylistIdsByOwnerIds(ids);
+
+    return rows.map((row) => ({
+      ref: { type: row.type, id: row.id },
+      title: row.title,
+      slideCount: slideCounts.get(row.id) ?? 0,
+      themeId: row.theme_id,
+      playlistIds: playlistIdsByOwner.get(row.id) ?? [],
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  getItem(input: ItemGetInput): ItemDetail {
+    const table = ITEM_TABLE_BY_TYPE[input.ref.type];
+    const row = this.db
+      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM ${table} WHERE id = ?`)
+      .get(input.ref.id) as {
+        id: string;
+        title: string;
+        theme_id: string | null;
+        order_index: number;
+        created_at: string;
+        updated_at: string;
+      } | undefined;
+    if (!row) throw new Error(`Item not found: ${input.ref.type}:${input.ref.id}`);
+
+    const detail: ItemDetail = {
+      ref: { type: input.ref.type, id: row.id },
+      title: row.title,
+      themeId: row.theme_id,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+
+    if (input.includeSlides) {
+      const ownerColumn = ITEM_OWNER_COLUMN_BY_TYPE[input.ref.type];
+      const slideRows = this.db
+        .prepare(
+          `SELECT id, kind, width, height, notes, background_json, background_source, order_index, tag_id, presentation_id, lyric_id
+           FROM slides WHERE ${ownerColumn} = ? ORDER BY order_index ASC`
+        )
+        .all(row.id) as SlideDetailRow[];
+
+      const srcToAssetId = this.buildMediaSrcToAssetIdMap();
+      const includeElements = input.includeElements ?? false;
+      const elementsBySlideId = includeElements
+        ? this.getSlideElementsBySlideIdsMap(slideRows.map((slideRow) => slideRow.id), 'getItem')
+        : null;
+
+      detail.slides = slideRows.map((slideRow) =>
+        this.toSlideDetail(slideRow, elementsBySlideId?.get(slideRow.id) ?? null, srcToAssetId, 'getItem'));
+    }
+
+    return detail;
+  }
+
+  getSlide(input: SlideGetInput): SlideDetail {
+    const row = this.db
+      .prepare(
+        `SELECT id, kind, width, height, notes, background_json, background_source, order_index, tag_id, presentation_id, lyric_id
+         FROM slides WHERE id = ?`
+      )
+      .get(input.slideId) as SlideDetailRow | undefined;
+    if (!row) throw new Error(`Slide not found: ${input.slideId}`);
+
+    const srcToAssetId = this.buildMediaSrcToAssetIdMap();
+    const elements = input.includeElements ? this.getSlideElementsBySlideId(row.id) : null;
+    return this.toSlideDetail(row, elements, srcToAssetId, 'getSlide');
+  }
+
+  private toSlideDetail(
+    row: SlideDetailRow,
+    elements: SlideElement[] | null,
+    srcToAssetId: Map<string, Id>,
+    operation: string,
+  ): SlideDetail {
+    const background = row.background_json
+      ? decodeSlideBackgroundJson(row.background_json, persistedContext(operation, `slides.${row.id}.background_json`))
+      : null;
+
+    const detail: SlideDetail = {
+      id: row.id,
+      kind: row.kind,
+      order: row.order_index,
+      ownerRef: row.presentation_id
+        ? { type: 'presentation', id: row.presentation_id }
+        : row.lyric_id
+          ? { type: 'lyric', id: row.lyric_id }
+          : null,
+      width: row.width,
+      height: row.height,
+      notes: row.notes,
+      tagId: row.tag_id,
+      backgroundSource: (row.background_source ?? 'local') as SlideBackgroundSource,
+      background: toBackgroundSummary(background, srcToAssetId),
+    };
+    if (elements) detail.elements = elements.map((element) => toSlideElementDetail(element, srcToAssetId));
+    return detail;
+  }
+
+  listMediaAssets(input: MediaAssetListInput): MediaAssetSummary[] {
+    const limit = Math.min(input.limit ?? 100, 500);
+    const offset = Math.max(input.offset ?? 0, 0);
+
+    const unionSql = `
+      SELECT id, name, width, height, duration, created_at, 'image' AS type FROM image_assets
+      UNION ALL
+      SELECT id, name, width, height, duration, created_at, 'video' AS type FROM video_assets
+      UNION ALL
+      SELECT id, name, width, height, duration, created_at, 'audio' AS type FROM audio_assets
+    `;
+
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+    if (input.type) {
+      whereClauses.push('type = ?');
+      params.push(input.type);
+    }
+    if (input.query) {
+      whereClauses.push(`name LIKE ? ESCAPE '\\' COLLATE NOCASE`);
+      params.push(`%${escapeLikePattern(input.query)}%`);
+    }
+    const filtered = whereClauses.length > 0
+      ? `SELECT * FROM (${unionSql}) WHERE ${whereClauses.join(' AND ')}`
+      : `SELECT * FROM (${unionSql})`;
+
+    const rows = this.db
+      .prepare(`${filtered} ORDER BY name COLLATE NOCASE ASC, id ASC LIMIT ? OFFSET ?`)
+      .all(...params, limit, offset) as Array<{
+        id: string;
+        name: string;
+        width: number | null;
+        height: number | null;
+        duration: number | null;
+        created_at: string;
+        type: MediaAssetType;
+      }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      width: row.width,
+      height: row.height,
+      duration: row.duration,
+      hasThumbnail: false,
+      createdAt: row.created_at,
+    }));
+  }
+
+  listThemes(input: ThemeListInput): ThemeSummary[] {
+    const ownerTypes: ThemeOwnerType[] = input.ownerType ? [input.ownerType] : ['presentation', 'lyric', 'overlay'];
+    const results: ThemeSummary[] = [];
+
+    for (const ownerType of ownerTypes) {
+      const table = THEME_TABLE_BY_TYPE[ownerType];
+      const rows = this.db
+        .prepare(`SELECT id, name, width, height, order_index FROM ${table} ORDER BY order_index ASC, created_at ASC, id ASC`)
+        .all() as Array<{ id: string; name: string; width: number; height: number; order_index: number }>;
+
+      const linkedCounts = ownerType === 'overlay'
+        ? new Map<string, number>()
+        : this.getLinkedItemCountsByThemeIds(ownerType, rows.map((row) => row.id));
+
+      for (const row of rows) {
+        results.push({
+          id: row.id,
+          ownerType,
+          name: row.name,
+          width: row.width,
+          height: row.height,
+          order: row.order_index,
+          linkedItemCount: linkedCounts.get(row.id) ?? 0,
+        });
+      }
+    }
+
+    return results;
+  }
+
+  listOverlays(): OverlayProjectionSummary[] {
+    const rows = this.db
+      .prepare('SELECT id, name, enabled, animation_json, order_index FROM overlays ORDER BY order_index ASC, created_at ASC, id ASC')
+      .all() as Array<{ id: string; name: string; enabled: number; animation_json: string; order_index: number }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      enabled: row.enabled === 1,
+      order: row.order_index,
+      animation: normalizeOverlayAnimation(decodeOverlayAnimationJson(row.animation_json, persistedContext('listOverlays', `overlays.${row.id}.animation_json`))),
+    }));
+  }
+
+  listStages(): StageSummary[] {
+    const rows = this.db
+      .prepare('SELECT id, name, width, height, order_index FROM stages ORDER BY order_index ASC, created_at ASC, id ASC')
+      .all() as Array<{ id: string; name: string; width: number; height: number; order_index: number }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      width: row.width,
+      height: row.height,
+      order: row.order_index,
+    }));
+  }
+
+  getProjectOverview(): ProjectOverview {
+    const countOf = (sql: string): number => (this.db.prepare(sql).get() as { count: number }).count;
+
+    const counts: ProjectOverviewCounts = {
+      playlists: countOf('SELECT COUNT(*) AS count FROM playlists'),
+      presentations: countOf('SELECT COUNT(*) AS count FROM presentations'),
+      lyrics: countOf('SELECT COUNT(*) AS count FROM lyrics'),
+      slides: countOf('SELECT COUNT(*) AS count FROM slides WHERE presentation_id IS NOT NULL OR lyric_id IS NOT NULL'),
+      mediaAssets: countOf(
+        `SELECT (SELECT COUNT(*) FROM image_assets) + (SELECT COUNT(*) FROM video_assets) + (SELECT COUNT(*) FROM audio_assets) AS count`
+      ),
+      themes: countOf(
+        `SELECT (SELECT COUNT(*) FROM presentation_themes) + (SELECT COUNT(*) FROM lyric_themes) + (SELECT COUNT(*) FROM overlay_themes) AS count`
+      ),
+      overlays: countOf('SELECT COUNT(*) AS count FROM overlays'),
+      stages: countOf('SELECT COUNT(*) AS count FROM stages'),
+      macros: countOf('SELECT COUNT(*) AS count FROM actions'),
+      cues: countOf('SELECT COUNT(*) AS count FROM cues'),
+    };
+
+    const playlists = this.db
+      .prepare('SELECT id, name FROM playlists ORDER BY order_index ASC, created_at ASC, id ASC')
+      .all() as Array<{ id: string; name: string }>;
+
+    const recentRows = this.db
+      .prepare(
+        `SELECT * FROM (
+           SELECT id, 'presentation' AS type, title, theme_id, updated_at FROM presentations
+           UNION ALL
+           SELECT id, 'lyric' AS type, title, theme_id, updated_at FROM lyrics
+         )
+         ORDER BY updated_at DESC, id ASC
+         LIMIT 10`
+      )
+      .all() as Array<{ id: string; type: ItemType; title: string; theme_id: string | null; updated_at: string }>;
+
+    const recentIds = recentRows.map((row) => row.id);
+    const slideCounts = this.getSlideCountsByOwnerIds(recentIds);
+    const playlistIdsByOwner = this.getPlaylistIdsByOwnerIds(recentIds);
+
+    const recentItems: ItemSummary[] = recentRows.map((row) => ({
+      ref: { type: row.type, id: row.id },
+      title: row.title,
+      slideCount: slideCounts.get(row.id) ?? 0,
+      themeId: row.theme_id,
+      playlistIds: playlistIdsByOwner.get(row.id) ?? [],
+      updatedAt: row.updated_at,
+    }));
+
+    const schemaVersion = this.db.pragma('user_version', { simple: true }) as number;
+
+    return { counts, playlists, recentItems, schemaVersion };
+  }
+
+  searchContent(input: SearchContentInput): SearchResult[] {
+    const query = input.query.trim();
+    if (!query) return [];
+    const limit = Math.max(1, Math.min(input.limit ?? 50, 200));
+    const likePattern = `%${escapeLikePattern(query)}%`;
+    const results: SearchResult[] = [];
+
+    const playlistRows = this.db
+      .prepare(`SELECT id, name FROM playlists WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE ORDER BY order_index ASC LIMIT ?`)
+      .all(likePattern, limit) as Array<{ id: string; name: string }>;
+    for (const row of playlistRows) results.push({ kind: 'playlist', id: row.id, title: row.name, snippet: null });
+
+    const itemRows = this.db
+      .prepare(
+        `SELECT id, 'presentation' AS type, title FROM presentations WHERE title LIKE ? ESCAPE '\\' COLLATE NOCASE
+         UNION ALL
+         SELECT id, 'lyric' AS type, title FROM lyrics WHERE title LIKE ? ESCAPE '\\' COLLATE NOCASE
+         LIMIT ?`
+      )
+      .all(likePattern, likePattern, limit) as Array<{ id: string; type: ItemType; title: string }>;
+    for (const row of itemRows) {
+      results.push({ kind: 'item', id: row.id, title: row.title, snippet: null, itemRef: { type: row.type, id: row.id } });
+    }
+
+    const mediaRows = this.db
+      .prepare(
+        `SELECT id, name FROM image_assets WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
+         UNION ALL
+         SELECT id, name FROM video_assets WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
+         UNION ALL
+         SELECT id, name FROM audio_assets WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE
+         LIMIT ?`
+      )
+      .all(likePattern, likePattern, likePattern, limit) as Array<{ id: string; name: string }>;
+    for (const row of mediaRows) results.push({ kind: 'media', id: row.id, title: row.name, snippet: null });
+
+    for (const table of Object.values(THEME_TABLE_BY_TYPE)) {
+      const themeRows = this.db
+        .prepare(`SELECT id, name FROM ${table} WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE LIMIT ?`)
+        .all(likePattern, limit) as Array<{ id: string; name: string }>;
+      for (const row of themeRows) results.push({ kind: 'theme', id: row.id, title: row.name, snippet: null });
+    }
+
+    const overlayRows = this.db
+      .prepare(`SELECT id, name FROM overlays WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE LIMIT ?`)
+      .all(likePattern, limit) as Array<{ id: string; name: string }>;
+    for (const row of overlayRows) results.push({ kind: 'overlay', id: row.id, title: row.name, snippet: null });
+
+    const stageRows = this.db
+      .prepare(`SELECT id, name FROM stages WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE LIMIT ?`)
+      .all(likePattern, limit) as Array<{ id: string; name: string }>;
+    for (const row of stageRows) results.push({ kind: 'stage', id: row.id, title: row.name, snippet: null });
+
+    const macroRows = this.db
+      .prepare(`SELECT id, name FROM actions WHERE name LIKE ? ESCAPE '\\' COLLATE NOCASE LIMIT ?`)
+      .all(likePattern, limit) as Array<{ id: string; name: string }>;
+    for (const row of macroRows) results.push({ kind: 'macro', id: row.id, title: row.name, snippet: null });
+
+    const textElementRows = this.db
+      .prepare(
+        `SELECT se.id, se.slide_id, se.payload_json, s.presentation_id, s.lyric_id
+         FROM slide_elements se
+         JOIN slides s ON s.id = se.slide_id
+         WHERE se.type = 'text'
+           AND (s.presentation_id IS NOT NULL OR s.lyric_id IS NOT NULL)
+           AND se.payload_json LIKE ? ESCAPE '\\' COLLATE NOCASE
+         LIMIT ?`
+      )
+      .all(likePattern, limit) as Array<{
+        id: string;
+        slide_id: string;
+        payload_json: string;
+        presentation_id: string | null;
+        lyric_id: string | null;
+      }>;
+    for (const row of textElementRows) {
+      let text = '';
+      try {
+        const parsed = JSON.parse(row.payload_json) as { text?: unknown };
+        if (typeof parsed.text === 'string') text = parsed.text;
+      } catch {
+        // Malformed payload JSON: skip this candidate rather than throw —
+        // search must not fail the whole request over one bad row.
+        continue;
+      }
+      const snippet = buildSearchSnippet(text, query);
+      // The broad LIKE prefilter matches anywhere in payload_json (e.g. a
+      // fontFamily name); only keep this as a "slide text content" hit when
+      // the query actually occurs inside the extracted `text` field.
+      if (snippet === null) continue;
+
+      const itemRef: ItemRef | undefined = row.presentation_id
+        ? { type: 'presentation', id: row.presentation_id }
+        : row.lyric_id
+          ? { type: 'lyric', id: row.lyric_id }
+          : undefined;
+
+      results.push({
+        kind: 'slide',
+        id: row.id,
+        title: text.slice(0, 80) || '(untitled text)',
+        snippet,
+        itemRef,
+        slideId: row.slide_id,
+      });
+    }
+
+    return results.slice(0, limit);
+  }
+
+  private getSlideCountsByOwnerIds(ownerIds: readonly Id[]): Map<Id, number> {
+    const counts = new Map<Id, number>();
+    if (ownerIds.length === 0) return counts;
+    for (const idChunk of chunkValues(ownerIds)) {
+      const placeholders = idChunk.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(
+          `SELECT COALESCE(presentation_id, lyric_id) AS owner_id, COUNT(*) AS count
+           FROM slides
+           WHERE presentation_id IN (${placeholders}) OR lyric_id IN (${placeholders})
+           GROUP BY owner_id`
+        )
+        .all(...idChunk, ...idChunk) as Array<{ owner_id: string; count: number }>;
+      for (const row of rows) counts.set(row.owner_id, row.count);
+    }
+    return counts;
+  }
+
+  private getPlaylistIdsByOwnerIds(ownerIds: readonly Id[]): Map<Id, Id[]> {
+    const byOwner = new Map<Id, Id[]>();
+    if (ownerIds.length === 0) return byOwner;
+    for (const idChunk of chunkValues(ownerIds)) {
+      const placeholders = idChunk.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(
+          `SELECT COALESCE(presentation_id, lyric_id) AS owner_id, playlist_id
+           FROM playlist_entries
+           WHERE presentation_id IN (${placeholders}) OR lyric_id IN (${placeholders})`
+        )
+        .all(...idChunk, ...idChunk) as Array<{ owner_id: string; playlist_id: string }>;
+      for (const row of rows) {
+        const list = byOwner.get(row.owner_id);
+        if (list) list.push(row.playlist_id);
+        else byOwner.set(row.owner_id, [row.playlist_id]);
+      }
+    }
+    return byOwner;
+  }
+
+  private getLinkedItemCountsByThemeIds(ownerType: 'presentation' | 'lyric', themeIds: readonly Id[]): Map<Id, number> {
+    const counts = new Map<Id, number>();
+    if (themeIds.length === 0) return counts;
+    const table = ITEM_TABLE_BY_TYPE[ownerType];
+    for (const idChunk of chunkValues(themeIds)) {
+      const placeholders = idChunk.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(`SELECT theme_id, COUNT(*) AS count FROM ${table} WHERE theme_id IN (${placeholders}) GROUP BY theme_id`)
+        .all(...idChunk) as Array<{ theme_id: string; count: number }>;
+      for (const row of rows) counts.set(row.theme_id, row.count);
+    }
+    return counts;
+  }
+
+  private buildMediaSrcToAssetIdMap(): Map<string, Id> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, src FROM image_assets
+         UNION ALL
+         SELECT id, src FROM video_assets
+         UNION ALL
+         SELECT id, src FROM audio_assets`
+      )
+      .all() as Array<{ id: string; src: string }>;
+    return new Map(rows.map((row) => [row.src, row.id]));
+  }
+
   private reopenRepositoryConnection(): void {
     this.db = new SqliteDatabase(this.dbPath);
     this.applyConnectionTuning();
@@ -7096,4 +7691,95 @@ export class CastRepository {
     // contains no playlist rows.
     runMigrations(this.db, this.dbPath);
   }
+}
+
+// ─── Read-projection row/mapping helpers ─────────────────────────────────
+// Module-level (not class members) since they take their persisted-row
+// shape and the per-call `Map<src, assetId>` explicitly rather than closing
+// over `this.db`.
+
+interface SlideDetailRow {
+  id: string;
+  kind: SlideKind;
+  width: number;
+  height: number;
+  notes: string;
+  background_json: string | null;
+  background_source: string | null;
+  order_index: number;
+  tag_id: string | null;
+  presentation_id: string | null;
+  lyric_id: string | null;
+}
+
+function toBackgroundSummary(background: SlideBackground | null, srcToAssetId: Map<string, Id>): SlideBackgroundSummary | null {
+  if (!background) return null;
+  if (background.type === 'color' || background.type === 'gradient') {
+    return { type: background.type, assetId: null };
+  }
+  return {
+    type: background.type,
+    assetId: srcToAssetId.get(background.src) ?? null,
+    fit: background.fit,
+  };
+}
+
+/**
+ * `SlideElement` -> `SlideElementDetail`: every image/video payload's `src`
+ * is replaced by a resolved `assetId` (never the stored source), recursively
+ * through group children — mirrors `maskElement` in
+ * app/main/media-capability.ts, but resolves to an id instead of a
+ * `cast-media://` URL.
+ */
+function toSlideElementDetail(element: SlideElement, srcToAssetId: Map<string, Id>): SlideElementDetail {
+  const base = {
+    id: element.id,
+    slideId: element.slideId,
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+    rotation: element.rotation,
+    opacity: element.opacity,
+    zIndex: element.zIndex,
+    layer: element.layer,
+    sourceThemeElementId: element.sourceThemeElementId,
+    themeOverrideKeys: element.themeOverrideKeys,
+    createdAt: element.createdAt,
+    updatedAt: element.updatedAt,
+  };
+
+  if (element.type === 'image' || element.type === 'video') {
+    const { src, ...rest } = element.payload as ImageElementPayload | VideoElementPayload;
+    return {
+      ...base,
+      type: element.type,
+      payload: { ...rest, assetId: srcToAssetId.get(src) ?? null },
+    } as unknown as SlideElementDetail;
+  }
+  if (element.type === 'group') {
+    const groupPayload = element.payload as GroupElementPayload;
+    return {
+      ...base,
+      type: 'group',
+      payload: {
+        ...groupPayload,
+        children: groupPayload.children.map((child) => toSlideElementDetail(child, srcToAssetId)),
+      },
+    } as unknown as SlideElementDetail;
+  }
+  return { ...base, type: element.type, payload: element.payload } as unknown as SlideElementDetail;
+}
+
+const SEARCH_SNIPPET_RADIUS = 40;
+
+/** Case-insensitive; returns null when `query` isn't actually found in `text` (used to reject LIKE prefilter false positives). */
+function buildSearchSnippet(text: string, query: string): string | null {
+  const index = text.toLowerCase().indexOf(query.toLowerCase());
+  if (index === -1) return null;
+  const start = Math.max(0, index - SEARCH_SNIPPET_RADIUS);
+  const end = Math.min(text.length, index + query.length + SEARCH_SNIPPET_RADIUS);
+  const prefix = start > 0 ? '…' : '';
+  const suffix = end < text.length ? '…' : '';
+  return `${prefix}${text.slice(start, end)}${suffix}`;
 }
