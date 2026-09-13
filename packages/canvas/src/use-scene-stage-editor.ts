@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Konva from 'konva';
 import type { Id } from '@lumacast/kernel';
-import type { SlideElement, TextElementPayload } from '@lumacast/composition';
+import type { GroupElementPayload, SlideElement, TextElementPayload } from '@lumacast/composition';
 import type { ElementUpdateInput } from '@lumacast/protocol';
 import { resolveSnap, resolveTransformSnap } from './snap-guides';
 import { type RichBody, richBodyToText, isRichBody, type GuideLine, type RenderScene } from '@lumacast/composition';
 import { createDragSession, type DragSession } from './scene-stage-drag-session';
-import { mapSnapBoxes } from './scene-stage-editor-utils';
+import { mapSnapBoxes, scaleGroupChildren } from './scene-stage-editor-utils';
 import { useSceneStageShift } from './use-scene-stage-shift';
 import { useSceneStageMarquee } from './use-scene-stage-marquee';
 import { useSceneStageDraftBuffer } from './use-scene-stage-draft-buffer';
@@ -97,9 +97,38 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     transformer.getLayer()?.batchDraw();
   }, [editable, selectedElementIds]);
 
+  // Group resize (#111 group rendering): a group's live transform never
+  // touches its Konva children or the draft state (see handleNodeTransform
+  // below) — Konva's own transform stack already previews the whole subtree
+  // scaling correctly for free, since scale/rotate/translate compose
+  // naturally through nested Konva Groups. So by the time this reads the
+  // node, `node.width()`/`node.height()` are still the PRE-transform box
+  // (never baked mid-drag) while `node.scaleX()`/`scaleY()` carry the
+  // gesture's cumulative scale — this bakes that scale into the group's own
+  // geometry and, recursively, into every child's geometry (and non-autoFit
+  // text font size) exactly once, from the untouched base element.
+  const readGroupNodeUpdate = useCallback((id: Id, node: Konva.Group, element: SlideElement): ElementUpdateInput => {
+    const width = Math.max(1, element.width * Math.abs(node.scaleX()));
+    const height = Math.max(1, element.height * Math.abs(node.scaleY()));
+    const scaleX = element.width > 0 ? width / element.width : 1;
+    const scaleY = element.height > 0 ? height / element.height : 1;
+    const payload = element.payload as GroupElementPayload;
+    return {
+      id,
+      x: node.x(),
+      y: node.y(),
+      width,
+      height,
+      rotation: node.rotation(),
+      payload: { ...payload, children: scaleGroupChildren(payload.children ?? [], scaleX, scaleY) },
+    };
+  }, []);
+
   const readNodeUpdate = useCallback((id: Id): ElementUpdateInput | null => {
     const node = nodeRefs.current.get(id);
     if (!node) return null;
+    const element = effectiveElementsRef.current.find((el) => el.id === id);
+    if (element?.type === 'group') return readGroupNodeUpdate(id, node, element);
     return {
       id,
       x: node.x(),
@@ -108,7 +137,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       height: node.height(),
       rotation: node.rotation(),
     };
-  }, []);
+  }, [readGroupNodeUpdate]);
 
   const commitSelectionFromNodes = useCallback(async () => {
     flushDraftBuffer();
@@ -278,6 +307,18 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       if (!node) continue;
       const activeElement = effectiveElementsRef.current.find((element) => element.id === id);
       if (!activeElement) continue;
+      // Group resize (#111): leave the Konva node's live scale alone instead
+      // of baking it into width/height on every tick. Konva already composes
+      // scale/rotate/translate through the whole nested-Group subtree, so
+      // the group's children preview the resize correctly for free without
+      // any of this tick touching them; readGroupNodeUpdate bakes the
+      // cumulative scale into the group's (and its children's) geometry
+      // exactly once, at transform end. The tradeoffs: no resize-to-guide
+      // snapping and no live numeric feedback (inspector fields) while
+      // dragging a group's handles — only rotation/position read live for
+      // everything else, and the final committed layout is what a group
+      // resize snaps to.
+      if (activeElement.type === 'group') continue;
       const shouldSnapTransform = canSnapTransform;
 
       const scaleX = node.scaleX();

@@ -26,7 +26,7 @@ const fakes = vi.hoisted(() => {
       setCurrentSlideIndex: vi.fn(),
     },
     elements: {
-      selectedElementId: null,
+      selectedElementId: null as string | null,
       clearSelection: vi.fn(),
       deleteSelected: vi.fn(),
       nudgeSelection: vi.fn(),
@@ -34,6 +34,8 @@ const fakes = vi.hoisted(() => {
       cutSelection: vi.fn(),
       pasteSelection: vi.fn(),
       duplicateSelection: vi.fn(),
+      groupSelection: vi.fn().mockResolvedValue(null),
+      ungroupSelection: vi.fn().mockResolvedValue([]),
       undo: vi.fn(),
       redo: vi.fn(),
     },
@@ -221,5 +223,48 @@ describe('useKeyboardShortcuts — normal dispatch still claims', () => {
     expect(fakes.elements.copySelection).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
     expect(menuCommandClaimRegistry.consume('edit.copy')).toBe(true);
+  });
+});
+
+describe('useKeyboardShortcuts — group/ungroup', () => {
+  beforeEach(() => {
+    fakes.workbench.state.workbenchMode = 'item-editor';
+    fakes.elements.selectedElementId = 'element-1';
+  });
+
+  afterEach(() => {
+    fakes.elements.selectedElementId = null;
+  });
+
+  it('dispatches groupSelection on Cmd/Ctrl+G with a selection', () => {
+    renderHook(() => useKeyboardShortcuts());
+
+    const event = keyDown('g', { metaKey: true });
+    dispatchOn(document.body, event);
+
+    expect(fakes.elements.groupSelection).toHaveBeenCalledTimes(1);
+    expect(fakes.elements.ungroupSelection).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('dispatches ungroupSelection on Cmd/Ctrl+Shift+G with a selection', () => {
+    renderHook(() => useKeyboardShortcuts());
+
+    const event = keyDown('g', { metaKey: true, shiftKey: true });
+    dispatchOn(document.body, event);
+
+    expect(fakes.elements.ungroupSelection).toHaveBeenCalledTimes(1);
+    expect(fakes.elements.groupSelection).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('does not dispatch groupSelection without a selection', () => {
+    fakes.elements.selectedElementId = null;
+    renderHook(() => useKeyboardShortcuts());
+
+    const event = keyDown('g', { metaKey: true });
+    dispatchOn(document.body, event);
+
+    expect(fakes.elements.groupSelection).not.toHaveBeenCalled();
   });
 });

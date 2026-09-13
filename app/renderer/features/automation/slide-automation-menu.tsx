@@ -1,5 +1,7 @@
+import { useState } from 'react';
+import { Check } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
-import type { CueKind, CuePayload } from '@lumacast/automation';
+import type { CueKind, CuePayload, TriggerType } from '@lumacast/automation';
 import { ContextMenu } from '@renderer/components/overlays/context-menu';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useAutomation } from './automation-context';
@@ -10,6 +12,7 @@ export function SlideAutomationMenu({ slideId, slideIds }: { slideId?: Id; slide
     actions: { ensureCue, createBinding },
   } = useAutomation();
   const { overlays, mediaAssets, stages } = useProjectContent();
+  const [triggerType, setTriggerType] = useState<TriggerType>('slide.activate');
 
   const images = mediaAssets.filter((asset) => asset.type === 'image');
   const videos = mediaAssets.filter((asset) => asset.type === 'video');
@@ -20,7 +23,7 @@ export function SlideAutomationMenu({ slideId, slideIds }: { slideId?: Id; slide
     const cue = await ensureCue({ kind: input.kind, payload: input.payload });
     for (const sourceId of sourceIds) {
       await createBinding({
-        triggerType: 'slide.activate',
+        triggerType,
         sourceId,
         targetType: 'cue',
         targetId: cue.id,
@@ -38,6 +41,22 @@ export function SlideAutomationMenu({ slideId, slideIds }: { slideId?: Id; slide
 
   return (
     <ContextMenu.Submenu label="Automation">
+      <ContextMenu.Submenu label="When">
+        <ContextMenu.Item closeOnSelect={false} onSelect={() => setTriggerType('slide.activate')}>
+          <span className="inline-flex items-center gap-1.5">
+            {triggerType === 'slide.activate' ? <Check className="size-3.5" /> : <span className="inline-block size-3.5" />}
+            Activate
+          </span>
+        </ContextMenu.Item>
+        <ContextMenu.Item closeOnSelect={false} onSelect={() => setTriggerType('slide.take')}>
+          <span className="inline-flex items-center gap-1.5">
+            {triggerType === 'slide.take' ? <Check className="size-3.5" /> : <span className="inline-block size-3.5" />}
+            Take
+          </span>
+        </ContextMenu.Item>
+      </ContextMenu.Submenu>
+      <ContextMenu.Separator />
+
       <ContextMenu.Submenu label="Clear">
         <ContextMenu.Item
           onSelect={() => {
@@ -125,9 +144,9 @@ export function SlideAutomationMenu({ slideId, slideIds }: { slideId?: Id; slide
       <ContextMenu.Submenu label="Video" disabled={videos.length === 0}>
         {videos.map((asset) => (
           <ContextMenu.Item
-            key={`mediaLayer.set:video:${asset.id}`}
+            key={`video.arm:${asset.id}`}
             onSelect={() => {
-              void bindCue({ kind: 'mediaLayer.set', payload: { assetId: asset.id } });
+              void bindCue({ kind: 'video.arm', payload: { assetId: asset.id } });
             }}
           >
             {asset.name}
@@ -158,7 +177,7 @@ export function SlideAutomationMenu({ slideId, slideIds }: { slideId?: Id; slide
               void (async () => {
                 for (const sourceId of sourceIds) {
                   await createBinding({
-                    triggerType: 'slide.activate',
+                    triggerType,
                     sourceId,
                     targetType: 'macro',
                     targetId: macro.id,

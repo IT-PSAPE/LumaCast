@@ -201,10 +201,11 @@ describe('node-kind dispatch parity', () => {
     }
   });
 
-  it('returns null for group nodes on the Konva surfaces — nested groups are a resolved-contract-only capability (#147); the editor/NDI Konva scenes do not render them, so this is a documented scope boundary rather than a bug', () => {
+  it('renders group nodes on the Konva surfaces and carries their children into the resolved contract', () => {
     const group = groupElement('g', [textElement('child', 'inside')]);
     const konvaScene = buildRenderScene(slide(), [group]);
-    expect(renderSceneNodeContent(konvaScene.nodes[0], 'show')).toBeNull();
+    expect(konvaScene.nodes[0]?.children).toHaveLength(1);
+    expect(renderSceneNodeContent(konvaScene.nodes[0], 'show')).not.toBeNull();
 
     const resolvedScene = buildResolvedRenderScene(slide(), [group], {});
     expect(resolvedScene.nodes[0].kind).toBe('group');

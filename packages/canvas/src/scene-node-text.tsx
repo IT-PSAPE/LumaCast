@@ -10,6 +10,7 @@ import {
   textToRichBody,
   createCanvasMeasurer,
   runFontString,
+  stringToGraphemes,
   wrapRuns,
   type RenderNode,
 } from '@lumacast/composition';
@@ -77,6 +78,7 @@ interface RichContentParams {
 interface RichPaintParams {
   fill: boolean;
   stroke?: RichStrokeSpec;
+  letterSpacing?: number;
 }
 
 interface DrawPiece {
@@ -131,7 +133,9 @@ function buildBoxWithFontSize(box: RichBoxStyle, fontSize: number): RichBoxStyle
 
 function buildBoxWithAutoFit(box: RichBoxStyle, fontSize: number, authoredFontSize: number): RichBoxStyle {
   const scale = authoredFontSize ? fontSize / authoredFontSize : 1;
-  return { ...box, fontSize, fontScale: scale };
+  // Letter spacing is authored in px at the authored font size; auto-fit must
+  // scale it down with the font or it visually balloons as the text shrinks.
+  return { ...box, fontSize, fontScale: scale, letterSpacing: (box.letterSpacing ?? 0) * scale };
 }
 
 function richBodyHasRenderableText(body: RichBody): boolean {
@@ -164,7 +168,16 @@ function measureFontMetrics(font: string, fontSize: number): { ascent: number; d
   };
 }
 
-function prepareDrawPiece(piece: DrawPiece): PreparedDrawPiece {
+// `letterSpacing` adds a fixed px gap per grapheme, mirroring Konva.Text's own
+// `_getTextWidth` (`measureText(text).width + letterSpacing * length`) — folded
+// into every piece/segment width here so wrapping and alignment (which read
+// these widths, not the draw step) already account for it.
+function measureAdvanceWidth(text: string, font: string, letterSpacing: number): number {
+  const base = sharedMeasurer(text, font);
+  return letterSpacing === 0 ? base : base + letterSpacing * stringToGraphemes(text).length;
+}
+
+function prepareDrawPiece(piece: DrawPiece, letterSpacing: number): PreparedDrawPiece {
   const segments: DrawSegment[] = [];
   let spaceCount = 0;
 
@@ -174,14 +187,14 @@ function prepareDrawPiece(piece: DrawPiece): PreparedDrawPiece {
     if (isSpace) spaceCount += 1;
     segments.push({
       text: segmentText,
-      width: sharedMeasurer(segmentText, piece.font),
+      width: measureAdvanceWidth(segmentText, piece.font, letterSpacing),
       isSpace,
     });
   }
 
   return {
     ...piece,
-    width: sharedMeasurer(piece.text, piece.font),
+    width: measureAdvanceWidth(piece.text, piece.font, letterSpacing),
     spaceCount,
     segments,
   };
@@ -190,6 +203,7 @@ function prepareDrawPiece(piece: DrawPiece): PreparedDrawPiece {
 function prepareRichLayout(params: RichContentParams): PreparedRichLayout {
   const { body, box, width, lineHeight, align } = params;
   const boxFont = runFontString(box);
+  const letterSpacing = box.letterSpacing ?? 0;
 
   // A line advances by the largest size actually resolved among its pieces; the
   // box size anchors only empty paragraphs and list markers (the marker draws at
@@ -216,7 +230,7 @@ function prepareRichLayout(params: RichContentParams): PreparedRichLayout {
         fontSize: piece.style.fontSize,
         underline: piece.style.underline,
         strike: piece.style.strikethrough,
-      }));
+      }, letterSpacing));
       const contentWidth = markerWidth + line.width;
       let groupX = 0;
       if (align !== 'justify') {
@@ -310,7 +324,7 @@ function computeAutoFitRichTextFontSize({ body, box, width, height, lineHeight, 
 
 function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout & { alignY: number }, paintParams: RichPaintParams): void {
   const { width, align, alignY, lines } = layout;
-  const { fill, stroke } = paintParams;
+  const { fill, stroke, letterSpacing = 0 } = paintParams;
   const totalLines = lines.length;
 
   ctx.textBaseline = 'alphabetic';
@@ -349,6 +363,19 @@ function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout 
     ctx.restore();
   };
 
+  // Konva's own Text shape switches to a per-character draw loop whenever
+  // letterSpacing is nonzero (see node_modules/konva Text.js `_sceneFunc`),
+  // advancing by each glyph's own width plus the gap — a single fillText call
+  // cannot space glyphs apart, only shift where the whole string starts.
+  const paintLetterSpaced = (text: string, x: number, baselineY: number, color: string, font: string): number => {
+    let cursor = x;
+    for (const grapheme of stringToGraphemes(text)) {
+      paint(grapheme, cursor, baselineY, color);
+      cursor += sharedMeasurer(grapheme, font) + letterSpacing;
+    }
+    return cursor;
+  };
+
   let yOffset = 0;
   for (let lineIndex = 0; lineIndex < totalLines; lineIndex += 1) {
     const line = lines[lineIndex];
@@ -367,12 +394,21 @@ function drawRichBody(ctx: CanvasRenderingContext2D, layout: PreparedRichLayout 
       ctx.font = piece.font;
       const pieceStartX = x;
       if (!isJustify) {
-        paint(piece.text, x, baselineY, piece.color);
-        x += piece.width;
+        if (letterSpacing !== 0) {
+          x = paintLetterSpaced(piece.text, x, baselineY, piece.color, piece.font);
+        } else {
+          paint(piece.text, x, baselineY, piece.color);
+          x += piece.width;
+        }
       } else {
         for (const segment of piece.segments) {
-          paint(segment.text, x, baselineY, piece.color);
-          x += segment.width + (segment.isSpace ? extraPerSpace : 0);
+          if (letterSpacing !== 0) {
+            x = paintLetterSpaced(segment.text, x, baselineY, piece.color, piece.font);
+          } else {
+            paint(segment.text, x, baselineY, piece.color);
+            x += segment.width;
+          }
+          x += segment.isSpace ? extraPerSpace : 0;
         }
       }
       const thickness = piece.fontSize / 15;
@@ -407,7 +443,7 @@ export function SceneNodeText({ node, hideText = false }: SceneNodeTextProps) {
     const resolved = boxStyleFromPayload(payload);
     resolved.fontFamily = fontFamily;
     return resolved;
-  }, [payload.color, payload.fontSize, payload.italic, payload.strikethrough, payload.underline, payload.weight, fontFamily]);
+  }, [payload.color, payload.fontSize, payload.italic, payload.strikethrough, payload.underline, payload.weight, payload.letterSpacing, fontFamily]);
 
   const body = useMemo<RichBody>(() => {
     const base = hasBinding
@@ -438,6 +474,10 @@ export function SceneNodeText({ node, hideText = false }: SceneNodeTextProps) {
     if (autoFitEnabled) return buildBoxWithAutoFit(baseBox, fontSize, baseBox.fontSize);
     return buildBoxWithFontSize(baseBox, fontSize);
   }, [autoFitEnabled, baseBox, fontSize]);
+  // The effective letter spacing (already auto-fit-scaled via `box`) — draw
+  // must use this, not the raw payload value, so glyph gaps match the
+  // wrap/alignment measurements computed against the same `box`.
+  const letterSpacing = box.letterSpacing ?? 0;
 
   const align = textAlign(payload.alignment ?? 'left');
   const preparedRichContent = useMemo(
@@ -489,15 +529,16 @@ export function SceneNodeText({ node, hideText = false }: SceneNodeTextProps) {
     const offCtx = offscreen.getContext('2d');
     if (!offCtx) return null;
 
-    drawRichBody(offCtx, richTextLayout, { fill: true });
+    drawRichBody(offCtx, richTextLayout, { fill: true, letterSpacing });
     offCtx.globalCompositeOperation = 'source-atop';
     drawRichBody(offCtx, richTextLayout, {
       fill: false,
       stroke: { color: textStrokeColor, width: textStrokeWidth * 2, fillAfter: false },
+      letterSpacing,
     });
     offCtx.globalCompositeOperation = 'source-over';
     return offscreen;
-  }, [useInsideStroke, element.width, textFrameHeight, richTextLayout, textStrokeColor, textStrokeWidth]);
+  }, [useInsideStroke, element.width, textFrameHeight, richTextLayout, textStrokeColor, textStrokeWidth, letterSpacing]);
 
   // Match Konva Text's _hitFunc: the whole frame is the hit region, so clicking
   // anywhere on the text box (not just on a glyph) selects it.
@@ -513,10 +554,10 @@ export function SceneNodeText({ node, hideText = false }: SceneNodeTextProps) {
     if (useInsideStroke) {
       if (insideStrokeCanvas) target.drawImage(insideStrokeCanvas, 0, 0);
     } else {
-      drawRichBody(target, richTextLayout, { fill: true, stroke: sceneStroke });
+      drawRichBody(target, richTextLayout, { fill: true, stroke: sceneStroke, letterSpacing });
     }
     ctx.fillStrokeShape(shape);
-  }, [useInsideStroke, insideStrokeCanvas, richTextLayout, sceneStroke]);
+  }, [useInsideStroke, insideStrokeCanvas, richTextLayout, sceneStroke, letterSpacing]);
 
   return (
     <>

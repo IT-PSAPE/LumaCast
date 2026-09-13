@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { LogReadResult, LogSessionSummary } from '@lumacast/protocol';
+import { redactValue } from './redaction';
 
 type ConsoleMethod = 'log' | 'info' | 'warn' | 'error';
 
@@ -177,11 +178,34 @@ export function readLogSession(filePath: string, offset: number, limit: number):
 
 export const __sessionStartByteOffsetForTests = (): number => sessionStartByteOffset;
 
+// Deterministically closes the session write stream, resolving only once
+// any buffered writes have actually been flushed, so tests can tear down a
+// temp log directory without racing an in-flight async write (which would
+// otherwise surface as an unhandled 'error' event once the directory is
+// gone). Not used by production code — initializeLogger's module-level
+// singleton is expected to live for the app's whole session.
+export function __closeLoggerForTests(): Promise<void> {
+  return new Promise((resolve) => {
+    const stream = writeStream;
+    writeStream = null;
+    if (!stream) {
+      resolve();
+      return;
+    }
+    stream.on('error', () => resolve());
+    stream.end(() => resolve());
+  });
+}
+
 function patchConsole(method: ConsoleMethod): void {
   const original = console[method].bind(console);
   console[method] = (...args: unknown[]) => {
-    original(...args);
-    writeLine(deriveLevel(method, args), args);
+    // Redact once, up front, so neither the terminal passthrough nor the
+    // on-disk session log ever see a raw secret — provider API keys and
+    // chat transcripts flow through these same console methods.
+    const redactedArgs = args.map((arg) => redactValue(arg));
+    original(...redactedArgs);
+    writeLine(deriveLevel(method, redactedArgs), redactedArgs);
   };
 }
 

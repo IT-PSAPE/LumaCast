@@ -63,6 +63,13 @@ is a product decision, not a security one; it needs a separate decision from
 the maintainer. Should that URL change, this allow-list must change with it,
 or the menu item will silently stop working.
 
+> **Amendment (2026-09-13):** Resolved — the maintainer decided the Help
+> menu's "Learn more" item should point at the project's own repository. It
+> now opens `https://github.com/IT-PSAPE/LumaCast`, and
+> `APPROVED_EXTERNAL_ORIGINS` in `app/main/security.ts` was updated to
+> `https://github.com` to match. The placeholder-provenance question above is
+> now moot and is left as-is for the record.
+
 No renderer code calls `window.open` or `target="_blank"`, and the renderer
 has no exposed `openExternal` API today. The window-open handler added here
 has no legitimate caller to preserve yet — it is pure hardening against
@@ -100,7 +107,8 @@ future or injected code, exercising the same deny-by-default posture as
   - The *approved external origins* allow-list (`APPROVED_EXTERNAL_ORIGINS`
     in `app/main/security.ts`), matched by origin (scheme + host + port), not
     full URL: today it contains exactly one entry,
-    `https://openai.com` (the Help-menu destination above). Only `https:`
+    `https://github.com` (the Help-menu destination above; see the 2026-09-13
+    amendment in Context). Only `https:`
     destinations may be added, and adding one is a source-code change to
     that constant reviewed like any other change to this file — never
     something populated from renderer input, IPC payloads, or configuration.

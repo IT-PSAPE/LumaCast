@@ -18,11 +18,6 @@ interface MediaPickerDialogProps {
   onImportAssets: (files: FileList) => Promise<void>;
 }
 
-const EMPTY_LABELS: Record<MediaPickerAssetKind, string> = {
-  image: 'No images in the project yet. Upload or import images to add an image element.',
-  video: 'No videos in the project yet. Upload or import videos to add a video element.',
-};
-
 function isAssetAllowed(kind: MediaPickerAssetKind, asset: MediaAsset): boolean {
   if (kind === 'image') return asset.type === 'image';
   return asset.type === 'video';
@@ -98,7 +93,8 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
                 <ScrollArea.Viewport className="p-4">
                   {filteredAssets.length === 0 ? (
                     <p className="m-0 text-center text-sm text-tertiary">
-                      {EMPTY_LABELS[kind]}
+                      {kind === 'image' && 'No images in the project yet. Upload or import images to add an image element.'}
+                      {kind === 'video' && 'No videos in the project yet. Upload or import videos to add a video element.'}
                     </p>
                   ) : (
                     <div role="group" aria-label={kind === 'image' ? 'Project images' : 'Project videos'} className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">

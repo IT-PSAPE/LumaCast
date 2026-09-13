@@ -8,11 +8,6 @@ import { typeFromFile } from '../../utils/slides';
 import { Dialog } from './dialog';
 import { type MediaPickerAssetKind } from './media-picker-types';
 
-const ACCEPT_BY_KIND: Record<MediaPickerAssetKind, string> = {
-  image: 'image/*',
-  video: 'video/*',
-};
-
 function buildAcceptedFileList(files: Iterable<File>, kind: MediaPickerAssetKind): FileList | null {
   const accepted = Array.from(files).filter((file) => {
     const type = typeFromFile(file);
@@ -72,7 +67,6 @@ export function UploadMediaDialog({
   }
 
   const noun = kind === 'image' ? 'images' : 'videos';
-  const Icon = kind === 'image' ? ImageIcon : Film;
 
   return (
     <Dialog.Root open onOpenChange={(isOpen) => { if (!isOpen && !isUploading) onClose(); }}>
@@ -88,7 +82,7 @@ export function UploadMediaDialog({
               <FileTrigger.Root
                 hidden
                 inputRef={inputRef}
-                accept={ACCEPT_BY_KIND[kind]}
+                accept={kind === 'image' ? 'image/*' : 'video/*'}
                 multiple
                 onSelect={handleFileSelect}
               />
@@ -107,7 +101,9 @@ export function UploadMediaDialog({
                 )}
               >
                 <div className="rounded-full bg-tertiary/80 p-3 text-tertiary">
-                  {isUploading ? <Upload className="size-5 animate-pulse" /> : <Icon className="size-5" />}
+                  {isUploading && <Upload className="size-5 animate-pulse" />}
+                  {!isUploading && kind === 'image' && <ImageIcon className="size-5" />}
+                  {!isUploading && kind === 'video' && <Film className="size-5" />}
                 </div>
                 <div className="space-y-1">
                   <div className="text-sm font-medium text-primary">

@@ -6,6 +6,8 @@ import type {
   SlideElementPayload,
   SlideElement,
   SlideTagColorKey,
+  ItemRef,
+  ItemType,
   MediaAssetType,
   OverlayAnimation,
   ThemeOwnerType,
@@ -227,4 +229,56 @@ export interface SlideTagUpdateInput {
 export interface SlideTagAssignInput {
   slideIds: Id[];
   tagId: Id | null;
+}
+
+// ---------------------------------------------------------------------------
+// Read-projection RPC inputs: selective, paginated, name-resolvable reads
+// alongside the mutation inputs above — before these, the only general read
+// was `getSnapshot()`, returning the entire database. Decoded by the
+// matching `decode*Input` functions in codecs.ts and consumed by the
+// `CastRepository` read methods in @lumacast/persistence-sqlite.
+// ---------------------------------------------------------------------------
+
+export interface PlaylistGetInput {
+  id: Id;
+}
+
+export interface ItemListInput {
+  type?: ItemType;
+  /** Case-insensitive substring match on title. */
+  query?: string;
+  /** Defaults to 100, capped at 500. */
+  limit?: number;
+  offset?: number;
+}
+
+export interface ItemGetInput {
+  ref: ItemRef;
+  includeSlides?: boolean;
+  /** Has no effect unless `includeSlides` is also set. */
+  includeElements?: boolean;
+}
+
+export interface SlideGetInput {
+  slideId: Id;
+  includeElements?: boolean;
+}
+
+export interface MediaAssetListInput {
+  type?: MediaAssetType;
+  /** Case-insensitive substring match on name. */
+  query?: string;
+  /** Defaults to 100, capped at 500. */
+  limit?: number;
+  offset?: number;
+}
+
+export interface ThemeListInput {
+  ownerType?: ThemeOwnerType;
+}
+
+export interface SearchContentInput {
+  query: string;
+  /** Defaults to 50. */
+  limit?: number;
 }

@@ -7,13 +7,19 @@ import type {
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ItemListInput,
+  ItemGetInput,
   MacroCreateInput,
   MacroUpdateInput,
   MediaAssetCreateInput,
+  MediaAssetListInput,
   OverlayCreateInput,
   OverlayUpdateInput,
+  PlaylistGetInput,
+  SearchContentInput,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
+  SlideGetInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
   SlideTagAssignInput,
@@ -22,10 +28,26 @@ import type {
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
+  ThemeListInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
 } from './rpc-inputs';
-import type { AppSnapshot, BundleBrokenReferenceDecision, BundleInspection } from './rpc-results';
+import type {
+  AppSnapshot,
+  BundleBrokenReferenceDecision,
+  BundleInspection,
+  ItemDetail,
+  ItemSummary,
+  MediaAssetSummary,
+  OverlaySummary,
+  PlaylistDetail,
+  PlaylistSummary,
+  ProjectOverview,
+  SearchResult,
+  SlideDetail,
+  StageSummary,
+  ThemeSummary,
+} from './rpc-results';
 import type {
   LogReadResult,
   LogSessionSummary,
@@ -40,6 +62,32 @@ import type {
 } from './ndi-observability';
 import type { SnapshotPatch } from './snapshot-patch';
 import type { ProjectBackup } from './project-backup';
+import type { AgentActionCancelledEvent, AgentActionRequest, AgentActionResponse, AgentBatchEvent } from './agent-actions';
+import type { AgentConfig, AgentConfigUpdate, AgentCredentialStatus, AgentModelInfo } from './agent';
+import type { AgentThread, AgentThreadCreateInput, AgentThreadSummary } from './agent-threads';
+import type {
+  AgentDocumentText,
+  AgentExtractDocumentInput,
+  AgentFilesystemRootInput,
+  AgentImportMediaInput,
+  AgentListModelsInput,
+  AgentMcpClientCreateInput,
+  AgentMcpClientCreated,
+  AgentMcpClientIdInput,
+  AgentMcpClientPermissionsInput,
+  AgentMcpEnabledInput,
+  AgentMcpStatus,
+  AgentModelValidation,
+  AgentProviderInput,
+  AgentRenameThreadInput,
+  AgentReplaceMediaSourceInput,
+  AgentSendMessageInput,
+  AgentSetCredentialInput,
+  AgentSetThreadModelInput,
+  AgentThreadEvent,
+  AgentThreadIdInput,
+  AgentValidateModelInput,
+} from './agent-runtime';
 import type { AppMenuCommandId, AppMenuState } from '@lumacast/commands';
 
 export interface RpcError {
@@ -219,6 +267,64 @@ interface RpcMethodSignatures {
    * full snapshot instead of a `SnapshotPatch`.
    */
   restoreProjectBackup: (backup: ProjectBackup) => Promise<ProjectRestoreResult>;
+  // Read projections (issue: read-projection RPC surface): selective,
+  // paginated, name-resolvable reads alongside the mutation operations
+  // above. Before these, the only general read was `getSnapshot()`,
+  // returning the entire database. Every operation here is read-only and
+  // returns plain data — see rpc-results.ts's header comment for why
+  // `src`/`thumbnailSrc` never cross this boundary.
+  listPlaylists: () => Promise<PlaylistSummary[]>;
+  getPlaylist: (input: PlaylistGetInput) => Promise<PlaylistDetail>;
+  listItems: (input: ItemListInput) => Promise<ItemSummary[]>;
+  getItem: (input: ItemGetInput) => Promise<ItemDetail>;
+  getSlide: (input: SlideGetInput) => Promise<SlideDetail>;
+  listMediaAssets: (input: MediaAssetListInput) => Promise<MediaAssetSummary[]>;
+  listThemes: (input: ThemeListInput) => Promise<ThemeSummary[]>;
+  listOverlays: () => Promise<OverlaySummary[]>;
+  listStages: () => Promise<StageSummary[]>;
+  getProjectOverview: () => Promise<ProjectOverview>;
+  searchContent: (input: SearchContentInput) => Promise<SearchResult[]>;
+  // Agent action dispatch (agent/MCP execution gate): the renderer's answer to
+  // one `AGENT_ACTION_EVENTS.request` it was sent. This is the only leg of the
+  // action protocol that is request/response — the three channels below it are
+  // one-way events. See `agent-actions.ts` for why the renderer executes.
+  agentRespondAction: (response: AgentActionResponse) => Promise<void>;
+  // In-app agent runtime (ADR-0038). The model loop, the provider
+  // credentials, and every agent-originated filesystem read live in main;
+  // these are the renderer's controls over them. `agentSendMessage` returns
+  // as soon as the run is accepted — its output streams over
+  // `AGENT_EVENTS.threadEvent`, because a run can take minutes and an
+  // `ipcRenderer.invoke` round trip cannot.
+  agentListThreads: () => Promise<AgentThreadSummary[]>;
+  agentGetThread: (input: AgentThreadIdInput) => Promise<AgentThread | null>;
+  agentCreateThread: (input: AgentThreadCreateInput) => Promise<AgentThread>;
+  agentDeleteThread: (input: AgentThreadIdInput) => Promise<void>;
+  agentRenameThread: (input: AgentRenameThreadInput) => Promise<AgentThreadSummary>;
+  agentSetThreadModel: (input: AgentSetThreadModelInput) => Promise<AgentThreadSummary>;
+  agentSendMessage: (input: AgentSendMessageInput) => Promise<{ runId: string }>;
+  agentStopGeneration: (input: AgentThreadIdInput) => Promise<void>;
+  agentGetConfig: () => Promise<AgentConfig>;
+  agentUpdateConfig: (update: AgentConfigUpdate) => Promise<AgentConfig>;
+  agentGetCredentialStatus: () => Promise<AgentCredentialStatus[]>;
+  agentSetCredential: (input: AgentSetCredentialInput) => Promise<AgentCredentialStatus[]>;
+  agentDeleteCredential: (input: AgentProviderInput) => Promise<AgentCredentialStatus[]>;
+  agentListModels: (input: AgentListModelsInput) => Promise<AgentModelInfo[]>;
+  agentValidateModel: (input: AgentValidateModelInput) => Promise<AgentModelValidation>;
+  /** Opens a directory picker; `null` when the user cancelled. */
+  agentGrantFilesystemRoot: () => Promise<AgentConfig | null>;
+  agentRevokeFilesystemRoot: (input: AgentFilesystemRootInput) => Promise<AgentConfig>;
+  // The three filesystem-reading agent actions. They take a raw path rather
+  // than a `cast-media:` import capability precisely because no user gesture
+  // produced them: main authorizes the path against
+  // `filesystem.allowedRoots` before reading a single byte.
+  agentImportMedia: (input: AgentImportMediaInput) => Promise<SnapshotPatch>;
+  agentReplaceMediaSource: (input: AgentReplaceMediaSourceInput) => Promise<SnapshotPatch>;
+  agentExtractDocumentText: (input: AgentExtractDocumentInput) => Promise<AgentDocumentText>;
+  agentGetMcpStatus: () => Promise<AgentMcpStatus>;
+  agentSetMcpEnabled: (input: AgentMcpEnabledInput) => Promise<AgentMcpStatus>;
+  agentCreateMcpClient: (input: AgentMcpClientCreateInput) => Promise<AgentMcpClientCreated>;
+  agentRevokeMcpClient: (input: AgentMcpClientIdInput) => Promise<AgentMcpStatus>;
+  agentUpdateMcpClientPermissions: (input: AgentMcpClientPermissionsInput) => Promise<AgentMcpStatus>;
 }
 
 // The canonical operation map: derived mechanically from
@@ -273,6 +379,16 @@ export interface PersistenceEventPayloads {
   progress: PersistenceProgress;
 }
 
+// Agent action dispatch (main -> renderer, one-way). `request` is answered out
+// of band by the `agentRespondAction` RPC above rather than by a return value,
+// because a request can sit at a permission prompt for as long as the user
+// takes to answer it.
+export interface AgentActionEventPayloads {
+  request: AgentActionRequest;
+  batch: AgentBatchEvent;
+  cancelled: AgentActionCancelledEvent;
+}
+
 type NdiEventSurface = {
   onNdiOutputStateChanged: (callback: (state: NdiEventPayloads['outputStateChanged']) => void) => () => void;
   onNdiDiagnosticsChanged: (callback: (diagnostics: NdiEventPayloads['diagnosticsChanged']) => void) => () => void;
@@ -293,6 +409,25 @@ type MediaLibraryEventSurface = {
 
 type PersistenceEventSurface = {
   onPersistenceProgress: (callback: (progress: PersistenceEventPayloads['progress']) => void) => () => void;
+};
+
+// In-app agent runtime events (main -> renderer, one-way). A run's output is
+// streamed rather than returned, and the MCP host's status changes without
+// anyone asking.
+export interface AgentEventPayloads {
+  threadEvent: AgentThreadEvent;
+  mcpStatus: AgentMcpStatus;
+}
+
+type AgentEventSurface = {
+  onAgentThreadEvent: (callback: (event: AgentEventPayloads['threadEvent']) => void) => () => void;
+  onAgentMcpStatus: (callback: (status: AgentEventPayloads['mcpStatus']) => void) => () => void;
+};
+
+type AgentActionEventSurface = {
+  onAgentActionRequest: (callback: (request: AgentActionEventPayloads['request']) => void) => () => void;
+  onAgentBatch: (callback: (event: AgentActionEventPayloads['batch']) => void) => () => void;
+  onAgentActionCancelled: (callback: (event: AgentActionEventPayloads['cancelled']) => void) => () => void;
 };
 
 // High-frequency frame/message channel contracts (renderer -> main, one-way,
@@ -345,7 +480,7 @@ interface MainUtilApi {
 // mistyped member fails compilation there. `app/renderer/env.d.ts` types
 // `window.castApi` as `MainApi`, so existing renderer call sites stay typed
 // against exactly this shape.
-export type MainApi = RpcSurface & NdiEventSurface & AppMenuEventSurface & MediaDerivativeEventSurface & MediaLibraryEventSurface & PersistenceEventSurface & NdiFrameSurface & MainUtilApi;
+export type MainApi = RpcSurface & NdiEventSurface & AppMenuEventSurface & MediaDerivativeEventSurface & MediaLibraryEventSurface & PersistenceEventSurface & AgentActionEventSurface & AgentEventSurface & NdiFrameSurface & MainUtilApi;
 
 // #219 item-model refactor decision D8: replaces `DeckItemCreateWithThemeInput`
 // — no `collectionId`/`groupId` (collections and library-grouped playlists
@@ -549,6 +684,43 @@ export const IPC = {
   obsGetCurrentLogPath: 'obs:getCurrentLogPath',
   obsOpenLogFolder: 'obs:openLogFolder',
   obsGetSystemMetrics: 'obs:getSystemMetrics',
+  listPlaylists: 'cast:listPlaylists',
+  getPlaylist: 'cast:getPlaylist',
+  listItems: 'cast:listItems',
+  getItem: 'cast:getItem',
+  getSlide: 'cast:getSlide',
+  listMediaAssets: 'cast:listMediaAssets',
+  listThemes: 'cast:listThemes',
+  listOverlays: 'cast:listOverlays',
+  listStages: 'cast:listStages',
+  getProjectOverview: 'cast:getProjectOverview',
+  searchContent: 'cast:searchContent',
+  agentRespondAction: 'agent:respondAction',
+  agentListThreads: 'agent:listThreads',
+  agentGetThread: 'agent:getThread',
+  agentCreateThread: 'agent:createThread',
+  agentDeleteThread: 'agent:deleteThread',
+  agentRenameThread: 'agent:renameThread',
+  agentSetThreadModel: 'agent:setThreadModel',
+  agentSendMessage: 'agent:sendMessage',
+  agentStopGeneration: 'agent:stopGeneration',
+  agentGetConfig: 'agent:getConfig',
+  agentUpdateConfig: 'agent:updateConfig',
+  agentGetCredentialStatus: 'agent:getCredentialStatus',
+  agentSetCredential: 'agent:setCredential',
+  agentDeleteCredential: 'agent:deleteCredential',
+  agentListModels: 'agent:listModels',
+  agentValidateModel: 'agent:validateModel',
+  agentGrantFilesystemRoot: 'agent:grantFilesystemRoot',
+  agentRevokeFilesystemRoot: 'agent:revokeFilesystemRoot',
+  agentImportMedia: 'agent:importMedia',
+  agentReplaceMediaSource: 'agent:replaceMediaSource',
+  agentExtractDocumentText: 'agent:extractDocumentText',
+  agentGetMcpStatus: 'agent:getMcpStatus',
+  agentSetMcpEnabled: 'agent:setMcpEnabled',
+  agentCreateMcpClient: 'agent:createMcpClient',
+  agentRevokeMcpClient: 'agent:revokeMcpClient',
+  agentUpdateMcpClientPermissions: 'agent:updateMcpClientPermissions',
 } as const;
 
 export const NDI_EVENTS = {
@@ -574,6 +746,17 @@ export const MEDIA_LIBRARY_EVENTS = {
 
 export const PERSISTENCE_EVENTS = {
   progress: 'persistence:progress',
+} as const;
+
+export const AGENT_ACTION_EVENTS = {
+  request: 'agent:actionRequest',
+  batch: 'agent:batch',
+  cancelled: 'agent:actionCancelled',
+} as const;
+
+export const AGENT_EVENTS = {
+  threadEvent: 'agent:threadEvent',
+  mcpStatus: 'agent:mcpStatus',
 } as const;
 
 export const PERSISTENCE_CHANNELS = {

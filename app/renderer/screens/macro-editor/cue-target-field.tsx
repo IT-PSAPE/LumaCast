@@ -8,17 +8,6 @@ import type {
   LifecycleTarget,
 } from '@lumacast/automation';
 
-const CLEAR_LAYER_OPTIONS: Array<{ value: CueClearLayer; label: string }> = [
-  { value: 'media', label: 'Media' },
-  { value: 'video', label: 'Video' },
-  { value: 'content', label: 'Content' },
-  { value: 'overlay', label: 'Overlay' },
-];
-const LIFECYCLE_ACTION_OPTIONS: Array<{ value: LifecycleAction; label: string }> = [
-  { value: 'cancel', label: 'Cancel (stop future work)' },
-  { value: 'revert', label: 'Revert (stop + undo effects)' },
-];
-
 interface CueTargetOptions {
   overlayOptions: Array<{ value: Id; label: string }>;
   stageOptions: Array<{ value: Id; label: string }>;
@@ -96,10 +85,14 @@ export function CueTargetField({ kind, payload, options, onChange }: CueTargetFi
       <FieldSelect
         label="Layer"
         value={String((payload as { layer?: CueClearLayer }).layer ?? 'media')}
-        options={CLEAR_LAYER_OPTIONS}
         onChange={(value) => onChange({ layer: value as CueClearLayer })}
         wide
-      />
+      >
+        <FieldSelect.Option value={'media' satisfies CueClearLayer}>Media</FieldSelect.Option>
+        <FieldSelect.Option value={'video' satisfies CueClearLayer}>Video</FieldSelect.Option>
+        <FieldSelect.Option value={'content' satisfies CueClearLayer}>Content</FieldSelect.Option>
+        <FieldSelect.Option value={'overlay' satisfies CueClearLayer}>Overlay</FieldSelect.Option>
+      </FieldSelect>
     );
   }
   if (kind === 'flow.lifecycle') {
@@ -111,10 +104,12 @@ export function CueTargetField({ kind, payload, options, onChange }: CueTargetFi
         <FieldSelect
           label="Action"
           value={action}
-          options={LIFECYCLE_ACTION_OPTIONS}
           onChange={(value) => onChange({ action: value as LifecycleAction, target })}
           wide
-        />
+        >
+          <FieldSelect.Option value={'cancel' satisfies LifecycleAction}>Cancel (stop future work)</FieldSelect.Option>
+          <FieldSelect.Option value={'revert' satisfies LifecycleAction}>Revert (stop + undo effects)</FieldSelect.Option>
+        </FieldSelect>
         <FieldSelect
           label="Target"
           value={String(target)}

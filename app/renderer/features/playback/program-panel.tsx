@@ -22,14 +22,6 @@ import { SurfacesArea } from './surfaces-area';
 
 type BottomTab = 'overlays' | 'stage' | 'macros';
 
-const SEARCH_PLACEHOLDER_BY_TAB: Record<BottomTab, string> = {
-  overlays: 'Search overlays…',
-  stage: 'Search stages…',
-  macros: 'Search macros…',
-};
-
-const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transparent text-tertiary hover:bg-tertiary hover:text-primary [&>svg]:size-4';
-
 export function ProgramPanel() {
   const { clearLayer, clearAllLayers, mediaLayerAsset, videoLayerAsset, contentLayerVisible, activeOverlays, overlayMode, setOverlayMode } = usePresentationLayers();
   const { currentOutputItemRef } = useNavigation();
@@ -67,7 +59,6 @@ export function ProgramPanel() {
     setBottomViewModes((prev) => ({ ...prev, [bottomTab]: mode }));
   }, [bottomTab]);
 
-  const searchPlaceholder = SEARCH_PLACEHOLDER_BY_TAB[bottomTab];
   const grid: BinGridConfig | null = useMemo(() => {
     switch (bottomTab) {
       case 'overlays':
@@ -136,8 +127,6 @@ export function ProgramPanel() {
     if (value === 'overlays' || value === 'stage' || value === 'macros') setBottomTab(value);
   }
 
-  const overlayModeLabel = overlayMode === 'single' ? 'Single overlay mode — click to allow multiple' : 'Multiple overlay mode — click for single';
-
   return (
     <LumaCastPanel.Root className='h-full border-l border-secondary' >
       <LumaCastPanel.Group>
@@ -169,7 +158,6 @@ export function ProgramPanel() {
           <BinControlsProvider
             searchValue={searchValue}
             onSearchChange={setSearchValue}
-            searchPlaceholder={searchPlaceholder}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             grid={grid}
@@ -183,11 +171,15 @@ export function ProgramPanel() {
             </LumaCastPanel.GroupTitle>
             <div className="w-full flex shrink-0 items-center gap-1.5 border-b border-secondary px-1.5 py-1">
               <div className="ml-auto min-w-0 w-full max-w-xs">
-                <BinControlsSearchField />
+                <BottomTabSearchField tab={bottomTab} />
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <Tabs.Panel value="overlays" className="flex items-center gap-1">
-                  <ReacstButton.Icon label={overlayModeLabel} variant="ghost" onClick={handleOverlayModeToggle}>
+                  <ReacstButton.Icon
+                    label={overlayMode === 'single' ? 'Single overlay mode — click to allow multiple' : 'Multiple overlay mode — click for single'}
+                    variant="ghost"
+                    onClick={handleOverlayModeToggle}
+                  >
                     {overlayMode === 'single' ? <Layers /> : <Layers2 />}
                   </ReacstButton.Icon>
                   <span aria-hidden className="mx-1 h-5 w-px bg-secondary" />
@@ -218,7 +210,7 @@ export function ProgramPanel() {
                   </ReacstButton.Icon>
                 </Tabs.Panel>
                 <Dropdown>
-                  <Dropdown.Trigger aria-label="More actions" className={TRIGGER_CLASS}>
+                  <Dropdown.Trigger aria-label="More actions" className="cursor-pointer rounded-sm bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
                     <Ellipsis />
                   </Dropdown.Trigger>
                   <Dropdown.Panel placement="bottom-end" className="min-w-64">
@@ -247,4 +239,18 @@ export function ProgramPanel() {
       </LumaCastPanel.Group>
     </LumaCastPanel.Root>
   );
+}
+
+function BottomTabSearchField({ tab }: { tab: BottomTab }) {
+  switch (tab) {
+    case 'overlays': return <BinControlsSearchField placeholder="Search overlays…" />;
+    case 'stage': return <BinControlsSearchField placeholder="Search stages…" />;
+    case 'macros': return <BinControlsSearchField placeholder="Search macros…" />;
+  }
+
+  return assertNever(tab);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled program panel tab: ${String(value)}`);
 }

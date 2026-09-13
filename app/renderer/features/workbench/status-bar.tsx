@@ -1,6 +1,7 @@
 import { cv } from '@renderer/utils/cv';
 import { LoaderCircle } from 'lucide-react';
 import { useNdiLiveState, useStatusBarState } from '../../contexts/app-context';
+import { AgentChatTrigger } from '../agent/chat/agent-chat-trigger';
 
 const indicatorStyles = cv({
   base: 'inline-block size-1.5 rounded-full',
@@ -38,6 +39,7 @@ export function StatusBar() {
           <span className={indicatorStyles({ active: stageLive })} />
           {stageStateLabel}
         </span>
+        <AgentChatTrigger />
       </div>
     </div>
   );

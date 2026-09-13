@@ -422,3 +422,96 @@ describe('app-store undo/redo persistence contract', () => {
     expect(useAppStore.getState().snapshot?.mediaAssets).toEqual([replacementAsset]);
   });
 });
+
+describe('app-store history batching', () => {
+  function upsertPresentation(id: string, title: string): SnapshotPatch {
+    return { version: 1, upserts: { presentations: [makePresentation(id, title)] }, deletes: {} };
+  }
+
+  it('collapses every mutation in a batch into one undo entry', async () => {
+    const { useAppStore, castApi } = await loadFreshStore(makeSnapshot());
+
+    useAppStore.getState().beginHistoryBatch();
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p1', 'One'));
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p2', 'Two'));
+    expect(useAppStore.getState().canUndo).toBe(false);
+    expect(useAppStore.getState().snapshot?.presentations).toHaveLength(2);
+
+    useAppStore.getState().endHistoryBatch();
+    expect(useAppStore.getState().canUndo).toBe(true);
+
+    await useAppStore.getState().undo();
+    // One undo walks back the whole batch, through the full-snapshot path.
+    expect(castApi.restoreFromSnapshot).toHaveBeenCalledTimes(1);
+    expect(useAppStore.getState().snapshot?.presentations).toEqual([]);
+    expect(useAppStore.getState().canUndo).toBe(false);
+  });
+
+  it('redoes a batch back to its post-batch state', async () => {
+    const { useAppStore } = await loadFreshStore(makeSnapshot());
+
+    useAppStore.getState().beginHistoryBatch();
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p1', 'One'));
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p2', 'Two'));
+    useAppStore.getState().endHistoryBatch();
+
+    await useAppStore.getState().undo();
+    expect(useAppStore.getState().canRedo).toBe(true);
+
+    await useAppStore.getState().redo();
+    expect(useAppStore.getState().snapshot?.presentations.map((item) => item.id)).toEqual(['p1', 'p2']);
+    expect(useAppStore.getState().canRedo).toBe(false);
+    expect(useAppStore.getState().canUndo).toBe(true);
+  });
+
+  it('pushes nothing when a batch made no mutation', async () => {
+    const { useAppStore } = await loadFreshStore(makeSnapshot());
+
+    useAppStore.getState().beginHistoryBatch();
+    useAppStore.getState().endHistoryBatch();
+
+    expect(useAppStore.getState().canUndo).toBe(false);
+  });
+
+  it('commits only on the outermost end of nested batches', async () => {
+    const { useAppStore } = await loadFreshStore(makeSnapshot());
+
+    useAppStore.getState().beginHistoryBatch();
+    useAppStore.getState().beginHistoryBatch();
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p1', 'One'));
+    useAppStore.getState().endHistoryBatch();
+    expect(useAppStore.getState().canUndo).toBe(false);
+
+    useAppStore.getState().endHistoryBatch();
+    expect(useAppStore.getState().canUndo).toBe(true);
+
+    await useAppStore.getState().undo();
+    expect(useAppStore.getState().snapshot?.presentations).toEqual([]);
+  });
+
+  it('clears the redo stack while a batch is open', async () => {
+    const { useAppStore } = await loadFreshStore(makeSnapshot());
+
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p1', 'One'));
+    await useAppStore.getState().undo();
+    expect(useAppStore.getState().canRedo).toBe(true);
+
+    useAppStore.getState().beginHistoryBatch();
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p2', 'Two'));
+    expect(useAppStore.getState().canRedo).toBe(false);
+    useAppStore.getState().endHistoryBatch();
+  });
+
+  it('ignores an end with no matching begin', async () => {
+    const { useAppStore } = await loadFreshStore(makeSnapshot());
+
+    useAppStore.getState().endHistoryBatch();
+    await useAppStore.getState().mutatePatch(async () => upsertPresentation('p1', 'One'));
+
+    // The stray end must not have opened a batch: the mutation keeps its own
+    // patch entry, so undo goes through the targeted patch path.
+    expect(useAppStore.getState().canUndo).toBe(true);
+    await useAppStore.getState().undo();
+    expect(useAppStore.getState().snapshot?.presentations).toEqual([]);
+  });
+});

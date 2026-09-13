@@ -6,6 +6,7 @@ import { useTextInspector } from './use-text-inspector';
 
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight,
+  AlignHorizontalSpaceBetween,
   AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Baseline, Bold, Italic,
   MoveHorizontal,
@@ -20,18 +21,6 @@ import { EmptyState } from '../../components/display/empty-state';
 import { Label } from '@renderer/components/display/text';
 import { parseNumber } from '@renderer/utils/slides';
 
-const CASE_OPTIONS: Array<{ value: TextCaseTransform; label: string }> = [
-  { value: 'none', label: 'None' },
-  { value: 'uppercase', label: 'Uppercase' },
-  { value: 'sentence', label: 'Sentence' },
-];
-
-const STROKE_POSITION_OPTIONS = [
-  { value: 'inside', label: 'Inside' },
-  { value: 'center', label: 'Center' },
-  { value: 'outside', label: 'Outside' },
-];
-
 export function TextElementInspector() {
   const result = useTextInspector();
 
@@ -44,7 +33,7 @@ export function TextElementInspector() {
   const {
     handleTextChange, handleFontFamilyChange, handleWeightChange,
     handleFontSizeChange, handleAutoFitToggle, handleMaxFontSizeChange,
-    handleLineHeightChange, handleTextColorChange,
+    handleLineHeightChange, handleLetterSpacingChange, handleTextColorChange,
     handleCaseChange, handleTextStyleToggle, handleVerticalAlighmentChange,
     handleHorizontalAlighmentChange, updateTextVisual,
   } = actions;
@@ -87,6 +76,11 @@ export function TextElementInspector() {
               <FieldIcon><Baseline className="size-4" /></FieldIcon>
             </FieldInput>
           </Section.Row>
+          <Section.Row>
+            <FieldInput type="number" value={formatting.letterSpacing} onChange={handleLetterSpacingChange} step={0.5} ariaLabel="Letter spacing">
+              <FieldIcon><AlignHorizontalSpaceBetween className="size-4" /></FieldIcon>
+            </FieldInput>
+          </Section.Row>
         </Section.Body>
       </Section.Root>
 
@@ -110,7 +104,11 @@ export function TextElementInspector() {
             </SegmentedControl.Icon>
           </SegmentedControl>
           <Section.Row>
-            <FieldSelect value={formatting.caseTransform} onChange={handleCaseChange} options={CASE_OPTIONS} />
+            <FieldSelect value={formatting.caseTransform} onChange={handleCaseChange}>
+              <FieldSelect.Option value={'none' satisfies TextCaseTransform}>None</FieldSelect.Option>
+              <FieldSelect.Option value={'uppercase' satisfies TextCaseTransform}>Uppercase</FieldSelect.Option>
+              <FieldSelect.Option value={'sentence' satisfies TextCaseTransform}>Sentence</FieldSelect.Option>
+            </FieldSelect>
             <ColorPicker value={textVisual.color} onChange={handleTextColorChange} />
           </Section.Row>
         </Section.Body>
@@ -163,7 +161,11 @@ export function TextElementInspector() {
               <ColorPicker value={textVisual.strokeColor} onChange={(value: string) => { updateTextVisual({ strokeColor: value }); }} />
             </Section.Row>
             <Section.Row>
-              <FieldSelect value={textVisual.strokePosition} onChange={(value: string) => { updateTextVisual({ strokePosition: value as StrokePosition }); }} options={STROKE_POSITION_OPTIONS} />
+              <FieldSelect value={textVisual.strokePosition} onChange={(value: string) => { updateTextVisual({ strokePosition: value as StrokePosition }); }}>
+                <FieldSelect.Option value={'inside' satisfies StrokePosition}>Inside</FieldSelect.Option>
+                <FieldSelect.Option value={'center' satisfies StrokePosition}>Center</FieldSelect.Option>
+                <FieldSelect.Option value={'outside' satisfies StrokePosition}>Outside</FieldSelect.Option>
+              </FieldSelect>
               <FieldInput type="number" value={textVisual.strokeWidth} onChange={(value: string) => { updateTextVisual({ strokeWidth: Math.max(0, parseNumber(value, textVisual.strokeWidth)) }); }}>
                 <FieldIcon><RulerDimensionLine size={14} /></FieldIcon>
               </FieldInput>
@@ -183,7 +185,7 @@ export function TextElementInspector() {
               <FieldInput type="number" value={textVisual.shadowOffsetX} onChange={(value: string) => { updateTextVisual({ shadowOffsetX: parseNumber(value, textVisual.shadowOffsetX) }); }}>
                 <FieldIcon><MoveHorizontal size={14} /></FieldIcon>
               </FieldInput>
-              <FieldInput type="number" value={textVisual.shadowOffsetY} onChange={(value: string) => { updateTextVisual({ shadowOffsetX: parseNumber(value, textVisual.shadowOffsetY) }); }}>
+              <FieldInput type="number" value={textVisual.shadowOffsetY} onChange={(value: string) => { updateTextVisual({ shadowOffsetY: parseNumber(value, textVisual.shadowOffsetY) }); }}>
                 <FieldIcon><MoveVertical size={14} /></FieldIcon>
               </FieldInput>
             </Section.Row>

@@ -16,14 +16,8 @@ const overflowTriggerStyles = cv({
   defaultVariants: { active: false },
 });
 
-const OVERFLOW_SCREENS: ReadonlyArray<{ label: string; mode: WorkbenchMode }> = [
-  { label: 'Overlay', mode: 'overlay-editor' },
-  { label: 'Stage', mode: 'stage-editor' },
-  { label: 'Macros', mode: 'macro-editor' },
-];
-
 export function OverflowViewMenu({ value, onSelect }: { value: WorkbenchMode; onSelect: (mode: WorkbenchMode) => void }) {
-  const isActive = OVERFLOW_SCREENS.some((screen) => screen.mode === value);
+  const isActive = value === 'overlay-editor' || value === 'stage-editor' || value === 'macro-editor';
 
   return (
     <Dropdown>
@@ -35,11 +29,9 @@ export function OverflowViewMenu({ value, onSelect }: { value: WorkbenchMode; on
         <Ellipsis className="size-3.5" aria-hidden="true" />
       </Dropdown.Trigger>
       <Dropdown.Panel placement="bottom-end">
-        {OVERFLOW_SCREENS.map((screen) => (
-          <Dropdown.Item key={screen.mode} onClick={() => onSelect(screen.mode)}>
-            {screen.label}
-          </Dropdown.Item>
-        ))}
+        <Dropdown.Item onClick={() => onSelect('overlay-editor')}>Overlay</Dropdown.Item>
+        <Dropdown.Item onClick={() => onSelect('stage-editor')}>Stage</Dropdown.Item>
+        <Dropdown.Item onClick={() => onSelect('macro-editor')}>Macros</Dropdown.Item>
       </Dropdown.Panel>
     </Dropdown>
   );

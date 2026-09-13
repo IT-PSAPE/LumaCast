@@ -16,6 +16,8 @@ interface CastSlice {
   mutate: (action: () => Promise<AppSnapshot>) => Promise<AppSnapshot>;
   mutatePatch: (action: () => Promise<SnapshotPatch>) => Promise<AppSnapshot>;
   applyPatchLocally: (patch: SnapshotPatch) => Promise<AppSnapshot | null>;
+  beginHistoryBatch: () => void;
+  endHistoryBatch: () => void;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   runOperation: <T>(text: string, action: () => Promise<T>) => Promise<T>;
@@ -171,6 +173,8 @@ export function useCast(): CastSlice {
       mutate: s.mutate,
       mutatePatch: s.mutatePatch,
       applyPatchLocally: s.applyPatchLocally,
+      beginHistoryBatch: s.beginHistoryBatch,
+      endHistoryBatch: s.endHistoryBatch,
       undo: s.undo,
       redo: s.redo,
       runOperation: s.runOperation,

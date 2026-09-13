@@ -6,27 +6,6 @@ import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { parseNumber } from '@renderer/utils/slides';
 import { Section } from './inspector-section';
 
-const BINDING_OPTIONS: Array<{ value: TextBindingKind | 'none'; label: string }> = [
-  { value: 'none', label: 'None (static text)' },
-  { value: 'timer', label: 'Timer (countdown)' },
-  { value: 'clock', label: 'Clock (system time)' },
-  { value: 'current-slide-text', label: 'Current slide text' },
-  { value: 'next-slide-text', label: 'Next slide text' },
-  { value: 'slide-notes', label: 'Slide notes' },
-];
-
-const CLOCK_FORMAT_OPTIONS: Array<{ value: ClockFormat; label: string }> = [
-  { value: '12h', label: '12-hour (1:23 PM)' },
-  { value: '12h-seconds', label: '12-hour with seconds (1:23:45 PM)' },
-  { value: '24h', label: '24-hour (13:23)' },
-  { value: '24h-seconds', label: '24-hour with seconds (13:23:45)' },
-];
-
-const TIMER_FORMAT_OPTIONS: Array<{ value: TimerFormat; label: string }> = [
-  { value: 'mm:ss', label: 'MM:SS' },
-  { value: 'hh:mm:ss', label: 'HH:MM:SS' },
-];
-
 function clampSeconds(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.floor(value));
@@ -108,7 +87,14 @@ export function BindingInspector() {
           <Label.xs>Bind to</Label.xs>
         </Section.Header>
         <Section.Body>
-          <FieldSelect value={selectedKind} onChange={handleKindChange} options={BINDING_OPTIONS} />
+          <FieldSelect value={selectedKind} onChange={handleKindChange}>
+            <FieldSelect.Option value={'none' satisfies TextBindingKind | 'none'}>None (static text)</FieldSelect.Option>
+            <FieldSelect.Option value={'timer' satisfies TextBindingKind}>Timer (countdown)</FieldSelect.Option>
+            <FieldSelect.Option value={'clock' satisfies TextBindingKind}>Clock (system time)</FieldSelect.Option>
+            <FieldSelect.Option value={'current-slide-text' satisfies TextBindingKind}>Current slide text</FieldSelect.Option>
+            <FieldSelect.Option value={'next-slide-text' satisfies TextBindingKind}>Next slide text</FieldSelect.Option>
+            <FieldSelect.Option value={'slide-notes' satisfies TextBindingKind}>Slide notes</FieldSelect.Option>
+          </FieldSelect>
         </Section.Body>
       </Section.Root>
 
@@ -122,7 +108,10 @@ export function BindingInspector() {
               <FieldInput type="number" value={duration.minutes} onChange={handleMinutesChange} label="Minutes" min={0} />
               <FieldInput type="number" value={duration.seconds} onChange={handleSecondsChange} label="Seconds" min={0} max={59} />
             </Section.Row>
-            <FieldSelect value={binding.timerFormat ?? 'mm:ss'} onChange={handleTimerFormatChange} options={TIMER_FORMAT_OPTIONS} />
+            <FieldSelect value={binding.timerFormat ?? 'mm:ss'} onChange={handleTimerFormatChange}>
+              <FieldSelect.Option value={'mm:ss' satisfies TimerFormat}>MM:SS</FieldSelect.Option>
+              <FieldSelect.Option value={'hh:mm:ss' satisfies TimerFormat}>HH:MM:SS</FieldSelect.Option>
+            </FieldSelect>
           </Section.Body>
         </Section.Root>
       )}
@@ -133,7 +122,12 @@ export function BindingInspector() {
             <Label.xs>Clock format</Label.xs>
           </Section.Header>
           <Section.Body>
-            <FieldSelect value={binding.clockFormat ?? '12h'} onChange={handleClockFormatChange} options={CLOCK_FORMAT_OPTIONS} />
+            <FieldSelect value={binding.clockFormat ?? '12h'} onChange={handleClockFormatChange}>
+              <FieldSelect.Option value={'12h' satisfies ClockFormat}>12-hour (1:23 PM)</FieldSelect.Option>
+              <FieldSelect.Option value={'12h-seconds' satisfies ClockFormat}>12-hour with seconds (1:23:45 PM)</FieldSelect.Option>
+              <FieldSelect.Option value={'24h' satisfies ClockFormat}>24-hour (13:23)</FieldSelect.Option>
+              <FieldSelect.Option value={'24h-seconds' satisfies ClockFormat}>24-hour with seconds (13:23:45)</FieldSelect.Option>
+            </FieldSelect>
           </Section.Body>
         </Section.Root>
       )}

@@ -27,20 +27,11 @@ import { BinControlsProvider, BinControlsSearchField, BinControlsViewOptions, ty
 import { detectMediaFileType } from '../../utils/slides';
 import { cn } from '@renderer/utils/cn';
 
-const DECK_SORT_OPTIONS = [
-  { key: 'name', label: 'Name' },
-  { key: 'created', label: 'Date created' },
-  { key: 'modified', label: 'Date modified' },
-  { key: 'slides', label: 'Slide count' },
-] as const;
-
 const STANDARD_SORT_OPTIONS = [
   { key: 'name', label: 'Name' },
   { key: 'created', label: 'Date created' },
   { key: 'modified', label: 'Date modified' },
 ] as const;
-
-const TRIGGER_CLASS = 'cursor-pointer transition-colors p-1 rounded-sm bg-transparent text-tertiary hover:bg-tertiary hover:text-primary [&>svg]:size-4';
 
 const IMPORT_ACCEPT_BY_TAB = {
   image: 'image/*',
@@ -53,14 +44,6 @@ const IMPORT_TYPE_PREFIXES_BY_TAB = {
   video: ['video/'],
   audio: ['audio/'],
 } as const;
-
-const SEARCH_PLACEHOLDER_BY_TAB: Record<DrawerTab, string> = {
-  deck: 'Search…',
-  themes: 'Search themes…',
-  image: 'Search image…',
-  video: 'Search video…',
-  audio: 'Search audio…',
-};
 
 interface ResourceDrawerContextValue {
   state: { drawerTab: DrawerTab };
@@ -117,8 +100,6 @@ function Root({ children }: { children: ReactNode }) {
   useEffect(() => {
     setSearchValue('');
   }, [drawerTab]);
-
-  const searchPlaceholder = SEARCH_PLACEHOLDER_BY_TAB[drawerTab];
 
   const grid: BinGridConfig | null = useMemo(() => {
     switch (drawerTab) {
@@ -179,7 +160,6 @@ function Root({ children }: { children: ReactNode }) {
         <BinControlsProvider
           searchValue={searchValue}
           onSearchChange={setSearchValue}
-          searchPlaceholder={searchPlaceholder}
           viewMode={drawerViewMode}
           onViewModeChange={setDrawerViewMode}
           grid={grid}
@@ -207,6 +187,8 @@ function Root({ children }: { children: ReactNode }) {
 // Ellipsis options menu (which now holds view + size controls).
 
 function Header() {
+  const { state } = useDrawer();
+
   return (
     <div className="flex h-8 items-center gap-1.5 border-b border-primary px-1">
       {/* w-auto shrink-0 overrides Tabs.List's own `w-full`, which would
@@ -219,11 +201,23 @@ function Header() {
         <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
       </Tabs.List>
       <div className="ml-auto min-w-0 w-full max-w-xs">
-        <BinControlsSearchField />
+        <DrawerSearchField tab={state.drawerTab} />
       </div>
       <Toolbar />
     </div>
   );
+}
+
+function DrawerSearchField({ tab }: { tab: DrawerTab }) {
+  switch (tab) {
+    case 'deck': return <BinControlsSearchField placeholder="Search…" />;
+    case 'themes': return <BinControlsSearchField placeholder="Search themes…" />;
+    case 'image': return <BinControlsSearchField placeholder="Search image…" />;
+    case 'video': return <BinControlsSearchField placeholder="Search video…" />;
+    case 'audio': return <BinControlsSearchField placeholder="Search audio…" />;
+  }
+
+  return assertNever(tab);
 }
 
 // ─── Toolbar ──────────────────────────────────────────────
@@ -256,17 +250,91 @@ function Toolbar() {
 }
 
 // ─── More-actions dropdown ────────────────────────────────
-// Per-tab content lives here so each tab's actions stay co-located.
-// Appended at the end: view-mode choices and (when applicable) the size slider.
+// Per-tab content lives in named sub-components so each tab's
+// actions stay co-located. Appended at the end: view-mode choices
+// and (when applicable) the size slider.
 
 function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
+  return (
+    <Dropdown>
+      <Dropdown.Trigger aria-label="More actions" className="cursor-pointer rounded-sm bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
+        <Ellipsis />
+      </Dropdown.Trigger>
+      <Dropdown.Panel placement="bottom-end" className="min-w-64">
+        <MoreActionsMenuContent onImportClick={onImportClick} />
+        <Dropdown.Separator />
+        <BinControlsViewOptions />
+      </Dropdown.Panel>
+    </Dropdown>
+  );
+}
+
+function MoreActionsMenuContent({ onImportClick }: { onImportClick: () => void }) {
   const { state } = useDrawer();
+  switch (state.drawerTab) {
+    case 'deck': return <DeckMenuItems />;
+    case 'image': return <ImageMenuItems onImportClick={onImportClick} />;
+    case 'video': return <VideoMenuItems onImportClick={onImportClick} />;
+    case 'audio': return <AudioMenuItems onImportClick={onImportClick} />;
+    case 'themes': return <ThemesMenuItems />;
+  }
+
+  return assertNever(state.drawerTab);
+}
+
+function DeckMenuItems() {
   const { open: openCreateItem } = useCreateItem();
+  const deckSort = useDeckBinSort();
+
+  return (
+    <>
+      <Dropdown.Item onClick={() => openCreateItem('presentation')}>New presentation</Dropdown.Item>
+      <Dropdown.Item onClick={() => openCreateItem('lyric')}>New lyric</Dropdown.Item>
+      <Dropdown.Separator />
+      <SortMenuItem sortKey="name" label="Name" sort={deckSort.sort} onChange={deckSort.setSort} />
+      <SortMenuItem sortKey="created" label="Date created" sort={deckSort.sort} onChange={deckSort.setSort} />
+      <SortMenuItem sortKey="modified" label="Date modified" sort={deckSort.sort} onChange={deckSort.setSort} />
+      <SortMenuItem sortKey="slides" label="Slide count" sort={deckSort.sort} onChange={deckSort.setSort} />
+    </>
+  );
+}
+
+function ImageMenuItems({ onImportClick }: { onImportClick: () => void }) {
+  const mediaSort = useMediaBinSort();
+  return (
+    <>
+      <Dropdown.Item onClick={onImportClick}>Import images</Dropdown.Item>
+      <Dropdown.Separator />
+      <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={mediaSort.sort} onChange={mediaSort.setSort} />
+    </>
+  );
+}
+
+function VideoMenuItems({ onImportClick }: { onImportClick: () => void }) {
+  const mediaSort = useMediaBinSort();
+  return (
+    <>
+      <Dropdown.Item onClick={onImportClick}>Import videos</Dropdown.Item>
+      <Dropdown.Separator />
+      <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={mediaSort.sort} onChange={mediaSort.setSort} />
+    </>
+  );
+}
+
+function AudioMenuItems({ onImportClick }: { onImportClick: () => void }) {
+  const audioSort = useAudioBinSort();
+  return (
+    <>
+      <Dropdown.Item onClick={onImportClick}>Import audio</Dropdown.Item>
+      <Dropdown.Separator />
+      <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={audioSort.sort} onChange={audioSort.setSort} />
+    </>
+  );
+}
+
+function ThemesMenuItems() {
   const { createTheme } = useThemeEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
-  const deckSort = useDeckBinSort();
-  const mediaSort = useMediaBinSort();
-  const audioSort = useAudioBinSort();
   const themeSort = useThemeBinSort();
 
   function handleCreateTheme(themeType: ThemeOwnerType) {
@@ -275,52 +343,12 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
   }
 
   return (
-    <Dropdown>
-      <Dropdown.Trigger aria-label="More actions" className={TRIGGER_CLASS}>
-        <Ellipsis />
-      </Dropdown.Trigger>
-      <Dropdown.Panel placement="bottom-end" className="min-w-64">
-        {state.drawerTab === 'deck' && (
-          <>
-            <Dropdown.Item onClick={() => openCreateItem('presentation')}>New presentation</Dropdown.Item>
-            <Dropdown.Item onClick={() => openCreateItem('lyric')}>New lyric</Dropdown.Item>
-            <Dropdown.Separator />
-            <SortMenuItems options={DECK_SORT_OPTIONS} sort={deckSort.sort} onChange={deckSort.setSort} />
-          </>
-        )}
-        {state.drawerTab === 'image' && (
-          <>
-            <Dropdown.Item onClick={onImportClick}>Import images</Dropdown.Item>
-            <Dropdown.Separator />
-            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={mediaSort.sort} onChange={mediaSort.setSort} />
-          </>
-        )}
-        {state.drawerTab === 'video' && (
-          <>
-            <Dropdown.Item onClick={onImportClick}>Import videos</Dropdown.Item>
-            <Dropdown.Separator />
-            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={mediaSort.sort} onChange={mediaSort.setSort} />
-          </>
-        )}
-        {state.drawerTab === 'audio' && (
-          <>
-            <Dropdown.Item onClick={onImportClick}>Import audio</Dropdown.Item>
-            <Dropdown.Separator />
-            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={audioSort.sort} onChange={audioSort.setSort} />
-          </>
-        )}
-        {state.drawerTab === 'themes' && (
-          <>
-            <Dropdown.Item onClick={() => handleCreateTheme('presentation')}>New presentation theme</Dropdown.Item>
-            <Dropdown.Item onClick={() => handleCreateTheme('lyric')}>New lyric theme</Dropdown.Item>
-            <Dropdown.Separator />
-            <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={themeSort.sort} onChange={themeSort.setSort} />
-          </>
-        )}
-        <Dropdown.Separator />
-        <BinControlsViewOptions />
-      </Dropdown.Panel>
-    </Dropdown>
+    <>
+      <Dropdown.Item onClick={() => handleCreateTheme('presentation')}>New presentation theme</Dropdown.Item>
+      <Dropdown.Item onClick={() => handleCreateTheme('lyric')}>New lyric theme</Dropdown.Item>
+      <Dropdown.Separator />
+      <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={themeSort.sort} onChange={themeSort.setSort} />
+    </>
   );
 }
 
@@ -329,28 +357,66 @@ function MoreActionsMenu({ onImportClick }: { onImportClick: () => void }) {
 
 function Body() {
   const { state } = useDrawer();
-  const { drawerTab } = state;
-
-  // Video and audio arm a clip on the program output, so their bins keep the
-  // transport that drives the armed asset directly above them.
-  if (drawerTab === 'video' || drawerTab === 'audio') {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="w-full shrink-0 border-b border-secondary bg-primary px-1">
-          {drawerTab === 'video' ? <VideoTransportControls /> : <AudioTransportControls />}
-        </div>
-        <div className="flex min-h-0 flex-1">
-          {drawerTab === 'video' ? <MediaBinPanel binKind="video" /> : <AudioBinPanel />}
-        </div>
-      </div>
-    );
+  switch (state.drawerTab) {
+    case 'video': return <VideoBody />;
+    case 'audio': return <AudioBody />;
+    case 'deck': return <DeckBody />;
+    case 'image': return <ImageBody />;
+    case 'themes': return <ThemesBody />;
   }
 
+  return assertNever(state.drawerTab);
+}
+
+// Video and audio arm a clip on the program output, so their bins keep the
+// transport that drives the armed asset directly above them.
+
+function VideoBody() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="w-full shrink-0 border-b border-secondary bg-primary px-1">
+        <VideoTransportControls />
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <MediaBinPanel binKind="video" />
+      </div>
+    </div>
+  );
+}
+
+function AudioBody() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="w-full shrink-0 border-b border-secondary bg-primary px-1">
+        <AudioTransportControls />
+      </div>
+      <div className="flex min-h-0 flex-1">
+        <AudioBinPanel />
+      </div>
+    </div>
+  );
+}
+
+function DeckBody() {
   return (
     <div className="flex min-h-0 flex-1">
-      {drawerTab === 'deck' && <DeckBinPanel />}
-      {drawerTab === 'image' && <MediaBinPanel binKind="image" />}
-      {drawerTab === 'themes' && <ThemeBinPanel />}
+      <DeckBinPanel />
+    </div>
+  );
+}
+
+function ImageBody() {
+  return (
+    <div className="flex min-h-0 flex-1">
+      <MediaBinPanel binKind="image" />
+    </div>
+  );
+}
+
+function ThemesBody() {
+  return (
+    <div className="flex min-h-0 flex-1">
+      <ThemeBinPanel />
     </div>
   );
 }
@@ -364,44 +430,48 @@ interface SortMenuItemsProps<K extends string> {
 }
 
 function SortMenuItems<K extends string>({ options, sort, onChange }: SortMenuItemsProps<K>) {
-  function handleSelect(key: K) {
-    if (sort.key === key) {
-      onChange({ key, direction: sort.direction === 'asc' ? 'desc' : 'asc' });
-    } else {
-      onChange({ key, direction: sort.direction });
-    }
-  }
-
   return (
     <>
       {options.map((option) => (
-        <SortMenuItem key={option.key} option={option} sort={sort} onSelect={handleSelect} />
+        <SortMenuItem key={option.key} sortKey={option.key} label={option.label} sort={sort} onChange={onChange} />
       ))}
     </>
   );
 }
 
 function SortMenuItem<K extends string>({
-  option,
+  sortKey,
+  label,
   sort,
-  onSelect,
+  onChange,
 }: {
-  option: SortMenuItemsProps<K>['options'][number];
+  sortKey: K;
+  label: string;
   sort: BinSort<K>;
-  onSelect: (key: K) => void;
+  onChange: (next: BinSort<K>) => void;
 }) {
-  const active = sort.key === option.key;
+  const active = sort.key === sortKey;
 
   function handleClick() {
-    onSelect(option.key);
+    onChange({
+      key: sortKey,
+      direction: active && sort.direction === 'asc'
+        ? 'desc'
+        : active ? 'asc' : sort.direction,
+    });
   }
 
   return (
     <Dropdown.Item onClick={handleClick}>
-      <span className="flex-1">{option.label}</span>
-      {active ? (sort.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : null}
+      <span className="flex-1">{label}</span>
+      {active && sort.direction === 'asc' && <ArrowUp size={14} />}
+      {active && sort.direction === 'desc' && <ArrowDown size={14} />}
     </Dropdown.Item>
   );
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled drawer tab: ${String(value)}`);
 }
 
 // ─── Public export ────────────────────────────────────────

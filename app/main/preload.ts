@@ -1,6 +1,38 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, NDI_AUDIO_TRANSPORT_PORT_CHANNEL, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiAudioTransportPortAnnouncement, isNdiFrameTransportPortAnnouncement, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
+import { AGENT_ACTION_EVENTS, AGENT_EVENTS, APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, NDI_AUDIO_TRANSPORT_PORT_CHANNEL, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiAudioTransportPortAnnouncement, isNdiFrameTransportPortAnnouncement, type AgentActionCancelledEvent, type AgentActionRequest, type AgentActionResponse, type AgentBatchEvent, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
+import type {
+  AgentConfig,
+  AgentConfigUpdate,
+  AgentCredentialStatus,
+  AgentModelInfo,
+  AgentThread,
+  AgentThreadCreateInput,
+  AgentThreadSummary,
+} from '@lumacast/protocol';
+import type {
+  AgentDocumentText,
+  AgentExtractDocumentInput,
+  AgentFilesystemRootInput,
+  AgentImportMediaInput,
+  AgentListModelsInput,
+  AgentMcpClientCreateInput,
+  AgentMcpClientCreated,
+  AgentMcpClientIdInput,
+  AgentMcpClientPermissionsInput,
+  AgentMcpEnabledInput,
+  AgentMcpStatus,
+  AgentModelValidation,
+  AgentProviderInput,
+  AgentRenameThreadInput,
+  AgentReplaceMediaSourceInput,
+  AgentSendMessageInput,
+  AgentSetCredentialInput,
+  AgentSetThreadModelInput,
+  AgentThreadEvent,
+  AgentThreadIdInput,
+  AgentValidateModelInput,
+} from '@lumacast/protocol';
 import type { Id } from '@lumacast/kernel';
 import type { ItemRef, ItemType, SlideTag, ThemeOwnerType } from '@lumacast/composition';
 import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
@@ -10,13 +42,19 @@ import type {
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ItemListInput,
+  ItemGetInput,
   MacroCreateInput,
   MacroUpdateInput,
   MediaAssetCreateInput,
+  MediaAssetListInput,
   OverlayCreateInput,
   OverlayUpdateInput,
+  PlaylistGetInput,
+  SearchContentInput,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
+  SlideGetInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
   SlideTagAssignInput,
@@ -25,10 +63,24 @@ import type {
   StageCreateInput,
   StageUpdateInput,
   ThemeCreateInput,
+  ThemeListInput,
   ThemeUpdateInput,
   TriggerBindingCreateInput,
 } from '@lumacast/protocol';
 import type { AppSnapshot, BundleBrokenReferenceDecision, BundleInspection } from '@lumacast/protocol';
+import type {
+  ItemDetail,
+  ItemSummary,
+  MediaAssetSummary,
+  OverlaySummary,
+  PlaylistDetail,
+  PlaylistSummary,
+  ProjectOverview,
+  SearchResult,
+  SlideDetail,
+  StageSummary,
+  ThemeSummary,
+} from '@lumacast/protocol';
 import type {
   LogReadResult,
   LogSessionSummary,
@@ -224,6 +276,17 @@ const api = {
   },
   restoreProjectBackup: (backup: ProjectBackup) =>
     ipcRenderer.invoke(IPC.restoreProjectBackup, backup) as Promise<ProjectRestoreResult>,
+  listPlaylists: () => ipcRenderer.invoke(IPC.listPlaylists) as Promise<PlaylistSummary[]>,
+  getPlaylist: (input: PlaylistGetInput) => ipcRenderer.invoke(IPC.getPlaylist, input) as Promise<PlaylistDetail>,
+  listItems: (input: ItemListInput) => ipcRenderer.invoke(IPC.listItems, input) as Promise<ItemSummary[]>,
+  getItem: (input: ItemGetInput) => ipcRenderer.invoke(IPC.getItem, input) as Promise<ItemDetail>,
+  getSlide: (input: SlideGetInput) => ipcRenderer.invoke(IPC.getSlide, input) as Promise<SlideDetail>,
+  listMediaAssets: (input: MediaAssetListInput) => ipcRenderer.invoke(IPC.listMediaAssets, input) as Promise<MediaAssetSummary[]>,
+  listThemes: (input: ThemeListInput) => ipcRenderer.invoke(IPC.listThemes, input) as Promise<ThemeSummary[]>,
+  listOverlays: () => ipcRenderer.invoke(IPC.listOverlays) as Promise<OverlaySummary[]>,
+  listStages: () => ipcRenderer.invoke(IPC.listStages) as Promise<StageSummary[]>,
+  getProjectOverview: () => ipcRenderer.invoke(IPC.getProjectOverview) as Promise<ProjectOverview>,
+  searchContent: (input: SearchContentInput) => ipcRenderer.invoke(IPC.searchContent, input) as Promise<SearchResult[]>,
   onAppMenuCommand: (callback: (commandId: import('@lumacast/commands').AppMenuCommandId) => void) => {
     const handler = (_event: IpcRendererEvent, commandId: import('@lumacast/commands').AppMenuCommandId) => callback(commandId);
     ipcRenderer.on(APP_MENU_EVENTS.command, handler);
@@ -251,6 +314,70 @@ const api = {
   obsGetCurrentLogPath: () => ipcRenderer.invoke(IPC.obsGetCurrentLogPath) as Promise<string | null>,
   obsOpenLogFolder: () => ipcRenderer.invoke(IPC.obsOpenLogFolder) as Promise<void>,
   obsGetSystemMetrics: () => ipcRenderer.invoke(IPC.obsGetSystemMetrics) as Promise<SystemMetricsSnapshot>,
+  agentRespondAction: (response: AgentActionResponse) =>
+    ipcRenderer.invoke(IPC.agentRespondAction, response) as Promise<void>,
+  onAgentActionRequest: (callback: (request: AgentActionRequest) => void) => {
+    const handler = (_event: IpcRendererEvent, request: AgentActionRequest) => callback(request);
+    ipcRenderer.on(AGENT_ACTION_EVENTS.request, handler);
+    return () => { ipcRenderer.removeListener(AGENT_ACTION_EVENTS.request, handler); };
+  },
+  onAgentBatch: (callback: (event: AgentBatchEvent) => void) => {
+    const handler = (_event: IpcRendererEvent, batch: AgentBatchEvent) => callback(batch);
+    ipcRenderer.on(AGENT_ACTION_EVENTS.batch, handler);
+    return () => { ipcRenderer.removeListener(AGENT_ACTION_EVENTS.batch, handler); };
+  },
+  onAgentActionCancelled: (callback: (event: AgentActionCancelledEvent) => void) => {
+    const handler = (_event: IpcRendererEvent, cancelled: AgentActionCancelledEvent) => callback(cancelled);
+    ipcRenderer.on(AGENT_ACTION_EVENTS.cancelled, handler);
+    return () => { ipcRenderer.removeListener(AGENT_ACTION_EVENTS.cancelled, handler); };
+  },
+  agentListThreads: () => ipcRenderer.invoke(IPC.agentListThreads) as Promise<AgentThreadSummary[]>,
+  agentGetThread: (input: AgentThreadIdInput) => ipcRenderer.invoke(IPC.agentGetThread, input) as Promise<AgentThread | null>,
+  agentCreateThread: (input: AgentThreadCreateInput) => ipcRenderer.invoke(IPC.agentCreateThread, input) as Promise<AgentThread>,
+  agentDeleteThread: (input: AgentThreadIdInput) => ipcRenderer.invoke(IPC.agentDeleteThread, input) as Promise<void>,
+  agentRenameThread: (input: AgentRenameThreadInput) =>
+    ipcRenderer.invoke(IPC.agentRenameThread, input) as Promise<AgentThreadSummary>,
+  agentSetThreadModel: (input: AgentSetThreadModelInput) =>
+    ipcRenderer.invoke(IPC.agentSetThreadModel, input) as Promise<AgentThreadSummary>,
+  agentSendMessage: (input: AgentSendMessageInput) =>
+    ipcRenderer.invoke(IPC.agentSendMessage, input) as Promise<{ runId: string }>,
+  agentStopGeneration: (input: AgentThreadIdInput) => ipcRenderer.invoke(IPC.agentStopGeneration, input) as Promise<void>,
+  agentGetConfig: () => ipcRenderer.invoke(IPC.agentGetConfig) as Promise<AgentConfig>,
+  agentUpdateConfig: (update: AgentConfigUpdate) => ipcRenderer.invoke(IPC.agentUpdateConfig, update) as Promise<AgentConfig>,
+  agentGetCredentialStatus: () => ipcRenderer.invoke(IPC.agentGetCredentialStatus) as Promise<AgentCredentialStatus[]>,
+  agentSetCredential: (input: AgentSetCredentialInput) =>
+    ipcRenderer.invoke(IPC.agentSetCredential, input) as Promise<AgentCredentialStatus[]>,
+  agentDeleteCredential: (input: AgentProviderInput) =>
+    ipcRenderer.invoke(IPC.agentDeleteCredential, input) as Promise<AgentCredentialStatus[]>,
+  agentListModels: (input: AgentListModelsInput) => ipcRenderer.invoke(IPC.agentListModels, input) as Promise<AgentModelInfo[]>,
+  agentValidateModel: (input: AgentValidateModelInput) =>
+    ipcRenderer.invoke(IPC.agentValidateModel, input) as Promise<AgentModelValidation>,
+  agentGrantFilesystemRoot: () => ipcRenderer.invoke(IPC.agentGrantFilesystemRoot) as Promise<AgentConfig | null>,
+  agentRevokeFilesystemRoot: (input: AgentFilesystemRootInput) =>
+    ipcRenderer.invoke(IPC.agentRevokeFilesystemRoot, input) as Promise<AgentConfig>,
+  agentImportMedia: (input: AgentImportMediaInput) => ipcRenderer.invoke(IPC.agentImportMedia, input) as Promise<SnapshotPatch>,
+  agentReplaceMediaSource: (input: AgentReplaceMediaSourceInput) =>
+    ipcRenderer.invoke(IPC.agentReplaceMediaSource, input) as Promise<SnapshotPatch>,
+  agentExtractDocumentText: (input: AgentExtractDocumentInput) =>
+    ipcRenderer.invoke(IPC.agentExtractDocumentText, input) as Promise<AgentDocumentText>,
+  agentGetMcpStatus: () => ipcRenderer.invoke(IPC.agentGetMcpStatus) as Promise<AgentMcpStatus>,
+  agentSetMcpEnabled: (input: AgentMcpEnabledInput) => ipcRenderer.invoke(IPC.agentSetMcpEnabled, input) as Promise<AgentMcpStatus>,
+  agentCreateMcpClient: (input: AgentMcpClientCreateInput) =>
+    ipcRenderer.invoke(IPC.agentCreateMcpClient, input) as Promise<AgentMcpClientCreated>,
+  agentRevokeMcpClient: (input: AgentMcpClientIdInput) =>
+    ipcRenderer.invoke(IPC.agentRevokeMcpClient, input) as Promise<AgentMcpStatus>,
+  agentUpdateMcpClientPermissions: (input: AgentMcpClientPermissionsInput) =>
+    ipcRenderer.invoke(IPC.agentUpdateMcpClientPermissions, input) as Promise<AgentMcpStatus>,
+  onAgentThreadEvent: (callback: (event: AgentThreadEvent) => void) => {
+    const handler = (_event: IpcRendererEvent, threadEvent: AgentThreadEvent) => callback(threadEvent);
+    ipcRenderer.on(AGENT_EVENTS.threadEvent, handler);
+    return () => { ipcRenderer.removeListener(AGENT_EVENTS.threadEvent, handler); };
+  },
+  onAgentMcpStatus: (callback: (status: AgentMcpStatus) => void) => {
+    const handler = (_event: IpcRendererEvent, status: AgentMcpStatus) => callback(status);
+    ipcRenderer.on(AGENT_EVENTS.mcpStatus, handler);
+    return () => { ipcRenderer.removeListener(AGENT_EVENTS.mcpStatus, handler); };
+  },
 } satisfies MainApi;
 
 contextBridge.exposeInMainWorld('castApi', api);

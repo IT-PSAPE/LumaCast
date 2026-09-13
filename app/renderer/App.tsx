@@ -7,6 +7,9 @@ import { PlaybackProvider } from './contexts/playback/playback-context';
 import { PlaybackSchedulesProvider } from './contexts/playback-schedules-context';
 import { SlideProvider } from './contexts/slide-context';
 import { WorkbenchProvider } from './contexts/workbench-context';
+import { AgentActionDispatcher } from './features/agent/agent-action-dispatcher';
+import { AgentChatProvider } from './features/agent/chat/agent-chat-context';
+import { AgentChatPopup } from './features/agent/chat/agent-chat-popup';
 import { CommandPalette } from './features/command-palette/command-palette';
 import { CommandPaletteProvider } from './features/command-palette/command-palette-context';
 import { CreateItemProvider } from './features/items/create-item';
@@ -14,6 +17,7 @@ import { LyricEditorProvider } from './features/items/lyric-editor';
 import { AutomationProvider } from './features/automation/automation-context';
 import { NdiOutputsGate } from './features/playback/ndi-outputs-gate';
 import { MediaResidencyBoundary } from './features/playback/media-residency-boundary';
+import { SlideRenderHost } from './features/render/slide-render-host';
 import { useObservabilityRuntime } from './features/observability/observability-runtime';
 import { ConfirmProvider } from './components/overlays/confirm-dialog';
 import { ErrorBoundary } from './components/feedback/error-boundary';
@@ -56,36 +60,43 @@ export function App() {
       <WorkbenchProvider>
         <ObservabilityRuntime />
         <ConfirmProvider>
-          <AppProvider>
-            <AssetEditorProvider>
-              <NavigationProvider>
-                <PlaybackProvider>
-                  <SlideProvider>
-                    <PlaybackSchedulesProvider>
-                      <MediaResidencyBoundary>
-                        <AutomationProvider>
-                          <LyricEditorProvider>
-                            <CreateItemProvider>
-                              <CanvasProvider>
-                                <CommandPaletteProvider>
-                                  <NdiOutputsGate />
-                                  <SplitPanel>
-                                    <AppLayoutContent />
-                                  </SplitPanel>
-                                  <CommandPalette />
-                                  <FileDropNavigationGuard />
-                                </CommandPaletteProvider>
-                              </CanvasProvider>
-                            </CreateItemProvider>
-                          </LyricEditorProvider>
-                        </AutomationProvider>
-                      </MediaResidencyBoundary>
-                    </PlaybackSchedulesProvider>
-                  </SlideProvider>
-                </PlaybackProvider>
-              </NavigationProvider>
-            </AssetEditorProvider>
-          </AppProvider>
+          <AgentChatProvider>
+            <AppProvider>
+              <AssetEditorProvider>
+                <NavigationProvider>
+                  <PlaybackProvider>
+                    <SlideProvider>
+                      <PlaybackSchedulesProvider>
+                        <MediaResidencyBoundary>
+                          <AutomationProvider>
+                            <LyricEditorProvider>
+                              <CreateItemProvider>
+                                <CanvasProvider>
+                                  <CommandPaletteProvider>
+                                    <NdiOutputsGate />
+                                    <SplitPanel>
+                                      <AppLayoutContent />
+                                      {/* Inside SplitPanel so workbench.togglePanel can reach the
+                                          panel-route context; every other provider it needs is above. */}
+                                      <AgentActionDispatcher />
+                                    </SplitPanel>
+                                    <CommandPalette />
+                                    <FileDropNavigationGuard />
+                                    <SlideRenderHost />
+                                    <AgentChatPopup.Root />
+                                  </CommandPaletteProvider>
+                                </CanvasProvider>
+                              </CreateItemProvider>
+                            </LyricEditorProvider>
+                          </AutomationProvider>
+                        </MediaResidencyBoundary>
+                      </PlaybackSchedulesProvider>
+                    </SlideProvider>
+                  </PlaybackProvider>
+                </NavigationProvider>
+              </AssetEditorProvider>
+            </AppProvider>
+          </AgentChatProvider>
         </ConfirmProvider>
       </WorkbenchProvider>
     </ErrorBoundary>

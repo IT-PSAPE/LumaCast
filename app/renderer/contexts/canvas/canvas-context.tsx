@@ -1,9 +1,10 @@
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { MediaAsset, Overlay, Slide, SlideElement } from '@lumacast/composition';
-import type { ElementUpdateInput } from '@lumacast/protocol';
-import { applyVisualPayload, readVisualPayload } from '@lumacast/composition';
+import type { AlignEdge, AlignTarget, DistributeAxis, MediaAsset, Overlay, RichBody, Slide, SlideElement, TextElementPayload } from '@lumacast/composition';
+import type { ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
+import { alignElements, applyVisualPayload, distributeElements, groupElements, readVisualPayload, richBodyToText, ungroupElement } from '@lumacast/composition';
 import { sortElements } from '../../utils/slides';
+import { createId } from '../../utils/create-id';
 import { useCast } from '../app-context';
 import { useNavigation } from '../navigation-context';
 import { useDeckEditor } from '../asset-editor/asset-editor-context';
@@ -261,6 +262,21 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     if (selection.primarySelectedElementId === id) inspector.setElementPayloadDraft(nextPayload);
   }, [effectiveElements, inspector, saveElementUpdate, selection.primarySelectedElementId]);
 
+  // The agent-facing `element.setRichText` action's write path: always
+  // authors a rich body (unlike the inline editor's write-on-first-rich-edit
+  // optimization in `use-scene-stage-editor.ts`, which keeps a plain payload
+  // until the user actually applies an override). `text` stays the
+  // newline-joined plain-text projection alongside `richBody` per
+  // `TextElementPayload`'s own contract.
+  const setElementRichText = useCallback(async (id: Id, body: RichBody) => {
+    const target = baseElements.find((el) => el.id === id);
+    if (!target || target.type !== 'text') return;
+    const payload = target.payload as TextElementPayload;
+    const nextPayload: TextElementPayload = { ...payload, format: 'rich', richBody: body, text: richBodyToText(body) };
+    await history.commitElementUpdates([{ id, payload: nextPayload }], true);
+    if (selection.primarySelectedElementId === id) inspector.setElementPayloadDraft(nextPayload);
+  }, [baseElements, history, inspector, selection.primarySelectedElementId]);
+
   // Reorders the entire stack from the given back→front id list. Stacking is
   // sorted by `layer` then `zIndex`, so we flatten every element onto a single
   // layer and write an explicit sequential zIndex — this lets the user place
@@ -276,6 +292,107 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     if (updates.length === 0) return;
     await history.commitElementUpdates(updates, true);
   }, [effectiveElements, history]);
+
+  // Group/ungroup change which top-level rows exist (create+delete), so they
+  // follow the same one-history-entry shape as paste/duplicate
+  // (`insertClonedElements` in use-element-history.ts): push one snapshot,
+  // then commit the whole change either through the staged editor's atomic
+  // `replaceElements` or as a delete-then-create IPC sequence.
+  const groupSelection = useCallback(async (elementIds?: Id[], name?: string): Promise<Id | null> => {
+    const targetIds = elementIds ?? selection.selectedElementIds;
+    const protectedLyricTextIds = new Set(getProtectedLyricTextSelectionIds(
+      baseElements, targetIds,
+      isThemeEdit ? activeEditorSource.meta.themeType === 'lyric' : isDeckEdit && currentItemRef?.type === 'lyric',
+    ));
+    const groupable = baseElements.filter((el) => targetIds.includes(el.id) && !el.payload.locked && !protectedLyricTextIds.has(el.id));
+    if (groupable.length < 2) return null;
+    const groupableIds = new Set(groupable.map((el) => el.id));
+    const remaining = baseElements.filter((el) => !groupableIds.has(el.id));
+    const zIndex = baseElements.reduce((max, el) => Math.max(max, el.zIndex), -1) + 1;
+    const groupElement = groupElements(groupable, { id: createId(), name, zIndex });
+    const nextElements = [...remaining, groupElement];
+
+    history.pushHistorySnapshot();
+    if (activeEditorSource.editable && activeEditorSource.hasSource) {
+      activeEditorSource.replaceElements(nextElements);
+    } else {
+      await mutatePatch(() => window.castApi.deleteElementsBatch([...groupableIds]));
+      const create: ElementCreateInput = {
+        id: groupElement.id, slideId: groupElement.slideId, type: groupElement.type,
+        x: groupElement.x, y: groupElement.y, width: groupElement.width, height: groupElement.height,
+        rotation: groupElement.rotation, opacity: groupElement.opacity, zIndex: groupElement.zIndex,
+        layer: groupElement.layer, payload: groupElement.payload,
+      };
+      await mutatePatch(() => window.castApi.createElementsBatch([create]));
+    }
+    selection.selectElements([groupElement.id]);
+    setStatusText(`Grouped ${groupable.length} object(s)`);
+    return groupElement.id;
+  }, [activeEditorSource, baseElements, currentItemRef, isDeckEdit, isThemeEdit, history, mutatePatch, selection, setStatusText]);
+
+  const ungroupSelection = useCallback(async (groupId?: Id): Promise<Id[]> => {
+    const targetId = groupId ?? selection.primarySelectedElementId;
+    const group = targetId ? baseElements.find((el) => el.id === targetId) : null;
+    if (!group || group.type !== 'group' || group.payload.locked) return [];
+    const children = ungroupElement(group);
+    if (children.length === 0) return [];
+    const nextElements = [...baseElements.filter((el) => el.id !== group.id), ...children];
+
+    history.pushHistorySnapshot();
+    if (activeEditorSource.editable && activeEditorSource.hasSource) {
+      activeEditorSource.replaceElements(nextElements);
+    } else {
+      await mutatePatch(() => window.castApi.deleteElementsBatch([group.id]));
+      const creates: ElementCreateInput[] = children.map((child) => ({
+        id: child.id, slideId: child.slideId, type: child.type,
+        x: child.x, y: child.y, width: child.width, height: child.height,
+        rotation: child.rotation, opacity: child.opacity, zIndex: child.zIndex,
+        layer: child.layer, payload: child.payload,
+      }));
+      await mutatePatch(() => window.castApi.createElementsBatch(creates));
+    }
+    const ids = children.map((child) => child.id);
+    selection.selectElements(ids);
+    setStatusText(`Ungrouped ${ids.length} object(s)`);
+    return ids;
+  }, [activeEditorSource, baseElements, history, mutatePatch, selection, setStatusText]);
+
+  const alignSelection = useCallback(async (edge: AlignEdge, target: AlignTarget, elementIds?: Id[]) => {
+    const targetIds = elementIds ?? selection.selectedElementIds;
+    const protectedLyricTextIds = new Set(getProtectedLyricTextSelectionIds(
+      baseElements, targetIds,
+      isThemeEdit ? activeEditorSource.meta.themeType === 'lyric' : isDeckEdit && currentItemRef?.type === 'lyric',
+    ));
+    const targets = baseElements.filter((el) => targetIds.includes(el.id) && !el.payload.locked && !protectedLyricTextIds.has(el.id));
+    if (targets.length === 0 || (targets.length < 2 && target === 'selection')) return;
+    const slide = { width: activeEditorSource.frame?.width || 1920, height: activeEditorSource.frame?.height || 1080 };
+    const aligned = alignElements(targets, edge, target, slide);
+    const updates: ElementUpdateInput[] = [];
+    targets.forEach((original, index) => {
+      const next = aligned[index];
+      if (next.x === original.x && next.y === original.y) return;
+      updates.push({ id: original.id, x: next.x, y: next.y });
+    });
+    await history.commitElementUpdates(updates, true);
+  }, [activeEditorSource, baseElements, currentItemRef, history, isDeckEdit, isThemeEdit, selection]);
+
+  const distributeSelection = useCallback(async (axis: DistributeAxis, elementIds?: Id[]) => {
+    const targetIds = elementIds ?? selection.selectedElementIds;
+    const protectedLyricTextIds = new Set(getProtectedLyricTextSelectionIds(
+      baseElements, targetIds,
+      isThemeEdit ? activeEditorSource.meta.themeType === 'lyric' : isDeckEdit && currentItemRef?.type === 'lyric',
+    ));
+    const targets = baseElements.filter((el) => targetIds.includes(el.id) && !el.payload.locked && !protectedLyricTextIds.has(el.id));
+    if (targets.length < 3) return;
+    const distributed = distributeElements(targets, axis);
+    const updates: ElementUpdateInput[] = [];
+    targets.forEach((original, index) => {
+      const next = distributed[index];
+      if (next.x === original.x && next.y === original.y) return;
+      updates.push({ id: original.id, x: next.x, y: next.y });
+    });
+    await history.commitElementUpdates(updates, true);
+  }, [baseElements, currentItemRef, history, isDeckEdit, isThemeEdit, selection]);
 
   const { createText, createShape, createFromMedia, createOverlay, toggleOverlay, importMedia, deleteMedia, changeMediaSrc } = useElementCommands({
     activeEditorSource, currentItemRef, mutatePatch, setStatusText, pushHistorySnapshot: history.pushHistorySnapshot,
@@ -306,7 +423,8 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     setCanvasInteracting,
     commitElementUpdates: history.commitElementUpdates,
     deleteSelected, toggleElementVisibility, toggleElementLock,
-    renameElement, reorderElements,
+    renameElement, reorderElements, setElementRichText,
+    groupSelection, ungroupSelection, alignSelection, distributeSelection,
     nudgeSelection: history.nudgeSelection,
     copySelection: history.copySelection,
     cutSelection,
@@ -320,7 +438,8 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   }), [
     baseElements, createFromMedia, createOverlay, createShape, createText, cutSelection, deleteMedia,
     deleteSelected, draftElements, effectiveElements, history, importMedia, inspector,
-    isCanvasInteracting, selection, renameElement, reorderElements,
+    isCanvasInteracting, selection, renameElement, reorderElements, setElementRichText,
+    groupSelection, ungroupSelection, alignSelection, distributeSelection,
     setDraftElements, toggleElementLock, toggleElementVisibility, toggleOverlay, changeMediaSrc,
   ]);
 

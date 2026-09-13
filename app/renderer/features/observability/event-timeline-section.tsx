@@ -3,7 +3,6 @@ import { useMetricsStore, useShallow, type ObsEventCategory } from './metrics-st
 import { SectionShell } from './section-shell';
 import { FilterChips } from './filter-chips';
 import { EventRow } from './event-row';
-import { CATEGORY_FILTERS } from './observability-constants';
 
 export function EventTimelineSection() {
   const { events, clearEvents, mirrorEventsToConsole, setMirrorEventsToConsole } = useMetricsStore(
@@ -32,11 +31,19 @@ export function EventTimelineSection() {
           >
             {mirrorEventsToConsole ? 'Mirror to logs: on' : 'Mirror to logs: off'}
           </button>
-          <FilterChips
+          <FilterChips.Root
             value={filter}
-            options={CATEGORY_FILTERS}
             onChange={(next) => setFilter(next)}
-          />
+          >
+            <FilterChips.Option value={'all' satisfies 'all' | ObsEventCategory}>All</FilterChips.Option>
+            <FilterChips.Option value={'ndi' satisfies ObsEventCategory}>NDI</FilterChips.Option>
+            <FilterChips.Option value={'layer' satisfies ObsEventCategory}>Layers</FilterChips.Option>
+            <FilterChips.Option value={'overlay' satisfies ObsEventCategory}>Overlays</FilterChips.Option>
+            <FilterChips.Option value={'slide' satisfies ObsEventCategory}>Slides</FilterChips.Option>
+            <FilterChips.Option value={'playback' satisfies ObsEventCategory}>Playback</FilterChips.Option>
+            <FilterChips.Option value={'system' satisfies ObsEventCategory}>System</FilterChips.Option>
+            <FilterChips.Option value={'error' satisfies ObsEventCategory}>Errors</FilterChips.Option>
+          </FilterChips.Root>
           <button
             type="button"
             className="rounded border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40"

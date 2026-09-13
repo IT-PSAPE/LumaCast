@@ -18,7 +18,6 @@ export function ThemeBinPanel() {
     key: section.type,
     label: section.label,
     items: section.themes,
-    emptyState: <CreateThemeDropZone themeType={section.type} onActivate={() => handleCreateTheme(section.type)} />,
   }));
 
   function handleCreateTheme(themeType: ThemeOwnerType) {
@@ -36,6 +35,12 @@ export function ThemeBinPanel() {
           listItemEstimate={40}
           gridRowEstimate={180}
           emptyEstimate={56}
+          renderEmptyState={(section) => (
+            <CreateThemeDropZone
+              themeType={section.key as ThemeOwnerType}
+              onActivate={() => handleCreateTheme(section.key as ThemeOwnerType)}
+            />
+          )}
           getItemKey={(theme) => theme.id}
           renderListItem={(theme, index, section) => (
             <ThemeBinItem

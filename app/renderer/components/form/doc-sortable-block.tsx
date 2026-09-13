@@ -92,7 +92,7 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
                     return
                 }
                 onPaste(value.slice(0, selectionStart), blocks, value.slice(selectionEnd))
-            }).catch(() => {})
+            }).catch((error) => { console.error('[DocEditor] clipboard failed', error) })
             return
         }
 

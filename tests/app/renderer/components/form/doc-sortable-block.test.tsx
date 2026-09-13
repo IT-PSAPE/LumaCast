@@ -256,11 +256,13 @@ describe('SortableBlock', () => {
         expect(onUpdate).not.toHaveBeenCalled()
     })
 
-    it('handles readClipboardText rejection gracefully (does nothing)', async () => {
+    it('handles readClipboardText rejection gracefully (does nothing) but logs the failure', async () => {
         const onUpdate = vi.fn()
         const onPaste = vi.fn()
-        const readClipboardText = vi.fn().mockRejectedValue(new Error('fail'))
+        const clipboardError = new Error('fail')
+        const readClipboardText = vi.fn().mockRejectedValue(clipboardError)
         setCastApi({ readClipboardText })
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
         const { textarea } = renderBlock({ block: { id: 'b1', content: 'hello' }, onUpdate, onPaste })
         textarea.focus()
         textarea.setSelectionRange(0, 0)
@@ -273,6 +275,7 @@ describe('SortableBlock', () => {
 
         expect(onUpdate).not.toHaveBeenCalled()
         expect(onPaste).not.toHaveBeenCalled()
+        expect(consoleError).toHaveBeenCalledWith('[DocEditor] clipboard failed', clipboardError)
     })
 
     it('Cmd+V multi-line via readClipboardText splits into blocks', async () => {

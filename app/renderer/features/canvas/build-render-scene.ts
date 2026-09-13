@@ -2,6 +2,7 @@ import {
   readTextFormatting,
   readTextVisualPayload,
   readVisualPayload,
+  readMediaFit,
   type VisualPayloadState,
   LAYER_PREVIEW_SLIDE,
   LAYER_VIDEO_NODE_ID,
@@ -24,7 +25,7 @@ import {
   type SceneSurface,
   type SelectionState,
 } from '@lumacast/composition';
-import type { GroupElementPayload, MediaAsset, Overlay, Slide, SlideBackground, SlideElement, TextCaseTransform, TextElementPayload, TextHorizontalAlign } from '@lumacast/composition';
+import type { GroupElementPayload, ImageElementPayload, MediaAsset, Overlay, Slide, SlideBackground, SlideElement, TextCaseTransform, TextElementPayload, TextHorizontalAlign, VideoElementPayload } from '@lumacast/composition';
 import { sortElements } from '../../utils/slides';
 
 interface SceneElementInput {
@@ -56,6 +57,13 @@ function toRenderNode(
   const mediaKey = (element.type === 'image' || element.type === 'video')
     ? ((element.payload as { src?: string }).src ?? null)
     : null;
+  // Group children are resolved recursively here (not left as raw elements)
+  // so @lumacast/canvas can render them through the same content dispatcher
+  // without needing its own proxy-media lookup: nested images/videos get the
+  // same proxyMediaKey resolution a top-level node gets.
+  const children = element.type === 'group'
+    ? (element.payload as GroupElementPayload).children?.map((child) => toRenderNode({ element: child }, proxyMediaBySource))
+    : undefined;
   return {
     id: nodeId ?? element.id,
     element,
@@ -63,6 +71,7 @@ function toRenderNode(
     isVideo: element.type === 'video',
     proxyMediaKey: resolveProxyMediaKey(proxyMediaBySource, mediaKey),
     bindingOverride,
+    children,
   };
 }
 
@@ -320,7 +329,8 @@ function toResolvedNode(
       return { ...base, kind: 'text', box: toBoxVisual(visual), text: toTextVisual(element) };
     case 'image':
     case 'video': {
-      const src = (element.payload as { src?: string }).src ?? null;
+      const mediaPayload = element.payload as ImageElementPayload | VideoElementPayload;
+      const src = mediaPayload.src ?? null;
       const proxyMediaKey = resolveProxyMediaKey(proxyMediaBySource, src);
       return {
         ...base,
@@ -329,6 +339,7 @@ function toResolvedNode(
         media: resolveMediaHandle(media, src),
         proxyMediaKey,
         proxyMedia: resolveMediaHandle(media, proxyMediaKey),
+        fit: readMediaFit(element.type, mediaPayload),
       };
     }
     case 'group': {

@@ -40,7 +40,9 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 vi.mock('../../../../../app/renderer/features/playlists/playlist-item-row', () => ({
-  PlaylistItemRow: ({ row }: { row: { id: string } }) => <div>item:{row.id}</div>,
+  PlaylistItemRow: ({ row, onDragOver }: { row: { id: string }; onDragOver: React.DragEventHandler<HTMLDivElement> }) => (
+    <div data-testid={`row-${row.id}`} onDragOver={onDragOver}>item:{row.id}</div>
+  ),
 }));
 
 vi.mock('../../../../../app/renderer/features/playlists/separator-row', () => ({
@@ -107,5 +109,25 @@ describe('PlaylistRowList', () => {
     mocks.virtualItems = [];
     render(<PlaylistRowList rows={[]} playlistId="playlist-1" getScrollElement={() => null} />);
     expect(screen.getByTestId('playlist-row-drop-surface').className).toContain('h-full');
+  });
+
+  it('keeps before-row and end-of-list drop indicators inside their virtualized row slots', () => {
+    mocks.navigation.value = { addItemToPlaylist: vi.fn(), movePlaylistRow: vi.fn() };
+    const rows = [
+      { id: 'entry-1', kind: 'item' },
+      { id: 'entry-2', kind: 'item' },
+    ] as PlaylistRow[];
+    render(<PlaylistRowList rows={rows} playlistId="playlist-1" getScrollElement={() => null} />);
+
+    const dataTransfer = { types: ['application/x-lumacast-item'], dropEffect: 'none' };
+    const first = screen.getByTestId('row-entry-1');
+    vi.spyOn(first, 'getBoundingClientRect').mockReturnValue({ top: 0, height: 32 } as DOMRect);
+    fireEvent.dragOver(first, { clientY: 1, dataTransfer });
+    expect(first.previousElementSibling?.querySelector('.bg-brand')).not.toBeNull();
+
+    const last = screen.getByTestId('row-entry-2');
+    vi.spyOn(last, 'getBoundingClientRect').mockReturnValue({ top: 32, height: 32 } as DOMRect);
+    fireEvent.dragOver(last, { clientY: 63, dataTransfer });
+    expect(last.nextElementSibling?.querySelector('.bg-brand')).not.toBeNull();
   });
 });

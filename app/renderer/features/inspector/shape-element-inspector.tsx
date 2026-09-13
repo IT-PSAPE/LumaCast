@@ -4,23 +4,17 @@ import { FieldIcon, FieldInput, FieldSelect } from '../../components/form/field'
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal,
   AlignEndVertical, AlignStartHorizontal, AlignStartVertical,
-  CornerUpRight, Eye, FlipHorizontal2, MoveHorizontal, MoveVertical,
+  Eye, FlipHorizontal2, Lock, MoveHorizontal, MoveVertical,
   RotateCcw, RulerDimensionLine, Square,
-  Sun,
+  Sun, Undo2, Unlock,
 } from 'lucide-react';
 import { IconGroup } from '@renderer/components/icon-group';
 import { useShapeInspector } from './use-shape-inspector';
 import { Section } from './inspector-section';
 import { EmptyState } from '../../components/display/empty-state';
-import type { StrokePosition } from '@lumacast/composition';
+import type { SlideBackgroundFit, StrokePosition } from '@lumacast/composition';
 import { parseNumber } from '@renderer/utils/slides';
 import { Label } from '@renderer/components/display/text';
-
-const STROKE_POSITION_OPTIONS = [
-  { value: 'inside', label: 'Inside' },
-  { value: 'center', label: 'Center' },
-  { value: 'outside', label: 'Outside' },
-];
 
 export function ShapeElementInspector() {
   const result = useShapeInspector();
@@ -30,13 +24,13 @@ export function ShapeElementInspector() {
   }
 
   const { state, actions } = result;
-  const { elementDraft, visual, styleLabelPrefix, locked } = state;
+  const { elementDraft, visual, styleLabelPrefix, locked, lockAspectRatio, mediaFit, isMultiSelection } = state;
   const {
     handleXChange, handleYChange, handleWChange, handleHChange,
-    handleRotationChange, handleOpacityChange,
+    handleRotationChange, handleOpacityChange, handleResetRotation, handleToggleLockAspectRatio,
     handleAlignLeft, handleAlignCenter, handleAlignRight,
     handleAlignTop, handleAlignMiddle, handleAlignBottom,
-    handleFlipX, handleFlipY, handleFillToggle, handleFillColorChange,
+    handleFlipX, handleFlipY, handleFillToggle, handleFillColorChange, handleMediaFitChange,
     updateVisual,
   } = actions;
 
@@ -44,7 +38,7 @@ export function ShapeElementInspector() {
     <fieldset className={cn('m-0 min-w-0 border-0 p-0', locked && 'opacity-50')} disabled={locked}>
       <Section.Root>
         <Section.Header>
-          <Label.xs>Position</Label.xs>
+          <Label.xs>{isMultiSelection ? 'Align Selection' : 'Position'}</Label.xs>
         </Section.Header>
         <Section.Body>
           <Section.Row>
@@ -84,13 +78,13 @@ export function ShapeElementInspector() {
               <FieldIcon><RotateCcw size={14} /></FieldIcon>
             </FieldInput>
             <IconGroup.Root fill>
-              <IconGroup.Item>
-                <CornerUpRight className="size-4" />
+              <IconGroup.Item onClick={handleResetRotation} title="Reset rotation" aria-label="Reset rotation">
+                <Undo2 className="size-4" />
               </IconGroup.Item>
-              <IconGroup.Item onClick={handleFlipX}>
+              <IconGroup.Item onClick={handleFlipX} title="Flip horizontal" aria-label="Flip horizontal">
                 <FlipHorizontal2 className="size-4" />
               </IconGroup.Item>
-              <IconGroup.Item onClick={handleFlipY}>
+              <IconGroup.Item onClick={handleFlipY} title="Flip vertical" aria-label="Flip vertical">
                 <FlipHorizontal2 className="size-4 rotate-90" />
               </IconGroup.Item>
             </IconGroup.Root>
@@ -110,9 +104,37 @@ export function ShapeElementInspector() {
             <FieldInput type="number" value={Math.round(elementDraft.height)} onChange={handleHChange}>
               <FieldIcon><MoveVertical size={14} /></FieldIcon>
             </FieldInput>
+            <IconGroup.Root>
+              <IconGroup.Item
+                onClick={handleToggleLockAspectRatio}
+                active={lockAspectRatio}
+                aria-pressed={lockAspectRatio}
+                title="Lock aspect ratio"
+                aria-label="Lock aspect ratio"
+              >
+                {lockAspectRatio ? <Lock className="size-4" /> : <Unlock className="size-4" />}
+              </IconGroup.Item>
+            </IconGroup.Root>
           </Section.Row>
         </Section.Body>
       </Section.Root>
+
+      {mediaFit ? (
+        <Section.Root>
+          <Section.Header>
+            <Label.xs>Media</Label.xs>
+          </Section.Header>
+          <Section.Body>
+            <Section.Row>
+              <FieldSelect value={mediaFit} onChange={(value) => handleMediaFitChange(value as SlideBackgroundFit)}>
+                <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
+                <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
+                <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
+              </FieldSelect>
+            </Section.Row>
+          </Section.Body>
+        </Section.Root>
+      ) : null}
 
       <Section.Root>
         <Section.Header>
@@ -161,7 +183,11 @@ export function ShapeElementInspector() {
               <ColorPicker value={visual.strokeColor} onChange={(value: string) => { updateVisual({ strokeColor: value }); }} />
             </Section.Row>
             <Section.Row>
-              <FieldSelect value={visual.strokePosition} onChange={(value: string) => { updateVisual({ strokePosition: value as StrokePosition }); }} options={STROKE_POSITION_OPTIONS} />
+              <FieldSelect value={visual.strokePosition} onChange={(value: string) => { updateVisual({ strokePosition: value as StrokePosition }); }}>
+                <FieldSelect.Option value={'inside' satisfies StrokePosition}>Inside</FieldSelect.Option>
+                <FieldSelect.Option value={'center' satisfies StrokePosition}>Center</FieldSelect.Option>
+                <FieldSelect.Option value={'outside' satisfies StrokePosition}>Outside</FieldSelect.Option>
+              </FieldSelect>
               <FieldInput type="number" value={visual.strokeWidth} onChange={(value: string) => { updateVisual({ strokeWidth: Math.max(0, parseNumber(value, visual.strokeWidth)) }); }}>
                 <FieldIcon><RulerDimensionLine size={14} /></FieldIcon>
               </FieldInput>
@@ -181,7 +207,7 @@ export function ShapeElementInspector() {
               <FieldInput type="number" value={visual.shadowOffsetX} onChange={(value: string) => { updateVisual({ shadowOffsetX: parseNumber(value, visual.shadowOffsetX) }); }}>
                 <FieldIcon><MoveHorizontal size={14} /></FieldIcon>
               </FieldInput>
-              <FieldInput type="number" value={visual.shadowOffsetY} onChange={(value: string) => { updateVisual({ shadowOffsetX: parseNumber(value, visual.shadowOffsetY) }); }}>
+              <FieldInput type="number" value={visual.shadowOffsetY} onChange={(value: string) => { updateVisual({ shadowOffsetY: parseNumber(value, visual.shadowOffsetY) }); }}>
                 <FieldIcon><MoveVertical size={14} /></FieldIcon>
               </FieldInput>
             </Section.Row>

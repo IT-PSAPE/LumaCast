@@ -42,6 +42,8 @@ interface AppStoreState {
   mutate: (action: () => Promise<AppSnapshot>) => Promise<AppSnapshot>;
   mutatePatch: (action: () => Promise<SnapshotPatch>) => Promise<AppSnapshot>;
   applyPatchLocally: (patch: SnapshotPatch) => Promise<AppSnapshot | null>;
+  beginHistoryBatch: () => void;
+  endHistoryBatch: () => void;
   undo: () => Promise<void>;
   redo: () => Promise<void>;
   runOperation: <T>(text: string, action: () => Promise<T>) => Promise<T>;
@@ -110,6 +112,44 @@ function pushUndoEntry(entry: HistoryEntry) {
   undoStack.push(entry);
   if (undoStack.length > UNDO_STACK_LIMIT) undoStack.shift();
   redoStack = [];
+}
+
+// ─── History batching ──────────────────────────────────────────────
+//
+// An agent turn can issue many mutations that the user thinks of as one
+// change ("rebuild this deck"), and a per-mutation undo stack makes that
+// change take twenty Cmd-Zs to walk back. `beginHistoryBatch`/
+// `endHistoryBatch` collapse the run into a single `{ kind: 'snapshot' }`
+// entry holding the pre-batch state.
+//
+// A snapshot entry is already symmetric in `undo`/`redo` below: undoing one
+// restores the stored snapshot and pushes the *current* snapshot onto the
+// opposite stack, so redo restores the post-batch state without the entry
+// having to carry both sides. That is why no `snapshot-range` entry kind was
+// needed.
+//
+// Begin calls nest and only the outermost `end` commits, so a batch opened
+// around a nested batch still produces exactly one entry.
+let historyBatchDepth = 0;
+let historyBatchSnapshot: AppSnapshot | null = null;
+let historyBatchMutated = false;
+
+/**
+ * Records that a mutation happened inside the open batch. Returns whether a
+ * batch is open — when it is, the caller must skip its own undo entry.
+ *
+ * The pre-batch snapshot is (re)captured from the first mutation's own `prev`
+ * rather than trusted from `beginHistoryBatch`, because `begin` is
+ * synchronous while mutations run through `enqueueStoreWork`: `prev` is the
+ * authoritative state immediately before the first batched write.
+ */
+function noteBatchedMutation(previousSnapshot: AppSnapshot | null): boolean {
+  if (historyBatchDepth === 0) return false;
+  if (!historyBatchMutated) {
+    historyBatchSnapshot = previousSnapshot;
+    historyBatchMutated = true;
+  }
+  return true;
 }
 
 function syncHistoryFlags(set: (partial: Partial<AppStoreState>) => void) {
@@ -199,7 +239,8 @@ export const useAppStore = create<AppStoreState>()((set, get) => ({
       const prev = snapshotMirror;
       try {
         const next = await action();
-        if (prev) pushUndoEntry({ kind: 'snapshot', snapshot: prev });
+        if (noteBatchedMutation(prev)) redoStack = [];
+        else if (prev) pushUndoEntry({ kind: 'snapshot', snapshot: prev });
         snapshotMirror = next;
         set({ snapshot: next });
         syncHistoryFlags(set);
@@ -220,7 +261,8 @@ export const useAppStore = create<AppStoreState>()((set, get) => ({
         const patch = await action();
         if (!prev) throw new Error('Snapshot not loaded before mutatePatch call');
         const next = applyPatch(prev, patch);
-        pushUndoEntry({ kind: 'patch', undoPatch: invertPatch(prev, patch), redoPatch: patch });
+        if (noteBatchedMutation(prev)) redoStack = [];
+        else pushUndoEntry({ kind: 'patch', undoPatch: invertPatch(prev, patch), redoPatch: patch });
         snapshotMirror = next;
         set({ snapshot: next });
         syncHistoryFlags(set);
@@ -247,6 +289,33 @@ export const useAppStore = create<AppStoreState>()((set, get) => ({
       set({ snapshot: next });
       return next;
     });
+  },
+
+  beginHistoryBatch: () => {
+    if (historyBatchDepth === 0) {
+      historyBatchSnapshot = snapshotMirror;
+      historyBatchMutated = false;
+    }
+    historyBatchDepth += 1;
+  },
+
+  endHistoryBatch: () => {
+    if (historyBatchDepth === 0) return;
+    historyBatchDepth -= 1;
+    if (historyBatchDepth > 0) return;
+
+    const before = historyBatchSnapshot;
+    const mutated = historyBatchMutated;
+    historyBatchSnapshot = null;
+    historyBatchMutated = false;
+    // An empty batch leaves history untouched — an agent turn that only read
+    // state should not put an undo step in the user's way.
+    if (!mutated || !before) return;
+
+    undoStack.push({ kind: 'snapshot', snapshot: before });
+    if (undoStack.length > UNDO_STACK_LIMIT) undoStack.shift();
+    redoStack = [];
+    syncHistoryFlags(set);
   },
 
   undo: async () => {

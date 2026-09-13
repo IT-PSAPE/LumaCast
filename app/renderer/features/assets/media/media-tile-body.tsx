@@ -35,7 +35,7 @@ export function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo }: Me
         <Thumbnail.Tile
           onClick={handleAssignLayer}
           selected={isActive}
-          aspectRatio={asset.type === 'audio' ? 1 : (asset.width && asset.height ? asset.width / asset.height : undefined)}
+          aspectRatio={asset.type === 'audio' ? 1 : undefined}
           className={cn(isActive ? 'ring-1 ring-brand/35' : '')}
         >
           <Thumbnail.Body>

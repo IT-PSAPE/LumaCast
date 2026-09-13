@@ -5,18 +5,27 @@ import { SlideActionsMenu } from '../../../../../app/renderer/features/items/sli
 const mocks = vi.hoisted(() => ({
   duplicateSlide: vi.fn(),
   deleteSlide: vi.fn(),
+  moveSlide: vi.fn(),
   confirm: vi.fn(),
+  slides: [] as Array<{ id: string }>,
 }));
 
 vi.mock('../../../../../app/renderer/components/overlays/context-menu', () => ({
   ContextMenu: {
-    Item: ({ children, onSelect }: { children: React.ReactNode; onSelect?: () => void }) => <button type="button" onClick={onSelect}>{children}</button>,
+    Item: ({ children, onSelect, disabled }: { children: React.ReactNode; onSelect?: () => void; disabled?: boolean }) => (
+      <button type="button" disabled={disabled} onClick={onSelect}>{children}</button>
+    ),
     Separator: () => <hr />,
   },
 }));
 
 vi.mock('../../../../../app/renderer/contexts/slide-context', () => ({
-  useSlides: () => ({ duplicateSlide: mocks.duplicateSlide, deleteSlide: mocks.deleteSlide }),
+  useSlides: () => ({
+    slides: mocks.slides,
+    duplicateSlide: mocks.duplicateSlide,
+    deleteSlide: mocks.deleteSlide,
+    moveSlide: mocks.moveSlide,
+  }),
 }));
 
 vi.mock('../../../../../app/renderer/components/overlays/confirm-dialog', () => ({
@@ -30,6 +39,47 @@ vi.mock('../../../../../app/renderer/features/items/slide-tag-menu', () => ({ Sl
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mocks.slides = [];
+});
+
+describe('SlideActionsMenu — move up/down (single selection only)', () => {
+  it('offers Move up/down for a single selected slide and moves it', () => {
+    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }, { id: 'slide-3' }];
+    mocks.moveSlide.mockResolvedValue(undefined);
+    render(<SlideActionsMenu slideIds={['slide-2']} />);
+
+    const up = screen.getByRole('button', { name: 'Move up' });
+    const down = screen.getByRole('button', { name: 'Move down' });
+    expect(up.hasAttribute('disabled')).toBe(false);
+    expect(down.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(up);
+    expect(mocks.moveSlide).toHaveBeenCalledWith('slide-2', 'up');
+
+    fireEvent.click(down);
+    expect(mocks.moveSlide).toHaveBeenCalledWith('slide-2', 'down');
+  });
+
+  it('disables Move up on the first slide and Move down on the last slide', () => {
+    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }];
+
+    const { unmount } = render(<SlideActionsMenu slideIds={['slide-1']} />);
+    expect(screen.getByRole('button', { name: 'Move up' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Move down' }).hasAttribute('disabled')).toBe(false);
+    unmount();
+
+    render(<SlideActionsMenu slideIds={['slide-2']} />);
+    expect(screen.getByRole('button', { name: 'Move up' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Move down' }).hasAttribute('disabled')).toBe(true);
+  });
+
+  it('hides Move up/down for a multi-slide selection', () => {
+    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }];
+    render(<SlideActionsMenu slideIds={['slide-1', 'slide-2']} />);
+
+    expect(screen.queryByRole('button', { name: 'Move up' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Move down' })).toBeNull();
+  });
 });
 
 describe('SlideActionsMenu', () => {

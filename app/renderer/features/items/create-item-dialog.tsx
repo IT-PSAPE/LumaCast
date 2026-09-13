@@ -144,22 +144,20 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
                   label="Theme"
                   value={themeId}
                   onChange={setThemeId}
-                  options={[
-                    { value: '', label: 'No theme' },
-                    ...compatibleThemes.map((theme) => ({ value: theme.id, label: theme.name })),
-                  ]}
-                />
+                  options={compatibleThemes.map((theme) => ({ value: theme.id, label: theme.name }))}
+                >
+                  <FieldSelect.Option value="">No theme</FieldSelect.Option>
+                </FieldSelect>
               ) : null}
               {playlistOptions.length > 0 ? (
                 <FieldSelect
                   label="Add to playlist"
                   value={playlistId}
                   onChange={handlePlaylistChange}
-                  options={[
-                    { value: '', label: "Don't add to a playlist" },
-                    ...playlistOptions,
-                  ]}
-                />
+                  options={playlistOptions}
+                >
+                  <FieldSelect.Option value="">Don't add to a playlist</FieldSelect.Option>
+                </FieldSelect>
               ) : null}
               {playlistId && positionOptions.length > 0 ? (
                 <FieldSelect

@@ -426,7 +426,7 @@ describe('updateApplicationMenu', () => {
     const helpSubmenu = helpMenu.submenu as MenuItemConstructorOptions[];
     invokeClick(helpSubmenu[2]);
 
-    expect(shell.openExternal).toHaveBeenCalledWith('https://openai.com');
+    expect(shell.openExternal).toHaveBeenCalledWith('https://github.com/IT-PSAPE/LumaCast');
   });
 
   it('preserves dynamic enabled state in the built template', () => {

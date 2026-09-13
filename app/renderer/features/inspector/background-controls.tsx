@@ -13,25 +13,6 @@ import { Section } from './inspector-section';
 
 type BackgroundKind = 'none' | 'color' | 'gradient' | 'image' | 'video';
 
-const TYPE_OPTIONS: Array<{ value: BackgroundKind; label: string }> = [
-  { value: 'none', label: 'None' },
-  { value: 'color', label: 'Solid color' },
-  { value: 'gradient', label: 'Gradient' },
-  { value: 'image', label: 'Image' },
-  { value: 'video', label: 'Video' },
-];
-
-const FIT_OPTIONS: Array<{ value: SlideBackgroundFit; label: string }> = [
-  { value: 'cover', label: 'Cover' },
-  { value: 'contain', label: 'Contain' },
-  { value: 'fill', label: 'Fill / Stretch' },
-];
-
-const GRADIENT_KIND_OPTIONS = [
-  { value: 'linear', label: 'Linear' },
-  { value: 'radial', label: 'Radial' },
-];
-
 const DEFAULT_GRADIENT: SlideGradient = {
   kind: 'linear',
   angle: 90,
@@ -104,7 +85,13 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
         <Label.xs>{title}</Label.xs>
       </Section.Header>
       <Section.Body>
-        <FieldSelect value={kind} onChange={handleKindChange} options={TYPE_OPTIONS} />
+        <FieldSelect value={kind} onChange={handleKindChange}>
+          <FieldSelect.Option value={'none' satisfies BackgroundKind}>None</FieldSelect.Option>
+          <FieldSelect.Option value={'color' satisfies BackgroundKind}>Solid color</FieldSelect.Option>
+          <FieldSelect.Option value={'gradient' satisfies BackgroundKind}>Gradient</FieldSelect.Option>
+          <FieldSelect.Option value={'image' satisfies BackgroundKind}>Image</FieldSelect.Option>
+          <FieldSelect.Option value={'video' satisfies BackgroundKind}>Video</FieldSelect.Option>
+        </FieldSelect>
 
         {background?.type === 'color' ? (
           <ColorPicker value={background.color} onChange={(color) => onChange({ type: 'color', color })} />
@@ -116,8 +103,10 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
               <FieldSelect
                 value={background.gradient.kind}
                 onChange={(value) => updateGradient({ kind: value as SlideGradient['kind'] })}
-                options={GRADIENT_KIND_OPTIONS}
-              />
+              >
+                <FieldSelect.Option value={'linear' satisfies SlideGradient['kind']}>Linear</FieldSelect.Option>
+                <FieldSelect.Option value={'radial' satisfies SlideGradient['kind']}>Radial</FieldSelect.Option>
+              </FieldSelect>
               {background.gradient.kind === 'linear' ? (
                 <FieldInput
                   type="number"
@@ -151,13 +140,14 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
 
         {background?.type === 'image' || background?.type === 'video' ? (
           <>
-            {background.type === 'image' ? (
-              <FieldSelect
-                value={background.fit}
-                onChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })}
-                options={FIT_OPTIONS}
-              />
-            ) : null}
+            <FieldSelect
+              value={background.fit}
+              onChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })}
+            >
+              <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
+              <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
+              <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
+            </FieldSelect>
             <ReacstButton onClick={() => setPickerKind(background.type === 'image' ? 'image' : 'video')}>
               Replace {background.type}…
             </ReacstButton>

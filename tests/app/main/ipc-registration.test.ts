@@ -64,6 +64,13 @@ vi.mock('electron', () => {
     app: { isPackaged: false, getPath: vi.fn(() => '/tmp') },
     clipboard: { readText: vi.fn(), writeText: vi.fn() },
     dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
+    // The agent credential store is constructed during registration; it only
+    // touches safeStorage when a key is actually read or written.
+    safeStorage: {
+      isEncryptionAvailable: vi.fn(() => true),
+      encryptString: vi.fn((value: string) => Buffer.from(value, 'utf-8')),
+      decryptString: vi.fn((buffer: Buffer) => buffer.toString('utf-8')),
+    },
     shell: { openPath: vi.fn(), openExternal: vi.fn() },
   };
 });
@@ -192,7 +199,9 @@ describe('main IPC registration (issue #152)', () => {
     const missing = RPC_CHANNEL_NAMES.filter((name) => !handleRegistrations.has(IPC[name]));
     expect(missing, `missing ipcMain.handle registration for: ${missing.join(', ')}`).toEqual([]);
     // Sanity: this is the full operation surface, not a partial list.
-    expect(RPC_CHANNEL_NAMES.length).toBe(104);
+    // 104 original + 11 read projections + `agentRespondAction` + the 25
+    // `agent:*` runtime operations.
+    expect(RPC_CHANNEL_NAMES.length).toBe(141);
   });
 
   it('registers nothing outside the canonical map (extra-registration regression)', () => {

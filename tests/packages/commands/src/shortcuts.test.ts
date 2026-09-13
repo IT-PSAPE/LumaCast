@@ -9,6 +9,7 @@ describe('SHORTCUTS table', () => {
       'openCommandPalette', 'setSlideBrowserMode',
       'takeSlide', 'deleteSelected', 'clearSelection',
       'nudgeOrGoNext', 'nudgeOrGoPrev', 'nudgeUp', 'nudgeDown', 'activateSlide',
+      'groupSelection', 'ungroupSelection',
     ];
     const ids = SHORTCUTS.map((s) => s.id);
     for (const id of allIds) {

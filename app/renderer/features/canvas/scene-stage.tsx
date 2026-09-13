@@ -3,7 +3,7 @@ import { Group, Layer, Line, Rect, Stage, Transformer } from 'react-konva';
 import type Konva from 'konva';
 import type { Id } from '@lumacast/kernel';
 import type { NdiOutputName } from '@lumacast/protocol';
-import type { RenderScene, SceneSurface } from '@lumacast/composition';
+import type { AlignTarget, RenderScene, SceneSurface } from '@lumacast/composition';
 import { traverseSceneNodes } from '@lumacast/composition';
 import {
   SceneSlideBackground,
@@ -265,6 +265,10 @@ function EditableSceneStage({
     pasteSelection,
     duplicateSelection,
     deleteSelected,
+    groupSelection,
+    ungroupSelection,
+    alignSelection,
+    distributeSelection,
   } = useElements();
   const editor = useSceneStageEditor({
     scene,
@@ -329,6 +333,13 @@ function EditableSceneStage({
 
   const hasSelection = selectedElementIds.length > 0;
   const canPaste = hasClipboardContent();
+  const canGroup = selectedElementIds.length >= 2;
+  const canDistribute = selectedElementIds.length >= 3;
+  const singleSelectedElement = selectedElementIds.length === 1
+    ? effectiveElements.find((element) => element.id === selectedElementIds[0]) ?? null
+    : null;
+  const canUngroup = singleSelectedElement?.type === 'group';
+  const alignTarget: AlignTarget = selectedElementIds.length >= 2 ? 'selection' : 'slide';
 
   useViewportChangeEffect(onViewportChange, viewport, scene);
   useCaptureSurfaceEffect(editor.stageRef, resolvedFixedViewport, ndiCaptureSource, scene, viewport);
@@ -450,6 +461,21 @@ function EditableSceneStage({
               <ContextMenu.Item disabled={!hasSelection} onSelect={() => { void cutSelection(); }}>Cut</ContextMenu.Item>
               <ContextMenu.Item disabled={!canPaste} onSelect={() => { void pasteSelection(); }}>Paste</ContextMenu.Item>
               <ContextMenu.Item disabled={!hasSelection} onSelect={() => { void duplicateSelection(); }}>Duplicate</ContextMenu.Item>
+              <ContextMenu.Separator />
+              <ContextMenu.Item disabled={!canGroup} onSelect={() => { void groupSelection(); }}>Group</ContextMenu.Item>
+              <ContextMenu.Item disabled={!canUngroup} onSelect={() => { void ungroupSelection(); }}>Ungroup</ContextMenu.Item>
+              <ContextMenu.Submenu label="Align" disabled={!hasSelection}>
+                <ContextMenu.Item onSelect={() => { void alignSelection('left', alignTarget); }}>Left</ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => { void alignSelection('centerX', alignTarget); }}>Center</ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => { void alignSelection('right', alignTarget); }}>Right</ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => { void alignSelection('top', alignTarget); }}>Top</ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => { void alignSelection('centerY', alignTarget); }}>Middle</ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => { void alignSelection('bottom', alignTarget); }}>Bottom</ContextMenu.Item>
+              </ContextMenu.Submenu>
+              <ContextMenu.Submenu label="Distribute" disabled={!canDistribute}>
+                <ContextMenu.Item onSelect={() => { void distributeSelection('horizontal'); }}>Horizontally</ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => { void distributeSelection('vertical'); }}>Vertically</ContextMenu.Item>
+              </ContextMenu.Submenu>
               <ContextMenu.Separator />
               <ContextMenu.Item disabled={!hasSelection} variant="destructive" onSelect={() => { void deleteSelected(); }}>Delete</ContextMenu.Item>
             </ContextMenu.Menu>

@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useId, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react';
+import { Children, isValidElement, useEffect, useId, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEventHandler, type ReactElement, type ReactNode, type Ref } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Field as BaseField } from '@base-ui/react/field';
 import { Input as BaseInput } from '@base-ui/react/input';
@@ -10,12 +10,6 @@ import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { Dropdown } from './dropdown';
 
 type ColorMode = 'solid' | 'gradient' | 'image';
-
-const FILL_MODE_OPTIONS = [
-  { value: 'solid', label: 'Solid' },
-  { value: 'gradient', label: 'Gradient' },
-  { value: 'image', label: 'Image' },
-];
 
 // The visible focus indicator for every field surface: a ring (not a border-color
 // swap), per the twelve-token styling contract.
@@ -62,7 +56,7 @@ function FieldIcon({ children, className, ...rest }: HTMLAttributes<HTMLSpanElem
 interface FieldInputProps {
   children?: ReactNode;
   disabled?: boolean;
-  type?: 'number' | 'text';
+  type?: 'number' | 'text' | 'password';
   value: string | number;
   onChange: (value: string) => void;
   onBlur?: () => void;
@@ -138,7 +132,7 @@ function FieldInput({ children, disabled = false, type = 'text', value, onChange
         {iconNode}
         <BaseInput
           ref={inputRef}
-          type="text"
+          type={type === 'password' ? 'password' : 'text'}
           value={value}
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
@@ -166,13 +160,40 @@ interface FieldSelectProps {
   value: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
-  options: Array<{ value: string; label: string; style?: CSSProperties }>;
+  options?: Array<{ value: string; label: string; style?: CSSProperties }>;
   label?: string;
   wide?: boolean;
 }
 
-function FieldSelect({ children, value, onChange, onBlur, options, label, wide }: FieldSelectProps) {
+interface FieldSelectOptionProps {
+  value: string;
+  children: ReactNode;
+  style?: CSSProperties;
+}
+
+function FieldSelectOption({ value, children, style }: FieldSelectOptionProps) {
+  return (
+    <BaseSelect.Item
+      value={value}
+      className="flex cursor-pointer select-none gap-2 rounded px-2 py-1.5 text-sm text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary"
+    >
+      <BaseSelect.ItemText style={style}>{children}</BaseSelect.ItemText>
+    </BaseSelect.Item>
+  );
+}
+
+function FieldSelectRoot({ children, value, onChange, onBlur, options, label, wide }: FieldSelectProps) {
   const icon = extractFieldIcon(children);
+  const optionParts = Children.toArray(children).filter(
+    (child): child is ReactElement<FieldSelectOptionProps> => isValidElement<FieldSelectOptionProps>(child) && child.type === FieldSelectOption,
+  );
+  const selectItems = [
+    ...optionParts.map((option) => ({
+      value: option.props.value,
+      label: option.props.children,
+    })),
+    ...(options ?? []),
+  ];
   const { overlayStack } = useWorkbench();
   const { register, unregister } = overlayStack;
   const selectId = useId();
@@ -197,7 +218,7 @@ function FieldSelect({ children, value, onChange, onBlur, options, label, wide }
 
   const control = (
     <BaseSelect.Root
-      items={options}
+      items={selectItems}
       value={value}
       onValueChange={(next) => { if (typeof next === 'string') onChange(next); }}
       onOpenChange={handleOpenChange}
@@ -218,14 +239,11 @@ function FieldSelect({ children, value, onChange, onBlur, options, label, wide }
             className="min-w-[var(--anchor-width)] rounded-md border border-primary bg-primary p-1 shadow-lg max-h-[min(32rem,70vh)] overflow-y-auto"
           >
             <BaseSelect.List>
-              {options.map((opt) => (
-                <BaseSelect.Item
-                  key={opt.value}
-                  value={opt.value}
-                  className="flex cursor-pointer select-none gap-2 rounded px-2 py-1.5 text-sm text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary"
-                >
-                  <BaseSelect.ItemText style={opt.style}>{opt.label}</BaseSelect.ItemText>
-                </BaseSelect.Item>
+              {optionParts}
+              {options?.map((option) => (
+                <FieldSelectOption key={option.value} value={option.value} style={option.style}>
+                  {option.label}
+                </FieldSelectOption>
               ))}
             </BaseSelect.List>
           </BaseSelect.Popup>
@@ -246,6 +264,8 @@ function FieldSelect({ children, value, onChange, onBlur, options, label, wide }
     </BaseField.Root>
   );
 }
+
+const FieldSelect = Object.assign(FieldSelectRoot, { Option: FieldSelectOption });
 
 interface FieldTextareaProps {
   disabled?: boolean;
@@ -318,8 +338,8 @@ function FieldColor({ value, onChange, label, wide, mode = 'solid', onModeChange
     pickerRef.current?.click();
   }
 
-  function handleModeChange(v: string) {
-    onModeChange?.(v as ColorMode);
+  function handleModeChange(v: ColorMode) {
+    onModeChange?.(v);
   }
 
   const colorField = (
@@ -331,11 +351,17 @@ function FieldColor({ value, onChange, label, wide, mode = 'solid', onModeChange
       {onModeChange ? (
         <Dropdown className="shrink-0">
           <Dropdown.Trigger className="flex items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
-            <span className="truncate px-1.5">{FILL_MODE_OPTIONS.find((o) => o.value === mode)?.label}</span>
+            <span className="truncate px-1.5">
+              {mode === 'solid' && 'Solid'}
+              {mode === 'gradient' && 'Gradient'}
+              {mode === 'image' && 'Image'}
+            </span>
             <ChevronDown className="shrink-0 size-3.5 mr-1.5 text-tertiary" />
           </Dropdown.Trigger>
           <Dropdown.Panel>
-            {FILL_MODE_OPTIONS.map((opt) => <Dropdown.Item key={opt.value} onClick={() => handleModeChange(opt.value)}>{opt.label}</Dropdown.Item>)}
+            <Dropdown.Item onClick={() => handleModeChange('solid')}>Solid</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleModeChange('gradient')}>Gradient</Dropdown.Item>
+            <Dropdown.Item onClick={() => handleModeChange('image')}>Image</Dropdown.Item>
           </Dropdown.Panel>
         </Dropdown>
       ) : null}

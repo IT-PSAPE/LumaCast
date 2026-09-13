@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import type { VideoElementPayload } from '@lumacast/composition';
-import { FieldCheckbox, FieldInput } from '@renderer/components/form/field';
+import type { SlideBackgroundFit, VideoElementPayload } from '@lumacast/composition';
+import { readMediaFit } from '@lumacast/composition';
+import { FieldCheckbox, FieldInput, FieldSelect } from '@renderer/components/form/field';
 import { EmptyState } from '../../components/display/empty-state';
 import { Section } from './inspector-section';
 import { Label } from '@renderer/components/display/text';
@@ -42,6 +43,7 @@ export function VideoElementInspector() {
   }
 
   const payload = draft;
+  const fit = readMediaFit('video', payload);
 
   function updatePayload(patch: Partial<VideoElementPayload>) {
     setElementPayloadDraft((current) => ({ ...(current as VideoElementPayload), ...patch }));
@@ -81,6 +83,21 @@ export function VideoElementInspector() {
               value={payload.playbackRate ?? 1}
               onChange={(value) => updatePayload({ playbackRate: clampPlaybackRate(parseNumber(value, payload.playbackRate ?? 1)) })}
             />
+          </Section.Row>
+        </Section.Body>
+      </Section.Root>
+
+      <Section.Root>
+        <Section.Header>
+          <Label.xs>Display</Label.xs>
+        </Section.Header>
+        <Section.Body>
+          <Section.Row>
+            <FieldSelect value={fit} onChange={(value) => updatePayload({ fit: value as SlideBackgroundFit })}>
+              <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
+              <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
+              <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
+            </FieldSelect>
           </Section.Row>
         </Section.Body>
       </Section.Root>

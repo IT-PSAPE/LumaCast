@@ -758,6 +758,11 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
   // shifts top-aligned text up and bottom-aligned text down by that overshoot
   // (its frame "bleed"), and middle stays put. Mirror it as a negative margin.
   const bleed = textLineBleedPadding(fontSize * maxFontSizeEm, lineHeight);
+  // Letter spacing is authored in px at the authored font size; scale it the
+  // same way the canvas does (`buildBoxWithAutoFit`) so auto-fit shrinking and
+  // the editor's own zoom (`sceneScale`) match the render exactly.
+  const autoFitScale = payload.autoFit && payload.fontSize ? baseFontSize / payload.fontSize : 1;
+  const letterSpacing = (box.letterSpacing ?? 0) * autoFitScale * sceneScale;
 
   const activeFormatting: string[] = [];
   if (rangeStyle?.bold.value && !rangeStyle.bold.mixed) activeFormatting.push('bold');
@@ -913,6 +918,7 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
             marginBottom: verticalAlign === 'bottom' && bleed > 0 ? -bleed : undefined,
             fontSize,
             lineHeight,
+            letterSpacing: letterSpacing !== 0 ? `${letterSpacing}px` : undefined,
             fontFamily: box.fontFamily,
             fontWeight: box.weight,
             fontStyle: box.italic ? 'italic' : 'normal',

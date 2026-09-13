@@ -9,11 +9,10 @@ import { ThemeEditorInspectorPanel } from './inspector-panel';
 import { ThemeEditorLayersPanel } from './layers-panel';
 import { useThemeEditorScreen } from './screen-context';
 import { ThemeFamilySection } from './theme-family-section';
-import { THEME_SECTIONS, singular } from './theme-sections';
 
 export function ThemeEditorScreenContent() {
   const { actions, state } = useThemeEditorScreen();
-  const allEmpty = THEME_SECTIONS.every(({ type }) => state.themesByType[type].length === 0);
+  const allEmpty = state.themesByType.presentation.length === 0 && state.themesByType.lyric.length === 0;
 
   return (
     <SplitPanel.Panel splitId="editor-main" orientation="horizontal" className="h-full" data-ui-region="editor-layout">
@@ -32,11 +31,8 @@ export function ThemeEditorScreenContent() {
                       <Plus />
                     </Dropdown.Trigger>
                     <Dropdown.Panel placement="bottom-end">
-                      {THEME_SECTIONS.map(({ type, label }) => (
-                        <Dropdown.Item key={type} onClick={() => actions.createTheme(type)}>
-                          New {singular(label)} theme
-                        </Dropdown.Item>
-                      ))}
+                      <Dropdown.Item onClick={() => actions.createTheme('presentation')}>New presentation theme</Dropdown.Item>
+                      <Dropdown.Item onClick={() => actions.createTheme('lyric')}>New lyric theme</Dropdown.Item>
                     </Dropdown.Panel>
                   </Dropdown>
                 </LumaCastPanel.GroupTitle>
@@ -47,9 +43,8 @@ export function ThemeEditorScreenContent() {
                         {allEmpty ? (
                           <p className="px-1 text-xs text-tertiary">No themes yet.</p>
                         ) : null}
-                        {THEME_SECTIONS.map(({ type, label }) => (
-                          <ThemeFamilySection key={type} themeType={type} label={label} />
-                        ))}
+                        <ThemeFamilySection themeType="presentation" />
+                        <ThemeFamilySection themeType="lyric" />
                       </div>
                     </ScrollArea.Viewport>
                     <ScrollArea.Scrollbar>

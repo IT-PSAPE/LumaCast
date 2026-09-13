@@ -130,7 +130,7 @@ export function isTrustedWebContentsUrl(value: string): boolean {
 // else outside this source file.
 const APPROVED_EXTERNAL_ORIGINS: ReadonlySet<string> = new Set([
   // app/main/application-menu.ts Help menu "Learn more" item.
-  'https://openai.com',
+  'https://github.com',
 ]);
 
 // Matched by origin (scheme + host + port), not by full URL: approving an

@@ -1,5 +1,5 @@
 import { Layers2, LayoutTemplate, ListMusic, Monitor, Search, Workflow } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getItemTypeLabel } from '@lumacast/composition';
 import type { ItemRef, ItemType, MediaAsset, Overlay, Stage } from '@lumacast/composition';
 import { Dialog } from '@renderer/components/overlays/dialog';
@@ -34,9 +34,18 @@ interface ResultItem {
   kind: ResultKind;
   label: string;
   subtitle?: string;
-  icon: ReactNode;
+  icon: ResultIcon;
   onSelect: () => void;
 }
+
+type ResultIcon =
+  | { kind: 'playlist' }
+  | { kind: 'item'; entity: ItemRef }
+  | { kind: 'overlay' }
+  | { kind: 'theme' }
+  | { kind: 'stage' }
+  | { kind: 'media'; asset: MediaAsset }
+  | { kind: 'macro' };
 
 const SECTION_ORDER: Array<{ kind: ResultKind; title: string }> = [
   { kind: 'playlist', title: 'Playlists' },
@@ -93,7 +102,7 @@ export function CommandPalette() {
       kind: 'playlist',
       label: playlist.name,
       subtitle: 'Playlist',
-      icon: <ListMusic size={16} />,
+      icon: { kind: 'playlist' },
       onSelect: () => {
         navigation.setCurrentPlaylistId(playlist.id);
         workbenchActions.setWorkbenchMode('show');
@@ -108,7 +117,7 @@ export function CommandPalette() {
           kind: type,
           label: item.title,
           subtitle: getItemTypeLabel(type),
-          icon: <ItemIcon entity={itemRef} size={16} />,
+          icon: { kind: 'item', entity: itemRef },
           onSelect: () => {
             navigation.browseItem(itemRef);
             workbenchActions.setWorkbenchMode('item-editor');
@@ -125,7 +134,7 @@ export function CommandPalette() {
       kind: 'overlay',
       label: overlay.name,
       subtitle: 'Overlay',
-      icon: <Layers2 size={16} />,
+      icon: { kind: 'overlay' },
       onSelect: () => {
         overlayEditor.setCurrentOverlayId(overlay.id);
         workbenchActions.setWorkbenchMode('overlay-editor');
@@ -138,7 +147,7 @@ export function CommandPalette() {
         kind: 'theme',
         label: theme.name,
         subtitle: `Theme · ${getItemTypeLabel(themeType)}`,
-        icon: <LayoutTemplate size={16} />,
+        icon: { kind: 'theme' },
         onSelect: () => {
           themeEditor.openThemeEditor(themeType, theme.id);
           workbenchActions.setWorkbenchMode('theme-editor');
@@ -156,7 +165,7 @@ export function CommandPalette() {
       kind: 'stage',
       label: stage.name,
       subtitle: 'Stage layout',
-      icon: <Monitor size={16} />,
+      icon: { kind: 'stage' },
       onSelect: () => {
         stageEditor.setCurrentStageId(stage.id);
         workbenchActions.setWorkbenchMode('stage-editor');
@@ -170,7 +179,7 @@ export function CommandPalette() {
         kind: 'media',
         label: asset.name,
         subtitle: `Media · ${asset.type}`,
-        icon: <MediaAssetIcon asset={asset} size={16} />,
+        icon: { kind: 'media', asset },
         onSelect: () => {
           // Behaves like clicking the asset in its bin: arms the relevant
           // layer. Image assets live in the resource drawer; video assets
@@ -191,7 +200,7 @@ export function CommandPalette() {
         kind: 'audio',
         label: asset.name,
         subtitle: 'Audio',
-        icon: <MediaAssetIcon asset={asset} size={16} />,
+        icon: { kind: 'media', asset },
         onSelect: () => {
           // Same behavior as clicking an audio row in the audio bin: arm it
           // for playback. Don't switch screens — the user is presenting.
@@ -204,7 +213,7 @@ export function CommandPalette() {
       kind: 'macro',
       label: macro.name,
       subtitle: macro.description || `Macro · ${macro.cues.length} cues`,
-      icon: <Workflow size={16} />,
+      icon: { kind: 'macro' },
       onSelect: () => {
         void runMacro(macro.id);
       },
@@ -310,7 +319,7 @@ export function CommandPalette() {
                                   isActive ? 'bg-secondary text-primary' : 'text-primary',
                                 )}
                               >
-                                <span className="text-secondary shrink-0">{item.icon}</span>
+                                <span className="text-secondary shrink-0"><ResultIconView icon={item.icon} /></span>
                                 <span className="min-w-0 flex-1 truncate">{item.label}</span>
                                 {item.subtitle && (
                                   <span className="text-xs text-tertiary shrink-0">{item.subtitle}</span>
@@ -330,6 +339,24 @@ export function CommandPalette() {
       </Dialog.Portal>
     </Dialog.Root>
   );
+}
+
+function ResultIconView({ icon }: { icon: ResultIcon }) {
+  switch (icon.kind) {
+    case 'item': return <ItemIcon entity={icon.entity} size={16} />;
+    case 'media': return <MediaAssetIcon asset={icon.asset} size={16} />;
+    case 'playlist': return <ListMusic size={16} />;
+    case 'overlay': return <Layers2 size={16} />;
+    case 'theme': return <LayoutTemplate size={16} />;
+    case 'stage': return <Monitor size={16} />;
+    case 'macro': return <Workflow size={16} />;
+  }
+
+  return assertNever(icon);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled result icon: ${String(value)}`);
 }
 
 function groupBySection(items: ResultItem[]): Array<{ kind: ResultKind; title: string; items: ResultItem[] }> {

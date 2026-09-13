@@ -44,16 +44,12 @@ export function VirtualizedThumbnailGrid({
   const items = useMemo(() => Children.toArray(children), [children]);
 
   const rows = useMemo(() => {
-    const result: ReactNode[] = [];
+    const result: ReactNode[][] = [];
     for (let index = 0; index < items.length; index += columns) {
-      result.push(
-        <ThumbnailGrid key={`row-${index}`} columns={columns} className={className}>
-          {items.slice(index, index + columns)}
-        </ThumbnailGrid>,
-      );
+      result.push(items.slice(index, index + columns));
     }
     return result;
-  }, [className, columns, items]);
+  }, [columns, items]);
 
   const activeRowIndex = activeIndex == null || activeIndex < 0 ? null : Math.floor(activeIndex / columns);
   const retainedRowIndexes = useMemo(
@@ -73,7 +69,11 @@ export function VirtualizedThumbnailGrid({
       className={containerClassName}
       {...rest}
     >
-      {rows}
+      {rows.map((rowItems, rowIndex) => (
+        <ThumbnailGrid key={`row-${rowIndex}`} columns={columns} className={className}>
+          {rowItems}
+        </ThumbnailGrid>
+      ))}
     </VirtualizedList>
   );
 }

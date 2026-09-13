@@ -42,7 +42,9 @@ export type ShortcutActionId =
   | 'nudgeOrGoPrev'
   | 'nudgeUp'
   | 'nudgeDown'
-  | 'activateSlide';
+  | 'activateSlide'
+  | 'groupSelection'
+  | 'ungroupSelection';
 
 export interface ShortcutDefinition {
   id: ShortcutActionId;
@@ -216,5 +218,23 @@ export const SHORTCUTS: readonly ShortcutDefinition[] = [
     key: '1-9',
     modifiers: { meta: false, shift: false, alt: false },
     accelerator: { mac: '1-9', other: '1-9' },
+  },
+  {
+    id: 'groupSelection',
+    label: 'Group selected objects',
+    category: 'editing',
+    context: 'editWithSelection',
+    key: 'g',
+    modifiers: { meta: true, shift: false, alt: false },
+    accelerator: { mac: 'Cmd+G', other: 'Ctrl+G' },
+  },
+  {
+    id: 'ungroupSelection',
+    label: 'Ungroup selected group',
+    category: 'editing',
+    context: 'editWithSelection',
+    key: 'g',
+    modifiers: { meta: true, shift: true, alt: false },
+    accelerator: { mac: 'Cmd+Shift+G', other: 'Ctrl+Shift+G' },
   },
 ];

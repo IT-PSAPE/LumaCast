@@ -6,7 +6,6 @@ interface BinControlsProviderProps {
   children: ReactNode;
   searchValue: string;
   onSearchChange: (value: string) => void;
-  searchPlaceholder: string;
   viewMode: ResourceDrawerViewMode;
   onViewModeChange: (mode: ResourceDrawerViewMode) => void;
   grid: BinGridConfig | null;
@@ -16,7 +15,6 @@ export function BinControlsProvider({
   children,
   searchValue,
   onSearchChange,
-  searchPlaceholder,
   viewMode,
   onViewModeChange,
   grid,
@@ -25,9 +23,8 @@ export function BinControlsProvider({
     () => ({
       state: { searchValue, viewMode, grid },
       actions: { onSearchChange, onViewModeChange },
-      meta: { searchPlaceholder },
     }),
-    [grid, onSearchChange, onViewModeChange, searchPlaceholder, searchValue, viewMode],
+    [grid, onSearchChange, onViewModeChange, searchValue, viewMode],
   );
 
   return <BinControlsContext.Provider value={value}>{children}</BinControlsContext.Provider>;

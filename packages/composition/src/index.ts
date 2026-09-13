@@ -35,12 +35,14 @@ export * from './rich-text/resolve';
 export * from './rich-text/serialize';
 export * from './rich-text/edit';
 export * from './rich-text/measure';
+export * from './rich-text/agent-runs';
 
 // ---------------------------------------------------------------------------
 // Composition-domain helpers.
 // ---------------------------------------------------------------------------
 export * from './binding-values';
 export * from './clone';
+export * from './element-geometry';
 export * from './element-payload';
 export * from './items';
 export * from './playlist-item-reference';

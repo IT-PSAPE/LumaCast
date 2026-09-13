@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { XCircle } from 'lucide-react';
 import type { Stage } from '@lumacast/composition';
 import { useStagePlayback } from '../../../contexts/playback/playback-context';
 import { useStageEditor } from '../../../contexts/asset-editor/asset-editor-context';
@@ -7,6 +8,7 @@ import { useProjectContent } from '../../../contexts/use-project-content';
 import { filterByText } from '../../../utils/filter-by-text';
 import { BinPanelLayout } from '@renderer/components/layout/collection-layout';
 import { BinShell } from '@renderer/components/layout/bin-shell';
+import { IconGroup } from '@renderer/components/icon-group';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 import { StageCard } from './stage-card';
 
@@ -25,6 +27,16 @@ export function StageBinPanel() {
 
   return (
     <BinShell>
+      <IconGroup.Root fill className="rounded-none">
+        <IconGroup.Item
+          active={Boolean(currentStageId)}
+          aria-label="Clear stage"
+          title="Clear stage"
+          onClick={() => setCurrentStageId(null)}
+        >
+          <XCircle className="size-4" />
+        </IconGroup.Item>
+      </IconGroup.Root>
       <BinShell.Content>
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode} virtualize>
           {stages.map((stage, index) => (

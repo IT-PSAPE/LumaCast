@@ -51,20 +51,15 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
     setBrokenSrc(displaySrc);
   }, [displaySrc, status]);
 
-  if (showMissingSource) {
-    return (
-      <div ref={hostRef} className="absolute inset-0">
+  return (
+    <div ref={hostRef} className="absolute inset-0">
+      {showMissingSource && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 border border-error/50 bg-error/15 text-error">
           <AlertTriangle size={16} strokeWidth={1.75} />
           <span className="px-2 text-center text-xs uppercase tracking-wider">Missing media</span>
         </div>
-      </div>
-    );
-  }
-
-  if (displaySrc) {
-    return (
-      <div ref={hostRef} className="absolute inset-0">
+      )}
+      {!showMissingSource && displaySrc && (
         <img
           src={displaySrc}
           alt={resolvedAsset.name}
@@ -72,28 +67,24 @@ export function MediaThumbnail({ asset }: { asset: MediaAsset }) {
           draggable={false}
           crossOrigin="anonymous"
           onError={() => setBrokenSrc(displaySrc)}
-          className={`absolute inset-0 h-full w-full ${resolvedAsset.type === 'video' ? 'object-contain bg-black' : 'object-cover'}`}
+          className={`absolute inset-0 h-full w-full object-contain${resolvedAsset.type === 'video' ? ' bg-black' : ''}`}
         />
-      </div>
-    );
-  }
-  if (resolvedAsset.type === 'video' || resolvedAsset.type === 'image') {
-    return (
-      <div ref={hostRef} className="absolute inset-0">
+      )}
+      {!showMissingSource && !displaySrc && (resolvedAsset.type === 'video' || resolvedAsset.type === 'image') && (
         <div className="absolute inset-0 flex items-center justify-center bg-tertiary/45 text-tertiary">
-            <MediaAssetIcon
-              asset={resolvedAsset}
-              size={20}
-              strokeWidth={1.75}
-              className={status === 'generating' || status === 'uploading' ? 'animate-pulse' : undefined}
-            />
-          </div>
+          <MediaAssetIcon
+            asset={resolvedAsset}
+            size={20}
+            strokeWidth={1.75}
+            className={status === 'generating' || status === 'uploading' ? 'animate-pulse' : undefined}
+          />
         </div>
-    );
-  }
-  return (
-    <div ref={hostRef} className="absolute inset-0 flex items-center justify-center">
-      <span className="text-tertiary text-sm font-bold tracking-wider uppercase">{resolvedAsset.type}</span>
+      )}
+      {!showMissingSource && !displaySrc && resolvedAsset.type !== 'video' && resolvedAsset.type !== 'image' && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-tertiary text-sm font-bold tracking-wider uppercase">{resolvedAsset.type}</span>
+        </div>
+      )}
     </div>
   );
 }

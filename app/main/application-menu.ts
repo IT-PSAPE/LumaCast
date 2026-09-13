@@ -423,7 +423,7 @@ function toMenuTemplateItem(item: SerializableMenuItem, browserWindow: BrowserWi
   }
 
   if (item.id === 'learn-more') {
-    return { ...base, click: () => { void shell.openExternal('https://openai.com'); } };
+    return { ...base, click: () => { void shell.openExternal('https://github.com/IT-PSAPE/LumaCast'); } };
   }
 
   if (item.submenu) {

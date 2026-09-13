@@ -139,7 +139,10 @@ function resolveGraphemes(runs: RichRun[], box: RichBoxStyle): StyledGrapheme[] 
   return out;
 }
 
-function measureGraphemes(slice: StyledGrapheme[], measure: MeasureText): number {
+// `letterSpacing` adds a fixed px gap per grapheme (mirroring Konva.Text's own
+// `_getTextWidth`, which sums `measureText(text).width + letterSpacing * length`)
+// so wrap decisions and line/box widths account for it, not just the draw step.
+function measureGraphemes(slice: StyledGrapheme[], measure: MeasureText, letterSpacing = 0): number {
   let total = 0;
   let i = 0;
   while (i < slice.length) {
@@ -150,7 +153,7 @@ function measureGraphemes(slice: StyledGrapheme[], measure: MeasureText): number
       text += slice[j].g;
       j += 1;
     }
-    total += measure(text, font);
+    total += measure(text, font) + letterSpacing * (j - i);
     i = j;
   }
   return total;
@@ -190,20 +193,23 @@ function coalesce(slice: StyledGrapheme[]): RichPiece[] {
   return out;
 }
 
-function toLine(slice: StyledGrapheme[], measure: MeasureText, lastInParagraph: boolean): LaidOutLine {
+function toLine(slice: StyledGrapheme[], measure: MeasureText, lastInParagraph: boolean, letterSpacing: number): LaidOutLine {
   const pieces = coalesce(slice);
-  return { pieces, width: measureGraphemes(slice, measure), lastInParagraph };
+  return { pieces, width: measureGraphemes(slice, measure, letterSpacing), lastInParagraph };
 }
 
 // Konva-faithful word wrap of one Block's Runs into `width`. An all-whitespace or
 // empty block lays out as one empty line; a single word wider than the box is
 // broken mid-word (matching Konva), everything else breaks at spaces/dashes.
+// `box.letterSpacing` is folded into every width measurement below so a wider
+// letter spacing wraps earlier, not just draws with gaps.
 export function wrapRuns(runs: RichRun[], box: RichBoxStyle, { width, measure }: WrapOptions): LaidOutLine[] {
   const maxWidth = width;
+  const letterSpacing = box.letterSpacing ?? 0;
   let line = resolveGraphemes(runs, box);
   const lines: StyledGrapheme[][] = [];
 
-  if (!(maxWidth > 0) || measureGraphemes(line, measure) <= maxWidth) {
+  if (!(maxWidth > 0) || measureGraphemes(line, measure, letterSpacing) <= maxWidth) {
     lines.push(line);
   } else {
     while (line.length > 0) {
@@ -214,7 +220,7 @@ export function wrapRuns(runs: RichRun[], box: RichBoxStyle, { width, measure }:
       let matchWidth = 0;
       while (low < high) {
         const mid = (low + high) >>> 1;
-        const substrWidth = measureGraphemes(line.slice(0, mid + 1), measure);
+        const substrWidth = measureGraphemes(line.slice(0, mid + 1), measure, letterSpacing);
         if (substrWidth <= maxWidth) {
           low = mid + 1;
           matchCount = mid + 1;
@@ -236,7 +242,7 @@ export function wrapRuns(runs: RichRun[], box: RichBoxStyle, { width, measure }:
 
       lines.push(trimRightGraphemes(line.slice(0, count)));
       line = trimLeftGraphemes(line.slice(count));
-      if (line.length > 0 && measureGraphemes(line, measure) <= maxWidth) {
+      if (line.length > 0 && measureGraphemes(line, measure, letterSpacing) <= maxWidth) {
         lines.push(line);
         break;
       }
@@ -244,7 +250,7 @@ export function wrapRuns(runs: RichRun[], box: RichBoxStyle, { width, measure }:
   }
 
   if (lines.length === 0) lines.push([]);
-  return lines.map((slice, index) => toLine(slice, measure, index === lines.length - 1));
+  return lines.map((slice, index) => toLine(slice, measure, index === lines.length - 1, letterSpacing));
 }
 
 // A Canvas2D-backed measurer, shared so the renderer and editor lay out
@@ -287,7 +293,9 @@ export function measureTextLineLayoutHeight(lineCount: number, fontSize: number,
 // fontScale the canvas uses.
 export function buildBoxWithAutoFit(box: RichBoxStyle, fontSize: number, authoredFontSize: number): RichBoxStyle {
   const scale = authoredFontSize ? fontSize / authoredFontSize : 1;
-  return { ...box, fontSize, fontScale: scale };
+  // Letter spacing is authored in px at the authored font size; auto-fit must
+  // scale it down with the font or it visually balloons as the text shrinks.
+  return { ...box, fontSize, fontScale: scale, letterSpacing: (box.letterSpacing ?? 0) * scale };
 }
 
 function richBodyHasRenderableText(body: RichBody): boolean {
@@ -342,6 +350,7 @@ export interface PreparedRichLayout {
 export function prepareRichLayout(params: { body: RichBody; box: RichBoxStyle; width: number; lineHeight: number; align: 'left' | 'center' | 'right' | 'justify' }): PreparedRichLayout {
   const { body, box, width, lineHeight, align } = params;
   const boxFont = runFontString(box);
+  const letterSpacing = box.letterSpacing ?? 0;
   const lines: PreparedDrawLine[] = [];
   let maxFontSize = box.fontSize;
   let numberCounter = 0;
@@ -354,14 +363,15 @@ export function prepareRichLayout(params: { body: RichBody; box: RichBoxStyle; w
     const wrapped = wrapRuns(block.runs, box, { width: Math.max(1, width - markerWidth), measure: sharedMeasurer });
     wrapped.forEach((line, index) => {
       const pieces = line.pieces.map((piece) => {
+        const pieceFont = runFontString(piece.style);
         const prepared: PreparedDrawPiece = {
           text: piece.text,
           color: piece.style.color,
-          font: runFontString(piece.style),
+          font: pieceFont,
           fontSize: piece.style.fontSize,
           underline: piece.style.underline,
           strike: piece.style.strikethrough,
-          width: sharedMeasurer(piece.text, runFontString(piece.style)),
+          width: sharedMeasurer(piece.text, pieceFont) + letterSpacing * stringToGraphemes(piece.text).length,
           spaceCount: 0,
           segments: [],
         };
@@ -372,7 +382,7 @@ export function prepareRichLayout(params: { body: RichBody; box: RichBoxStyle; w
           if (isSpace) prepared.spaceCount += 1;
           prepared.segments.push({
             text: segmentText,
-            width: sharedMeasurer(segmentText, runFontString(piece.style)),
+            width: sharedMeasurer(segmentText, pieceFont) + letterSpacing * stringToGraphemes(segmentText).length,
             isSpace,
           });
         }

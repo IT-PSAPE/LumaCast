@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { PlaylistRow } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
@@ -110,31 +110,6 @@ export function PlaylistRowList({
     );
   }
 
-  const nodes: ReactNode[] = [];
-  rows.forEach((row, index) => {
-    if (dropIndex === index) nodes.push(<DropIndicator key={`drop-${index}`} />);
-    nodes.push(
-      row.kind === 'separator'
-        ? (
-          <SeparatorRow
-            key={row.id}
-            row={row}
-            onDragOver={(event) => handleRowDragOver(index, event)}
-            onDrop={handleDrop}
-          />
-        )
-        : (
-          <PlaylistItemRow
-            key={row.id}
-            row={row}
-            onDragOver={(event) => handleRowDragOver(index, event)}
-            onDrop={handleDrop}
-          />
-        ),
-    );
-  });
-  if (dropIndex === rows.length) nodes.push(<DropIndicator key="drop-end" />);
-
   return (
     <SortableList.Root
       {...dnd}
@@ -165,9 +140,55 @@ export function PlaylistRowList({
           scrollToIndexRef={virtualScrollToIndexRef}
           className="p-1"
         >
-          {nodes}
+          {rows.map((row, index) => (
+            <PlaylistRowSlot
+              key={row.id}
+              row={row}
+              index={index}
+              dropIndex={dropIndex}
+              isLast={index === rows.length - 1}
+              onDragOver={handleRowDragOver}
+              onDrop={handleDrop}
+            />
+          ))}
         </VirtualizedList>
       </div>
     </SortableList.Root>
+  );
+}
+
+function PlaylistRowSlot({
+  row,
+  index,
+  dropIndex,
+  isLast,
+  onDragOver,
+  onDrop,
+}: {
+  row: PlaylistRow;
+  index: number;
+  dropIndex: number | null;
+  isLast: boolean;
+  onDragOver: (index: number, event: React.DragEvent<HTMLElement>) => void;
+  onDrop: (event: React.DragEvent<HTMLElement>) => void;
+}) {
+  return (
+    <>
+      {dropIndex === index && <DropIndicator />}
+      {row.kind === 'separator' ? (
+        <SeparatorRow
+          row={row}
+          onDragOver={(event) => onDragOver(index, event)}
+          onDrop={onDrop}
+        />
+      ) : (
+        <PlaylistItemRow
+          row={row}
+          onDragOver={(event) => onDragOver(index, event)}
+          onDrop={onDrop}
+        />
+      )}
+      {isLast && dropIndex === index + 1 && <DropIndicator />}
+    </>
   );
 }

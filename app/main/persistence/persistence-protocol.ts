@@ -88,6 +88,17 @@ export const PERSISTENCE_METHODS = [
   'exportProjectBackup',
   'validateProjectBackup',
   'restoreProjectBackup',
+  'listPlaylists',
+  'getPlaylist',
+  'listItems',
+  'getItem',
+  'getSlide',
+  'listMediaAssets',
+  'listThemes',
+  'listOverlays',
+  'listStages',
+  'getProjectOverview',
+  'searchContent',
 ] as const satisfies readonly RepositoryMethodName[];
 
 type AnyFunction = (...args: never[]) => unknown;

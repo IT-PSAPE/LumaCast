@@ -52,8 +52,8 @@ export function DeckBrowserToolbar({ items, showPlaylistTabs }: DeckBrowserToolb
             </Dropdown.Trigger>
             {/* Ordered by reach frequency: slide actions, size, then view. */}
             <Dropdown.Panel placement="bottom-end" className="min-w-64">
-              <Dropdown.Item onClick={handleAddSlide}>Add slide</Dropdown.Item>
-              <Dropdown.Item onClick={handleOpenEditor}>Open lyric editor</Dropdown.Item>
+              <Dropdown.Item disabled={!currentItem} onClick={handleAddSlide}>Add slide</Dropdown.Item>
+              <Dropdown.Item disabled={currentItemRef?.type !== 'lyric'} onClick={handleOpenEditor}>Open lyric editor</Dropdown.Item>
               <Dropdown.Item disabled={!currentItemRef} onClick={() => setTimingOpen(true)}>Slide timing</Dropdown.Item>
               {isGridMode && (
                 <>

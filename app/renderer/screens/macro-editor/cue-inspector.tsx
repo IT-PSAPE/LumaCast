@@ -11,11 +11,6 @@ import { CueTargetField } from './cue-target-field';
 import type { CueFailurePolicy, CueKind, CuePayload } from '@lumacast/automation';
 
 const CUE_KIND_OPTIONS = Object.entries(CUE_KIND_LABELS).map(([value, label]) => ({ value, label })) as Array<{ value: CueKind; label: string }>;
-const FAILURE_POLICY_OPTIONS: Array<{ value: CueFailurePolicy; label: string }> = [
-  { value: 'continue', label: 'Continue' },
-  { value: 'abort', label: 'Abort' },
-];
-
 export function CueInspector({ row }: { row: MacroEditorCueRow }) {
   const { state: { currentMacro }, actions: { updateRowKind, updateRowPayload, updateRowFailurePolicy, updateRowDelays, deleteRow, selectRow } } = useMacroEditorScreen();
   const { overlays, mediaAssets, stages, macros } = useProjectContent();
@@ -48,10 +43,12 @@ export function CueInspector({ row }: { row: MacroEditorCueRow }) {
           <FieldSelect
             label="Cue type"
             value={kind ?? ''}
-            options={kind ? CUE_KIND_OPTIONS : [{ value: '', label: 'Pick a cue type…' }, ...CUE_KIND_OPTIONS]}
+            options={CUE_KIND_OPTIONS}
             onChange={(value) => { if (value) updateRowKind(row.localId, value as CueKind); }}
             wide
-          />
+          >
+            {!kind && <FieldSelect.Option value="">Pick a cue type…</FieldSelect.Option>}
+          </FieldSelect>
           {kind ? (
             <CueTargetField
               kind={kind}
@@ -63,10 +60,12 @@ export function CueInspector({ row }: { row: MacroEditorCueRow }) {
           <FieldSelect
             label="On failure"
             value={failurePolicy}
-            options={FAILURE_POLICY_OPTIONS}
             onChange={(value) => updateRowFailurePolicy(row.localId, value as CueFailurePolicy)}
             wide
-          />
+          >
+            <FieldSelect.Option value={'continue' satisfies CueFailurePolicy}>Continue</FieldSelect.Option>
+            <FieldSelect.Option value={'abort' satisfies CueFailurePolicy}>Abort</FieldSelect.Option>
+          </FieldSelect>
         </Section.Body>
       </Section.Root>
       <Section.Root>
