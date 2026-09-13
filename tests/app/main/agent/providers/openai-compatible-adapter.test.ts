@@ -365,7 +365,7 @@ describe('OpenAiCompatibleAdapter.listModels', () => {
 
     const models = await adapter.listModels();
 
-    expect(models).toEqual([{ id: 'gpt-5', label: 'gpt-5', contextWindow: null, maxOutputTokens: null, supportsTools: true }]);
+    expect(models).toEqual([{ id: 'gpt-5', label: 'gpt-5', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false }]);
   });
 
   it('reads OpenRouter context_length and supported_parameters', async () => {
@@ -379,9 +379,9 @@ describe('OpenAiCompatibleAdapter.listModels', () => {
     const models = await adapter.listModels();
 
     expect(models).toEqual([
-      { id: 'anthropic/claude-opus-5', label: 'anthropic/claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: null, supportsTools: true },
-      { id: 'some/no-tools-model', label: 'some/no-tools-model', contextWindow: 32_000, maxOutputTokens: null, supportsTools: false },
-      { id: 'some/undeclared-model', label: 'some/undeclared-model', contextWindow: null, maxOutputTokens: null, supportsTools: true },
+      { id: 'anthropic/claude-opus-5', label: 'anthropic/claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: null, supportsTools: true, isFree: false },
+      { id: 'some/no-tools-model', label: 'some/no-tools-model', contextWindow: 32_000, maxOutputTokens: null, supportsTools: false, isFree: false },
+      { id: 'some/undeclared-model', label: 'some/undeclared-model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
     ]);
   });
 

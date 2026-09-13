@@ -11,9 +11,9 @@ import { fail, isRecord, expectString, expectEnum, rejectUnknownKeys, type Codec
  * against. `openai-compatible` covers any self-hosted or third-party
  * endpoint that speaks the OpenAI chat-completions wire format.
  */
-export type AgentProviderId = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'openai-compatible';
+export type AgentProviderId = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'opencode' | 'openai-compatible';
 
-export const AGENT_PROVIDER_IDS: readonly AgentProviderId[] = ['anthropic', 'openai', 'google', 'openrouter', 'openai-compatible'];
+export const AGENT_PROVIDER_IDS: readonly AgentProviderId[] = ['anthropic', 'openai', 'google', 'openrouter', 'opencode', 'openai-compatible'];
 
 /** Static display/config metadata for one provider, independent of any user's stored credentials. */
 export interface AgentProviderInfo {
@@ -35,6 +35,13 @@ export const AGENT_PROVIDERS: readonly AgentProviderInfo[] = [
     requiresBaseUrl: false,
     defaultBaseUrl: 'https://openrouter.ai/api/v1',
     docsUrl: 'https://openrouter.ai/docs',
+  },
+  {
+    id: 'opencode',
+    label: 'OpenCode Zen',
+    requiresBaseUrl: false,
+    defaultBaseUrl: 'https://opencode.ai/zen/v1',
+    docsUrl: 'https://opencode.ai/docs/zen',
   },
   {
     id: 'openai-compatible',
@@ -210,6 +217,8 @@ export interface AgentModelInfo {
   /** Maximum value for the provider's per-request output-token cap (`max_tokens`/`maxOutputTokens`), or `null` when the provider doesn't report one. */
   maxOutputTokens: number | null;
   supportsTools: boolean;
+  /** Whether authoritative catalog metadata reports zero input and output cost for this model. */
+  isFree: boolean;
 }
 
 // ---------------------------------------------------------------------------

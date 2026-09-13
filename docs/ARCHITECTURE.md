@@ -406,6 +406,13 @@ Each rule is also proven by a committed fixture scenario under
   never holds a credential and never opens a provider connection.
   `agentSendMessage` returns a `runId` immediately — a run outlives the panel
   that started it, and one thread may have only one run in flight.
+- Provider adapters remain a main-process boundary. OpenCode Zen defaults to
+  `https://opencode.ai/zen/v1`, reads its live `/models` catalog, and enriches
+  those IDs with public Models.dev display/capability metadata. Its catalog is
+  mixed-protocol: GPT/Grok/Muse use Responses, Claude/Qwen use Messages,
+  Gemini uses `streamGenerateContent`, and the remaining models use Chat
+  Completions. The API key is sent only to the selected Zen endpoint, never to
+  Models.dev.
 - Tools are generated from the canonical action registry
   (`buildActionToolDefinitions`), so a model sees every `ActionId` with the
   same JSON Schema `decodeActionParams` validates against, minus the

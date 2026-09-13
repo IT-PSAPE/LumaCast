@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AGENT_PROVIDER_IDS } from '@lumacast/protocol';
 import { createProviderAdapter } from '../../../../../app/main/agent/providers/index';
+import { OpenCodeZenAdapter } from '../../../../../app/main/agent/providers/opencode-zen-adapter';
 
 // Minimal fakes — the factory test only needs construction to succeed and
 // `.id` to come back right; the adapters' own behavior is covered in
@@ -48,5 +49,9 @@ describe('createProviderAdapter', () => {
     });
 
     expect(adapter.id).toBe(providerId);
+  });
+
+  it('uses the mixed-protocol Zen adapter for OpenCode', () => {
+    expect(createProviderAdapter('opencode', { apiKey: 'test-key', baseUrl: null })).toBeInstanceOf(OpenCodeZenAdapter);
   });
 });

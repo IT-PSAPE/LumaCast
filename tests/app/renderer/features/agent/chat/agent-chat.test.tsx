@@ -39,6 +39,7 @@ const workbench = vi.hoisted(() => {
   function emit() { for (const listener of listeners) listener(); }
   return {
     setWorkbenchMode: vi.fn(),
+    setSettingsTab: vi.fn(),
     subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); },
     getStack: () => stack,
     register: (id: string) => { if (!stack.includes(id)) { stack = [...stack, id]; emit(); } },
@@ -61,7 +62,7 @@ vi.mock('@renderer/contexts/workbench-context', async () => {
   return {
     useWorkbench: () => ({
       state: {},
-      actions: { setWorkbenchMode: workbench.setWorkbenchMode },
+      actions: { setWorkbenchMode: workbench.setWorkbenchMode, setSettingsTab: workbench.setSettingsTab },
       overlayStack: {
         rootElement: overlayRoot(),
         stack: react.useSyncExternalStore(workbench.subscribe, workbench.getStack),
@@ -125,7 +126,7 @@ function buildCastApi() {
     agentGetConfig: vi.fn(async () => makeConfig()),
     agentGetCredentialStatus: vi.fn(async () => makeCredentialStatuses()),
     agentListModels: vi.fn(async (): Promise<AgentModelInfo[]> => [
-      { id: 'model-a', label: 'Model A', contextWindow: null, maxOutputTokens: null, supportsTools: true },
+      { id: 'model-a', label: 'Model A', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
     ]),
     agentValidateModel: vi.fn(async () => 'valid' as const),
     onAgentThreadEvent: vi.fn((callback: (event: AgentThreadEvent) => void) => {
@@ -193,6 +194,7 @@ describe('not-configured state', () => {
     expect(screen.queryByPlaceholderText('Message the assistant')).toBeNull();
 
     fireEvent.click(openSettings);
+    expect(workbench.setSettingsTab).toHaveBeenCalledWith('assistant');
     expect(workbench.setWorkbenchMode).toHaveBeenCalledWith('settings');
     // Closing on navigation is a deliberate call, not spec-mandated.
     await waitFor(() => expect(document.querySelector('[data-popover-content="true"]')).toBeNull());
@@ -388,6 +390,15 @@ describe('rename', () => {
 });
 
 describe('model picker', () => {
+  it('shows the effective model display name before a thread is created', async () => {
+    castApi.agentGetConfig.mockResolvedValue(makeConfig({ model: 'model-a' }));
+    render(<Harness />);
+    await openConfiguredPopup();
+
+    expect(await screen.findByText('Model A')).toBeInTheDocument();
+    expect(screen.queryByText('Default')).toBeNull();
+  });
+
   it('calls agentSetThreadModel when a model is chosen', async () => {
     threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service' })]]);
     castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service' })]);
@@ -400,11 +411,43 @@ describe('model picker', () => {
     await waitFor(() => expect(castApi.agentGetThread).toHaveBeenCalled());
 
     const picker = await screen.findByRole('button', { name: 'Model' });
-    expect(within(picker).getByText('Default')).toBeInTheDocument();
+    expect(within(picker).getByText('claude-sonnet')).toBeInTheDocument();
     fireEvent.click(picker);
 
     fireEvent.click(await screen.findByText('Model A'));
     await waitFor(() => expect(castApi.agentSetThreadModel).toHaveBeenCalledWith({ id: 't-1', provider: 'anthropic', model: 'model-a' }));
+  });
+
+  it('exposes a retry when model loading fails', async () => {
+    castApi.agentListModels
+      .mockRejectedValueOnce(new Error('catalog unavailable'))
+      .mockResolvedValueOnce([]);
+
+    render(<Harness />);
+    await openConfiguredPopup();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t load models.');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(castApi.agentListModels).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('marks free models in the picker', async () => {
+    threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service' })]]);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service' })]);
+    castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+    castApi.agentListModels.mockResolvedValue([
+      { id: 'big-pickle', label: 'Big Pickle', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: true },
+    ]);
+
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Sunday service'));
+    const picker = await screen.findByRole('button', { name: 'Model' });
+    fireEvent.click(picker);
+
+    expect(await screen.findByText('Big Pickle')).toBeInTheDocument();
+    expect(screen.getByText('Free')).toBeInTheDocument();
   });
 });
 

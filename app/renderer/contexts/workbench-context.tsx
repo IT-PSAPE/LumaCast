@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { OverlayAnimation } from '@lumacast/composition';
-import type { DrawerTab, DrawerViewModeMap, InspectorTab, ProgramGridDensity, ProgramMode, ProgramSurfaceKind, ResourceDrawerViewMode, SlideBrowserMode, WorkbenchMode } from '../types/ui';
+import type { DrawerTab, DrawerViewModeMap, InspectorTab, ProgramGridDensity, ProgramMode, ProgramSurfaceKind, ResourceDrawerViewMode, SettingsTabId, SlideBrowserMode, WorkbenchMode } from '../types/ui';
 import { useGridSize } from '../hooks/use-grid-size';
 import { useLocalStorage } from '../hooks/use-local-storage';
 
@@ -49,6 +49,7 @@ type WorkbenchContextValue = {
     programSingleSurface: ProgramSurfaceKind;
     programGridDensity: ProgramGridDensity;
     slideBrowserMode: SlideBrowserMode;
+    settingsTab: SettingsTabId;
     workbenchMode: WorkbenchMode;
   };
   actions: {
@@ -61,6 +62,7 @@ type WorkbenchContextValue = {
     setProgramSingleSurface: (surface: ProgramSurfaceKind) => void;
     setProgramGridDensity: (density: ProgramGridDensity) => void;
     setSlideBrowserMode: (mode: SlideBrowserMode) => void;
+    setSettingsTab: (tab: SettingsTabId) => void;
     setWorkbenchMode: (mode: WorkbenchMode) => void;
   };
   overlayStack: OverlayStackValue;
@@ -101,6 +103,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     legacySlideBrowserMode ?? 'grid',
     parseSlideBrowserMode,
   );
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>('appearance');
   const [overlayDefaults, setOverlayDefaults] = useLocalStorage<OverlayDefaultsState>(
     OVERLAY_DEFAULTS_STORAGE_KEY,
     DEFAULT_OVERLAY_DEFAULTS,
@@ -187,6 +190,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     programSingleSurface,
     programGridDensity,
     slideBrowserMode,
+    settingsTab,
     workbenchMode,
   }), [
     deckBrowserGridItemSize,
@@ -201,6 +205,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     programSingleSurface,
     programGridDensity,
     slideBrowserMode,
+    settingsTab,
     workbenchMode,
   ]);
 
@@ -214,6 +219,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setProgramSingleSurface,
     setProgramGridDensity,
     setSlideBrowserMode,
+    setSettingsTab,
     setWorkbenchMode,
   }), [
     setDeckBrowserGridItemSize,
@@ -225,6 +231,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setProgramSingleSurface,
     setProgramGridDensity,
     setSlideBrowserMode,
+    setSettingsTab,
     setWorkbenchMode,
   ]);
 

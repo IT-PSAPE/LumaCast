@@ -24,7 +24,7 @@ const OPENROUTER_HEADERS: Record<string, string> = {
   'X-Title': 'LumaCast',
 };
 
-/** The `AgentProviderId`s this adapter (Chat Completions, `openai` SDK) covers — every provider except `anthropic`. */
+/** The `AgentProviderId`s this adapter covers directly with the Chat Completions wire format. */
 export type OpenAiCompatibleProviderId = 'openai' | 'google' | 'openrouter' | 'openai-compatible';
 
 // ---------------------------------------------------------------------------
@@ -202,6 +202,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
           contextWindow: this.id === 'openrouter' ? (raw.context_length ?? null) : null,
           maxOutputTokens: null,
           supportsTools: this.id === 'openrouter' ? (raw.supported_parameters?.includes('tools') ?? true) : true,
+          isFree: false,
         });
       }
       return models;

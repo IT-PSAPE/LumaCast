@@ -135,7 +135,22 @@ describe('AgentSettingsPanel', () => {
     await selectByKeyboard('Provider', 'OpenAI-compatible');
 
     expect(screen.getByLabelText('Base URL')).not.toBeNull();
-    expect(api.agentUpdateConfig).toHaveBeenCalledWith({ provider: 'openai-compatible', model: null });
+    expect(api.agentUpdateConfig).toHaveBeenCalledWith({ provider: 'openai-compatible', model: null, baseUrl: null });
+  });
+
+  it('applies OpenCode Zen\'s default base URL when the provider is selected', async () => {
+    const api = stubCastApi({ config: baseConfig({ provider: null }) });
+    renderPanel();
+    await loaded();
+
+    await selectByKeyboard('Provider', 'OpenCode Zen');
+
+    expect(screen.getByLabelText('Base URL')).toHaveValue('https://opencode.ai/zen/v1');
+    expect(api.agentUpdateConfig).toHaveBeenCalledWith({
+      provider: 'opencode',
+      model: null,
+      baseUrl: 'https://opencode.ai/zen/v1',
+    });
   });
 
   describe('API key', () => {
@@ -183,8 +198,8 @@ describe('AgentSettingsPanel', () => {
   describe('Model', () => {
     it('loads models into the select and persists the chosen one', async () => {
       const models: AgentModelInfo[] = [
-        { id: 'claude-a', label: 'Claude A', contextWindow: 200000, maxOutputTokens: null, supportsTools: true },
-        { id: 'claude-b', label: 'Claude B', contextWindow: null, maxOutputTokens: null, supportsTools: true },
+        { id: 'claude-a', label: 'Claude A', contextWindow: 200000, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'claude-b', label: 'Claude B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
       ];
       const api = stubCastApi({ config: baseConfig({ provider: 'anthropic' }) });
       api.agentListModels.mockResolvedValueOnce(models);
@@ -198,6 +213,137 @@ describe('AgentSettingsPanel', () => {
       await selectByKeyboard('Model', 'Claude B');
 
       expect(api.agentUpdateConfig).toHaveBeenCalledWith({ model: 'claude-b' });
+    });
+
+    it('sorts loaded models by display name', async () => {
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
+      api.agentListModels.mockResolvedValueOnce([
+        { id: 'zulu', label: 'Zulu', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'alpha', label: 'Alpha', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+      ]);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+
+      const options = await screen.findAllByRole('option');
+      expect(options.map((option) => option.textContent)).toEqual(['Alpha', 'Zulu']);
+    });
+
+    it('marks free models in the picker', async () => {
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
+      api.agentListModels.mockResolvedValueOnce([
+        { id: 'big-pickle', label: 'Big Pickle', contextWindow: 200_000, maxOutputTokens: 32_000, supportsTools: true, isFree: true },
+      ]);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+      expect(await screen.findByRole('option', { name: /Big Pickle.*Free/ })).not.toBeNull();
+    });
+
+    it('formats million-token context windows without a misleading thousands label', async () => {
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
+      api.agentListModels.mockResolvedValueOnce([
+        { id: 'large', label: 'Large', contextWindow: 1_050_000, maxOutputTokens: null, supportsTools: true, isFree: false },
+      ]);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+
+      expect(await screen.findByRole('option', { name: /Large.*1\.05M context/ })).not.toBeNull();
+    });
+
+    it('shows an empty state when the provider returns no models', async () => {
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
+      api.agentListModels.mockResolvedValueOnce([]);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+
+      expect(await screen.findByText('No models available.')).not.toBeNull();
+    });
+
+    it('shows a retry action when loading models fails', async () => {
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
+      api.agentListModels.mockRejectedValueOnce(new Error('Catalog unavailable'));
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Catalog unavailable');
+      expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull();
+    });
+
+    it('does not show models returned for a provider that is no longer selected', async () => {
+      let resolveModels: (models: AgentModelInfo[]) => void = () => {};
+      const pendingModels = new Promise<AgentModelInfo[]>((resolve) => { resolveModels = resolve; });
+      const api = stubCastApi({ config: baseConfig({ provider: 'anthropic' }) });
+      api.agentListModels.mockReturnValueOnce(pendingModels);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      expect(screen.getByRole('button', { name: 'Loading models…' })).toBeDisabled();
+
+      await selectByKeyboard('Provider', 'OpenCode Zen');
+      resolveModels([
+        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+      ]);
+      await settle();
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+
+      expect(screen.queryByRole('option', { name: 'Stale model' })).toBeNull();
+    });
+
+    it('does not show models returned for a base URL that is no longer current', async () => {
+      let resolveModels: (models: AgentModelInfo[]) => void = () => {};
+      const pendingModels = new Promise<AgentModelInfo[]>((resolve) => { resolveModels = resolve; });
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode', baseUrl: 'https://old.example/v1' }) });
+      api.agentListModels.mockReturnValueOnce(pendingModels);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://new.example/v1' } });
+      fireEvent.blur(screen.getByLabelText('Base URL'));
+      resolveModels([
+        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+      ]);
+      await settle();
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+
+      expect(api.agentUpdateConfig).toHaveBeenCalledWith({ baseUrl: 'https://new.example/v1' });
+      expect(screen.queryByRole('option', { name: 'Stale model' })).toBeNull();
+    });
+
+    it('clears models from a previous successful load when refresh fails', async () => {
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
+      api.agentListModels
+        .mockResolvedValueOnce([
+          { id: 'old', label: 'Old model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        ])
+        .mockRejectedValueOnce(new Error('Catalog unavailable'));
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Catalog unavailable');
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+
+      expect(screen.queryByRole('option', { name: 'Old model' })).toBeNull();
     });
 
     it('shows the validation chip for each outcome', async () => {
@@ -216,6 +362,30 @@ describe('AgentSettingsPanel', () => {
       api.agentValidateModel.mockResolvedValueOnce('unknown');
       fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
       expect(await screen.findByText('Unknown')).not.toBeNull();
+    });
+
+    it('ignores validation returned for a model that is no longer selected', async () => {
+      let resolveValidation: (result: 'valid' | 'not-found' | 'unknown') => void = () => {};
+      const pendingValidation = new Promise<'valid' | 'not-found' | 'unknown'>((resolve) => { resolveValidation = resolve; });
+      const models: AgentModelInfo[] = [
+        { id: 'first', label: 'First', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'second', label: 'Second', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+      ];
+      const api = stubCastApi({ config: baseConfig({ provider: 'opencode', model: 'first' }) });
+      api.agentListModels.mockResolvedValueOnce(models);
+      api.agentValidateModel.mockReturnValueOnce(pendingValidation);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
+      await selectByKeyboard('Model', 'Second');
+      resolveValidation('valid');
+      await settle();
+
+      expect(screen.queryByText('Valid')).toBeNull();
+      expect(screen.queryByText('Validating…')).toBeNull();
     });
   });
 

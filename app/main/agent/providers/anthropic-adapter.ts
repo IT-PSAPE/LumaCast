@@ -183,6 +183,7 @@ export class AnthropicAdapter implements ProviderAdapter {
           contextWindow: model.max_input_tokens,
           maxOutputTokens: model.max_tokens,
           supportsTools: true,
+          isFree: false,
         });
       }
       return models;

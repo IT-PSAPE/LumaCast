@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ActionRiskClass } from '@lumacast/commands';
 import { ACTION_RISK_CLASSES } from '@lumacast/commands';
 import { AGENT_PERMISSION_TIERS, AGENT_PROVIDERS, matrixForTier, tierForMatrix } from '@lumacast/protocol';
@@ -45,6 +45,10 @@ function formatTimestamp(iso: string): string {
 }
 
 function formatContextWindow(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    const millions = Math.round((tokens / 1_000_000) * 100) / 100;
+    return `${millions}M context`;
+  }
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}k context` : `${tokens} context`;
 }
 
@@ -69,6 +73,8 @@ export function AgentSettingsPanel() {
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [validation, setValidation] = useState<'valid' | 'not-found' | 'unknown' | null>(null);
   const [validating, setValidating] = useState(false);
+  const modelRequestId = useRef(0);
+  const validationRequestId = useRef(0);
 
   const [instructionsDraft, setInstructionsDraft] = useState('');
   const [instructionsError, setInstructionsError] = useState<string | null>(null);
@@ -129,14 +135,33 @@ export function AgentSettingsPanel() {
   function handleProviderChange(value: string) {
     if (!config) return;
     const provider = (value === '' ? null : value) as AgentProviderId | null;
-    setConfig({ ...config, provider, model: null });
+    const nextProviderInfo = AGENT_PROVIDERS.find((entry) => entry.id === provider) ?? null;
+    const baseUrl = nextProviderInfo?.defaultBaseUrl ?? null;
+    modelRequestId.current += 1;
+    validationRequestId.current += 1;
+    setConfig({ ...config, provider, model: null, baseUrl });
+    setBaseUrlDraft(baseUrl ?? '');
     setModels(null);
+    setModelsLoading(false);
+    setModelsError(null);
     setValidation(null);
+    setValidating(false);
     setApiKeyDraft('');
     setKeyEditing(false);
     setKeyError(null);
     setProviderError(null);
-    window.castApi.agentUpdateConfig({ provider, model: null }).catch((error) => setProviderError(errorMessage(error)));
+    window.castApi.agentUpdateConfig({ provider, model: null, baseUrl }).catch((error) => setProviderError(errorMessage(error)));
+  }
+
+  function handleBaseUrlChange(value: string) {
+    modelRequestId.current += 1;
+    validationRequestId.current += 1;
+    setBaseUrlDraft(value);
+    setModels(null);
+    setModelsLoading(false);
+    setModelsError(null);
+    setValidation(null);
+    setValidating(false);
   }
 
   function handleBaseUrlBlur() {
@@ -183,15 +208,20 @@ export function AgentSettingsPanel() {
 
   async function handleLoadModels() {
     if (!config?.provider) return;
+    const requestId = modelRequestId.current + 1;
+    modelRequestId.current = requestId;
     setModelsError(null);
     setModelsLoading(true);
+    setModels(null);
     try {
       const list = await window.castApi.agentListModels({ provider: config.provider, baseUrl: config.baseUrl ?? undefined });
-      setModels(list);
+      if (modelRequestId.current === requestId) {
+        setModels([...list].sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base', numeric: true })));
+      }
     } catch (error) {
-      setModelsError(errorMessage(error));
+      if (modelRequestId.current === requestId) setModelsError(errorMessage(error));
     } finally {
-      setModelsLoading(false);
+      if (modelRequestId.current === requestId) setModelsLoading(false);
     }
   }
 
@@ -199,7 +229,9 @@ export function AgentSettingsPanel() {
     if (!config) return;
     const model = value === '' ? null : value;
     setConfig({ ...config, model });
+    validationRequestId.current += 1;
     setValidation(null);
+    setValidating(false);
     setModelsError(null);
     window.castApi.agentUpdateConfig({ model }).catch((error) => setModelsError(errorMessage(error)));
   }
@@ -208,15 +240,17 @@ export function AgentSettingsPanel() {
     if (!config?.provider || !config.model) return;
     const provider = config.provider;
     const model = config.model;
+    const requestId = validationRequestId.current + 1;
+    validationRequestId.current = requestId;
     setValidating(true);
     setModelsError(null);
     try {
       const result = await window.castApi.agentValidateModel({ provider, model, baseUrl: config.baseUrl ?? undefined });
-      setValidation(result);
+      if (validationRequestId.current === requestId) setValidation(result);
     } catch (error) {
-      setModelsError(errorMessage(error));
+      if (validationRequestId.current === requestId) setModelsError(errorMessage(error));
     } finally {
-      setValidating(false);
+      if (validationRequestId.current === requestId) setValidating(false);
     }
   }
 
@@ -338,25 +372,27 @@ export function AgentSettingsPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex max-w-3xl flex-col gap-6">
       <Section.Root>
-        <Section.Header><Label.xs>Provider</Label.xs></Section.Header>
+        <Section.Header><Label.xs>Connection</Label.xs></Section.Header>
         <Section.Body>
-          <FieldSelect value={config.provider ?? ''} onChange={handleProviderChange} label="Provider">
-            {AGENT_PROVIDERS.map((provider) => (
-              <FieldSelect.Option key={provider.id} value={provider.id}>{provider.label}</FieldSelect.Option>
-            ))}
-          </FieldSelect>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            <FieldSelect value={config.provider ?? ''} onChange={handleProviderChange} label="Provider">
+              {AGENT_PROVIDERS.map((provider) => (
+                <FieldSelect.Option key={provider.id} value={provider.id}>{provider.label}</FieldSelect.Option>
+              ))}
+            </FieldSelect>
 
-          {providerInfo ? (
-            <FieldInput
-              label="Base URL"
-              value={baseUrlDraft}
-              onChange={setBaseUrlDraft}
-              onBlur={handleBaseUrlBlur}
-              placeholder={providerInfo.defaultBaseUrl ?? undefined}
-            />
-          ) : null}
+            {providerInfo ? (
+              <FieldInput
+                label="Base URL"
+                value={baseUrlDraft}
+                onChange={handleBaseUrlChange}
+                onBlur={handleBaseUrlBlur}
+                placeholder={providerInfo.defaultBaseUrl ?? undefined}
+              />
+            ) : null}
+          </div>
 
           {providerInfo ? (
             <div className="flex flex-col gap-1.5">
@@ -395,22 +431,29 @@ export function AgentSettingsPanel() {
       </Section.Root>
 
       <Section.Root>
-        <Section.Header><Label.xs>Model</Label.xs></Section.Header>
+        <Section.Header><Label.xs>Assistant model</Label.xs></Section.Header>
         <Section.Body>
-          <ReacstButton onClick={() => void handleLoadModels()} disabled={!config.provider || modelsLoading}>
-            {modelsLoading ? 'Loading models…' : 'Load models'}
-          </ReacstButton>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+            <FieldSelect value={config.model ?? ''} onChange={handleModelChange} label="Model">
+              {modelOptions.map((model) => (
+                <FieldSelect.Option key={model.id} value={model.id}>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{model.label}</span>
+                    {model.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+                    {model.contextWindow != null ? <span className="shrink-0 text-tertiary">{formatContextWindow(model.contextWindow)}</span> : null}
+                  </span>
+                </FieldSelect.Option>
+              ))}
+              {config.model && !hasCurrentModel ? <FieldSelect.Option value={config.model}>{config.model}</FieldSelect.Option> : null}
+            </FieldSelect>
+            <ReacstButton onClick={() => void handleLoadModels()} disabled={!config.provider || modelsLoading}>
+              {modelsLoading ? 'Loading models…' : modelsError ? 'Retry' : 'Load models'}
+            </ReacstButton>
+          </div>
 
-          <FieldSelect value={config.model ?? ''} onChange={handleModelChange} label="Model">
-            {modelOptions.map((model) => (
-              <FieldSelect.Option key={model.id} value={model.id}>
-                {model.contextWindow != null
-                  ? <>{model.label} <span className="text-tertiary">{formatContextWindow(model.contextWindow)}</span></>
-                  : model.label}
-              </FieldSelect.Option>
-            ))}
-            {config.model && !hasCurrentModel ? <FieldSelect.Option value={config.model}>{config.model}</FieldSelect.Option> : null}
-          </FieldSelect>
+          {models && models.length === 0 && !modelsLoading && !modelsError ? (
+            <p className="text-sm text-tertiary">No models available.</p>
+          ) : null}
 
           <div className="flex items-center gap-2">
             <ReacstButton onClick={() => void handleValidateModel()} disabled={!config.model || validating}>
