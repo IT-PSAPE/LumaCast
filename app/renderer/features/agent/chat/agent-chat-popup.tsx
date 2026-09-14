@@ -4,20 +4,28 @@
 // though there is only one call site today. One-use visual parts (message
 // rows, the tool-call card, the model picker) stay inline in this file rather
 // than becoming their own modules.
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
+  ArrowUp,
+  Ban,
+  Check,
   ChevronDown,
   ChevronRight,
-  Check,
+  Circle,
+  Clock,
   Ellipsis,
   List,
+  LoaderCircle,
   MessageSquare,
+  Minus,
   Plus,
-  Send,
   Sparkles,
   Square,
   Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
@@ -30,19 +38,16 @@ import type {
   AgentThreadSummary,
   AgentToolCallStatus,
 } from '@lumacast/protocol';
-import { ACTION_METADATA, type ActionId, type ActionMetadata } from '@lumacast/commands';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dropdown, useDropdown } from '@renderer/components/form/dropdown';
-import { FieldTextarea } from '@renderer/components/form/field';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { EmptyState } from '@renderer/components/display/empty-state';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useOverlayContainer, useOverlayStackEntry } from '@renderer/components/overlays/overlay-primitives';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { cn } from '@renderer/utils/cn';
-import { useAgentChat, type AgentChatView, type ToolCallPart } from './agent-chat-context';
-
-const JSON_TRUNCATE_LENGTH = 2048;
+import { useAgentChat, type AgentChatView } from './agent-chat-context';
+import { isToolCallSettled, summarizeToolCall, toolCallLabel, type ToolCallPart } from './tool-call-summary';
 
 function isConfigured(config: AgentConfig | null, credentialStatuses: AgentCredentialStatus[]): boolean {
   if (!config || !config.provider || !config.model) return false;
@@ -233,10 +238,12 @@ function ThreadList() {
 // ─── Transcript ─────────────────────────────────────────────
 
 function Transcript() {
-  const { state } = useAgentChat();
+  const { state, isRunning } = useAgentChat();
   const containerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
   const messages = state.activeThread?.messages ?? [];
+  const activeThreadId = state.activeThread?.id ?? null;
+  const isActiveRun = activeThreadId != null && isRunning(activeThreadId);
 
   // Auto-scroll to bottom on new content unless the user scrolled away —
   // same convention as log-viewer-section.tsx.
@@ -268,151 +275,286 @@ function Transcript() {
             <EmptyState.Title>Ask the assistant anything</EmptyState.Title>
           </EmptyState.Root>
         ) : (
-          messages.map((message) => <MessageRow key={message.id} message={message} />)
+          messages.map((message) => (
+            <MessageRow
+              key={message.id}
+              message={message}
+              isActiveRun={isActiveRun && message.id === state.activeRunMessageId}
+            />
+          ))
         )}
       </div>
     </div>
   );
 }
 
-function MessageRow({ message }: { message: AgentMessage }) {
+// A message's parts render as segments, not one row per part: a run of
+// consecutive `tool_call` parts becomes a single collapsible ActivityGroup
+// (Linear-style step narration) instead of one card per call.
+type MessageSegment =
+  | { kind: 'text'; part: Extract<AgentMessagePart, { type: 'text' }> }
+  | { kind: 'error'; part: Extract<AgentMessagePart, { type: 'error' }> }
+  | { kind: 'tool_calls'; parts: ToolCallPart[] };
+
+function groupMessageParts(parts: AgentMessagePart[]): MessageSegment[] {
+  const segments: MessageSegment[] = [];
+  for (const part of parts) {
+    if (part.type === 'tool_call') {
+      const last = segments[segments.length - 1];
+      if (last && last.kind === 'tool_calls') {
+        last.parts.push(part);
+      } else {
+        segments.push({ kind: 'tool_calls', parts: [part] });
+      }
+    } else if (part.type === 'text') {
+      segments.push({ kind: 'text', part });
+    } else {
+      segments.push({ kind: 'error', part });
+    }
+  }
+  return segments;
+}
+
+function MessageRow({ message, isActiveRun }: { message: AgentMessage; isActiveRun: boolean }) {
   const isUser = message.role === 'user';
+  const segments = groupMessageParts(message.parts);
+  const lastPart = message.parts[message.parts.length - 1] as AgentMessagePart | undefined;
+  // The ticker narrates only what the transcript can't already say for
+  // itself: an in-progress ActivityGroup already shows "Listing…" in its own
+  // header, and a non-empty text part gets its own caret instead (below).
+  const showCaret = isActiveRun && !isUser && lastPart?.type === 'text' && lastPart.text.length > 0;
+  const showTicker =
+    isActiveRun &&
+    !isUser &&
+    (lastPart === undefined ||
+      (lastPart.type === 'tool_call' && isToolCallSettled(lastPart.status)) ||
+      (lastPart.type === 'text' && lastPart.text.length === 0));
+
   return (
-    <div className={cn('flex flex-col gap-1.5', isUser ? 'items-end' : 'items-start')}>
-      {message.parts.map((part, index) => (
-        <MessagePartView key={index} part={part} isUser={isUser} />
-      ))}
+    <div className={cn('flex flex-col gap-1.5 animate-chat-enter motion-reduce:animate-none', isUser ? 'items-end' : 'items-start')}>
+      {segments.map((segment, index) => {
+        const isLastSegment = index === segments.length - 1;
+        if (segment.kind === 'text') {
+          if (segment.part.text.length === 0) return null;
+          if (isUser) {
+            return (
+              <div key={index} className="max-w-[85%] whitespace-pre-wrap wrap-break-word rounded-2xl rounded-br-md bg-secondary px-3 py-2 text-sm">
+                {segment.part.text}
+              </div>
+            );
+          }
+          // The caret is an `::after` on the last rendered block rather than a
+          // sibling element, so it sits at the end of the streaming line instead
+          // of dropping below the paragraph react-markdown emits.
+          return (
+            <div
+              key={index}
+              className={cn(
+                'w-full text-sm text-primary leading-relaxed',
+                isLastSegment && showCaret &&
+                  "[&>*:last-child]:after:ml-0.5 [&>*:last-child]:after:text-brand [&>*:last-child]:after:content-['▍'] [&>*:last-child]:after:animate-chat-caret motion-reduce:[&>*:last-child]:after:animate-none",
+              )}
+            >
+              <Markdown text={segment.part.text} />
+            </div>
+          );
+        }
+        if (segment.kind === 'error') {
+          return (
+            <div key={index} className="max-w-[85%] rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+              {segment.part.message}
+            </div>
+          );
+        }
+        return <ActivityGroup key={index} parts={segment.parts} />;
+      })}
+      {showTicker ? <ThinkingTicker /> : null}
     </div>
   );
 }
 
-function MessagePartView({ part, isUser }: { part: AgentMessagePart; isUser: boolean }) {
-  if (part.type === 'text') {
-    if (part.text.length === 0) return null;
-    return (
-      <div className={cn('max-w-[85%] whitespace-pre-wrap wrap-break-word rounded-lg px-3 py-2 text-sm text-primary', isUser && 'bg-secondary')}>
-        {renderFormattedText(part.text)}
-      </div>
-    );
-  }
-  if (part.type === 'tool_call') {
-    return <ToolCallCard part={part} />;
-  }
+// react-markdown escapes raw HTML by default (no rehype-raw) — that stays
+// off deliberately, so an assistant reply can never inject markup.
+const markdownComponents: Components = {
+  p: ({ children }) => <p className="my-1.5 leading-relaxed first:mt-0 last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="my-1.5 list-disc space-y-0.5 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-0.5 pl-5">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  h1: ({ children }) => <h1 className="mt-3 mb-1 text-base font-medium text-primary first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="mt-3 mb-1 text-base font-medium text-primary first:mt-0">{children}</h2>,
+  h3: ({ children }) => <h3 className="mt-3 mb-1 text-sm font-medium text-primary first:mt-0">{children}</h3>,
+  h4: ({ children }) => <h4 className="mt-3 mb-1 text-sm font-medium text-primary first:mt-0">{children}</h4>,
+  h5: ({ children }) => <h5 className="mt-3 mb-1 text-sm font-medium text-primary first:mt-0">{children}</h5>,
+  h6: ({ children }) => <h6 className="mt-3 mb-1 text-sm font-medium text-primary first:mt-0">{children}</h6>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  em: ({ children }) => <em>{children}</em>,
+  blockquote: ({ children }) => <blockquote className="my-1.5 border-l-2 border-secondary pl-3 text-secondary">{children}</blockquote>,
+  hr: () => <hr className="my-2 border-secondary" />,
+  // No IPC for opening external URLs and navigation is locked down (ADR-0007)
+  // — render link text only, never a real, clickable `href`.
+  a: ({ children, href }) => (
+    <span className="text-brand underline decoration-brand/60" title={href}>
+      {children}
+    </span>
+  ),
+  // Rendered directly from the hast node rather than through `children`
+  // (which would recurse through the `code` component below and pick up its
+  // inline pill styling) so a fenced block always gets plain block styling.
+  pre: ({ node }) => (
+    <pre className="my-1.5 max-w-full overflow-x-auto rounded bg-tertiary px-2 py-1.5 font-mono text-xs text-primary">
+      <code>{extractHastText(node)}</code>
+    </pre>
+  ),
+  code: ({ className, children }) => (
+    <code className={cn('rounded bg-tertiary px-1 py-0.5 font-mono text-[0.85em]', className)}>{children}</code>
+  ),
+  table: ({ children }) => (
+    <div className="my-1.5 max-w-full overflow-x-auto">
+      <table className="text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border border-secondary px-2 py-1 text-left">{children}</th>,
+  td: ({ children }) => <td className="border border-secondary px-2 py-1 text-left">{children}</td>,
+  // GFM task-list checkboxes render, but read-only — this is a transcript of
+  // what happened, not an editable list.
+  input: ({ type, checked }) => (type === 'checkbox' ? <input type="checkbox" checked={checked} disabled className="mr-1 align-middle" /> : null),
+};
+
+// Duck-typed against hast's Element/Text shape rather than importing `hast`
+// directly: react-markdown re-exports its node types, but pulling in a
+// transitive dependency's package just for this one recursive walk isn't
+// worth the coupling.
+function extractHastText(node: unknown): string {
+  if (!node || typeof node !== 'object') return '';
+  const candidate = node as { type?: string; value?: unknown; children?: unknown[] };
+  if (candidate.type === 'text') return typeof candidate.value === 'string' ? candidate.value : '';
+  if (Array.isArray(candidate.children)) return candidate.children.map(extractHastText).join('');
+  return '';
+}
+
+function Markdown({ text }: { text: string }) {
   return (
-    <div className="max-w-[85%] rounded-lg bg-tertiary px-3 py-2 text-sm text-error">{part.message}</div>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      {text}
+    </ReactMarkdown>
   );
 }
 
-// Fenced/inline code get monospace treatment; everything else renders as
-// plain text. No markdown library — this is the entire supported syntax.
-function renderFormattedText(text: string): ReactNode[] {
-  const fenceRegex = /```[^\n]*\n?([\s\S]*?)```/g;
-  const nodes: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  let key = 0;
-
-  while ((match = fenceRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      nodes.push(...renderInlineCode(text.slice(lastIndex, match.index), key));
-      key += 1;
-    }
-    nodes.push(
-      <pre key={`fence-${key++}`} className="max-w-full overflow-x-auto rounded bg-tertiary px-2 py-1.5 font-mono text-xs text-primary">
-        <code>{match[1].replace(/\n$/, '')}</code>
-      </pre>,
-    );
-    lastIndex = fenceRegex.lastIndex;
-  }
-  if (lastIndex < text.length) nodes.push(...renderInlineCode(text.slice(lastIndex), key));
-  return nodes;
+// The live status ticker: while the active run's message has nothing new to
+// narrate yet (no parts, or its last tool call already settled, or a text
+// part is still empty), this is the only sign the model is working.
+function ThinkingTicker() {
+  return (
+    <div className="animate-chat-enter motion-reduce:animate-none text-xs">
+      <span className="animate-chat-shimmer bg-size-[200%_100%] bg-clip-text text-transparent bg-[linear-gradient(90deg,var(--text-color-tertiary),var(--text-color-primary),var(--text-color-tertiary))]">
+        Thinking…
+      </span>
+    </div>
+  );
 }
 
-function renderInlineCode(segment: string, keyBase: number): ReactNode[] {
-  return segment
-    .split(/(`[^`]+`)/g)
-    .filter((part) => part.length > 0)
-    .map((part, index) => {
-      if (part.length > 1 && part.startsWith('`') && part.endsWith('`')) {
-        return (
-          <code key={`${keyBase}-${index}`} className="rounded bg-tertiary px-1 py-0.5 font-mono text-[0.85em]">
-            {part.slice(1, -1)}
-          </code>
-        );
-      }
-      return <span key={`${keyBase}-${index}`}>{part}</span>;
-    });
+function formatStepDuration(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.round(milliseconds / 1000));
+  if (totalSeconds < 1) return '<1s';
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}m ${seconds}s`;
 }
 
-const TOOL_CALL_STATUS_LABEL: Record<AgentToolCallStatus, string> = {
-  pending: 'Pending',
-  awaiting_permission: 'Awaiting permission',
-  running: 'Running',
-  succeeded: 'Succeeded',
-  failed: 'Failed',
-  denied: 'Denied',
-  cancelled: 'Cancelled',
-};
+function summarizeActivityGroup(parts: ToolCallPart[]): string {
+  const stepCount = `${parts.length} step${parts.length === 1 ? '' : 's'}`;
+  const startedAt = parts.map((part) => part.startedAt).filter((value): value is string => value != null);
+  const finishedAt = parts.map((part) => part.finishedAt).filter((value): value is string => value != null);
+  if (startedAt.length === 0 || finishedAt.length === 0) return stepCount;
+  const earliestStart = Math.min(...startedAt.map((value) => new Date(value).getTime()));
+  const latestFinish = Math.max(...finishedAt.map((value) => new Date(value).getTime()));
+  return `Worked for ${formatStepDuration(latestFinish - earliestStart)} · ${stepCount}`;
+}
 
-const TOOL_CALL_STATUS_CLASS: Record<AgentToolCallStatus, string> = {
-  pending: 'text-warning bg-warning/10',
-  awaiting_permission: 'text-warning bg-warning/10',
-  running: 'text-warning bg-warning/10',
-  succeeded: 'text-success bg-success/10',
-  failed: 'text-error bg-error/10',
-  denied: 'text-error bg-error/10',
-  cancelled: 'text-error bg-error/10',
-};
+// Expansion is captured once at mount and never reset on settling: a group
+// still running when it mounts opens immediately and stays open once it
+// settles (so the finished steps don't get yanked away mid-read); a settled
+// group loaded from history mounts collapsed. Only a click changes it after that.
+function ActivityGroup({ parts }: { parts: ToolCallPart[] }) {
+  const [expanded, setExpanded] = useState(() => parts.some((part) => !isToolCallSettled(part.status)));
+  const allSettled = parts.every((part) => isToolCallSettled(part.status));
+  const anyUnsuccessful = parts.some((part) => part.status === 'failed' || part.status === 'denied');
+  const firstUnsettled = parts.find((part) => !isToolCallSettled(part.status)) ?? null;
 
-function ToolCallCard({ part }: { part: ToolCallPart }) {
-  const [expanded, setExpanded] = useState(false);
-  const metadata = ACTION_METADATA[part.actionId as ActionId] as ActionMetadata | undefined;
-  const title = metadata?.title ?? part.actionId;
+  const glyph = !allSettled && firstUnsettled ? (
+    <LoaderCircle className="size-3.5 shrink-0 animate-spin text-brand" />
+  ) : anyUnsuccessful ? (
+    <TriangleAlert className="size-3.5 shrink-0 text-warning" />
+  ) : (
+    <Check className="size-3.5 shrink-0 text-success" />
+  );
+  const label = !allSettled && firstUnsettled ? toolCallLabel(firstUnsettled) : summarizeActivityGroup(parts);
 
   return (
-    <div className="w-full max-w-[85%] rounded-lg border border-secondary bg-tertiary/40 text-sm">
-      <button type="button" onClick={() => setExpanded((value) => !value)} className="flex w-full items-center gap-2 px-3 py-2 text-left cursor-pointer">
-        {expanded ? <ChevronDown size={14} className="shrink-0 text-tertiary" /> : <ChevronRight size={14} className="shrink-0 text-tertiary" />}
-        <span className="min-w-0 flex-1 truncate text-primary">{title}</span>
-        <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium', TOOL_CALL_STATUS_CLASS[part.status])}>
-          {TOOL_CALL_STATUS_LABEL[part.status]}
-        </span>
+    <div className="w-full max-w-[85%] animate-chat-enter motion-reduce:animate-none">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="flex w-full items-center gap-1.5 py-1 text-left text-xs text-secondary transition-colors hover:text-primary cursor-pointer"
+      >
+        {glyph}
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {expanded ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
       </button>
       {expanded ? (
-        <div className="flex flex-col gap-2 border-t border-secondary px-3 py-2">
-          <JsonBlock label="Arguments" value={part.arguments} />
-          {part.result !== null ? <JsonBlock label="Result" value={part.result} /> : null}
-          {part.error ? <p className="text-xs text-error">{part.error}</p> : null}
+        <div className="ml-1.5 flex flex-col gap-1 border-l border-secondary pl-3">
+          {parts.map((part) => <ActivityStepRow key={part.callId} part={part} />)}
         </div>
       ) : null}
     </div>
   );
 }
 
-function JsonBlock({ label, value }: { label: string; value: unknown }) {
-  const [showAll, setShowAll] = useState(false);
-  const pretty = useMemo(() => {
-    try {
-      return JSON.stringify(value, null, 2) ?? 'null';
-    } catch {
-      return String(value);
-    }
-  }, [value]);
-  const truncated = !showAll && pretty.length > JSON_TRUNCATE_LENGTH;
-  const displayed = truncated ? pretty.slice(0, JSON_TRUNCATE_LENGTH) : pretty;
+function ActivityStepGlyph({ status }: { status: AgentToolCallStatus }) {
+  switch (status) {
+    case 'running':
+      return <LoaderCircle className="size-3.5 shrink-0 animate-spin text-brand" />;
+    case 'awaiting_permission':
+      return <Clock className="size-3.5 shrink-0 text-warning" />;
+    case 'pending':
+      return <Circle className="size-3.5 shrink-0 text-tertiary" />;
+    case 'succeeded':
+      return <Check className="size-3.5 shrink-0 text-success" />;
+    case 'failed':
+      return <X className="size-3.5 shrink-0 text-error" />;
+    case 'denied':
+      return <Ban className="size-3.5 shrink-0 text-warning" />;
+    case 'cancelled':
+      return <Minus className="size-3.5 shrink-0 text-tertiary" />;
+    default:
+      return null;
+  }
+}
+
+const MAX_VISIBLE_ITEMS = 6;
+
+function ActivityStepRow({ part }: { part: ToolCallPart }) {
+  const summary = summarizeToolCall(part);
+  const label = toolCallLabel(part);
+  const visibleItems = summary.items.slice(0, MAX_VISIBLE_ITEMS);
+  const hiddenCount = summary.items.length - visibleItems.length;
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-tertiary">{label}</span>
-      <pre className="max-h-48 overflow-auto rounded bg-primary/60 px-2 py-1.5 font-mono text-[11px] text-secondary">
-        {displayed}
-        {truncated ? '…' : ''}
-      </pre>
-      {truncated ? (
-        <button type="button" onClick={() => setShowAll(true)} className="self-start text-[11px] text-brand hover:underline cursor-pointer">
-          Show all
-        </button>
-      ) : null}
+    <div className="flex items-start gap-1.5 py-0.5 text-xs leading-5 animate-chat-enter motion-reduce:animate-none">
+      <ActivityStepGlyph status={part.status} />
+      <div className="min-w-0 flex-1">
+        <span className="text-primary">{label}</span>
+        {visibleItems.length > 0 ? (
+          <>
+            <span className="text-primary">:</span>
+            <span className="text-tertiary"> {visibleItems.join(', ')}{hiddenCount > 0 ? ` +${hiddenCount} more` : ''}</span>
+          </>
+        ) : null}
+        {summary.detail ? (
+          <div className={cn('text-xs', part.status === 'denied' ? 'text-warning' : 'text-error')}>{summary.detail}</div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -445,7 +587,7 @@ function Composer() {
 
   if (!isConfigured(state.config, state.credentialStatuses)) {
     return (
-      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-primary px-3 py-2 text-sm text-secondary">
+      <div className="mx-3 mb-3 flex shrink-0 items-center justify-between gap-2 rounded-xl border border-primary bg-secondary/60 px-3 py-2 text-sm text-secondary">
         <span>Assistant isn&rsquo;t configured.</span>
         <ReacstButton
           variant="default"
@@ -492,28 +634,34 @@ function Composer() {
   }
 
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-t border-primary px-3 py-2">
-      <div className="flex items-end gap-2">
-        <FieldTextarea
-          value={text}
-          onChange={setText}
-          onKeyDown={handleKeyDown}
-          placeholder="Message the assistant"
-          resize="none"
-          rows={1}
-          className="max-h-36 min-h-8 flex-1 py-1.5 text-sm"
-          textareaRef={textareaRef}
-        />
-        <ReacstButton.Icon
-          label={running ? 'Stop' : 'Send'}
-          variant={running ? 'danger' : 'take'}
+    <div className="mx-3 mb-3 shrink-0 rounded-xl border border-primary bg-secondary/60 transition-colors focus-within:border-brand">
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Message the assistant"
+        rows={1}
+        className="w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-sm text-primary placeholder:text-tertiary outline-none"
+      />
+      <div className="flex items-center justify-between gap-2 px-2 pb-2">
+        <ModelPicker />
+        <button
+          type="button"
+          aria-label={running ? 'Stop' : 'Send'}
+          title={running ? 'Stop' : 'Send'}
           onClick={handleSendOrStop}
           disabled={!running && text.trim().length === 0}
+          className={cn(
+            'inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-colors',
+            running
+              ? 'border border-primary bg-primary text-primary hover:bg-tertiary'
+              : 'bg-brand text-white hover:bg-brand/90 disabled:cursor-not-allowed disabled:opacity-40',
+          )}
         >
-          {running ? <Square /> : <Send />}
-        </ReacstButton.Icon>
+          {running ? <Square size={12} className="fill-current" /> : <ArrowUp size={14} />}
+        </button>
       </div>
-      <ModelPicker />
     </div>
   );
 }
@@ -591,7 +739,7 @@ function ModelPicker() {
   return (
     <Dropdown className="self-start">
       <ModelPickerFocusOnInvalid invalid={state.modelValidation === 'not-found'} />
-      <Dropdown.Trigger aria-label="Model" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-secondary hover:bg-tertiary cursor-pointer">
+      <Dropdown.Trigger aria-label="Model" className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-secondary hover:bg-tertiary cursor-pointer">
         <span className="max-w-40 truncate">{label}</span>
         <ChevronDown size={12} className="shrink-0 text-tertiary" />
       </Dropdown.Trigger>

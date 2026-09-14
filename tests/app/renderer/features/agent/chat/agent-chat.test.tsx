@@ -13,6 +13,7 @@ import { ConfirmProvider } from '@renderer/components/overlays/confirm-dialog';
 import { AgentChatProvider } from '@renderer/features/agent/chat/agent-chat-context';
 import { AgentChatPopup } from '@renderer/features/agent/chat/agent-chat-popup';
 import { AgentChatTrigger } from '@renderer/features/agent/chat/agent-chat-trigger';
+import { summarizeToolCall, toolCallLabel, type ToolCallPart } from '@renderer/features/agent/chat/tool-call-summary';
 
 // Base UI positioners measure through ResizeObserver and wait out popup
 // transitions with getAnimations(); jsdom implements neither.
@@ -101,6 +102,23 @@ function makeThread(overrides: Partial<AgentThread> = {}): AgentThread {
   return { ...makeSummary(), messages: [], ...overrides };
 }
 
+// Every field the protocol declares, always present — the transcript's
+// activity groups branch on all of them (status, timestamps, result shape).
+function makeToolCall(overrides: Partial<ToolCallPart> = {}): ToolCallPart {
+  return {
+    type: 'tool_call',
+    callId: 'call-1',
+    actionId: 'playlist.create',
+    arguments: { name: 'Sunday' },
+    status: 'running',
+    result: null,
+    error: null,
+    startedAt: null,
+    finishedAt: null,
+    ...overrides,
+  };
+}
+
 // ─── castApi mock ───────────────────────────────────────────────────
 
 let emitThreadEvent: (event: AgentThreadEvent) => void = () => {};
@@ -182,6 +200,16 @@ describe('trigger', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Assistant' }));
     await waitFor(() => expect(document.querySelector('[data-popover-content="true"]')).toBeNull());
   });
+
+  // Regression: ReacstButton's base classes have no `flex`, and Tailwind's
+  // preflight gives `svg` `display: block`, so the Sparkles icon forced a
+  // line break and `gap-1.5` did nothing — the icon and label stacked.
+  it('lays the icon and label out on one line', () => {
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Assistant' });
+    expect(trigger.className).toEqual(expect.stringContaining('inline-flex'));
+    expect(trigger.className).toEqual(expect.stringContaining('items-center'));
+  });
 });
 
 describe('not-configured state', () => {
@@ -254,40 +282,178 @@ describe('streaming', () => {
     await waitFor(() => expect(screen.getByText('Hi there')).toBeInTheDocument());
   });
 
-  it('renders a tool_call part as a card with the action title and status, expandable to its arguments', async () => {
+  it('renders a running tool_call as an activity group narrating the step, never raw JSON', async () => {
     render(<Harness />);
     await openConfiguredPopup();
     fireEvent.change(screen.getByPlaceholderText('Message the assistant'), { target: { value: 'Make a playlist' } });
     fireEvent.keyDown(screen.getByPlaceholderText('Message the assistant'), { key: 'Enter' });
     await waitFor(() => expect(castApi.agentSendMessage).toHaveBeenCalled());
 
+    const part = makeToolCall({ status: 'running', startedAt: '2026-01-01T00:00:00.000Z' });
+
     act(() => {
       emitThreadEvent({ type: 'run_started', threadId: 'new-thread', runId: 'run-1', assistantMessageId: 'asst-1' });
-      emitThreadEvent({
-        type: 'tool_call_updated',
-        threadId: 'new-thread',
-        messageId: 'asst-1',
-        part: {
-          type: 'tool_call',
-          callId: 'call-1',
-          actionId: 'playlist.create',
-          arguments: { name: 'Sunday' },
-          status: 'running',
-          result: null,
-          error: null,
-          startedAt: null,
-          finishedAt: null,
-        },
-      });
+      emitThreadEvent({ type: 'tool_call_updated', threadId: 'new-thread', messageId: 'asst-1', part });
     });
 
-    expect(await screen.findByText('Create playlist')).toBeInTheDocument();
-    expect(screen.getByText('Running')).toBeInTheDocument();
+    const expectedLabel = toolCallLabel(part);
+    const header = await screen.findByRole('button', { name: expectedLabel });
     expect(screen.queryByText(/"name"/)).toBeNull();
 
-    fireEvent.click(screen.getByText('Create playlist').closest('button')!);
-    expect(screen.getByText(/"name"/)).toBeInTheDocument();
-    expect(screen.getByText(/Sunday/)).toBeInTheDocument();
+    fireEvent.click(header);
+    expect(screen.queryByText(/"name"/)).toBeNull();
+    expect(screen.queryByText(/"Sunday"/)).toBeNull();
+  });
+
+  it('groups a two-step run into one activity group that narrates each step and stays expanded once it settles', async () => {
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.change(screen.getByPlaceholderText('Message the assistant'), { target: { value: 'Do two things' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('Message the assistant'), { key: 'Enter' });
+    await waitFor(() => expect(castApi.agentSendMessage).toHaveBeenCalled());
+
+    const first = makeToolCall({ callId: 'call-1', actionId: 'playlist.list', arguments: {}, status: 'running', startedAt: '2026-01-01T00:00:00.000Z' });
+    const second = makeToolCall({ callId: 'call-2', actionId: 'playlist.create', status: 'pending' });
+
+    act(() => {
+      emitThreadEvent({ type: 'run_started', threadId: 'new-thread', runId: 'run-1', assistantMessageId: 'asst-1' });
+      emitThreadEvent({ type: 'tool_call_updated', threadId: 'new-thread', messageId: 'asst-1', part: first });
+      emitThreadEvent({ type: 'tool_call_updated', threadId: 'new-thread', messageId: 'asst-1', part: second });
+    });
+
+    // Still running: the group header narrates the first unsettled call, and
+    // is itself already open (matched by role so it can't collide with the
+    // same label repeated in the expanded step row below).
+    expect(await screen.findByRole('button', { name: toolCallLabel(first) })).toBeInTheDocument();
+
+    const firstSucceeded = { ...first, status: 'succeeded' as const, startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:02.000Z' };
+    const secondSucceeded = { ...second, status: 'succeeded' as const, result: { name: 'Sunday' }, startedAt: '2026-01-01T00:00:02.000Z', finishedAt: '2026-01-01T00:00:05.000Z' };
+
+    act(() => {
+      emitThreadEvent({ type: 'tool_call_updated', threadId: 'new-thread', messageId: 'asst-1', part: firstSucceeded });
+      emitThreadEvent({ type: 'tool_call_updated', threadId: 'new-thread', messageId: 'asst-1', part: secondSucceeded });
+    });
+
+    expect(await screen.findByRole('button', { name: /Worked for .* · 2 steps|2 steps/ })).toBeInTheDocument();
+    // Stays expanded — it was open before settling, so the step labels don't get yanked away.
+    expect(screen.getByText(toolCallLabel(firstSucceeded))).toBeInTheDocument();
+    expect(screen.getByText(toolCallLabel(secondSucceeded))).toBeInTheDocument();
+  });
+
+  it('mounts a settled group loaded from history collapsed, and expands on click', async () => {
+    const first = makeToolCall({ callId: 'call-1', actionId: 'playlist.list', arguments: {}, status: 'succeeded', result: [{ name: 'Sunday' }], startedAt: '2026-01-01T00:00:00.000Z', finishedAt: '2026-01-01T00:00:01.000Z' });
+    const second = makeToolCall({ callId: 'call-2', actionId: 'playlist.create', status: 'succeeded', result: { name: 'Sunday' }, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: '2026-01-01T00:00:02.000Z' });
+    threadsById = new Map([
+      ['t-1', makeThread({
+        id: 't-1',
+        title: 'Sunday service',
+        messages: [{ id: 'm-1', role: 'assistant', parts: [first, second], createdAt: '2026-01-01T00:00:00.000Z', usage: null }],
+      })],
+    ]);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service', messageCount: 1 })]);
+    castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Sunday service'));
+    await waitFor(() => expect(castApi.agentGetThread).toHaveBeenCalled());
+
+    const header = await screen.findByRole('button', { name: /2 steps/ });
+    expect(screen.queryByText(toolCallLabel(first))).toBeNull();
+
+    fireEvent.click(header);
+    expect(screen.getByText(toolCallLabel(first))).toBeInTheDocument();
+    expect(screen.getByText(toolCallLabel(second))).toBeInTheDocument();
+  });
+
+  it("renders a succeeded list call's result names joined by a comma", async () => {
+    const part = makeToolCall({
+      actionId: 'playlist.list',
+      arguments: {},
+      status: 'succeeded',
+      result: [{ name: 'Sunday' }, { name: 'Youth' }],
+      startedAt: '2026-01-01T00:00:00.000Z',
+      finishedAt: '2026-01-01T00:00:01.000Z',
+    });
+    threadsById = new Map([
+      ['t-1', makeThread({
+        id: 't-1',
+        title: 'Sunday service',
+        messages: [{ id: 'm-1', role: 'assistant', parts: [part], createdAt: '2026-01-01T00:00:00.000Z', usage: null }],
+      })],
+    ]);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service', messageCount: 1 })]);
+    castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Sunday service'));
+    await waitFor(() => expect(castApi.agentGetThread).toHaveBeenCalled());
+
+    // A single-call group is settled at mount, so it starts collapsed.
+    fireEvent.click(await screen.findByRole('button', { name: /1 step/ }));
+
+    const expectedItems = summarizeToolCall(part).items.join(', ');
+    expect(screen.getByText(expectedItems)).toBeInTheDocument();
+  });
+
+  it('shows a "Thinking…" ticker for an empty in-progress message, and clears it once the run finishes', async () => {
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.change(screen.getByPlaceholderText('Message the assistant'), { target: { value: 'Hi' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('Message the assistant'), { key: 'Enter' });
+    await waitFor(() => expect(castApi.agentSendMessage).toHaveBeenCalled());
+
+    act(() => {
+      emitThreadEvent({ type: 'run_started', threadId: 'new-thread', runId: 'run-1', assistantMessageId: 'asst-1' });
+    });
+    expect(await screen.findByText('Thinking…')).toBeInTheDocument();
+
+    act(() => {
+      emitThreadEvent({
+        type: 'message_completed',
+        threadId: 'new-thread',
+        message: { id: 'asst-1', role: 'assistant', parts: [{ type: 'text', text: 'Done' }], createdAt: '2026-01-01T00:00:00.000Z', usage: null },
+      });
+      emitThreadEvent({ type: 'run_finished', threadId: 'new-thread', runId: 'run-1', reason: 'completed' });
+    });
+
+    await waitFor(() => expect(screen.queryByText('Thinking…')).toBeNull());
+  });
+
+  it('renders assistant markdown: bold text and a list', async () => {
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.change(screen.getByPlaceholderText('Message the assistant'), { target: { value: 'Hi' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('Message the assistant'), { key: 'Enter' });
+    await waitFor(() => expect(castApi.agentSendMessage).toHaveBeenCalled());
+
+    act(() => {
+      emitThreadEvent({ type: 'run_started', threadId: 'new-thread', runId: 'run-1', assistantMessageId: 'asst-1' });
+      emitThreadEvent({ type: 'text_delta', threadId: 'new-thread', messageId: 'asst-1', text: '**bold** and a list:\n\n- one\n- two' });
+    });
+
+    const strong = await screen.findByText('bold');
+    expect(strong.tagName).toBe('STRONG');
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('escapes raw HTML in assistant text instead of rendering it', async () => {
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.change(screen.getByPlaceholderText('Message the assistant'), { target: { value: 'Hi' } });
+    fireEvent.keyDown(screen.getByPlaceholderText('Message the assistant'), { key: 'Enter' });
+    await waitFor(() => expect(castApi.agentSendMessage).toHaveBeenCalled());
+
+    act(() => {
+      emitThreadEvent({ type: 'run_started', threadId: 'new-thread', runId: 'run-1', assistantMessageId: 'asst-1' });
+      emitThreadEvent({ type: 'text_delta', threadId: 'new-thread', messageId: 'asst-1', text: '<script>alert(1)</script>' });
+    });
+
+    expect(await screen.findByText(/alert\(1\)/)).toBeInTheDocument();
+    expect(document.querySelectorAll('script')).toHaveLength(0);
   });
 
   it('appends an error part on run_error', async () => {
@@ -328,6 +494,19 @@ describe('send / stop swap', () => {
       emitThreadEvent({ type: 'run_finished', threadId: 'new-thread', runId: 'run-1', reason: 'stopped' });
     });
     await screen.findByRole('button', { name: 'Send' });
+  });
+});
+
+describe('composer', () => {
+  it('disables Send until there is text', async () => {
+    render(<Harness />);
+    await openConfiguredPopup();
+
+    const sendButton = screen.getByRole('button', { name: 'Send' });
+    expect(sendButton).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText('Message the assistant'), { target: { value: 'Hi' } });
+    expect(sendButton).not.toBeDisabled();
   });
 });
 

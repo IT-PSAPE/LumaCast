@@ -313,6 +313,8 @@ export interface AgentChatContextValue {
     credentialStatuses: AgentCredentialStatus[];
     modelValidation: AgentModelValidation | null;
     hasActiveRun: boolean;
+    /** The assistant message the active run is streaming into, for the transcript's live ticker; null when the active thread has no run. */
+    activeRunMessageId: Id | null;
   };
   actions: {
     open: () => void;
@@ -485,6 +487,7 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
       credentialStatuses: state.credentialStatuses,
       modelValidation: activeThread ? state.modelValidationByThread[activeThread.id] ?? null : null,
       hasActiveRun: Object.keys(state.runs).length > 0,
+      activeRunMessageId: activeThread ? state.assistantMessageIdByThread[activeThread.id] ?? null : null,
     },
     actions,
     isRunning,
