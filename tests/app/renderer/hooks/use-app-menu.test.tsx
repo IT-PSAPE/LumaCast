@@ -158,6 +158,28 @@ afterEach(() => {
   resetMenuCommandKeydownHistory();
 });
 
+describe('useAppMenu — menu state reports editable focus', () => {
+  function lastMenuState(): Record<string, unknown> {
+    const calls = (window.castApi.updateAppMenuState as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    return calls[calls.length - 1][0] as Record<string, unknown>;
+  }
+
+  it('flags hasEditableFocus while a text field has focus, and clears it on blur', async () => {
+    await act(async () => {
+      const input = focusInput('hello');
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    });
+    expect(lastMenuState().hasEditableFocus).toBe(true);
+    expect(lastMenuState().canPaste).toBe(true);
+
+    await act(async () => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      document.body.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    });
+    expect(lastMenuState().hasEditableFocus).toBe(false);
+  });
+});
+
 describe('useAppMenu — editable focus owns edit commands', () => {
   it('owns delete when native execCommand fails: no canvas or slide delete', async () => {
     fakes.elements.selectedElementId = 'e1';

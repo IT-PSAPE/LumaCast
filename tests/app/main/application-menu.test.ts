@@ -48,6 +48,7 @@ function makeState(overrides: Partial<AppMenuState> = {}): AppMenuState {
     canCut: false,
     canCopy: false,
     canPaste: false,
+    hasEditableFocus: false,
     canDuplicate: false,
     canDelete: false,
     canClearSelection: false,
@@ -286,6 +287,65 @@ describe('registerAccelerator threading', () => {
       descriptor([{ commandId: 'edit.undo', registerAccelerator: false }]),
       descriptor([{ commandId: 'edit.undo', registerAccelerator: true }]),
     )).toBe(false);
+  });
+});
+
+// A focused text field owns its editing chords, and on macOS Chromium only
+// performs them when the Edit menu item bound to the chord is the native
+// role (its `paste:`/`copy:` selector reaches the field). An app command on
+// the same chord swallows the keystroke instead — the paste-into-text-box
+// regression — so the Edit menu swaps to roles for the duration of the focus.
+describe('editable focus swaps the Edit menu to native roles', () => {
+  const NATIVE_TEXT_ROLES = ['undo', 'redo', 'cut', 'copy', 'paste', 'delete', 'selectAll'];
+  const APP_EDIT_COMMANDS = ['edit.undo', 'edit.redo', 'edit.cut', 'edit.copy', 'edit.paste', 'edit.delete'];
+
+  function editSubmenu(): MenuItemConstructorOptions[] {
+    const edit = lastTemplate().find((item) => item.id === 'edit');
+    return (edit?.submenu ?? []) as MenuItemConstructorOptions[];
+  }
+
+  function commandIdsOf(items: MenuItemConstructorOptions[]): string[] {
+    // Command items are the ones with a click handler and no role.
+    return items.filter((item) => item.click && !item.role).map((item) => item.label ?? '');
+  }
+
+  it.each(['darwin', 'win32'])('uses native roles for every text-editing chord while a field has focus (%s)', (platform) => {
+    setPlatform(platform as NodeJS.Platform);
+    createApplicationMenu(null, makeState({ hasEditableFocus: true }));
+
+    const roles = editSubmenu().map((item) => item.role).filter((role): role is NonNullable<typeof role> => role !== undefined);
+    for (const role of NATIVE_TEXT_ROLES) expect(roles).toContain(role);
+    // No app command may still sit on a text-editing chord.
+    const labels = commandIdsOf(editSubmenu());
+    for (const label of ['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Delete']) expect(labels).not.toContain(label);
+    // The rest of the menu keeps its shape: Duplicate/Select None disabled, palette still reachable.
+    const duplicate = editSubmenu().find((item) => item.label === 'Duplicate');
+    expect(duplicate?.enabled).toBe(false);
+    expect(editSubmenu().some((item) => item.label === 'Command Palette…')).toBe(true);
+  });
+
+  it('keeps the app commands (with unregistered accelerators) when no field has focus', () => {
+    setPlatform('darwin');
+    createApplicationMenu(null, makeState({ hasEditableFocus: false, canPaste: true }));
+
+    const paste = editSubmenu().find((item) => item.label === 'Paste');
+    expect(paste?.role).toBeUndefined();
+    expect(paste?.registerAccelerator).toBe(false);
+    expect(paste?.enabled).toBe(true);
+    expect(editSubmenu().some((item) => item.role === 'paste')).toBe(false);
+    // Sanity: the full app-command set is present.
+    expect(commandIdsOf(editSubmenu()).length).toBeGreaterThanOrEqual(APP_EDIT_COMMANDS.length);
+  });
+
+  it('rebuilds exactly once when focus moves into and out of a text field', () => {
+    const window = makeWindow(7);
+
+    updateApplicationMenu(window, makeState());
+    updateApplicationMenu(window, makeState({ hasEditableFocus: true }));
+    updateApplicationMenu(window, makeState({ hasEditableFocus: true }));
+    updateApplicationMenu(window, makeState());
+
+    expect(Menu.setApplicationMenu).toHaveBeenCalledTimes(3);
   });
 });
 

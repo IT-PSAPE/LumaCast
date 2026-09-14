@@ -53,6 +53,14 @@ export interface AppMenuState {
   canCut: boolean;
   canCopy: boolean;
   canPaste: boolean;
+  /**
+   * A text field (input, textarea, or contenteditable) has focus. On macOS a
+   * field only cuts, copies, pastes, or undoes when the Edit menu item bound
+   * to that chord performs the native `cut:`/`copy:`/`paste:` action, so
+   * while this is true the Edit menu carries native roles instead of app
+   * commands (ADR-0022, amendment).
+   */
+  hasEditableFocus: boolean;
   canDuplicate: boolean;
   canDelete: boolean;
   canClearSelection: boolean;

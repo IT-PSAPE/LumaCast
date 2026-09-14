@@ -44,6 +44,7 @@ const DEFAULT_APP_MENU_STATE: AppMenuState = {
   canCut: false,
   canCopy: false,
   canPaste: false,
+  hasEditableFocus: false,
   canDuplicate: false,
   canDelete: false,
   canClearSelection: false,
@@ -122,7 +123,47 @@ function buildFileMenu(state: AppMenuState): SerializableMenuItem[] {
   ];
 }
 
+// While a text field has focus the Edit menu is the browser's own. Chromium
+// on macOS performs a field's cut/copy/paste/undo only through the menu
+// item's native selector; an app command bound to the same chord swallows
+// the keystroke instead (the renderer then drops the echo it never handled,
+// see ADR-0022 amendment), which is how paste into a text box went missing.
+// Duplicate and Select None keep their place, disabled, so the menu's shape
+// stays familiar while typing.
+function buildTextEditingMenu(): SerializableMenuItem[] {
+  return [
+    { role: 'undo' },
+    { role: 'redo' },
+    { type: 'separator' },
+    { role: 'cut' },
+    { role: 'copy' },
+    { role: 'paste' },
+    commandDescriptor('edit.duplicate', {
+      label: 'Duplicate',
+      accelerator: 'CmdOrCtrl+D',
+      registerAccelerator: false,
+      enabled: false,
+    }),
+    { role: 'delete' },
+    commandDescriptor('edit.clearSelection', {
+      label: 'Select None',
+      accelerator: 'Escape',
+      registerAccelerator: false,
+      enabled: false,
+    }),
+    { type: 'separator' },
+    { role: 'selectAll' },
+    { type: 'separator' },
+    commandDescriptor('view.openCommandPalette', {
+      label: 'Command Palette…',
+      accelerator: 'CmdOrCtrl+K',
+      registerAccelerator: false,
+    }),
+  ];
+}
+
 function buildEditMenu(state: AppMenuState): SerializableMenuItem[] {
+  if (state.hasEditableFocus) return buildTextEditingMenu();
   return [
     commandDescriptor('edit.undo', {
       label: 'Undo',

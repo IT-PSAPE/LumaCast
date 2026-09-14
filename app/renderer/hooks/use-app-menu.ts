@@ -58,6 +58,8 @@ export function useAppMenu(): void {
     // what to copy at fire time.
     canCopy: true,
     canPaste: isEditableTargetFocused || (isEditWorkbench && hasClipboardContent()),
+    // Flips the Edit menu to native roles while typing; see AppMenuState.
+    hasEditableFocus: isEditableTargetFocused,
     canDuplicate: isEditWorkbench && hasElementSelection,
     canDelete: isEditableTargetFocused
       || (isEditWorkbench && hasElementSelection)

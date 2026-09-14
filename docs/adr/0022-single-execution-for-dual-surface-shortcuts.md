@@ -78,3 +78,27 @@ Copy, Paste and Undo.
 - `TODO(commands-canonical-ids)` in `packages/commands/src/index.ts` remains the
   real fix: unifying `ShortcutActionId` and `AppMenuCommandId` into one command
   space would remove the duplicate implementations this ADR coordinates.
+
+## Amendment (2026-09-14): text fields get the native Edit menu
+
+The claim mechanism above assumed that inside a focused text field "the menu
+path stays available as the fallback" for native editing. On macOS it was not:
+the renderer `keydown` in a text field claims the menu command it does not
+handle, the app-command menu item bound to the same chord consumes the key
+equivalent (so Chromium never receives the `paste:`/`copy:`/`undo:` selector a
+field needs), and `use-app-menu.ts` then drops the echo because of the claim.
+Net effect: `Cmd+V`, `Cmd+C`, `Cmd+X` and `Cmd+Z` did nothing in any input,
+textarea, or contenteditable on macOS.
+
+- `AppMenuState.hasEditableFocus` (set by `use-app-menu.ts` from the same
+  editable-target detection the hook already uses) now swaps the Edit menu's
+  Undo/Redo/Cut/Copy/Paste/Delete items for Electron's native roles for as long
+  as a text field has focus (`buildTextEditingMenu` in
+  `app/main/application-menu.ts`). A role item runs the browser's own editing
+  action on the focused field and sends no IPC, so there is nothing to claim or
+  drop. Duplicate and Select None stay in place, disabled.
+- With no text field focused the menu is unchanged, and the single-dispatcher
+  rules above still apply to canvas and slide actions.
+- The menu already rebuilt on focus changes (`canCut`/`canPaste` depend on
+  focus), so this adds no rebuild churn; `tests/app/main/application-menu.test.ts`
+  pins both shapes and the one-rebuild-per-transition behaviour.
