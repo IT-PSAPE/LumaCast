@@ -195,7 +195,7 @@ export function filterBundlePlaylistsToIncludedItems(
 export const PROJECT_BACKUP_FORMAT = 'cast-project-backup' as const;
 export const PROJECT_BACKUP_VERSION = 3 as const;
 // Format v2 spans schemas 30–32 and is accepted only as legacy import input;
-// it is normalized to the current v3/schema-34 shape by discarding Talk content.
+// it is normalized to the current v3/schema-35 shape by discarding Talk content.
 export const PROJECT_BACKUP_PREVIOUS_VERSION = 2 as const;
 // Format v1 is pinned to schema 22 and uses the separate database-migration
 // import path below.

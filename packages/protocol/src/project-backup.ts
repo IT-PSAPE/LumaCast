@@ -37,7 +37,7 @@ import type {
 // already decode/validate other wire formats. See docs/ARCHITECTURE.md
 // ("Dependency Boundaries" / "Project Backup") for the recorded rationale.
 //
-// #219 item-model refactor: format version 3 at schema version 34 contains
+// #219 item-model refactor: format version 3 at schema version 35 contains
 // presentations and lyrics only. No `libraries`, no `playlist_groups`, no
 // `collection_id`, no Talk tables/columns, and no single `themes` table: the
 // three per-owner theme tables each get their own key. Version 2 backups at
