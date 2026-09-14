@@ -44,8 +44,8 @@ type MediaAssetTableName = 'image_assets' | 'video_assets' | 'audio_assets';
 
 function readProjectBackupItems(db: SqliteDatabase, table: ItemTableName): ProjectBackupItemRow[] {
   const rows = db
-    .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM ${table} ORDER BY created_at ASC, id ASC`)
-    .all() as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+    .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at${table === 'lyrics' ? ', blank_slide_mode' : ''} FROM ${table} ORDER BY created_at ASC, id ASC`)
+    .all() as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string; blank_slide_mode?: 'none' | 'start' | 'end' | 'both' }>;
   return rows.map((row) => ({
     id: row.id,
     title: row.title,
@@ -53,6 +53,7 @@ function readProjectBackupItems(db: SqliteDatabase, table: ItemTableName): Proje
     order_index: row.order_index,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    ...(table === 'lyrics' ? { blank_slide_mode: row.blank_slide_mode ?? 'none' } : {}),
   }));
 }
 

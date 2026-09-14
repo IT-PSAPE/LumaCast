@@ -111,6 +111,7 @@ const BINDINGS = {
   'item.get': { method: 'getItem', args: ['input'] },
   'item.applyTheme': { method: 'applyThemeToItem', args: ['themeId', 'itemRef'] },
   'item.detachTheme': { method: 'detachThemeFromItem', args: ['itemRef'] },
+  'lyric.setBlankSlides': { method: 'setLyricBlankSlides', args: ['input'] },
 
   // --- Slides ---
   'slide.create': { method: 'createSlide', args: ['input'] },

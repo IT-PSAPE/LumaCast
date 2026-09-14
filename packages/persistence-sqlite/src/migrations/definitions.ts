@@ -2805,7 +2805,14 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 32, name: 'theme-override-keys', up: addThemeOverrideKeysColumn },
   { version: 33, name: 'remove-talks', up: removeTalksSchema, requiresForeignKeysOff: true },
   { version: 34, name: 'slide-tags', up: addSlideTagsSchema },
+  { version: 35, name: 'lyric-runtime-blank-slides', up: addLyricRuntimeBlankSlides },
 ];
+
+function addLyricRuntimeBlankSlides(db: SqliteDatabase): void {
+  if (!hasColumn(db, 'lyrics', 'blank_slide_mode')) {
+    db.exec("ALTER TABLE lyrics ADD COLUMN blank_slide_mode TEXT NOT NULL DEFAULT 'none' CHECK (blank_slide_mode IN ('none', 'start', 'end', 'both'))");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // v33 — remove Talks and talk themes entirely (#219 item-model refactor

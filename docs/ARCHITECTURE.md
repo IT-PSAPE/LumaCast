@@ -668,7 +668,7 @@ Each rule is also proven by a committed fixture scenario under
 
 ## Atomic Item Creation
 
-- `createItem(input)` is the one repository operation for creating a themed or unthemed Presentation or Lyric together with its first slide. `ItemCreateInput = { type: ItemType; title?; themeId?; playlistId?; position? }` — there is no `collectionId`/`groupId`: collections and libraries do not exist, and a new item attaches to a playlist only through `playlistId`/`position` (an ordinary `playlist_entries` insert, not a group membership). It validates title and owner type, theme existence in the table implied by `input.type`, and playlist existence when `playlistId` is supplied.
+- `createItem(input)` is the one repository operation for creating a themed or unthemed Presentation or Lyric together with its first slide. `ItemCreateInput = { type: ItemType; title?; themeId?; playlistId?; position?; blankSlideMode? }` — `blankSlideMode` is lyric-only, while collections and libraries do not exist and a new item attaches to a playlist only through `playlistId`/`position` (an ordinary `playlist_entries` insert, not a group membership). It validates title and owner type, theme existence in the table implied by `input.type`, and playlist existence when `playlistId` is supplied.
 - Runs in one SQLite transaction:
   1. Creates the owner (presentation or lyric) with explicit `order_index` (dense within that owner table) and its final `theme_id`.
   2. Creates the first slide once, with `background_source` = 'theme' if themed, 'local' otherwise.
@@ -678,6 +678,12 @@ Each rule is also proven by a committed fixture scenario under
 - The IPC result is `ItemCreateResult = { itemId, patch }`: the created owner's id is returned explicitly alongside the single `SnapshotPatch`, so the renderer never infers it by diffing entity arrays before/after the mutation.
 - Renderer callers — the create-item dialog (`navigation-context.tsx`), legacy app-menu creation (`createPresentation`, `createEmptyLyric`), and playlist-panel creation (`use-playlist-panel-management.ts`) — call the IPC method once, apply the returned `patch` via `mutatePatch`, and select/navigate using the returned `itemId` directly.
 - `createSlide` remains the sole operation for adding a later slide to an existing owner; it is never overloaded with owner creation.
+
+### Runtime lyric blank slides
+
+- A lyric persists only `blank_slide_mode` (`none`, `start`, `end`, or `both`). The renderer projects deterministic start/end slide identities into navigation and output at runtime; no blank slide or blank-slide element row is stored.
+- A projected blank linked to a lyric theme resolves the theme background and non-text elements while filtering all text. Without a linked theme it has no background or elements.
+- Runtime blanks cannot be reordered, duplicated, deleted, or edited as stored slides. The active-slide context menu and the agent action `lyric.setBlankSlides` update the lyric configuration through the same typed IPC mutation.
 - On failure, selection and navigation state are retained.
 
 ## Exact-Copy Duplication

@@ -1,6 +1,6 @@
 import type { Id } from '@lumacast/kernel';
 import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
-import type { ItemRef, ItemType, SlideTag, ThemeOwnerType } from '@lumacast/composition';
+import type { ItemRef, ItemType, LyricBlankSlideMode, SlideTag, ThemeOwnerType } from '@lumacast/composition';
 import type {
   CueCreateInput,
   CueUpdateInput,
@@ -9,6 +9,7 @@ import type {
   ElementUpdateInput,
   ItemListInput,
   ItemGetInput,
+  LyricBlankSlidesUpdateInput,
   MacroCreateInput,
   MacroUpdateInput,
   MediaAssetCreateInput,
@@ -239,6 +240,7 @@ interface RpcMethodSignatures {
   renamePlaylist: (id: Id, name: string) => Promise<SnapshotPatch>;
   renamePresentation: (id: Id, title: string) => Promise<SnapshotPatch>;
   renameLyric: (id: Id, title: string) => Promise<SnapshotPatch>;
+  setLyricBlankSlides: (input: LyricBlankSlidesUpdateInput) => Promise<SnapshotPatch>;
   // Per-type reorder (decision D1): each of the two item tables keeps its
   // own `order_index` sequence — there is no cross-type "deck order" left to
   // reorder within, so the old `moveDeckItem` splits one-for-one per table.
@@ -493,6 +495,7 @@ export interface ItemCreateInput {
   themeId?: Id | null;
   playlistId?: Id | null;
   position?: number;
+  blankSlideMode?: LyricBlankSlideMode;
 }
 
 // Atomic item creation returns the created item's id explicitly so the
@@ -663,6 +666,7 @@ export const IPC = {
   renamePlaylist: 'cast:renamePlaylist',
   renamePresentation: 'cast:renamePresentation',
   renameLyric: 'cast:renameLyric',
+  setLyricBlankSlides: 'cast:setLyricBlankSlides',
   movePresentation: 'cast:movePresentation',
   moveLyric: 'cast:moveLyric',
   deletePlaylist: 'cast:deletePlaylist',

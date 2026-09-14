@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { ItemType, SlideBackground, SlideBackgroundSource, SlideElement, OverlayType, OverlayAnimation, ThemeOwnerType } from '@lumacast/composition';
+import type { ItemType, LyricBlankSlideMode, SlideBackground, SlideBackgroundSource, SlideElement, OverlayType, OverlayAnimation, ThemeOwnerType } from '@lumacast/composition';
 
 // ---------------------------------------------------------------------------
 // Deck bundle manifest (issue #154, parent #116): the on-disk `.cst` archive
@@ -57,6 +57,7 @@ export interface BundleItem {
   type: ItemType;
   title: string;
   themeId: Id | null;
+  blankSlideMode?: LyricBlankSlideMode;
   order: number;
   slides: BundleSlide[];
 }

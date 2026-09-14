@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, ItemType, Lyric, PlaylistRow, Presentation } from '@lumacast/composition';
+import type { ItemRef, ItemType, Lyric, LyricBlankSlideMode, PlaylistRow, Presentation } from '@lumacast/composition';
 
 // #219 item-model refactor decision D9: no `currentLibraryId`/
 // `currentLibraryBundle` — playlists are global and a playlist's rows come
@@ -30,6 +30,7 @@ export interface ItemCreateOptions {
   type: ItemType;
   name: string;
   themeId?: Id;
+  blankSlideMode?: LyricBlankSlideMode;
   playlistId?: Id;
   position?: number;
 }

@@ -219,7 +219,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
   // theme first, then creates via the single `createItem` operation, which
   // returns the created id directly (never inferred by diffing arrays).
   const createItem = useCallback(async (input: ItemCreateOptions) => {
-    const dedupeKey = JSON.stringify([input.type, input.name, input.themeId ?? null, input.playlistId ?? null, input.position ?? null]);
+    const dedupeKey = JSON.stringify([input.type, input.name, input.themeId ?? null, input.blankSlideMode ?? null, input.playlistId ?? null, input.position ?? null]);
     const inFlight = createItemPromiseRef.current.get(dedupeKey);
     if (inFlight) return inFlight;
 
@@ -240,6 +240,7 @@ export function NavigationProvider({ children }: { children: ReactNode }) {
           type: input.type,
           title: trimmedName,
           themeId: resolvedThemeId,
+          ...(input.type === 'lyric' && input.blankSlideMode ? { blankSlideMode: input.blankSlideMode } : {}),
           playlistId: input.playlistId ?? null,
           position: input.position,
         });

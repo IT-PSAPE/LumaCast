@@ -8,6 +8,7 @@ import type {
   SlideTagColorKey,
   ItemRef,
   ItemType,
+  LyricBlankSlideMode,
   MediaAssetType,
   OverlayAnimation,
   ThemeOwnerType,
@@ -102,6 +103,11 @@ export interface SlideCreateInput {
   lyricId?: Id | null;
   width?: number;
   height?: number;
+}
+
+export interface LyricBlankSlidesUpdateInput {
+  lyricId: Id;
+  mode: LyricBlankSlideMode;
 }
 
 export interface SlideNotesUpdateInput {

@@ -281,7 +281,7 @@ const EXPECTED_TABLES: ProjectBackupTables = {
     { id: 'pres-2', title: 'Welcome', theme_id: null, order_index: 1, created_at: T1, updated_at: T1 },
   ],
   lyrics: [
-    { id: 'lyric-1', title: 'Great Is Thy Faithfulness', theme_id: 'ltheme-1', order_index: 0, created_at: T0, updated_at: T0 },
+    { id: 'lyric-1', title: 'Great Is Thy Faithfulness', theme_id: 'ltheme-1', order_index: 0, created_at: T0, updated_at: T0, blank_slide_mode: 'none' },
   ],
   slides: [
     { id: 'ptheme-1:slide', presentation_id: null, lyric_id: null, presentation_theme_id: 'ptheme-1', lyric_theme_id: null, overlay_theme_id: null, overlay_id: null, stage_id: null, tag_id: null, kind: 'presentationTheme', width: 1920, height: 1080, notes: '', background_json: JSON.stringify(PTHEME_BACKGROUND), background_source: null, order_index: 0, created_at: T0, updated_at: T0 },
@@ -529,7 +529,7 @@ describe('project backup validation (#145, backup v3)', () => {
   it('keeps the core-supported schema version in lockstep with the database migrations', () => {
     expect(PROJECT_BACKUP_VERSION).toBe(3);
     expect(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION).toBe(LATEST_SCHEMA_VERSION);
-    expect(LATEST_SCHEMA_VERSION).toBe(34);
+    expect(LATEST_SCHEMA_VERSION).toBe(35);
   });
 
   it('rejects a v1/schema-22 backup with an explicit "older app version" message, not a silent/generic failure', () => {

@@ -124,6 +124,23 @@ describe('CastRepository.createItem', () => {
     expect(elements[0].sourceThemeElementId ?? null).toBeNull();
   });
 
+  it('persists and updates runtime blank-slide configuration without storing blank slides', () => {
+    const { itemId } = repo.createItem({ type: 'lyric', title: 'Song', blankSlideMode: 'both' });
+    let snapshot = repo.getSnapshot();
+    expect(snapshot.lyrics.find((lyric) => lyric.id === itemId)?.blankSlideMode).toBe('both');
+    expect(snapshot.slides.filter((slide) => slide.lyricId === itemId)).toHaveLength(1);
+
+    repo.setLyricBlankSlides({ lyricId: itemId, mode: 'end' });
+    snapshot = repo.getSnapshot();
+    expect(snapshot.lyrics.find((lyric) => lyric.id === itemId)?.blankSlideMode).toBe('end');
+    expect(snapshot.slides.filter((slide) => slide.lyricId === itemId)).toHaveLength(1);
+  });
+
+  it('rejects runtime blank slides for presentations', () => {
+    expect(() => repo.createItem({ type: 'presentation', title: 'Deck', blankSlideMode: 'start' }))
+      .toThrow(/only supported for lyrics/);
+  });
+
   it('creates a themed presentation whose first slide already matches the theme', () => {
     const background: SlideBackground = { type: 'color', color: '#ABCDEF' };
     const theme = createTheme('presentation', [makeElement('title-src', 'Title', 1), makeElement('subtitle-src', 'Subtitle', 2)], background);

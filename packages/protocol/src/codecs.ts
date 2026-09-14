@@ -19,6 +19,7 @@ import type {
   SearchContentInput,
   SlideBackgroundUpdateInput,
   SlideCreateInput,
+  LyricBlankSlidesUpdateInput,
   SlideGetInput,
   SlideNotesUpdateInput,
   SlideOrderUpdateInput,
@@ -618,11 +619,15 @@ function decodeLegacyBundleItem(value: unknown, context: CodecContext): void {
 
 function decodeBundleItem(value: unknown, context: CodecContext): BundleItem {
   if (!isRecord(value)) fail(context, 'item must be an object');
-  rejectUnknownKeys(value, context, ['id', 'type', 'title', 'themeId', 'order', 'slides']);
+  rejectUnknownKeys(value, context, ['id', 'type', 'title', 'themeId', 'blankSlideMode', 'order', 'slides']);
   expectString(value.id, context, 'id');
   expectEnum(value.type, context, 'type', ITEM_TYPES);
   expectString(value.title, context, 'title');
   expectNullableString(value.themeId, context, 'themeId');
+  if (value.blankSlideMode !== undefined) expectEnum(value.blankSlideMode, context, 'blankSlideMode', LYRIC_BLANK_SLIDE_MODES);
+  if (value.type === 'presentation' && value.blankSlideMode !== undefined && value.blankSlideMode !== 'none') {
+    fail(child(context, 'blankSlideMode'), 'is only supported for lyrics');
+  }
   expectFiniteNumber(value.order, context, 'order');
   const slides = expectArray(value.slides, context, 'slides');
   slides.forEach((slide, index) => decodeBundleSlide(slide, child(context, `slides[${index}]`)));
@@ -1579,16 +1584,29 @@ export function decodeSlideTag(value: unknown, context: CodecContext): SlideTag 
 
 const RPC_ITEM_CREATE_TYPES: readonly ItemType[] = ['presentation', 'lyric'];
 const RPC_ITEM_DUPLICATE_TYPES = ['presentation', 'lyric'] as const;
+const LYRIC_BLANK_SLIDE_MODES = ['none', 'start', 'end', 'both'] as const;
 
 /** #219 item-model refactor: replaces `decodeDeckItemCreateWithThemeInput`. */
 export function decodeItemCreateInput(value: unknown, context: CodecContext): ItemCreateInput {
   if (!isRecord(value)) fail(context, 'must be an object');
-  rejectUnknownKeys(value, context, ['type', 'title', 'themeId', 'playlistId', 'position']);
+  rejectUnknownKeys(value, context, ['type', 'title', 'themeId', 'playlistId', 'position', 'blankSlideMode']);
   expectEnum(value.type, context, 'type', RPC_ITEM_CREATE_TYPES);
   checkOptionalFields(value, context, { title: 'string', position: 'number' });
   if (value.themeId !== undefined) expectNullableString(value.themeId, context, 'themeId');
   if (value.playlistId !== undefined) expectNullableString(value.playlistId, context, 'playlistId');
+  if (value.blankSlideMode !== undefined) expectEnum(value.blankSlideMode, context, 'blankSlideMode', LYRIC_BLANK_SLIDE_MODES);
+  if (value.type === 'presentation' && value.blankSlideMode !== undefined && value.blankSlideMode !== 'none') {
+    fail(child(context, 'blankSlideMode'), 'is only supported for lyrics');
+  }
   return value as unknown as ItemCreateInput;
+}
+
+export function decodeLyricBlankSlidesUpdateInput(value: unknown, context: CodecContext): LyricBlankSlidesUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['lyricId', 'mode']);
+  expectNonEmptyString(value.lyricId, context, 'lyricId');
+  expectEnum(value.mode, context, 'mode', LYRIC_BLANK_SLIDE_MODES);
+  return value as unknown as LyricBlankSlidesUpdateInput;
 }
 
 export function decodeItemDuplicateInput(value: unknown, context: CodecContext): ItemDuplicateInput {
@@ -1952,6 +1970,7 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
   kind: 'string',
   layer: 'string',
   backgroundSource: 'string',
+  blankSlideMode: 'string',
   scopeLevel: 'string',
   onScopeExit: 'string',
   failurePolicy: 'string',

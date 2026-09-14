@@ -187,6 +187,24 @@ describe('create-item dialog', () => {
     expect(document.querySelector('[data-ui-region="create-item-dialog"]')).toBeNull();
   });
 
+  it('configures runtime blank slides while creating a lyric', async () => {
+    const { createItem } = renderDialog('lyric');
+
+    fireEvent.change(screen.getByPlaceholderText('New Lyric'), { target: { value: 'My Song' } });
+    await selectFieldOption('Blank slides', 'Beginning and end');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await act(async () => {});
+
+    expect(createItem).toHaveBeenCalledWith({
+      type: 'lyric',
+      name: 'My Song',
+      themeId: undefined,
+      blankSlideMode: 'both',
+      playlistId: undefined,
+      position: undefined,
+    });
+  });
+
   it('keeps the dialog open and reports nothing created when the operation rejects', async () => {
     const createItem = vi.fn().mockRejectedValue(new Error('boom'));
     renderDialog('presentation', { createItem });

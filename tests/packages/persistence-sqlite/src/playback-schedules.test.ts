@@ -256,11 +256,13 @@ describe('playback-schedule persistence', () => {
 
       const legacyTables = JSON.parse(JSON.stringify(backup.tables)) as Record<string, unknown>;
       delete legacyTables.slide_tags;
+      legacyTables.lyrics = (legacyTables.lyrics as Array<Record<string, unknown>>)
+        .map(({ blank_slide_mode: _blankSlideMode, ...lyric }) => lyric);
       legacyTables.slides = (legacyTables.slides as Array<Record<string, unknown>>)
         .map(({ tag_id: _tagId, ...slide }) => slide);
       const legacy = {
         ...backup,
-        schemaVersion: PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION - 1,
+        schemaVersion: 33,
         tables: legacyTables,
       } as unknown as ProjectBackup;
       const normalized = validateProjectBackup(legacy);

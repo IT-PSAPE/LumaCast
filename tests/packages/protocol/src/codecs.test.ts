@@ -949,6 +949,15 @@ describe('decodeMediaAssetCreateInput / decodeItemCreateInput / decodeItemDuplic
     expect(decodeItemCreateInput({ type: 'lyric' }, CONTEXT)).toEqual({ type: 'lyric' });
   });
 
+  it('decodes lyric blank-slide creation and rejects it for presentations', () => {
+    expect(decodeItemCreateInput({ type: 'lyric', blankSlideMode: 'both' }, CONTEXT))
+      .toEqual({ type: 'lyric', blankSlideMode: 'both' });
+    expectCodecError(
+      () => decodeItemCreateInput({ type: 'presentation', blankSlideMode: 'start' }, CONTEXT),
+      'only supported for lyrics',
+    );
+  });
+
   it('decodes an item create input placed into a playlist at a position', () => {
     const input = decodeItemCreateInput({ type: 'lyric', playlistId: 'pl-1', position: 2 }, CONTEXT);
     expect(input).toMatchObject({ playlistId: 'pl-1', position: 2 });

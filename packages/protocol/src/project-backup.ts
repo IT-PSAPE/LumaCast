@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { SlideKind, SlideBackgroundSource, SlideElementType, SlideElementBase, SlideTagColorKey } from '@lumacast/composition';
+import type { LyricBlankSlideMode, SlideKind, SlideBackgroundSource, SlideElementType, SlideElementBase, SlideTagColorKey } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
   CueKind,
@@ -64,6 +64,7 @@ export interface ProjectBackupItemRow {
   order_index: number;
   created_at: string;
   updated_at: string;
+  blank_slide_mode?: LyricBlankSlideMode;
 }
 
 export interface ProjectBackupSlideRow {

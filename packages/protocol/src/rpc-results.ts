@@ -2,6 +2,7 @@ import type { Id } from '@lumacast/kernel';
 import type {
   ItemType,
   ItemRef,
+  LyricBlankSlideMode,
   ThemeOwnerType,
   Presentation,
   Lyric,
@@ -202,6 +203,7 @@ export interface ItemSummary {
   title: string;
   slideCount: number;
   themeId: Id | null;
+  blankSlideMode?: LyricBlankSlideMode;
   playlistIds: Id[];
   updatedAt: string;
 }
@@ -210,6 +212,7 @@ export interface ItemDetail {
   ref: ItemRef;
   title: string;
   themeId: Id | null;
+  blankSlideMode?: LyricBlankSlideMode;
   order: number;
   createdAt: string;
   updatedAt: string;

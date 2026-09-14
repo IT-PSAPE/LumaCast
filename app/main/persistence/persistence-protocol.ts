@@ -56,6 +56,7 @@ export const PERSISTENCE_METHODS = [
   'renamePlaylist',
   'renamePresentation',
   'renameLyric',
+  'setLyricBlankSlides',
   'createSlide',
   'deleteSlide',
   'updateSlideNotes',

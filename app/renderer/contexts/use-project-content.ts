@@ -177,6 +177,42 @@ function effectiveThemeForSlide(
   return persisted ?? null;
 }
 
+function runtimeBlankSlide(lyric: Lyric, position: 'start' | 'end', theme: LyricTheme | undefined): Slide {
+  return {
+    id: `runtime:lyric:${lyric.id}:blank:${position}`,
+    background: theme?.background ?? null,
+    backgroundSource: theme ? 'theme' : 'local',
+    presentationId: null,
+    lyricId: lyric.id,
+    presentationThemeId: null,
+    lyricThemeId: null,
+    overlayThemeId: null,
+    overlayId: null,
+    stageId: null,
+    kind: 'lyric',
+    width: theme?.width ?? 1920,
+    height: theme?.height ?? 1080,
+    notes: '',
+    order: position === 'start' ? -1 : Number.MAX_SAFE_INTEGER,
+    createdAt: lyric.createdAt,
+    updatedAt: lyric.updatedAt,
+    runtimeBlank: position,
+  };
+}
+
+function withoutTextElements(elements: SlideElement[]): SlideElement[] {
+  return elements.flatMap((element) => {
+    if (element.type === 'text') return [];
+    if (element.type !== 'group' || !('children' in element.payload)) {
+      return [{ ...element, payload: { ...element.payload, locked: true } }];
+    }
+    return [{
+      ...element,
+      payload: { ...element.payload, locked: true, children: withoutTextElements(element.payload.children) },
+    }];
+  });
+}
+
 const projectContentCache = new WeakMap<AppSnapshot, ProjectContent>();
 const projectedContentCache = new WeakMap<AppSnapshot, WeakMap<ThemeDraftProjection, ProjectContent>>();
 
@@ -286,9 +322,28 @@ export function useProjectContent(): ProjectContent {
     slidesByItem.forEach((contentSlides, key) => {
       slidesByItem.set(key, sortSlides(contentSlides));
     });
+    const projectedSlides = [...slides];
+    for (const lyric of lyrics) {
+      const mode = lyric.blankSlideMode ?? 'none';
+      if (mode === 'none') continue;
+      const key = itemRefKey({ type: 'lyric', id: lyric.id });
+      const contentSlides = slidesByItem.get(key) ?? [];
+      const theme = lyric.themeId ? lyricThemes.find((candidate) => candidate.id === lyric.themeId) : undefined;
+      if (mode === 'start' || mode === 'both') {
+        const blank = runtimeBlankSlide(lyric, 'start', theme);
+        contentSlides.unshift(blank);
+        projectedSlides.push(blank);
+      }
+      if (mode === 'end' || mode === 'both') {
+        const blank = runtimeBlankSlide(lyric, 'end', theme);
+        contentSlides.push(blank);
+        projectedSlides.push(blank);
+      }
+      slidesByItem.set(key, contentSlides);
+    }
 
     const slideElementsBySlideId = new Map<Id, SlideElement[]>();
-    for (const slide of slides) slideElementsBySlideId.set(slide.id, []);
+    for (const slide of projectedSlides) slideElementsBySlideId.set(slide.id, []);
     for (const element of slideElements) {
       const existing = slideElementsBySlideId.get(element.slideId) ?? [];
       existing.push(element);
@@ -332,7 +387,7 @@ export function useProjectContent(): ProjectContent {
       lyricThemesById,
     };
     const slidesById = new Map<Id, Slide>();
-    for (const slide of slides) slidesById.set(slide.id, slide);
+    for (const slide of projectedSlides) slidesById.set(slide.id, slide);
     const resolveElementsForSlide = (slideId: Id, elements: SlideElement[]): SlideElement[] => {
       const slide = slidesById.get(slideId);
       if (!slide) return elements;
@@ -340,14 +395,15 @@ export function useProjectContent(): ProjectContent {
       if (!theme) return elements;
       const prev = adhocResolveRef.current.get(slideId);
       if (prev && prev.input === elements && prev.theme === theme) return prev.arr;
-      const arr = resolveLinkedSlideElements(theme, slideId, elements);
+      const resolved = resolveLinkedSlideElements(theme, slideId, elements);
+      const arr = slide.runtimeBlank ? withoutTextElements(resolved) : resolved;
       adhocResolveRef.current.set(slideId, { input: elements, theme, arr });
       return arr;
     };
     const prevLive = prevLiveRef.current;
     const liveSlideElementsBySlideId = new Map<Id, SlideElement[]>();
     const liveSlidesById = new Map<Id, Slide>();
-    for (const slide of slides) {
+    for (const slide of projectedSlides) {
       const rawElements = slideElementsBySlideId.get(slide.id) ?? [];
       const theme = effectiveThemeForSlide(slide, themeLookup, themeDraftProjection);
       if (!theme) {
@@ -355,7 +411,8 @@ export function useProjectContent(): ProjectContent {
         liveSlidesById.set(slide.id, slide);
         continue;
       }
-      const resolvedElements = resolveLinkedSlideElements(theme, slide.id, rawElements);
+      const resolved = resolveLinkedSlideElements(theme, slide.id, rawElements);
+      const resolvedElements = slide.runtimeBlank ? withoutTextElements(resolved) : resolved;
       const elementsSig = JSON.stringify(resolvedElements);
       const prevElements = prevLive.elements.get(slide.id);
       const liveElements = prevElements && prevElements.sig === elementsSig ? prevElements.arr : resolvedElements;

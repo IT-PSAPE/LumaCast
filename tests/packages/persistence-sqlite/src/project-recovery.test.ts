@@ -212,6 +212,7 @@ function mutateBackup(backup: ProjectBackup, mutate: (tables: ProjectBackupTable
 
 function buildLegacyProjectBackupV2(current: ProjectBackup): ProjectBackup {
   const tables = JSON.parse(JSON.stringify(current.tables)) as Record<string, Array<Record<string, unknown>>>;
+  tables.lyrics = tables.lyrics.map(({ blank_slide_mode: _blankSlideMode, ...lyric }) => lyric);
   tables.slides = tables.slides.map(({ tag_id: _tagId, ...slide }) => ({
     ...slide,
     talk_id: null,
@@ -337,7 +338,7 @@ describe('project recovery restore (#146, backup v3)', () => {
 
     const reExported = repo.exportProjectBackup();
     expect(reExported.version).toBe(3);
-    expect(reExported.schemaVersion).toBe(34);
+    expect(reExported.schemaVersion).toBe(35);
   });
 
   it('preserves explicit and intentionally empty override metadata from schema-32 backups', () => {
@@ -756,7 +757,7 @@ describe('legacy (v1) project backup import (#219 item-model refactor, wave K)',
     // document at the current schema version.
     const reExported = legacyRepo.exportProjectBackup();
     expect(reExported.version).toBe(3);
-    expect(reExported.schemaVersion).toBe(34);
+    expect(reExported.schemaVersion).toBe(35);
   });
 
   it('rejects a v1 document with an unsupported legacy schema version, naming it as an older app version', () => {

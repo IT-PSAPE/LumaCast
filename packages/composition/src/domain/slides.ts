@@ -55,4 +55,6 @@ export interface Slide {
   tagId?: Id | null;
   createdAt: string;
   updatedAt: string;
+  /** Renderer-only projection marker. Runtime lyric blanks never cross persistence or IPC. */
+  runtimeBlank?: 'start' | 'end';
 }

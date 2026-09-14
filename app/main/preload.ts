@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
-import { AGENT_ACTION_EVENTS, AGENT_EVENTS, APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, NDI_AUDIO_TRANSPORT_PORT_CHANNEL, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiAudioTransportPortAnnouncement, isNdiFrameTransportPortAnnouncement, type AgentActionCancelledEvent, type AgentActionRequest, type AgentActionResponse, type AgentBatchEvent, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
+import { AGENT_ACTION_EVENTS, AGENT_EVENTS, APP_MENU_EVENTS, IPC, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, NDI_AUDIO_TRANSPORT_PORT_CHANNEL, NDI_EVENTS, NDI_FRAME_TRANSPORT_PORT_CHANNEL, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, isNdiAudioTransportPortAnnouncement, isNdiFrameTransportPortAnnouncement, type AgentActionCancelledEvent, type AgentActionRequest, type AgentActionResponse, type AgentBatchEvent, type ItemCreateInput, type ItemCreateResult, type ItemDuplicateInput, type ItemDuplicateResult, type LyricBlankSlidesUpdateInput, type MainApi, type ProjectRestoreResult } from '@lumacast/protocol';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import type {
   AgentConfig,
@@ -220,6 +220,7 @@ const api = {
   renamePlaylist: (id: Id, name: string) => ipcRenderer.invoke(IPC.renamePlaylist, id, name),
   renamePresentation: (id: Id, title: string) => ipcRenderer.invoke(IPC.renamePresentation, id, title),
   renameLyric: (id: Id, title: string) => ipcRenderer.invoke(IPC.renameLyric, id, title),
+  setLyricBlankSlides: (input: LyricBlankSlidesUpdateInput) => ipcRenderer.invoke(IPC.setLyricBlankSlides, input),
   movePresentation: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.movePresentation, id, direction),
   moveLyric: (id: Id, direction: 'up' | 'down') => ipcRenderer.invoke(IPC.moveLyric, id, direction),
   deletePlaylist: (id: Id) => ipcRenderer.invoke(IPC.deletePlaylist, id),

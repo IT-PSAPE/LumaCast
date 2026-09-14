@@ -16,6 +16,7 @@ import {
   type InlineWindowMenuItem,
   type ItemCreateInput,
   type ItemDuplicateInput,
+  type LyricBlankSlidesUpdateInput,
   type PersistenceProgress,
   type RpcOperations,
 } from '@lumacast/protocol';
@@ -70,6 +71,7 @@ import {
   decodeBundleExportOptions,
   decodeItemCreateInput,
   decodeItemDuplicateInput,
+  decodeLyricBlankSlidesUpdateInput,
   decodeElementCreateInput,
   decodeElementUpdateInput,
   decodeInlineWindowMenuBounds,
@@ -1168,6 +1170,8 @@ export const registerIpcHandlers = (
       );
       return repo.renameLyric(id, title);
     },
+    setLyricBlankSlides: (_event, input: LyricBlankSlidesUpdateInput) =>
+      repo.setLyricBlankSlides(decodeLyricBlankSlidesUpdateInput(input, rpcContext('setLyricBlankSlides'))),
     // Per-type reorder (decision D1): each item table keeps its own
     // `order_index` sequence, so the old cross-type `moveDeckItem` splits
     // one-for-one per table.

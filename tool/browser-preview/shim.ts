@@ -257,6 +257,7 @@ const castApi = {
   renamePlaylist: noop,
   renamePresentation: noop,
   renameLyric: noop,
+  setLyricBlankSlides: noop,
   movePresentation: noop,
   moveLyric: noop,
   deletePlaylist: noop,

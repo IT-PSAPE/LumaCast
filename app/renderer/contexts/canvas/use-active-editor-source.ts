@@ -25,7 +25,7 @@ export function useActiveEditorSource(): ActiveEditorSource {
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
   const { themeType, currentTheme, replaceThemeElements } = useThemeEditor();
   const { currentStage, replaceStageElements } = useStageEditor();
-  const { presentationThemesById, lyricThemesById, overlayThemesById, overlaysById, stagesById } = useProjectContent();
+  const { presentationThemesById, lyricThemesById, overlayThemesById, overlaysById, stagesById, liveSlideElementsBySlideId } = useProjectContent();
   const { state: { workbenchMode } } = useWorkbench();
 
   const themesById = themeType === 'lyric' ? lyricThemesById
@@ -39,15 +39,19 @@ export function useActiveEditorSource(): ActiveEditorSource {
         entityId: currentSlide?.id ?? null,
         hasSource: Boolean(currentSlide),
         frame: currentSlide,
-        elements: currentSlide ? getSlideElements(currentSlide.id) : [],
+        elements: currentSlide
+          ? currentSlide.runtimeBlank
+            ? liveSlideElementsBySlideId.get(currentSlide.id) ?? []
+            : getSlideElements(currentSlide.id)
+          : [],
         replaceElements: (elements) => {
-          if (!currentSlide) return;
+          if (!currentSlide || currentSlide.runtimeBlank) return;
           replaceSlideElements(currentSlide.id, elements);
         },
         historyKey: currentSlide?.id ?? null,
         emptyStateLabel: 'No slide selected.',
         editable: true,
-        createCapabilities: {
+        createCapabilities: currentSlide?.runtimeBlank ? NOOP_CREATE_CAPABILITIES : {
           text: currentItemRef?.type !== 'lyric',
           shape: true,
           image: true,
@@ -174,6 +178,7 @@ export function useActiveEditorSource(): ActiveEditorSource {
     overlaysById,
     stagesById,
     getSlideElements,
+    liveSlideElementsBySlideId,
     replaceSlideElements,
     replaceStageElements,
     replaceThemeElements,

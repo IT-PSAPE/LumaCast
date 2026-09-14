@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { ItemType, PlaylistRow } from '@lumacast/composition';
+import type { ItemType, LyricBlankSlideMode, PlaylistRow } from '@lumacast/composition';
 import { getPlaylistEntryItemRef } from '@lumacast/composition';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dialog } from '../../components/overlays/dialog';
@@ -45,6 +45,7 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
 
   const [name, setName] = useState('');
   const [themeId, setThemeId] = useState<string>('');
+  const [blankSlideMode, setBlankSlideMode] = useState<LyricBlankSlideMode>('none');
   const [playlistId, setPlaylistId] = useState<string>('');
   const [position, setPosition] = useState<string>('');
   const [busy, setBusy] = useState(false);
@@ -55,6 +56,7 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
     if (!isOpen) return;
     setName('');
     setThemeId('');
+    setBlankSlideMode('none');
     setPlaylistId('');
     setPosition('');
     setBusy(false);
@@ -96,6 +98,7 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
         type,
         name,
         themeId: themeId ? (themeId as Id) : undefined,
+        ...(type === 'lyric' && blankSlideMode !== 'none' ? { blankSlideMode } : {}),
         playlistId: playlistId ? (playlistId as Id) : undefined,
         position: playlistId && position ? Number(position) : undefined,
       });
@@ -148,6 +151,19 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
                 >
                   <FieldSelect.Option value="">No theme</FieldSelect.Option>
                 </FieldSelect>
+              ) : null}
+              {type === 'lyric' ? (
+                <FieldSelect
+                  label="Blank slides"
+                  value={blankSlideMode}
+                  onChange={(value) => setBlankSlideMode(value as LyricBlankSlideMode)}
+                  options={[
+                    { value: 'none', label: 'None' },
+                    { value: 'start', label: 'At beginning' },
+                    { value: 'end', label: 'At end' },
+                    { value: 'both', label: 'Beginning and end' },
+                  ]}
+                />
               ) : null}
               {playlistOptions.length > 0 ? (
                 <FieldSelect

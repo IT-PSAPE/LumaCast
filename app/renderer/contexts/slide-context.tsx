@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
 import { getPlaylistEntryItemRef, getSlideItemRef } from '@lumacast/composition';
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, Slide, SlideBackground, SlideElement } from '@lumacast/composition';
+import type { ItemRef, LyricBlankSlideMode, Slide, SlideBackground, SlideElement } from '@lumacast/composition';
 import type { AppSnapshot, NdiTakeReason } from '@lumacast/protocol';
 import { clamp, sortSlides } from '../utils/slides';
 import { itemRefsEqual } from '../utils/navigation-context-utils';
@@ -40,6 +40,7 @@ interface SlideContextValue {
   selectPlaylistItem: (itemRef: ItemRef) => void;
   activateScheduledSlide: (itemRef: ItemRef, slideId: Id) => void;
   createSlide: () => Promise<void>;
+  setLyricBlankSlides: (mode: LyricBlankSlideMode) => Promise<void>;
   duplicateSlide: (slideId: Id) => Promise<void>;
   deleteSlide: (slideId: Id) => Promise<void>;
   moveSlide: (slideId: Id, direction: 'up' | 'down') => Promise<void>;
@@ -379,7 +380,10 @@ export function SlideProvider({ children }: { children: ReactNode }) {
         presentationId: currentItemRef.type === 'presentation' ? currentItemRef.id : null,
         lyricId: currentItemRef.type === 'lyric' ? currentItemRef.id : null,
       }));
-      const createdSlideIndex = findCreatedSlideIndex(nextSnapshot, currentItemRef, previousSlideIds);
+      const persistedCreatedIndex = findCreatedSlideIndex(nextSnapshot, currentItemRef, previousSlideIds);
+      const createdSlideIndex = persistedCreatedIndex === null
+        ? null
+        : persistedCreatedIndex + (slides[0]?.runtimeBlank === 'start' ? 1 : 0);
       const selectionKey = isDetachedDeckBrowser ? itemRefKey(currentItemRef) : currentPlaylistEntryId;
       if (selectionKey && createdSlideIndex !== null) updateVisibleSelectedSlideIndex(selectionKey, createdSlideIndex);
       setStatusText('Created slide');
@@ -387,6 +391,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
   }, [currentItemRef, currentPlaylistEntryId, isDetachedDeckBrowser, mutatePatch, runOperation, setStatusText, slides, updateVisibleSelectedSlideIndex]);
 
   const deleteSlideAction = useCallback(async (slideId: Id) => {
+    if (slides.find((slide) => slide.id === slideId)?.runtimeBlank) return;
     const selectionKey = isDetachedDeckBrowser
       ? (currentItemRef ? itemRefKey(currentItemRef) : null)
       : currentPlaylistEntryId;
@@ -405,49 +410,61 @@ export function SlideProvider({ children }: { children: ReactNode }) {
       ? (currentItemRef ? itemRefKey(currentItemRef) : null)
       : currentPlaylistEntryId;
     const sourceIndex = slides.findIndex((slide) => slide.id === slideId);
-    if (sourceIndex < 0) return;
+    if (sourceIndex < 0 || slides[sourceIndex]?.runtimeBlank) return;
     await mutatePatch(() => window.castApi.duplicateSlide(slideId));
     if (selectionKey) updateVisibleSelectedSlideIndex(selectionKey, sourceIndex + 1);
     setStatusText('Duplicated slide');
   }, [currentItemRef, currentPlaylistEntryId, isDetachedDeckBrowser, mutatePatch, setStatusText, slides, updateVisibleSelectedSlideIndex]);
 
   const moveSlideAction = useCallback(async (slideId: Id, direction: 'up' | 'down') => {
-    const sourceIndex = slides.findIndex((slide) => slide.id === slideId);
+    const storedSlides = slides.filter((slide) => !slide.runtimeBlank);
+    const sourceIndex = storedSlides.findIndex((slide) => slide.id === slideId);
     if (sourceIndex < 0) return;
     const newOrder = direction === 'up' ? sourceIndex - 1 : sourceIndex + 1;
-    if (newOrder < 0 || newOrder >= slides.length) return;
+    if (newOrder < 0 || newOrder >= storedSlides.length) return;
     const selectionKey = isDetachedDeckBrowser
       ? (currentItemRef ? itemRefKey(currentItemRef) : null)
       : currentPlaylistEntryId;
     await mutatePatch(() => window.castApi.setSlideOrder({ slideId, newOrder }));
-    if (selectionKey) updateVisibleSelectedSlideIndex(selectionKey, newOrder);
+    if (selectionKey) updateVisibleSelectedSlideIndex(selectionKey, newOrder + (slides[0]?.runtimeBlank === 'start' ? 1 : 0));
     setStatusText(direction === 'up' ? 'Moved slide up' : 'Moved slide down');
   }, [currentItemRef, currentPlaylistEntryId, isDetachedDeckBrowser, mutatePatch, setStatusText, slides, updateVisibleSelectedSlideIndex]);
 
   const reorderSlideAction = useCallback(async (slideId: Id, newOrder: number) => {
-    const sourceIndex = slides.findIndex((slide) => slide.id === slideId);
+    const storedSlides = slides.filter((slide) => !slide.runtimeBlank);
+    const sourceIndex = storedSlides.findIndex((slide) => slide.id === slideId);
     if (sourceIndex < 0) return;
-    if (sourceIndex === newOrder) return;
-    if (newOrder < 0 || newOrder >= slides.length) return;
+    const prefix = slides[0]?.runtimeBlank === 'start' ? 1 : 0;
+    const storedNewOrder = newOrder - prefix;
+    if (sourceIndex === storedNewOrder) return;
+    if (storedNewOrder < 0 || storedNewOrder >= storedSlides.length) return;
     const selectionKey = isDetachedDeckBrowser
       ? (currentItemRef ? itemRefKey(currentItemRef) : null)
       : currentPlaylistEntryId;
-    await mutatePatch(() => window.castApi.setSlideOrder({ slideId, newOrder }));
+    await mutatePatch(() => window.castApi.setSlideOrder({ slideId, newOrder: storedNewOrder }));
     if (selectionKey) updateVisibleSelectedSlideIndex(selectionKey, newOrder);
     setStatusText('Reordered slide');
   }, [currentItemRef, currentPlaylistEntryId, isDetachedDeckBrowser, mutatePatch, setStatusText, slides, updateVisibleSelectedSlideIndex]);
 
   const updateCurrentSlideNotes = useCallback(async (notes: string) => {
-    if (!currentSlide) return;
+    if (!currentSlide || currentSlide.runtimeBlank) return;
     await mutatePatch(() => window.castApi.updateSlideNotes({ slideId: currentSlide.id, notes }));
     setStatusText('Saved slide notes');
   }, [currentSlide, mutatePatch, setStatusText]);
 
   const updateCurrentSlideBackground = useCallback(async (background: SlideBackground | null) => {
-    if (!currentSlide) return;
+    if (!currentSlide || currentSlide.runtimeBlank) return;
     await mutatePatch(() => window.castApi.updateSlideBackground({ slideId: currentSlide.id, background }));
     setStatusText('Updated slide background');
   }, [currentSlide, mutatePatch, setStatusText]);
+
+  const setLyricBlankSlidesAction = useCallback(async (mode: LyricBlankSlideMode) => {
+    if (currentItemRef?.type !== 'lyric') return;
+    await runOperation('Updating blank slides...', async () => {
+      await mutatePatch(() => window.castApi.setLyricBlankSlides({ lyricId: currentItemRef.id, mode }));
+      setStatusText('Updated blank slides');
+    });
+  }, [currentItemRef, mutatePatch, runOperation, setStatusText]);
 
   const activateScheduledSlide = useCallback((itemRef: ItemRef, slideId: Id) => {
     const contentSlides = slidesForItemRef(itemRef);
@@ -524,6 +541,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     selectPlaylistItem,
     activateScheduledSlide,
     createSlide: createSlideAction,
+    setLyricBlankSlides: setLyricBlankSlidesAction,
     duplicateSlide: duplicateSlideAction,
     deleteSlide: deleteSlideAction,
     moveSlide: moveSlideAction,
@@ -535,6 +553,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     activateSlide,
     armCurrentPlaylistSelection,
     createSlideAction,
+    setLyricBlankSlidesAction,
     deleteSlideAction,
     duplicateSlideAction,
     moveSlideAction,

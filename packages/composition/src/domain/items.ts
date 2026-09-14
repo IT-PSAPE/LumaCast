@@ -8,6 +8,8 @@ import type { Id } from '@lumacast/kernel';
 
 export type ItemType = 'presentation' | 'lyric';
 
+export type LyricBlankSlideMode = 'none' | 'start' | 'end' | 'both';
+
 // #219 decision D2: the set of owner types a theme can belong to. Items
 // (presentation/lyric) plus overlays, which own a theme outside the
 // item model. This lives here (not in ./theme.ts) because it exists purely
@@ -39,6 +41,7 @@ export interface Lyric {
   id: Id;
   title: string;
   themeId?: Id | null;
+  blankSlideMode?: LyricBlankSlideMode;
   order: number;
   createdAt: string;
   updatedAt: string;

@@ -89,6 +89,21 @@ describe('validateProjectBackupAsync', () => {
     expect(normalized.tables.slides[0].tag_id).toBeNull();
   });
 
+  it('normalizes a schema-34 lyric to no runtime blank slides', () => {
+    const backup = makeBackup();
+    const lyric = {
+      id: 'lyric-1', title: 'Song', theme_id: null, order_index: 0,
+      created_at: '2026-08-22T00:00:00.000Z', updated_at: '2026-08-22T00:00:00.000Z',
+    };
+    const legacy = {
+      ...backup,
+      schemaVersion: 34,
+      tables: { ...backup.tables, lyrics: [lyric] },
+    };
+
+    expect(validateProjectBackup(legacy).tables.lyrics[0]?.blank_slide_mode).toBe('none');
+  });
+
   it('rejects a malformed row with the synchronous validator message', async () => {
     const backup = makeBackup([
       { ...makePlaylistRow(0), order_index: 'zero' } as unknown as ProjectBackupTables['playlists'][number],

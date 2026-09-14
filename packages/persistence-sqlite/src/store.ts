@@ -123,6 +123,7 @@ import type {
   ElementUpdateInput,
   ItemCreateInput,
   ItemCreateResult,
+  LyricBlankSlidesUpdateInput,
   ItemDetail,
   ItemDuplicateInput,
   ItemDuplicateResult,
@@ -381,6 +382,15 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
     insertThemeTable('overlay_themes', t.overlay_themes);
 
     const insertItemTable = (tableName: ItemTableName, rows: readonly ProjectBackupItemRow[]): void => {
+      if (tableName === 'lyrics') {
+        const insertLyric = db.prepare(
+          'INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at, blank_slide_mode) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        for (const row of rows) {
+          insertLyric.run(row.id, row.title, row.theme_id, row.order_index, row.created_at, row.updated_at, row.blank_slide_mode ?? 'none');
+        }
+        return;
+      }
       const insert = db.prepare(
         `INSERT INTO ${tableName} (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
       );
@@ -1801,10 +1811,10 @@ export class CastRepository {
       }
 
       const insertLyric = this.db.prepare(
-        'INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO lyrics (id, title, theme_id, blank_slide_mode, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
       );
       for (const lyric of snapshot.lyrics) {
-        insertLyric.run(lyric.id, lyric.title, lyric.themeId ?? null, lyric.order, lyric.createdAt, lyric.updatedAt);
+        insertLyric.run(lyric.id, lyric.title, lyric.themeId ?? null, lyric.blankSlideMode ?? 'none', lyric.order, lyric.createdAt, lyric.updatedAt);
       }
 
       const insertSlide = this.db.prepare(
@@ -2167,7 +2177,7 @@ export class CastRepository {
       overlay: insertOverlayTheme,
     };
     const insertPresentation = this.db.prepare('INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
-    const insertLyric = this.db.prepare('INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)');
+    const insertLyric = this.db.prepare('INSERT INTO lyrics (id, title, theme_id, blank_slide_mode, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
     const insertSlide = this.db.prepare(
       `INSERT INTO slides (id, presentation_id, lyric_id, kind, width, height, notes, background_json, background_source, order_index, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -2284,7 +2294,7 @@ export class CastRepository {
           if (item.type === 'presentation') {
             insertPresentation.run(newItemId, item.title, importedThemeId, order, now, now);
           } else {
-            insertLyric.run(newItemId, item.title, importedThemeId, order, now, now);
+            insertLyric.run(newItemId, item.title, importedThemeId, item.blankSlideMode ?? 'none', order, now, now);
           }
 
           item.slides
@@ -2925,6 +2935,10 @@ export class CastRepository {
     const itemId = createId();
     const slideId = createId();
     const table = ITEM_TABLE_BY_TYPE[input.type];
+    const blankSlideMode = input.type === 'lyric' ? input.blankSlideMode ?? 'none' : 'none';
+    if (input.type === 'presentation' && input.blankSlideMode && input.blankSlideMode !== 'none') {
+      throw new Error('Runtime blank slides are only supported for lyrics');
+    }
 
     let theme: PresentationTheme | null = null;
     if (input.themeId) {
@@ -2940,9 +2954,15 @@ export class CastRepository {
     const currentOrder = (this.db.prepare(`SELECT MAX(order_index) AS maxOrder FROM ${table}`).get() as { maxOrder: number | null }).maxOrder ?? -1;
 
     const tx = this.db.transaction(() => {
-      this.db
-        .prepare(`INSERT INTO ${table} (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(itemId, trimmedTitle, input.themeId ?? null, currentOrder + 1, now, now);
+      if (input.type === 'lyric') {
+        this.db
+          .prepare('INSERT INTO lyrics (id, title, theme_id, blank_slide_mode, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(itemId, trimmedTitle, input.themeId ?? null, blankSlideMode, currentOrder + 1, now, now);
+      } else {
+        this.db
+          .prepare('INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(itemId, trimmedTitle, input.themeId ?? null, currentOrder + 1, now, now);
+      }
 
       this.db
         .prepare(
@@ -3020,8 +3040,8 @@ export class CastRepository {
     const now = nowIso();
 
     const source = this.db
-      .prepare(`SELECT id, title, theme_id, order_index FROM ${table} WHERE id = ?`)
-      .get(input.id) as { id: string; title: string; theme_id: string | null; order_index: number } | undefined;
+      .prepare(`SELECT id, title, theme_id, ${input.type === 'lyric' ? 'blank_slide_mode' : "'none' AS blank_slide_mode"}, order_index FROM ${table} WHERE id = ?`)
+      .get(input.id) as { id: string; title: string; theme_id: string | null; blank_slide_mode: string; order_index: number } | undefined;
     if (!source) throw new Error(`Item not found: ${input.id}`);
 
     let candidateTitle = `${source.title} Copy`;
@@ -3079,9 +3099,15 @@ export class CastRepository {
 
     const tx = this.db.transaction(() => {
       this.db.prepare(`UPDATE ${table} SET order_index = order_index + 1, updated_at = ? WHERE order_index >= ?`).run(now, sourceOrder + 1);
-      this.db
-        .prepare(`INSERT INTO ${table} (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(newOwnerId, candidateTitle, source.theme_id, sourceOrder + 1, now, now);
+      if (input.type === 'lyric') {
+        this.db
+          .prepare('INSERT INTO lyrics (id, title, theme_id, blank_slide_mode, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+          .run(newOwnerId, candidateTitle, source.theme_id, source.blank_slide_mode, sourceOrder + 1, now, now);
+      } else {
+        this.db
+          .prepare('INSERT INTO presentations (id, title, theme_id, order_index, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(newOwnerId, candidateTitle, source.theme_id, sourceOrder + 1, now, now);
+      }
 
       // The source reads are batched above; the insert side stays
       // output-row proportional because each duplicated slide and element row
@@ -3267,6 +3293,14 @@ export class CastRepository {
     const result = this.db.prepare('UPDATE lyrics SET title = ?, updated_at = ? WHERE id = ?').run(title, nowIso(), id);
     if (result.changes === 0) throw new Error(`Item not found: ${id}`);
     return this.buildPatch({ upsertLyricIds: [id] });
+  }
+
+  setLyricBlankSlides(input: LyricBlankSlidesUpdateInput): SnapshotPatch {
+    const result = this.db
+      .prepare('UPDATE lyrics SET blank_slide_mode = ?, updated_at = ? WHERE id = ?')
+      .run(input.mode, nowIso(), input.lyricId);
+    if (result.changes === 0) throw new Error(`Lyric not found: ${input.lyricId}`);
+    return this.buildPatch({ upsertLyricIds: [input.lyricId] });
   }
 
   createSlide(input: SlideCreateInput): SnapshotPatch {
@@ -4822,8 +4856,8 @@ export class CastRepository {
     if (!owner) return null;
 
     const table = ITEM_TABLE_BY_TYPE[owner.type];
-    const row = this.db.prepare(`SELECT id, title, theme_id, order_index FROM ${table} WHERE id = ?`).get(itemId) as
-      | { id: string; title: string; theme_id: string | null; order_index: number }
+    const row = this.db.prepare(`SELECT id, title, theme_id, ${owner.type === 'lyric' ? 'blank_slide_mode' : "'none' AS blank_slide_mode"}, order_index FROM ${table} WHERE id = ?`).get(itemId) as
+      | { id: string; title: string; theme_id: string | null; blank_slide_mode: Lyric['blankSlideMode']; order_index: number }
       | undefined;
     if (!row) return null;
 
@@ -4855,6 +4889,7 @@ export class CastRepository {
       type: owner.type,
       title: row.title,
       themeId: row.theme_id,
+      blankSlideMode: owner.type === 'lyric' ? row.blank_slide_mode : undefined,
       order: row.order_index,
       slides: bundleSlides,
     };
@@ -5213,12 +5248,13 @@ export class CastRepository {
 
   private getLyrics(): Lyric[] {
     const rows = this.db
-      .prepare('SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics ORDER BY order_index ASC, created_at ASC')
-      .all() as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+      .prepare('SELECT id, title, theme_id, blank_slide_mode, order_index, created_at, updated_at FROM lyrics ORDER BY order_index ASC, created_at ASC')
+      .all() as Array<{ id: string; title: string; theme_id: string | null; blank_slide_mode: Lyric['blankSlideMode']; order_index: number; created_at: string; updated_at: string }>;
     return rows.map((row) => ({
       id: row.id,
       title: row.title,
       themeId: row.theme_id,
+      blankSlideMode: row.blank_slide_mode,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -5230,8 +5266,8 @@ export class CastRepository {
     const rows = chunkValues(ids).flatMap((idChunk) => {
       const placeholders = idChunk.map(() => '?').join(',');
       return this.db
-        .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM lyrics WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
-        .all(...idChunk) as Array<{ id: string; title: string; theme_id: string | null; order_index: number; created_at: string; updated_at: string }>;
+        .prepare(`SELECT id, title, theme_id, blank_slide_mode, order_index, created_at, updated_at FROM lyrics WHERE id IN (${placeholders}) ORDER BY order_index ASC, created_at ASC`)
+        .all(...idChunk) as Array<{ id: string; title: string; theme_id: string | null; blank_slide_mode: Lyric['blankSlideMode']; order_index: number; created_at: string; updated_at: string }>;
     }).sort((left, right) =>
       left.order_index - right.order_index
       || left.created_at.localeCompare(right.created_at)
@@ -5241,6 +5277,7 @@ export class CastRepository {
       id: row.id,
       title: row.title,
       themeId: row.theme_id,
+      blankSlideMode: row.blank_slide_mode,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -6422,17 +6459,18 @@ export class CastRepository {
   private upsertLyricRows(rows: readonly Lyric[] | undefined): void {
     if (!rows || rows.length === 0) return;
     const upsert = this.db.prepare(
-      `INSERT INTO lyrics (id, title, theme_id, order_index, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO lyrics (id, title, theme_id, blank_slide_mode, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          title = excluded.title,
          theme_id = excluded.theme_id,
+         blank_slide_mode = excluded.blank_slide_mode,
          order_index = excluded.order_index,
          created_at = excluded.created_at,
          updated_at = excluded.updated_at`
     );
     for (const row of rows) {
-      upsert.run(row.id, row.title, row.themeId ?? null, row.order, row.createdAt, row.updatedAt);
+      upsert.run(row.id, row.title, row.themeId ?? null, row.blankSlideMode ?? 'none', row.order, row.createdAt, row.updatedAt);
     }
   }
 
@@ -7216,8 +7254,8 @@ export class CastRepository {
     const limit = Math.min(input.limit ?? 100, 500);
     const offset = Math.max(input.offset ?? 0, 0);
 
-    const selectPresentations = `SELECT id, 'presentation' AS type, title, theme_id, updated_at FROM presentations`;
-    const selectLyrics = `SELECT id, 'lyric' AS type, title, theme_id, updated_at FROM lyrics`;
+    const selectPresentations = `SELECT id, 'presentation' AS type, title, theme_id, 'none' AS blank_slide_mode, updated_at FROM presentations`;
+    const selectLyrics = `SELECT id, 'lyric' AS type, title, theme_id, blank_slide_mode, updated_at FROM lyrics`;
     const unionSql = input.type === 'presentation'
       ? selectPresentations
       : input.type === 'lyric'
@@ -7238,6 +7276,7 @@ export class CastRepository {
         type: ItemType;
         title: string;
         theme_id: string | null;
+        blank_slide_mode?: Lyric['blankSlideMode'];
         updated_at: string;
       }>;
 
@@ -7250,6 +7289,7 @@ export class CastRepository {
       title: row.title,
       slideCount: slideCounts.get(row.id) ?? 0,
       themeId: row.theme_id,
+      blankSlideMode: row.type === 'lyric' ? row.blank_slide_mode ?? 'none' : undefined,
       playlistIds: playlistIdsByOwner.get(row.id) ?? [],
       updatedAt: row.updated_at,
     }));
@@ -7258,11 +7298,12 @@ export class CastRepository {
   getItem(input: ItemGetInput): ItemDetail {
     const table = ITEM_TABLE_BY_TYPE[input.ref.type];
     const row = this.db
-      .prepare(`SELECT id, title, theme_id, order_index, created_at, updated_at FROM ${table} WHERE id = ?`)
+      .prepare(`SELECT id, title, theme_id, ${input.ref.type === 'lyric' ? 'blank_slide_mode' : "'none' AS blank_slide_mode"}, order_index, created_at, updated_at FROM ${table} WHERE id = ?`)
       .get(input.ref.id) as {
         id: string;
         title: string;
         theme_id: string | null;
+        blank_slide_mode: Lyric['blankSlideMode'];
         order_index: number;
         created_at: string;
         updated_at: string;
@@ -7273,6 +7314,7 @@ export class CastRepository {
       ref: { type: input.ref.type, id: row.id },
       title: row.title,
       themeId: row.theme_id,
+      blankSlideMode: input.ref.type === 'lyric' ? row.blank_slide_mode ?? 'none' : undefined,
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,

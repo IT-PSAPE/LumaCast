@@ -44,6 +44,7 @@ export type ActionId =
   | 'item.get'
   | 'item.applyTheme'
   | 'item.detachTheme'
+  | 'lyric.setBlankSlides'
   // --- Slides (main) ---
   | 'slide.create'
   | 'slide.duplicate'
@@ -377,6 +378,13 @@ export const ACTION_METADATA: Readonly<Record<ActionId, ActionMetadata>> = {
     id: 'item.detachTheme',
     title: 'Detach theme from item',
     description: 'Removes the theme association from an item without deleting the theme itself. Returns the snapshot patch with the item’s theme cleared.',
+    risk: 'write',
+    site: 'main',
+  },
+  'lyric.setBlankSlides': {
+    id: 'lyric.setBlankSlides',
+    title: 'Set lyric blank slides',
+    description: 'Configures runtime-only blank slides at the start, end, both ends, or neither end of a lyric. Returns the updated lyric patch.',
     risk: 'write',
     site: 'main',
   },

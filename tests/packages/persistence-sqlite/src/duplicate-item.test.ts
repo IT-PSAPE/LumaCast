@@ -127,11 +127,12 @@ describe('CastRepository.duplicateItem', () => {
   });
 
   it('gives a lyric duplicate a new owner id, new slide ids, and independently editable lyric text', () => {
-    const { itemId: sourceId } = repo.createItem({ type: 'lyric', title: 'Song' });
+    const { itemId: sourceId } = repo.createItem({ type: 'lyric', title: 'Song', blankSlideMode: 'both' });
     const { itemId: duplicateId } = repo.duplicateItem({ type: 'lyric', id: sourceId });
     expect(duplicateId).not.toBe(sourceId);
 
     const snapshot = repo.getSnapshot();
+    expect(snapshot.lyrics.find((lyric) => lyric.id === duplicateId)?.blankSlideMode).toBe('both');
     const duplicateSlide = snapshot.slides.find((s) => s.lyricId === duplicateId)!;
     const duplicateElement = snapshot.slideElements.find((e) => e.slideId === duplicateSlide.id)!;
 

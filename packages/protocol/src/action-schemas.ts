@@ -102,6 +102,7 @@ import type {
   TriggerBindingCreateInput,
   ItemListInput,
   ItemGetInput,
+  LyricBlankSlidesUpdateInput,
   MediaAssetListInput,
   ThemeListInput,
   SearchContentInput,
@@ -873,6 +874,7 @@ const itemCreateSchema = s.object({
   themeId: s.optional(s.nullable(idSchema)),
   playlistId: s.optional(s.nullable(idSchema).describe('Attach the new item to this playlist at creation time')),
   position: s.optional(s.number().describe('0-based row position within playlistId; appends when omitted')),
+  blankSlideMode: s.optional(s.enum(['none', 'start', 'end', 'both'] as const).describe('Lyrics only: runtime blank slides at neither end, the start, the end, or both')),
 }) satisfies Schema<ItemCreateInput>;
 
 const itemDuplicateSchema = s.object({
@@ -899,6 +901,10 @@ const itemGetSchema = s.object({
 
 const itemApplyThemeSchema = s.object({ themeId: idSchema, itemRef: itemRefSchema });
 const itemDetachThemeSchema = s.object({ itemRef: itemRefSchema });
+const lyricBlankSlidesSchema = s.object({
+  lyricId: idSchema,
+  mode: s.enum(['none', 'start', 'end', 'both'] as const),
+}) satisfies Schema<LyricBlankSlidesUpdateInput>;
 
 // ---------------------------------------------------------------------------
 // Slides
@@ -1054,6 +1060,7 @@ const projectBackupItemRowSchema = s.object({
   title: s.string(),
   theme_id: s.nullable(idSchema),
   order_index: s.number(),
+  blank_slide_mode: s.optional(s.enum(['none', 'start', 'end', 'both'] as const)),
   ...backupTimestampProps(),
 }) satisfies Schema<ProjectBackupItemRow>;
 
@@ -1490,6 +1497,7 @@ export const ACTION_SCHEMAS: Readonly<Record<ActionId, ActionSchema>> = {
   'item.get': { params: itemGetSchema },
   'item.applyTheme': { params: itemApplyThemeSchema },
   'item.detachTheme': { params: itemDetachThemeSchema },
+  'lyric.setBlankSlides': { params: lyricBlankSlidesSchema },
   // --- Slides (main) ---
   'slide.create': { params: slideCreateSchema },
   'slide.duplicate': { params: slideDuplicateSchema },

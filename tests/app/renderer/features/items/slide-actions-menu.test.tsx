@@ -6,8 +6,10 @@ const mocks = vi.hoisted(() => ({
   duplicateSlide: vi.fn(),
   deleteSlide: vi.fn(),
   moveSlide: vi.fn(),
+  setLyricBlankSlides: vi.fn(),
   confirm: vi.fn(),
-  slides: [] as Array<{ id: string }>,
+  slides: [] as Array<{ id: string; runtimeBlank?: 'start' | 'end' }>,
+  currentItemRef: null as { type: 'presentation' | 'lyric'; id: string } | null,
 }));
 
 vi.mock('../../../../../app/renderer/components/overlays/context-menu', () => ({
@@ -16,6 +18,7 @@ vi.mock('../../../../../app/renderer/components/overlays/context-menu', () => ({
       <button type="button" disabled={disabled} onClick={onSelect}>{children}</button>
     ),
     Separator: () => <hr />,
+    Submenu: ({ label, children }: { label: string; children: React.ReactNode }) => <section aria-label={label}>{children}</section>,
   },
 }));
 
@@ -25,7 +28,12 @@ vi.mock('../../../../../app/renderer/contexts/slide-context', () => ({
     duplicateSlide: mocks.duplicateSlide,
     deleteSlide: mocks.deleteSlide,
     moveSlide: mocks.moveSlide,
+    setLyricBlankSlides: mocks.setLyricBlankSlides,
   }),
+}));
+
+vi.mock('../../../../../app/renderer/contexts/navigation-context', () => ({
+  useNavigation: () => ({ currentItemRef: mocks.currentItemRef }),
 }));
 
 vi.mock('../../../../../app/renderer/components/overlays/confirm-dialog', () => ({
@@ -40,6 +48,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   mocks.slides = [];
+  mocks.currentItemRef = null;
 });
 
 describe('SlideActionsMenu — move up/down (single selection only)', () => {
@@ -83,6 +92,17 @@ describe('SlideActionsMenu — move up/down (single selection only)', () => {
 });
 
 describe('SlideActionsMenu', () => {
+  it('configures lyric blank slides and keeps runtime blanks immutable', () => {
+    mocks.currentItemRef = { type: 'lyric', id: 'lyric-1' };
+    mocks.slides = [{ id: 'runtime:lyric:lyric-1:blank:start', runtimeBlank: 'start' }];
+    render(<SlideActionsMenu slideIds={['runtime:lyric:lyric-1:blank:start']} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Beginning and end' }));
+    expect(mocks.setLyricBlankSlides).toHaveBeenCalledWith('both');
+    expect(screen.queryByRole('button', { name: 'Duplicate' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull();
+  });
+
   it('duplicates every slide in the selected target range', async () => {
     mocks.duplicateSlide.mockResolvedValue(undefined);
     render(<SlideActionsMenu slideIds={['slide-1', 'slide-2']} />);
