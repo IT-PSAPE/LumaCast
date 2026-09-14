@@ -118,7 +118,56 @@ const RULE_TITLES = {
 // permitted, why it exists, and who owns removing it. The checker fails if an
 // entry is no longer exercised by the tree, forcing the list to shrink.
 // ---------------------------------------------------------------------------
-const DEFAULT_ALLOW_LIST = [];
+const DEFAULT_ALLOW_LIST = [
+  {
+    from: 'app/renderer/components/display/lazy-scene-stage.tsx',
+    to: 'app/renderer/features/canvas/scene-stage.tsx',
+    rules: ['ui-purity'],
+    reason:
+      'SceneStage is a canvas-feature render component consumed by a shared display primitive. Extract the render-only scene layer to shared rendering so shared display components need no feature dependency.',
+    removedBy: 'shared scene-layer (plan 0.11, Atlas)',
+  },
+  {
+    from: 'app/renderer/components/form/doc-sortable-block.tsx',
+    to: 'app/renderer/features/items/lyric-text-utils.ts',
+    rules: ['ui-purity'],
+    reason:
+      'Lyric import text parsing lives in the items feature but is used by a shared doc-sortable form component. Move the parser to app/core so shared form components need no feature dependency.',
+    removedBy: 'Atlas (move lyric import parser to app/core)',
+  },
+  {
+    from: 'app/renderer/features/automation/automation-context.tsx',
+    to: 'app/renderer/features/observability/metrics-store.ts',
+    rules: ['feature-isolation', 'observability-port'],
+    reason:
+      'Automation records telemetry directly into the observability feature and crosses a feature boundary to do so. Route telemetry through an observability port before this can be removed.',
+    removedBy: 'observability port (plan 1.3, Atlas)',
+  },
+  {
+    from: 'app/renderer/contexts/app-context.tsx',
+    to: 'app/renderer/features/observability/metrics-store.ts',
+    rules: ['observability-port'],
+    reason:
+      'App shell wiring records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
+    removedBy: 'observability port (plan 1.3, Atlas)',
+  },
+  {
+    from: 'app/renderer/contexts/app-store.ts',
+    to: 'app/renderer/features/observability/metrics-store.ts',
+    rules: ['observability-port'],
+    reason:
+      'The application store records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
+    removedBy: 'observability port (plan 1.3, Atlas)',
+  },
+  {
+    from: 'app/renderer/contexts/playback/playback-context.tsx',
+    to: 'app/renderer/features/observability/metrics-store.ts',
+    rules: ['observability-port'],
+    reason:
+      'Playback wiring records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
+    removedBy: 'observability port (plan 1.3, Atlas)',
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Zones
