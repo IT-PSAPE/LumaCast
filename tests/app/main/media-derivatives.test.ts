@@ -702,9 +702,10 @@ describe('MediaDerivativeService', () => {
       SAFE_FALLBACK_PNG,
     ));
 
-    await flushNodeTasks(6);
-    expect(maxActive).toBeGreaterThan(0);
-    expect(maxActive).toBeLessThanOrEqual(3);
+    await vi.waitFor(() => {
+      expect(maxActive).toBeGreaterThan(0);
+      expect(maxActive).toBeLessThanOrEqual(3);
+    });
 
     for (let index = 0; index < assets.length; index += 1) {
       patchDeferreds[index]!.resolve({
