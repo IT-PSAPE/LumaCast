@@ -439,6 +439,8 @@ describe('an auto-approved tool call', () => {
 
 describe('permission decisions', () => {
   it('passes an ask decision through to the broker', async () => {
+    // The default tier is unrestricted; these decisions need a tier that asks for destructive actions.
+    configStore.update({ inApp: { matrix: matrixForTier('content'), showSafetyInterlock: true } });
     const thread = newThread();
     const args = { id: 'p1' };
     const { runtime } = makeRuntime((call) =>
@@ -476,6 +478,7 @@ describe('permission decisions', () => {
   });
 
   it('records an always-allow answer so the next identical call runs automatically', async () => {
+    configStore.update({ inApp: { matrix: matrixForTier('content'), showSafetyInterlock: true } });
     const thread = newThread();
     const args = { id: 'p1' };
     const call = (index: number): ProviderStreamEvent[] =>

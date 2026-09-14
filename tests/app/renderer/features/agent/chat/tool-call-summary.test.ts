@@ -151,7 +151,6 @@ describe('irregular verbs', () => {
     ['edit.redo', 'Redoing', 'Redid'],
     ['clipboard.read', 'Reading', 'Read'],
     ['clipboard.write', 'Writing', 'Wrote'],
-    ['video.next', 'Sending', 'Sent'], // n/a title check below uses element.sendToBack instead
     ['element.sendToBack', 'Sending', 'Sent'],
     ['element.bringToFront', 'Bringing', 'Brought'],
     ['video.seek', 'Seeking', 'Sought'],

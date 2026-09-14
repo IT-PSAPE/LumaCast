@@ -686,10 +686,12 @@ describe('model picker', () => {
     fireEvent.click(picker);
 
     // Model A: shortlisted. Model B: not shortlisted, but it's the thread's
-    // active model so it must still show. Model C: neither, hidden.
-    expect(await screen.findByText('Model A')).toBeInTheDocument();
-    expect(screen.getByText('Model B')).toBeInTheDocument();
-    expect(screen.queryByText('Model C')).toBeNull();
+    // active model so it must still show (scoped to the menu — the pill
+    // shows it too). Model C: neither, hidden.
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getByText('Model A')).toBeInTheDocument();
+    expect(within(menu).getByText('Model B')).toBeInTheDocument();
+    expect(within(menu).queryByText('Model C')).toBeNull();
   });
 });
 

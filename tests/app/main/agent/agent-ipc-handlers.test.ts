@@ -352,9 +352,9 @@ describe('agentCreateMcpClient', () => {
     expect(configStore.load().mcp.clients.map((client) => client.id)).toEqual([first.client.id, second.client.id]);
   });
 
-  it('defaults to the content tier and honours an explicit one', async () => {
-    const contentClient = await createClient('Default');
-    expect(contentClient.client.permissions).toEqual({ matrix: matrixForTier('content'), showSafetyInterlock: true });
+  it('defaults to the unrestricted tier and honours an explicit one', async () => {
+    const defaultClient = await createClient('Default');
+    expect(defaultClient.client.permissions).toEqual({ matrix: matrixForTier('unrestricted'), showSafetyInterlock: true });
 
     const readOnly = await createClient('Reader', 'read-only');
     expect(readOnly.client.permissions.matrix).toEqual(matrixForTier('read-only'));
