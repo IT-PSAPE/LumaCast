@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, X } from 'lucide-react';
 import type { ActionRiskClass } from '@lumacast/commands';
 import { ACTION_RISK_CLASSES } from '@lumacast/commands';
-import { AGENT_PERMISSION_TIERS, AGENT_PROVIDERS, matrixForTier, tierForMatrix } from '@lumacast/protocol';
+import { AGENT_PERMISSION_TIERS, AGENT_PROVIDERS, matrixForTier, prettifyModelId, tierForMatrix } from '@lumacast/protocol';
 import type {
   AgentConfig,
   AgentCredentialStatus,
   AgentMcpClient,
   AgentMcpStatus,
   AgentModelInfo,
+  AgentModelVendor,
   AgentPermissionDecision,
   AgentPermissionMatrix,
   AgentPermissionTier,
@@ -18,6 +20,7 @@ import { SegmentedControl } from '@renderer/components/controls/segmented-contro
 import { FieldCheckbox, FieldInput, FieldSelect, FieldTextarea } from '@renderer/components/form/field';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { Label } from '@renderer/components/display/text';
+import { ModelVendorLogo } from '@renderer/features/agent/model-vendor-logo';
 import { Section } from '@renderer/features/inspector/inspector-section';
 
 const RISK_CLASS_LABELS: Record<ActionRiskClass, string> = {
@@ -52,6 +55,44 @@ function formatContextWindow(tokens: number): string {
   return tokens >= 1000 ? `${Math.round(tokens / 1000)}k context` : `${tokens} context`;
 }
 
+interface ComposerModelRowProps {
+  id: string;
+  label: string;
+  vendor: AgentModelVendor | null;
+  isFree: boolean;
+  contextWindow: number | null;
+  checked: boolean;
+  onToggle: (id: string, checked: boolean) => void;
+}
+
+// A module-level memo component so toggling one row (or typing in the filter
+// box, which re-renders the panel) doesn't re-render the other ~445 rows a
+// loaded catalog can produce: props are primitives and `onToggle` is a
+// stable callback, so React.memo's shallow comparison bails out for every
+// row except the one that actually changed.
+const ComposerModelRow = memo(function ComposerModelRow({ id, label, vendor, isFree, contextWindow, checked, onToggle }: ComposerModelRowProps) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm hover:bg-tertiary/60">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onToggle(id, event.target.checked)}
+        className="peer sr-only"
+      />
+      <span
+        aria-hidden="true"
+        className="grid size-4 shrink-0 place-items-center rounded border border-primary bg-primary text-transparent transition-colors peer-checked:border-brand peer-checked:bg-brand/15 peer-checked:text-brand"
+      >
+        <Check size={11} strokeWidth={2.5} />
+      </span>
+      <ModelVendorLogo vendor={vendor} className="size-4" />
+      <span className="min-w-0 flex-1 truncate text-primary">{label}</span>
+      {isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+      {contextWindow != null ? <span className="shrink-0 text-tertiary">{formatContextWindow(contextWindow)}</span> : null}
+    </label>
+  );
+});
+
 export function AgentSettingsPanel() {
   const confirm = useConfirm();
 
@@ -71,6 +112,8 @@ export function AgentSettingsPanel() {
   const [models, setModels] = useState<AgentModelInfo[] | null>(null);
   const [modelsLoading, setModelsLoading] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const [composerFilter, setComposerFilter] = useState('');
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [validation, setValidation] = useState<'valid' | 'not-found' | 'unknown' | null>(null);
   const [validating, setValidating] = useState(false);
   const modelRequestId = useRef(0);
@@ -85,7 +128,7 @@ export function AgentSettingsPanel() {
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [addingClient, setAddingClient] = useState(false);
   const [newClientName, setNewClientName] = useState('');
-  const [newClientTier, setNewClientTier] = useState<AgentPermissionTier>('read-only');
+  const [newClientTier, setNewClientTier] = useState<AgentPermissionTier>('unrestricted');
   const [creatingClient, setCreatingClient] = useState(false);
   const [revealedClient, setRevealedClient] = useState<{ token: string; configSnippet: string } | null>(null);
 
@@ -114,6 +157,67 @@ export function AgentSettingsPanel() {
 
   useEffect(() => window.castApi.onAgentMcpStatus(setMcpStatus), []);
 
+  // Lets the stable (useCallback'd) composer-row toggle handler always act on
+  // the latest config without needing `config` itself as a dependency — that
+  // would change identity on every commit and defeat the memoized rows below.
+  const configRef = useRef(config);
+  useEffect(() => { configRef.current = config; }, [config]);
+
+  const modelOptions = models ?? [];
+
+  const composerShortlist = useMemo(() => {
+    if (!config?.provider) return [];
+    return config.composerModels[config.provider] ?? [];
+  }, [config?.provider, config?.composerModels]);
+
+  // The "Model" select offers the composer shortlist rather than the whole
+  // catalog (which can run to hundreds of entries) — plus the active
+  // selection even when it fell outside the shortlist, so choosing a model
+  // never hides what's already chosen.
+  const selectableModels = useMemo(() => {
+    if (composerShortlist.length === 0) return modelOptions;
+    const shortlisted = modelOptions.filter((model) => composerShortlist.includes(model.id));
+    const activeModelId = config?.model ?? null;
+    if (activeModelId && !composerShortlist.includes(activeModelId)) {
+      const activeModel = modelOptions.find((model) => model.id === activeModelId);
+      if (activeModel) return [...shortlisted, activeModel];
+    }
+    return shortlisted;
+  }, [modelOptions, composerShortlist, config?.model]);
+
+  const modelSelectOptions = useMemo(() => (
+    selectableModels.map((model) => (
+      <FieldSelect.Option key={model.id} value={model.id}>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <ModelVendorLogo vendor={model.vendor} className="size-4" />
+          <span className="truncate">{model.label}</span>
+          {model.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+          {model.contextWindow != null ? <span className="shrink-0 text-tertiary">{formatContextWindow(model.contextWindow)}</span> : null}
+        </span>
+      </FieldSelect.Option>
+    ))
+  ), [selectableModels]);
+
+  const filteredComposerModels = useMemo(() => {
+    const query = composerFilter.trim().toLowerCase();
+    if (query === '') return modelOptions;
+    return modelOptions.filter((model) => model.label.toLowerCase().includes(query) || model.id.toLowerCase().includes(query));
+  }, [modelOptions, composerFilter]);
+
+  // Stable across renders (empty deps + ref read) so the memoized composer
+  // rows below don't all re-render just because one of them toggled.
+  const handleToggleComposerModel = useCallback((id: string, checked: boolean) => {
+    const current = configRef.current;
+    if (!current?.provider) return;
+    const provider = current.provider;
+    const currentIds = current.composerModels[provider] ?? [];
+    const nextIds = checked ? [...currentIds, id] : currentIds.filter((existing) => existing !== id);
+    const nextComposerModels = { ...current.composerModels, [provider]: nextIds };
+    setConfig((prev) => (prev ? { ...prev, composerModels: nextComposerModels } : prev));
+    setComposerError(null);
+    window.castApi.agentUpdateConfig({ composerModels: nextComposerModels }).catch((error) => setComposerError(errorMessage(error)));
+  }, []);
+
   if (!config) {
     return (
       <div className="flex flex-col gap-2">
@@ -128,7 +232,6 @@ export function AgentSettingsPanel() {
   const showKeyForm = !credential?.hasKey || keyEditing;
   const currentTier = tierForMatrix(config.inApp.matrix);
   const tierValue = currentTier ?? CUSTOM_TIER;
-  const modelOptions = models ?? [];
   const hasCurrentModel = config.model ? modelOptions.some((model) => model.id === config.model) : true;
   const clients = mcpStatus?.clients ?? [];
 
@@ -144,6 +247,8 @@ export function AgentSettingsPanel() {
     setModels(null);
     setModelsLoading(false);
     setModelsError(null);
+    setComposerFilter('');
+    setComposerError(null);
     setValidation(null);
     setValidating(false);
     setApiKeyDraft('');
@@ -160,6 +265,8 @@ export function AgentSettingsPanel() {
     setModels(null);
     setModelsLoading(false);
     setModelsError(null);
+    setComposerFilter('');
+    setComposerError(null);
     setValidation(null);
     setValidating(false);
   }
@@ -236,6 +343,19 @@ export function AgentSettingsPanel() {
     window.castApi.agentUpdateConfig({ model }).catch((error) => setModelsError(errorMessage(error)));
   }
 
+  function commitComposerModels(nextIds: string[]) {
+    if (!config?.provider) return;
+    const provider = config.provider;
+    const nextComposerModels = { ...config.composerModels, [provider]: nextIds };
+    setConfig({ ...config, composerModels: nextComposerModels });
+    setComposerError(null);
+    window.castApi.agentUpdateConfig({ composerModels: nextComposerModels }).catch((error) => setComposerError(errorMessage(error)));
+  }
+
+  function handleClearComposerModels() {
+    commitComposerModels([]);
+  }
+
   async function handleValidateModel() {
     if (!config?.provider || !config.model) return;
     const provider = config.provider;
@@ -282,6 +402,14 @@ export function AgentSettingsPanel() {
   function handleInterlockChange(checked: boolean) {
     if (!config) return;
     commitInApp(config.inApp.matrix, checked);
+  }
+
+  function handleInterlockValueChange(value: string | string[]) {
+    // Base UI's ToggleGroup emits '' when the active segment is clicked
+    // again (deselecting it); this control always has one of the two
+    // segments active, so that case is a no-op.
+    if (Array.isArray(value) || value === '') return;
+    handleInterlockChange(value === 'yes');
   }
 
   async function handleAddFolder() {
@@ -371,6 +499,13 @@ export function AgentSettingsPanel() {
     if (revealedClient) void window.castApi.writeClipboardText(revealedClient.configSnippet);
   }
 
+  function handleCopyMcpSetup() {
+    if (!config) return;
+    const endpoint = mcpStatus?.endpoint ?? `http://127.0.0.1:${config.mcp.port ?? 'PORT'}/mcp`;
+    const token = revealedClient?.token ?? '<token>';
+    void window.castApi.writeClipboardText(buildMcpSetupInstructions({ endpoint, token }));
+  }
+
   return (
     <div className="flex max-w-3xl flex-col gap-6">
       <Section.Root>
@@ -435,16 +570,8 @@ export function AgentSettingsPanel() {
         <Section.Body>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
             <FieldSelect value={config.model ?? ''} onChange={handleModelChange} label="Model">
-              {modelOptions.map((model) => (
-                <FieldSelect.Option key={model.id} value={model.id}>
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate">{model.label}</span>
-                    {model.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
-                    {model.contextWindow != null ? <span className="shrink-0 text-tertiary">{formatContextWindow(model.contextWindow)}</span> : null}
-                  </span>
-                </FieldSelect.Option>
-              ))}
-              {config.model && !hasCurrentModel ? <FieldSelect.Option value={config.model}>{config.model}</FieldSelect.Option> : null}
+              {modelSelectOptions}
+              {config.model && !hasCurrentModel ? <FieldSelect.Option value={config.model}>{prettifyModelId(config.model)}</FieldSelect.Option> : null}
             </FieldSelect>
             <ReacstButton onClick={() => void handleLoadModels()} disabled={!config.provider || modelsLoading}>
               {modelsLoading ? 'Loading models…' : modelsError ? 'Retry' : 'Load models'}
@@ -453,6 +580,67 @@ export function AgentSettingsPanel() {
 
           {models && models.length === 0 && !modelsLoading && !modelsError ? (
             <p className="text-sm text-tertiary">No models available.</p>
+          ) : null}
+
+          {config.provider ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Label.xs>Composer models</Label.xs>
+                  {composerShortlist.length > 0 ? (
+                    <span className="rounded-sm bg-tertiary px-1.5 py-0.5 text-[10px]">{composerShortlist.length} selected</span>
+                  ) : null}
+                </div>
+                {composerShortlist.length > 0 ? (
+                  <ReacstButton variant="ghost" onClick={handleClearComposerModels}>Clear</ReacstButton>
+                ) : null}
+              </div>
+
+              {models === null ? (
+                composerShortlist.length === 0 ? (
+                  <p className="text-sm text-tertiary">All models</p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {composerShortlist.map((id) => (
+                      <li key={id} className="flex items-center justify-between gap-2 rounded bg-tertiary/60 px-2 py-1">
+                        <span className="min-w-0 truncate text-sm text-secondary">{prettifyModelId(id)}</span>
+                        <ReacstButton.Icon
+                          label={`Remove ${prettifyModelId(id)}`}
+                          variant="ghost"
+                          onClick={() => handleToggleComposerModel(id, false)}
+                        >
+                          <X size={12} />
+                        </ReacstButton.Icon>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
+                <>
+                  <FieldInput value={composerFilter} onChange={setComposerFilter} placeholder="Filter models" ariaLabel="Filter models" />
+                  <div className="max-h-64 overflow-y-auto rounded border border-secondary">
+                    {filteredComposerModels.length === 0 ? (
+                      <p className="px-2 py-1.5 text-sm text-tertiary">No matches</p>
+                    ) : (
+                      filteredComposerModels.map((model) => (
+                        <ComposerModelRow
+                          key={model.id}
+                          id={model.id}
+                          label={model.label}
+                          vendor={model.vendor}
+                          isFree={model.isFree}
+                          contextWindow={model.contextWindow}
+                          checked={composerShortlist.includes(model.id)}
+                          onToggle={handleToggleComposerModel}
+                        />
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+
+              {composerError ? <p role="alert" className="text-sm text-error">{composerError}</p> : null}
+            </div>
           ) : null}
 
           <div className="flex items-center gap-2">
@@ -470,9 +658,15 @@ export function AgentSettingsPanel() {
       </Section.Root>
 
       <Section.Root>
-        <Section.Header><Label.xs>Instructions</Label.xs></Section.Header>
+        <Section.Header><Label.xs>Custom instructions</Label.xs></Section.Header>
         <Section.Body>
-          <FieldTextarea value={instructionsDraft} onChange={setInstructionsDraft} onBlur={handleInstructionsBlur} rows={6} />
+          <FieldTextarea
+            value={instructionsDraft}
+            onChange={setInstructionsDraft}
+            onBlur={handleInstructionsBlur}
+            placeholder="e.g. Keep playlist names in Title Case."
+            rows={6}
+          />
           {instructionsError ? <p role="alert" className="text-sm text-error">{instructionsError}</p> : null}
         </Section.Body>
       </Section.Root>
@@ -495,27 +689,37 @@ export function AgentSettingsPanel() {
                   value={config.inApp.matrix[riskClass]}
                   onValueChange={(value) => handleMatrixRowChange(riskClass, value)}
                   aria-label={`${RISK_CLASS_LABELS[riskClass]} permission`}
+                  fill
+                  className="w-44"
                 >
-                  <SegmentedControl.Label value={'auto' satisfies AgentPermissionDecision}>Auto</SegmentedControl.Label>
-                  <SegmentedControl.Label value={'ask' satisfies AgentPermissionDecision}>Ask</SegmentedControl.Label>
-                  <SegmentedControl.Label value={'deny' satisfies AgentPermissionDecision}>Deny</SegmentedControl.Label>
+                  <SegmentedControl.Label value={'auto' satisfies AgentPermissionDecision} fill>Auto</SegmentedControl.Label>
+                  <SegmentedControl.Label value={'ask' satisfies AgentPermissionDecision} fill>Ask</SegmentedControl.Label>
+                  <SegmentedControl.Label value={'deny' satisfies AgentPermissionDecision} fill>Deny</SegmentedControl.Label>
                 </SegmentedControl>
               </div>
             ))}
-          </div>
 
-          <FieldCheckbox
-            checked={config.inApp.showSafetyInterlock}
-            onChange={handleInterlockChange}
-            label="Ask before broadcast while an output is live"
-          />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-secondary">Ask before broadcast while an output is live</span>
+              <SegmentedControl
+                value={config.inApp.showSafetyInterlock ? 'yes' : 'no'}
+                onValueChange={handleInterlockValueChange}
+                aria-label="Ask before broadcast while an output is live"
+                fill
+                className="w-44"
+              >
+                <SegmentedControl.Label value="yes" fill>Yes</SegmentedControl.Label>
+                <SegmentedControl.Label value="no" fill>No</SegmentedControl.Label>
+              </SegmentedControl>
+            </div>
+          </div>
 
           {permissionsError ? <p role="alert" className="text-sm text-error">{permissionsError}</p> : null}
         </Section.Body>
       </Section.Root>
 
       <Section.Root>
-        <Section.Header><Label.xs>Files</Label.xs></Section.Header>
+        <Section.Header><Label.xs>Folders the assistant can read</Label.xs></Section.Header>
         <Section.Body>
           {config.filesystem.allowedRoots.length === 0 ? (
             <p className="text-sm text-tertiary">No folders granted.</p>
@@ -535,7 +739,12 @@ export function AgentSettingsPanel() {
       </Section.Root>
 
       <Section.Root>
-        <Section.Header><Label.xs>MCP server</Label.xs></Section.Header>
+        <Section.Header>
+          <div className="flex w-full items-center justify-between">
+            <Label.xs>MCP server</Label.xs>
+            <ReacstButton variant="ghost" onClick={handleCopyMcpSetup}>Copy setup</ReacstButton>
+          </div>
+        </Section.Header>
         <Section.Body>
           <FieldCheckbox checked={mcpStatus?.enabled ?? false} onChange={handleMcpEnabledChange} label="Enable MCP server" />
 
@@ -611,4 +820,27 @@ export function AgentSettingsPanel() {
       </Section.Root>
     </div>
   );
+}
+
+/** The plain-text setup instructions "Copy setup" places on the clipboard. Exported for its own unit test. */
+export function buildMcpSetupInstructions({ endpoint, token }: { endpoint: string; token: string }): string {
+  return `LumaCast MCP server
+
+Endpoint: ${endpoint}  (MCP Streamable HTTP; loopback only — the client must run on this Mac, and LumaCast must be open)
+Auth: Authorization: Bearer ${token}
+Create a client under Settings → Assistant → MCP server; its token is shown once. New clients are unrestricted by default; change the tier per client.
+
+Claude Code:
+claude mcp add --transport http lumacast ${endpoint} --header "Authorization: Bearer ${token}"
+
+Claude Desktop / Cursor / any stdio-only client (mcpServers entry):
+{
+  "lumacast": {
+    "command": "npx",
+    "args": ["-y", "mcp-remote", "${endpoint}", "--header", "Authorization:\${AUTH_HEADER}"],
+    "env": { "AUTH_HEADER": "Bearer ${token}" }
+  }
+}
+
+Clients with native HTTP MCP support: URL ${endpoint}, header Authorization: Bearer ${token}.`;
 }

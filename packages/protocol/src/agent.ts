@@ -198,7 +198,10 @@ export function createDefaultAgentConfig(): AgentConfig {
     model: null,
     baseUrl: null,
     instructions: '',
-    inApp: { matrix: matrixForTier('content'), showSafetyInterlock: true },
+    // Unrestricted by default (product decision, 2026-09-14): the assistant
+    // and any MCP client the user creates act without per-action prompts;
+    // the show-safety interlock stays on so live outputs are still guarded.
+    inApp: { matrix: matrixForTier('unrestricted'), showSafetyInterlock: true },
     mcp: { enabled: false, clients: [], port: DEFAULT_MCP_PORT },
     filesystem: defaultFilesystemConfig(),
     composerModels: {},

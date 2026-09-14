@@ -19,8 +19,18 @@ import { hasClipboardContent } from '../contexts/element/use-element-history';
 import { useCommandPalette } from '../features/command-palette/command-palette-context';
 import { useDeckBrowser } from '../features/items/deck-browser-context';
 
+function hasEditableFocus(): boolean {
+  return getMenuEditableTarget(document.activeElement as HTMLElement | null) !== null;
+}
+
 export function useAppMenu(): void {
-  const [editableVersion, setEditableVersion] = useState(0);
+  // A boolean, not a change counter. This hook sits at the shell root, so
+  // every state it sets re-renders the whole app; focus moves usually land
+  // on the same answer and React bails out. The counter it replaces
+  // re-rendered everything on each focusin/focusout/selectionchange/mouseup
+  // — one full app render per keystroke — which is what made Settings crawl
+  // once a 400-model catalog was on screen.
+  const [isEditableTargetFocused, setEditableTargetFocused] = useState(hasEditableFocus);
   const cast = useCast();
   const ndi = useNdi();
   const navigation = useNavigation();
@@ -31,7 +41,6 @@ export function useAppMenu(): void {
   const { presentations, lyrics } = useProjectContent();
   const { open: openCommandPalette } = useCommandPalette();
 
-  const isEditableTargetFocused = Boolean(getMenuEditableTarget(document.activeElement as HTMLElement | null));
   const overlayOpen = workbench.overlayStack.stack.length > 0;
   const isEditWorkbench = workbench.state.workbenchMode === 'item-editor'
     || workbench.state.workbenchMode === 'overlay-editor'
@@ -76,7 +85,6 @@ export function useAppMenu(): void {
     cast.canUndo,
     deckBrowser.slideBrowserMode,
     itemCount,
-    editableVersion,
     hasElementSelection,
     isEditWorkbench,
     isEditableTargetFocused,
@@ -90,17 +98,16 @@ export function useAppMenu(): void {
     workbench.state.workbenchMode,
   ]);
 
+  // Only focus moves can change which element is active; the menu state
+  // reads nothing from the text selection (Copy is always enabled and decides
+  // what to copy at fire time), so selectionchange/mouseup are not observed.
   useEffect(() => {
-    const refresh = () => { setEditableVersion((current) => current + 1); };
+    const refresh = () => { setEditableTargetFocused(hasEditableFocus()); };
     document.addEventListener('focusin', refresh);
     document.addEventListener('focusout', refresh);
-    document.addEventListener('selectionchange', refresh);
-    window.addEventListener('mouseup', refresh);
     return () => {
       document.removeEventListener('focusin', refresh);
       document.removeEventListener('focusout', refresh);
-      document.removeEventListener('selectionchange', refresh);
-      window.removeEventListener('mouseup', refresh);
     };
   }, []);
 

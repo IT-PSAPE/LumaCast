@@ -455,6 +455,12 @@ Each rule is also proven by a committed fixture scenario under
 - MCP client records live in the agent config, not in the MCP host: creating
   one mints a 32-byte token, stores only its SHA-256 (`tokenHash`), and
   returns the token once with a paste-ready `mcp-remote` snippet.
+  Both the in-app assistant and a newly created MCP client default to the
+  `unrestricted` permission tier (product decision, 2026-09-14) with the
+  show-safety interlock left on; Settings → Assistant changes either per
+  principal, and its "Copy setup" button emits the connection instructions
+  (endpoint, bearer header, Claude Code / `mcp-remote` snippets) for a local
+  agent.
   `getAgentRuntime()`/`getAgentMcpService()`/`setAgentMcpService()` in
   `app/main/ipc.ts` publish both the runtime and the MCP service; see the MCP
   Server section below for the latter.

@@ -1442,7 +1442,8 @@ export const registerIpcHandlers = (
         name,
         createdAt: nowIso(),
         lastSeenAt: null,
-        permissions: { matrix: matrixForTier(tier ?? 'content'), showSafetyInterlock: true },
+        // Unrestricted unless the caller chose a tier; see createDefaultAgentConfig.
+        permissions: { matrix: matrixForTier(tier ?? 'unrestricted'), showSafetyInterlock: true },
         tokenHash: hashMcpToken(token),
       };
       const current = agentConfigStore.load();

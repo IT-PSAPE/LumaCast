@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { ConfirmProvider } from '@renderer/components/overlays/confirm-dialog';
 import { createDefaultAgentConfig, matrixForTier } from '@lumacast/protocol';
 import type { AgentConfig, AgentCredentialStatus, AgentMcpClient, AgentMcpStatus, AgentModelInfo } from '@lumacast/protocol';
-import { AgentSettingsPanel } from '../../../../../app/renderer/screens/settings/agent-settings-panel';
+import { AgentSettingsPanel, buildMcpSetupInstructions } from '../../../../../app/renderer/screens/settings/agent-settings-panel';
 import { overlayRoot, overlayStackStore } from '../../components/overlays/workbench-overlay-stack';
 
 // FieldSelect and the confirm dialog both read the workbench overlay stack;
@@ -63,7 +63,7 @@ function stubCastApi(options: {
     agentRevokeMcpClient: vi.fn(async () => mcpStatus),
     agentUpdateMcpClientPermissions: vi.fn(async () => mcpStatus),
     onAgentMcpStatus: vi.fn((_callback: (status: AgentMcpStatus) => void) => () => undefined),
-    writeClipboardText: vi.fn(async () => undefined),
+    writeClipboardText: vi.fn(async (_text: string) => undefined),
   };
 
   Object.defineProperty(window, 'castApi', { configurable: true, value: api });
@@ -198,8 +198,8 @@ describe('AgentSettingsPanel', () => {
   describe('Model', () => {
     it('loads models into the select and persists the chosen one', async () => {
       const models: AgentModelInfo[] = [
-        { id: 'claude-a', label: 'Claude A', contextWindow: 200000, maxOutputTokens: null, supportsTools: true, isFree: false },
-        { id: 'claude-b', label: 'Claude B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'claude-a', label: 'Claude A', contextWindow: 200000, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+        { id: 'claude-b', label: 'Claude B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
       ];
       const api = stubCastApi({ config: baseConfig({ provider: 'anthropic' }) });
       api.agentListModels.mockResolvedValueOnce(models);
@@ -218,8 +218,8 @@ describe('AgentSettingsPanel', () => {
     it('sorts loaded models by display name', async () => {
       const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
       api.agentListModels.mockResolvedValueOnce([
-        { id: 'zulu', label: 'Zulu', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
-        { id: 'alpha', label: 'Alpha', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'zulu', label: 'Zulu', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+        { id: 'alpha', label: 'Alpha', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
       ]);
       renderPanel();
       await loaded();
@@ -235,7 +235,7 @@ describe('AgentSettingsPanel', () => {
     it('marks free models in the picker', async () => {
       const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
       api.agentListModels.mockResolvedValueOnce([
-        { id: 'big-pickle', label: 'Big Pickle', contextWindow: 200_000, maxOutputTokens: 32_000, supportsTools: true, isFree: true },
+        { id: 'big-pickle', label: 'Big Pickle', contextWindow: 200_000, maxOutputTokens: 32_000, supportsTools: true, isFree: true, vendor: null },
       ]);
       renderPanel();
       await loaded();
@@ -250,7 +250,7 @@ describe('AgentSettingsPanel', () => {
     it('formats million-token context windows without a misleading thousands label', async () => {
       const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
       api.agentListModels.mockResolvedValueOnce([
-        { id: 'large', label: 'Large', contextWindow: 1_050_000, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'large', label: 'Large', contextWindow: 1_050_000, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
       ]);
       renderPanel();
       await loaded();
@@ -298,7 +298,7 @@ describe('AgentSettingsPanel', () => {
 
       await selectByKeyboard('Provider', 'OpenCode Zen');
       resolveModels([
-        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
       ]);
       await settle();
       fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
@@ -318,7 +318,7 @@ describe('AgentSettingsPanel', () => {
       fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://new.example/v1' } });
       fireEvent.blur(screen.getByLabelText('Base URL'));
       resolveModels([
-        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
       ]);
       await settle();
       fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
@@ -331,7 +331,7 @@ describe('AgentSettingsPanel', () => {
       const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
       api.agentListModels
         .mockResolvedValueOnce([
-          { id: 'old', label: 'Old model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+          { id: 'old', label: 'Old model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
         ])
         .mockRejectedValueOnce(new Error('Catalog unavailable'));
       renderPanel();
@@ -368,8 +368,8 @@ describe('AgentSettingsPanel', () => {
       let resolveValidation: (result: 'valid' | 'not-found' | 'unknown') => void = () => {};
       const pendingValidation = new Promise<'valid' | 'not-found' | 'unknown'>((resolve) => { resolveValidation = resolve; });
       const models: AgentModelInfo[] = [
-        { id: 'first', label: 'First', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
-        { id: 'second', label: 'Second', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+        { id: 'first', label: 'First', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+        { id: 'second', label: 'Second', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
       ];
       const api = stubCastApi({ config: baseConfig({ provider: 'opencode', model: 'first' }) });
       api.agentListModels.mockResolvedValueOnce(models);
@@ -387,6 +387,180 @@ describe('AgentSettingsPanel', () => {
       expect(screen.queryByText('Valid')).toBeNull();
       expect(screen.queryByText('Validating…')).toBeNull();
     });
+
+    it('shows a prettified label for a persisted model id not in the loaded catalog', async () => {
+      stubCastApi({ config: baseConfig({ provider: 'anthropic', model: 'anthropic/claude-code-latest' }) });
+      renderPanel();
+      await loaded();
+
+      const modelSelect = await screen.findByRole('combobox', { name: 'Model' });
+      expect(within(modelSelect).getByText('Claude Code Latest')).not.toBeNull();
+    });
+
+    it('limits the Model select to the composer shortlist plus the active selection', async () => {
+      const models: AgentModelInfo[] = [
+        { id: 'a/b', label: 'Alpha', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+        { id: 'c/d', label: 'Charlie', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+        { id: 'e/f', label: 'Echo', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+      ];
+      const api = stubCastApi({
+        config: baseConfig({ provider: 'openrouter', model: 'e/f', composerModels: { openrouter: ['a/b'] } }),
+      });
+      api.agentListModels.mockResolvedValueOnce(models);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
+
+      expect(await screen.findByRole('option', { name: 'Alpha' })).not.toBeNull();
+      expect(screen.getByRole('option', { name: 'Echo' })).not.toBeNull();
+      expect(screen.queryByRole('option', { name: 'Charlie' })).toBeNull();
+    });
+  });
+
+  describe('Composer models', () => {
+    it('shows "All models" and no count chip when nothing is shortlisted', async () => {
+      stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
+      renderPanel();
+      await loaded();
+
+      expect(await screen.findByText('All models')).not.toBeNull();
+      expect(screen.queryByText(/selected$/)).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
+    });
+
+    it('lists the shortlist as prettified ids before the catalog loads', async () => {
+      stubCastApi({
+        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['anthropic/claude-code-latest'] } }),
+      });
+      renderPanel();
+      await loaded();
+
+      expect(await screen.findByText('Claude Code Latest')).not.toBeNull();
+      expect(screen.getByText('1 selected')).not.toBeNull();
+    });
+
+    it('removes a shortlisted id from the unloaded list', async () => {
+      const api = stubCastApi({
+        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['a/b', 'c/d'] } }),
+      });
+      renderPanel();
+      await loaded();
+
+      await screen.findByText('2 selected');
+      fireEvent.click(screen.getByRole('button', { name: 'Remove B' }));
+
+      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: ['c/d'] } }));
+    });
+
+    it('adds a catalog row to the shortlist', async () => {
+      const models: AgentModelInfo[] = [
+        { id: 'a/b', label: 'Model A B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+      ];
+      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
+      api.agentListModels.mockResolvedValueOnce(models);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Model A B' }));
+
+      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: ['a/b'] } }));
+    });
+
+    it('removes a catalog row from the shortlist when unchecked', async () => {
+      const models: AgentModelInfo[] = [
+        { id: 'a/b', label: 'Model A B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+      ];
+      const api = stubCastApi({
+        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['a/b'] } }),
+      });
+      api.agentListModels.mockResolvedValueOnce(models);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+
+      const checkbox = screen.getByRole('checkbox', { name: 'Model A B' });
+      expect(checkbox).toBeChecked();
+      fireEvent.click(checkbox);
+
+      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: [] } }));
+    });
+
+    it('clears the shortlist', async () => {
+      const api = stubCastApi({
+        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['a/b', 'c/d'] } }),
+      });
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+
+      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: [] } }));
+    });
+
+    it('filters catalog rows by label or id, case-insensitively', async () => {
+      const models: AgentModelInfo[] = [
+        { id: 'a/alpha', label: 'Alpha Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+        { id: 'b/beta', label: 'Beta Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+      ];
+      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
+      api.agentListModels.mockResolvedValueOnce(models);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+
+      expect(screen.getByRole('checkbox', { name: 'Alpha Model' })).not.toBeNull();
+      expect(screen.getByRole('checkbox', { name: 'Beta Model' })).not.toBeNull();
+
+      fireEvent.change(screen.getByLabelText('Filter models'), { target: { value: 'ALPHA' } });
+
+      expect(screen.getByRole('checkbox', { name: 'Alpha Model' })).not.toBeNull();
+      expect(screen.queryByRole('checkbox', { name: 'Beta Model' })).toBeNull();
+    });
+
+    it('shows "No matches" when the filter hides every row', async () => {
+      const models: AgentModelInfo[] = [
+        { id: 'a/alpha', label: 'Alpha Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+      ];
+      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
+      api.agentListModels.mockResolvedValueOnce(models);
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+
+      fireEvent.change(screen.getByLabelText('Filter models'), { target: { value: 'nothing matches' } });
+
+      expect(await screen.findByText('No matches')).not.toBeNull();
+    });
+
+    it('surfaces a rejected update inline', async () => {
+      const models: AgentModelInfo[] = [
+        { id: 'a/b', label: 'Model A B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+      ];
+      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
+      api.agentListModels.mockResolvedValueOnce(models);
+      api.agentUpdateConfig.mockRejectedValueOnce(new Error('write failed'));
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
+
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Model A B' }));
+
+      expect(await screen.findByText('write failed')).not.toBeNull();
+    });
   });
 
   it('saves instructions on blur', async () => {
@@ -399,6 +573,15 @@ describe('AgentSettingsPanel', () => {
     fireEvent.blur(textarea);
 
     await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ instructions: 'New instructions.' }));
+  });
+
+  it('labels the instructions section "Custom instructions" with an example placeholder', async () => {
+    stubCastApi({ config: baseConfig({ instructions: '' }) });
+    renderPanel();
+    await loaded();
+
+    expect(await screen.findByText('Custom instructions')).not.toBeNull();
+    expect(screen.getByPlaceholderText('e.g. Keep playlist names in Title Case.')).not.toBeNull();
   });
 
   describe('Permissions', () => {
@@ -427,17 +610,26 @@ describe('AgentSettingsPanel', () => {
       });
     });
 
-    it('toggles the safety interlock checkbox', async () => {
+    it('toggles the safety interlock segmented control', async () => {
       const api = stubCastApi({ config: baseConfig({ inApp: { matrix: matrixForTier('content'), showSafetyInterlock: true } }) });
       renderPanel();
       await loaded();
 
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Ask before broadcast while an output is live' }));
+      const interlockGroup = screen.getByRole('group', { name: 'Ask before broadcast while an output is live' });
+      fireEvent.click(within(interlockGroup).getByRole('button', { name: 'No' }));
 
       await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({
         inApp: { matrix: matrixForTier('content'), showSafetyInterlock: false },
       }));
     });
+  });
+
+  it('labels the files section "Folders the assistant can read"', async () => {
+    stubCastApi({ config: baseConfig({ filesystem: { allowedRoots: [] } }) });
+    renderPanel();
+    await loaded();
+
+    expect(await screen.findByText('Folders the assistant can read')).not.toBeNull();
   });
 
   it('shows the empty state, then adds and removes a folder', async () => {
@@ -482,7 +674,7 @@ describe('AgentSettingsPanel', () => {
       fireEvent.change(screen.getByLabelText('Client name'), { target: { value: 'Zapier' } });
       fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
-      await waitFor(() => expect(api.agentCreateMcpClient).toHaveBeenCalledWith({ name: 'Zapier', tier: 'read-only' }));
+      await waitFor(() => expect(api.agentCreateMcpClient).toHaveBeenCalledWith({ name: 'Zapier', tier: 'unrestricted' }));
 
       expect(await screen.findByLabelText('Token')).toHaveValue('tok-123');
       expect(screen.getByText("This token won't be shown again.")).not.toBeNull();
@@ -493,8 +685,27 @@ describe('AgentSettingsPanel', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Copy config' }));
       expect(api.writeClipboardText).toHaveBeenCalledWith('{"token":"tok-123"}');
 
+      fireEvent.click(screen.getByRole('button', { name: 'Copy setup' }));
+      const setupText = api.writeClipboardText.mock.calls.at(-1)?.[0] as string;
+      expect(setupText).toContain('Bearer tok-123');
+      expect(setupText).not.toContain('<token>');
+
       fireEvent.click(screen.getByRole('button', { name: 'Done' }));
       expect(screen.queryByLabelText('Token')).toBeNull();
+    });
+
+    it('copies MCP setup instructions with a placeholder token before any client is revealed', async () => {
+      const api = stubCastApi({ mcpStatus: baseMcpStatus({ enabled: true, running: true, endpoint: 'http://127.0.0.1:43117/mcp' }) });
+      renderPanel();
+      await loaded();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy setup' }));
+
+      expect(api.writeClipboardText).toHaveBeenCalledTimes(1);
+      const setupText = api.writeClipboardText.mock.calls[0][0] as string;
+      expect(setupText).toContain('http://127.0.0.1:43117/mcp');
+      expect(setupText).toContain('Bearer <token>');
+      expect(setupText).toContain('claude mcp add');
     });
 
     it('revokes a client only after confirming', async () => {
@@ -531,5 +742,31 @@ describe('AgentSettingsPanel', () => {
 
       expect(await screen.findByText('Running on http://localhost:4000')).not.toBeNull();
     });
+  });
+});
+
+describe('buildMcpSetupInstructions', () => {
+  it('substitutes the endpoint and token into every occurrence', () => {
+    const text = buildMcpSetupInstructions({ endpoint: 'http://127.0.0.1:43117/mcp', token: 'tok-abc' });
+
+    expect(text).toBe(`LumaCast MCP server
+
+Endpoint: http://127.0.0.1:43117/mcp  (MCP Streamable HTTP; loopback only — the client must run on this Mac, and LumaCast must be open)
+Auth: Authorization: Bearer tok-abc
+Create a client under Settings → Assistant → MCP server; its token is shown once. New clients are unrestricted by default; change the tier per client.
+
+Claude Code:
+claude mcp add --transport http lumacast http://127.0.0.1:43117/mcp --header "Authorization: Bearer tok-abc"
+
+Claude Desktop / Cursor / any stdio-only client (mcpServers entry):
+{
+  "lumacast": {
+    "command": "npx",
+    "args": ["-y", "mcp-remote", "http://127.0.0.1:43117/mcp", "--header", "Authorization:\${AUTH_HEADER}"],
+    "env": { "AUTH_HEADER": "Bearer tok-abc" }
+  }
+}
+
+Clients with native HTTP MCP support: URL http://127.0.0.1:43117/mcp, header Authorization: Bearer tok-abc.`);
   });
 });

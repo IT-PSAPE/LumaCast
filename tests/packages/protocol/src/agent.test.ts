@@ -98,14 +98,14 @@ describe('permission tiers <-> matrices round-trip', () => {
 });
 
 describe('createDefaultAgentConfig', () => {
-  it('defaults to the content tier with the safety interlock on and MCP disabled', () => {
+  it('defaults to the unrestricted tier with the safety interlock on and MCP disabled', () => {
     const config = createDefaultAgentConfig();
     expect(config.version).toBe(1);
     expect(config.provider).toBeNull();
     expect(config.model).toBeNull();
     expect(config.baseUrl).toBeNull();
     expect(config.instructions).toBe('');
-    expect(config.inApp.matrix).toEqual(matrixForTier('content'));
+    expect(config.inApp.matrix).toEqual(matrixForTier('unrestricted'));
     expect(config.inApp.showSafetyInterlock).toBe(true);
     expect(config.mcp).toEqual({ enabled: false, clients: [], port: DEFAULT_MCP_PORT });
     expect(config.filesystem).toEqual({ allowedRoots: [] });

@@ -4,6 +4,7 @@
 // Vite's `?raw` import — trusted, static asset content baked into the app
 // bundle, never user- or network-supplied, so inlining it via
 // `dangerouslySetInnerHTML` carries no injection risk.
+import { memo } from 'react';
 import type { AgentModelVendor } from '@lumacast/protocol';
 import { cn } from '@renderer/utils/cn';
 
@@ -45,7 +46,9 @@ const VENDOR_LOGOS: Readonly<Record<AgentModelVendor, string>> = {
   opencode: opencodeSvg,
 };
 
-export function ModelVendorLogo({ vendor, className }: { vendor: AgentModelVendor | null; className?: string }) {
+// Memoised: a loaded catalog puts several hundred of these on the Settings
+// page at once, and its props are two primitives.
+export const ModelVendorLogo = memo(function ModelVendorLogo({ vendor, className }: { vendor: AgentModelVendor | null; className?: string }) {
   if (vendor === null) return null;
   return (
     <span
@@ -54,4 +57,4 @@ export function ModelVendorLogo({ vendor, className }: { vendor: AgentModelVendo
       dangerouslySetInnerHTML={{ __html: VENDOR_LOGOS[vendor] }}
     />
   );
-}
+});
