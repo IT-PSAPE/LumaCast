@@ -173,6 +173,15 @@ export interface AgentConfig {
    * `PathAuthorizer` (`app/main/agent/path-authorization.ts`), not here.
    */
   filesystem: { allowedRoots: string[] };
+  /**
+   * Per provider, the model ids the chat composer offers in its picker. An
+   * empty or missing list means "every model the provider's catalog
+   * returns" — the shortlist exists because OpenRouter and OpenCode Zen
+   * catalogs run to hundreds of entries, and the user wants to choose the
+   * handful that make sense for their show. Settings edits this; the
+   * composer only reads it.
+   */
+  composerModels: Partial<Record<AgentProviderId, string[]>>;
 }
 
 function defaultFilesystemConfig(): AgentConfig['filesystem'] {
@@ -192,6 +201,7 @@ export function createDefaultAgentConfig(): AgentConfig {
     inApp: { matrix: matrixForTier('content'), showSafetyInterlock: true },
     mcp: { enabled: false, clients: [], port: DEFAULT_MCP_PORT },
     filesystem: defaultFilesystemConfig(),
+    composerModels: {},
   };
 }
 
@@ -210,6 +220,184 @@ export interface AgentCredentialStatus {
   keyHint: string | null;
 }
 
+/**
+ * Who makes a model, independent of which provider serves it. OpenRouter and
+ * OpenCode Zen resell models from many vendors under one API key, so the
+ * picker shows the vendor's mark next to each model rather than the
+ * provider's. `null` when nothing about the id, catalog name, or metadata
+ * identifies one; the UI then shows no logo.
+ */
+export type AgentModelVendor =
+  | 'anthropic'
+  | 'openai'
+  | 'google'
+  | 'deepseek'
+  | 'qwen'
+  | 'mistral'
+  | 'meta'
+  | 'xai'
+  | 'moonshot'
+  | 'zai'
+  | 'minimax'
+  | 'cohere'
+  | 'microsoft'
+  | 'nvidia'
+  | 'perplexity'
+  | 'opencode';
+
+export const AGENT_MODEL_VENDORS: readonly AgentModelVendor[] = [
+  'anthropic',
+  'openai',
+  'google',
+  'deepseek',
+  'qwen',
+  'mistral',
+  'meta',
+  'xai',
+  'moonshot',
+  'zai',
+  'minimax',
+  'cohere',
+  'microsoft',
+  'nvidia',
+  'perplexity',
+  'opencode',
+];
+
+/** OpenRouter-style `vendor/model` id prefixes and the vendor names catalogs put before a colon. */
+const VENDOR_BY_PREFIX: Readonly<Record<string, AgentModelVendor>> = {
+  anthropic: 'anthropic',
+  openai: 'openai',
+  google: 'google',
+  deepseek: 'deepseek',
+  qwen: 'qwen',
+  alibaba: 'qwen',
+  mistralai: 'mistral',
+  mistral: 'mistral',
+  'mistral ai': 'mistral',
+  'meta-llama': 'meta',
+  meta: 'meta',
+  'x-ai': 'xai',
+  xai: 'xai',
+  moonshotai: 'moonshot',
+  moonshot: 'moonshot',
+  'moonshot ai': 'moonshot',
+  'z-ai': 'zai',
+  'z.ai': 'zai',
+  zhipu: 'zai',
+  thudm: 'zai',
+  minimax: 'minimax',
+  cohere: 'cohere',
+  microsoft: 'microsoft',
+  nvidia: 'nvidia',
+  perplexity: 'perplexity',
+  opencode: 'opencode',
+};
+
+/** Model-family name patterns, matched against the id with any `vendor/` prefix removed. */
+const VENDOR_BY_FAMILY: readonly (readonly [RegExp, AgentModelVendor])[] = [
+  [/^claude/, 'anthropic'],
+  [/^(gpt|o[1-9](-|$)|chatgpt|codex|davinci|text-embedding)/, 'openai'],
+  [/^(gemini|gemma|palm)/, 'google'],
+  [/^deepseek/, 'deepseek'],
+  [/^(qwen|qwq|qvq)/, 'qwen'],
+  [/^(mistral|mixtral|codestral|ministral|magistral|devstral|pixtral)/, 'mistral'],
+  [/^llama/, 'meta'],
+  [/^grok/, 'xai'],
+  [/^(kimi|moonshot)/, 'moonshot'],
+  [/^glm/, 'zai'],
+  [/^minimax/, 'minimax'],
+  [/^command/, 'cohere'],
+  [/^phi/, 'microsoft'],
+  [/^nemotron/, 'nvidia'],
+  [/^sonar/, 'perplexity'],
+  [/^big-pickle/, 'opencode'],
+];
+
+/**
+ * Best-effort vendor from a model id plus whatever the catalog said about
+ * it: an OpenRouter `vendor/model` prefix, a models.dev `provider.npm`
+ * package, a catalog name shaped like "Vendor: Model", then the model
+ * family the id starts with. Pure and total — never throws, `null` when
+ * nothing matches.
+ */
+export function inferModelVendor(modelId: string, hints: { name?: string | null; npm?: string | null } = {}): AgentModelVendor | null {
+  const id = modelId.trim().toLowerCase();
+  const slash = id.indexOf('/');
+  const prefix = slash > 0 ? id.slice(0, slash) : null;
+  if (prefix && VENDOR_BY_PREFIX[prefix]) return VENDOR_BY_PREFIX[prefix];
+
+  const npm = (hints.npm ?? '').toLowerCase();
+  if (npm.length > 0) {
+    for (const [key, vendor] of Object.entries(VENDOR_BY_PREFIX)) {
+      if (npm.includes(key)) return vendor;
+    }
+  }
+
+  const name = (hints.name ?? '').toLowerCase();
+  const colon = name.indexOf(':');
+  if (colon > 0) {
+    const vendorName = name.slice(0, colon).trim();
+    if (VENDOR_BY_PREFIX[vendorName]) return VENDOR_BY_PREFIX[vendorName];
+  }
+
+  const family = prefix ? id.slice(prefix.length + 1) : id;
+  for (const [pattern, vendor] of VENDOR_BY_FAMILY) {
+    if (pattern.test(family)) return vendor;
+  }
+  return null;
+}
+
+const ACRONYM_TOKENS: Readonly<Record<string, string>> = {
+  gpt: 'GPT',
+  glm: 'GLM',
+  ai: 'AI',
+  vl: 'VL',
+  moe: 'MoE',
+  qwq: 'QwQ',
+  qvq: 'QvQ',
+  llm: 'LLM',
+};
+
+/**
+ * A readable label for a model id when the provider's catalog offers no
+ * display name: drops a `vendor/` prefix and OpenRouter variant suffixes
+ * (`:free`, `:beta`, …), then title-cases the dash-separated words, so
+ * `anthropic/claude-code-latest` reads "Claude Code Latest" and
+ * `gpt-4o-mini` reads "GPT 4o Mini".
+ */
+export function prettifyModelId(modelId: string): string {
+  const trimmed = modelId.trim();
+  if (trimmed.length === 0) return modelId;
+  const withoutPrefix = trimmed.includes('/') ? trimmed.slice(trimmed.lastIndexOf('/') + 1) : trimmed;
+  const withoutVariant = withoutPrefix.replace(/:[a-z0-9-]+$/i, '');
+  const words = withoutVariant.split(/[-_]+/).filter((word) => word.length > 0);
+  if (words.length === 0) return trimmed;
+  return words
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (ACRONYM_TOKENS[lower]) return ACRONYM_TOKENS[lower];
+      if (/^\d/.test(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
+/**
+ * Normalises a catalog's display name for the picker: OpenRouter names
+ * arrive as "Anthropic: Claude Sonnet 4 (free)" — the vendor is shown as a
+ * logo and the price as a badge, so both decorations are dropped from the
+ * text. Falls back to `prettifyModelId` when the name is blank.
+ */
+export function cleanCatalogModelName(name: string | null | undefined, modelId: string): string {
+  const raw = (name ?? '').trim();
+  if (raw.length === 0) return prettifyModelId(modelId);
+  return raw
+    .replace(/^[^:]{1,40}:\s+/, '')
+    .replace(/\s*\((free|beta)\)\s*$/i, '')
+    .trim() || prettifyModelId(modelId);
+}
+
 export interface AgentModelInfo {
   id: string;
   label: string;
@@ -219,6 +407,8 @@ export interface AgentModelInfo {
   supportsTools: boolean;
   /** Whether authoritative catalog metadata reports zero input and output cost for this model. */
   isFree: boolean;
+  /** The model's maker, for the vendor mark next to its label; `null` when unknown. See `inferModelVendor`. */
+  vendor: AgentModelVendor | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +460,17 @@ export function decodeAgentPrincipalPermissions(value: unknown, context: CodecCo
  * as invalid — so the caller only invokes this when the key is present, and
  * falls back to `defaultFilesystemConfig()` otherwise.
  */
+function decodeComposerModels(value: unknown, context: CodecContext): AgentConfig['composerModels'] {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  const result: AgentConfig['composerModels'] = {};
+  for (const [key, ids] of Object.entries(value)) {
+    const provider = expectEnum(key, context, 'provider', AGENT_PROVIDER_IDS);
+    if (!Array.isArray(ids)) fail(child(context, key), `must be an array, got ${String(ids)}`);
+    result[provider] = ids.map((id, index) => expectString(id, child(context, key), `[${index}]`));
+  }
+  return result;
+}
+
 function decodeFilesystemConfig(value: unknown, context: CodecContext): AgentConfig['filesystem'] {
   if (!isRecord(value)) fail(context, 'must be an object');
   rejectUnknownKeys(value, context, ['allowedRoots']);
@@ -304,7 +505,7 @@ export function decodeAgentMcpClient(value: unknown, context: CodecContext): Age
 /** Full-object decoder for `AgentConfig` (issue: agent config store). Used to validate the persisted config file on load. */
 export function decodeAgentConfig(value: unknown, context: CodecContext): AgentConfig {
   if (!isRecord(value)) fail(context, 'agent config must be an object');
-  rejectUnknownKeys(value, context, ['version', 'provider', 'model', 'baseUrl', 'instructions', 'inApp', 'mcp', 'filesystem']);
+  rejectUnknownKeys(value, context, ['version', 'provider', 'model', 'baseUrl', 'instructions', 'inApp', 'mcp', 'filesystem', 'composerModels']);
 
   if (value.version !== 1) fail(child(context, 'version'), `must be 1, got ${String(value.version)}`);
   if (value.provider !== null) expectEnum(value.provider, context, 'provider', AGENT_PROVIDER_IDS);
@@ -335,6 +536,10 @@ export function decodeAgentConfig(value: unknown, context: CodecContext): AgentC
       ? decodeFilesystemConfig(value.filesystem, child(context, 'filesystem'))
       : defaultFilesystemConfig();
 
+  // Optional for the same reason as `filesystem`: older config files predate it.
+  const composerModels =
+    value.composerModels !== undefined ? decodeComposerModels(value.composerModels, child(context, 'composerModels')) : {};
+
   return {
     version: 1,
     provider: (value.provider as AgentProviderId | null) ?? null,
@@ -344,13 +549,14 @@ export function decodeAgentConfig(value: unknown, context: CodecContext): AgentC
     inApp,
     mcp: { enabled: mcpValue.enabled, clients, port },
     filesystem,
+    composerModels,
   };
 }
 
 /** Partial decoder for `AgentConfigUpdate`. Every field is optional; only the fields present are validated and returned. */
 export function decodeAgentConfigUpdate(value: unknown, context: CodecContext): AgentConfigUpdate {
   if (!isRecord(value)) fail(context, 'agent config update must be an object');
-  rejectUnknownKeys(value, context, ['provider', 'model', 'baseUrl', 'instructions', 'inApp', 'mcp', 'filesystem']);
+  rejectUnknownKeys(value, context, ['provider', 'model', 'baseUrl', 'instructions', 'inApp', 'mcp', 'filesystem', 'composerModels']);
 
   const update: AgentConfigUpdate = {};
 
@@ -401,6 +607,9 @@ export function decodeAgentConfigUpdate(value: unknown, context: CodecContext): 
   }
   if (value.filesystem !== undefined) {
     update.filesystem = decodeFilesystemConfig(value.filesystem, child(context, 'filesystem'));
+  }
+  if (value.composerModels !== undefined) {
+    update.composerModels = decodeComposerModels(value.composerModels, child(context, 'composerModels'));
   }
 
   return update;

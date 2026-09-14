@@ -105,6 +105,18 @@ describe('AgentConfigStore', () => {
     expect(new AgentConfigStore(userDataPath).load()).toEqual(second);
   });
 
+  it('update replaces composerModels wholesale rather than merging per-provider', () => {
+    const store = new AgentConfigStore(userDataPath);
+
+    const first = store.update({ composerModels: { openrouter: ['anthropic/claude-opus-5'], opencode: ['big-pickle'] } });
+    expect(first.composerModels).toEqual({ openrouter: ['anthropic/claude-opus-5'], opencode: ['big-pickle'] });
+
+    const second = store.update({ composerModels: { openrouter: ['x'] } });
+    expect(second.composerModels).toEqual({ openrouter: ['x'] });
+
+    expect(new AgentConfigStore(userDataPath).load()).toEqual(second);
+  });
+
   it('update merges mcp shallowly, preserving fields the patch omits', () => {
     const store = new AgentConfigStore(userDataPath);
     store.update({

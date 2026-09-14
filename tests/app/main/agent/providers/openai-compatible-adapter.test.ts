@@ -359,13 +359,22 @@ describe('OpenAiCompatibleAdapter error mapping', () => {
 });
 
 describe('OpenAiCompatibleAdapter.listModels', () => {
-  it('maps plain OpenAI model fields to AgentModelInfo', async () => {
+  it('maps plain OpenAI model fields to AgentModelInfo, prettifying the id and inferring the vendor', async () => {
     const { adapter, instance } = newAdapter('openai');
     instance.models.list.mockReturnValue([{ id: 'gpt-5', created: 0, object: 'model', owned_by: 'openai' }]);
 
     const models = await adapter.listModels();
 
-    expect(models).toEqual([{ id: 'gpt-5', label: 'gpt-5', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false }]);
+    expect(models).toEqual([{ id: 'gpt-5', label: 'GPT 5', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'openai' }]);
+  });
+
+  it('prettifies an OpenAI model id with no recognizable vendor family and still forces vendor openai', async () => {
+    const { adapter, instance } = newAdapter('openai');
+    instance.models.list.mockReturnValue([{ id: 'gpt-4o-mini', created: 0, object: 'model', owned_by: 'openai' }]);
+
+    const models = await adapter.listModels();
+
+    expect(models).toEqual([{ id: 'gpt-4o-mini', label: 'GPT 4o Mini', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'openai' }]);
   });
 
   it('reads OpenRouter context_length and supported_parameters', async () => {
@@ -379,9 +388,65 @@ describe('OpenAiCompatibleAdapter.listModels', () => {
     const models = await adapter.listModels();
 
     expect(models).toEqual([
-      { id: 'anthropic/claude-opus-5', label: 'anthropic/claude-opus-5', contextWindow: 1_000_000, maxOutputTokens: null, supportsTools: true, isFree: false },
-      { id: 'some/no-tools-model', label: 'some/no-tools-model', contextWindow: 32_000, maxOutputTokens: null, supportsTools: false, isFree: false },
-      { id: 'some/undeclared-model', label: 'some/undeclared-model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+      { id: 'anthropic/claude-opus-5', label: 'Claude Opus 5', contextWindow: 1_000_000, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'anthropic' },
+      { id: 'some/no-tools-model', label: 'No Tools Model', contextWindow: 32_000, maxOutputTokens: null, supportsTools: false, isFree: false, vendor: null },
+      { id: 'some/undeclared-model', label: 'Undeclared Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+    ]);
+  });
+
+  it('reads OpenRouter name and pricing to build the label, isFree, and vendor', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    instance.models.list.mockReturnValue([
+      { id: 'anthropic/claude-sonnet-4', name: 'Anthropic: Claude Sonnet 4', pricing: { prompt: '0.000003', completion: '0.000015' } },
+      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta: Llama 3.3 70B Instruct (free)', pricing: { prompt: '0', completion: '0' } },
+      { id: 'x-ai/grok-4', name: 'xAI: Grok 4', pricing: { prompt: '0.000002', completion: '0.00001' } },
+      { id: 'qwen/qwen3-coder', name: 'Qwen: Qwen3 Coder', pricing: { prompt: '0.000001', completion: '0.000004' } },
+      { id: 'mistralai/mistral-large', name: 'Mistral AI: Mistral Large', pricing: { prompt: '0.000002', completion: '0.000006' } },
+      { id: 'deepseek/deepseek-v3', name: 'DeepSeek: DeepSeek V3', pricing: { prompt: '0.0000003', completion: '0.0000009' } },
+      { id: 'some-unknown-vendor/mystery-model', name: 'Mystery Vendor: Mystery Model', pricing: { prompt: '0.000001', completion: '0.000002' } },
+    ]);
+
+    const models = await adapter.listModels();
+
+    expect(models).toEqual([
+      { id: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'anthropic' },
+      {
+        id: 'meta-llama/llama-3.3-70b-instruct:free',
+        label: 'Llama 3.3 70B Instruct',
+        contextWindow: null,
+        maxOutputTokens: null,
+        supportsTools: true,
+        isFree: true,
+        vendor: 'meta',
+      },
+      { id: 'x-ai/grok-4', label: 'Grok 4', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'xai' },
+      { id: 'qwen/qwen3-coder', label: 'Qwen3 Coder', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'qwen' },
+      { id: 'mistralai/mistral-large', label: 'Mistral Large', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'mistral' },
+      { id: 'deepseek/deepseek-v3', label: 'DeepSeek V3', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'deepseek' },
+      {
+        id: 'some-unknown-vendor/mystery-model',
+        label: 'Mystery Model',
+        contextWindow: null,
+        maxOutputTokens: null,
+        supportsTools: true,
+        isFree: false,
+        vendor: null,
+      },
+    ]);
+  });
+
+  it('treats a :free id suffix as free even when pricing is absent, and non-zero pricing as not free', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    instance.models.list.mockReturnValue([
+      { id: 'some/free-model:free' },
+      { id: 'some/paid-model', pricing: { prompt: '0.000001', completion: '0' } },
+    ]);
+
+    const models = await adapter.listModels();
+
+    expect(models.map((model) => ({ id: model.id, isFree: model.isFree }))).toEqual([
+      { id: 'some/free-model:free', isFree: true },
+      { id: 'some/paid-model', isFree: false },
     ]);
   });
 

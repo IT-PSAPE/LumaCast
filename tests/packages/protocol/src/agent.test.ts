@@ -6,10 +6,13 @@ import {
   AGENT_PROVIDER_IDS,
   AGENT_PROVIDERS,
   DEFAULT_MCP_PORT,
+  cleanCatalogModelName,
   createDefaultAgentConfig,
   decodeAgentConfig,
   decodeAgentConfigUpdate,
+  inferModelVendor,
   matrixForTier,
+  prettifyModelId,
   tierForMatrix,
   type AgentConfig,
   type AgentPermissionMatrix,
@@ -106,6 +109,91 @@ describe('createDefaultAgentConfig', () => {
     expect(config.inApp.showSafetyInterlock).toBe(true);
     expect(config.mcp).toEqual({ enabled: false, clients: [], port: DEFAULT_MCP_PORT });
     expect(config.filesystem).toEqual({ allowedRoots: [] });
+    expect(config.composerModels).toEqual({});
+  });
+});
+
+describe('inferModelVendor', () => {
+  it('reads an OpenRouter-style vendor/model id prefix', () => {
+    expect(inferModelVendor('anthropic/claude-opus-5')).toBe('anthropic');
+    expect(inferModelVendor('meta-llama/llama-3.3-70b-instruct')).toBe('meta');
+    expect(inferModelVendor('x-ai/grok-4')).toBe('xai');
+    expect(inferModelVendor('qwen/qwen3-coder')).toBe('qwen');
+    expect(inferModelVendor('mistralai/mistral-large')).toBe('mistral');
+    expect(inferModelVendor('deepseek/deepseek-v3')).toBe('deepseek');
+  });
+
+  it('falls back to a models.dev provider.npm package hint', () => {
+    expect(inferModelVendor('some-opaque-id', { npm: '@ai-sdk/anthropic' })).toBe('anthropic');
+    expect(inferModelVendor('some-opaque-id', { npm: '@ai-sdk/openai' })).toBe('openai');
+    expect(inferModelVendor('some-opaque-id', { npm: '@ai-sdk/google' })).toBe('google');
+  });
+
+  it('falls back to a "Vendor: Model" catalog name hint', () => {
+    expect(inferModelVendor('some-opaque-id', { name: 'Mistral: Large' })).toBe('mistral');
+    expect(inferModelVendor('some-opaque-id', { name: 'Anthropic: Claude Sonnet 4' })).toBe('anthropic');
+  });
+
+  it('falls back to a model-family pattern in the id when no prefix or hint matches', () => {
+    expect(inferModelVendor('claude-opus-5')).toBe('anthropic');
+    expect(inferModelVendor('gpt-4o-mini')).toBe('openai');
+    expect(inferModelVendor('gemini-3-flash')).toBe('google');
+    expect(inferModelVendor('big-pickle')).toBe('opencode');
+  });
+
+  it('returns null when nothing about the id or hints identifies a vendor', () => {
+    expect(inferModelVendor('some-unknown-vendor/mystery-model')).toBeNull();
+    expect(inferModelVendor('totally-opaque-id')).toBeNull();
+  });
+
+  it('never throws on odd input', () => {
+    expect(() => inferModelVendor('')).not.toThrow();
+    expect(inferModelVendor('')).toBeNull();
+    expect(() => inferModelVendor('   ')).not.toThrow();
+    expect(() => inferModelVendor('a/b/c')).not.toThrow();
+    expect(() => inferModelVendor('weird:id::free', { name: undefined, npm: undefined })).not.toThrow();
+  });
+});
+
+describe('prettifyModelId', () => {
+  it('drops a vendor/ prefix and title-cases dash-separated words', () => {
+    expect(prettifyModelId('anthropic/claude-code-latest')).toBe('Claude Code Latest');
+  });
+
+  it('title-cases a plain id and recognizes acronym tokens', () => {
+    expect(prettifyModelId('gpt-4o-mini')).toBe('GPT 4o Mini');
+  });
+
+  it('drops an OpenRouter variant suffix and preserves digit-led tokens as-is', () => {
+    expect(prettifyModelId('meta-llama/llama-3.3-70b-instruct:free')).toBe('Llama 3.3 70b Instruct');
+  });
+
+  it('recognizes the GLM acronym token', () => {
+    expect(prettifyModelId('glm-4.6')).toBe('GLM 4.6');
+  });
+
+  it('returns an empty string unchanged', () => {
+    expect(prettifyModelId('')).toBe('');
+  });
+});
+
+describe('cleanCatalogModelName', () => {
+  it('strips a "Vendor: " prefix', () => {
+    expect(cleanCatalogModelName('Anthropic: Claude Sonnet 4', 'anthropic/claude-sonnet-4')).toBe('Claude Sonnet 4');
+  });
+
+  it('strips a trailing "(free)" suffix', () => {
+    expect(cleanCatalogModelName('Meta: Llama 3.3 70B Instruct (free)', 'meta-llama/llama-3.3-70b-instruct:free')).toBe('Llama 3.3 70B Instruct');
+  });
+
+  it('strips a trailing "(beta)" suffix', () => {
+    expect(cleanCatalogModelName('Some Vendor: Some Model (beta)', 'vendor/some-model')).toBe('Some Model');
+  });
+
+  it('falls back to prettifyModelId when the name is blank', () => {
+    expect(cleanCatalogModelName('', 'anthropic/claude-code-latest')).toBe('Claude Code Latest');
+    expect(cleanCatalogModelName(null, 'gpt-4o-mini')).toBe('GPT 4o Mini');
+    expect(cleanCatalogModelName(undefined, 'glm-4.6')).toBe('GLM 4.6');
   });
 });
 
@@ -297,6 +385,41 @@ describe('decodeAgentConfig', () => {
     config.filesystem = 'nope';
     expect(() => decodeAgentConfig(config, CONTEXT)).toThrow();
   });
+
+  it('fills the default composerModels when a stored config file predates the field', () => {
+    const config = validConfig() as unknown as Record<string, unknown>;
+    Reflect.deleteProperty(config, 'composerModels');
+    expect(decodeAgentConfig(config, CONTEXT)).toEqual(validConfig());
+  });
+
+  it('accepts a config with populated composerModels', () => {
+    const config = validConfig({ composerModels: { openrouter: ['anthropic/claude-opus-5', 'meta-llama/llama-3.3-70b-instruct'] } });
+    expect(decodeAgentConfig(config, CONTEXT)).toEqual(config);
+  });
+
+  it('rejects a composerModels entry that is not an array', () => {
+    const config = validConfig() as unknown as Record<string, unknown>;
+    config.composerModels = { openrouter: 'not-an-array' };
+    expect(() => decodeAgentConfig(config, CONTEXT)).toThrow();
+  });
+
+  it('rejects a composerModels entry whose ids are not strings', () => {
+    const config = validConfig() as unknown as Record<string, unknown>;
+    config.composerModels = { openrouter: [42] };
+    expect(() => decodeAgentConfig(config, CONTEXT)).toThrow();
+  });
+
+  it('rejects an unknown provider key in composerModels', () => {
+    const config = validConfig() as unknown as Record<string, unknown>;
+    config.composerModels = { 'not-a-provider': ['a/b'] };
+    expect(() => decodeAgentConfig(config, CONTEXT)).toThrow();
+  });
+
+  it('rejects a non-object composerModels value', () => {
+    const config = validConfig() as unknown as Record<string, unknown>;
+    config.composerModels = 'nope';
+    expect(() => decodeAgentConfig(config, CONTEXT)).toThrow();
+  });
 });
 
 describe('decodeAgentConfigUpdate', () => {
@@ -360,5 +483,19 @@ describe('decodeAgentConfigUpdate', () => {
 
   it('rejects a filesystem patch with an unknown field', () => {
     expect(() => decodeAgentConfigUpdate({ filesystem: { allowedRoots: [], bogus: true } }, CONTEXT)).toThrow();
+  });
+
+  it('accepts a composerModels patch and passes it through', () => {
+    expect(decodeAgentConfigUpdate({ composerModels: { openrouter: ['anthropic/claude-opus-5'] } }, CONTEXT)).toEqual({
+      composerModels: { openrouter: ['anthropic/claude-opus-5'] },
+    });
+  });
+
+  it('rejects a composerModels patch with a non-array entry', () => {
+    expect(() => decodeAgentConfigUpdate({ composerModels: { openrouter: 'nope' } }, CONTEXT)).toThrow();
+  });
+
+  it('rejects a composerModels patch with an unknown provider key', () => {
+    expect(() => decodeAgentConfigUpdate({ composerModels: { 'not-a-provider': [] } }, CONTEXT)).toThrow();
   });
 });

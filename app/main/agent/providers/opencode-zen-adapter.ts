@@ -1,4 +1,5 @@
 import type { AgentModelInfo } from '@lumacast/protocol';
+import { inferModelVendor } from '@lumacast/protocol';
 import { AnthropicAdapter } from './anthropic-adapter';
 import { GoogleGeminiAdapter } from './google-gemini-adapter';
 import { OpenAiCompatibleAdapter } from './openai-compatible-adapter';
@@ -162,13 +163,16 @@ export class OpenCodeZenAdapter implements ProviderAdapter {
     for (const entry of liveJson.data as LiveModel[]) {
       if (typeof entry?.id !== 'string' || entry.id.trim() === '') continue;
       const metadata = this.metadataByModel.get(entry.id);
+      const metadataName = typeof metadata?.name === 'string' ? metadata.name : null;
+      const metadataNpm = typeof metadata?.provider?.npm === 'string' ? metadata.provider.npm : null;
       models.push({
         id: entry.id,
-        label: typeof metadata?.name === 'string' && metadata.name.trim() ? metadata.name : fallbackLabel(entry.id),
+        label: metadataName && metadataName.trim() ? metadataName : fallbackLabel(entry.id),
         contextWindow: numberOrNull(metadata?.limit?.context),
         maxOutputTokens: numberOrNull(metadata?.limit?.output),
         supportsTools: typeof metadata?.tool_call === 'boolean' ? metadata.tool_call : true,
         isFree: isFreeModel(entry.id, metadata),
+        vendor: inferModelVendor(entry.id, { name: metadataName, npm: metadataNpm }),
       });
     }
 

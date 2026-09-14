@@ -413,6 +413,27 @@ Each rule is also proven by a committed fixture scenario under
   Gemini uses `streamGenerateContent`, and the remaining models use Chat
   Completions. The API key is sent only to the selected Zen endpoint, never to
   Models.dev.
+- Model catalogs are normalised in the adapters, not in the UI. Every
+  `AgentModelInfo` carries a display `label` (the catalog's own name where
+  the provider has one — Anthropic `display_name`, OpenRouter `name`,
+  Models.dev `name` — otherwise `prettifyModelId`), an `isFree` flag (zero
+  catalog pricing, or an OpenRouter `:free` variant), and a best-effort
+  `vendor` from `inferModelVendor` (id prefix, Models.dev npm package,
+  catalog name, model family). The renderer keys vendor logos
+  (`app/renderer/features/agent/model-vendor-logo.tsx`, bundled
+  `@lobehub/icons-static-svg` marks) off `vendor` and never parses ids
+  itself. `AgentConfig.composerModels` is the per-provider shortlist the
+  Assistant settings curate for the chat composer's model picker; an empty
+  list means the whole catalog.
+- The chat popup (`app/renderer/features/agent/chat/`) never shows a tool
+  call's raw arguments or result. `tool-call-summary.ts` turns each
+  `tool_call` part into one narrated line — "Listing playlists…" while it
+  runs, "Found 4 playlists: …" once settled — from the action's
+  `ACTION_METADATA` title and the result's shape; consecutive calls collapse
+  into one "Worked for Ns · N steps" group, and a "Thinking…" ticker covers
+  the gaps. Assistant text renders as Markdown (`react-markdown` + GFM) with
+  raw HTML escaped and links rendered inert, since the renderer has no
+  external-URL channel (ADR-0007).
 - Tools are generated from the canonical action registry
   (`buildActionToolDefinitions`), so a model sees every `ActionId` with the
   same JSON Schema `decodeActionParams` validates against, minus the

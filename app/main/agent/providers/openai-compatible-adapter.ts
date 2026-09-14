@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
-import type { AgentModelInfo, AgentProviderId } from '@lumacast/protocol';
+import type { AgentModelInfo, AgentModelVendor, AgentProviderId } from '@lumacast/protocol';
+import { cleanCatalogModelName, inferModelVendor, prettifyModelId } from '@lumacast/protocol';
 import { ProviderError } from './types';
 import type {
   AssistantPart,
@@ -188,21 +189,44 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
     try {
       const models: AgentModelInfo[] = [];
       for await (const model of this.client.models.list({ signal })) {
-        // OpenRouter's `/models` response carries `context_length` and
-        // `supported_parameters` alongside the standard OpenAI `Model`
-        // shape; the SDK's `Model` type doesn't declare them, but the SDK
+        // OpenRouter's `/models` response carries `context_length`,
+        // `supported_parameters`, a display `name` ("Anthropic: Claude
+        // Sonnet 4"), and `pricing` (decimal-string prompt/completion cost,
+        // "0" for free) alongside the standard OpenAI `Model` shape; the
+        // SDK's `Model` type doesn't declare any of these, but the SDK
         // doesn't strip unknown JSON fields either, so they still land on
         // the parsed object. Reading them via a cast over the already-
         // parsed model reuses the SDK's own pagination/auth instead of a
         // second raw `fetch` to the same endpoint.
-        const raw = model as OpenAI.Models.Model & { context_length?: number | null; supported_parameters?: string[] };
+        const raw = model as OpenAI.Models.Model & {
+          context_length?: number | null;
+          supported_parameters?: string[];
+          name?: string | null;
+          pricing?: { prompt?: string; completion?: string };
+        };
+
+        const isOpenRouter = this.id === 'openrouter';
+        const promptPrice = Number(raw.pricing?.prompt);
+        const completionPrice = Number(raw.pricing?.completion);
+        const isFree = isOpenRouter && (model.id.endsWith(':free') || (promptPrice === 0 && completionPrice === 0));
+
+        const label = isOpenRouter ? cleanCatalogModelName(raw.name, model.id) : prettifyModelId(model.id);
+        let vendor: AgentModelVendor | null = isOpenRouter
+          ? inferModelVendor(model.id, { name: raw.name ?? null })
+          : inferModelVendor(model.id);
+        if (!isOpenRouter && vendor === null) {
+          if (this.id === 'openai') vendor = 'openai';
+          if (this.id === 'google') vendor = 'google';
+        }
+
         models.push({
           id: model.id,
-          label: model.id,
-          contextWindow: this.id === 'openrouter' ? (raw.context_length ?? null) : null,
+          label,
+          contextWindow: isOpenRouter ? (raw.context_length ?? null) : null,
           maxOutputTokens: null,
-          supportsTools: this.id === 'openrouter' ? (raw.supported_parameters?.includes('tools') ?? true) : true,
-          isFree: false,
+          supportsTools: isOpenRouter ? (raw.supported_parameters?.includes('tools') ?? true) : true,
+          isFree,
+          vendor,
         });
       }
       return models;

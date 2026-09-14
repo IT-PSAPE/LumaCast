@@ -38,6 +38,7 @@ import type {
   AgentThreadSummary,
   AgentToolCallStatus,
 } from '@lumacast/protocol';
+import { prettifyModelId } from '@lumacast/protocol';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dropdown, useDropdown } from '@renderer/components/form/dropdown';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
@@ -45,6 +46,7 @@ import { EmptyState } from '@renderer/components/display/empty-state';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useOverlayContainer, useOverlayStackEntry } from '@renderer/components/overlays/overlay-primitives';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
+import { ModelVendorLogo } from '@renderer/features/agent/model-vendor-logo';
 import { cn } from '@renderer/utils/cn';
 import { useAgentChat, type AgentChatView } from './agent-chat-context';
 import { isToolCallSettled, summarizeToolCall, toolCallLabel, type ToolCallPart } from './tool-call-summary';
@@ -714,7 +716,17 @@ function ModelPicker() {
   if (!provider) return null;
 
   const selectedModel = models.find((entry) => entry.id === model);
-  const label = selectedModel?.label ?? model ?? (loadingModels ? 'Loading models…' : 'Model');
+  // Never show a raw catalog id: once the catalog has loaded, fall back to a
+  // prettified id rather than the wire id while it's still selected but not
+  // (or not yet) present in the loaded list.
+  const label = selectedModel?.label ?? (model != null ? prettifyModelId(model) : loadingModels ? 'Loading models…' : 'Model');
+
+  // The shortlist Settings configured for this provider (empty/missing means
+  // "every catalog model"). The active selection is always shown even if it
+  // fell out of the shortlist, so switching providers/models in Settings can
+  // never silently hide the model a thread is already using.
+  const shortlist = provider ? state.config?.composerModels[provider] ?? [] : [];
+  const visibleModels = shortlist.length === 0 ? models : models.filter((entry) => shortlist.includes(entry.id) || entry.id === model);
 
   // No thread yet (nothing to attach a per-thread override to): show the
   // effective default as plain, non-interactive text.
@@ -728,6 +740,7 @@ function ModelPicker() {
           </>
         ) : (
           <>
+            <ModelVendorLogo vendor={selectedModel?.vendor ?? null} className="size-3.5" />
             <span>{label}</span>
             {selectedModel?.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
           </>
@@ -740,7 +753,9 @@ function ModelPicker() {
     <Dropdown className="self-start">
       <ModelPickerFocusOnInvalid invalid={state.modelValidation === 'not-found'} />
       <Dropdown.Trigger aria-label="Model" className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-secondary hover:bg-tertiary cursor-pointer">
+        <ModelVendorLogo vendor={selectedModel?.vendor ?? null} className="size-3.5" />
         <span className="max-w-40 truncate">{label}</span>
+        {selectedModel?.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
         <ChevronDown size={12} className="shrink-0 text-tertiary" />
       </Dropdown.Trigger>
       <Dropdown.Panel placement="top-start" className="max-h-64 min-w-48">
@@ -759,8 +774,9 @@ function ModelPicker() {
         {!loadingModels && !modelLoadError && models.length === 0 ? (
           <div className="px-2 py-1.5 text-xs text-tertiary">No models available.</div>
         ) : null}
-        {models.map((entry) => (
+        {visibleModels.map((entry) => (
           <Dropdown.Item key={entry.id} onClick={() => void actions.setThreadModel(thread.id, provider, entry.id)}>
+            <ModelVendorLogo vendor={entry.vendor} className="size-3.5" />
             <span className="flex-1 truncate">{entry.label}</span>
             {entry.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
             {isOverride && model === entry.id ? <Check size={14} /> : null}

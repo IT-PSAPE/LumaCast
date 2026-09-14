@@ -68,6 +68,7 @@ describe('OpenCodeZenAdapter model catalog', () => {
         maxOutputTokens: 32_000,
         supportsTools: true,
         isFree: true,
+        vendor: 'opencode',
       },
       {
         id: 'claude-sonnet-4-6',
@@ -76,6 +77,7 @@ describe('OpenCodeZenAdapter model catalog', () => {
         maxOutputTokens: 64_000,
         supportsTools: true,
         isFree: false,
+        vendor: 'anthropic',
       },
       {
         id: 'gpt-5.6-sol',
@@ -84,6 +86,7 @@ describe('OpenCodeZenAdapter model catalog', () => {
         maxOutputTokens: 128_000,
         supportsTools: true,
         isFree: false,
+        vendor: 'openai',
       },
     ]);
   });
@@ -106,6 +109,7 @@ describe('OpenCodeZenAdapter model catalog', () => {
         maxOutputTokens: null,
         supportsTools: true,
         isFree: false,
+        vendor: 'google',
       },
       {
         id: 'mimo-v2.5-free',
@@ -114,6 +118,7 @@ describe('OpenCodeZenAdapter model catalog', () => {
         maxOutputTokens: null,
         supportsTools: true,
         isFree: true,
+        vendor: null,
       },
     ]);
   });

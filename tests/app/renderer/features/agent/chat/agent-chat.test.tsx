@@ -144,7 +144,7 @@ function buildCastApi() {
     agentGetConfig: vi.fn(async () => makeConfig()),
     agentGetCredentialStatus: vi.fn(async () => makeCredentialStatuses()),
     agentListModels: vi.fn(async (): Promise<AgentModelInfo[]> => [
-      { id: 'model-a', label: 'Model A', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false },
+      { id: 'model-a', label: 'Model A', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'openai' },
     ]),
     agentValidateModel: vi.fn(async () => 'valid' as const),
     onAgentThreadEvent: vi.fn((callback: (event: AgentThreadEvent) => void) => {
@@ -590,7 +590,10 @@ describe('model picker', () => {
     await waitFor(() => expect(castApi.agentGetThread).toHaveBeenCalled());
 
     const picker = await screen.findByRole('button', { name: 'Model' });
-    expect(within(picker).getByText('claude-sonnet')).toBeInTheDocument();
+    // The catalog loaded for this test only contains "model-a" — "claude-sonnet"
+    // (the config default) isn't in it, so the picker falls back to a
+    // prettified id rather than the raw wire id.
+    expect(within(picker).getByText('Claude Sonnet')).toBeInTheDocument();
     fireEvent.click(picker);
 
     fireEvent.click(await screen.findByText('Model A'));
@@ -615,7 +618,7 @@ describe('model picker', () => {
     castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service' })]);
     castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
     castApi.agentListModels.mockResolvedValue([
-      { id: 'big-pickle', label: 'Big Pickle', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: true },
+      { id: 'big-pickle', label: 'Big Pickle', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: true, vendor: 'opencode' },
     ]);
 
     render(<Harness />);
@@ -627,6 +630,66 @@ describe('model picker', () => {
 
     expect(await screen.findByText('Big Pickle')).toBeInTheDocument();
     expect(screen.getByText('Free')).toBeInTheDocument();
+  });
+
+  it('shows the vendor mark for a catalog model', async () => {
+    threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service' })]]);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service' })]);
+    castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+    // Default agentListModels mock returns "model-a" with vendor 'openai'.
+
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Sunday service'));
+    const picker = await screen.findByRole('button', { name: 'Model' });
+    fireEvent.click(picker);
+
+    const item = (await screen.findByText('Model A')).closest('[data-dropdown-item]');
+    expect(item?.querySelector('title')?.textContent).toBe('OpenAI');
+  });
+
+  it('shows the Free badge on the closed trigger pill for a free selected model', async () => {
+    threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service', model: 'big-pickle', provider: 'opencode' })]]);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service', model: 'big-pickle', provider: 'opencode' })]);
+    castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+    castApi.agentListModels.mockResolvedValue([
+      { id: 'big-pickle', label: 'Big Pickle', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: true, vendor: 'opencode' },
+    ]);
+
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Sunday service'));
+
+    const picker = await screen.findByRole('button', { name: 'Model' });
+    expect(within(picker).getByText('Big Pickle')).toBeInTheDocument();
+    expect(within(picker).getByText('Free')).toBeInTheDocument();
+  });
+
+  it('limits the picker to the configured shortlist, always keeping the active selection visible', async () => {
+    threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service', model: 'model-b', provider: 'anthropic' })]]);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service', model: 'model-b', provider: 'anthropic' })]);
+    castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+    castApi.agentGetConfig.mockResolvedValue(makeConfig({ composerModels: { anthropic: ['model-a'] } }));
+    castApi.agentListModels.mockResolvedValue([
+      { id: 'model-a', label: 'Model A', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'openai' },
+      { id: 'model-b', label: 'Model B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+      { id: 'model-c', label: 'Model C', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
+    ]);
+
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Sunday service'));
+    const picker = await screen.findByRole('button', { name: 'Model' });
+    fireEvent.click(picker);
+
+    // Model A: shortlisted. Model B: not shortlisted, but it's the thread's
+    // active model so it must still show. Model C: neither, hidden.
+    expect(await screen.findByText('Model A')).toBeInTheDocument();
+    expect(screen.getByText('Model B')).toBeInTheDocument();
+    expect(screen.queryByText('Model C')).toBeNull();
   });
 });
 
