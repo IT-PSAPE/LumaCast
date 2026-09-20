@@ -16,7 +16,7 @@ import type {
   AgentThread,
   AgentThreadEvent,
 } from '@lumacast/protocol';
-import { CodecError, actionIdFromToolName, buildActionToolDefinitions, decodeActionParams, toolNameForAction } from '@lumacast/protocol';
+import { agentProviderBaseUrl, CodecError, actionIdFromToolName, buildActionToolDefinitions, decodeActionParams, toolNameForAction } from '@lumacast/protocol';
 import type { AgentActionBroker } from './action-broker';
 import type { AgentConfigStore } from './agent-config-store';
 import type { AgentCredentialStore } from './credential-store';
@@ -322,6 +322,8 @@ export class AgentRuntime {
     const key = principalKey(principal);
     const provider = (thread.provider ?? config.provider) as AgentProviderId;
     const model = (thread.model ?? config.model) as string;
+    const startedAt = Date.now();
+    let turnCount = 0;
     // Read through `getKey` rather than caching: that call is also what
     // registers the key with the log redactor.
     const apiKey = this.deps.credentialStore.getKey(provider) as string;
@@ -337,6 +339,7 @@ export class AgentRuntime {
       usage: null,
     });
     this.emit({ type: 'run_started', threadId, runId, assistantMessageId: assistant.id });
+    console.info('[AgentRuntime] Run started', { runId, provider, model });
 
     const parts: AgentMessagePart[] = [];
     let usage: AgentMessageUsage | null = null;
@@ -357,7 +360,7 @@ export class AgentRuntime {
       const permissions = resolvePrincipalPermissions(config, principal);
       if (!permissions) throw new Error('No permission settings for the in-app assistant.');
 
-      const adapter = this.createAdapter(provider, { apiKey, baseUrl: config.baseUrl });
+      const adapter = this.createAdapter(provider, { apiKey, baseUrl: agentProviderBaseUrl(config, provider) });
       const tools = this.buildTools();
       const system = await this.buildSystemPrompt(config, principal, controller.signal);
 
@@ -367,6 +370,7 @@ export class AgentRuntime {
       );
 
       for (let iteration = 0; iteration < MAX_ITERATIONS && finish === null; iteration += 1) {
+        turnCount = iteration + 1;
         let currentText: Extract<AgentMessagePart, { type: 'text' }> | null = null;
         const turnCalls: PendingToolCall[] = [];
         let stopReason: string | null = null;
@@ -437,6 +441,7 @@ export class AgentRuntime {
 
         if (streamError) {
           const code = runErrorCodeForProvider(streamError.code);
+          console.warn('[AgentRuntime] Provider request failed', { runId, provider, model, turn: turnCount, code });
           parts.push({ type: 'error', code, message: streamError.message });
           persist();
           this.emit({ type: 'run_error', threadId, code, message: streamError.message });
@@ -445,7 +450,21 @@ export class AgentRuntime {
         }
 
         if (stopReason !== 'tool_use' || turnCalls.length === 0) {
-          finish = 'completed';
+          const hasText = assistantTurn.some((part) => part.type === 'text' && part.text.trim().length > 0);
+          let message: string | null = null;
+          if (stopReason === 'max_tokens') message = 'The model reached its output limit before finishing. Ask it to continue.';
+          else if (stopReason === 'refusal') message = 'The model declined this request. Try rephrasing it or choose another model.';
+          else if (turnCalls.length > 0 || stopReason === 'tool_use') message = 'The model returned an incomplete tool response. No actions from this turn were run.';
+          else if (stopReason === 'end_turn' && !hasText) message = 'The model returned an empty response. Try again or choose another model.';
+          else if (stopReason !== 'end_turn') message = 'The model response ended unexpectedly and is incomplete. Try again or choose another model.';
+
+          if (message) {
+            parts.push({ type: 'error', code: 'provider', message });
+            this.emit({ type: 'run_error', threadId, code: 'provider', message });
+            finish = 'error';
+          } else {
+            finish = 'completed';
+          }
           break;
         }
 
@@ -486,7 +505,7 @@ export class AgentRuntime {
 
     if (finish === null) finish = 'max_iterations';
 
-    if (finish === 'stopped') {
+    if (finish === 'stopped' || finish === 'error') {
       for (const part of parts) {
         if (part.type !== 'tool_call') continue;
         // A call that already reached a terminal state keeps it; `finishedAt`
@@ -507,6 +526,7 @@ export class AgentRuntime {
     }
 
     this.emit({ type: 'message_completed', threadId, message: { ...finalMessage, parts: [...finalMessage.parts] } });
+    console.info('[AgentRuntime] Run finished', { runId, provider, model, turns: turnCount, reason: finish, elapsedMs: Date.now() - startedAt });
     this.emit({ type: 'run_finished', threadId, runId, reason: finish });
   }
 

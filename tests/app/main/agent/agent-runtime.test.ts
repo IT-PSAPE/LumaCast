@@ -631,3 +631,146 @@ describe('iteration ceiling', () => {
     expect(broker.batchEvents.filter((event) => event.phase === 'end')).toHaveLength(MAX_ITERATIONS);
   }, 20_000);
 });
+
+// ---------------------------------------------------------------------------
+// Stop-reason handling
+// ---------------------------------------------------------------------------
+
+describe('stop-reason handling', () => {
+  it('reports an empty completed response as an error', async () => {
+    const thread = newThread();
+    const { runtime } = makeRuntime(() => [doneText('')]);
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    expect((await waitForFinish()).reason).toBe('error');
+    expect(errorEvents()).toEqual([expect.objectContaining({ code: 'provider', message: expect.stringContaining('empty') })]);
+  });
+
+  it('reports a tool-use finish without any tool calls as an error', async () => {
+    const thread = newThread();
+    const { runtime } = makeRuntime(() => [doneTools([])]);
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    expect((await waitForFinish()).reason).toBe('error');
+    expect(broker.toolRequests).toEqual([]);
+  });
+
+  function doneWithReason(
+    stopReason: 'end_turn' | 'max_tokens' | 'refusal' | 'other',
+    assistant: AssistantPart[],
+  ): ProviderStreamEvent {
+    return { type: 'done', stopReason, assistant };
+  }
+
+  it('treats max_tokens as an error while preserving partial text', async () => {
+    const thread = newThread();
+    const { runtime } = makeRuntime(() => [
+      textDelta('Partial response'),
+      doneWithReason('max_tokens', [{ type: 'text', text: 'Partial response' }]),
+    ]);
+
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    const finished = await waitForFinish();
+
+    expect(finished.reason).toBe('error');
+    expect(errorEvents()).toEqual([
+      expect.objectContaining({ type: 'run_error', code: 'provider', message: expect.stringContaining('output limit') }),
+    ]);
+    const stored = threadStore.get(thread.id);
+    const assistantMsg = stored?.messages.find((message) => message.role === 'assistant');
+    expect(assistantMsg?.parts).toEqual([{ type: 'text', text: 'Partial response' }, expect.objectContaining({ type: 'error', code: 'provider' })]);
+  });
+
+  it('treats refusal as an error while preserving partial text', async () => {
+    const thread = newThread();
+    const { runtime } = makeRuntime(() => [
+      textDelta('I cannot'),
+      doneWithReason('refusal', [{ type: 'text', text: 'I cannot' }]),
+    ]);
+
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    const finished = await waitForFinish();
+
+    expect(finished.reason).toBe('error');
+    expect(errorEvents()).toEqual([
+      expect.objectContaining({ type: 'run_error', code: 'provider', message: expect.stringContaining('declined') }),
+    ]);
+  });
+
+  it('treats other stop reason as an error', async () => {
+    const thread = newThread();
+    const { runtime } = makeRuntime(() => [
+      textDelta('Hmm'),
+      doneWithReason('other', [{ type: 'text', text: 'Hmm' }]),
+    ]);
+
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    const finished = await waitForFinish();
+
+    expect(finished.reason).toBe('error');
+    expect(errorEvents()).toEqual([
+      expect.objectContaining({ type: 'run_error', code: 'provider', message: expect.stringContaining('unexpectedly') }),
+    ]);
+  });
+
+  it('treats a done event with end_turn but pending tool calls as an error', async () => {
+    const thread = newThread();
+    const args = { name: 'X' };
+    const assistant: AssistantPart[] = assistantToolTurn('call-1', 'playlist_create', args);
+    const { runtime } = makeRuntime(() => [
+      textDelta('Let me'),
+      toolCall('call-1', 'playlist_create', args),
+      doneWithReason('end_turn', assistant),
+    ]);
+
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    const finished = await waitForFinish();
+
+    expect(finished.reason).toBe('error');
+    expect(errorEvents()).toEqual([
+      expect.objectContaining({
+        type: 'run_error',
+        code: 'provider',
+        message: expect.stringContaining('tool'),
+      }),
+    ]);
+    expect(broker.toolRequests).toEqual([]);
+    expect(runtime.isRunning(thread.id)).toBe(false);
+  });
+
+  it('treats missing done event (null stopReason) as an error', async () => {
+    const thread = newThread();
+    const { runtime } = makeRuntime(() => [textDelta('Silent')]);
+    // The adapter yields text_delta but never a done event.
+
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    const finished = await waitForFinish();
+
+    expect(finished.reason).toBe('error');
+    expect(errorEvents()).toEqual([
+      expect.objectContaining({ type: 'run_error', code: 'provider', message: expect.stringContaining('incomplete') }),
+    ]);
+    const stored = threadStore.get(thread.id);
+    const assistantMsg = stored?.messages.find((message) => message.role === 'assistant');
+    expect(assistantMsg?.parts).toEqual([{ type: 'text', text: 'Silent' }, expect.objectContaining({ type: 'error', code: 'provider' })]);
+  });
+
+  it('does not execute pending tool actions from a failed turn', async () => {
+    const thread = newThread();
+    const args = { name: 'X' };
+    const { runtime } = makeRuntime(() => [
+      textDelta('Let me'),
+      toolCall('call-1', 'playlist_create', args),
+      doneWithReason('max_tokens', [
+        { type: 'text', text: 'Let me' },
+        ...assistantToolTurn('call-1', 'playlist_create', args),
+      ]),
+    ]);
+
+    await runtime.sendMessage({ threadId: thread.id, text: 'go' });
+    const finished = await waitForFinish();
+
+    expect(finished.reason).toBe('error');
+    expect(broker.toolRequests).toEqual([]);
+    expect(toolParts(thread.id)).toEqual([expect.objectContaining({ status: 'cancelled', finishedAt: expect.any(String) })]);
+    expect(runtime.isRunning(thread.id)).toBe(false);
+  });
+});

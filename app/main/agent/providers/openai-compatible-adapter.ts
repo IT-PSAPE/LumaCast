@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import type { AgentModelInfo, AgentModelVendor, AgentProviderId } from '@lumacast/protocol';
 import { cleanCatalogModelName, inferModelVendor, prettifyModelId } from '@lumacast/protocol';
+import { withIdleTimeout } from './request-timeout';
 import { ProviderError } from './types';
 import type {
   AssistantPart,
@@ -16,6 +17,7 @@ import type {
 
 const REQUEST_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 2;
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 60_000;
 
 const GOOGLE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -27,6 +29,14 @@ const OPENROUTER_HEADERS: Record<string, string> = {
 
 /** The `AgentProviderId`s this adapter covers directly with the Chat Completions wire format. */
 export type OpenAiCompatibleProviderId = 'openai' | 'google' | 'openrouter' | 'openai-compatible';
+
+/**
+ * Adapter-tuning knobs, injectable from tests; defaults are production-ready.
+ */
+interface OpenAiCompatibleDependencies {
+  /** Dead air (no streamed progress) tolerated before a chat request is aborted as a stalled network. */
+  streamIdleTimeoutMs: number;
+}
 
 // ---------------------------------------------------------------------------
 // Pure mapping helpers.
@@ -101,10 +111,11 @@ function mapFinishReason(finishReason: string | null): ProviderStopReason {
       return 'max_tokens';
     case 'content_filter':
       return 'refusal';
-    // null (stream ended without a finish_reason), 'function_call'
-    // (deprecated), and non-standard values some OpenAI-compatible
-    // providers emit (Gemini's `MALFORMED_FUNCTION_CALL`, etc.) all fold to
-    // 'other' — this must never throw on an unrecognized value.
+    // `function_call` (deprecated) and non-standard values some
+    // OpenAI-compatible providers emit (Gemini's `MALFORMED_FUNCTION_CALL`,
+    // etc.) fold to 'other' — this must never throw on an unrecognized
+    // value. `null` (stream ended without a finish_reason) and `'error'`
+    // never reach this mapper: `chat` turns them into stream errors first.
     default:
       return 'other';
   }
@@ -131,10 +142,20 @@ function classifyError(error: unknown, signal?: AbortSignal): { code: ProviderEr
   if ((signal?.aborted ?? false) || isAbortError(error)) {
     return { code: 'aborted', message };
   }
+  if (error instanceof ProviderError) return { code: error.code, message };
   if (error instanceof OpenAI.AuthenticationError) return { code: 'auth', message };
   if (error instanceof OpenAI.RateLimitError) return { code: 'rate_limit', message };
   if (error instanceof OpenAI.NotFoundError) return { code: 'invalid_model', message };
   if (error instanceof OpenAI.APIConnectionError) return { code: 'network', message };
+  // Mid-stream errors from OpenAI-compatible providers (notably OpenRouter
+  // free-tier rate limits, which arrive after the 200 is already committed)
+  // are thrown as a bare `APIError` carrying the numeric code on `error.code`
+  // but no typed subclass — treat those 429s like any other rate limit so the
+  // caller still sees a retryable `rate_limit` instead of an opaque provider
+  // failure.
+  if (error instanceof OpenAI.APIError && (error.status === 429 || String(error.code) === '429')) {
+    return { code: 'rate_limit', message };
+  }
   if (error instanceof OpenAI.APIError) return { code: 'provider', message };
   return { code: 'provider', message };
 }
@@ -153,9 +174,11 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   readonly id: AgentProviderId;
 
   private readonly client: OpenAI;
+  private readonly streamIdleTimeoutMs: number;
 
-  constructor(provider: OpenAiCompatibleProviderId, options: ProviderAdapterOptions) {
+  constructor(provider: OpenAiCompatibleProviderId, options: ProviderAdapterOptions, deps?: Partial<OpenAiCompatibleDependencies>) {
     this.id = provider;
+    this.streamIdleTimeoutMs = deps?.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS;
 
     let baseURL: string | undefined;
     switch (provider) {
@@ -237,16 +260,18 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
   }
 
   async validateModel(modelId: string, signal?: AbortSignal): Promise<'valid' | 'not-found' | 'unknown'> {
+    if (this.id === 'openrouter') {
+      try {
+        const models = await this.listModels(signal);
+        return models.some((model) => model.id === modelId) ? 'valid' : 'not-found';
+      } catch {
+        return 'unknown';
+      }
+    }
     try {
       await this.client.models.retrieve(modelId, { signal });
       return 'valid';
-    } catch (error) {
-      if (error instanceof OpenAI.NotFoundError) {
-        return 'not-found';
-      }
-      // Some OpenAI-compatible providers (e.g. Google's Gemini endpoint)
-      // don't support GET /models/{id} at all — fall back to listing and
-      // searching before giving up.
+    } catch {
       try {
         const models = await this.listModels(signal);
         return models.some((model) => model.id === modelId) ? 'valid' : 'not-found';
@@ -265,19 +290,29 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
       stream_options: { include_usage: true },
       max_tokens: request.maxOutputTokens ?? undefined,
       ...(tools.length > 0 ? { tools, tool_choice: 'auto' as const } : {}),
+      ...(this.id === 'openrouter' && tools.length > 0 ? { provider: { require_parameters: true } } : {}),
     };
 
-    // Tool calls are keyed by their stream index (fragments for the same
-    // call share an index; id/name typically arrive on the first fragment).
     const toolCallsByIndex = new Map<number, ToolCallAccumulator>();
     const textChunks: string[] = [];
     let finishReason: string | null = null;
     let usage: { inputTokens: number | null; outputTokens: number | null } | null = null;
 
+    const idle = withIdleTimeout(request.signal, this.streamIdleTimeoutMs);
     try {
-      const stream = await this.client.chat.completions.create(params, { signal: request.signal });
+      idle.signal.throwIfAborted();
+      const stream = await this.client.chat.completions.create(params, { signal: idle.signal });
       for await (const chunk of stream) {
-        const choice = chunk.choices[0];
+        idle.signal.throwIfAborted();
+        const envelope = chunk as typeof chunk & { error?: { code?: string | number; message?: string } };
+        if (envelope.error) {
+          throw new ProviderError(String(envelope.error.code) === '429' ? 'rate_limit' : 'provider', envelope.error.message ?? 'Provider failed during streaming');
+        }
+        const choice = chunk.choices?.[0];
+        const progress = choice?.delta as (typeof choice.delta & { reasoning?: string; reasoning_content?: string; reasoning_details?: unknown[] }) | undefined;
+        if (progress?.content || progress?.tool_calls?.length || progress?.reasoning || progress?.reasoning_content || progress?.reasoning_details?.length || choice?.finish_reason || chunk.usage) {
+          idle.reset();
+        }
         if (choice) {
           const delta = choice.delta;
           if (delta?.content) {
@@ -314,6 +349,7 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
         }
       }
 
+      idle.signal.throwIfAborted();
       const assistantParts: AssistantPart[] = [];
       const text = textChunks.join('');
       if (text.length > 0) {
@@ -346,10 +382,24 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
         yield { type: 'usage', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens };
       }
 
-      yield { type: 'done', stopReason: mapFinishReason(finishReason), assistant: assistantParts };
+      if (finishReason === 'error') {
+        yield { type: 'error', code: 'provider', message: 'Provider failed during streaming' };
+      } else if (finishReason === null && assistantParts.length === 0) {
+        yield { type: 'error', code: 'provider', message: 'Stream ended with no output' };
+      } else if (finishReason === null) {
+        yield { type: 'error', code: 'provider', message: 'Stream ended without a finish reason' };
+      } else {
+        yield { type: 'done', stopReason: mapFinishReason(finishReason), assistant: assistantParts };
+      }
     } catch (error) {
-      const { code, message } = classifyError(error, request.signal);
-      yield { type: 'error', code, message };
+      if (idle.didTimeout()) {
+        yield { type: 'error', code: 'network', message: `Stream stalled: no data received for ${this.streamIdleTimeoutMs}ms` };
+      } else {
+        const { code, message } = classifyError(error, request.signal);
+        yield { type: 'error', code, message };
+      }
+    } finally {
+      idle.dispose();
     }
   }
 }

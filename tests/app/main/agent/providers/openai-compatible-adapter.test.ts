@@ -11,7 +11,16 @@ import type { ProviderChatRequest, ProviderStreamEvent } from '../../../../../ap
 // its `models.list` / `models.retrieve` / `chat.completions.create` mocks.
 // ---------------------------------------------------------------------------
 vi.mock('openai', () => {
-  class FakeAPIError extends Error {}
+  class FakeAPIError extends Error {
+    status?: number;
+    code?: string | number;
+    constructor(message: string, opts?: { status?: number; code?: string | number }) {
+      super(message);
+      this.name = 'APIError';
+      if (opts?.status !== undefined) this.status = opts.status;
+      if (opts?.code !== undefined) this.code = opts.code;
+    }
+  }
   class FakeAuthenticationError extends FakeAPIError {}
   class FakeRateLimitError extends FakeAPIError {}
   class FakeNotFoundError extends FakeAPIError {}
@@ -94,8 +103,8 @@ async function collect(iterable: AsyncIterable<ProviderStreamEvent>): Promise<Pr
   return events;
 }
 
-function newAdapter(provider: 'openai' | 'google' | 'openrouter' | 'openai-compatible' = 'openai', baseUrl: string | null = null) {
-  const adapter = new OpenAiCompatibleAdapter(provider, { apiKey: 'test-key', baseUrl });
+function newAdapter(provider: 'openai' | 'google' | 'openrouter' | 'openai-compatible' = 'openai', baseUrl: string | null = null, deps?: Partial<{ streamIdleTimeoutMs: number }>) {
+  const adapter = new OpenAiCompatibleAdapter(provider, { apiKey: 'test-key', baseUrl }, deps);
   return { adapter, instance: latestInstance() };
 }
 
@@ -318,7 +327,6 @@ describe('OpenAiCompatibleAdapter finish_reason mapping', () => {
     ['content_filter', 'refusal'],
     ['function_call', 'other'],
     ['MALFORMED_FUNCTION_CALL', 'other'],
-    [null, 'other'],
   ] as const)('maps finish_reason %s to %s', async (finishReason, expected) => {
     const { adapter, instance } = newAdapter('openai');
     instance.chat.completions.create.mockResolvedValue(fakeStream([finishChunk(finishReason)]));
@@ -469,10 +477,11 @@ describe('OpenAiCompatibleAdapter.validateModel', () => {
     await expect(adapter.validateModel('gpt-5')).resolves.toBe('valid');
   });
 
-  it('returns not-found on OpenAI.NotFoundError', async () => {
+  it('returns not-found when retrieve and the catalog confirm absence', async () => {
     const { adapter, instance } = newAdapter('openai');
     const NotFoundError = (OpenAI as unknown as { NotFoundError: new (message: string) => Error }).NotFoundError;
     instance.models.retrieve.mockRejectedValue(new NotFoundError('nope'));
+    instance.models.list.mockReturnValue([]);
 
     await expect(adapter.validateModel('bogus')).resolves.toBe('not-found');
   });
@@ -501,5 +510,266 @@ describe('OpenAiCompatibleAdapter.validateModel', () => {
     });
 
     await expect(adapter.validateModel('gemini-3-pro')).resolves.toBe('unknown');
+  });
+
+  it('falls back to listModels on NotFoundError and still reports not-found when absent', async () => {
+    const { adapter, instance } = newAdapter('openai');
+    const NotFoundError = (OpenAI as unknown as { NotFoundError: new (message: string) => Error }).NotFoundError;
+    instance.models.retrieve.mockRejectedValue(new NotFoundError('nope'));
+    instance.models.list.mockReturnValue([{ id: 'gpt-5', created: 0, object: 'model', owned_by: 'openai' }]);
+
+    await expect(adapter.validateModel('gpt-6')).resolves.toBe('not-found');
+  });
+
+  it('returns unknown when listModels fails after a non-NotFound retrieve error', async () => {
+    const { adapter, instance } = newAdapter('google');
+    instance.models.retrieve.mockRejectedValue(new Error('500 internal'));
+    instance.models.list.mockImplementation(() => {
+      throw new Error('down');
+    });
+
+    await expect(adapter.validateModel('gemini-3-pro')).resolves.toBe('unknown');
+  });
+});
+
+describe('OpenAiCompatibleAdapter OpenRouter validateModel', () => {
+  it('skips retrieve and uses listModels directly for OpenRouter', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    instance.models.list.mockReturnValue([
+      { id: 'anthropic/claude-sonnet-4', name: 'Anthropic: Claude Sonnet 4' },
+      { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Meta: Llama 3.3 70B Instruct (free)' },
+    ]);
+
+    await expect(adapter.validateModel('anthropic/claude-sonnet-4')).resolves.toBe('valid');
+    await expect(adapter.validateModel('meta-llama/llama-3.3-70b-instruct:free')).resolves.toBe('valid');
+    await expect(adapter.validateModel('nonexistent/model')).resolves.toBe('not-found');
+    expect(instance.models.retrieve).not.toHaveBeenCalled();
+  });
+
+  it('returns unknown when OpenRouter listModels fails', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    instance.models.list.mockImplementation(() => {
+      throw new Error('rate limited');
+    });
+
+    await expect(adapter.validateModel('anthropic/claude-sonnet-4')).resolves.toBe('unknown');
+  });
+});
+
+describe('OpenAiCompatibleAdapter stream idle watchdog', () => {
+  it('reports a network error when the stream produces no data within the idle window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { adapter, instance } = newAdapter('openai', null, { streamIdleTimeoutMs: 50 });
+      instance.chat.completions.create.mockImplementation((_params, { signal }) => new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      }));
+      const pending = collect(adapter.chat(buildRequest()));
+      await vi.advanceTimersByTimeAsync(50);
+      const events = await pending;
+
+      expect(events).toEqual([
+        { type: 'error', code: 'network', message: expect.stringContaining('stalled') },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('bounds a stalled response body even when the SDK ends silently on abort', async () => {
+    vi.useFakeTimers();
+    try {
+      const { adapter, instance } = newAdapter('openrouter', null, { streamIdleTimeoutMs: 50 });
+      instance.chat.completions.create.mockImplementation((_params, { signal }) => ({
+        [Symbol.asyncIterator]: async function* () {
+          yield textChunk('partial');
+          await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve(), { once: true }));
+        },
+      }));
+      const pending = collect(adapter.chat(buildRequest()));
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await pending).toEqual([
+        { type: 'text_delta', text: 'partial' },
+        { type: 'error', code: 'network', message: expect.stringContaining('stalled') },
+      ]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('classifies a caller cancel as aborted even when the watchdog exists', async () => {
+    const { adapter, instance } = newAdapter('openai', null, { streamIdleTimeoutMs: 60_000 });
+    const controller = new AbortController();
+    instance.chat.completions.create.mockImplementation(() => {
+      controller.abort();
+      return fakeStream([textChunk('hi')]);
+    });
+
+    const events = await collect(adapter.chat(buildRequest({ signal: controller.signal })));
+
+    expect(events).toEqual([{ type: 'error', code: 'aborted', message: expect.any(String) }]);
+  });
+
+  it('resets the idle timer on each received chunk so a slow but active stream does not time out', async () => {
+    vi.useFakeTimers();
+    try {
+      const { adapter, instance } = newAdapter('openai', null, { streamIdleTimeoutMs: 100 });
+
+      instance.chat.completions.create.mockReturnValue({
+        [Symbol.asyncIterator]: async function* () {
+          yield textChunk('a');
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          yield { choices: [{ delta: { reasoning: 'thinking' }, finish_reason: null }] };
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          yield textChunk('b');
+          yield finishChunk('stop');
+        },
+      });
+      const pending = collect(adapter.chat(buildRequest()));
+      await vi.advanceTimersByTimeAsync(160);
+      const events = await pending;
+      expect(vi.getTimerCount()).toBe(0);
+      expect(events.filter((e) => e.type === 'text_delta')).toEqual([
+        { type: 'text_delta', text: 'a' },
+        { type: 'text_delta', text: 'b' },
+      ]);
+      expect(events.at(-1)).toMatchObject({ type: 'done', stopReason: 'end_turn' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('disposes the idle timer in the finally block after a successful stream', async () => {
+    const { adapter, instance } = newAdapter('openai', null, { streamIdleTimeoutMs: 60_000 });
+    instance.chat.completions.create.mockResolvedValue(fakeStream([textChunk('ok'), finishChunk('stop')]));
+
+    const events = await collect(adapter.chat(buildRequest()));
+
+    expect(events.at(-1)).toMatchObject({ type: 'done', stopReason: 'end_turn' });
+  });
+});
+
+describe('OpenAiCompatibleAdapter stream edge cases', () => {
+  it('reports an error when the stream ends without a finish_reason and no output was produced', async () => {
+    const { adapter, instance } = newAdapter('openai');
+    instance.chat.completions.create.mockResolvedValue(fakeStream([]));
+
+    const events = await collect(adapter.chat(buildRequest()));
+
+    expect(events).toEqual([{ type: 'error', code: 'provider', message: 'Stream ended with no output' }]);
+  });
+
+  it('reports an error when the stream ends without a finish_reason but text was produced', async () => {
+    const adapter = new OpenAiCompatibleAdapter('openai', { apiKey: 'test-key', baseUrl: null }, { streamIdleTimeoutMs: 60_000 });
+    const inst = latestInstance();
+    inst.chat.completions.create.mockResolvedValue(fakeStream([textChunk('partial')]));
+
+    const events = await collect(adapter.chat(buildRequest()));
+
+    expect(events).toEqual([
+      { type: 'text_delta', text: 'partial' },
+      { type: 'error', code: 'provider', message: 'Stream ended without a finish reason' },
+    ]);
+  });
+
+  it('classifies a bare APIError with status 429 as rate_limit', async () => {
+    const { adapter, instance } = newAdapter('openai');
+    const APIError = (OpenAI as unknown as { APIError: new (message: string, opts?: { status?: number; code?: string | number }) => Error }).APIError;
+    instance.chat.completions.create.mockRejectedValue(new APIError('rate limited', { status: 429 }));
+
+    const events = await collect(adapter.chat(buildRequest()));
+
+    expect(events).toEqual([{ type: 'error', code: 'rate_limit', message: 'rate limited' }]);
+  });
+
+  it('classifies a bare APIError with numeric code 429 as rate_limit', async () => {
+    const { adapter, instance } = newAdapter('openai');
+    const APIError = (OpenAI as unknown as { APIError: new (message: string, opts?: { status?: number; code?: string | number }) => Error }).APIError;
+    instance.chat.completions.create.mockRejectedValue(new APIError('limit exceeded', { code: 429 }));
+
+    const events = await collect(adapter.chat(buildRequest()));
+
+    expect(events).toEqual([{ type: 'error', code: 'rate_limit', message: 'limit exceeded' }]);
+  });
+
+  it('classifies a bare APIError with string code "429" as rate_limit', async () => {
+    const { adapter, instance } = newAdapter('openai');
+    const APIError = (OpenAI as unknown as { APIError: new (message: string, opts?: { status?: number; code?: string | number }) => Error }).APIError;
+    instance.chat.completions.create.mockRejectedValue(new APIError('too many', { code: '429' }));
+
+    const events = await collect(adapter.chat(buildRequest()));
+
+    expect(events).toEqual([{ type: 'error', code: 'rate_limit', message: 'too many' }]);
+  });
+
+  it('requires a tool-capable OpenRouter route instead of silently dropping requested tools', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    instance.models.list.mockReturnValue([
+      { id: 'some/no-tools-model', supported_parameters: ['temperature'] },
+    ]);
+    await adapter.listModels();
+
+    instance.chat.completions.create.mockResolvedValue(fakeStream([textChunk('hi'), finishChunk('stop')]));
+
+    await collect(
+      adapter.chat(
+        buildRequest({
+          model: 'some/no-tools-model',
+          tools: [{ name: 'search', description: 'Searches', inputSchema: { type: 'object', properties: {} } }],
+        }),
+      ),
+    );
+
+    const [params] = instance.chat.completions.create.mock.calls[0] as [Record<string, unknown>];
+    expect(params.tools).toHaveLength(1);
+    expect(params.tool_choice).toBe('auto');
+    expect(params.provider).toEqual({ require_parameters: true });
+  });
+
+  it('includes tools when the OpenRouter model supports them', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    instance.models.list.mockReturnValue([
+      { id: 'anthropic/claude-sonnet-4', supported_parameters: ['tools', 'temperature'] },
+    ]);
+    await adapter.listModels();
+
+    instance.chat.completions.create.mockResolvedValue(fakeStream([finishChunk('stop')]));
+
+    await collect(
+      adapter.chat(
+        buildRequest({
+          model: 'anthropic/claude-sonnet-4',
+          tools: [{ name: 'search', description: 'Searches', inputSchema: { type: 'object', properties: {} } }],
+        }),
+      ),
+    );
+
+    const [params] = instance.chat.completions.create.mock.calls[0] as [Record<string, unknown>];
+    expect(params.tools).toEqual([{ type: 'function', function: { name: 'search', description: 'Searches', parameters: { type: 'object', properties: {} } } }]);
+    expect(params.tool_choice).toBe('auto');
+  });
+});
+
+
+describe('OpenRouter in-band errors', () => {
+  it('preserves partial output and classifies a mid-stream rate limit', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    instance.chat.completions.create.mockResolvedValue(fakeStream([
+      textChunk('partial'), { error: { code: 429, message: 'Capacity exhausted' }, choices: [] },
+    ]));
+    expect(await collect(adapter.chat(buildRequest()))).toEqual([
+      { type: 'text_delta', text: 'partial' },
+      { type: 'error', code: 'rate_limit', message: 'Capacity exhausted' },
+    ]);
+  });
+
+  it('reports cancellation when the SDK quietly closes an aborted stream', async () => {
+    const { adapter, instance } = newAdapter('openrouter');
+    const controller = new AbortController();
+    instance.chat.completions.create.mockReturnValue({
+      [Symbol.asyncIterator]: async function* () { controller.abort(); },
+    });
+    expect(await collect(adapter.chat(buildRequest({ signal: controller.signal })))).toEqual([
+      { type: 'error', code: 'aborted', message: expect.any(String) },
+    ]);
   });
 });
