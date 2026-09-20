@@ -26,6 +26,7 @@ export * from './domain/slides';
 export * from './domain/slide-tags';
 export * from './domain/stages';
 export * from './domain/theme';
+export * from './domain/timers';
 
 // ---------------------------------------------------------------------------
 // Rich text (canonical Rich Body model, run resolution, measurement, edits).

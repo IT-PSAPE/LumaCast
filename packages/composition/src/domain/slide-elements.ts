@@ -4,6 +4,11 @@
 import type { RichBody } from '../rich-text/types';
 import type { Id } from '@lumacast/kernel';
 import type { SlideBackgroundFit } from './slides';
+import type { TimerFormat } from './timers';
+
+// Moved to ./timers (first-class timers, ADR-0042); re-exported here so
+// existing `TimerFormat` imports from this module keep working.
+export type { TimerFormat } from './timers';
 
 export type SlideElementType = 'text' | 'image' | 'video' | 'shape' | 'group';
 
@@ -36,13 +41,20 @@ export type TextBindingKind =
   | 'slide-notes';
 
 export type ClockFormat = '12h' | '12h-seconds' | '24h' | '24h-seconds';
-export type TimerFormat = 'mm:ss' | 'hh:mm:ss';
 
 export interface TextBinding {
   kind: TextBindingKind;
-  timerDurationSeconds?: number;
-  timerFormat?: TimerFormat;
+  /** Id of the linked `Timer` entity (./timers). Set for kind 'timer'. */
+  timerId?: Id | null;
   clockFormat?: ClockFormat;
+  /**
+   * @deprecated Legacy pre-timer-entity fields. Still decoded so old bundles
+   * import; migration v36 (persistence-sqlite) converts persisted DB rows to
+   * a linked `timerId` and clears these.
+   */
+  timerDurationSeconds?: number;
+  /** @deprecated See `timerDurationSeconds`. */
+  timerFormat?: TimerFormat;
 }
 
 export interface ElementVisualPayload {
