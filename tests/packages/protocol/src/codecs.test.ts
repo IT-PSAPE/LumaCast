@@ -48,6 +48,9 @@ import {
   decodeStoredNdiOutputConfigMap,
   decodeThemeCreateInput,
   decodeThemeListInput,
+  decodeTimer,
+  decodeTimerCreateInput,
+  decodeTimerUpdateInput,
   decodeTriggerBindingCreateInput,
   expectRpcPrimitiveArgs,
   type CodecContext,
@@ -1455,6 +1458,84 @@ describe('slide-tag codecs', () => {
     expectCodecError(
       () => decodeAppSnapshotShape({ ...current, slideTags: [{ ...current.slideTags[0], colorKey: 'purple' }] }, CONTEXT),
       'slideTags[0].colorKey',
+    );
+  });
+});
+
+describe('timer codecs (ADR-0042)', () => {
+  const threshold = { id: 'th-1', atSeconds: 60, color: '#ffcc00' };
+  const timerRow = {
+    id: 'timer-1',
+    name: 'Countdown',
+    kind: 'countdown',
+    durationSeconds: 300,
+    targetTime: null,
+    elapsedStartSeconds: 0,
+    elapsedEndSeconds: null,
+    allowOverrun: false,
+    format: 'mm:ss',
+    thresholds: [threshold],
+    order: 0,
+    createdAt: 'now',
+    updatedAt: 'now',
+  };
+
+  it('round-trips a full timer row', () => {
+    expect(decodeTimer(timerRow, CONTEXT)).toEqual(timerRow);
+  });
+
+  it('accepts a partial create input, applying no implicit values (defaults are the store\'s job)', () => {
+    expect(decodeTimerCreateInput({}, CONTEXT)).toEqual({});
+    expect(decodeTimerCreateInput({
+      name: 'Sermon',
+      kind: 'elapsed',
+      elapsedStartSeconds: 0,
+      elapsedEndSeconds: 1800,
+      thresholds: [threshold],
+    }, CONTEXT)).toEqual({
+      name: 'Sermon',
+      kind: 'elapsed',
+      elapsedStartSeconds: 0,
+      elapsedEndSeconds: 1800,
+      thresholds: [threshold],
+    });
+  });
+
+  it('accepts a partial update input addressed by id, including explicit nulls', () => {
+    expect(decodeTimerUpdateInput({ id: 'timer-1', targetTime: null, elapsedEndSeconds: null, order: 2 }, CONTEXT)).toEqual({
+      id: 'timer-1',
+      targetTime: null,
+      elapsedEndSeconds: null,
+      order: 2,
+    });
+  });
+
+  it('rejects invalid kinds, formats, empty names, and malformed thresholds', () => {
+    expectCodecError(() => decodeTimerCreateInput({ kind: 'stopwatch' }, CONTEXT), 'kind');
+    expectCodecError(() => decodeTimerCreateInput({ format: 'seconds' }, CONTEXT), 'format');
+    expectCodecError(() => decodeTimerCreateInput({ name: '' }, CONTEXT), 'name');
+    expectCodecError(() => decodeTimerCreateInput({ thresholds: [{ id: 'th-1', atSeconds: 'soon', color: 'red' }] }, CONTEXT), 'atSeconds');
+    expectCodecError(() => decodeTimerUpdateInput({ id: 'timer-1', kind: 'stopwatch' }, CONTEXT), 'kind');
+    expectCodecError(() => decodeTimerUpdateInput({}, CONTEXT), 'id');
+  });
+
+  it('decodes older snapshots without timers and validates timer rows when present', () => {
+    const legacy = Object.fromEntries([
+      'presentations', 'lyrics', 'slides', 'slideElements', 'mediaAssets', 'overlays',
+      'presentationThemes', 'lyricThemes', 'overlayThemes', 'stages', 'playlists',
+      'playlistEntries', 'cues', 'macros', 'triggerBindings', 'slideTags',
+    ].map((field) => [field, []]));
+    expect(decodeAppSnapshotShape(legacy, CONTEXT).timers).toEqual([]);
+
+    const current = { ...legacy, timers: [timerRow] };
+    expect(() => decodeAppSnapshotShape(current, CONTEXT)).not.toThrow();
+    expectCodecError(
+      () => decodeAppSnapshotShape({ ...current, timers: [{ ...timerRow, kind: 'stopwatch' }] }, CONTEXT),
+      'timers[0].kind',
+    );
+    expectCodecError(
+      () => decodeAppSnapshotShape({ ...current, timers: [{ ...timerRow, thresholds: [{ id: 'th-1', atSeconds: 60 }] }] }, CONTEXT),
+      'thresholds[0].color',
     );
   });
 });

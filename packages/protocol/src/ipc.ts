@@ -31,6 +31,8 @@ import type {
   ThemeCreateInput,
   ThemeListInput,
   ThemeUpdateInput,
+  TimerCreateInput,
+  TimerUpdateInput,
   TriggerBindingCreateInput,
 } from './rpc-inputs';
 import type {
@@ -159,6 +161,9 @@ interface RpcMethodSignatures {
   updateSlideTag: (input: SlideTagUpdateInput) => Promise<SnapshotPatch>;
   deleteSlideTag: (id: Id) => Promise<SnapshotPatch>;
   assignSlideTags: (input: SlideTagAssignInput) => Promise<SnapshotPatch>;
+  createTimer: (input: TimerCreateInput) => Promise<SnapshotPatch>;
+  updateTimer: (input: TimerUpdateInput) => Promise<SnapshotPatch>;
+  deleteTimer: (id: Id) => Promise<SnapshotPatch>;
   createPlaylist: (name: string) => Promise<SnapshotPatch>;
   // Separator CRUD (decision D5): a separator is a plain divider row inside
   // the flat playlist row list — it keeps its own label and color and never
@@ -613,6 +618,9 @@ export const IPC = {
   updateSlideTag: 'cast:updateSlideTag',
   deleteSlideTag: 'cast:deleteSlideTag',
   assignSlideTags: 'cast:assignSlideTags',
+  createTimer: 'cast:createTimer',
+  updateTimer: 'cast:updateTimer',
+  deleteTimer: 'cast:deleteTimer',
   createPlaylist: 'cast:createPlaylist',
   createSeparator: 'cast:createSeparator',
   renameSeparator: 'cast:renameSeparator',

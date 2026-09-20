@@ -5,6 +5,8 @@ import type {
   SlideElement,
   SlideElementType,
   SlideKind,
+  TimerFormat,
+  TimerKind,
 } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
@@ -205,7 +207,8 @@ export const PROJECT_BACKUP_LEGACY_VERSION = 1 as const;
 // match; the focused lockstep test in project-backup.test.ts fails on drift.
 // Core keeps its own copy because the migrations module is unreachable here
 // (core may not import the database layer).
-export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 35 as const;
+export const PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION = 36 as const;
+const PROJECT_BACKUP_PRE_TIMERS_SCHEMA_VERSION = 35 as const;
 const PROJECT_BACKUP_PRE_RUNTIME_BLANK_SCHEMA_VERSION = 34 as const;
 const PROJECT_BACKUP_PRE_SLIDE_TAG_SCHEMA_VERSION = 33 as const;
 // The last schema serialized by format v2.
@@ -268,6 +271,8 @@ const ON_SCOPE_EXITS: readonly OnScopeExit[] = ['cancel', 'revert', 'none'];
 const TRIGGER_TYPES: readonly TriggerType[] = ['slide.take', 'slide.activate', 'app.startup'];
 const TRIGGER_TARGET_TYPES: readonly TriggerBindingTargetType[] = ['cue', 'macro'];
 const PLAYBACK_SCHEDULE_KINDS = ['slide-timing', 'audio-sync'] as const;
+const TIMER_KINDS: readonly TimerKind[] = ['countdown', 'countdown-to-time', 'elapsed'];
+const TIMER_FORMATS: readonly TimerFormat[] = ['mm:ss', 'hh:mm:ss'];
 
 type ProjectBackupColumnType = 'string' | 'number' | 'json-string' | 'enum' | 'flag';
 
@@ -361,6 +366,21 @@ const PROJECT_BACKUP_COLUMN_SPECS: Record<ProjectBackupTableKey, readonly Projec
     { name: 'id', type: 'string' },
     { name: 'name', type: 'string' },
     { name: 'color_key', type: 'enum', enum: SLIDE_TAG_COLOR_KEYS },
+    { name: 'order_index', type: 'number' },
+    { name: 'created_at', type: 'string' },
+    { name: 'updated_at', type: 'string' },
+  ],
+  timers: [
+    { name: 'id', type: 'string' },
+    { name: 'name', type: 'string' },
+    { name: 'kind', type: 'enum', enum: TIMER_KINDS },
+    { name: 'duration_seconds', type: 'number' },
+    { name: 'target_time', type: 'string', nullable: true },
+    { name: 'elapsed_start_seconds', type: 'number' },
+    { name: 'elapsed_end_seconds', type: 'number', nullable: true },
+    { name: 'allow_overrun', type: 'flag' },
+    { name: 'format', type: 'enum', enum: TIMER_FORMATS },
+    { name: 'thresholds_json', type: 'json-string' },
     { name: 'order_index', type: 'number' },
     { name: 'created_at', type: 'string' },
     { name: 'updated_at', type: 'string' },
@@ -478,8 +498,15 @@ const LEGACY_V2_SLIDE_KINDS = [
   'talkTheme', 'overlayTheme', 'overlay', 'stage',
 ] as const;
 
+// Schema 35 (and 34, which shares its table set — see below) predates the
+// `timers` table (added by migration v36 / ADR-0042).
+const PROJECT_BACKUP_COLUMN_SPECS_BEFORE_TIMERS = Object.fromEntries(
+  Object.entries(PROJECT_BACKUP_COLUMN_SPECS).filter(([tableName]) => tableName !== 'timers'),
+) as Record<string, readonly ProjectBackupColumnSpec[]>;
+const PROJECT_BACKUP_SCHEMA_35_TABLE_KEYS = Object.keys(PROJECT_BACKUP_COLUMN_SPECS_BEFORE_TIMERS);
+
 const PROJECT_BACKUP_SCHEMA_34_COLUMN_SPECS: Record<string, readonly ProjectBackupColumnSpec[]> = {
-  ...PROJECT_BACKUP_COLUMN_SPECS,
+  ...PROJECT_BACKUP_COLUMN_SPECS_BEFORE_TIMERS,
   lyrics: ITEM_ROW_SPEC,
 };
 const PROJECT_BACKUP_COLUMN_SPECS_BEFORE_SLIDE_TAGS = Object.fromEntries(
@@ -659,10 +686,11 @@ function assertProjectBackupRow(
 /**
  * The single named validation entry point for the project-backup contract.
  * Rejects documents with an unsupported (including future) format/version, a
- * `schemaVersion` other than 34 (current), 33 (the pre-tag v3 shape), or
- * 32, 31, or 30 (previous versions — normalized to 34 by the envelope check
- * below, never rejected: schema 33 gains an empty `slide_tags` table and null
- * `slides.tag_id` values; schema 30 gains an
+ * `schemaVersion` other than 36 (current), 35 (pre-timers), 34 (pre-blank-
+ * slide-mode), 33 (the pre-tag v3 shape), or 32, 31, or 30 (previous versions
+ * — normalized to 36 by the envelope check below, never rejected: schema 35
+ * gains an empty `timers` table; schema 33 gains an empty `slide_tags` table
+ * and null `slides.tag_id` values; schema 30 gains an
  * empty `playback_schedules` list, and 30/31 slide element rows gain
  * `theme_override_keys_json: null`), an envelope that is not exactly the
  * four keys `format`/`version`/`schemaVersion`/`tables`, missing or extra
@@ -713,6 +741,7 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
 
   const schemaVersion = candidate.schemaVersion;
   const isCurrentSchema = isCurrentFormat && schemaVersion === PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION;
+  const isPreTimersSchema = isCurrentFormat && schemaVersion === PROJECT_BACKUP_PRE_TIMERS_SCHEMA_VERSION;
   const isPreRuntimeBlankSchema = isCurrentFormat && schemaVersion === PROJECT_BACKUP_PRE_RUNTIME_BLANK_SCHEMA_VERSION;
   const isPreSlideTagSchema = isCurrentFormat && schemaVersion === PROJECT_BACKUP_PRE_SLIDE_TAG_SCHEMA_VERSION;
   const isLegacyV2Schema = typeof schemaVersion === 'number'
@@ -721,7 +750,7 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
     && schemaVersion >= PROJECT_BACKUP_EARLIEST_SUPPORTED_SCHEMA_VERSION
     && schemaVersion <= PROJECT_BACKUP_PREVIOUS_SCHEMA_VERSION;
   const isEarliestSchema = schemaVersion === PROJECT_BACKUP_EARLIEST_SUPPORTED_SCHEMA_VERSION;
-  if (!isCurrentSchema && !isPreRuntimeBlankSchema && !isPreSlideTagSchema && !isLegacyV2Schema) {
+  if (!isCurrentSchema && !isPreTimersSchema && !isPreRuntimeBlankSchema && !isPreSlideTagSchema && !isLegacyV2Schema) {
     throw new ProjectBackupValidationError(
       `Unsupported backup format/schema version combination: version ${describeProjectBackupValue(candidate.version)}, schema ${describeProjectBackupValue(schemaVersion)}.`,
     );
@@ -750,13 +779,15 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
   // element rows must carry exactly the 31 column set and are normalized
   // with `theme_override_keys_json: null` (a 30/31-era database holds no
   // override metadata, so nothing is silently lost).
-  const expectedKeys = isCurrentSchema || isPreRuntimeBlankSchema
+  const expectedKeys = isCurrentSchema
     ? PROJECT_BACKUP_TABLE_KEYS
-    : isPreSlideTagSchema
-      ? PROJECT_BACKUP_SCHEMA_33_TABLE_KEYS
-      : isEarliestSchema
-        ? PROJECT_BACKUP_TABLE_KEYS_V30
-        : LEGACY_V2_PROJECT_BACKUP_TABLE_KEYS;
+    : isPreTimersSchema || isPreRuntimeBlankSchema
+      ? PROJECT_BACKUP_SCHEMA_35_TABLE_KEYS
+      : isPreSlideTagSchema
+        ? PROJECT_BACKUP_SCHEMA_33_TABLE_KEYS
+        : isEarliestSchema
+          ? PROJECT_BACKUP_TABLE_KEYS_V30
+          : LEGACY_V2_PROJECT_BACKUP_TABLE_KEYS;
   const actualTableKeys = Object.keys(tablesRecord).sort();
   const expectedTableKeys = expectedKeys.slice().sort();
   if (
@@ -772,13 +803,29 @@ function validateProjectBackupEnvelope(input: unknown): ValidProjectBackupEnvelo
     return { backup: input as ProjectBackup, tables: tablesRecord, backfillLegacyOverrides: false };
   }
 
+  if (isPreTimersSchema) {
+    for (const tableName of expectedKeys) {
+      const rows = tablesRecord[tableName];
+      if (!Array.isArray(rows)) throw new ProjectBackupValidationError(`Invalid project backup: tables.${tableName} must be an array.`);
+      rows.forEach((row, rowIndex) => assertProjectBackupRow(row, tableName, rowIndex, PROJECT_BACKUP_COLUMN_SPECS_BEFORE_TIMERS));
+    }
+    const normalizedTables: Record<string, unknown> = { ...tablesRecord, timers: [] };
+    const normalized: ProjectBackup = {
+      format: PROJECT_BACKUP_FORMAT,
+      version: PROJECT_BACKUP_VERSION,
+      schemaVersion: PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION,
+      tables: normalizedTables as unknown as ProjectBackupTables,
+    };
+    return { backup: normalized, tables: normalizedTables, backfillLegacyOverrides: false };
+  }
+
   if (isPreRuntimeBlankSchema) {
     for (const tableName of expectedKeys) {
       const rows = tablesRecord[tableName];
       if (!Array.isArray(rows)) throw new ProjectBackupValidationError(`Invalid project backup: tables.${tableName} must be an array.`);
       rows.forEach((row, rowIndex) => assertProjectBackupRow(row, tableName, rowIndex, PROJECT_BACKUP_SCHEMA_34_COLUMN_SPECS));
     }
-    const normalizedTables = { ...tablesRecord };
+    const normalizedTables: Record<string, unknown> = { ...tablesRecord, timers: [] };
     normalizedTables.lyrics = (tablesRecord.lyrics as Array<Record<string, unknown>>)
       .map((row) => ({ ...row, blank_slide_mode: 'none' }));
     const normalized: ProjectBackup = {

@@ -28,6 +28,7 @@ import type {
   Stage,
   Playlist,
   PlaylistRow,
+  Timer,
 } from '@lumacast/composition';
 import type { Cue, Macro, PlaybackSchedule, TriggerBinding } from '@lumacast/automation';
 import type { BundleMediaReference } from './deck-bundle-manifest';
@@ -83,6 +84,7 @@ export interface AppSnapshot {
   triggerBindings: TriggerBinding[];
   playbackSchedules?: PlaybackSchedule[];
   slideTags?: SlideTag[];
+  timers?: Timer[];
 }
 
 export interface BundleInspectionItem {

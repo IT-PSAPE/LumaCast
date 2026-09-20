@@ -126,6 +126,9 @@ const BINDINGS = {
   'slideTag.delete': { method: 'deleteSlideTag', args: ['id'] },
   'slideTag.assign': { method: 'assignSlideTags', args: ['input'] },
   'slideTag.list': { method: 'listSlideTags', args: [] },
+  'timer.create': { method: 'createTimer', args: ['input'] },
+  'timer.update': { method: 'updateTimer', args: ['input'] },
+  'timer.delete': { method: 'deleteTimer', args: ['id'] },
 
   // --- Elements ---
   'element.create': { method: 'createElement', args: ['input'] },
@@ -306,6 +309,12 @@ export interface RendererActionParams {
   // --- Stage ---
   'stage.arm': { stageId: Id };
   'stage.clear': Record<string, never>;
+
+  // --- Timers ---
+  'timer.start': { timerId: Id };
+  'timer.stop': { timerId: Id };
+  'timer.reset': { timerId: Id };
+  'timer.resetAll': Record<string, never>;
 
   // --- Automation execution ---
   'macro.run': { macroId: Id };

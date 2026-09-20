@@ -53,6 +53,8 @@ import type {
   TextBindingKind,
   ClockFormat,
   TimerFormat,
+  TimerKind,
+  TimerThreshold,
   TextBinding,
   RichBody,
   RichBlock,
@@ -111,6 +113,8 @@ import type {
   SlideTagCreateInput,
   SlideTagUpdateInput,
   SlideTagAssignInput,
+  TimerCreateInput,
+  TimerUpdateInput,
   BundleExportOptions,
 } from './rpc-inputs';
 import type { ItemCreateInput, ItemDuplicateInput } from './ipc';
@@ -129,6 +133,7 @@ import type {
   ProjectBackupThemeRow,
   ProjectBackupStageRow,
   ProjectBackupSlideTagRow,
+  ProjectBackupTimerRow,
   ProjectBackupCueRow,
   ProjectBackupMacroRow,
   ProjectBackupMacroStepRow,
@@ -241,13 +246,17 @@ const TEXT_BINDING_KIND_VALUES = [
 ] as const satisfies readonly TextBindingKind[];
 const CLOCK_FORMAT_VALUES = ['12h', '12h-seconds', '24h', '24h-seconds'] as const satisfies readonly ClockFormat[];
 const TIMER_FORMAT_VALUES = ['mm:ss', 'hh:mm:ss'] as const satisfies readonly TimerFormat[];
+const TIMER_KIND_VALUES = ['countdown', 'countdown-to-time', 'elapsed'] as const satisfies readonly TimerKind[];
 const TEXT_FORMAT_VALUES = ['plain', 'rich'] as const;
 
 const textBindingSchema = s.object({
   kind: s.enum(TEXT_BINDING_KIND_VALUES),
-  timerDurationSeconds: s.optional(s.number()),
-  timerFormat: s.optional(s.enum(TIMER_FORMAT_VALUES)),
+  timerId: s.optional(s.nullable(idSchema.describe('Linked Timer id (kind \'timer\')'))),
   clockFormat: s.optional(s.enum(CLOCK_FORMAT_VALUES)),
+  /** @deprecated Legacy pre-timer-entity fields; still decoded so old bundles import. */
+  timerDurationSeconds: s.optional(s.number()),
+  /** @deprecated See `timerDurationSeconds`. */
+  timerFormat: s.optional(s.enum(TIMER_FORMAT_VALUES)),
 }) satisfies Schema<TextBinding>;
 
 const richRunSchema = s.object({
@@ -839,6 +848,42 @@ const slideTagAssignSchema = s.object({
 }) satisfies Schema<SlideTagAssignInput>;
 
 // ---------------------------------------------------------------------------
+// Timers (ADR-0042)
+// ---------------------------------------------------------------------------
+
+const timerThresholdSchema = s.object({
+  id: idSchema,
+  atSeconds: s.number().describe('Countdown kinds: fires when remaining <= atSeconds. Elapsed: fires when elapsed >= atSeconds'),
+  color: s.string().describe('CSS colour applied to linked text while this threshold is active'),
+}) satisfies Schema<TimerThreshold>;
+
+const timerCreateSchema = s.object({
+  name: s.optional(s.string().describe('Defaults to "Timer N"')),
+  kind: s.optional(s.enum(TIMER_KIND_VALUES)),
+  durationSeconds: s.optional(s.number().describe('countdown')),
+  targetTime: s.optional(s.nullable(s.string().describe('countdown-to-time, local 24h "HH:mm" or "HH:mm:ss"'))),
+  elapsedStartSeconds: s.optional(s.number().describe('elapsed (usually 0)')),
+  elapsedEndSeconds: s.optional(s.nullable(s.number().describe('elapsed; null = run forever'))),
+  allowOverrun: s.optional(s.boolean()),
+  format: s.optional(s.enum(TIMER_FORMAT_VALUES)),
+  thresholds: s.optional(s.array(timerThresholdSchema)),
+}) satisfies Schema<TimerCreateInput>;
+
+const timerUpdateSchema = s.object({
+  id: idSchema,
+  name: s.optional(s.string()),
+  kind: s.optional(s.enum(TIMER_KIND_VALUES)),
+  durationSeconds: s.optional(s.number()),
+  targetTime: s.optional(s.nullable(s.string())),
+  elapsedStartSeconds: s.optional(s.number()),
+  elapsedEndSeconds: s.optional(s.nullable(s.number())),
+  allowOverrun: s.optional(s.boolean()),
+  format: s.optional(s.enum(TIMER_FORMAT_VALUES)),
+  thresholds: s.optional(s.array(timerThresholdSchema)),
+  order: s.optional(s.number().describe('0-based position in the timers list')),
+}) satisfies Schema<TimerUpdateInput>;
+
+// ---------------------------------------------------------------------------
 // Playlists / separators / items
 // ---------------------------------------------------------------------------
 
@@ -1184,6 +1229,21 @@ const projectBackupSlideTagRowSchema = s.object({
   ...backupTimestampProps(),
 }) satisfies Schema<ProjectBackupSlideTagRow>;
 
+const projectBackupTimerRowSchema = s.object({
+  id: idSchema,
+  name: s.string(),
+  kind: s.enum(TIMER_KIND_VALUES),
+  duration_seconds: s.number(),
+  target_time: s.nullable(s.string()),
+  elapsed_start_seconds: s.number(),
+  elapsed_end_seconds: s.nullable(s.number()),
+  allow_overrun: s.number().describe('0 or 1'),
+  format: s.enum(TIMER_FORMAT_VALUES),
+  thresholds_json: s.string(),
+  order_index: s.number(),
+  ...backupTimestampProps(),
+}) satisfies Schema<ProjectBackupTimerRow>;
+
 const projectBackupCueRowSchema = s.object({
   id: idSchema,
   kind: cueKindSchema,
@@ -1245,6 +1305,7 @@ const projectBackupTablesSchema = s.object({
   slides: s.array(projectBackupSlideRowSchema),
   slide_elements: s.array(projectBackupSlideElementRowSchema),
   slide_tags: s.array(projectBackupSlideTagRowSchema),
+  timers: s.array(projectBackupTimerRowSchema),
   playlists: s.array(projectBackupPlaylistRowSchema),
   playlist_entries: s.array(projectBackupPlaylistEntryRowSchema),
   image_assets: s.array(projectBackupMediaAssetRowSchema),
@@ -1434,6 +1495,9 @@ const audioSeekSchema = s.object({ seconds: s.number().describe('Seek target in 
 const audioSetVolumeSchema = s.object({ volume: s.number({ min: 0, max: 1 }).describe('0 (silent) to 1 (full volume)') }) satisfies Schema<RendererActionParams['audio.setVolume']>;
 
 const stageArmSchema = s.object({ stageId: idSchema }) satisfies Schema<RendererActionParams['stage.arm']>;
+const timerStartSchema = s.object({ timerId: idSchema }) satisfies Schema<RendererActionParams['timer.start']>;
+const timerStopSchema = s.object({ timerId: idSchema }) satisfies Schema<RendererActionParams['timer.stop']>;
+const timerResetSchema = s.object({ timerId: idSchema }) satisfies Schema<RendererActionParams['timer.reset']>;
 const macroRunSchema = s.object({ macroId: idSchema }) satisfies Schema<RendererActionParams['macro.run']>;
 const cueRunSchema = s.object({ cueId: idSchema }) satisfies Schema<RendererActionParams['cue.run']>;
 
@@ -1511,6 +1575,9 @@ export const ACTION_SCHEMAS: Readonly<Record<ActionId, ActionSchema>> = {
   'slideTag.delete': { params: s.object({ id: idSchema }) },
   'slideTag.assign': { params: slideTagAssignSchema },
   'slideTag.list': { params: emptyParamsSchema },
+  'timer.create': { params: timerCreateSchema },
+  'timer.update': { params: timerUpdateSchema },
+  'timer.delete': { params: s.object({ id: idSchema }) },
   // --- Elements (main) ---
   'element.create': { params: elementCreateSchema },
   'element.createMany': { params: s.object({ inputs: s.array(elementCreateVariantSchema) }) },
@@ -1636,6 +1703,11 @@ export const ACTION_SCHEMAS: Readonly<Record<ActionId, ActionSchema>> = {
   // --- Stage (renderer) ---
   'stage.arm': { params: stageArmSchema },
   'stage.clear': { params: emptyParamsSchema },
+  // --- Timers (renderer) ---
+  'timer.start': { params: timerStartSchema },
+  'timer.stop': { params: timerStopSchema },
+  'timer.reset': { params: timerResetSchema },
+  'timer.resetAll': { params: emptyParamsSchema },
   // --- Automation exec (renderer) ---
   'macro.run': { params: macroRunSchema },
   'macro.cancelAll': { params: emptyParamsSchema },

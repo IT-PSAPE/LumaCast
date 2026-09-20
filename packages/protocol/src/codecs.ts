@@ -1,6 +1,6 @@
 import type { CueClearLayer, CuePayload, LifecycleAction, PlaybackSchedule } from '@lumacast/automation';
 import { SLIDE_TAG_COLOR_KEYS } from '@lumacast/composition';
-import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, SlideTag, SlideTagColorKey, OverlayAnimation, ItemRef, ItemType, ThemeOwnerType } from '@lumacast/composition';
+import type { SlideBackground, SlideElement, SlideElementPayload, SlideElementType, SlideTag, SlideTagColorKey, OverlayAnimation, ItemRef, ItemType, ThemeOwnerType, Timer, TimerFormat, TimerKind, TimerThreshold } from '@lumacast/composition';
 import type {
   CueCreateInput,
   CueUpdateInput,
@@ -31,6 +31,8 @@ import type {
   ThemeCreateInput,
   ThemeListInput,
   ThemeUpdateInput,
+  TimerCreateInput,
+  TimerUpdateInput,
   TriggerBindingCreateInput,
 } from './rpc-inputs';
 import type { AppSnapshot, BundleBrokenReferenceDecision } from './rpc-results';
@@ -1582,6 +1584,83 @@ export function decodeSlideTag(value: unknown, context: CodecContext): SlideTag 
   return value as unknown as SlideTag;
 }
 
+// ---------------------------------------------------------------------------
+// Timers (ADR-0042)
+// ---------------------------------------------------------------------------
+
+const TIMER_KINDS: readonly TimerKind[] = ['countdown', 'countdown-to-time', 'elapsed'];
+const TIMER_FORMATS: readonly TimerFormat[] = ['mm:ss', 'hh:mm:ss'];
+
+function decodeTimerThreshold(value: unknown, context: CodecContext): TimerThreshold {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['id', 'atSeconds', 'color']);
+  expectNonEmptyString(value.id, context, 'id');
+  expectFiniteNumber(value.atSeconds, context, 'atSeconds');
+  expectNonEmptyString(value.color, context, 'color');
+  return value as unknown as TimerThreshold;
+}
+
+function decodeTimerThresholds(value: unknown, context: CodecContext, field: string): TimerThreshold[] {
+  const thresholds = expectArray(value, context, field);
+  thresholds.forEach((threshold, index) => decodeTimerThreshold(threshold, child(context, `${field}[${index}]`)));
+  return thresholds as TimerThreshold[];
+}
+
+const TIMER_CREATE_UPDATE_KEYS = [
+  'name', 'kind', 'durationSeconds', 'targetTime', 'elapsedStartSeconds',
+  'elapsedEndSeconds', 'allowOverrun', 'format', 'thresholds',
+] as const;
+
+export function decodeTimerCreateInput(value: unknown, context: CodecContext): TimerCreateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, TIMER_CREATE_UPDATE_KEYS);
+  if (value.name !== undefined) expectNonEmptyString(value.name, context, 'name');
+  if (value.kind !== undefined) expectEnum(value.kind, context, 'kind', TIMER_KINDS);
+  if (value.durationSeconds !== undefined) expectFiniteNumber(value.durationSeconds, context, 'durationSeconds');
+  if (value.targetTime !== undefined && value.targetTime !== null) expectString(value.targetTime, context, 'targetTime');
+  if (value.elapsedStartSeconds !== undefined) expectFiniteNumber(value.elapsedStartSeconds, context, 'elapsedStartSeconds');
+  if (value.elapsedEndSeconds !== undefined && value.elapsedEndSeconds !== null) expectFiniteNumber(value.elapsedEndSeconds, context, 'elapsedEndSeconds');
+  if (value.allowOverrun !== undefined) expectBoolean(value.allowOverrun, context, 'allowOverrun');
+  if (value.format !== undefined) expectEnum(value.format, context, 'format', TIMER_FORMATS);
+  if (value.thresholds !== undefined) decodeTimerThresholds(value.thresholds, context, 'thresholds');
+  return value as unknown as TimerCreateInput;
+}
+
+export function decodeTimerUpdateInput(value: unknown, context: CodecContext): TimerUpdateInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, [...TIMER_CREATE_UPDATE_KEYS, 'id', 'order']);
+  expectNonEmptyString(value.id, context, 'id');
+  if (value.name !== undefined) expectNonEmptyString(value.name, context, 'name');
+  if (value.kind !== undefined) expectEnum(value.kind, context, 'kind', TIMER_KINDS);
+  if (value.durationSeconds !== undefined) expectFiniteNumber(value.durationSeconds, context, 'durationSeconds');
+  if (value.targetTime !== undefined && value.targetTime !== null) expectString(value.targetTime, context, 'targetTime');
+  if (value.elapsedStartSeconds !== undefined) expectFiniteNumber(value.elapsedStartSeconds, context, 'elapsedStartSeconds');
+  if (value.elapsedEndSeconds !== undefined && value.elapsedEndSeconds !== null) expectFiniteNumber(value.elapsedEndSeconds, context, 'elapsedEndSeconds');
+  if (value.allowOverrun !== undefined) expectBoolean(value.allowOverrun, context, 'allowOverrun');
+  if (value.format !== undefined) expectEnum(value.format, context, 'format', TIMER_FORMATS);
+  if (value.thresholds !== undefined) decodeTimerThresholds(value.thresholds, context, 'thresholds');
+  if (value.order !== undefined) expectFiniteNumber(value.order, context, 'order');
+  return value as unknown as TimerUpdateInput;
+}
+
+export function decodeTimer(value: unknown, context: CodecContext): Timer {
+  if (!isRecord(value)) fail(context, 'timer must be an object');
+  expectNonEmptyString(value.id, context, 'id');
+  expectNonEmptyString(value.name, context, 'name');
+  expectEnum(value.kind, context, 'kind', TIMER_KINDS);
+  expectFiniteNumber(value.durationSeconds, context, 'durationSeconds');
+  if (value.targetTime !== null) expectString(value.targetTime, context, 'targetTime');
+  expectFiniteNumber(value.elapsedStartSeconds, context, 'elapsedStartSeconds');
+  if (value.elapsedEndSeconds !== null) expectFiniteNumber(value.elapsedEndSeconds, context, 'elapsedEndSeconds');
+  expectBoolean(value.allowOverrun, context, 'allowOverrun');
+  expectEnum(value.format, context, 'format', TIMER_FORMATS);
+  decodeTimerThresholds(value.thresholds, context, 'thresholds');
+  expectFiniteNumber(value.order, context, 'order');
+  expectString(value.createdAt, context, 'createdAt');
+  expectString(value.updatedAt, context, 'updatedAt');
+  return value as unknown as Timer;
+}
+
 const RPC_ITEM_CREATE_TYPES: readonly ItemType[] = ['presentation', 'lyric'];
 const RPC_ITEM_DUPLICATE_TYPES = ['presentation', 'lyric'] as const;
 const LYRIC_BLANK_SLIDE_MODES = ['none', 'start', 'end', 'both'] as const;
@@ -1929,6 +2008,7 @@ const APP_SNAPSHOT_ARRAY_FIELDS = [
   'triggerBindings',
   'playbackSchedules',
   'slideTags',
+  'timers',
 ] as const;
 
 /**
@@ -2012,9 +2092,16 @@ const SNAPSHOT_ROW_FIELD_KINDS: Readonly<Record<string, 'string' | 'number' | 'b
   autoClearDurationMs: 'number',
   loopCount: 'number',
   codec: 'string',
+  // Timers (ADR-0042)
+  durationSeconds: 'number',
+  targetTime: 'string',
+  elapsedStartSeconds: 'number',
+  elapsedEndSeconds: 'number',
+  format: 'string',
   // Flags
   enabled: 'boolean',
   loopEnabled: 'boolean',
+  allowOverrun: 'boolean',
 };
 
 /**
@@ -2130,6 +2217,10 @@ function checkSnapshotRowStructure(field: string, row: Record<string, unknown>, 
       decodeSlideTag(row, context);
       return;
     }
+    case 'timers': {
+      decodeTimerThresholds(row.thresholds, context, 'thresholds');
+      return;
+    }
     default:
       return;
   }
@@ -2173,7 +2264,7 @@ export function decodeAppSnapshotShape(value: unknown, context: CodecContext): A
     // persisted or serialized before the schedule family existed carry no
     // such key, and must still decode (as an empty schedule list) rather
     // than failing the restore.
-    const items = (field === 'playbackSchedules' || field === 'slideTags') && raw === undefined
+    const items = (field === 'playbackSchedules' || field === 'slideTags' || field === 'timers') && raw === undefined
       ? []
       : expectArray(raw, context, field);
 
@@ -2189,7 +2280,7 @@ export function decodeAppSnapshotShape(value: unknown, context: CodecContext): A
     });
   }
 
-  return { playbackSchedules: [], slideTags: [], ...(value as object) } as unknown as AppSnapshot;
+  return { playbackSchedules: [], slideTags: [], timers: [], ...(value as object) } as unknown as AppSnapshot;
 }
 
 /**

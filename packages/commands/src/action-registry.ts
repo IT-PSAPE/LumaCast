@@ -58,6 +58,9 @@ export type ActionId =
   | 'slideTag.delete'
   | 'slideTag.assign'
   | 'slideTag.list'
+  | 'timer.create'
+  | 'timer.update'
+  | 'timer.delete'
   // --- Elements (main) ---
   | 'element.create'
   | 'element.createMany'
@@ -184,6 +187,11 @@ export type ActionId =
   // --- Stage (renderer) ---
   | 'stage.arm'
   | 'stage.clear'
+  // --- Timers (renderer) ---
+  | 'timer.start'
+  | 'timer.stop'
+  | 'timer.reset'
+  | 'timer.resetAll'
   // --- Automation exec (renderer) ---
   | 'macro.run'
   | 'macro.cancelAll'
@@ -471,6 +479,27 @@ export const ACTION_METADATA: Readonly<Record<ActionId, ActionMetadata>> = {
     title: 'List slide tags',
     description: 'Returns every slide tag definition. Read-only; use to resolve tag ids before calling slideTag.assign.',
     risk: 'read',
+    site: 'main',
+  },
+  'timer.create': {
+    id: 'timer.create',
+    title: 'Create timer',
+    description: 'Creates a new named timer (countdown, countdown-to-time, or elapsed). Returns the snapshot patch with the new timer.',
+    risk: 'write',
+    site: 'main',
+  },
+  'timer.update': {
+    id: 'timer.update',
+    title: 'Update timer',
+    description: 'Changes an existing timer’s configuration (kind, duration, target time, format, thresholds, order). The timer must exist; returns the snapshot patch with the update.',
+    risk: 'write',
+    site: 'main',
+  },
+  'timer.delete': {
+    id: 'timer.delete',
+    title: 'Delete timer',
+    description: 'Permanently deletes a timer definition. Text elements linked to it keep their link and render a placeholder. Not reversible through undo. Returns the resulting snapshot patch.',
+    risk: 'destructive',
     site: 'main',
   },
   // --- Elements (main) ---
@@ -1256,6 +1285,34 @@ export const ACTION_METADATA: Readonly<Record<ActionId, ActionMetadata>> = {
     id: 'stage.clear',
     title: 'Clear stage',
     description: 'Removes the currently armed stage-display layout from the stage output. This changes what stage monitors show right now.',
+    risk: 'broadcast',
+    site: 'renderer',
+  },
+  'timer.start': {
+    id: 'timer.start',
+    title: 'Start timer',
+    description: 'Starts or resumes a timer. Text elements linked to it update live wherever they are shown, including on air.',
+    risk: 'broadcast',
+    site: 'renderer',
+  },
+  'timer.stop': {
+    id: 'timer.stop',
+    title: 'Stop timer',
+    description: 'Pauses a running timer. Text elements linked to it stop updating wherever they are shown, including on air.',
+    risk: 'broadcast',
+    site: 'renderer',
+  },
+  'timer.reset': {
+    id: 'timer.reset',
+    title: 'Reset timer',
+    description: 'Resets a timer to its idle starting value. Text elements linked to it update live wherever they are shown, including on air.',
+    risk: 'broadcast',
+    site: 'renderer',
+  },
+  'timer.resetAll': {
+    id: 'timer.resetAll',
+    title: 'Reset all timers',
+    description: 'Resets every timer to its idle starting value. Text elements linked to any of them update live wherever they are shown, including on air.',
     risk: 'broadcast',
     site: 'renderer',
   },

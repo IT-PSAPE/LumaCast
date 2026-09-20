@@ -19,6 +19,7 @@ function makeBackup(playlists: ProjectBackupTables['playlists'] = []): ProjectBa
       slides: [],
       slide_elements: [],
       slide_tags: [],
+      timers: [],
       playlists,
       playlist_entries: [],
       image_assets: [],
@@ -79,6 +80,7 @@ describe('validateProjectBackupAsync', () => {
     });
     const legacyTables = JSON.parse(JSON.stringify(backup.tables)) as Record<string, unknown>;
     delete legacyTables.slide_tags;
+    delete legacyTables.timers;
     legacyTables.slides = (legacyTables.slides as Array<Record<string, unknown>>).map(({ tag_id: _tagId, ...slide }) => slide);
     const legacy = { ...backup, schemaVersion: 33, tables: legacyTables };
 
@@ -95,13 +97,25 @@ describe('validateProjectBackupAsync', () => {
       id: 'lyric-1', title: 'Song', theme_id: null, order_index: 0,
       created_at: '2026-08-22T00:00:00.000Z', updated_at: '2026-08-22T00:00:00.000Z',
     };
+    const { timers: _timers, ...tablesWithoutTimers } = backup.tables;
     const legacy = {
       ...backup,
       schemaVersion: 34,
-      tables: { ...backup.tables, lyrics: [lyric] },
+      tables: { ...tablesWithoutTimers, lyrics: [lyric] },
     };
 
     expect(validateProjectBackup(legacy).tables.lyrics[0]?.blank_slide_mode).toBe('none');
+  });
+
+  it('normalizes a pre-timers schema-35 backup with an empty timers table', async () => {
+    const backup = makeBackup();
+    const { timers: _timers, ...tablesWithoutTimers } = backup.tables;
+    const legacy = { ...backup, schemaVersion: 35, tables: tablesWithoutTimers };
+
+    const normalized = validateProjectBackup(legacy);
+    await expect(validateProjectBackupAsync(legacy)).resolves.toEqual(normalized);
+    expect(normalized.schemaVersion).toBe(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION);
+    expect(normalized.tables.timers).toEqual([]);
   });
 
   it('rejects a malformed row with the synchronous validator message', async () => {

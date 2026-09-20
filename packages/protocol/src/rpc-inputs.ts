@@ -12,6 +12,9 @@ import type {
   MediaAssetType,
   OverlayAnimation,
   ThemeOwnerType,
+  TimerFormat,
+  TimerKind,
+  TimerThreshold,
 } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
@@ -235,6 +238,32 @@ export interface SlideTagUpdateInput {
 export interface SlideTagAssignInput {
   slideIds: Id[];
   tagId: Id | null;
+}
+
+export interface TimerCreateInput {
+  name?: string;
+  kind?: TimerKind;
+  durationSeconds?: number;
+  targetTime?: string | null;
+  elapsedStartSeconds?: number;
+  elapsedEndSeconds?: number | null;
+  allowOverrun?: boolean;
+  format?: TimerFormat;
+  thresholds?: TimerThreshold[];
+}
+
+export interface TimerUpdateInput {
+  id: Id;
+  name?: string;
+  kind?: TimerKind;
+  durationSeconds?: number;
+  targetTime?: string | null;
+  elapsedStartSeconds?: number;
+  elapsedEndSeconds?: number | null;
+  allowOverrun?: boolean;
+  format?: TimerFormat;
+  thresholds?: TimerThreshold[];
+  order?: number;
 }
 
 // ---------------------------------------------------------------------------

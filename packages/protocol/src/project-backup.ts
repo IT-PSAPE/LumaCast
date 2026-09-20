@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import type { LyricBlankSlideMode, SlideKind, SlideBackgroundSource, SlideElementType, SlideElementBase, SlideTagColorKey } from '@lumacast/composition';
+import type { LyricBlankSlideMode, SlideKind, SlideBackgroundSource, SlideElementType, SlideElementBase, SlideTagColorKey, TimerFormat, TimerKind } from '@lumacast/composition';
 import type {
   CueFailurePolicy,
   CueKind,
@@ -190,6 +190,23 @@ export interface ProjectBackupSlideTagRow {
   updated_at: string;
 }
 
+/** ADR-0042: `thresholds_json` is the serialized `TimerThreshold[]`, stored as raw text exactly as persisted. */
+export interface ProjectBackupTimerRow {
+  id: Id;
+  name: string;
+  kind: TimerKind;
+  duration_seconds: number;
+  target_time: string | null;
+  elapsed_start_seconds: number;
+  elapsed_end_seconds: number | null;
+  allow_overrun: number;
+  format: TimerFormat;
+  thresholds_json: string;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectBackupCueRow {
   id: Id;
   kind: CueKind;
@@ -266,6 +283,7 @@ export interface ProjectBackupTables {
   slides: ProjectBackupSlideRow[];
   slide_elements: ProjectBackupSlideElementRow[];
   slide_tags: ProjectBackupSlideTagRow[];
+  timers: ProjectBackupTimerRow[];
   playlists: ProjectBackupPlaylistRow[];
   playlist_entries: ProjectBackupPlaylistEntryRow[];
   image_assets: ProjectBackupMediaAssetRow[];
