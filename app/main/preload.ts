@@ -65,6 +65,8 @@ import type {
   ThemeCreateInput,
   ThemeListInput,
   ThemeUpdateInput,
+  TimerCreateInput,
+  TimerUpdateInput,
   TriggerBindingCreateInput,
 } from '@lumacast/protocol';
 import type { AppSnapshot, BundleBrokenReferenceDecision, BundleInspection } from '@lumacast/protocol';
@@ -158,6 +160,9 @@ const api = {
   updateSlideTag: (input: SlideTagUpdateInput) => ipcRenderer.invoke(IPC.updateSlideTag, input) as Promise<SnapshotPatch>,
   deleteSlideTag: (id: Id) => ipcRenderer.invoke(IPC.deleteSlideTag, id) as Promise<SnapshotPatch>,
   assignSlideTags: (input: SlideTagAssignInput) => ipcRenderer.invoke(IPC.assignSlideTags, input) as Promise<SnapshotPatch>,
+  createTimer: (input: TimerCreateInput) => ipcRenderer.invoke(IPC.createTimer, input) as Promise<SnapshotPatch>,
+  updateTimer: (input: TimerUpdateInput) => ipcRenderer.invoke(IPC.updateTimer, input) as Promise<SnapshotPatch>,
+  deleteTimer: (id: Id) => ipcRenderer.invoke(IPC.deleteTimer, id) as Promise<SnapshotPatch>,
   createPlaylist: (name: string) => ipcRenderer.invoke(IPC.createPlaylist, name),
   createSeparator: (playlistId: Id, label: string) => ipcRenderer.invoke(IPC.createSeparator, playlistId, label),
   renameSeparator: (id: Id, label: string) => ipcRenderer.invoke(IPC.renameSeparator, id, label),

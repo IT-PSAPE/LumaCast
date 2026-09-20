@@ -54,6 +54,8 @@ import type {
   ThemeCreateInput,
   ThemeListInput,
   ThemeUpdateInput,
+  TimerCreateInput,
+  TimerUpdateInput,
   TriggerBindingCreateInput,
 } from '@lumacast/protocol';
 import type { AppSnapshot, BundleBrokenReferenceDecision } from '@lumacast/protocol';
@@ -102,6 +104,8 @@ import {
   decodeThemeCreateInput,
   decodeThemeListInput,
   decodeThemeUpdateInput,
+  decodeTimerCreateInput,
+  decodeTimerUpdateInput,
   decodeTriggerBindingCreateInput,
   decodeAgentActionResponse,
   decodeAgentConfigUpdate,
@@ -849,6 +853,14 @@ export const registerIpcHandlers = (
     },
     assignSlideTags: (_event, input: SlideTagAssignInput) =>
       repo.assignSlideTags(decodeSlideTagAssignInput(input, rpcContext('assignSlideTags'))),
+    createTimer: (_event, input: TimerCreateInput) =>
+      repo.createTimer(decodeTimerCreateInput(input, rpcContext('createTimer'))),
+    updateTimer: (_event, input: TimerUpdateInput) =>
+      repo.updateTimer(decodeTimerUpdateInput(input, rpcContext('updateTimer'))),
+    deleteTimer: (_event, id: Id) => {
+      expectRpcPrimitiveArgs([id], [{ name: 'id', kind: 'string' }], rpcContext('deleteTimer'));
+      return repo.deleteTimer(id);
+    },
     createPlaylist: (_event, name: string) => {
       expectRpcPrimitiveArgs([name], [{ name: 'name', kind: 'string' }], rpcContext('createPlaylist'));
       return repo.createPlaylist(name);
