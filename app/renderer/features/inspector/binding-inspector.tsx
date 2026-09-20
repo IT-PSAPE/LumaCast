@@ -1,23 +1,15 @@
-import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload, TimerFormat } from '@lumacast/composition';
+import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload } from '@lumacast/composition';
 import { Label } from '@renderer/components/display/text';
 import { EmptyState } from '@renderer/components/display/empty-state';
-import { FieldInput, FieldSelect } from '@renderer/components/form/field';
+import { ReacstButton } from '@renderer/components/controls/button';
+import { FieldSelect } from '@renderer/components/form/field';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
-import { parseNumber } from '@renderer/utils/slides';
+import { useTimers } from '@renderer/contexts/timers/timers-context';
 import { Section } from './inspector-section';
-
-function clampSeconds(value: number): number {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.floor(value));
-}
-
-function formatDurationParts(totalSeconds: number): { minutes: string; seconds: string } {
-  const safe = clampSeconds(totalSeconds);
-  return { minutes: String(Math.floor(safe / 60)), seconds: String(safe % 60) };
-}
 
 export function BindingInspector() {
   const { selectedElement, elementPayloadDraft, setElementPayloadDraft } = useElements();
+  const { timers, readings, createTimer } = useTimers();
 
   if (!selectedElement || !elementPayloadDraft || selectedElement.type !== 'text') {
     return (
@@ -39,40 +31,25 @@ export function BindingInspector() {
     if (value === 'none') return updateBinding(undefined);
     const kind = value as TextBindingKind;
     if (kind === 'timer') {
-      updateBinding({
-        kind,
-        timerDurationSeconds: binding?.timerDurationSeconds ?? 300,
-        timerFormat: binding?.timerFormat ?? 'mm:ss',
-      });
+      updateBinding({ kind, timerId: binding?.kind === 'timer' ? binding.timerId : null });
       return;
     }
     if (kind === 'clock') {
-      updateBinding({ kind, clockFormat: binding?.clockFormat ?? '12h' });
+      updateBinding({ kind, clockFormat: binding?.kind === 'clock' ? (binding.clockFormat ?? '12h') : '12h' });
       return;
     }
     updateBinding({ kind });
   }
 
-  const duration = formatDurationParts(binding?.timerDurationSeconds ?? 0);
-
-  function handleMinutesChange(value: string) {
+  function handleTimerChange(value: string) {
     if (binding?.kind !== 'timer') return;
-    const mins = clampSeconds(parseNumber(value, 0));
-    const secs = clampSeconds(parseNumber(duration.seconds, 0));
-    updateBinding({ ...binding, timerDurationSeconds: mins * 60 + secs });
+    updateBinding({ ...binding, timerId: value === '' ? null : value });
   }
 
-  function handleSecondsChange(value: string) {
+  async function handleNewTimer() {
     if (binding?.kind !== 'timer') return;
-    const mins = clampSeconds(parseNumber(duration.minutes, 0));
-    const rawSecs = clampSeconds(parseNumber(value, 0));
-    const totalSecs = mins * 60 + rawSecs;
-    updateBinding({ ...binding, timerDurationSeconds: totalSecs });
-  }
-
-  function handleTimerFormatChange(value: string) {
-    if (binding?.kind !== 'timer') return;
-    updateBinding({ ...binding, timerFormat: value as TimerFormat });
+    const created = await createTimer();
+    if (created) updateBinding({ ...binding, timerId: created.id });
   }
 
   function handleClockFormatChange(value: string) {
@@ -80,16 +57,19 @@ export function BindingInspector() {
     updateBinding({ ...binding, clockFormat: value as ClockFormat });
   }
 
+  const hasLinkedTimer = binding?.kind === 'timer' && Boolean(binding.timerId);
+  const linkedReading = binding?.kind === 'timer' && binding.timerId ? readings[binding.timerId] : undefined;
+
   return (
     <fieldset className="m-0 min-w-0 border-0 p-0">
       <Section.Root>
         <Section.Header>
-          <Label.xs>Bind to</Label.xs>
+          <Label.xs>Link to</Label.xs>
         </Section.Header>
         <Section.Body>
           <FieldSelect value={selectedKind} onChange={handleKindChange}>
             <FieldSelect.Option value={'none' satisfies TextBindingKind | 'none'}>None (static text)</FieldSelect.Option>
-            <FieldSelect.Option value={'timer' satisfies TextBindingKind}>Timer (countdown)</FieldSelect.Option>
+            <FieldSelect.Option value={'timer' satisfies TextBindingKind}>Timer</FieldSelect.Option>
             <FieldSelect.Option value={'clock' satisfies TextBindingKind}>Clock (system time)</FieldSelect.Option>
             <FieldSelect.Option value={'current-slide-text' satisfies TextBindingKind}>Current slide text</FieldSelect.Option>
             <FieldSelect.Option value={'next-slide-text' satisfies TextBindingKind}>Next slide text</FieldSelect.Option>
@@ -101,17 +81,25 @@ export function BindingInspector() {
       {binding?.kind === 'timer' && (
         <Section.Root>
           <Section.Header>
-            <Label.xs>Duration</Label.xs>
+            <Label.xs>Timer</Label.xs>
           </Section.Header>
           <Section.Body>
-            <Section.Row>
-              <FieldInput type="number" value={duration.minutes} onChange={handleMinutesChange} label="Minutes" min={0} />
-              <FieldInput type="number" value={duration.seconds} onChange={handleSecondsChange} label="Seconds" min={0} max={59} />
-            </Section.Row>
-            <FieldSelect value={binding.timerFormat ?? 'mm:ss'} onChange={handleTimerFormatChange}>
-              <FieldSelect.Option value={'mm:ss' satisfies TimerFormat}>MM:SS</FieldSelect.Option>
-              <FieldSelect.Option value={'hh:mm:ss' satisfies TimerFormat}>HH:MM:SS</FieldSelect.Option>
+            <FieldSelect value={binding.timerId ?? ''} onChange={handleTimerChange}>
+              <FieldSelect.Option value="">Choose a timer</FieldSelect.Option>
+              {timers.map((timer) => (
+                <FieldSelect.Option key={timer.id} value={timer.id}>{timer.name}</FieldSelect.Option>
+              ))}
             </FieldSelect>
+            <Section.Row>
+              {hasLinkedTimer && (
+                <span className="min-w-0 flex-1 truncate font-mono text-sm tabular-nums text-secondary">
+                  {linkedReading?.text ?? '--:--'}
+                </span>
+              )}
+              <ReacstButton variant="ghost" onClick={() => { void handleNewTimer(); }} className={hasLinkedTimer ? 'shrink-0' : 'w-full'}>
+                New timer
+              </ReacstButton>
+            </Section.Row>
           </Section.Body>
         </Section.Root>
       )}

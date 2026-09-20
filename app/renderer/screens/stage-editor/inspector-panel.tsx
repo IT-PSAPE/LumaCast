@@ -50,7 +50,7 @@ export function StageEditorInspectorPanel() {
               {!hasSelection && <Tabs.Trigger value="stage">Stage</Tabs.Trigger>}
               {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
               {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
-              {isTextSelected && <Tabs.Trigger value="binding">Binding</Tabs.Trigger>}
+              {isTextSelected && <Tabs.Trigger value="binding">Text link</Tabs.Trigger>}
               {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
             </Tabs.List>
           </div>

@@ -95,13 +95,13 @@ vi.mock('../../../../../app/renderer/features/playback/use-stage-scene', () => (
     currentSlideText: null,
     nextSlideText: null,
     slideNotes: null,
-    armedAtMs: null,
+    timerReadings: {},
   }),
   useStageBindingValue: () => ({
     currentSlideText: null,
     nextSlideText: null,
     slideNotes: null,
-    armedAtMs: null,
+    timerReadings: {},
   }),
   useStageScene: () => ({}),
 }));
@@ -167,6 +167,10 @@ vi.mock('../../../../../app/renderer/features/assets/stages/stage-bin-panel', ()
 
 vi.mock('../../../../../app/renderer/features/automation/macro-bin-panel', () => ({
   MacroBinPanel: () => <div data-testid="macro-bin" />,
+}));
+
+vi.mock('../../../../../app/renderer/features/playback/timers-panel', () => ({
+  TimersPanel: () => <div data-testid="timers-bin" />,
 }));
 
 function surfaceBadges() {
@@ -292,6 +296,13 @@ describe('ProgramPanel bottom tabs', () => {
     expect(queryByLabelText('Add stage')).toBeNull();
     expect(getByTestId('macro-bin')).not.toBeNull();
     expect(queryByTestId('stage-bin')).toBeNull();
+
+    fireEvent.click(getByRole('tab', { name: 'Timers' }));
+    expect(getByTestId('timers-bin')).not.toBeNull();
+    expect(queryByTestId('macro-bin')).toBeNull();
+    // Timers is a flat list, not a card grid — the shared view-options dropdown
+    // (Grid/List toggle) doesn't apply to it and is hidden on this tab.
+    expect(queryByLabelText('More actions')).toBeNull();
 
     fireEvent.click(getByRole('tab', { name: 'Overlays' }));
     expect(getByLabelText('Add overlay')).not.toBeNull();

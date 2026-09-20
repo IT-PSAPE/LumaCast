@@ -19,8 +19,9 @@ import { useGridSize } from '../../hooks/use-grid-size';
 import { BinControlsProvider, BinControlsSearchField, BinControlsViewOptions, type BinGridConfig } from '@renderer/components/controls/bin-controls';
 import { ProgramModeHeader } from './program-mode-header';
 import { SurfacesArea } from './surfaces-area';
+import { TimersPanel } from './timers-panel';
 
-type BottomTab = 'overlays' | 'stage' | 'macros';
+type BottomTab = 'overlays' | 'stage' | 'macros' | 'timers';
 
 export function ProgramPanel() {
   const { clearLayer, clearAllLayers, mediaLayerAsset, videoLayerAsset, contentLayerVisible, activeOverlays, overlayMode, setOverlayMode } = usePresentationLayers();
@@ -44,6 +45,7 @@ export function ProgramPanel() {
     overlays: 'grid',
     stage: 'grid',
     macros: 'grid',
+    timers: 'list',
   });
   const [searchValue, setSearchValue] = useState('');
   const overlayGrid = useGridSize('lumacast.grid-size.overlay-bin', 3, 2, 4);
@@ -67,6 +69,9 @@ export function ProgramPanel() {
         return { value: stageGrid.gridSize, min: stageGrid.min, max: stageGrid.max, step: stageGrid.step, onChange: stageGrid.setGridSize };
       case 'macros':
         return { value: macroGrid.gridSize, min: macroGrid.min, max: macroGrid.max, step: macroGrid.step, onChange: macroGrid.setGridSize };
+      case 'timers':
+        // Timers render as a flat list, never a card grid — no size/view toggle applies.
+        return null;
     }
   }, [bottomTab, overlayGrid.gridSize, overlayGrid.min, overlayGrid.max, overlayGrid.step, overlayGrid.setGridSize, stageGrid.gridSize, stageGrid.min, stageGrid.max, stageGrid.step, stageGrid.setGridSize, macroGrid.gridSize, macroGrid.min, macroGrid.max, macroGrid.step, macroGrid.setGridSize]);
 
@@ -124,7 +129,7 @@ export function ProgramPanel() {
   }
 
   function handleTabChange(value: string) {
-    if (value === 'overlays' || value === 'stage' || value === 'macros') setBottomTab(value);
+    if (value === 'overlays' || value === 'stage' || value === 'macros' || value === 'timers') setBottomTab(value);
   }
 
   return (
@@ -167,6 +172,7 @@ export function ProgramPanel() {
                 <Tabs.Trigger value="overlays">Overlays</Tabs.Trigger>
                 <Tabs.Trigger value="stage">Stage</Tabs.Trigger>
                 <Tabs.Trigger value="macros">Macros</Tabs.Trigger>
+                <Tabs.Trigger value="timers">Timers</Tabs.Trigger>
               </Tabs.List>
             </LumaCastPanel.GroupTitle>
             <div className="w-full flex shrink-0 items-center gap-1.5 border-b border-secondary px-1.5 py-1">
@@ -209,14 +215,16 @@ export function ProgramPanel() {
                     <Plus />
                   </ReacstButton.Icon>
                 </Tabs.Panel>
-                <Dropdown>
-                  <Dropdown.Trigger aria-label="More actions" className="cursor-pointer rounded-sm bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
-                    <Ellipsis />
-                  </Dropdown.Trigger>
-                  <Dropdown.Panel placement="bottom-end" className="min-w-64">
-                    <BinControlsViewOptions />
-                  </Dropdown.Panel>
-                </Dropdown>
+                {bottomTab !== 'timers' && (
+                  <Dropdown>
+                    <Dropdown.Trigger aria-label="More actions" className="cursor-pointer rounded-sm bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
+                      <Ellipsis />
+                    </Dropdown.Trigger>
+                    <Dropdown.Panel placement="bottom-end" className="min-w-64">
+                      <BinControlsViewOptions />
+                    </Dropdown.Panel>
+                  </Dropdown>
+                )}
               </div>
             </div>
             <Tabs.Panel value="overlays" className="flex flex-1 min-h-0 w-full">
@@ -234,6 +242,11 @@ export function ProgramPanel() {
                 <MacroBinPanel />
               </LumaCastPanel.Content>
             </Tabs.Panel>
+            <Tabs.Panel value="timers" className="flex flex-1 min-h-0 w-full">
+              <LumaCastPanel.Content className='flex flex-1 min-h-0 w-full'>
+                <TimersPanel />
+              </LumaCastPanel.Content>
+            </Tabs.Panel>
           </BinControlsProvider>
         </Tabs.Root>
       </LumaCastPanel.Group>
@@ -246,6 +259,7 @@ function BottomTabSearchField({ tab }: { tab: BottomTab }) {
     case 'overlays': return <BinControlsSearchField placeholder="Search overlays…" />;
     case 'stage': return <BinControlsSearchField placeholder="Search stages…" />;
     case 'macros': return <BinControlsSearchField placeholder="Search macros…" />;
+    case 'timers': return <BinControlsSearchField placeholder="Search timers…" />;
   }
 
   return assertNever(tab);
