@@ -20,6 +20,21 @@ import {
 
 const CONTEXT: CodecContext = { boundary: 'test', operation: 'unit', path: '' };
 
+describe('provider connection endpoints', () => {
+  it('defaults missing legacy endpoint maps without discarding existing configuration', () => {
+    const config = createDefaultAgentConfig();
+    delete config.providerBaseUrls;
+    expect(decodeAgentConfig(config, CONTEXT).providerBaseUrls).toEqual({});
+  });
+
+  it('decodes endpoint patches and rejects malformed or unknown providers', () => {
+    const providerBaseUrls = { opencode: null, 'openai-compatible': 'http://localhost:1234/v1' };
+    expect(decodeAgentConfigUpdate({ providerBaseUrls }, CONTEXT)).toEqual({ providerBaseUrls });
+    expect(() => decodeAgentConfigUpdate({ providerBaseUrls: { unknown: 'https://example.test' } }, CONTEXT)).toThrow();
+    expect(() => decodeAgentConfigUpdate({ providerBaseUrls: { opencode: 42 } }, CONTEXT)).toThrow();
+  });
+});
+
 function validMatrix(): AgentPermissionMatrix {
   return matrixForTier('content');
 }

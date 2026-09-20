@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDefaultAgentConfig, matrixForTier, type AgentConfig } from '@lumacast/protocol';
+import { agentProviderBaseUrl, createDefaultAgentConfig, matrixForTier, type AgentConfig } from '@lumacast/protocol';
 import { AgentConfigStore } from '../../../../app/main/agent/agent-config-store';
 
 let userDataPath: string;
@@ -24,6 +24,31 @@ describe('AgentConfigStore', () => {
   it('returns defaults when no config file exists yet', () => {
     const store = new AgentConfigStore(userDataPath);
     expect(store.load()).toEqual(createDefaultAgentConfig());
+  });
+
+  it('preserves independent endpoints when changing the default provider', () => {
+    const store = new AgentConfigStore(userDataPath);
+    store.update({ provider: 'openai-compatible', model: 'local', baseUrl: 'http://localhost:1234/v1' });
+    store.update({ providerBaseUrls: { opencode: 'https://example.test/zen/v1' } });
+    const switched = store.update({ provider: 'opencode', model: 'zen' });
+    expect(agentProviderBaseUrl(switched, 'openai-compatible')).toBe('http://localhost:1234/v1');
+    expect(agentProviderBaseUrl(switched, 'opencode')).toBe('https://example.test/zen/v1');
+    expect(switched.baseUrl).toBe('https://example.test/zen/v1');
+    expect(agentProviderBaseUrl(new AgentConfigStore(userDataPath).load(), 'openai-compatible')).toBe('http://localhost:1234/v1');
+  });
+
+  it('uses the destination default URL when switching to a connection without a saved URL', () => {
+    const store = new AgentConfigStore(userDataPath);
+    store.update({ provider: 'openai-compatible', baseUrl: 'https://local.test/v1' });
+    expect(store.update({ provider: 'opencode' }).baseUrl).toBe('https://opencode.ai/zen/v1');
+    expect(store.update({ provider: 'openai-compatible' }).baseUrl).toBe('https://local.test/v1');
+  });
+
+  it('never uses a different provider legacy endpoint', () => {
+    const config = { ...createDefaultAgentConfig(), provider: 'openai-compatible' as const, baseUrl: 'http://localhost:1234/v1' };
+    expect(agentProviderBaseUrl(config, 'openai-compatible')).toBe(config.baseUrl);
+    expect(agentProviderBaseUrl(config, 'opencode')).toBe('https://opencode.ai/zen/v1');
+    expect(agentProviderBaseUrl(config, 'anthropic')).toBeNull();
   });
 
   it('round-trips a saved config through load', () => {

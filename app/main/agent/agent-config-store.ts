@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentConfig, AgentConfigUpdate } from '@lumacast/protocol';
-import { CodecError, createDefaultAgentConfig, decodeAgentConfig, type CodecContext } from '@lumacast/protocol';
+import { agentProviderBaseUrl, CodecError, createDefaultAgentConfig, decodeAgentConfig, type CodecContext } from '@lumacast/protocol';
 
 const CONFIG_FILE = 'agent-config.json';
 
@@ -72,12 +72,23 @@ export class AgentConfigStore {
 
   update(patch: AgentConfigUpdate): AgentConfig {
     const current = this.load();
+    const providerBaseUrls = { ...current.providerBaseUrls };
+    if (current.provider && current.baseUrl && providerBaseUrls[current.provider] === undefined) {
+      providerBaseUrls[current.provider] = current.baseUrl;
+    }
+    Object.assign(providerBaseUrls, patch.providerBaseUrls);
+    const provider = patch.provider === undefined ? current.provider : patch.provider;
+    if (patch.baseUrl !== undefined && provider) providerBaseUrls[provider] = patch.baseUrl;
     const next: AgentConfig = {
       ...current,
       ...patch,
       version: 1,
+      providerBaseUrls,
       mcp: { ...current.mcp, ...patch.mcp },
     };
+    if (patch.baseUrl === undefined && provider && (patch.provider !== undefined || patch.providerBaseUrls !== undefined)) {
+      next.baseUrl = agentProviderBaseUrl({ ...next, baseUrl: provider === current.provider ? current.baseUrl : null }, provider);
+    }
     this.save(next);
     return next;
   }

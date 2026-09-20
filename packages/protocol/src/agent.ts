@@ -149,6 +149,8 @@ export interface AgentConfig {
   provider: AgentProviderId | null;
   model: string | null;
   baseUrl: string | null;
+  /** Independent connection endpoints; optional for older renderer snapshots. Keys remain in safeStorage. */
+  providerBaseUrls?: Partial<Record<AgentProviderId, string | null>>;
   /** The user's custom system instructions, prepended to every agent conversation. */
   instructions: string;
   /** Permissions for the in-app agent (chat panel), as opposed to external MCP clients. */
@@ -197,6 +199,7 @@ export function createDefaultAgentConfig(): AgentConfig {
     provider: null,
     model: null,
     baseUrl: null,
+    providerBaseUrls: {},
     instructions: '',
     // Unrestricted by default (product decision, 2026-09-14): the assistant
     // and any MCP client the user creates act without per-action prompts;
@@ -210,6 +213,16 @@ export function createDefaultAgentConfig(): AgentConfig {
 
 /** A patch applied via `AgentConfigStore.update`. `version` is fixed; `mcp` merges shallowly rather than replacing wholesale. */
 export type AgentConfigUpdate = Partial<Omit<AgentConfig, 'version' | 'mcp'>> & { mcp?: Partial<AgentConfig['mcp']> };
+
+/** Resolve an endpoint for the actual request provider, including legacy single-provider config. */
+export function agentProviderBaseUrl(config: AgentConfig, provider: AgentProviderId): string | null {
+  const info = AGENT_PROVIDERS.find((entry) => entry.id === provider);
+  if (provider !== 'opencode' && provider !== 'openai-compatible') return info?.defaultBaseUrl ?? null;
+  const saved = config.providerBaseUrls?.[provider];
+  if (saved !== undefined) return saved ?? info?.defaultBaseUrl ?? null;
+  if (provider === config.provider && config.baseUrl) return config.baseUrl;
+  return info?.defaultBaseUrl ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Credentials and models
@@ -474,6 +487,17 @@ function decodeComposerModels(value: unknown, context: CodecContext): AgentConfi
   return result;
 }
 
+function decodeProviderBaseUrls(value: unknown, context: CodecContext): NonNullable<AgentConfig['providerBaseUrls']> {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  const result: NonNullable<AgentConfig['providerBaseUrls']> = {};
+  for (const [key, baseUrl] of Object.entries(value)) {
+    const provider = expectEnum(key, context, 'provider', AGENT_PROVIDER_IDS);
+    expectNullableString(baseUrl, context, key);
+    result[provider] = baseUrl as string | null;
+  }
+  return result;
+}
+
 function decodeFilesystemConfig(value: unknown, context: CodecContext): AgentConfig['filesystem'] {
   if (!isRecord(value)) fail(context, 'must be an object');
   rejectUnknownKeys(value, context, ['allowedRoots']);
@@ -508,7 +532,7 @@ export function decodeAgentMcpClient(value: unknown, context: CodecContext): Age
 /** Full-object decoder for `AgentConfig` (issue: agent config store). Used to validate the persisted config file on load. */
 export function decodeAgentConfig(value: unknown, context: CodecContext): AgentConfig {
   if (!isRecord(value)) fail(context, 'agent config must be an object');
-  rejectUnknownKeys(value, context, ['version', 'provider', 'model', 'baseUrl', 'instructions', 'inApp', 'mcp', 'filesystem', 'composerModels']);
+  rejectUnknownKeys(value, context, ['version', 'provider', 'model', 'baseUrl', 'providerBaseUrls', 'instructions', 'inApp', 'mcp', 'filesystem', 'composerModels']);
 
   if (value.version !== 1) fail(child(context, 'version'), `must be 1, got ${String(value.version)}`);
   if (value.provider !== null) expectEnum(value.provider, context, 'provider', AGENT_PROVIDER_IDS);
@@ -548,6 +572,7 @@ export function decodeAgentConfig(value: unknown, context: CodecContext): AgentC
     provider: (value.provider as AgentProviderId | null) ?? null,
     model: value.model as string | null,
     baseUrl: value.baseUrl as string | null,
+    providerBaseUrls: value.providerBaseUrls === undefined ? {} : decodeProviderBaseUrls(value.providerBaseUrls, child(context, 'providerBaseUrls')),
     instructions: value.instructions as string,
     inApp,
     mcp: { enabled: mcpValue.enabled, clients, port },
@@ -559,9 +584,10 @@ export function decodeAgentConfig(value: unknown, context: CodecContext): AgentC
 /** Partial decoder for `AgentConfigUpdate`. Every field is optional; only the fields present are validated and returned. */
 export function decodeAgentConfigUpdate(value: unknown, context: CodecContext): AgentConfigUpdate {
   if (!isRecord(value)) fail(context, 'agent config update must be an object');
-  rejectUnknownKeys(value, context, ['provider', 'model', 'baseUrl', 'instructions', 'inApp', 'mcp', 'filesystem', 'composerModels']);
+  rejectUnknownKeys(value, context, ['provider', 'model', 'baseUrl', 'providerBaseUrls', 'instructions', 'inApp', 'mcp', 'filesystem', 'composerModels']);
 
   const update: AgentConfigUpdate = {};
+  if (value.providerBaseUrls !== undefined) update.providerBaseUrls = decodeProviderBaseUrls(value.providerBaseUrls, child(context, 'providerBaseUrls'));
 
   if (value.provider !== undefined) {
     if (value.provider !== null) expectEnum(value.provider, context, 'provider', AGENT_PROVIDER_IDS);
