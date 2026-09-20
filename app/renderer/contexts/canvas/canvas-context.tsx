@@ -10,6 +10,7 @@ import { useNavigation } from '../navigation-context';
 import { useDeckEditor } from '../asset-editor/asset-editor-context';
 import { usePresentationRenderLayer } from '../playback/playback-context';
 import { useSlides } from '../slide-context';
+import { useTimers } from '../timers/timers-context';
 import { useProjectContent } from '../use-project-content';
 import { useWorkbench } from '../workbench-context';
 import { useElementCommands } from '../element/use-element-commands';
@@ -81,6 +82,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const { getSlideElements, replaceSlideElements } = useDeckEditor();
   const { mediaLayerAsset, videoLayerAsset, videoLayerPlayback, activeOverlays, contentLayerVisible } = usePresentationRenderLayer();
   const { state: { workbenchMode } } = useWorkbench();
+  const { readings: timerReadings } = useTimers();
   const activeEditorSource = useActiveEditorSource();
   const mediaProxyBySource = useMediaProxyMap();
   const isDeckEdit = activeEditorSource.mode === 'item-editor';
@@ -484,8 +486,9 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
         startedAt: overlay.startedAt,
       })),
       includeContent: contentLayerVisible,
+      timerReadings,
     }, { proxyMediaBySource: mediaProxyBySource });
-  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset, mediaProxyBySource, projectLiveSlidesById, videoLayerAsset, videoLayerPlayback]);
+  }, [activeOverlays, contentLayerVisible, liveElements, liveSlide, mediaLayerAsset, mediaProxyBySource, projectLiveSlidesById, timerReadings, videoLayerAsset, videoLayerPlayback]);
 
   const isEditing = workbenchMode !== 'show';
   const [frozenProgramScene, setFrozenProgramScene] = useState<RenderScene | null>(null);

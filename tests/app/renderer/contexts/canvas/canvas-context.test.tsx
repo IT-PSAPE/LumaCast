@@ -183,6 +183,10 @@ vi.mock('../../../../../app/renderer/contexts/workbench-context', () => ({
   }),
 }));
 
+vi.mock('../../../../../app/renderer/contexts/timers/timers-context', () => ({
+  useTimers: () => ({ readings: {} }),
+}));
+
 vi.mock('../../../../../app/renderer/contexts/canvas/use-active-editor-source', () => ({
   useActiveEditorSource: () => mocks.activeEditorSource,
 }));

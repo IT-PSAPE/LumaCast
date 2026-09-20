@@ -33,6 +33,7 @@ import { useNavigation } from '../../contexts/navigation-context';
 import { usePlayback } from '../../contexts/playback/playback-context';
 import { usePlaybackSchedules } from '../../contexts/playback-schedules-context';
 import { useSlides } from '../../contexts/slide-context';
+import { useTimers } from '../../contexts/timers/timers-context';
 import { useWorkbench } from '../../contexts/workbench-context';
 import { usePanelRoute } from '../../components/layout/panel-split/split-panel';
 import { useAutomation } from '../automation/automation-context';
@@ -141,6 +142,7 @@ export function useAgentActionDispatcher(): void {
   const panelRoute = usePanelRoute();
   const commandPalette = useCommandPalette();
   const lyricEditor = useLyricEditor();
+  const timers = useTimers();
   const assetEditor = useAssetEditor();
 
   /**
@@ -167,10 +169,11 @@ export function useAgentActionDispatcher(): void {
     panelRoute,
     commandPalette,
     lyricEditor,
+    timers,
     flushStagedEdits,
   }), [
     automation, cast, commandPalette, elements, flushStagedEdits, lyricEditor,
-    navigation, panelRoute, playback, schedules, slides, workbench,
+    navigation, panelRoute, playback, schedules, slides, timers, workbench,
   ]);
 
   // The processing loop is async and long-lived, so it reads contexts and

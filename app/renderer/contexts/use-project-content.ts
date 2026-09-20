@@ -17,6 +17,7 @@ import type {
   SlideTag,
   Stage,
   ThemeOwnerType,
+  Timer,
 } from '@lumacast/composition';
 import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import type { AppSnapshot } from '@lumacast/protocol';
@@ -66,6 +67,8 @@ interface ProjectContent {
   slideElements: SlideElement[];
   mediaAssets: MediaAsset[];
   overlays: Overlay[];
+  /** Global named timers (ADR-0042), in their persisted `order`. */
+  timers: Timer[];
   presentationThemes: PresentationTheme[];
   lyricThemes: LyricTheme[];
   overlayThemes: OverlayTheme[];
@@ -80,6 +83,7 @@ interface ProjectContent {
   slidesByItem: ReadonlyMap<string, Slide[]>;
   slideElementsBySlideId: ReadonlyMap<Id, SlideElement[]>;
   slideTagsById: ReadonlyMap<Id, SlideTag>;
+  timersById: ReadonlyMap<Id, Timer>;
   /**
    * Live inherited-theme resolution of `slideElementsBySlideId`: linked
    * presentation and lyric slides resolve current theme styling — backed
@@ -244,6 +248,7 @@ export function useProjectContent(): ProjectContent {
     macros: Macro[];
     triggerBindings: TriggerBinding[];
     playlists: Playlist[];
+    timers: Timer[];
   } | null>(null);
 
   const stableInputs = useMemo(() => {
@@ -263,6 +268,7 @@ export function useProjectContent(): ProjectContent {
       macros: sortByOrder(snapshot?.macros ?? []),
       triggerBindings: snapshot?.triggerBindings ?? [],
       playlists: sortByOrder(snapshot?.playlists ?? []),
+      timers: sortByOrder(snapshot?.timers ?? []),
     };
 
     const prev = prevRef.current;
@@ -282,6 +288,7 @@ export function useProjectContent(): ProjectContent {
       macros: stableArray(prev?.macros ?? null, raw.macros),
       triggerBindings: stableArray(prev?.triggerBindings ?? null, raw.triggerBindings),
       playlists: stableArray(prev?.playlists ?? null, raw.playlists),
+      timers: stableArray(prev?.timers ?? null, raw.timers),
     };
     prevRef.current = result;
     return result;
@@ -299,7 +306,7 @@ export function useProjectContent(): ProjectContent {
     const {
       presentations, lyrics, slides, slideTags, slideElements, mediaAssets, overlays,
       presentationThemes, lyricThemes, overlayThemes, stages, cues, macros, triggerBindings,
-      playlists,
+      playlists, timers,
     } = stableInputs;
 
     const presentationsById = new Map<Id, Presentation>();
@@ -355,6 +362,9 @@ export function useProjectContent(): ProjectContent {
 
     const slideTagsById = new Map<Id, SlideTag>();
     for (const tag of slideTags) slideTagsById.set(tag.id, tag);
+
+    const timersById = new Map<Id, Timer>();
+    for (const timer of timers) timersById.set(timer.id, timer);
 
     const mediaAssetsById = new Map<Id, MediaAsset>();
     for (const asset of mediaAssets) mediaAssetsById.set(asset.id, asset);
@@ -464,11 +474,13 @@ export function useProjectContent(): ProjectContent {
       macros,
       triggerBindings,
       playlists,
+      timers,
       presentationsById,
       lyricsById,
       slidesByItem,
       slideElementsBySlideId,
       slideTagsById,
+      timersById,
       liveSlideElementsBySlideId,
       liveSlidesById,
       mediaAssetsById,

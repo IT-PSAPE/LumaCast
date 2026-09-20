@@ -25,7 +25,8 @@ import {
   type SceneSurface,
   type SelectionState,
 } from '@lumacast/composition';
-import type { GroupElementPayload, ImageElementPayload, MediaAsset, Overlay, Slide, SlideBackground, SlideElement, TextCaseTransform, TextElementPayload, TextHorizontalAlign, VideoElementPayload } from '@lumacast/composition';
+import type { GroupElementPayload, ImageElementPayload, MediaAsset, Overlay, Slide, SlideBackground, SlideElement, TextCaseTransform, TextElementPayload, TextHorizontalAlign, TimerReading, VideoElementPayload } from '@lumacast/composition';
+import type { Id } from '@lumacast/kernel';
 import { sortElements } from '../../utils/slides';
 
 interface SceneElementInput {
@@ -172,6 +173,13 @@ interface LayeredSceneInput {
     startedAt: number;
   }>;
   includeContent: boolean;
+  /**
+   * Live timer readings (from the renderer's timers context — this module is
+   * a plain function, not a hook, so the caller supplies them). Threaded onto
+   * every overlay element's `bindingOverride` so overlay text linked to a
+   * timer resolves the same live value the rest of the app sees.
+   */
+  timerReadings: Readonly<Record<Id, TimerReading>>;
 }
 
 const OVERLAY_LAYER_Z_INDEX_OFFSET = 10000;
@@ -189,6 +197,7 @@ export function buildLayeredRenderScene({
   mediaAsset,
   overlays,
   includeContent,
+  timerReadings,
 }: LayeredSceneInput, options: BuildRenderSceneOptions = {}): RenderScene {
   const merged: SceneElementInput[] = [];
   if (videoAsset) merged.push({ element: mediaAssetToLayerElement(videoAsset, {
@@ -208,7 +217,7 @@ export function buildLayeredRenderScene({
         opacity: element.opacity * overlayLayer.opacityMultiplier,
         zIndex: element.zIndex + OVERLAY_LAYER_Z_INDEX_OFFSET + (overlayLayer.stackOrder * OVERLAY_STACK_Z_INDEX_OFFSET),
       },
-      bindingOverride: { armedAtMs: overlayLayer.startedAt },
+      bindingOverride: { timerReadings },
     })));
   }
   return buildRenderScene(slide, merged, options);

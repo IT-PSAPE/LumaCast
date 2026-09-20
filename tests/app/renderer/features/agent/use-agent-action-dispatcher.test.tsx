@@ -80,6 +80,12 @@ const h = vi.hoisted(() => {
       distributeSelection: note('distributeSelection', async () => undefined),
       setElementRichText: note('setElementRichText', async () => undefined),
     },
+    timers: {
+      start: note('timerStart'),
+      pause: note('timerPause'),
+      reset: note('timerReset'),
+      resetAll: note('timerResetAll'),
+    },
     render: {
       renderSlideToImage: note('renderSlideToImage', async (_slideId: string, ..._rest: unknown[]) => ({
         slideId: 'slide-1', dataUrl: 'data:image/png;base64,xyz', width: 100, height: 100, format: 'png' as const,
@@ -220,6 +226,10 @@ vi.mock('../../../../../app/renderer/features/command-palette/command-palette-co
 
 vi.mock('../../../../../app/renderer/features/items/lyric-editor', () => ({
   useLyricEditor: () => ({ open: h.note('openLyricEditor') }),
+}));
+
+vi.mock('../../../../../app/renderer/contexts/timers/timers-context', () => ({
+  useTimers: () => h.timers,
 }));
 
 const { AgentActionDispatcher } = await import('../../../../../app/renderer/features/agent/agent-action-dispatcher');
@@ -476,6 +486,36 @@ describe('renderer-site execution', () => {
     h.render.renderSlideToImage.mockRejectedValueOnce(new SlideRenderError('not-found', 'No slide found for id "slide-9".'));
     const response = await dispatch({ actionId: 'slide.render', params: { slideId: 'slide-9' } });
     expect(response).toMatchObject({ outcome: 'failed', error: expect.stringContaining('slide-9') });
+  });
+
+  it('starts a timer through the timers context', async () => {
+    const response = await dispatch({ actionId: 'timer.start', params: { timerId: 'timer-1' } });
+    expect(h.timers.start).toHaveBeenCalledWith('timer-1');
+    expect(response).toMatchObject({ outcome: 'succeeded', result: { timerId: 'timer-1' } });
+  });
+
+  it('stops a timer by pausing its run state', async () => {
+    const response = await dispatch({ actionId: 'timer.stop', params: { timerId: 'timer-1' } });
+    expect(h.timers.pause).toHaveBeenCalledWith('timer-1');
+    expect(response).toMatchObject({ outcome: 'succeeded', result: { timerId: 'timer-1' } });
+  });
+
+  it('resets a timer through the timers context', async () => {
+    const response = await dispatch({ actionId: 'timer.reset', params: { timerId: 'timer-1' } });
+    expect(h.timers.reset).toHaveBeenCalledWith('timer-1');
+    expect(response).toMatchObject({ outcome: 'succeeded', result: { timerId: 'timer-1' } });
+  });
+
+  it('resets every timer', async () => {
+    const response = await dispatch({ actionId: 'timer.resetAll', params: {} });
+    expect(h.timers.resetAll).toHaveBeenCalledTimes(1);
+    expect(response).toMatchObject({ outcome: 'succeeded', result: { reset: 'all' } });
+  });
+
+  it('rejects timer.start without a timerId', async () => {
+    const response = await dispatch({ actionId: 'timer.start', params: {} });
+    expect(response).toMatchObject({ outcome: 'denied', reason: 'invalid-params' });
+    expect(h.timers.start).not.toHaveBeenCalled();
   });
 });
 

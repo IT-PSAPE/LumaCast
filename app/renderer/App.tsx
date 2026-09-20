@@ -6,6 +6,7 @@ import { NavigationProvider } from './contexts/navigation-context';
 import { PlaybackProvider } from './contexts/playback/playback-context';
 import { PlaybackSchedulesProvider } from './contexts/playback-schedules-context';
 import { SlideProvider } from './contexts/slide-context';
+import { TimersProvider } from './contexts/timers/timers-context';
 import { WorkbenchProvider } from './contexts/workbench-context';
 import { AgentActionDispatcher } from './features/agent/agent-action-dispatcher';
 import { AgentChatProvider } from './features/agent/chat/agent-chat-context';
@@ -62,39 +63,41 @@ export function App() {
         <ConfirmProvider>
           <AgentChatProvider>
             <AppProvider>
-              <AssetEditorProvider>
-                <NavigationProvider>
-                  <PlaybackProvider>
-                    <SlideProvider>
-                      <PlaybackSchedulesProvider>
-                        <MediaResidencyBoundary>
-                          <AutomationProvider>
-                            <LyricEditorProvider>
-                              <CreateItemProvider>
-                                <CanvasProvider>
-                                  <CommandPaletteProvider>
-                                    <NdiOutputsGate />
-                                    <SplitPanel>
-                                      <AppLayoutContent />
-                                      {/* Inside SplitPanel so workbench.togglePanel can reach the
-                                          panel-route context; every other provider it needs is above. */}
-                                      <AgentActionDispatcher />
-                                    </SplitPanel>
-                                    <CommandPalette />
-                                    <FileDropNavigationGuard />
-                                    <SlideRenderHost />
-                                    <AgentChatPopup.Root />
-                                  </CommandPaletteProvider>
-                                </CanvasProvider>
-                              </CreateItemProvider>
-                            </LyricEditorProvider>
-                          </AutomationProvider>
-                        </MediaResidencyBoundary>
-                      </PlaybackSchedulesProvider>
-                    </SlideProvider>
-                  </PlaybackProvider>
-                </NavigationProvider>
-              </AssetEditorProvider>
+              <TimersProvider>
+                <AssetEditorProvider>
+                  <NavigationProvider>
+                    <PlaybackProvider>
+                      <SlideProvider>
+                        <PlaybackSchedulesProvider>
+                          <MediaResidencyBoundary>
+                            <AutomationProvider>
+                              <LyricEditorProvider>
+                                <CreateItemProvider>
+                                  <CanvasProvider>
+                                    <CommandPaletteProvider>
+                                      <NdiOutputsGate />
+                                      <SplitPanel>
+                                        <AppLayoutContent />
+                                        {/* Inside SplitPanel so workbench.togglePanel can reach the
+                                            panel-route context; every other provider it needs is above. */}
+                                        <AgentActionDispatcher />
+                                      </SplitPanel>
+                                      <CommandPalette />
+                                      <FileDropNavigationGuard />
+                                      <SlideRenderHost />
+                                      <AgentChatPopup.Root />
+                                    </CommandPaletteProvider>
+                                  </CanvasProvider>
+                                </CreateItemProvider>
+                              </LyricEditorProvider>
+                            </AutomationProvider>
+                          </MediaResidencyBoundary>
+                        </PlaybackSchedulesProvider>
+                      </SlideProvider>
+                    </PlaybackProvider>
+                  </NavigationProvider>
+                </AssetEditorProvider>
+              </TimersProvider>
             </AppProvider>
           </AgentChatProvider>
         </ConfirmProvider>

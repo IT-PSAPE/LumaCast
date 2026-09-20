@@ -103,6 +103,16 @@ const mocks = vi.hoisted(() => {
       return () => { releaseListeners.delete(listener); };
     },
     requestAnimationFrame,
+    // Mutable ambient binding value / timer catalogue the `@lumacast/canvas`
+    // and timers-context mocks below read live — tests mutate these directly
+    // to exercise the "does something tick" NDI capture rule.
+    bindingValue: {
+      currentSlideText: '',
+      nextSlideText: '',
+      slideNotes: '',
+      timerReadings: {} as Record<string, { seconds: number; text: string; phase: string; color: string | null }>,
+    },
+    timers: [] as Array<{ id: string; kind: string }>,
     reset() {
       releaseListeners.clear();
       rafCallbacks.clear();
@@ -112,6 +122,11 @@ const mocks = vi.hoisted(() => {
       setPixelRatio.mockClear();
       stage.batchDraw.mockClear();
       workerInstances.length = 0;
+      this.bindingValue.currentSlideText = '';
+      this.bindingValue.nextSlideText = '';
+      this.bindingValue.slideNotes = '';
+      this.bindingValue.timerReadings = {};
+      this.timers.length = 0;
     },
     sendNdiFrame,
     setPixelRatio,
@@ -159,12 +174,11 @@ vi.mock('@lumacast/canvas', () => ({
   ) => (
     <button data-testid="node-load" onClick={() => options?.onMediaLoad?.()} />
   ),
-  useBinding: () => ({
-    currentSlideText: '',
-    nextSlideText: '',
-    slideNotes: '',
-    armedAtMs: null,
-  }),
+  useBinding: () => mocks.bindingValue,
+}));
+
+vi.mock('../../../../../app/renderer/contexts/timers/timers-context', () => ({
+  useTimers: () => ({ timersById: new Map(mocks.timers.map((timer) => [timer.id, timer])) }),
 }));
 
 vi.mock('@lumacast/composition', async (importOriginal) => ({
@@ -701,5 +715,73 @@ describe('NdiFrameCapture integration', () => {
       (call) => (call[0] as Record<string, unknown>).type === 'submit-frame',
     );
     expect(submitFrameCalls).toHaveLength(0);
+  });
+});
+
+describe('NdiFrameCapture timer/clock tick rule', () => {
+  function timerTextNode(timerId: string) {
+    return {
+      id: 'text-1',
+      element: { type: 'text', updatedAt: 'v1', payload: { binding: { kind: 'timer', timerId } } },
+      visual: { visible: true },
+    };
+  }
+
+  // Isolates `hasDynamicText` as the reason a second, otherwise-unchanged
+  // frame gets captured: releases the first attempt as accepted (freeing the
+  // one-slot backpressure gate without tripping the corrective-retry path),
+  // then checks whether a second capture was attempted for the same,
+  // signature-unchanged scene.
+  async function capturesASecondUnchangedFrame(scene: unknown): Promise<boolean> {
+    render(
+      <NdiFrameCapture
+        senderName="audience"
+        scene={scene as never}
+        surface="ndi-show"
+        outputScopeKey="entry:playlist-1"
+        enabled
+      />,
+    );
+
+    await flushCapture(40);
+    expect(mocks.sendNdiFrame).toHaveBeenCalledTimes(1);
+    const firstAttemptId = mocks.sendNdiFrame.mock.calls[0]?.[4].attemptId as string;
+    mocks.emitRelease({ name: 'audience', attemptId: firstAttemptId, accepted: true, reason: 'sent', releasedAtMs: Date.now() });
+
+    await flushCapture(80);
+    return mocks.sendNdiFrame.mock.calls.length > 1;
+  }
+
+  it('keeps capturing every frame while a linked timer reading is running', async () => {
+    mocks.bindingValue.timerReadings = { 'timer-1': { seconds: 10, text: '00:10', phase: 'running', color: null } };
+    const scene = createScene({ nodes: [timerTextNode('timer-1')] });
+    expect(await capturesASecondUnchangedFrame(scene)).toBe(true);
+  });
+
+  it('keeps capturing every frame while a linked timer reading has overrun', async () => {
+    mocks.bindingValue.timerReadings = { 'timer-1': { seconds: -3, text: '-00:03', phase: 'overrun', color: null } };
+    const scene = createScene({ nodes: [timerTextNode('timer-1')] });
+    expect(await capturesASecondUnchangedFrame(scene)).toBe(true);
+  });
+
+  it('stops capturing after the first frame once a linked timer is idle and not countdown-to-time', async () => {
+    mocks.bindingValue.timerReadings = { 'timer-1': { seconds: 300, text: '05:00', phase: 'idle', color: null } };
+    mocks.timers = [{ id: 'timer-1', kind: 'countdown' }];
+    const scene = createScene({ nodes: [timerTextNode('timer-1')] });
+    expect(await capturesASecondUnchangedFrame(scene)).toBe(false);
+  });
+
+  it('stops capturing after a linked timer finishes (phase "finished" does not keep ticking)', async () => {
+    mocks.bindingValue.timerReadings = { 'timer-1': { seconds: 0, text: '00:00', phase: 'finished', color: null } };
+    mocks.timers = [{ id: 'timer-1', kind: 'countdown' }];
+    const scene = createScene({ nodes: [timerTextNode('timer-1')] });
+    expect(await capturesASecondUnchangedFrame(scene)).toBe(false);
+  });
+
+  it('keeps capturing a linked countdown-to-time timer even while its reading reports "paused" (it has no real pause)', async () => {
+    mocks.bindingValue.timerReadings = { 'timer-2': { seconds: 50, text: '00:50', phase: 'paused', color: null } };
+    mocks.timers = [{ id: 'timer-2', kind: 'countdown-to-time' }];
+    const scene = createScene({ nodes: [timerTextNode('timer-2')] });
+    expect(await capturesASecondUnchangedFrame(scene)).toBe(true);
   });
 });

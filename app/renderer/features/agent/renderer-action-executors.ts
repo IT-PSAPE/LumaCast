@@ -28,6 +28,7 @@ import type { usePanelRoute } from '../../components/layout/panel-split/split-pa
 import type { useAutomation } from '../automation/automation-context';
 import type { useCommandPalette } from '../command-palette/command-palette-context';
 import type { useLyricEditor } from '../items/lyric-editor';
+import type { useTimers } from '../../contexts/timers/timers-context';
 
 /** Thrown by a parameter guard. The dispatcher maps it to `denied: 'invalid-params'`. */
 export class InvalidActionParamsError extends Error {
@@ -55,6 +56,7 @@ export interface RendererActionContexts {
   panelRoute: ReturnType<typeof usePanelRoute>;
   commandPalette: ReturnType<typeof useCommandPalette>;
   lyricEditor: ReturnType<typeof useLyricEditor>;
+  timers: ReturnType<typeof useTimers>;
   /** Commits the active editor's staged edits. Shared with the main-site path. */
   flushStagedEdits: () => Promise<void>;
 }
@@ -491,6 +493,27 @@ export async function executeRendererAction(
     case 'stage.clear': {
       stage.setCurrentStageId(null);
       return { stageId: null };
+    }
+
+    // --- Timers (ADR-0042) ---
+    case 'timer.start': {
+      const timerId = requireId(params, 'timerId');
+      contexts.timers.start(timerId);
+      return { timerId };
+    }
+    case 'timer.stop': {
+      const timerId = requireId(params, 'timerId');
+      contexts.timers.pause(timerId);
+      return { timerId };
+    }
+    case 'timer.reset': {
+      const timerId = requireId(params, 'timerId');
+      contexts.timers.reset(timerId);
+      return { timerId };
+    }
+    case 'timer.resetAll': {
+      contexts.timers.resetAll();
+      return { reset: 'all' };
     }
 
     // --- Automation execution ---

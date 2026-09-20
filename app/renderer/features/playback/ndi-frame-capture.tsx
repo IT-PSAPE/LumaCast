@@ -11,8 +11,10 @@ import {
   type NdiFrameRelease,
   type NdiOutputName,
 } from '@lumacast/protocol';
-import type { TextBinding } from '@lumacast/composition';
+import type { Id } from '@lumacast/kernel';
+import type { TextBinding, Timer } from '@lumacast/composition';
 import { useNdi } from '../../contexts/app-context';
+import { useTimers } from '../../contexts/timers/timers-context';
 import { renderSceneNodeContent, needsOpaqueBackdrop, SceneSlideBackground, useBinding, type BindingValue, SceneNodeShape } from '@lumacast/canvas';
 import { traverseSceneNodes } from '@lumacast/composition';
 import type { RenderNode, RenderScene, SceneSurface } from '@lumacast/composition';
@@ -100,15 +102,26 @@ function sceneBindingSignature(nodes: readonly RenderNode[], bindingValue: Bindi
 }
 
 // Detect text elements whose visible content ticks independently of any
-// RenderNode field change (clock advances every second; timer counts down).
-// When any such element is on the slide we have to capture every RAF tick,
-// because sceneSignature() will never observe their updates.
-function hasTickingTextBinding(nodes: readonly RenderNode[], bindingValue: BindingValue): boolean {
+// RenderNode field change (clock advances every second; a running/overrun
+// timer counts down/up; a countdown-to-time timer's value moves with the
+// wall clock even while its run state reports 'paused', since it has no
+// real pause). When any such element is on the slide we have to capture
+// every RAF tick, because sceneSignature() will never observe their updates.
+function hasTickingTextBinding(
+  nodes: readonly RenderNode[],
+  bindingValue: BindingValue,
+  timersById: ReadonlyMap<Id, Timer>,
+): boolean {
   for (const node of nodes) {
     const binding = visibleTextBindingForNode(node);
     if (!binding) continue;
     if (binding.kind === 'clock') return true;
-    if (binding.kind === 'timer' && nodeRuntime(node, bindingValue).armedAtMs !== null) return true;
+    if (binding.kind === 'timer' && binding.timerId) {
+      const timer = timersById.get(binding.timerId);
+      if (timer?.kind === 'countdown-to-time') return true;
+      const reading = nodeRuntime(node, bindingValue).timerReadings[binding.timerId];
+      if (reading && (reading.phase === 'running' || reading.phase === 'overrun')) return true;
+    }
   }
   return false;
 }
@@ -209,6 +222,7 @@ export function pinFallbackCaptureStagePixelRatio(stage: CaptureStageLike | null
 export function NdiFrameCapture({ senderName, scene, surface = 'show', outputScopeKey, enabled }: NdiFrameCaptureProps) {
   const { state: { outputConfigs } } = useNdi();
   const bindingValue = useBinding();
+  const { timersById } = useTimers();
   const stageRef = useRef<Konva.Stage>(null);
   const pendingSkippedCapturesRef = useRef(0);
   const pendingDroppedBackpressureRef = useRef(0);
@@ -236,8 +250,8 @@ export function NdiFrameCapture({ senderName, scene, surface = 'show', outputSco
     [bindingValue, scene.nodes],
   );
   const hasDynamicText = useMemo(
-    () => hasTickingTextBinding(scene.nodes, bindingValue),
-    [bindingValue, scene.nodes],
+    () => hasTickingTextBinding(scene.nodes, bindingValue, timersById),
+    [bindingValue, scene.nodes, timersById],
   );
   const withAlpha = outputConfigs[senderName].withAlpha;
 

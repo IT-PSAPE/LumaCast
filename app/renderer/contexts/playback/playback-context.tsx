@@ -20,7 +20,6 @@ import {
   resolveAdjacentAssetRequiringCurrent,
   resolveLayerClearPlan,
   resolveMediaLayerTarget,
-  resolveStageArmedAt,
   type ActiveOverlayEntry,
   type OverlayPlaybackMode,
   type OverlayPlaybackState,
@@ -162,7 +161,6 @@ interface VideoValue {
 
 interface StageValue {
   currentStageId: Id | null;
-  armedAtMs: number | null;
   setCurrentStageId: (id: Id | null) => void;
 }
 
@@ -948,17 +946,11 @@ export function PlaybackProvider({ children }: { children: ReactNode }) {
   // ── Stage selection ──
 
   const [currentStageId, setCurrentStageId] = useState<Id | null>(null);
-  const [armedAtMs, setArmedAtMs] = useState<number | null>(null);
-
-  useEffect(() => {
-    setArmedAtMs(resolveStageArmedAt(currentStageId, Date.now()));
-  }, [currentStageId]);
 
   const stage = useMemo<StageValue>(() => ({
     currentStageId,
-    armedAtMs,
     setCurrentStageId,
-  }), [armedAtMs, currentStageId]);
+  }), [currentStageId]);
 
   const renderLayer = useMemo<PresentationRenderLayerValue>(() => ({
     contentLayerVisible,
