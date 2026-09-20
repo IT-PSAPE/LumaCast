@@ -26,8 +26,6 @@ export {
   type PresentationLayerKey,
 } from './layer-transitions';
 
-export { resolveStageArmedAt } from './stage-arming';
-
 export {
   resolveMediaResidencyPlan,
   type MediaResidencyPlan,

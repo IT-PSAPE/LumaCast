@@ -433,17 +433,22 @@ export function SceneNodeText({ node, hideText = false }: SceneNodeTextProps) {
   const payload = element.payload as TextElementPayload;
   const fontEpoch = useFontAvailabilityEpoch();
 
-  const resolvedText = useResolvedText({ text: payload.text, binding: payload.binding }, node.bindingOverride);
+  const { text: resolvedText, fill: bindingFill } = useResolvedText({ text: payload.text, binding: payload.binding }, node.bindingOverride);
   const caseMode = payload.caseTransform ?? 'none';
   const lineHeight = payload.lineHeight ?? 1.25;
   const verticalAlign = payload.verticalAlign ?? 'middle';
   const hasBinding = Boolean(payload.binding);
   const fontFamily = payload.fontFamily || 'sans-serif';
+  // A linked timer text-colours itself while a threshold is active; every
+  // other binding (and an idle/thresholdless timer) keeps the element's own
+  // authored fill.
+  const timerThresholdFill = payload.binding?.kind === 'timer' ? bindingFill : null;
   const baseBox = useMemo<RichBoxStyle>(() => {
     const resolved = boxStyleFromPayload(payload);
     resolved.fontFamily = fontFamily;
+    if (timerThresholdFill) resolved.color = timerThresholdFill;
     return resolved;
-  }, [payload.color, payload.fontSize, payload.italic, payload.strikethrough, payload.underline, payload.weight, payload.letterSpacing, fontFamily]);
+  }, [payload.color, payload.fontSize, payload.italic, payload.strikethrough, payload.underline, payload.weight, payload.letterSpacing, fontFamily, timerThresholdFill]);
 
   const body = useMemo<RichBody>(() => {
     const base = hasBinding

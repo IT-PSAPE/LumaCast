@@ -7,7 +7,7 @@ const EMPTY_VALUE: BindingValue = {
   currentSlideText: null,
   nextSlideText: null,
   slideNotes: null,
-  armedAtMs: null,
+  timerReadings: {},
 };
 
 const BindingContext = createContext<BindingValue>(EMPTY_VALUE);

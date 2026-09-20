@@ -341,6 +341,61 @@ describe('SceneNodeText', () => {
     expect(fillTextStrings(ctx).join(' ')).toBe('Resolved binding');
   });
 
+  it('draws a linked timer reading, recoloured while a threshold is active', () => {
+    const node = renderNode(
+      {
+        text: 'Fallback',
+        color: '#ffffff',
+        binding: { kind: 'timer', timerId: 'timer-1' },
+      },
+      {
+        bindingOverride: {
+          timerReadings: { 'timer-1': { seconds: 5, text: '00:05', phase: 'overrun', color: '#ff0000' } },
+        },
+      },
+    );
+    const { shapeProps } = renderScene(node);
+    const ctx = invokeSceneFunc(shapeProps);
+
+    expect(fillTextStrings(ctx).join(' ')).toBe('00:05');
+    expect(ctx.ops.filter((op) => op.type === 'fillText')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ color: '#ff0000' })]),
+    );
+  });
+
+  it('keeps the element\'s own fill when the timer reading has no active threshold', () => {
+    const node = renderNode(
+      {
+        text: 'Fallback',
+        color: '#ffffff',
+        binding: { kind: 'timer', timerId: 'timer-1' },
+      },
+      {
+        bindingOverride: {
+          timerReadings: { 'timer-1': { seconds: 30, text: '00:30', phase: 'running', color: null } },
+        },
+      },
+    );
+    const { shapeProps } = renderScene(node);
+    const ctx = invokeSceneFunc(shapeProps);
+
+    expect(fillTextStrings(ctx).join(' ')).toBe('00:30');
+    expect(ctx.ops.filter((op) => op.type === 'fillText')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ color: '#ffffff' })]),
+    );
+  });
+
+  it('renders "--:--" for a linked timer with no reading and no legacy fallback', () => {
+    const node = renderNode({
+      text: 'Fallback',
+      binding: { kind: 'timer', timerId: 'timer-missing' },
+    });
+    const { shapeProps } = renderScene(node);
+    const ctx = invokeSceneFunc(shapeProps);
+
+    expect(fillTextStrings(ctx).join(' ')).toBe('--:--');
+  });
+
   it('computes wrapped layout once per render and reuses it across repeated draws', () => {
     const { shapeProps } = renderScene(renderNode({
       format: 'rich',
