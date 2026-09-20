@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import type { Timer } from '@lumacast/composition';
 
 const mocks = vi.hoisted(() => ({
@@ -145,8 +145,15 @@ describe('TimersPanel rows', () => {
     };
     render(<TimersPanel />);
 
-    expect(screen.getByDisplayValue('Countdown')).not.toBeNull();
-    expect(screen.getByDisplayValue('Stopwatch')).not.toBeNull();
+    // Each row's settings panel (including its own Kind select) stays mounted
+    // even while collapsed, so a timer named after its own kind ("Countdown")
+    // would otherwise match twice in the whole document. Scope the name
+    // lookup to each row's always-visible summary strip, which excludes the
+    // collapsible settings panel entirely.
+    const rows = screen.getAllByRole('button', { name: 'Toggle timer settings' })
+      .map((toggle) => toggle.closest('div') as HTMLElement);
+    expect(within(rows[0]).getByDisplayValue('Countdown')).not.toBeNull();
+    expect(within(rows[1]).getByDisplayValue('Stopwatch')).not.toBeNull();
     expect(screen.getByText('04:59')).not.toBeNull();
     expect(screen.getByText('00:12')).not.toBeNull();
   });

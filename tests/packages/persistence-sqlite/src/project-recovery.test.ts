@@ -219,6 +219,7 @@ function buildLegacyProjectBackupV2(current: ProjectBackup): ProjectBackup {
     talk_theme_id: null,
   }));
   delete tables.slide_tags;
+  delete tables.timers;
   tables.playlist_entries = tables.playlist_entries.map((entry) => ({ ...entry, talk_id: null }));
   tables.talks = [{ id: 'legacy-talk', title: 'Legacy Talk', theme_id: 'legacy-talk-theme', order_index: 0, created_at: T0, updated_at: T0 }];
   tables.talk_themes = [{ id: 'legacy-talk-theme', name: 'Legacy Talk Theme', width: 1920, height: 1080, order_index: 0, created_at: T0, updated_at: T0 }];

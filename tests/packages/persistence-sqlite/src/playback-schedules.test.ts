@@ -256,6 +256,7 @@ describe('playback-schedule persistence', () => {
 
       const legacyTables = JSON.parse(JSON.stringify(backup.tables)) as Record<string, unknown>;
       delete legacyTables.slide_tags;
+      delete legacyTables.timers;
       legacyTables.lyrics = (legacyTables.lyrics as Array<Record<string, unknown>>)
         .map(({ blank_slide_mode: _blankSlideMode, ...lyric }) => lyric);
       legacyTables.slides = (legacyTables.slides as Array<Record<string, unknown>>)

@@ -199,9 +199,10 @@ describe('main IPC registration (issue #152)', () => {
     const missing = RPC_CHANNEL_NAMES.filter((name) => !handleRegistrations.has(IPC[name]));
     expect(missing, `missing ipcMain.handle registration for: ${missing.join(', ')}`).toEqual([]);
     // Sanity: this is the full operation surface, not a partial list.
-    // 105 content operations + 11 read projections + `agentRespondAction` +
-    // the 25 `agent:*` runtime operations.
-    expect(RPC_CHANNEL_NAMES.length).toBe(142);
+    // 108 content operations (105 + createTimer/updateTimer/deleteTimer) +
+    // 11 read projections + `agentRespondAction` + the 25 `agent:*` runtime
+    // operations.
+    expect(RPC_CHANNEL_NAMES.length).toBe(145);
   });
 
   it('registers nothing outside the canonical map (extra-registration regression)', () => {

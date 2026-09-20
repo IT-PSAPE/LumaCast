@@ -180,9 +180,11 @@ describe('resolveTimerReading — elapsed', () => {
     const timer = baseTimer({ kind: 'elapsed', elapsedEndSeconds: 60, thresholds: elapsedThresholds });
     const running = startTimerRun(IDLE_TIMER_RUN_STATE, 0);
     expect(resolveTimerReading(timer, running, 40_000)).toMatchObject({ seconds: 40, phase: 'running', color: 'amber' });
-    // Both thresholds active by 55s; the larger (50s, red) wins.
+    // Both thresholds active by 55s (still short of the 60s end); the larger
+    // (50s, red) wins. `allowOverrun` has no effect yet since 55 < 60 —
+    // overrun only starts once elapsed seconds reach `elapsedEndSeconds`.
     const overrunTimer = { ...timer, allowOverrun: true };
-    expect(resolveTimerReading(overrunTimer, running, 55_000)).toMatchObject({ seconds: 55, phase: 'overrun', color: 'red' });
+    expect(resolveTimerReading(overrunTimer, running, 55_000)).toMatchObject({ seconds: 55, phase: 'running', color: 'red' });
   });
 
   it('clamps to the end and reports finished when overrun is not allowed', () => {

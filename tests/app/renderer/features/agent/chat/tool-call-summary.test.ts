@@ -45,9 +45,9 @@ const ORACLE_PARTICIPLE: Readonly<Record<string, string>> = {
   Import: 'Importing', Inspect: 'Inspecting', Jump: 'Jumping', List: 'Listing', Move: 'Moving',
   Nudge: 'Nudging', Open: 'Opening', Paste: 'Pasting', Pause: 'Pausing', Play: 'Playing',
   Read: 'Reading', Reclaim: 'Reclaiming', Redo: 'Redoing', Remove: 'Removing', Rename: 'Renaming', Render: 'Rendering',
-  Reorder: 'Reordering', Replace: 'Replacing', Restore: 'Restoring', Resume: 'Resuming', Run: 'Running',
+  Reorder: 'Reordering', Replace: 'Replacing', Reset: 'Resetting', Restore: 'Restoring', Resume: 'Resuming', Run: 'Running',
   Save: 'Saving', Search: 'Searching', Seek: 'Seeking', Select: 'Selecting', Send: 'Sending',
-  Set: 'Setting', Sync: 'Syncing', Take: 'Taking', Toggle: 'Toggling', Undo: 'Undoing',
+  Set: 'Setting', Start: 'Starting', Stop: 'Stopping', Sync: 'Syncing', Take: 'Taking', Toggle: 'Toggling', Undo: 'Undoing',
   Ungroup: 'Ungrouping', Update: 'Updating', Write: 'Writing',
 };
 
@@ -60,9 +60,9 @@ const ORACLE_PAST: Readonly<Record<string, string>> = {
   Import: 'Imported', Inspect: 'Inspected', Jump: 'Jumped', List: 'Listed', Move: 'Moved',
   Nudge: 'Nudged', Open: 'Opened', Paste: 'Pasted', Pause: 'Paused', Play: 'Played',
   Read: 'Read', Reclaim: 'Reclaimed', Redo: 'Redid', Remove: 'Removed', Rename: 'Renamed', Render: 'Rendered',
-  Reorder: 'Reordered', Replace: 'Replaced', Restore: 'Restored', Resume: 'Resumed', Run: 'Ran',
+  Reorder: 'Reordered', Replace: 'Replaced', Reset: 'Reset', Restore: 'Restored', Resume: 'Resumed', Run: 'Ran',
   Save: 'Saved', Search: 'Searched', Seek: 'Sought', Select: 'Selected', Send: 'Sent',
-  Set: 'Set', Sync: 'Synced', Take: 'Took', Toggle: 'Toggled', Undo: 'Undid',
+  Set: 'Set', Start: 'Started', Stop: 'Stopped', Sync: 'Synced', Take: 'Took', Toggle: 'Toggled', Undo: 'Undid',
   Ungroup: 'Ungrouped', Update: 'Updated', Write: 'Wrote',
 };
 

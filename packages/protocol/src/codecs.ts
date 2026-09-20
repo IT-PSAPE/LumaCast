@@ -2218,7 +2218,11 @@ function checkSnapshotRowStructure(field: string, row: Record<string, unknown>, 
       return;
     }
     case 'timers': {
-      decodeTimerThresholds(row.thresholds, context, 'thresholds');
+      // Full-row decode (not just thresholds): `kind`/`format` are only
+      // type-checked as strings by `checkSnapshotRowFields` above, so the
+      // enum membership check lives here, same as every other structured
+      // family in this switch.
+      decodeTimer(row, context);
       return;
     }
     default:
