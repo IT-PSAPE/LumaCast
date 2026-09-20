@@ -91,6 +91,7 @@ function Root({ className, children }: RootProps) {
 
 interface TriggerProps extends Omit<HTMLAttributes<HTMLButtonElement>, 'onClick' | 'onKeyDown' | 'onPointerDown'> {
   children: ReactNode;
+  disabled?: boolean;
 }
 
 function Trigger({ children, className, ...rest }: TriggerProps) {

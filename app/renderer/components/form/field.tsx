@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useId, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEventHandler, type ReactElement, type ReactNode, type Ref } from 'react';
+import { Children, isValidElement, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEventHandler, type ReactElement, type ReactNode, type Ref } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import { Field as BaseField } from '@base-ui/react/field';
 import { Input as BaseInput } from '@base-ui/react/input';
@@ -184,16 +184,21 @@ function FieldSelectOption({ value, children, style }: FieldSelectOptionProps) {
 
 function FieldSelectRoot({ children, value, onChange, onBlur, options, label, wide }: FieldSelectProps) {
   const icon = extractFieldIcon(children);
-  const optionParts = Children.toArray(children).filter(
+  const optionParts = useMemo(() => Children.toArray(children).filter(
     (child): child is ReactElement<FieldSelectOptionProps> => isValidElement<FieldSelectOptionProps>(child) && child.type === FieldSelectOption,
-  );
-  const selectItems = [
+  ), [children]);
+  // Keep component trees out of the select's internal metadata store. Render
+  // the selected rich label from current props so refreshes cannot retain an
+  // old component reference (including across development hot updates).
+  const selectItems = useMemo(() => [
     ...optionParts.map((option) => ({
       value: option.props.value,
-      label: option.props.children,
+      label: selectLabelText(option.props.children) || option.props.value,
     })),
     ...(options ?? []),
-  ];
+  ], [optionParts, options]);
+  const selectedLabel = optionParts.find((option) => option.props.value === value)?.props.children
+    ?? options?.find((option) => option.value === value)?.label ?? value;
   const { overlayStack } = useWorkbench();
   const { register, unregister } = overlayStack;
   const selectId = useId();
@@ -226,7 +231,7 @@ function FieldSelectRoot({ children, value, onChange, onBlur, options, label, wi
       <div className="flex min-w-0 w-full items-center">
         {icon ? <span className="flex justify-center items-center shrink-0 size-6 ml-1 text-secondary">{icon}</span> : null}
         <BaseSelect.Trigger className="flex min-w-0 w-full items-center min-h-8 rounded bg-tertiary text-sm text-primary transition-colors focus:outline-none focus:ring-1 focus:ring-brand cursor-pointer">
-          <BaseSelect.Value className="truncate flex-1 px-1.5 text-left" />
+          <BaseSelect.Value className="truncate flex-1 px-1.5 text-left">{selectedLabel}</BaseSelect.Value>
           <BaseSelect.Icon className="shrink-0 mr-1.5 text-tertiary">
             <ChevronDown className="size-3.5" />
           </BaseSelect.Icon>
@@ -266,6 +271,13 @@ function FieldSelectRoot({ children, value, onChange, onBlur, options, label, wi
 }
 
 const FieldSelect = Object.assign(FieldSelectRoot, { Option: FieldSelectOption });
+
+function selectLabelText(node: ReactNode): string {
+  return Children.toArray(node).map((child) => {
+    if (typeof child === 'string' || typeof child === 'number') return String(child);
+    return isValidElement<{ children?: ReactNode }>(child) ? selectLabelText(child.props.children) : '';
+  }).join('');
+}
 
 interface FieldTextareaProps {
   disabled?: boolean;

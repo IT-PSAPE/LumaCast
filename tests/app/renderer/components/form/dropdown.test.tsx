@@ -56,6 +56,15 @@ describe('Dropdown', () => {
     expect(screen.queryByRole('menu')).toBeNull();
   });
 
+  it('does not open a disabled trigger', async () => {
+    render(<Dropdown><Dropdown.Trigger disabled aria-label="Model">Selected</Dropdown.Trigger><Dropdown.Panel><Dropdown.Item>Other</Dropdown.Item></Dropdown.Panel></Dropdown>);
+    const trigger = screen.getByRole('button', { name: 'Model' });
+    expect(trigger).toBeDisabled();
+    fireEvent.click(trigger);
+    await settle();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
   it('opens on click with menu/menuitem roles and the app overlay conventions', async () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: 'Sort by' }));

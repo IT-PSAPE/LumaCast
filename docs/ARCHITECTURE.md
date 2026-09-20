@@ -425,6 +425,28 @@ Each rule is also proven by a committed fixture scenario under
   itself. `AgentConfig.composerModels` is the per-provider shortlist the
   Assistant settings curate for the chat composer's model picker; an empty
   list means the whole catalog.
+- Assistant connections coexist, one encrypted credential per provider. Settings
+  edit each provider independently in a provider/endpoint/key row; choosing a
+  default model changes the provider/model pair, not the saved connections.
+  `AgentConfig.providerBaseUrls` preserves custom endpoints per provider, with
+  the legacy `baseUrl` used only for its original provider. Runtime, validation,
+  and catalog requests resolve the endpoint for the actual thread provider.
+  Catalog sections and the chat picker group models by connected provider and
+  keep saved shortlist IDs selectable while catalog metadata is unavailable.
+- Main shares and persists catalog metadata in `agent-model-catalogs.json`
+  (`ModelCatalogCache`, ADR-0041). Fresh entries are reused for one hour;
+  expired entries remain available for display while a shared background
+  request refreshes them. Explicit refresh bypasses freshness, and credential
+  changes invalidate both saved entries and in-flight cache writes. Custom
+  endpoints have separate entries. This cache contains no credentials or
+  permission grants. OpenRouter availability is checked against a fresh,
+  successful catalog; refresh failures mean `unknown`, never `not-found`.
+- Chat Completions requests have a 60-second inactivity deadline through stream
+  consumption, reset by text, reasoning, tool deltas, or terminal metadata.
+  Empty, interrupted, truncated, and refused responses finish with errors;
+  incomplete tool batches are cancelled without execution. OpenRouter tool
+  requests require routes that support their parameters. Runs log provider,
+  model, duration, turn count and terminal reason without message content.
 - The chat popup (`app/renderer/features/agent/chat/`) never shows a tool
   call's raw arguments or result. `tool-call-summary.ts` turns each
   `tool_call` part into one narrated line — "Listing playlists…" while it

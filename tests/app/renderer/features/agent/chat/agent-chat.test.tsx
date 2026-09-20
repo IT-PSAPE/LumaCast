@@ -578,6 +578,15 @@ describe('model picker', () => {
     expect(screen.queryByText('Default')).toBeNull();
   });
 
+  it('renders models when a legacy configuration has no composer shortlist', async () => {
+    const config = makeConfig({ model: 'model-a' });
+    delete (config as Partial<typeof config>).composerModels;
+    castApi.agentGetConfig.mockResolvedValue(config);
+    render(<Harness />);
+    await openConfiguredPopup();
+    expect(await screen.findByText('Model A')).toBeInTheDocument();
+  });
+
   it('calls agentSetThreadModel when a model is chosen', async () => {
     threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service' })]]);
     castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service' })]);
@@ -653,6 +662,7 @@ describe('model picker', () => {
     threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service', model: 'big-pickle', provider: 'opencode' })]]);
     castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service', model: 'big-pickle', provider: 'opencode' })]);
     castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+    castApi.agentGetCredentialStatus.mockResolvedValue([...makeCredentialStatuses(), { provider: 'opencode', hasKey: true, keyHint: 'zen1' }]);
     castApi.agentListModels.mockResolvedValue([
       { id: 'big-pickle', label: 'Big Pickle', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: true, vendor: 'opencode' },
     ]);
@@ -664,7 +674,44 @@ describe('model picker', () => {
 
     const picker = await screen.findByRole('button', { name: 'Model' });
     expect(within(picker).getByText('Big Pickle')).toBeInTheDocument();
-    expect(within(picker).getByText('Free')).toBeInTheDocument();
+    expect(await within(picker).findByText('Free')).toBeInTheDocument();
+  });
+
+  it('groups connected providers and keeps saved models selectable when one catalog fails', async () => {
+    const thread = makeThread({ title: 'Multi provider' });
+    threadsById.set(thread.id, thread);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ title: thread.title })]);
+    castApi.agentGetConfig.mockResolvedValue(makeConfig({ composerModels: { openrouter: ['maker/saved:free'] } }));
+    castApi.agentGetCredentialStatus.mockResolvedValue([...makeCredentialStatuses(), { provider: 'openrouter', hasKey: true, keyHint: 'rout' }]);
+    castApi.agentListModels.mockImplementation(async ({ provider }) => {
+      if (provider === 'openrouter') throw new Error('offline');
+      return [{ id: 'model-a', label: 'Model A', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: 'anthropic' }];
+    });
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Multi provider'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Model' }));
+    const router = await screen.findByRole('group', { name: 'OpenRouter' });
+    expect(await within(router).findByRole('alert')).toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'Anthropic' })).getByText('Model A')).toBeInTheDocument();
+    fireEvent.click(within(router).getByText('Saved'));
+    await waitFor(() => expect(castApi.agentSetThreadModel).toHaveBeenCalledWith({ id: 't-1', provider: 'openrouter', model: 'maker/saved:free' }));
+  });
+
+  it('routes an override to its own endpoint and locks model selection while running', async () => {
+    const thread = makeThread({ title: 'Custom connection', provider: 'openai-compatible', model: 'local-model' });
+    threadsById.set(thread.id, thread);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ title: thread.title, provider: thread.provider, model: thread.model })]);
+    castApi.agentGetConfig.mockResolvedValue(makeConfig({ providerBaseUrls: { 'openai-compatible': 'https://local.test/v1' } }));
+    castApi.agentGetCredentialStatus.mockResolvedValue([...makeCredentialStatuses(), { provider: 'openai-compatible', hasKey: true, keyHint: 'cust' }]);
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText(thread.title));
+    await waitFor(() => expect(castApi.agentListModels).toHaveBeenCalledWith({ provider: 'openai-compatible', baseUrl: 'https://local.test/v1' }));
+    await act(async () => emitThreadEvent({ type: 'run_started', threadId: thread.id, runId: 'run-x', assistantMessageId: 'message-x' }));
+    expect(screen.getByRole('button', { name: 'Model' })).toBeDisabled();
   });
 
   it('limits the picker to the configured shortlist, always keeping the active selection visible', async () => {
@@ -696,6 +743,19 @@ describe('model picker', () => {
 });
 
 describe('invalid model banner', () => {
+  it('treats rejected validation as unknown instead of retaining a missing-model warning', async () => {
+    threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service', model: 'ghost-model', provider: 'anthropic' })]]);
+    castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service', model: 'ghost-model', provider: 'anthropic' })]);
+    castApi.agentGetThread.mockImplementation(async ({ id }: { id: string }) => threadsById.get(id) ?? null);
+    castApi.agentValidateModel.mockRejectedValue(new Error('offline'));
+    render(<Harness />);
+    await openConfiguredPopup();
+    fireEvent.click(screen.getByRole('button', { name: 'Threads' }));
+    fireEvent.click(await screen.findByText('Sunday service'));
+    await waitFor(() => expect(castApi.agentValidateModel).toHaveBeenCalled());
+    expect(screen.queryByText(/is no longer available/)).toBeNull();
+  });
+
   it('shows a not-found banner and focuses the model picker', async () => {
     threadsById = new Map([['t-1', makeThread({ id: 't-1', title: 'Sunday service', model: 'ghost-model', provider: 'anthropic' })]]);
     castApi.agentListThreads.mockResolvedValue([makeSummary({ id: 't-1', title: 'Sunday service', model: 'ghost-model', provider: 'anthropic' })]);

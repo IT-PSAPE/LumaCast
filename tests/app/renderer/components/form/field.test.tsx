@@ -146,6 +146,24 @@ describe('Field.Select', () => {
     expect(within(screen.getByRole('combobox')).getByText('Beta')).not.toBeNull();
   });
 
+  it('renders the current rich label after options are replaced and the selection changes', () => {
+    const view = (value: string, text: string) => (
+      <WorkbenchProvider>
+        <FieldSelect label="Model" value={value} onChange={vi.fn()}>
+          <FieldSelect.Option value="a"><span><strong>{text}</strong><span> Free</span></span></FieldSelect.Option>
+          <FieldSelect.Option value="b"><span>Second model</span></FieldSelect.Option>
+        </FieldSelect>
+      </WorkbenchProvider>
+    );
+    const { rerender } = render(view('a', 'Original'));
+    expect(screen.getByRole('combobox')).toHaveTextContent('Original Free');
+    rerender(view('b', 'Updated'));
+    expect(screen.getByRole('combobox')).toHaveTextContent('Second model');
+    rerender(view('a', 'Updated'));
+    expect(screen.getByRole('combobox')).toHaveTextContent('Updated Free');
+    expect(screen.queryByText('Original')).toBeNull();
+  });
+
   // Base UI settles the popup's floating position/focus asynchronously after
   // it opens; a subsequent key press needs a tick for that to land, and by
   // then it can have moved DOM focus off the trigger, so re-read

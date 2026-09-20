@@ -35,10 +35,11 @@ import type {
   AgentMessage,
   AgentMessagePart,
   AgentModelInfo,
+  AgentProviderId,
   AgentThreadSummary,
   AgentToolCallStatus,
 } from '@lumacast/protocol';
-import { prettifyModelId } from '@lumacast/protocol';
+import { AGENT_PROVIDERS, agentProviderBaseUrl, inferModelVendor, prettifyModelId } from '@lumacast/protocol';
 import { ReacstButton } from '@renderer/components/controls/button';
 import { Dropdown, useDropdown } from '@renderer/components/form/dropdown';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
@@ -587,7 +588,8 @@ function Composer() {
     autoGrowTextarea(textareaRef.current);
   }, [text]);
 
-  if (!isConfigured(state.config, state.credentialStatuses)) {
+  const effectiveConfig = state.config ? { ...state.config, provider: state.activeThread?.provider ?? state.config.provider, model: state.activeThread?.model ?? state.config.model } : null;
+  if (!isConfigured(effectiveConfig, state.credentialStatuses)) {
     return (
       <div className="mx-3 mb-3 flex shrink-0 items-center justify-between gap-2 rounded-xl border border-primary bg-secondary/60 px-3 py-2 text-sm text-secondary">
         <span>Assistant isn&rsquo;t configured.</span>
@@ -676,114 +678,99 @@ function ModelPickerFocusOnInvalid({ invalid }: { invalid: boolean }) {
   return null;
 }
 
+function savedModel(id: string): AgentModelInfo {
+  return { id, label: prettifyModelId(id), vendor: inferModelVendor(id), isFree: id.endsWith(':free'), supportsTools: true, contextWindow: null, maxOutputTokens: null };
+}
+
 function ModelPicker() {
-  const { state, actions } = useAgentChat();
-  const [models, setModels] = useState<AgentModelInfo[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
-  const [loadAttempt, setLoadAttempt] = useState(0);
+  const { state, actions, isRunning } = useAgentChat();
+  const [catalogs, setCatalogs] = useState<Record<string, { models: AgentModelInfo[]; loading: boolean; error: string | null }>>({});
+  const requests = useRef(new Map<string, number>());
   const thread = state.activeThread;
   const provider = thread?.provider ?? state.config?.provider ?? null;
   const model = thread?.model ?? state.config?.model ?? null;
   const isOverride = thread ? thread.provider != null || thread.model != null : false;
-  const baseUrl = state.config?.baseUrl ?? null;
-
+  const running = thread ? isRunning(thread.id) : false;
+  const connections = AGENT_PROVIDERS.filter((info) => state.credentialStatuses.some((status) => status.provider === info.id && status.hasKey));
+  const catalogKey = (id: AgentProviderId) => JSON.stringify([id, state.config ? agentProviderBaseUrl(state.config, id) : null, state.credentialStatuses.find((status) => status.provider === id)?.keyHint]);
+  const signature = JSON.stringify(connections.map((connection) => ({ provider: connection.id, key: catalogKey(connection.id), baseUrl: state.config ? agentProviderBaseUrl(state.config, connection.id) : null })));
+  function loadCatalog(id: AgentProviderId, key: string, baseUrl: string | null, refresh = false) {
+    const request = (requests.current.get(key) ?? 0) + 1;
+    requests.current.set(key, request);
+    setCatalogs((current) => ({ ...current, [key]: { models: current[key]?.models ?? [], loading: true, error: null } }));
+    void window.castApi.agentListModels({ provider: id, baseUrl, ...(refresh ? { refresh: true } : {}) }).then((models) => {
+      if (requests.current.get(key) === request) setCatalogs((current) => ({ ...current, [key]: { models, loading: false, error: null } }));
+    }).catch((error) => {
+      if (requests.current.get(key) === request) setCatalogs((current) => ({ ...current, [key]: { models: current[key]?.models ?? [], loading: false, error: error instanceof Error ? error.message : String(error) } }));
+    });
+  }
   useEffect(() => {
-    if (!provider) {
-      setModels([]);
-      setModelLoadError(null);
-      return undefined;
-    }
-    let cancelled = false;
-    setLoadingModels(true);
-    setModelLoadError(null);
-    window.castApi.agentListModels({ provider, baseUrl })
-      .then((list) => {
-        if (!cancelled) {
-          setModels([...list].sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: 'base', numeric: true })));
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setModels([]);
-          setModelLoadError(error instanceof Error ? error.message : String(error));
-        }
-      })
-      .finally(() => { if (!cancelled) setLoadingModels(false); });
-    return () => { cancelled = true; };
-  }, [provider, baseUrl, loadAttempt]);
+    const specs = JSON.parse(signature) as { provider: AgentProviderId; key: string; baseUrl: string | null }[];
+    for (const spec of specs) loadCatalog(spec.provider, spec.key, spec.baseUrl);
+    return () => { for (const spec of specs) requests.current.set(spec.key, (requests.current.get(spec.key) ?? 0) + 1); };
+  }, [signature]);
+  const selectedModel = provider && model ? catalogs[catalogKey(provider)]?.models.find((entry) => entry.id === model) ?? savedModel(model) : null;
+  const label = selectedModel?.label ?? 'Model';
 
-  if (!provider) return null;
-
-  const selectedModel = models.find((entry) => entry.id === model);
-  // Never show a raw catalog id: once the catalog has loaded, fall back to a
-  // prettified id rather than the wire id while it's still selected but not
-  // (or not yet) present in the loaded list.
-  const label = selectedModel?.label ?? (model != null ? prettifyModelId(model) : loadingModels ? 'Loading models…' : 'Model');
-
-  // The shortlist Settings configured for this provider (empty/missing means
-  // "every catalog model"). The active selection is always shown even if it
-  // fell out of the shortlist, so switching providers/models in Settings can
-  // never silently hide the model a thread is already using.
-  const shortlist = provider ? state.config?.composerModels[provider] ?? [] : [];
-  const visibleModels = shortlist.length === 0 ? models : models.filter((entry) => shortlist.includes(entry.id) || entry.id === model);
-
-  // No thread yet (nothing to attach a per-thread override to): show the
-  // effective default as plain, non-interactive text.
   if (!thread) {
-    return (
-      <div className="flex items-center gap-2 self-start px-2 py-1 text-xs text-tertiary">
-        {modelLoadError ? (
-          <>
-            <span role="alert" title={modelLoadError} className="text-error">Couldn’t load models.</span>
-            <ReacstButton variant="ghost" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</ReacstButton>
-          </>
-        ) : (
-          <>
-            <ModelVendorLogo vendor={selectedModel?.vendor ?? null} className="size-3.5" />
-            <span>{label}</span>
-            {selectedModel?.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
-          </>
-        )}
-      </div>
-    );
+    const error = provider ? catalogs[catalogKey(provider)]?.error : null;
+    return <div className="flex items-center gap-2 self-start px-2 py-1 text-xs text-tertiary"><ModelVendorLogo vendor={selectedModel?.vendor ?? null} className="size-3.5" /><span>{label}</span>{error && provider ? <><span role="alert" title={error} className="text-error">Couldn’t load models.</span><ReacstButton variant="ghost" onClick={() => loadCatalog(provider, catalogKey(provider), state.config ? agentProviderBaseUrl(state.config, provider) : null, true)}>Retry</ReacstButton></> : null}</div>;
   }
 
   return (
     <Dropdown className="self-start">
       <ModelPickerFocusOnInvalid invalid={state.modelValidation === 'not-found'} />
-      <Dropdown.Trigger aria-label="Model" className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-secondary hover:bg-tertiary cursor-pointer">
+      <Dropdown.Trigger disabled={running} aria-label="Model" className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-secondary hover:bg-tertiary cursor-pointer disabled:opacity-50">
         <ModelVendorLogo vendor={selectedModel?.vendor ?? null} className="size-3.5" />
         <span className="max-w-40 truncate">{label}</span>
         {selectedModel?.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
         <ChevronDown size={12} className="shrink-0 text-tertiary" />
       </Dropdown.Trigger>
-      <Dropdown.Panel placement="top-start" className="max-h-64 min-w-48">
-        <Dropdown.Item onClick={() => void actions.setThreadModel(thread.id, null, null)}>
+      <Dropdown.Panel placement="top-start" className="max-h-64 min-w-48 overflow-y-auto">
+        <Dropdown.Item disabled={running} onClick={() => void actions.setThreadModel(thread.id, null, null)}>
           <span className="flex-1">Default</span>
           {!isOverride ? <Check size={14} /> : null}
         </Dropdown.Item>
         <Dropdown.Separator />
-        {loadingModels ? <div className="px-2 py-1.5 text-xs text-tertiary">Loading…</div> : null}
-        {!loadingModels && modelLoadError ? (
-          <div className="flex items-center gap-2 px-2 py-1.5">
-            <span role="alert" title={modelLoadError} className="flex-1 text-xs text-error">Couldn’t load models.</span>
-            <ReacstButton variant="ghost" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>Retry</ReacstButton>
-          </div>
-        ) : null}
-        {!loadingModels && !modelLoadError && models.length === 0 ? (
-          <div className="px-2 py-1.5 text-xs text-tertiary">No models available.</div>
-        ) : null}
-        {visibleModels.map((entry) => (
-          <Dropdown.Item key={entry.id} onClick={() => void actions.setThreadModel(thread.id, provider, entry.id)}>
-            <ModelVendorLogo vendor={entry.vendor} className="size-3.5" />
-            <span className="flex-1 truncate">{entry.label}</span>
-            {entry.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
-            {isOverride && model === entry.id ? <Check size={14} /> : null}
-          </Dropdown.Item>
+        {connections.map((connection) => (
+          <ProviderModelGroup key={catalogKey(connection.id)} label={connection.label}
+            models={catalogs[catalogKey(connection.id)]?.models ?? []} loading={catalogs[catalogKey(connection.id)]?.loading ?? true} error={catalogs[catalogKey(connection.id)]?.error ?? null}
+            onRetry={() => loadCatalog(connection.id, catalogKey(connection.id), state.config ? agentProviderBaseUrl(state.config, connection.id) : null, true)}
+            shortlist={state.config?.composerModels?.[connection.id] ?? []}
+            activeModel={provider === connection.id ? model : null} isOverride={isOverride} disabled={running}
+            onSelect={(id) => void actions.setThreadModel(thread.id, connection.id, id)}
+            />
         ))}
       </Dropdown.Panel>
     </Dropdown>
+  );
+}
+
+function ProviderModelGroup({ label, models, loading, error, onRetry, shortlist, activeModel, isOverride, disabled, onSelect }: {
+  label: string; models: AgentModelInfo[]; loading: boolean; error: string | null; onRetry: () => void;
+  shortlist: string[]; activeModel: string | null; isOverride: boolean; disabled: boolean; onSelect: (model: string) => void;
+}) {
+  const entries = new Map(models.map((entry) => [entry.id, entry]));
+  for (const id of [...shortlist, ...(activeModel ? [activeModel] : [])]) {
+    if (!entries.has(id)) entries.set(id, savedModel(id));
+  }
+  const visible = [...entries.values()].filter((entry) => shortlist.length === 0 || shortlist.includes(entry.id) || entry.id === activeModel)
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true }));
+  return (
+    <div role="group" aria-label={label}>
+      <div className="px-2 pt-2 pb-1 text-xs font-medium text-tertiary">{label}</div>
+      {loading ? <div className="px-2 py-1 text-xs text-tertiary">Loading…</div> : null}
+      {error ? <div className="flex items-center gap-2 px-2 py-1.5"><span role="alert" title={error} className="flex-1 text-xs text-error">Couldn’t load models.</span><ReacstButton variant="ghost" onClick={onRetry}>Retry</ReacstButton></div> : null}
+      {!loading && !error && visible.length === 0 ? <div className="px-2 py-1 text-xs text-tertiary">No models available.</div> : null}
+      {visible.map((entry) => (
+        <Dropdown.Item key={entry.id} disabled={disabled} onClick={() => onSelect(entry.id)}>
+          <ModelVendorLogo vendor={entry.vendor} className="size-3.5" />
+          <span className="flex-1 truncate">{entry.label}</span>
+          {entry.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+          {isOverride && activeModel === entry.id ? <Check size={14} /> : null}
+        </Dropdown.Item>
+      ))}
+    </div>
   );
 }
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ConfirmProvider } from '@renderer/components/overlays/confirm-dialog';
 import { createDefaultAgentConfig, matrixForTier } from '@lumacast/protocol';
-import type { AgentConfig, AgentCredentialStatus, AgentMcpClient, AgentMcpStatus, AgentModelInfo } from '@lumacast/protocol';
+import type { AgentConfig, AgentConfigUpdate, AgentCredentialStatus, AgentMcpClient, AgentMcpStatus, AgentModelInfo } from '@lumacast/protocol';
 import { AgentSettingsPanel, buildMcpSetupInstructions } from '../../../../../app/renderer/screens/settings/agent-settings-panel';
 import { overlayRoot, overlayStackStore } from '../../components/overlays/workbench-overlay-stack';
 
@@ -43,13 +43,16 @@ function stubCastApi(options: {
   credentialStatuses?: AgentCredentialStatus[];
   mcpStatus?: AgentMcpStatus;
 } = {}) {
-  const config = options.config ?? baseConfig();
+  let config = options.config ?? baseConfig();
   const credentialStatuses = options.credentialStatuses ?? [];
   const mcpStatus = options.mcpStatus ?? baseMcpStatus();
 
   const api = {
     agentGetConfig: vi.fn(async () => config),
-    agentUpdateConfig: vi.fn(async () => undefined),
+    agentUpdateConfig: vi.fn(async (patch: AgentConfigUpdate) => {
+      config = { ...config, ...patch, providerBaseUrls: { ...config.providerBaseUrls, ...patch.providerBaseUrls }, mcp: { ...config.mcp, ...patch.mcp } };
+      return config;
+    }),
     agentGetCredentialStatus: vi.fn(async () => credentialStatuses),
     agentSetCredential: vi.fn(async () => credentialStatuses),
     agentDeleteCredential: vi.fn(async () => credentialStatuses),
@@ -116,451 +119,127 @@ afterEach(() => {
 });
 
 describe('AgentSettingsPanel', () => {
-  it('renders the loaded config', async () => {
-    stubCastApi({ config: baseConfig({ provider: 'anthropic', model: 'claude-3', instructions: 'Be terse.' }) });
+  it('renders independent provider connections and automatically loads their catalogs', async () => {
+    const api = stubCastApi({ config: baseConfig({ provider: 'openrouter', model: 'saved', instructions: 'Be terse.' }), credentialStatuses: [
+      { provider: 'openrouter', hasKey: true, keyHint: 'rout' }, { provider: 'openai', hasKey: true, keyHint: 'oaik' },
+    ] });
     renderPanel();
-
-    const providerSelect = await loaded();
-    expect(within(providerSelect).getByText('Anthropic')).not.toBeNull();
-    expect(screen.getByLabelText('Base URL')).not.toBeNull();
-    expect(screen.getByDisplayValue('Be terse.')).not.toBeNull();
+    expect(await screen.findByRole('group', { name: 'OpenRouter connection' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'OpenAI connection' })).toBeInTheDocument();
+    await waitFor(() => expect(api.agentListModels).toHaveBeenCalledTimes(2));
+    expect(screen.getByDisplayValue('Be terse.')).toBeInTheDocument();
+    expect(screen.queryByText('Load models')).toBeNull();
   });
 
-  it('shows the base URL field only once a provider is selected', async () => {
-    const api = stubCastApi({ config: baseConfig({ provider: null }) });
+  it('adds a provider without changing the default or removing an existing key', async () => {
+    const api = stubCastApi({ config: baseConfig({ provider: 'openrouter', model: 'saved' }), credentialStatuses: [{ provider: 'openrouter', hasKey: true, keyHint: 'rout' }] });
+    api.agentSetCredential.mockResolvedValue([{ provider: 'openrouter', hasKey: true, keyHint: 'rout' }, { provider: 'anthropic', hasKey: true, keyHint: 'new1' }]);
     renderPanel();
-    await loaded();
-    expect(screen.queryByLabelText('Base URL')).toBeNull();
-
-    await selectByKeyboard('Provider', 'OpenAI-compatible');
-
-    expect(screen.getByLabelText('Base URL')).not.toBeNull();
-    expect(api.agentUpdateConfig).toHaveBeenCalledWith({ provider: 'openai-compatible', model: null, baseUrl: null });
+    fireEvent.click(await screen.findByRole('button', { name: 'Add connection' }));
+    const row = screen.getByRole('group', { name: 'Anthropic connection' });
+    const input = within(row).getByLabelText('Anthropic API key');
+    expect(input).toHaveAttribute('type', 'text');
+    fireEvent.change(input, { target: { value: 'new-secret' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.agentSetCredential).toHaveBeenCalledWith({ provider: 'anthropic', apiKey: 'new-secret' }));
+    expect(api.agentDeleteCredential).not.toHaveBeenCalled();
+    expect(api.agentUpdateConfig).not.toHaveBeenCalled();
+    expect(screen.queryByDisplayValue('new-secret')).toBeNull();
   });
 
-  it('applies OpenCode Zen\'s default base URL when the provider is selected', async () => {
-    const api = stubCastApi({ config: baseConfig({ provider: null }) });
+  it('keeps saved keys masked and allows cancelling a replacement', async () => {
+    stubCastApi({ credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: '1234' }] });
     renderPanel();
-    await loaded();
-
-    await selectByKeyboard('Provider', 'OpenCode Zen');
-
-    expect(screen.getByLabelText('Base URL')).toHaveValue('https://opencode.ai/zen/v1');
-    expect(api.agentUpdateConfig).toHaveBeenCalledWith({
-      provider: 'opencode',
-      model: null,
-      baseUrl: 'https://opencode.ai/zen/v1',
-    });
+    const input = await screen.findByLabelText('Anthropic API key');
+    expect(input).toHaveAttribute('placeholder', '••••1234');
+    fireEvent.change(input, { target: { value: 'replacement' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(input).toHaveValue('');
+    expect(input).toHaveAttribute('placeholder', '••••1234');
   });
 
-  describe('API key', () => {
-    it('saves a new key and clears the input', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'anthropic' }) });
-      renderPanel();
-      await loaded();
-
-      const keyInput = screen.getByLabelText('API key') as HTMLInputElement;
-      fireEvent.change(keyInput, { target: { value: 'sk-secret' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
-      await waitFor(() => expect(api.agentSetCredential).toHaveBeenCalledWith({ provider: 'anthropic', apiKey: 'sk-secret' }));
-      expect(keyInput.value).toBe('');
-    });
-
-    it('shows a saved key as a hint, with replace and remove', async () => {
-      const api = stubCastApi({
-        config: baseConfig({ provider: 'anthropic' }),
-        credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: 'AB12' }],
-      });
-      renderPanel();
-      await loaded();
-
-      expect(await screen.findByText('Saved ••••AB12')).not.toBeNull();
-      expect(screen.getByRole('button', { name: 'Replace' })).not.toBeNull();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
-      await waitFor(() => expect(api.agentDeleteCredential).toHaveBeenCalledWith({ provider: 'anthropic' }));
-    });
-
-    it('surfaces a rejected save inline instead of losing the field', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'anthropic' }) });
-      api.agentSetCredential.mockRejectedValueOnce(new Error('secure storage unavailable'));
-      renderPanel();
-      await loaded();
-
-      fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'sk-secret' } });
-      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-
-      expect(await screen.findByText('secure storage unavailable')).not.toBeNull();
-    });
+  it('removes only the requested provider', async () => {
+    const api = stubCastApi({ credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: 'a123' }, { provider: 'openrouter', hasKey: true, keyHint: 'r123' }] });
+    api.agentDeleteCredential.mockResolvedValue([{ provider: 'openrouter', hasKey: true, keyHint: 'r123' }]);
+    renderPanel();
+    const row = await screen.findByRole('group', { name: 'Anthropic connection' });
+    fireEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(api.agentDeleteCredential).toHaveBeenCalledWith({ provider: 'anthropic' }));
+    expect(screen.getByRole('group', { name: 'OpenRouter connection' })).toBeInTheDocument();
   });
 
-  describe('Model', () => {
-    it('loads models into the select and persists the chosen one', async () => {
-      const models: AgentModelInfo[] = [
-        { id: 'claude-a', label: 'Claude A', contextWindow: 200000, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-        { id: 'claude-b', label: 'Claude B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({ config: baseConfig({ provider: 'anthropic' }) });
-      api.agentListModels.mockResolvedValueOnce(models);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(api.agentListModels).toHaveBeenCalledWith({ provider: 'anthropic', baseUrl: undefined }));
-
-      await screen.findByRole('combobox', { name: 'Model' });
-      await selectByKeyboard('Model', 'Claude B');
-
-      expect(api.agentUpdateConfig).toHaveBeenCalledWith({ model: 'claude-b' });
-    });
-
-    it('sorts loaded models by display name', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
-      api.agentListModels.mockResolvedValueOnce([
-        { id: 'zulu', label: 'Zulu', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-        { id: 'alpha', label: 'Alpha', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ]);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-
-      const options = await screen.findAllByRole('option');
-      expect(options.map((option) => option.textContent)).toEqual(['Alpha', 'Zulu']);
-    });
-
-    it('marks free models in the picker', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
-      api.agentListModels.mockResolvedValueOnce([
-        { id: 'big-pickle', label: 'Big Pickle', contextWindow: 200_000, maxOutputTokens: 32_000, supportsTools: true, isFree: true, vendor: null },
-      ]);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-      expect(await screen.findByRole('option', { name: /Big Pickle.*Free/ })).not.toBeNull();
-    });
-
-    it('formats million-token context windows without a misleading thousands label', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
-      api.agentListModels.mockResolvedValueOnce([
-        { id: 'large', label: 'Large', contextWindow: 1_050_000, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ]);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-
-      expect(await screen.findByRole('option', { name: /Large.*1\.05M context/ })).not.toBeNull();
-    });
-
-    it('shows an empty state when the provider returns no models', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
-      api.agentListModels.mockResolvedValueOnce([]);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-
-      expect(await screen.findByText('No models available.')).not.toBeNull();
-    });
-
-    it('shows a retry action when loading models fails', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
-      api.agentListModels.mockRejectedValueOnce(new Error('Catalog unavailable'));
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-
-      expect(await screen.findByRole('alert')).toHaveTextContent('Catalog unavailable');
-      expect(screen.getByRole('button', { name: 'Retry' })).not.toBeNull();
-    });
-
-    it('does not show models returned for a provider that is no longer selected', async () => {
-      let resolveModels: (models: AgentModelInfo[]) => void = () => {};
-      const pendingModels = new Promise<AgentModelInfo[]>((resolve) => { resolveModels = resolve; });
-      const api = stubCastApi({ config: baseConfig({ provider: 'anthropic' }) });
-      api.agentListModels.mockReturnValueOnce(pendingModels);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      expect(screen.getByRole('button', { name: 'Loading models…' })).toBeDisabled();
-
-      await selectByKeyboard('Provider', 'OpenCode Zen');
-      resolveModels([
-        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ]);
-      await settle();
-      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-
-      expect(screen.queryByRole('option', { name: 'Stale model' })).toBeNull();
-    });
-
-    it('does not show models returned for a base URL that is no longer current', async () => {
-      let resolveModels: (models: AgentModelInfo[]) => void = () => {};
-      const pendingModels = new Promise<AgentModelInfo[]>((resolve) => { resolveModels = resolve; });
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode', baseUrl: 'https://old.example/v1' }) });
-      api.agentListModels.mockReturnValueOnce(pendingModels);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://new.example/v1' } });
-      fireEvent.blur(screen.getByLabelText('Base URL'));
-      resolveModels([
-        { id: 'stale', label: 'Stale model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ]);
-      await settle();
-      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-
-      expect(api.agentUpdateConfig).toHaveBeenCalledWith({ baseUrl: 'https://new.example/v1' });
-      expect(screen.queryByRole('option', { name: 'Stale model' })).toBeNull();
-    });
-
-    it('clears models from a previous successful load when refresh fails', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode' }) });
-      api.agentListModels
-        .mockResolvedValueOnce([
-          { id: 'old', label: 'Old model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-        ])
-        .mockRejectedValueOnce(new Error('Catalog unavailable'));
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      expect(await screen.findByRole('alert')).toHaveTextContent('Catalog unavailable');
-      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-
-      expect(screen.queryByRole('option', { name: 'Old model' })).toBeNull();
-    });
-
-    it('shows the validation chip for each outcome', async () => {
-      const api = stubCastApi({ config: baseConfig({ provider: 'anthropic', model: 'claude-a' }) });
-      renderPanel();
-      await loaded();
-
-      api.agentValidateModel.mockResolvedValueOnce('valid');
-      fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
-      expect(await screen.findByText('Valid')).not.toBeNull();
-
-      api.agentValidateModel.mockResolvedValueOnce('not-found');
-      fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
-      expect(await screen.findByText('Not found')).not.toBeNull();
-
-      api.agentValidateModel.mockResolvedValueOnce('unknown');
-      fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
-      expect(await screen.findByText('Unknown')).not.toBeNull();
-    });
-
-    it('ignores validation returned for a model that is no longer selected', async () => {
-      let resolveValidation: (result: 'valid' | 'not-found' | 'unknown') => void = () => {};
-      const pendingValidation = new Promise<'valid' | 'not-found' | 'unknown'>((resolve) => { resolveValidation = resolve; });
-      const models: AgentModelInfo[] = [
-        { id: 'first', label: 'First', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-        { id: 'second', label: 'Second', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({ config: baseConfig({ provider: 'opencode', model: 'first' }) });
-      api.agentListModels.mockResolvedValueOnce(models);
-      api.agentValidateModel.mockReturnValueOnce(pendingValidation);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-      fireEvent.click(screen.getByRole('button', { name: 'Validate' }));
-      await selectByKeyboard('Model', 'Second');
-      resolveValidation('valid');
-      await settle();
-
-      expect(screen.queryByText('Valid')).toBeNull();
-      expect(screen.queryByText('Validating…')).toBeNull();
-    });
-
-    it('shows a prettified label for a persisted model id not in the loaded catalog', async () => {
-      stubCastApi({ config: baseConfig({ provider: 'anthropic', model: 'anthropic/claude-code-latest' }) });
-      renderPanel();
-      await loaded();
-
-      const modelSelect = await screen.findByRole('combobox', { name: 'Model' });
-      expect(within(modelSelect).getByText('Claude Code Latest')).not.toBeNull();
-    });
-
-    it('limits the Model select to the composer shortlist plus the active selection', async () => {
-      const models: AgentModelInfo[] = [
-        { id: 'a/b', label: 'Alpha', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-        { id: 'c/d', label: 'Charlie', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-        { id: 'e/f', label: 'Echo', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({
-        config: baseConfig({ provider: 'openrouter', model: 'e/f', composerModels: { openrouter: ['a/b'] } }),
-      });
-      api.agentListModels.mockResolvedValueOnce(models);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-      fireEvent.click(screen.getByRole('combobox', { name: 'Model' }));
-
-      expect(await screen.findByRole('option', { name: 'Alpha' })).not.toBeNull();
-      expect(screen.getByRole('option', { name: 'Echo' })).not.toBeNull();
-      expect(screen.queryByRole('option', { name: 'Charlie' })).toBeNull();
-    });
+  it('reports a rejected key save and clears the secret draft', async () => {
+    const api = stubCastApi();
+    api.agentSetCredential.mockRejectedValue(new Error('Keychain unavailable'));
+    renderPanel();
+    const input = await screen.findByLabelText('Anthropic API key');
+    fireEvent.change(input, { target: { value: 'secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Keychain unavailable')).toBeInTheDocument();
+    expect(input).toHaveValue('');
   });
 
-  describe('Composer models', () => {
-    it('shows "All models" and no count chip when nothing is shortlisted', async () => {
-      stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
-      renderPanel();
-      await loaded();
+  it('persists custom URLs per provider without switching the assistant default', async () => {
+    const api = stubCastApi({ config: baseConfig({ provider: 'openrouter', model: 'saved' }), credentialStatuses: [{ provider: 'openrouter', hasKey: true, keyHint: 'r123' }, { provider: 'opencode', hasKey: true, keyHint: 'z123' }] });
+    renderPanel();
+    const row = await screen.findByRole('group', { name: 'OpenCode Zen connection' });
+    fireEvent.change(within(row).getByLabelText('OpenCode Zen base URL'), { target: { value: 'https://custom.test/v1' } });
+    fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ providerBaseUrls: { opencode: 'https://custom.test/v1' } }));
+  });
 
-      expect(await screen.findByText('All models')).not.toBeNull();
-      expect(screen.queryByText(/selected$/)).toBeNull();
-      expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
-    });
+  it('supports legacy configs without composerModels and keeps model selection visible', async () => {
+    const config = baseConfig({ provider: 'anthropic', model: 'model-a' });
+    delete (config as Partial<AgentConfig>).composerModels;
+    const api = stubCastApi({ config, credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: 'a123' }] });
+    api.agentListModels.mockResolvedValue([{ id: 'model-a', label: 'Model A', vendor: 'anthropic', isFree: false, contextWindow: null, maxOutputTokens: null, supportsTools: true }]);
+    renderPanel();
+    expect(await screen.findByRole('combobox', { name: 'Anthropic default model' })).toBeInTheDocument();
+    const box = await screen.findByRole('checkbox', { name: 'Model A' });
+    fireEvent.click(box);
+    await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { anthropic: ['model-a'] } }));
+    expect(screen.getByRole('combobox', { name: 'Anthropic default model' })).toBeInTheDocument();
+  });
 
-    it('lists the shortlist as prettified ids before the catalog loads', async () => {
-      stubCastApi({
-        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['anthropic/claude-code-latest'] } }),
-      });
-      renderPanel();
-      await loaded();
+  it('makes saved shortlisted models available before an offline catalog resolves', async () => {
+    const api = stubCastApi({ config: baseConfig({ provider: 'anthropic', model: 'model-a', composerModels: { anthropic: ['model-a', 'model-b'] } }), credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: 'a123' }] });
+    api.agentListModels.mockRejectedValue(new Error('offline'));
+    renderPanel();
+    expect(await screen.findByRole('checkbox', { name: 'Model B' })).toBeInTheDocument();
+    await selectByKeyboard('Anthropic default model', 'Model B');
+    await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ provider: 'anthropic', model: 'model-b' }));
+    expect(screen.getByRole('group', { name: 'Anthropic models' })).toBeInTheDocument();
+  });
 
-      expect(await screen.findByText('Claude Code Latest')).not.toBeNull();
-      expect(screen.getByText('1 selected')).not.toBeNull();
-    });
+  it('preserves a successful catalog when explicit refresh fails', async () => {
+    const api = stubCastApi({ credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: 'a123' }] });
+    api.agentListModels.mockResolvedValueOnce([{ id: 'model-a', label: 'Model A', vendor: null, isFree: false, contextWindow: null, maxOutputTokens: null, supportsTools: true }]).mockRejectedValueOnce(new Error('offline'));
+    renderPanel();
+    expect(await screen.findByRole('checkbox', { name: 'Model A' })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByText('offline')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Model A' })).toBeInTheDocument();
+    expect(api.agentListModels).toHaveBeenLastCalledWith({ provider: 'anthropic', baseUrl: null, refresh: true });
+  });
 
-    it('removes a shortlisted id from the unloaded list', async () => {
-      const api = stubCastApi({
-        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['a/b', 'c/d'] } }),
-      });
-      renderPanel();
-      await loaded();
+  it('ignores a removed provider catalog that resolves late', async () => {
+    const api = stubCastApi({ credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: 'a123' }] });
+    let resolve!: (models: AgentModelInfo[]) => void;
+    api.agentListModels.mockReturnValue(new Promise((done) => { resolve = done; }));
+    api.agentDeleteCredential.mockResolvedValue([]);
+    renderPanel();
+    fireEvent.click(within(await screen.findByRole('group', { name: 'Anthropic connection' })).getByRole('button', { name: 'Remove' }));
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Anthropic models' })).toBeNull());
+    await act(async () => resolve([{ id: 'late', label: 'Late model', vendor: null, isFree: false, contextWindow: null, maxOutputTokens: null, supportsTools: true }]));
+    expect(screen.queryByText('Late model')).toBeNull();
+  });
 
-      await screen.findByText('2 selected');
-      fireEvent.click(screen.getByRole('button', { name: 'Remove B' }));
-
-      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: ['c/d'] } }));
-    });
-
-    it('adds a catalog row to the shortlist', async () => {
-      const models: AgentModelInfo[] = [
-        { id: 'a/b', label: 'Model A B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
-      api.agentListModels.mockResolvedValueOnce(models);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Model A B' }));
-
-      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: ['a/b'] } }));
-    });
-
-    it('removes a catalog row from the shortlist when unchecked', async () => {
-      const models: AgentModelInfo[] = [
-        { id: 'a/b', label: 'Model A B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({
-        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['a/b'] } }),
-      });
-      api.agentListModels.mockResolvedValueOnce(models);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-
-      const checkbox = screen.getByRole('checkbox', { name: 'Model A B' });
-      expect(checkbox).toBeChecked();
-      fireEvent.click(checkbox);
-
-      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: [] } }));
-    });
-
-    it('clears the shortlist', async () => {
-      const api = stubCastApi({
-        config: baseConfig({ provider: 'openrouter', composerModels: { openrouter: ['a/b', 'c/d'] } }),
-      });
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-
-      await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ composerModels: { openrouter: [] } }));
-    });
-
-    it('filters catalog rows by label or id, case-insensitively', async () => {
-      const models: AgentModelInfo[] = [
-        { id: 'a/alpha', label: 'Alpha Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-        { id: 'b/beta', label: 'Beta Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
-      api.agentListModels.mockResolvedValueOnce(models);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-
-      expect(screen.getByRole('checkbox', { name: 'Alpha Model' })).not.toBeNull();
-      expect(screen.getByRole('checkbox', { name: 'Beta Model' })).not.toBeNull();
-
-      fireEvent.change(screen.getByLabelText('Filter models'), { target: { value: 'ALPHA' } });
-
-      expect(screen.getByRole('checkbox', { name: 'Alpha Model' })).not.toBeNull();
-      expect(screen.queryByRole('checkbox', { name: 'Beta Model' })).toBeNull();
-    });
-
-    it('shows "No matches" when the filter hides every row', async () => {
-      const models: AgentModelInfo[] = [
-        { id: 'a/alpha', label: 'Alpha Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
-      api.agentListModels.mockResolvedValueOnce(models);
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-
-      fireEvent.change(screen.getByLabelText('Filter models'), { target: { value: 'nothing matches' } });
-
-      expect(await screen.findByText('No matches')).not.toBeNull();
-    });
-
-    it('surfaces a rejected update inline', async () => {
-      const models: AgentModelInfo[] = [
-        { id: 'a/b', label: 'Model A B', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: false, vendor: null },
-      ];
-      const api = stubCastApi({ config: baseConfig({ provider: 'openrouter' }) });
-      api.agentListModels.mockResolvedValueOnce(models);
-      api.agentUpdateConfig.mockRejectedValueOnce(new Error('write failed'));
-      renderPanel();
-      await loaded();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Load models' }));
-      await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
-
-      fireEvent.click(screen.getByRole('checkbox', { name: 'Model A B' }));
-
-      expect(await screen.findByText('write failed')).not.toBeNull();
-    });
+  it('preserves other provider shortlists and serializes quick checkbox changes', async () => {
+    const api = stubCastApi({ config: baseConfig({ composerModels: { anthropic: ['model-a', 'model-b'], openrouter: ['saved'] } }), credentialStatuses: [{ provider: 'anthropic', hasKey: true, keyHint: 'a123' }] });
+    renderPanel();
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Model A' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Model B' }));
+    await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenLastCalledWith({ composerModels: { anthropic: [], openrouter: ['saved'] } }));
   });
 
   it('saves instructions on blur', async () => {
