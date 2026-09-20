@@ -115,6 +115,8 @@ export interface AgentProviderInput {
 export interface AgentListModelsInput {
   provider: AgentProviderId;
   baseUrl?: string | null;
+  /** Bypass the saved catalog when the user explicitly asks to refresh. */
+  refresh?: boolean;
 }
 
 export interface AgentValidateModelInput {
@@ -299,10 +301,15 @@ export function decodeAgentProviderInput(value: unknown, context: CodecContext):
 
 export function decodeAgentListModelsInput(value: unknown, context: CodecContext): AgentListModelsInput {
   const record = expectRecord(value, context, 'agent list models input');
-  rejectUnknownKeys(record, context, ['provider', 'baseUrl']);
+  rejectUnknownKeys(record, context, ['provider', 'baseUrl', 'refresh']);
   const provider = expectEnum(record.provider, context, 'provider', AGENT_PROVIDER_IDS);
   const baseUrl = decodeOptionalBaseUrl(record.baseUrl, context);
-  return baseUrl === undefined ? { provider } : { provider, baseUrl };
+  const input: AgentListModelsInput = baseUrl === undefined ? { provider } : { provider, baseUrl };
+  if (record.refresh !== undefined) {
+    if (typeof record.refresh !== 'boolean') fail(context, 'refresh must be a boolean');
+    input.refresh = record.refresh as boolean;
+  }
+  return input;
 }
 
 export function decodeAgentValidateModelInput(value: unknown, context: CodecContext): AgentValidateModelInput {

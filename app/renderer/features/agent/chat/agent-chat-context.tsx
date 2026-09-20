@@ -13,6 +13,7 @@
 import { createContext, useContext, useEffect, useReducer, type ReactNode } from 'react';
 import type { Id } from '@lumacast/kernel';
 import { createId, nowIso } from '@lumacast/kernel';
+import { agentProviderBaseUrl } from '@lumacast/protocol';
 import type {
   AgentConfig,
   AgentCredentialStatus,
@@ -420,15 +421,18 @@ export function AgentChatProvider({ children }: { children: ReactNode }) {
     if (!state.open || !activeThread || !state.config) return;
     const provider = activeThread.provider ?? state.config.provider;
     const model = activeThread.model ?? state.config.model;
+    dispatch({ type: 'model-validated', threadId: activeThread.id, validation: 'unknown' });
     if (!provider || !model) return;
     let cancelled = false;
-    void window.castApi.agentValidateModel({ provider, model, baseUrl: state.config.baseUrl }).then((validation) => {
+    void window.castApi.agentValidateModel({ provider, model, baseUrl: agentProviderBaseUrl(state.config, provider) }).then((validation) => {
       if (!cancelled) dispatch({ type: 'model-validated', threadId: activeThread.id, validation });
+    }).catch(() => {
+      if (!cancelled) dispatch({ type: 'model-validated', threadId: activeThread.id, validation: 'unknown' });
     });
     return () => {
       cancelled = true;
     };
-  }, [state.open, activeThread?.id, activeThread?.provider, activeThread?.model, state.config]);
+  }, [state.open, activeThread?.id, activeThread?.provider, activeThread?.model, state.config?.provider, state.config?.model, state.config?.baseUrl, state.config?.providerBaseUrls]);
 
   const isRunning = (threadId: Id) => state.runs[threadId] !== undefined;
 

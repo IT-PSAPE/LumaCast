@@ -24,6 +24,13 @@ const { handleRegistrations, electronState } = vi.hoisted(() => ({
   electronState: { userDataPath: '', openDialogResult: { canceled: true, filePaths: [] as string[] } },
 }));
 
+const { catalogAdapter } = vi.hoisted(() => ({
+  catalogAdapter: { listModels: vi.fn(), validateModel: vi.fn(), chat: vi.fn() },
+}));
+vi.mock('../../../../app/main/agent/providers', () => ({
+  createProviderAdapter: vi.fn(() => catalogAdapter),
+}));
+
 vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn((channel: string, handler: InvokeHandler) => {
@@ -123,6 +130,8 @@ function makeFakeNdiService(): NdiServiceLike {
 beforeEach(() => {
   handleRegistrations.clear();
   vi.clearAllMocks();
+  catalogAdapter.listModels.mockReset();
+  catalogAdapter.validateModel.mockReset();
 
   base = fs.mkdtempSync(path.join(os.tmpdir(), 'lumacast-agent-ipc-'));
   allowedRoot = path.join(base, 'allowed');
@@ -163,6 +172,40 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(base, { recursive: true, force: true });
+});
+
+describe('agent model catalogs', () => {
+  const model = { id: 'maker/model:free', label: 'Model', contextWindow: null, maxOutputTokens: null, supportsTools: true, isFree: true, vendor: null };
+
+  it('shares the OpenRouter catalog between listing and validation, with explicit refresh', async () => {
+    await invokeHandler(IPC.agentSetCredential, { provider: 'openrouter', apiKey: 'test-key' });
+    catalogAdapter.listModels.mockResolvedValue([model]);
+    expect(await invokeHandler(IPC.agentListModels, { provider: 'openrouter' })).toEqual([model]);
+    expect(await invokeHandler(IPC.agentValidateModel, { provider: 'openrouter', model: model.id })).toBe('valid');
+    expect(await invokeHandler(IPC.agentListModels, { provider: 'openrouter' })).toEqual([model]);
+    expect(catalogAdapter.listModels).toHaveBeenCalledTimes(1);
+    expect(catalogAdapter.validateModel).not.toHaveBeenCalled();
+    catalogAdapter.listModels.mockResolvedValue([]);
+    await invokeHandler(IPC.agentListModels, { provider: 'openrouter', refresh: true });
+    expect(await invokeHandler(IPC.agentValidateModel, { provider: 'openrouter', model: model.id })).toBe('not-found');
+  });
+
+  it('does not report unavailable when the catalog request fails', async () => {
+    await invokeHandler(IPC.agentSetCredential, { provider: 'openrouter', apiKey: 'test-key' });
+    catalogAdapter.listModels.mockRejectedValue(new Error('offline'));
+    expect(await invokeHandler(IPC.agentValidateModel, { provider: 'openrouter', model: model.id })).toBe('unknown');
+  });
+
+  it('invalidates cached models after credential replacement and deletion', async () => {
+    await invokeHandler(IPC.agentSetCredential, { provider: 'openrouter', apiKey: 'test-key' });
+    catalogAdapter.listModels.mockResolvedValue([model]);
+    await invokeHandler(IPC.agentListModels, { provider: 'openrouter' });
+    await invokeHandler(IPC.agentSetCredential, { provider: 'openrouter', apiKey: 'replacement-key' });
+    await invokeHandler(IPC.agentListModels, { provider: 'openrouter' });
+    expect(catalogAdapter.listModels).toHaveBeenCalledTimes(2);
+    await invokeHandler(IPC.agentDeleteCredential, { provider: 'openrouter' });
+    expect(await invokeHandler(IPC.agentValidateModel, { provider: 'openrouter', model: model.id })).toBe('unknown');
+  });
 });
 
 // ---------------------------------------------------------------------------

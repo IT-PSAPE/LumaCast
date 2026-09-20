@@ -110,6 +110,13 @@ describe('credential and model inputs', () => {
     });
     expect(() => decodeAgentValidateModelInput({ provider: 'openai', model: '' }, CONTEXT)).toThrow();
   });
+
+  it('accepts only a boolean catalog refresh flag', () => {
+    expect(decodeAgentListModelsInput({ provider: 'openrouter', refresh: true }, CONTEXT)).toEqual({ provider: 'openrouter', refresh: true });
+    expect(decodeAgentListModelsInput({ provider: 'openrouter', refresh: false }, CONTEXT)).toEqual({ provider: 'openrouter', refresh: false });
+    expect(() => decodeAgentListModelsInput({ provider: 'openrouter', refresh: 'true' }, CONTEXT)).toThrow();
+    expect(() => decodeAgentListModelsInput({ provider: 'openrouter', refresh: null }, CONTEXT)).toThrow();
+  });
 });
 
 describe('filesystem inputs', () => {

@@ -148,7 +148,9 @@ import {
   type CodecContext,
 } from '@lumacast/protocol';
 import { AgentActionBroker } from './agent/action-broker';
+import { agentProviderBaseUrl } from '@lumacast/protocol';
 import { AgentConfigStore } from './agent/agent-config-store';
+import { ModelCatalogCache } from './agent/model-catalog-cache';
 import { AgentRuntime } from './agent/agent-runtime';
 import { AgentCredentialStore } from './agent/credential-store';
 import { extractDocumentText } from './agent/document-extraction';
@@ -466,6 +468,7 @@ export const registerIpcHandlers = (
   // filesystem read live here in main. The renderer drives them over the
   // `agent:*` RPCs below and renders the event stream; it never sees a key.
   const agentConfigStore = new AgentConfigStore(app.getPath('userData'));
+  const agentModelCatalogs = new ModelCatalogCache(app.getPath('userData'));
   const agentCredentialStore = new AgentCredentialStore(app.getPath('userData'), safeStorage);
   const agentThreadStore = new AgentThreadStore(app.getPath('userData'));
   const agentGrants = new SessionGrants();
@@ -521,7 +524,7 @@ export const registerIpcHandlers = (
     if (!provider) throw new Error('No provider selected.');
     const apiKey = agentCredentialStore.getKey(provider);
     if (!apiKey) throw new Error(`No API key is stored for ${provider}.`);
-    return createProviderAdapter(provider, { apiKey, baseUrl: baseUrl ?? agentConfigStore.load().baseUrl });
+    return createProviderAdapter(provider, { apiKey, baseUrl: baseUrl === undefined ? agentProviderBaseUrl(agentConfigStore.load(), provider) : baseUrl });
   }
 
   /**
@@ -1344,19 +1347,27 @@ export const registerIpcHandlers = (
     agentSetCredential: (_event, input: AgentSetCredentialInput) => {
       const { provider, apiKey } = decodeAgentSetCredentialInput(input, rpcContext('agentSetCredential'));
       agentCredentialStore.setKey(provider, apiKey);
+      agentModelCatalogs.invalidate(provider);
       return agentCredentialStore.status();
     },
     agentDeleteCredential: (_event, input: AgentProviderInput) => {
       const { provider } = decodeAgentProviderInput(input, rpcContext('agentDeleteCredential'));
       agentCredentialStore.deleteKey(provider);
+      agentModelCatalogs.invalidate(provider);
       return agentCredentialStore.status();
     },
     agentListModels: (_event, input: AgentListModelsInput) => {
-      const { provider, baseUrl } = decodeAgentListModelsInput(input, rpcContext('agentListModels'));
-      return agentAdapterFor(provider, baseUrl).listModels();
+      const { provider, baseUrl, refresh } = decodeAgentListModelsInput(input, rpcContext('agentListModels'));
+      const effectiveBaseUrl = baseUrl === undefined ? agentProviderBaseUrl(agentConfigStore.load(), provider) : baseUrl;
+      const adapter = agentAdapterFor(provider, effectiveBaseUrl);
+      return agentModelCatalogs.list(provider, effectiveBaseUrl, () => adapter.listModels(), refresh);
     },
     agentValidateModel: (_event, input: AgentValidateModelInput) => {
       const { provider, model, baseUrl } = decodeAgentValidateModelInput(input, rpcContext('agentValidateModel'));
+      if (provider === 'openrouter') {
+        const effectiveBaseUrl = baseUrl === undefined ? agentProviderBaseUrl(agentConfigStore.load(), provider) : baseUrl;
+        return agentModelCatalogs.validate(provider, effectiveBaseUrl, model, () => agentAdapterFor(provider, effectiveBaseUrl).listModels());
+      }
       return agentAdapterFor(provider, baseUrl).validateModel(model);
     },
 
