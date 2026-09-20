@@ -197,7 +197,14 @@ describe('OpenAiCompatibleAdapter request shape mapping', () => {
       { role: 'tool', tool_call_id: 'call_1', content: 'sunny' },
       { role: 'tool', tool_call_id: 'call_2', content: 'oops' },
     ]);
-    expect(options).toEqual({ signal: request.signal });
+    // Since the idle-watchdog work (0288150), the signal handed to the SDK
+    // is `withIdleTimeout`'s own derived controller, not `request.signal`
+    // itself — it forwards `request.signal`'s abort (covered by the "stream
+    // idle watchdog" tests below) but is never the same object, so this only
+    // checks that a fresh, not-yet-aborted signal was passed.
+    expect(Object.keys(options)).toEqual(['signal']);
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect((options.signal as AbortSignal).aborted).toBe(false);
   });
 
   it('omits tools/tool_choice entirely when no tools are configured', async () => {
@@ -356,9 +363,15 @@ describe('OpenAiCompatibleAdapter error mapping', () => {
 
   it('maps an aborted signal to code aborted regardless of the thrown error', async () => {
     const { adapter, instance } = newAdapter('openai');
-    instance.chat.completions.create.mockRejectedValue(new Error('stream closed'));
     const controller = new AbortController();
-    controller.abort();
+    // Abort from inside the mocked call (as a real cancel racing the SDK
+    // would) rather than before `chat()` even starts: since 0288150, `chat`
+    // checks its idle signal for an abort before calling `create` at all, so
+    // a signal aborted up front never reaches `create`'s mocked rejection.
+    instance.chat.completions.create.mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(new Error('stream closed'));
+    });
 
     const events = await collect(adapter.chat(buildRequest({ signal: controller.signal })));
 
