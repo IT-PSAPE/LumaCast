@@ -77,6 +77,10 @@ import type {
   PlaylistSeparator,
   PlaylistRow,
   SlideTag,
+  Timer,
+  TimerFormat,
+  TimerKind,
+  TimerThreshold,
 } from '@lumacast/composition';
 import type {
   Cue,
@@ -157,6 +161,8 @@ import type {
   SlideTagCreateInput,
   SlideTagUpdateInput,
   SlideTagAssignInput,
+  TimerCreateInput,
+  TimerUpdateInput,
   StageCreateInput,
   StageSummary,
   StageUpdateInput,
@@ -175,6 +181,31 @@ const SQLITE_IN_QUERY_CHUNK_SIZE = 200;
 
 const MEDIA_ASSET_TABLES = ['image_assets', 'video_assets', 'audio_assets'] as const;
 const PROJECT_BACKUP_MEDIA_ASSET_TABLES = MEDIA_ASSET_TABLES;
+
+const TIMER_KINDS = ['countdown', 'countdown-to-time', 'elapsed'] as const satisfies readonly TimerKind[];
+const TIMER_FORMATS = ['mm:ss', 'hh:mm:ss'] as const satisfies readonly TimerFormat[];
+function isValidTimerKind(value: string): value is TimerKind {
+  return (TIMER_KINDS as readonly string[]).includes(value);
+}
+function isValidTimerFormat(value: string): value is TimerFormat {
+  return (TIMER_FORMATS as readonly string[]).includes(value);
+}
+
+interface TimerRow {
+  id: string;
+  name: string;
+  kind: string;
+  duration_seconds: number;
+  target_time: string | null;
+  elapsed_start_seconds: number;
+  elapsed_end_seconds: number | null;
+  allow_overrun: number;
+  format: string;
+  thresholds_json: string;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
 
 // #219 item-model refactor decision D2: the three per-owner theme tables.
 // PresentationTheme/LyricTheme/OverlayTheme are literally the same
@@ -228,6 +259,7 @@ const PROJECT_BACKUP_TABLE_KEYS = [
   'presentations',
   'lyrics',
   'slide_tags',
+  'timers',
   'overlays',
   'stages',
   'slides',
@@ -345,6 +377,7 @@ function clearProjectBackupTables(db: SqliteDatabase): void {
     DELETE FROM playlists;
     DELETE FROM slides;
     DELETE FROM slide_tags;
+    DELETE FROM timers;
     DELETE FROM presentations;
     DELETE FROM lyrics;
     DELETE FROM overlays;
@@ -420,6 +453,18 @@ function insertProjectBackupRows(db: SqliteDatabase, backup: ProjectBackup): voi
     );
     for (const row of t.slide_tags) {
       insertSlideTag.run(row.id, row.name, row.color_key, row.order_index, row.created_at, row.updated_at);
+    }
+
+    const insertTimer = db.prepare(
+      `INSERT INTO timers (id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const row of t.timers) {
+      insertTimer.run(
+        row.id, row.name, row.kind, row.duration_seconds, row.target_time,
+        row.elapsed_start_seconds, row.elapsed_end_seconds, row.allow_overrun, row.format,
+        row.thresholds_json, row.order_index, row.created_at, row.updated_at,
+      );
     }
 
     const insertSlide = db.prepare(
@@ -953,6 +998,7 @@ interface BuildPatchSpec {
   upsertTriggerBindingIds?: Id[];
   upsertPlaybackScheduleIds?: Id[];
   upsertSlideTagIds?: Id[];
+  upsertTimerIds?: Id[];
   deletedPresentationIds?: Id[];
   deletedLyricIds?: Id[];
   deletedSlideIds?: Id[];
@@ -970,6 +1016,7 @@ interface BuildPatchSpec {
   deletedTriggerBindingIds?: Id[];
   deletedPlaybackScheduleIds?: Id[];
   deletedSlideTagIds?: Id[];
+  deletedTimerIds?: Id[];
 }
 
 interface ContentSlideRow {
@@ -1170,6 +1217,7 @@ export class CastRepository {
       triggerBindings: this.listTriggerBindings(),
       playbackSchedules: this.listPlaybackSchedules(),
       slideTags: this.listSlideTags(),
+      timers: this.listTimers(),
     };
   }
 
@@ -1770,6 +1818,7 @@ export class CastRepository {
         DELETE FROM slide_elements;
         DELETE FROM slides;
         DELETE FROM slide_tags;
+        DELETE FROM timers;
         DELETE FROM overlays;
         DELETE FROM stages;
         DELETE FROM presentations;
@@ -1801,6 +1850,18 @@ export class CastRepository {
       );
       for (const tag of snapshot.slideTags ?? []) {
         insertSlideTag.run(tag.id, tag.name, tag.colorKey, tag.order, tag.createdAt, tag.updatedAt);
+      }
+
+      const insertTimer = this.db.prepare(
+        `INSERT INTO timers (id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const timer of snapshot.timers ?? []) {
+        insertTimer.run(
+          timer.id, timer.name, timer.kind, timer.durationSeconds, timer.targetTime,
+          timer.elapsedStartSeconds, timer.elapsedEndSeconds, timer.allowOverrun ? 1 : 0, timer.format,
+          JSON.stringify(timer.thresholds), timer.order, timer.createdAt, timer.updatedAt,
+        );
       }
 
       const insertPresentation = this.db.prepare(
@@ -3747,6 +3808,185 @@ export class CastRepository {
       id: row.id,
       name: row.name,
       colorKey: row.color_key,
+      order: row.order_index,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  // ─── Timers (ADR-0042) ──────────────────────────────────────────────────
+
+  listTimers(): Timer[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at
+         FROM timers ORDER BY order_index ASC, created_at ASC, id ASC`
+      )
+      .all() as TimerRow[];
+    return rows.map((row) => this.mapTimerRow(row, 'listTimers'));
+  }
+
+  createTimer(input: TimerCreateInput): SnapshotPatch {
+    if (input.kind !== undefined && !isValidTimerKind(input.kind)) throw new Error(`Invalid timer kind: ${input.kind}`);
+    if (input.format !== undefined && !isValidTimerFormat(input.format)) throw new Error(`Invalid timer format: ${input.format}`);
+
+    const now = nowIso();
+    const timerId = createId();
+    const count = (this.db.prepare('SELECT COUNT(*) AS count FROM timers').get() as { count: number }).count;
+    const currentOrder = (this.db.prepare('SELECT MAX(order_index) AS maxOrder FROM timers').get() as { maxOrder: number | null }).maxOrder ?? -1;
+    const name = input.name?.trim() || `Timer ${count + 1}`;
+
+    this.db
+      .prepare(
+        `INSERT INTO timers (id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        timerId,
+        name,
+        input.kind ?? 'countdown',
+        input.durationSeconds ?? 300,
+        input.targetTime ?? null,
+        input.elapsedStartSeconds ?? 0,
+        input.elapsedEndSeconds ?? null,
+        input.allowOverrun ? 1 : 0,
+        input.format ?? 'mm:ss',
+        JSON.stringify(input.thresholds ?? []),
+        currentOrder + 1,
+        now,
+        now,
+      );
+    return this.buildPatch({ upsertTimerIds: [timerId] });
+  }
+
+  updateTimer(input: TimerUpdateInput): SnapshotPatch {
+    const existing = this.db
+      .prepare(
+        `SELECT id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index
+         FROM timers WHERE id = ?`
+      )
+      .get(input.id) as Omit<TimerRow, 'created_at' | 'updated_at'> | undefined;
+    if (!existing) throw new Error(`Timer not found: ${input.id}`);
+
+    const hasFieldUpdate = input.name !== undefined || input.kind !== undefined || input.durationSeconds !== undefined
+      || 'targetTime' in input || input.elapsedStartSeconds !== undefined || 'elapsedEndSeconds' in input
+      || input.allowOverrun !== undefined || input.format !== undefined || input.thresholds !== undefined;
+    if (!hasFieldUpdate && input.order === undefined) return this.buildPatch({});
+
+    if (input.name !== undefined && !input.name.trim()) throw new Error('Timer name must not be empty.');
+    if (input.kind !== undefined && !isValidTimerKind(input.kind)) throw new Error(`Invalid timer kind: ${input.kind}`);
+    if (input.format !== undefined && !isValidTimerFormat(input.format)) throw new Error(`Invalid timer format: ${input.format}`);
+    if (input.order !== undefined && !Number.isFinite(input.order)) throw new Error('Timer order must be finite.');
+
+    const now = nowIso();
+    const affectedIds = new Set<Id>([input.id]);
+    const tx = this.db.transaction(() => {
+      if (hasFieldUpdate) {
+        const name = input.name !== undefined ? input.name.trim() : existing.name;
+        const kind = input.kind ?? existing.kind;
+        const durationSeconds = input.durationSeconds ?? existing.duration_seconds;
+        const targetTime = 'targetTime' in input ? input.targetTime ?? null : existing.target_time;
+        const elapsedStartSeconds = input.elapsedStartSeconds ?? existing.elapsed_start_seconds;
+        const elapsedEndSeconds = 'elapsedEndSeconds' in input ? input.elapsedEndSeconds ?? null : existing.elapsed_end_seconds;
+        const allowOverrun = input.allowOverrun ?? (existing.allow_overrun === 1);
+        const format = input.format ?? existing.format;
+        const thresholdsJson = input.thresholds !== undefined ? JSON.stringify(input.thresholds) : existing.thresholds_json;
+
+        this.db.prepare(
+          `UPDATE timers
+           SET name = ?, kind = ?, duration_seconds = ?, target_time = ?, elapsed_start_seconds = ?,
+               elapsed_end_seconds = ?, allow_overrun = ?, format = ?, thresholds_json = ?, updated_at = ?
+           WHERE id = ?`
+        ).run(name, kind, durationSeconds, targetTime, elapsedStartSeconds, elapsedEndSeconds, allowOverrun ? 1 : 0, format, thresholdsJson, now, input.id);
+      }
+
+      if (input.order !== undefined) {
+        const timers = this.db
+          .prepare('SELECT id, order_index FROM timers ORDER BY order_index ASC, created_at ASC, id ASC')
+          .all() as Array<{ id: string; order_index: number }>;
+        const moved = timers.find((timer) => timer.id === input.id);
+        if (!moved) throw new Error(`Timer not found: ${input.id}`);
+        const reordered = timers.filter((timer) => timer.id !== input.id);
+        const target = Math.max(0, Math.min(Math.trunc(input.order), reordered.length));
+        reordered.splice(target, 0, moved);
+        const updateOrder = this.db.prepare('UPDATE timers SET order_index = ?, updated_at = ? WHERE id = ?');
+        reordered.forEach((timer, index) => {
+          if (timer.order_index === index) return;
+          updateOrder.run(index, now, timer.id);
+          affectedIds.add(timer.id);
+        });
+      }
+    });
+    tx();
+    return this.buildPatch({ upsertTimerIds: [...affectedIds] });
+  }
+
+  deleteTimer(id: Id): SnapshotPatch {
+    const exists = this.db.prepare('SELECT id FROM timers WHERE id = ?').get(id);
+    if (!exists) throw new Error(`Timer not found: ${id}`);
+
+    let reorderedTimerIds: Id[] = [];
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM timers WHERE id = ?').run(id);
+      reorderedTimerIds = this.normalizeTimerOrder();
+    });
+    tx();
+
+    // Linked text bindings deliberately keep their `timerId` — the canvas
+    // renders a "--:--" placeholder for a dangling link, and deleting a
+    // timer never rewrites element payloads.
+    return this.buildPatch({
+      deletedTimerIds: [id],
+      upsertTimerIds: reorderedTimerIds,
+    });
+  }
+
+  private normalizeTimerOrder(): Id[] {
+    const timers = this.db
+      .prepare('SELECT id, order_index FROM timers ORDER BY order_index ASC, created_at ASC, id ASC')
+      .all() as Array<{ id: string; order_index: number }>;
+    const now = nowIso();
+    const changed: Id[] = [];
+    timers.forEach((timer, index) => {
+      if (timer.order_index === index) return;
+      this.db.prepare('UPDATE timers SET order_index = ?, updated_at = ? WHERE id = ?').run(index, now, timer.id);
+      changed.push(timer.id);
+    });
+    return changed;
+  }
+
+  private getTimersByIds(ids: readonly Id[]): Timer[] {
+    if (ids.length === 0) return [];
+    const rows = chunkValues(ids).flatMap((idChunk) => {
+      const placeholders = idChunk.map(() => '?').join(',');
+      return this.db.prepare(
+        `SELECT id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at
+         FROM timers WHERE id IN (${placeholders})`
+      ).all(...idChunk) as TimerRow[];
+    });
+    return rows
+      .sort((left, right) => left.order_index - right.order_index || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id))
+      .map((row) => this.mapTimerRow(row, 'getTimersByIds'));
+  }
+
+  private mapTimerRow(row: TimerRow, operation: string): Timer {
+    if (!isValidTimerKind(row.kind)) {
+      throw new Error(`[persisted/${operation}] timers.${row.id}.kind: invalid timer kind ${JSON.stringify(row.kind)}`);
+    }
+    if (!isValidTimerFormat(row.format)) {
+      throw new Error(`[persisted/${operation}] timers.${row.id}.format: invalid timer format ${JSON.stringify(row.format)}`);
+    }
+    return {
+      id: row.id,
+      name: row.name,
+      kind: row.kind,
+      durationSeconds: row.duration_seconds,
+      targetTime: row.target_time,
+      elapsedStartSeconds: row.elapsed_start_seconds,
+      elapsedEndSeconds: row.elapsed_end_seconds,
+      allowOverrun: row.allow_overrun === 1,
+      format: row.format,
+      thresholds: parseJson<TimerThreshold[]>(row.thresholds_json),
       order: row.order_index,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -6328,6 +6568,7 @@ export class CastRepository {
 
   private applySnapshotPatchUpserts(patch: SnapshotPatch): void {
     this.upsertSlideTagRows(patch.upserts.slideTags);
+    this.upsertTimerRows(patch.upserts.timers);
     this.upsertThemeRows('presentation_themes', patch.upserts.presentationThemes);
     this.upsertThemeRows('lyric_themes', patch.upserts.lyricThemes);
     this.upsertThemeRows('overlay_themes', patch.upserts.overlayThemes);
@@ -6345,6 +6586,7 @@ export class CastRepository {
     this.upsertTriggerBindingRows(patch.upserts.triggerBindings);
     this.upsertPlaybackScheduleRows(patch.upserts.playbackSchedules);
     this.deleteRowsByIds('slide_tags', patch.deletes.slideTags);
+    this.deleteRowsByIds('timers', patch.deletes.timers);
   }
 
   private deleteRowsByIds(table: string, ids: readonly Id[] | undefined): void {
@@ -6796,6 +7038,34 @@ export class CastRepository {
     }
   }
 
+  private upsertTimerRows(rows: readonly Timer[] | undefined): void {
+    if (!rows || rows.length === 0) return;
+    const upsert = this.db.prepare(
+      `INSERT INTO timers (id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         name = excluded.name,
+         kind = excluded.kind,
+         duration_seconds = excluded.duration_seconds,
+         target_time = excluded.target_time,
+         elapsed_start_seconds = excluded.elapsed_start_seconds,
+         elapsed_end_seconds = excluded.elapsed_end_seconds,
+         allow_overrun = excluded.allow_overrun,
+         format = excluded.format,
+         thresholds_json = excluded.thresholds_json,
+         order_index = excluded.order_index,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`
+    );
+    for (const row of rows) {
+      upsert.run(
+        row.id, row.name, row.kind, row.durationSeconds, row.targetTime,
+        row.elapsedStartSeconds, row.elapsedEndSeconds, row.allowOverrun ? 1 : 0, row.format,
+        JSON.stringify(row.thresholds), row.order, row.createdAt, row.updatedAt,
+      );
+    }
+  }
+
   private upsertThemeRows(table: ThemeTableName, rows: readonly PresentationTheme[] | undefined): void {
     if (!rows || rows.length === 0) return;
     const upsert = this.db.prepare(
@@ -6950,6 +7220,7 @@ export class CastRepository {
     if (spec.upsertTriggerBindingIds && spec.upsertTriggerBindingIds.length > 0) patch.upserts.triggerBindings = this.getTriggerBindingsByIds(spec.upsertTriggerBindingIds);
     if (spec.upsertPlaybackScheduleIds && spec.upsertPlaybackScheduleIds.length > 0) patch.upserts.playbackSchedules = this.getPlaybackSchedulesByIds(spec.upsertPlaybackScheduleIds);
     if (spec.upsertSlideTagIds && spec.upsertSlideTagIds.length > 0) patch.upserts.slideTags = this.getSlideTagsByIds(spec.upsertSlideTagIds);
+    if (spec.upsertTimerIds && spec.upsertTimerIds.length > 0) patch.upserts.timers = this.getTimersByIds(spec.upsertTimerIds);
 
     if (spec.deletedPresentationIds && spec.deletedPresentationIds.length > 0) patch.deletes.presentations = [...spec.deletedPresentationIds];
     if (spec.deletedLyricIds && spec.deletedLyricIds.length > 0) patch.deletes.lyrics = [...spec.deletedLyricIds];
@@ -6968,6 +7239,7 @@ export class CastRepository {
     if (spec.deletedTriggerBindingIds && spec.deletedTriggerBindingIds.length > 0) patch.deletes.triggerBindings = [...spec.deletedTriggerBindingIds];
     if (spec.deletedPlaybackScheduleIds && spec.deletedPlaybackScheduleIds.length > 0) patch.deletes.playbackSchedules = [...spec.deletedPlaybackScheduleIds];
     if (spec.deletedSlideTagIds && spec.deletedSlideTagIds.length > 0) patch.deletes.slideTags = [...spec.deletedSlideTagIds];
+    if (spec.deletedTimerIds && spec.deletedTimerIds.length > 0) patch.deletes.timers = [...spec.deletedTimerIds];
 
     return patch;
   }

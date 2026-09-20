@@ -14,6 +14,7 @@ import type {
   ProjectBackupStageRow,
   ProjectBackupTables,
   ProjectBackupThemeRow,
+  ProjectBackupTimerRow,
   ProjectBackupTriggerBindingRow,
 } from '@lumacast/protocol';
 import type {
@@ -24,7 +25,7 @@ import type {
   TriggerBindingTargetType,
   TriggerType,
 } from '@lumacast/automation';
-import type { SlideBackgroundSource, SlideElement, SlideKind, SlideTagColorKey } from '@lumacast/composition';
+import type { SlideBackgroundSource, SlideElement, SlideKind, SlideTagColorKey, TimerFormat, TimerKind } from '@lumacast/composition';
 import type { SqliteDatabase } from './sqlite';
 
 // #219 item-model refactor (wave K): pure row-projection reads for the
@@ -128,6 +129,46 @@ function readProjectBackupSlideTags(db: SqliteDatabase): ProjectBackupSlideTagRo
     id: row.id,
     name: row.name,
     color_key: row.color_key,
+    order_index: row.order_index,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  }));
+}
+
+function readProjectBackupTimers(db: SqliteDatabase): ProjectBackupTimerRow[] {
+  const rows = db
+    .prepare(
+      `SELECT id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at
+       FROM timers
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all() as Array<{
+      id: string;
+      name: string;
+      kind: TimerKind;
+      duration_seconds: number;
+      target_time: string | null;
+      elapsed_start_seconds: number;
+      elapsed_end_seconds: number | null;
+      allow_overrun: number;
+      format: TimerFormat;
+      thresholds_json: string;
+      order_index: number;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    duration_seconds: row.duration_seconds,
+    target_time: row.target_time,
+    elapsed_start_seconds: row.elapsed_start_seconds,
+    elapsed_end_seconds: row.elapsed_end_seconds,
+    allow_overrun: row.allow_overrun,
+    format: row.format,
+    thresholds_json: row.thresholds_json,
     order_index: row.order_index,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -486,6 +527,7 @@ export function buildProjectBackupTables(db: SqliteDatabase): ProjectBackupTable
     slides: readProjectBackupSlides(db),
     slide_elements: readProjectBackupSlideElements(db),
     slide_tags: readProjectBackupSlideTags(db),
+    timers: readProjectBackupTimers(db),
     playlists: readProjectBackupPlaylists(db),
     playlist_entries: readProjectBackupPlaylistEntries(db),
     image_assets: readProjectBackupMediaAssets(db, 'image_assets'),

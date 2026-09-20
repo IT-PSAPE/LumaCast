@@ -308,6 +308,7 @@ const EXPECTED_TABLES: ProjectBackupTables = {
   slide_tags: [
     { id: 'tag-1', name: 'Chorus', color_key: 'blue', order_index: 0, created_at: T2, updated_at: T2 },
   ],
+  timers: [],
   playlists: [
     { id: 'pl-1', name: 'Sunday Service', order_index: 0, created_at: T0, updated_at: T0 },
     { id: 'pl-2', name: 'Evening', order_index: 1, created_at: T1, updated_at: T1 },
@@ -529,7 +530,7 @@ describe('project backup validation (#145, backup v3)', () => {
   it('keeps the core-supported schema version in lockstep with the database migrations', () => {
     expect(PROJECT_BACKUP_VERSION).toBe(3);
     expect(PROJECT_BACKUP_SUPPORTED_SCHEMA_VERSION).toBe(LATEST_SCHEMA_VERSION);
-    expect(LATEST_SCHEMA_VERSION).toBe(35);
+    expect(LATEST_SCHEMA_VERSION).toBe(36);
   });
 
   it('rejects a v1/schema-22 backup with an explicit "older app version" message, not a silent/generic failure', () => {

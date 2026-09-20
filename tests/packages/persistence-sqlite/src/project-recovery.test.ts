@@ -338,7 +338,7 @@ describe('project recovery restore (#146, backup v3)', () => {
 
     const reExported = repo.exportProjectBackup();
     expect(reExported.version).toBe(3);
-    expect(reExported.schemaVersion).toBe(35);
+    expect(reExported.schemaVersion).toBe(36);
   });
 
   it('preserves explicit and intentionally empty override metadata from schema-32 backups', () => {
@@ -757,7 +757,7 @@ describe('legacy (v1) project backup import (#219 item-model refactor, wave K)',
     // document at the current schema version.
     const reExported = legacyRepo.exportProjectBackup();
     expect(reExported.version).toBe(3);
-    expect(reExported.schemaVersion).toBe(35);
+    expect(reExported.schemaVersion).toBe(36);
   });
 
   it('rejects a v1 document with an unsupported legacy schema version, naming it as an older app version', () => {

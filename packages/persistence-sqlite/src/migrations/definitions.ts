@@ -2806,11 +2806,154 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 33, name: 'remove-talks', up: removeTalksSchema, requiresForeignKeysOff: true },
   { version: 34, name: 'slide-tags', up: addSlideTagsSchema },
   { version: 35, name: 'lyric-runtime-blank-slides', up: addLyricRuntimeBlankSlides },
+  { version: 36, name: 'timers', up: addTimersSchema },
 ];
 
 function addLyricRuntimeBlankSlides(db: SqliteDatabase): void {
   if (!hasColumn(db, 'lyrics', 'blank_slide_mode')) {
     db.exec("ALTER TABLE lyrics ADD COLUMN blank_slide_mode TEXT NOT NULL DEFAULT 'none' CHECK (blank_slide_mode IN ('none', 'start', 'end', 'both'))");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v36 — first-class timers (ADR-0042). A timer becomes a global named entity
+// (its own table) instead of a `TextBinding` carrying its own
+// `timerDurationSeconds`/`timerFormat`. Every legacy timer binding found in
+// `slide_elements.payload_json` — which, via each owner's synthetic
+// "container slide" (`createContainerSlide`/`replaceContainerElements` in
+// store.ts), is also where every theme/overlay/stage element lives; neither
+// table has its own `elements_json` column in this schema — is converted,
+// including ones nested inside a `group` element's children: one `timers`
+// row is created per distinct (durationSeconds, format) pair encountered —
+// named "Timer <duration>", e.g. "Timer 05:00" — and every matching binding
+// is rewritten to link to it via `timerId`, with the legacy fields removed.
+// ---------------------------------------------------------------------------
+function addTimersSchema(db: SqliteDatabase): void {
+  db.exec(`
+    CREATE TABLE timers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      duration_seconds INTEGER NOT NULL DEFAULT 300,
+      target_time TEXT NULL,
+      elapsed_start_seconds INTEGER NOT NULL DEFAULT 0,
+      elapsed_end_seconds INTEGER NULL,
+      allow_overrun INTEGER NOT NULL DEFAULT 0,
+      format TEXT NOT NULL DEFAULT 'mm:ss',
+      thresholds_json TEXT NOT NULL DEFAULT '[]',
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_timers_order_index ON timers(order_index);');
+
+  convertLegacyTimerBindings(db);
+}
+
+function padLegacyTimerDurationPart(value: number): string {
+  return value < 10 ? `0${value}` : `${value}`;
+}
+
+/** Mirrors `formatTimerSeconds`'s positive-duration formatting (composition's runtime function is out of reach here; this module stays independent of the other packages' runtime code). */
+function formatLegacyTimerDuration(durationSeconds: number, format: 'mm:ss' | 'hh:mm:ss'): string {
+  const safe = Math.max(0, Math.floor(durationSeconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (format === 'hh:mm:ss') return `${padLegacyTimerDurationPart(hours)}:${padLegacyTimerDurationPart(minutes)}:${padLegacyTimerDurationPart(secs)}`;
+  const totalMinutes = Math.floor(safe / 60);
+  return `${padLegacyTimerDurationPart(totalMinutes)}:${padLegacyTimerDurationPart(secs)}`;
+}
+
+interface LegacyElementLike {
+  type?: unknown;
+  payload?: {
+    binding?: {
+      kind?: unknown;
+      timerId?: unknown;
+      timerDurationSeconds?: unknown;
+      timerFormat?: unknown;
+      [key: string]: unknown;
+    };
+    children?: unknown;
+    [key: string]: unknown;
+  };
+}
+
+/**
+ * Rewrites every legacy `kind: 'timer'` binding (no `timerId` yet) found on
+ * `element` or, recursively, inside a `group` element's `payload.children`.
+ * Mutates the parsed JSON tree in place; returns whether anything changed so
+ * the caller only re-serializes and writes back rows that actually differ.
+ */
+function rewriteLegacyTimerBindingsInElement(
+  element: unknown,
+  resolveTimerId: (durationSeconds: unknown, format: unknown) => string,
+): boolean {
+  if (!element || typeof element !== 'object') return false;
+  const el = element as LegacyElementLike;
+  const payload = el.payload;
+  if (!payload || typeof payload !== 'object') return false;
+
+  let changed = false;
+  if (el.type === 'text') {
+    const binding = payload.binding;
+    if (binding && typeof binding === 'object' && binding.kind === 'timer' && !binding.timerId) {
+      binding.timerId = resolveTimerId(binding.timerDurationSeconds, binding.timerFormat);
+      delete binding.timerDurationSeconds;
+      delete binding.timerFormat;
+      changed = true;
+    }
+  } else if (el.type === 'group' && Array.isArray(payload.children)) {
+    for (const childElement of payload.children as unknown[]) {
+      if (rewriteLegacyTimerBindingsInElement(childElement, resolveTimerId)) changed = true;
+    }
+  }
+  return changed;
+}
+
+function convertLegacyTimerBindings(db: SqliteDatabase): void {
+  const now = nowIso();
+  const timerIdByKey = new Map<string, string>();
+  let nextOrder = 0;
+
+  const insertTimer = db.prepare(
+    `INSERT INTO timers
+       (id, name, kind, duration_seconds, target_time, elapsed_start_seconds, elapsed_end_seconds, allow_overrun, format, thresholds_json, order_index, created_at, updated_at)
+     VALUES (?, ?, 'countdown', ?, NULL, 0, NULL, 0, ?, '[]', ?, ?, ?)`
+  );
+
+  const resolveTimerId = (rawDurationSeconds: unknown, rawFormat: unknown): string => {
+    const durationSeconds = typeof rawDurationSeconds === 'number' && Number.isFinite(rawDurationSeconds) && rawDurationSeconds >= 0
+      ? Math.round(rawDurationSeconds)
+      : 300;
+    const format: 'mm:ss' | 'hh:mm:ss' = rawFormat === 'hh:mm:ss' ? 'hh:mm:ss' : 'mm:ss';
+    const key = `${durationSeconds}|${format}`;
+    const existing = timerIdByKey.get(key);
+    if (existing) return existing;
+
+    const id = createId();
+    const name = `Timer ${formatLegacyTimerDuration(durationSeconds, format)}`;
+    insertTimer.run(id, name, durationSeconds, format, nextOrder, now, now);
+    timerIdByKey.set(key, id);
+    nextOrder += 1;
+    return id;
+  };
+
+  // Every element — whether it sits on a real slide, or on the synthetic
+  // "container slide" (`<ownerId>:slide`) that themes, overlays, and stages
+  // each own — is a row in `slide_elements`; overlays/stages have no
+  // `elements_json` column of their own in this (or any recent) schema. One
+  // scan therefore reaches every legacy timer binding regardless of owner.
+  const slideElementRows = db
+    .prepare("SELECT id, type, payload_json FROM slide_elements WHERE type IN ('text', 'group') ORDER BY created_at ASC, id ASC")
+    .all() as Array<{ id: string; type: string; payload_json: string }>;
+  const updateSlideElementPayload = db.prepare('UPDATE slide_elements SET payload_json = ? WHERE id = ?');
+  for (const row of slideElementRows) {
+    const payload = parseJson<Record<string, unknown>>(row.payload_json);
+    const changed = rewriteLegacyTimerBindingsInElement({ type: row.type, payload }, resolveTimerId);
+    if (changed) updateSlideElementPayload.run(JSON.stringify(payload), row.id);
   }
 }
 

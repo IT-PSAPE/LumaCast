@@ -34,7 +34,7 @@ describe('migration 29 performance indexes', () => {
     try {
       runMigrations(db, dbPath);
 
-      expect(db.pragma('user_version', { simple: true })).toBe(35);
+      expect(db.pragma('user_version', { simple: true })).toBe(36);
 
       const indexNames = (db.prepare(
         "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('idx_slides_presentation_id_order_index', 'idx_slides_lyric_id_order_index', 'idx_playlist_entries_playlist_id_order_index', 'idx_slide_elements_slide_id_layer_z_index_created_at') ORDER BY name ASC"
