@@ -55,6 +55,12 @@ describe('redactString — pattern-based redaction', () => {
     expect(result).toBe('OPENAI_API_KEY=sk-a…[redacted]');
   });
 
+  it('redacts a Groq API key (gsk_...)', () => {
+    const key = 'gsk_abcdefghijklmnopqrstuvwxyz012345';
+    const result = redactString(`GROQ_API_KEY=${key}`);
+    expect(result).toBe('GROQ_API_KEY=gsk_…[redacted]');
+  });
+
   it('redacts a Google API key (AIza...)', () => {
     const key = `AIza${'a'.repeat(35)}`;
     const result = redactString(`googleKey ${key} end`);
