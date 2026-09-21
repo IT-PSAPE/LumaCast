@@ -103,7 +103,7 @@ async function collect(iterable: AsyncIterable<ProviderStreamEvent>): Promise<Pr
   return events;
 }
 
-function newAdapter(provider: 'openai' | 'google' | 'openrouter' | 'openai-compatible' = 'openai', baseUrl: string | null = null, deps?: Partial<{ streamIdleTimeoutMs: number }>) {
+function newAdapter(provider: 'openai' | 'google' | 'groq' | 'openrouter' | 'openai-compatible' = 'openai', baseUrl: string | null = null, deps?: Partial<{ streamIdleTimeoutMs: number }>) {
   const adapter = new OpenAiCompatibleAdapter(provider, { apiKey: 'test-key', baseUrl }, deps);
   return { adapter, instance: latestInstance() };
 }
@@ -117,6 +117,11 @@ describe('OpenAiCompatibleAdapter construction', () => {
   it('uses the fixed Google OpenAI-compatible base URL', () => {
     const { instance } = newAdapter('google');
     expect(instance.options.baseURL).toBe('https://generativelanguage.googleapis.com/v1beta/openai/');
+  });
+
+  it('uses the fixed Groq OpenAI-compatible base URL', () => {
+    const { instance } = newAdapter('groq');
+    expect(instance.options.baseURL).toBe('https://api.groq.com/openai/v1');
   });
 
   it('uses the fixed OpenRouter base URL and attribution headers', () => {

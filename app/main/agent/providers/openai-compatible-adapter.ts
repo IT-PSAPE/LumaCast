@@ -20,6 +20,7 @@ const MAX_RETRIES = 2;
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 60_000;
 
 const GOOGLE_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/';
+const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const OPENROUTER_HEADERS: Record<string, string> = {
   'HTTP-Referer': 'https://github.com/IT-PSAPE/LumaCast',
@@ -28,7 +29,7 @@ const OPENROUTER_HEADERS: Record<string, string> = {
 };
 
 /** The `AgentProviderId`s this adapter covers directly with the Chat Completions wire format. */
-export type OpenAiCompatibleProviderId = 'openai' | 'google' | 'openrouter' | 'openai-compatible';
+export type OpenAiCompatibleProviderId = 'openai' | 'google' | 'groq' | 'openrouter' | 'openai-compatible';
 
 /**
  * Adapter-tuning knobs, injectable from tests; defaults are production-ready.
@@ -187,6 +188,9 @@ export class OpenAiCompatibleAdapter implements ProviderAdapter {
         break;
       case 'google':
         baseURL = GOOGLE_BASE_URL;
+        break;
+      case 'groq':
+        baseURL = GROQ_BASE_URL;
         break;
       case 'openrouter':
         baseURL = OPENROUTER_BASE_URL;

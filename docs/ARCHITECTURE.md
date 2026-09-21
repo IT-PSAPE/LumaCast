@@ -413,6 +413,9 @@ Each rule is also proven by a committed fixture scenario under
   Gemini uses `streamGenerateContent`, and the remaining models use Chat
   Completions. The API key is sent only to the selected Zen endpoint, never to
   Models.dev.
+- Groq is a first-class OpenAI-compatible provider. Its adapter uses
+  `https://api.groq.com/openai/v1` for chat requests and the live model catalog;
+  its API key follows the same main-process credential boundary.
 - Model catalogs are normalised in the adapters, not in the UI. Every
   `AgentModelInfo` carries a display `label` (the catalog's own name where
   the provider has one — Anthropic `display_name`, OpenRouter `name`,

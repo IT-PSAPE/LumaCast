@@ -83,6 +83,10 @@ all — which is another reason not to make any of it renderer-shaped.
   uses `streamGenerateContent`, and remaining models use Chat Completions.
   Family fallbacks preserve routing when optional metadata is unavailable.
   Models.dev never receives the user's Zen credential.
+- **Groq is a first-class OpenAI-compatible provider.** It uses the Groq API
+  base URL for chat completions and live model listing through the shared
+  OpenAI-compatible adapter; its API key remains in main with the other BYOK
+  credentials.
 
 ## Consequences
 

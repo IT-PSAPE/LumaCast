@@ -11,9 +11,9 @@ import { fail, isRecord, expectString, expectEnum, rejectUnknownKeys, type Codec
  * against. `openai-compatible` covers any self-hosted or third-party
  * endpoint that speaks the OpenAI chat-completions wire format.
  */
-export type AgentProviderId = 'anthropic' | 'openai' | 'google' | 'openrouter' | 'opencode' | 'openai-compatible';
+export type AgentProviderId = 'anthropic' | 'openai' | 'google' | 'groq' | 'openrouter' | 'opencode' | 'openai-compatible';
 
-export const AGENT_PROVIDER_IDS: readonly AgentProviderId[] = ['anthropic', 'openai', 'google', 'openrouter', 'opencode', 'openai-compatible'];
+export const AGENT_PROVIDER_IDS: readonly AgentProviderId[] = ['anthropic', 'openai', 'google', 'groq', 'openrouter', 'opencode', 'openai-compatible'];
 
 /** Static display/config metadata for one provider, independent of any user's stored credentials. */
 export interface AgentProviderInfo {
@@ -29,6 +29,7 @@ export const AGENT_PROVIDERS: readonly AgentProviderInfo[] = [
   { id: 'anthropic', label: 'Anthropic', requiresBaseUrl: false, defaultBaseUrl: null, docsUrl: 'https://docs.anthropic.com/en/api/getting-started' },
   { id: 'openai', label: 'OpenAI', requiresBaseUrl: false, defaultBaseUrl: null, docsUrl: 'https://platform.openai.com/docs/api-reference' },
   { id: 'google', label: 'Google (Gemini)', requiresBaseUrl: false, defaultBaseUrl: null, docsUrl: 'https://ai.google.dev/gemini-api/docs' },
+  { id: 'groq', label: 'Groq', requiresBaseUrl: false, defaultBaseUrl: 'https://api.groq.com/openai/v1', docsUrl: 'https://console.groq.com/docs/openai' },
   {
     id: 'openrouter',
     label: 'OpenRouter',

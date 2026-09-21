@@ -63,6 +63,16 @@ describe('AGENT_PROVIDERS / AGENT_PROVIDER_IDS', () => {
       docsUrl: 'https://opencode.ai/docs/zen',
     });
   });
+
+  it('exposes Groq with its OpenAI-compatible API base URL', () => {
+    expect(AGENT_PROVIDERS.find((provider) => provider.id === 'groq')).toEqual({
+      id: 'groq',
+      label: 'Groq',
+      requiresBaseUrl: false,
+      defaultBaseUrl: 'https://api.groq.com/openai/v1',
+      docsUrl: 'https://console.groq.com/docs/openai',
+    });
+  });
 });
 
 describe('permission tiers <-> matrices round-trip', () => {
