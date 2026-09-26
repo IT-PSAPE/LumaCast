@@ -974,7 +974,7 @@ Audio and layer-video volume are independent session controls applied to their m
 
 Linux validation runs Electron end-to-end tests under Xvfb and configures the installed `chrome-sandbox` helper with root ownership and mode `4755`. Playwright browser diagnostics expose Electron startup failures in the CI log.
 
-Cast's main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver. Cloud and Flux have no runtime updater, menu, or startup checks implemented yet.
+Cast's main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver. Cloud initializes `electron-updater` the same way against its own `cloud-feed` (ADR-0044) and surfaces the updater's state in its UI instead of dialogs; Flux has no runtime updater, menu, or startup checks implemented yet.
 
 `.github/workflows/ci-release.yml` is the single validation and release pipeline
 (ADR-0043, which supersedes ADR-0035's single-release decision). Each app calls
@@ -1015,5 +1015,53 @@ logic itself is not duplicated per app.
   can never resolve against a Cast release.
 
 Cast's identity is unchanged by the move: product name `LumaCast`, app id
-`com.lumacast.app`. Cloud and Flux are new, deliberately blank apps;
-management features for them are future work.
+`com.lumacast.app`. Flux is a new app; Cloud is the suite manager described
+below (ADR-0044).
+
+## LumaCloud suite manager
+
+LumaCloud (`apps/cloud`) is the hub that installs, updates, downgrades,
+removes, and launches the suite's apps (ADR-0044). Its layers, top to bottom:
+
+- **`@lumacast/suite`** (`packages/suite`) is the renderer-safe suite model:
+  the registry of managed apps and their identities (`com.lumacast.*`, plus
+  Lumaflux's retained `app.lumaflux.desktop`), the version rules mirrored from
+  `tool/release-version.mjs`, the GitHub release-catalog and `latest*.yml`
+  parsers, installer-artifact selection per platform and architecture, and
+  the pure derivation of each app's state. It depends on `kernel` only and
+  imports no Node builtin, Electron, or React.
+- **The catalog** (`apps/cloud/main/suite/catalog-service.ts`) reads the
+  repository's GitHub Releases API and derives each app's installable versions
+  from its `<app>-v<version>` tags and, for Cast, the legacy `v<version>` tags.
+  Feed releases, drafts, prereleases, and releases without updater metadata
+  are never installable. The raw release list is cached in Cloud's user data
+  so the hub works offline; a failed refresh keeps the cache and reports the
+  error. Feeds are not consulted for other apps: a feed only moves forward,
+  and the catalog is what makes a downgrade an ordinary install of an older
+  release.
+- **Download and verification** (`apps/cloud/main/suite/download.ts`) stream
+  the chosen artifact while hashing it and refuse to install on a size or
+  SHA-512 mismatch against the release's own `latest*.yml`.
+- **The platform seam** (`apps/cloud/main/platform`) is one `PlatformAdapter`
+  per host: macOS discovers bundles by `Info.plist` under `/Applications` and
+  `~/Applications` and verifies the bundle identifier before placing a bundle;
+  Windows reads the NSIS uninstall registry and runs installers silently;
+  Linux reads `dpkg` and the user `Applications` directory of AppImages.
+  Elevation is used only when the chosen install scope is not writable. The
+  adapters receive their `exec`/`fs` side effects injected and are tested
+  against fakes.
+- **Consent** (`apps/cloud/main/suite/permissions.ts`,
+  `settings-store.ts`) is a per-app grant the user gives once and can revoke.
+  Main refuses install, update, downgrade, remove, and open for an identity
+  without a grant, and a grant can only be recorded for a registry identity.
+  Cloud never installs or removes itself: its own hub entry is synthesized
+  from its running version and updated through its `electron-updater` feed.
+- **Operations** (`apps/cloud/main/suite/operations.ts`) run serially with an
+  observable status and progress that main pushes to the renderer; queued and
+  downloading operations can be cancelled, an operation that has begun placing
+  files cannot.
+- **The renderer** is sandboxed like the other apps: it reaches main only
+  through the typed `CloudDesktopAPI` contract (`apps/cloud/shared/desktop-api.ts`)
+  exposed as `window.lumacloud`, every IPC handler validates its sender and
+  arguments, and the only external destination the app opens is a GitHub
+  release page.

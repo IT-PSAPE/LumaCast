@@ -5,8 +5,8 @@ Cross-platform Electron prototype for a ProPresenter-style presentation workflow
 The repository is a workspace of three apps and their shared packages:
 
 - `apps/cast` — LumaCast, the NDI presentation app
-- `apps/cloud` — LumaCloud, a new, deliberately blank app
-- `apps/flux` — LumaFlux, a new, deliberately blank app
+- `apps/cloud` — LumaCloud, the suite manager: installs, updates, downgrades, and removes the other apps
+- `apps/flux` — Lumaflux, the photo editor
 
 Each app is self-contained: it ships its own main process, renderer, and
 `package.json` (which owns its release version), and it shares only the
@@ -147,7 +147,7 @@ See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release 
 
 ## Updater status
 
-Installed Cast builds check for updates on startup and expose a manual `Check for Updates…` action from the native application menu, wired through `electron-updater`. New builds of every app resolve updates from their own app-isolated `<app>-feed` release via `provider: generic`, so a Cloud or Flux update can never resolve against a Cast release; only legacy shipped Cast versions read the repository's latest release directly. Cloud and Flux are blank shells with no runtime updater, menu, or startup checks implemented yet.
+Installed Cast builds check for updates on startup and expose a manual `Check for Updates…` action from the native application menu, wired through `electron-updater`. New builds of every app resolve updates from their own app-isolated `<app>-feed` release via `provider: generic`, so a Cloud or Flux update can never resolve against a Cast release; only legacy shipped Cast versions read the repository's latest release directly. Cloud updates itself the same way from `cloud-feed` and shows the updater's state in its own UI; it also installs, updates, downgrades, and removes Cast and Flux from the repository's releases after a per-app permission grant (see [docs/adr/0044-lumacloud-suite-manager.md](docs/adr/0044-lumacloud-suite-manager.md)). Flux has no runtime updater, menu, or startup checks implemented yet.
 
 ## Architecture
 
@@ -163,6 +163,7 @@ Installed Cast builds check for updates on startup and expose a manual `Check fo
 - `packages/playback/`: headless playback decisions
 - `packages/canvas/`: the Konva render/editing layer
 - `packages/ui/`: shared, domain-agnostic React UI primitives and the Tailwind theme (`@lumacast/ui/theme.css`)
+- `packages/suite/`: the renderer-safe LumaCast suite model (app registry, version rules, release-catalog and updater-metadata parsing, app-state derivation) that LumaCloud renders
 - `packages/ndi-native/`: native Node-API bridge for NDI
 
 `packages/canvas` and `packages/ui` are the only packages that may use React and
@@ -171,7 +172,7 @@ React-Konva (Electron stays banned for both). `packages/ui` depends only on
 `packages/kernel`, so a shared control can never couple itself to a domain model
 or to one app.
 
-See [AGENTS.md](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layering rules and per-package charters, and [docs/adr/0043-root-apps-and-per-app-release-pipeline.md](docs/adr/0043-root-apps-and-per-app-release-pipeline.md) for the app layout and release pipeline decisions.
+See [AGENTS.md](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layering rules and per-package charters, and [docs/adr/0043-root-apps-and-per-app-release-pipeline.md](docs/adr/0043-root-apps-and-per-app-release-pipeline.md) for the app layout and release pipeline decisions, and [docs/adr/0044-lumacloud-suite-manager.md](docs/adr/0044-lumacloud-suite-manager.md) for the LumaCloud suite manager.
 
 ## Notes
 

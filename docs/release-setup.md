@@ -52,6 +52,12 @@ All apps release from the same `IT-PSAPE/LumaCast` repository:
   partial upload is never visible. The first feed is likewise created as a
   draft, uploaded, then published, so no empty visible feed ever appears.
 
+LumaCloud reads this same release list through the GitHub Releases API to
+offer installs, updates, and downgrades of every app (ADR-0044): a version is
+installable only when its `<app>-v<version>` (or legacy Cast `v<version>`)
+release is published, not a draft or prerelease, and carries `latest*.yml`.
+Feed releases are never installable from Cloud.
+
 ## Build matrix
 
 Every app packages Windows, macOS, and Linux with the same formula. The workflow
