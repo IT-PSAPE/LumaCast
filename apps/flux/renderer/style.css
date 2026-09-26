@@ -3,8 +3,12 @@
  * The shared LumaCast theme is imported exactly once, here, and every rule
  * from the standalone Lumaflux app follows it. Anything the app styles for
  * itself (the editor chrome, the viewer, the panels) therefore wins over the
- * shared tokens by source order, which is what keeps the surface looking the
- * way it always has while still inheriting the common typography and colours.
+ * shared tokens by source order.
+ *
+ * Colours come from the shared theme's semantic tokens, never from literals of
+ * our own. `index.html` sets `data-theme="dark"` on the document element, so
+ * those tokens already resolve to their dark values; Flux is a dark-only
+ * surface and never swaps the attribute.
  *
  * `@source` lines mirror the other apps: the app's own tree, plus the shared
  * package whose components carry utility classes, so Tailwind's automatic
@@ -15,17 +19,19 @@
 @source "./*.{ts,tsx}";
 @source "../../../../packages/ui/src/*.{ts,tsx}";
 
+/* The shared theme's base type is sized for the suite's app shell; Flux is a
+ * dense editor, so its compact base is scoped to the three elements that
+ * establish it, using the shared type tokens. Everything else inherits. */
+html,
+body,
+#root {
+  font-family: var(--font-body);
+  font-size: var(--text-paragraph-xs);
+  line-height: var(--text-paragraph-xs--line-height);
+}
 :root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: #e8e8e6;
-  background: #171819;
-  font-size: 12px;
-  font-synthesis: none;
   color-scheme: dark;
-  --panel: #202122;
-  --border: #363739;
-  --muted: #a1a3a5;
-  --accent: #f18bb9;
+  font-synthesis: none;
 }
 * {
   box-sizing: border-box;
@@ -56,27 +62,17 @@ input:focus-visible,
 select:focus-visible,
 summary:focus-visible,
 [role="slider"]:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--color-brand);
 }
 ::selection {
-  background: #81405e;
-  color: #fff;
+  background: color-mix(in oklab, var(--color-brand) 45%, transparent);
+  color: var(--text-color-primary);
 }
 input {
-  caret-color: var(--accent);
+  caret-color: var(--color-brand);
 }
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-thumb {
-  background: #4b4d4f;
-  border: 2px solid #202122;
-  border-radius: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* Scrollbar geometry and thumb colour are the shared theme's, on the same
+ * tokens as every other surface. */
 h1,
 h2,
 h3,
@@ -99,19 +95,19 @@ h3 {
 }
 input,
 select {
-  border: 1px solid #424446;
-  background: #282a2c;
+  border: 1px solid var(--border-color-primary);
+  background: var(--background-color-tertiary);
   border-radius: 5px;
   padding: 4px 7px;
   min-width: 0;
-  color: #e8e8e6;
+  color: var(--text-color-primary);
 }
 input::placeholder {
-  color: #a1a3a5;
+  color: var(--text-color-tertiary);
 }
 input[type="checkbox"],
 input[type="range"] {
-  accent-color: var(--accent);
+  accent-color: var(--color-brand);
 }
 input[type="number"] {
   font-variant-numeric: tabular-nums;
@@ -126,7 +122,7 @@ fieldset {
   min-width: 0;
 }
 .muted {
-  color: var(--muted);
+  color: var(--text-color-tertiary);
 }
 .small {
   font-size: 11px;
@@ -151,36 +147,52 @@ fieldset {
   gap: 7px;
   min-height: 24px;
   padding: 4px 7px;
-  border: 1px solid #424446;
+  border: 1px solid var(--border-color-primary);
   border-radius: 3px;
-  color: #dededc;
-  background: #2c2e30;
+  color: var(--text-color-primary);
+  background: var(--background-color-tertiary);
   font-size: 11px;
   line-height: 1.2;
   font-weight: 450;
 }
 .btn:hover:not(:disabled) {
-  background: #3b3d3f;
-  border-color: #686a6c;
+  background: color-mix(
+    in oklab,
+    var(--background-color-tertiary) 88%,
+    var(--text-color-primary)
+  );
+  border-color: color-mix(
+    in oklab,
+    var(--border-color-primary) 60%,
+    var(--text-color-secondary)
+  );
 }
+/* Ink on the brand fill, not a tinted literal: brand is suite blue, so the
+ * legible pairing is the black display token. */
 .btn.primary {
-  background: var(--accent);
-  color: #301523;
-  border-color: var(--accent);
+  background: var(--color-brand);
+  color: var(--color-black);
+  border-color: var(--color-brand);
   font-weight: 600;
 }
 .btn.primary:hover:not(:disabled) {
-  background: #ffaed3;
+  background: color-mix(
+    in oklab,
+    var(--color-brand) 85%,
+    var(--text-color-primary)
+  );
 }
 .btn.quiet {
-  background: transparent;
-  border-color: transparent;
-  color: var(--muted);
+  background: var(--color-transparent);
+  border-color: var(--color-transparent);
+  color: var(--text-color-tertiary);
 }
+/* The tint carries the accent, so the label stays on the primary foreground
+ * token rather than a fixed light brand step. */
 .btn.active {
-  background: #49313e;
-  border-color: #93536f;
-  color: #ffb8d8;
+  background: color-mix(in oklab, var(--color-brand) 18%, transparent);
+  border-color: color-mix(in oklab, var(--color-brand) 55%, transparent);
+  color: var(--text-color-primary);
 }
 .btn.icon {
   padding: 6px;
@@ -200,8 +212,8 @@ fieldset {
   align-items: center;
   justify-content: space-between;
   padding: 0 12px;
-  border-bottom: 1px solid var(--border);
-  background: #222324;
+  border-bottom: 1px solid var(--border-color-primary);
+  background: var(--background-color-secondary);
   gap: 16px;
 }
 .brand {
@@ -211,7 +223,7 @@ fieldset {
   width: 260px;
 }
 .brand > svg {
-  color: var(--accent);
+  color: var(--color-brand);
 }
 .brand strong {
   font-size: 13px;
@@ -220,24 +232,28 @@ fieldset {
 }
 .brand span {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
   padding-left: 9px;
-  border-left: 1px solid #4a4c4e;
+  border-left: 1px solid var(--border-color-primary);
 }
 .view-switch {
   display: flex;
   gap: 3px;
-  background: #191a1b;
+  background: var(--background-color-primary);
   padding: 3px;
   border-radius: 6px;
 }
 .view-switch .btn {
-  border-color: transparent;
-  background: transparent;
+  border-color: var(--color-transparent);
+  background: var(--color-transparent);
 }
 .view-switch .active {
-  background: #383a3c;
-  color: #fff;
+  background: color-mix(
+    in oklab,
+    var(--background-color-tertiary) 88%,
+    var(--text-color-primary)
+  );
+  color: var(--text-color-primary);
 }
 .header-actions {
   display: flex;
@@ -252,12 +268,12 @@ fieldset {
   min-height: 0;
 }
 .panel {
-  background: var(--panel);
+  background: var(--background-color-secondary);
 }
 .navigation {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-color-primary);
   padding: 10px 7px 0;
   min-height: 0;
 }
@@ -269,7 +285,7 @@ fieldset {
 }
 .navigation h2 {
   font-size: 11px;
-  color: #b4b6b8;
+  color: var(--text-color-secondary);
   padding: 0 10px;
   margin: 0 0 10px;
 }
@@ -283,24 +299,24 @@ fieldset {
   text-align: left;
   gap: 9px;
   border: 0;
-  background: transparent;
+  background: var(--color-transparent);
   padding: 6px 8px;
-  color: #b6b8ba;
+  color: var(--text-color-secondary);
   border-radius: 5px;
   font-size: 11px;
 }
 .nav-item:hover {
-  background: #2c2e30;
-  color: #fff;
+  background: var(--background-color-tertiary);
+  color: var(--text-color-primary);
 }
 .nav-item.selected {
-  background: #3b2e35;
-  color: #f4b3d1;
+  background: color-mix(in oklab, var(--color-brand) 18%, transparent);
+  color: var(--text-color-primary);
 }
 .nav-item > span:last-child:not(.folder-name) {
   margin-left: auto;
   font-size: 11px;
-  color: #a9a9a7;
+  color: var(--text-color-tertiary);
 }
 .nav-item svg {
   flex-shrink: 0;
@@ -319,22 +335,22 @@ fieldset {
   padding: 4px 10px;
 }
 .nav-bottom {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-color-primary);
   padding: 10px 5px;
-  color: #c1c2c0;
+  color: var(--text-color-secondary);
   font-size: 11px;
   margin-top: 24px;
 }
 .nav-bottom p {
   font-size: 10px;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
   padding-top: 6px;
 }
 .local-dot {
   display: inline-block;
   width: 6px;
   height: 6px;
-  background: #a7b998;
+  background: var(--color-success);
   border-radius: 50%;
   margin-right: 7px;
 }
@@ -344,7 +360,7 @@ fieldset {
   display: flex;
   flex-direction: column;
   position: relative;
-  background: #18191a;
+  background: var(--background-color-primary);
 }
 .library-toolbar {
   display: flex;
@@ -352,7 +368,7 @@ fieldset {
   gap: 10px;
   min-height: 48px;
   padding: 8px 14px;
-  border-bottom: 1px solid #2d2f31;
+  border-bottom: 1px solid var(--border-color-secondary);
   flex-shrink: 0;
 }
 .library-toolbar h1 {
@@ -365,16 +381,16 @@ fieldset {
   display: flex;
   align-items: center;
   gap: 7px;
-  border: 1px solid #414345;
+  border: 1px solid var(--border-color-primary);
   border-radius: 5px;
   padding-left: 9px;
-  background: #252729;
-  color: var(--muted);
+  background: var(--background-color-tertiary);
+  color: var(--text-color-tertiary);
 }
 .search input {
   border: 0;
   max-width: 155px;
-  background: transparent;
+  background: var(--color-transparent);
   font-size: 12px;
 }
 .gallery {
@@ -388,15 +404,15 @@ fieldset {
 .photo-tile {
   min-width: 0;
   padding: 5px;
-  border: 1px solid transparent;
+  border: 1px solid var(--color-transparent);
   border-radius: 4px;
 }
 .photo-tile.selected {
-  background: #362a31;
-  border-color: #9b5a77;
+  background: color-mix(in oklab, var(--color-brand) 15%, transparent);
+  border-color: color-mix(in oklab, var(--color-brand) 50%, transparent);
 }
 .photo-tile.focused {
-  border-color: var(--accent);
+  border-color: var(--color-brand);
 }
 .photo-image {
   display: flex;
@@ -404,7 +420,7 @@ fieldset {
   justify-content: center;
   position: relative;
   aspect-ratio: 1.4;
-  background: #111213;
+  background: var(--color-black);
   width: 100%;
   border: 0;
   padding: 9px;
@@ -426,8 +442,8 @@ fieldset {
   width: 19px;
   height: 19px;
   border-radius: 3px;
-  color: #301523;
-  background: var(--accent);
+  color: var(--color-black);
+  background: var(--color-brand);
 }
 .tile-info {
   display: flex;
@@ -448,17 +464,17 @@ fieldset {
   display: flex;
   background: none;
   border: 0;
-  color: #999c9e;
+  color: var(--text-color-tertiary);
 }
 .tile-info button[aria-pressed="true"] {
-  color: var(--accent);
+  color: var(--color-brand);
 }
 .tile-bottom {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin: 0 2px 3px;
-  color: #a0a2a4;
+  color: var(--text-color-tertiary);
   font-size: 10px;
   gap: 6px;
 }
@@ -467,21 +483,21 @@ fieldset {
   gap: 2px;
 }
 .stars button {
-  color: #df97b8;
+  color: var(--color-brand);
 }
 .gallery-footer {
   height: 32px;
   display: flex;
   align-items: center;
   padding: 0 18px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-color-primary);
   flex-shrink: 0;
 }
 .gallery-footer label {
   display: flex;
   gap: 10px;
   align-items: center;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
   font-size: 11px;
 }
 .gallery-footer input {
@@ -499,7 +515,7 @@ fieldset {
   padding: 35px;
 }
 .empty-state > svg {
-  color: #bf92a7;
+  color: var(--text-color-secondary);
   margin-bottom: 8px;
 }
 .empty-state h2 {
@@ -509,17 +525,17 @@ fieldset {
 }
 .empty-state p {
   font-size: 13px;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
 }
 .empty-state > .btn {
   margin: 8px 0;
 }
 .empty-state > span {
   font-size: 11px;
-  color: #96999b;
+  color: var(--text-color-tertiary);
 }
 .adjustments {
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--border-color-primary);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -546,13 +562,20 @@ fieldset {
   flex: 1;
   overflow: auto;
 }
+/* Panel prose normally sits inside a disclosure that already owns the 12px
+ * gutters and the closing gap, so the nested help text adds only its own. The
+ * empty-state line is a direct child of the scroll area, which has no padding
+ * of its own, so it carries the gutter itself. */
 .panel-help {
-  padding: 12px 18px 22px;
-  font-size: 12px;
+  padding: 0 0 8px;
+  font-size: 11px;
   line-height: 1.5;
 }
+.adjustments-scroll > .panel-help {
+  padding: 12px;
+}
 .adjustments details {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-color-primary);
   padding: 0 12px 9px;
 }
 .adjustments summary {
@@ -565,7 +588,7 @@ fieldset {
 .adjustments summary::after {
   content: "−";
   float: right;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
 }
 .adjustments details:not([open]) summary::after {
   content: "+";
@@ -584,12 +607,12 @@ fieldset {
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  color: #c7c9ca;
+  color: var(--text-color-secondary);
 }
 .value-reset {
   border: 0;
-  background: transparent;
-  color: #bfc0bf;
+  background: var(--color-transparent);
+  color: var(--text-color-secondary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   min-width: 40px;
@@ -606,32 +629,36 @@ fieldset {
 }
 .slider-track {
   height: 3px;
-  background: #454749;
+  background: color-mix(
+    in oklab,
+    var(--border-color-primary) 80%,
+    var(--text-color-tertiary)
+  );
   border-radius: 3px;
   width: 100%;
   position: relative;
 }
 .slider-indicator {
-  background: #bc7799;
+  background: color-mix(in oklab, var(--color-brand) 70%, transparent);
   border-radius: 3px;
 }
 .slider-thumb {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #d7d5d0;
-  border: 1px solid #292a2b;
-  box-shadow: 0 1px 3px #0007;
+  background: var(--text-color-primary);
+  border: 1px solid var(--background-color-primary);
+  box-shadow: 0 1px 3px color-mix(in oklab, var(--color-black) 47%, transparent);
 }
 .slider-thumb:hover {
-  background: var(--accent);
+  background: var(--color-brand);
 }
 .number-row {
   display: flex;
   gap: 8px;
   align-items: center;
   font-size: 11px;
-  color: #c7c9ca;
+  color: var(--text-color-secondary);
   margin-bottom: 10px;
 }
 .number-row input {
@@ -639,23 +666,65 @@ fieldset {
   width: 65px;
   padding: 4px 6px;
 }
+/* Lens profile facts: label column, value column, no paragraph. */
+.lens-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0 0 8px;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.lens-meta dt {
+  color: var(--text-color-tertiary);
+}
+.lens-meta dd {
+  margin: 0;
+  color: var(--text-color-secondary);
+  overflow-wrap: anywhere;
+}
+.lens-meta-empty {
+  margin: 0 0 8px;
+  font-size: 10px;
+}
+/* A block-level flex box, so `margin-left: auto` right-aligns it: an inline-flex
+ * button is inline-level and would ignore the auto margin. The 8px floor keeps
+ * it off the first slider in the group. */
+.lens-remove {
+  display: flex;
+  width: fit-content;
+  margin-left: auto;
+  margin-bottom: 8px;
+  font-size: 10px;
+  min-height: 24px;
+  padding: 0 6px;
+}
 .adjustments-footer {
   padding: 8px 10px;
   display: flex;
   gap: 5px;
   flex-wrap: wrap;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-color-primary);
 }
 .adjustments-footer > .btn:not(.wide) {
   flex: 1;
 }
+/* Definition lists align their label column, including the grouped rows the
+ * Info tab wraps in a div, so `display: contents` keeps them in the grid. */
 .metadata {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 10px;
   font-size: 11px;
-  line-height: 1.6;
+  line-height: 1.5;
+}
+.metadata > div {
+  display: contents;
 }
 .metadata dt {
-  color: var(--muted);
-  margin-top: 9px;
+  color: var(--text-color-tertiary);
 }
 .metadata dd {
   margin: 0;
@@ -664,14 +733,14 @@ fieldset {
 .statusbar {
   height: 21px;
   flex-shrink: 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-color-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 15px;
   font-size: 10px;
-  color: #a6a8aa;
-  background: #222324;
+  color: var(--text-color-tertiary);
+  background: var(--background-color-secondary);
 }
 .viewer {
   flex: 1;
@@ -694,7 +763,7 @@ fieldset {
   min-width: 35px;
   text-align: center;
   font-size: 10px;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
   font-variant-numeric: tabular-nums;
 }
 .canvas {
@@ -708,7 +777,8 @@ fieldset {
   padding: 24px;
   cursor: grab;
   touch-action: none;
-  background: #141516;
+  /* Photography matte: a neutral display token, not part of the UI palette. */
+  background: var(--color-black);
 }
 .canvas:active {
   cursor: grabbing;
@@ -734,15 +804,17 @@ fieldset {
 }
 .crop-rectangle {
   position: absolute;
-  border: 1px solid #fff;
-  box-shadow: 0 0 0 2000px #0008;
+  border: 1px solid var(--color-white);
+  box-shadow: 0 0 0 2000px
+    color-mix(in oklab, var(--color-black) 53%, transparent);
   pointer-events: none;
 }
 .crop-rectangle i {
   position: absolute;
   left: 33.333%;
   height: 100%;
-  border-left: 1px solid #fff6;
+  border-left: 1px solid
+    color-mix(in oklab, var(--color-white) 40%, transparent);
 }
 .crop-rectangle i + i {
   left: 66.666%;
@@ -754,7 +826,7 @@ fieldset {
   left: 0;
   width: 100%;
   top: 33.333%;
-  border-top: 1px solid #fff6;
+  border-top: 1px solid color-mix(in oklab, var(--color-white) 40%, transparent);
 }
 .crop-rectangle:after {
   top: 66.666%;
@@ -764,7 +836,11 @@ fieldset {
 .canvas-hint {
   position: absolute;
   padding: 5px 9px;
-  background: #202122e8;
+  background: color-mix(
+    in oklab,
+    var(--background-color-secondary) 91%,
+    transparent
+  );
   border-radius: 4px;
   font-size: 10px;
   pointer-events: none;
@@ -772,7 +848,7 @@ fieldset {
 .canvas-status {
   bottom: 14px;
   right: 14px;
-  color: #c3c5c7;
+  color: var(--text-color-secondary);
 }
 .original-label {
   top: 14px;
@@ -791,7 +867,7 @@ fieldset {
   justify-content: space-between;
   padding: 0 18px;
   font-size: 10px;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
 }
 .filmstrip {
   display: flex;
@@ -799,7 +875,7 @@ fieldset {
   height: 72px;
   gap: 5px;
   padding: 7px 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-color-primary);
   overflow-x: auto;
   flex-shrink: 0;
 }
@@ -808,13 +884,13 @@ fieldset {
   width: 70px;
   flex-shrink: 0;
   padding: 4px;
-  background: #111213;
-  border: 1px solid #3a3c3e;
+  background: var(--color-black);
+  border: 1px solid var(--border-color-primary);
   border-radius: 3px;
 }
 .filmstrip button.active {
-  border-color: var(--accent);
-  background: #3b2933;
+  border-color: var(--color-brand);
+  background: color-mix(in oklab, var(--color-brand) 18%, transparent);
 }
 .filmstrip img {
   width: 100%;
@@ -830,10 +906,18 @@ fieldset {
   gap: 20px;
   align-items: flex-start;
   padding: 13px 15px;
-  background: #393a3a;
-  border: 1px solid #686969;
+  background: var(--background-color-tertiary);
+  /* A floating callout reads as an edge, and the plain border token is too
+   * close to this surface to separate it, so it is lifted toward the ink. */
+  border: 1px solid
+    color-mix(
+      in oklab,
+      var(--border-color-primary) 60%,
+      var(--text-color-secondary)
+    );
   border-radius: 7px;
-  box-shadow: 0 8px 28px #0006;
+  box-shadow: 0 8px 28px
+    color-mix(in oklab, var(--color-black) 40%, transparent);
   z-index: 20;
 }
 .notice p {
@@ -847,12 +931,12 @@ fieldset {
   padding: 3px;
   min-height: 20px;
   border: 0;
-  background: transparent;
+  background: var(--color-transparent);
 }
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: #0009;
+  background: color-mix(in oklab, var(--color-black) 60%, transparent);
   z-index: 50;
 }
 .modal {
@@ -864,11 +948,12 @@ fieldset {
   width: 520px;
   max-height: 85vh;
   overflow: auto;
-  border: 1px solid #515355;
+  border: 1px solid var(--border-color-primary);
   border-radius: 10px;
-  background: #242628;
+  background: var(--background-color-tertiary);
   padding: 24px;
-  box-shadow: 0 20px 80px #0008;
+  box-shadow: 0 20px 80px
+    color-mix(in oklab, var(--color-black) 53%, transparent);
 }
 .modal-heading {
   display: flex;
@@ -894,7 +979,7 @@ fieldset {
   flex-direction: column;
   gap: 7px;
   font-size: 12px;
-  color: #c9cbcd;
+  color: var(--text-color-secondary);
 }
 .form-columns {
   display: grid;
@@ -913,11 +998,11 @@ fieldset {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-color-primary);
   padding-top: 18px;
 }
 .error {
-  color: #f0a399;
+  color: color-mix(in oklab, var(--color-error) 70%, var(--text-color-primary));
   font-size: 12px;
   line-height: 1.6;
   margin-top: 10px;
@@ -929,8 +1014,8 @@ fieldset {
   justify-content: space-between;
   margin-top: 22px;
   padding: 17px 0;
-  border-top: 1px solid #424446;
-  border-bottom: 1px solid #424446;
+  border-top: 1px solid var(--border-color-primary);
+  border-bottom: 1px solid var(--border-color-primary);
 }
 .root-list {
   margin: 12px 0;
@@ -945,12 +1030,12 @@ fieldset {
   overflow-wrap: anywhere;
   flex: 1;
   font-size: 11px;
-  color: #c9cbcd;
+  color: var(--text-color-secondary);
 }
 .config {
   padding: 13px;
-  background: #181a1c;
-  border: 1px solid #414345;
+  background: var(--background-color-primary);
+  border: 1px solid var(--border-color-primary);
   border-radius: 5px;
   font-size: 10px;
   line-height: 1.6;
@@ -968,36 +1053,36 @@ fieldset {
 }
 .empty-jobs {
   padding: 60px 0;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
 }
 .job {
   padding: 20px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-color-primary);
 }
 .job-status {
   font-size: 10px;
-  color: var(--accent);
+  color: var(--color-brand);
   text-transform: capitalize;
 }
 .job progress {
   width: 100%;
   height: 5px;
-  accent-color: var(--accent);
+  accent-color: var(--color-brand);
   margin: 15px 0 7px;
 }
 .output-path {
   font-size: 11px;
   overflow-wrap: anywhere;
-  color: #b9c6ac;
+  color: color-mix(in oklab, var(--color-success) 70%, var(--text-color-primary));
   margin-top: 8px;
 }
 .missing-label {
   position: absolute;
-  background: #4b3530;
+  background: color-mix(in oklab, var(--color-error) 20%, transparent);
   bottom: 5px;
   padding: 3px 6px;
   font-size: 10px;
-  color: #efbcb1;
+  color: var(--text-color-primary);
 }
 @media (max-width: 1200px) {
   .workspace {
@@ -1108,17 +1193,17 @@ fieldset {
 .panel-resizer {
   flex: 0 0 4px;
   cursor: col-resize;
-  background: var(--border);
+  background: var(--border-color-primary);
   touch-action: none;
 }
 .panel-resizer:hover,
 .panel-resizer:focus-visible {
-  background: #f18bb9;
+  background: var(--color-brand);
   outline: none;
 }
 .inspector-tabs {
   display: flex;
-  border-bottom: 1px solid #363638;
+  border-bottom: 1px solid var(--border-color-primary);
   height: 36px;
   flex: none;
 }
@@ -1128,12 +1213,12 @@ fieldset {
   padding: 0 6px;
   border: 0;
   background: none;
-  color: #a5a5a8;
-  border-bottom: 2px solid transparent;
+  color: var(--text-color-tertiary);
+  border-bottom: 2px solid var(--color-transparent);
 }
 .inspector-tabs button[aria-selected="true"] {
-  color: #f18bb9;
-  border-bottom-color: #f18bb9;
+  color: var(--color-brand);
+  border-bottom-color: var(--color-brand);
 }
 .adjustments-footer {
   flex-wrap: nowrap;
@@ -1189,8 +1274,8 @@ fieldset {
   position: absolute;
   width: 10px;
   height: 10px;
-  background: #fff;
-  border: 1px solid #222;
+  background: var(--color-white);
+  border: 1px solid var(--background-color-secondary);
   padding: 0;
   border-radius: 0;
   touch-action: none;
@@ -1267,13 +1352,13 @@ fieldset {
 .compare-pane figcaption,
 .compare-label {
   font-size: 11px;
-  color: #bbb;
+  color: var(--text-color-secondary);
 }
 .library-bottom {
   display: flex;
   gap: 8px;
   padding: 6px 10px;
-  border-top: 1px solid #363638;
+  border-top: 1px solid var(--border-color-primary);
 }
 .navigation .import-actions {
   margin-top: auto;
@@ -1330,19 +1415,19 @@ fieldset {
 }
 .crop-lock input {
   margin: 0;
-  accent-color: #f18bb9;
+  accent-color: var(--color-brand);
 }
 .toolbar-group {
   display: flex;
   gap: 4px;
   padding-right: 8px;
   margin-right: 4px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-color-primary);
 }
 .histogram-panel {
   flex: none;
   padding: 6px 10px 3px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-color-primary);
 }
 .histogram-heading {
   display: flex;
@@ -1350,11 +1435,11 @@ fieldset {
   align-items: center;
   height: 20px;
   font-size: 10px;
-  color: #a8aaad;
+  color: var(--text-color-tertiary);
 }
 .clipping-toggle {
-  background: transparent;
-  border: 1px solid transparent;
+  background: var(--color-transparent);
+  border: 1px solid var(--color-transparent);
   width: 19px;
   height: 17px;
   padding: 0;
@@ -1363,15 +1448,15 @@ fieldset {
   cursor: pointer;
 }
 .clipping-toggle[aria-pressed="true"] {
-  border-color: #ccc;
+  border-color: var(--text-color-secondary);
 }
 .clipping-toggle:focus-visible {
-  outline: 1px solid #f18bb9;
+  outline: 1px solid var(--color-brand);
 }
 .histogram-plot {
   position: relative;
   height: 80px;
-  background: #171819;
+  background: var(--background-color-primary);
   overflow: hidden;
   isolation: isolate;
 }
@@ -1380,12 +1465,16 @@ fieldset {
   height: 100%;
   display: block;
 }
+/* Chart chrome follows the shared border token, not an RGB channel colour. */
+.histogram-grid {
+  stroke: var(--border-color-primary);
+}
 .histogram-zone {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 20%;
-  background: transparent;
+  background: var(--color-transparent);
   border: 0;
   padding: 0;
   cursor: ew-resize;
@@ -1393,8 +1482,9 @@ fieldset {
 }
 .histogram-zone.hovered,
 .histogram-zone:focus-visible {
-  background: #ffffff12;
-  outline: 1px solid #ffffff30;
+  background: color-mix(in oklab, var(--text-color-primary) 7%, transparent);
+  outline: 1px solid
+    color-mix(in oklab, var(--text-color-primary) 19%, transparent);
   outline-offset: -1px;
 }
 .histogram-zone:disabled {
@@ -1405,7 +1495,7 @@ fieldset {
   inset: 0;
   display: grid;
   place-items: center;
-  color: #777;
+  color: var(--text-color-tertiary);
   font-size: 10px;
   pointer-events: none;
 }
@@ -1415,7 +1505,7 @@ fieldset {
   align-items: center;
   justify-content: space-between;
   font-size: 10px;
-  color: #a8aaad;
+  color: var(--text-color-tertiary);
   font-variant-numeric: tabular-nums;
 }
 .rgb-readout {
@@ -1437,11 +1527,13 @@ fieldset {
   z-index: 2;
 }
 
+/* Quiet, neutral affordance: it sits in a disclosure header and should read as
+ * a control, not as the section's own brand-coloured action. */
 .section-auto {
   float: right;
-  border: 1px solid #494249;
-  background: #343034;
-  color: #f0b7d1;
+  border: 1px solid var(--border-color-primary);
+  background: var(--color-transparent);
+  color: var(--text-color-secondary);
   border-radius: 3px;
   font-size: 10px;
   line-height: 16px;
@@ -1453,7 +1545,15 @@ fieldset {
   opacity: 0.45;
   cursor: default;
 }
+.section-auto:hover:not(:disabled) {
+  color: var(--text-color-primary);
+  border-color: color-mix(
+    in oklab,
+    var(--border-color-primary) 60%,
+    var(--text-color-secondary)
+  );
+}
 .section-auto:focus-visible {
-  outline: 1px solid #ef81b0;
+  outline: 1px solid var(--color-brand);
   outline-offset: 2px;
 }

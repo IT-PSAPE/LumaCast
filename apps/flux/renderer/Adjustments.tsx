@@ -11,7 +11,11 @@ import {
   ClipboardPaste,
   Layers,
 } from "lucide-react";
-import { adjustmentControls, type Photo, type Recipe } from "@lumacast/photo-model";
+import {
+  adjustmentControls,
+  type Photo,
+  type Recipe,
+} from "@lumacast/photo-model";
 import { Btn } from "./ui";
 export function Adjustments({
   histogramData,
@@ -119,7 +123,7 @@ export function Adjustments({
         )}
         <fieldset disabled={!photo || busy}>
           {tab === "Composition" && (
-            <details open>
+            <details open aria-label="Composition">
               <summary>Composition</summary>
               <div className="tool-row">
                 <Btn
@@ -215,13 +219,20 @@ export function Adjustments({
               </Btn>
             </details>
           )}
+          {/* A `<details>` is a `group` in the accessibility tree but takes no
+              name from its summary, so each disclosure is labelled with the
+              text its summary already shows. */}
           {(tab === "Composition"
             ? ["Lens correction"]
             : tab === "Adjustments"
               ? ["Light", "Color", "Detail"]
               : []
           ).map((group) => (
-            <details open={group !== "Detail"} key={group}>
+            <details
+              open={group !== "Detail"}
+              key={group}
+              aria-label={group === "Detail" ? "Details" : group}
+            >
               <summary>
                 {group === "Detail" ? "Details" : group}
                 {(group === "Light" || group === "Lens correction") && (
@@ -232,9 +243,7 @@ export function Adjustments({
                     }
                     disabled={!photo || busy || photo.missing}
                     title={
-                      group === "Light"
-                        ? "Analyze this photo and adjust light"
-                        : "Match camera and lens metadata to a calibrated profile"
+                      group === "Light" ? "Auto light" : "Auto lens correction"
                     }
                     onClick={(e) => {
                       e.preventDefault();
@@ -250,16 +259,23 @@ export function Adjustments({
                   </button>
                 )}
               </summary>
-              {group === "Lens correction" && (
-                <p className="muted panel-help">
-                  {recipe?.lensProfile
-                    ? `${recipe.lensProfile.name} · ${recipe.lensProfile.focal} mm · Lensfun`
-                    : "Auto matches camera and lens metadata. Manual controls remain available."}
-                </p>
-              )}
+              {group === "Lens correction" &&
+                (recipe?.lensProfile ? (
+                  <dl className="lens-meta">
+                    <dt>Profile</dt>
+                    <dd>{recipe.lensProfile.name}</dd>
+                    <dt>Focal length</dt>
+                    <dd>{Number(recipe.lensProfile.focal.toFixed(1))} mm</dd>
+                    <dt>Source</dt>
+                    <dd>{recipe.lensProfile.source}</dd>
+                  </dl>
+                ) : (
+                  <p className="lens-meta-empty muted">No matched profile</p>
+                ))}
               {group === "Lens correction" && recipe?.lensProfile && (
                 <Btn
-                  className="wide"
+                  className="lens-remove"
+                  disabled={!photo || busy}
                   onClick={() => onCommit({ lensProfile: null })}
                 >
                   Remove profile
@@ -313,7 +329,7 @@ export function Adjustments({
           ))}
         </fieldset>
         {photo && tab === "Info" && (
-          <details open>
+          <details open aria-label="File information">
             <summary>File information</summary>
             <dl className="metadata">
               <dt>Name</dt>

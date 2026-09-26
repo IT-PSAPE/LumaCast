@@ -8,10 +8,13 @@ const zones = [
   ["highlights", "Highlights", -100, 100, 1],
   ["whites", "Whites", -100, 100, 1],
 ] as const;
+// Channel masks are data, so they keep their literal RGB: the triangle is
+// reporting which channel is clipping. The no-mask fallback is chrome, not
+// data, and takes the shared theme's muted ink instead of a fixed neutral.
 function color(mask: number) {
   return mask
     ? `rgb(${mask & 1 ? 210 : 0},${mask & 2 ? 210 : 0},${mask & 4 ? 210 : 0})`
-    : "#505154";
+    : "var(--text-color-tertiary)";
 }
 export function Histogram({
   data,
@@ -96,17 +99,19 @@ export function Histogram({
           role="img"
           aria-label="Red, green, and blue tonal distribution"
         >
+          {/* Grid is chart chrome and follows the shared border token. */}
           {[51, 102, 153, 204].map((x) => (
             <line
               key={x}
+              className="histogram-grid"
               x1={x}
               x2={x}
               y1="0"
               y2="80"
-              stroke="#333538"
               strokeWidth=".5"
             />
           ))}
+          {/* RGB channel fills retain their data-specific colours. */}
           {data?.channels.map((bins, i) => (
             <path
               key={i}
