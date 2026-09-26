@@ -72,8 +72,36 @@ packages:
     size: 91230003
 `;
 
-function rewrite(text: string, overrides: { downloadBaseUrl?: string; source?: string; text?: string } = {}): { text: string; version: string; artifacts: string[] } {
+const FLUX_DOWNLOAD_BASE =
+  'https://github.com/IT-PSAPE/LumaCast/releases/download/flux-v0.11.0%2B1';
+
+const FLUX_LINUX_METADATA = `version: 0.11.0+1
+files:
+  - url: Lumaflux-0.11.0+1-linux.AppImage
+    sha512: ${APPIMAGE_HASH}
+    size: 91234567
+    blockMapSize: 1024
+path: Lumaflux-0.11.0+1-linux.AppImage
+sha512: ${APPIMAGE_HASH}
+releaseDate: '2026-09-26T10:11:12.000Z'
+`;
+
+const FLUX_NEWER_METADATA = FLUX_LINUX_METADATA.replace(
+  'version: 0.11.0+1',
+  'version: 0.11.0+2',
+);
+
+function rewrite(text: string, overrides: { downloadBaseUrl?: string; source?: string; text?: string; app?: string } = {}): { text: string; version: string; artifacts: string[] } {
   return rewriteUpdateMetadata({ text, downloadBaseUrl: DOWNLOAD_BASE, ...overrides });
+}
+
+function rewriteFlux(text: string, overrides: { downloadBaseUrl?: string; source?: string } = {}): { text: string; version: string; artifacts: string[] } {
+  return rewriteUpdateMetadata({
+    text,
+    downloadBaseUrl: FLUX_DOWNLOAD_BASE,
+    app: 'flux',
+    ...overrides,
+  });
 }
 
 function writeTempFile(name: string, contents: string): string {
@@ -278,6 +306,54 @@ releaseDate: 2026-09-26T10:11:12.000Z
     expect(() => rewrite('version: 1.2.0\n', { source: 'update metadata latest-mac.yml' }))
       .toThrow('update metadata latest-mac.yml declares no files');
   });
+  it('rewrites a Flux revisioned release without stripping its revision', () => {
+    const result = rewriteFlux(FLUX_LINUX_METADATA);
+
+    expect(result.version).toBe('0.11.0+1');
+    // The revision names the immutable release the feed points at, so it stays
+    // in the artifact name and is percent-encoded in the url.
+    expect(parseUpdateMetadata(result.text, 'update metadata', 'flux').files[0].url)
+      .toBe(`${FLUX_DOWNLOAD_BASE}/Lumaflux-0.11.0%2B1-linux.AppImage`);
+  });
+
+  it('refuses revisioned metadata for a strict app or an app-unaware caller', () => {
+    expect(() => rewrite(FLUX_LINUX_METADATA)).toThrow('stable semantic version');
+    expect(() => rewriteUpdateMetadata({
+      text: FLUX_LINUX_METADATA,
+      downloadBaseUrl: FLUX_DOWNLOAD_BASE,
+      app: 'cast',
+    })).toThrow('stable semantic version');
+  });
+
+  it.each([
+    ['a prerelease', '0.11.0-rc.1'],
+    ['non-numeric build metadata', '0.11.0+build.1'],
+    ['a leading zero revision', '0.11.0+01'],
+    ['a revision beyond exact comparison', `0.11.0+${Number.MAX_SAFE_INTEGER + 10}`],
+  ])('refuses Flux feed metadata carrying %s', (_label, version) => {
+    const text = FLUX_LINUX_METADATA.replace('version: 0.11.0+1', `version: ${version}`);
+
+    expect(() => rewriteFlux(text)).toThrow(/stable semantic version|exactly comparable range/);
+  });
+
+  it('accepts Flux feed metadata at the 65535 Windows build boundary', () => {
+    const text = FLUX_LINUX_METADATA.replace('version: 0.11.0+1', 'version: 65535.65535.65535+65535');
+
+    expect(rewriteFlux(text).version).toBe('65535.65535.65535+65535');
+  });
+
+  it.each([
+    ['major', '65536.0.0+1'],
+    ['minor', '0.65536.0+1'],
+    ['patch', '0.11.65536+1'],
+    ['revision', '0.11.0+65536'],
+  ])('refuses Flux feed metadata whose %s exceeds the Windows build boundary', (_label, version) => {
+    // The feed names the immutable release the updater downloads, so it must
+    // not point at a version the Windows build could never have produced.
+    const text = FLUX_LINUX_METADATA.replace('version: 0.11.0+1', `version: ${version}`);
+
+    expect(() => rewriteFlux(text)).toThrow('between 0 and 65535');
+  });
 });
 
 describe('feed tags', () => {
@@ -438,6 +514,96 @@ describe('decideFeedUpdate', () => {
       releasePublished: false,
     })).toThrow('stable semantic version');
   });
+
+  it('advances a Flux feed to a higher build revision', () => {
+    expect(decideFeedUpdate({
+      app: 'flux',
+      incomingVersion: '0.11.0+2',
+      currentFeedVersion: '0.11.0+1',
+      releasePublished: true,
+    })).toEqual({
+      shouldUpdate: true,
+      reason: 'feed-version-increased',
+      feedTag: 'flux-feed',
+      incomingVersion: '0.11.0+2',
+      feedVersion: '0.11.0+1',
+    });
+  });
+
+  it('advances a Flux feed past a revision to the next feature version', () => {
+    expect(decideFeedUpdate({
+      app: 'flux',
+      incomingVersion: '0.11.1',
+      currentFeedVersion: '0.11.0+9',
+      releasePublished: true,
+    })).toEqual({
+      shouldUpdate: true,
+      reason: 'feed-version-increased',
+      feedTag: 'flux-feed',
+      incomingVersion: '0.11.1',
+      feedVersion: '0.11.0+9',
+    });
+  });
+
+  it('heals a Flux feed split across a revision and its base version', () => {
+    // A partial upload can leave channel files on 0.11.0 and 0.11.0+1; the
+    // incoming revision is the highest of the three, so it repairs the feed.
+    expect(decideFeedUpdate({
+      app: 'flux',
+      incomingVersion: '0.11.0+1',
+      currentFeedVersion: '0.11.0+1',
+      releasePublished: true,
+      feedInconsistent: true,
+    })).toEqual({
+      shouldUpdate: true,
+      reason: 'feed-repair',
+      feedTag: 'flux-feed',
+      incomingVersion: '0.11.0+1',
+      feedVersion: '0.11.0+1',
+    });
+  });
+
+  it('refuses to roll a Flux feed back to an earlier revision', () => {
+    expect(() => decideFeedUpdate({
+      app: 'flux',
+      incomingVersion: '0.11.0+1',
+      currentFeedVersion: '0.11.0+2',
+      releasePublished: true,
+    })).toThrow('refusing to roll it back');
+  });
+
+  it('refuses a revisioned feed version for a strict app', () => {
+    expect(() => decideFeedUpdate({
+      app: 'cast',
+      incomingVersion: '1.2.0',
+      currentFeedVersion: '1.2.0+1',
+      releasePublished: true,
+    })).toThrow('stable semantic version');
+  });
+
+  it('refuses a Flux feed version whose component exceeds the Windows build boundary', () => {
+    expect(() => decideFeedUpdate({
+      app: 'flux',
+      incomingVersion: '0.11.0+65536',
+      currentFeedVersion: '0.11.0',
+      releasePublished: true,
+    })).toThrow('between 0 and 65535');
+  });
+
+  it('heals a Flux feed already at the Windows build boundary', () => {
+    expect(decideFeedUpdate({
+      app: 'flux',
+      incomingVersion: '65535.65535.65535+65535',
+      currentFeedVersion: '65535.65535.65535+65535',
+      releasePublished: true,
+    })).toEqual({
+      shouldUpdate: false,
+      reason: 'feed-already-current',
+      feedTag: 'flux-feed',
+      incomingVersion: '65535.65535.65535+65535',
+      feedVersion: '65535.65535.65535+65535',
+    });
+  });
 });
 
 describe('readFeedVersions', () => {
@@ -453,6 +619,15 @@ describe('readFeedVersions', () => {
   it('returns nothing for a feed that does not exist yet', () => {
     expect(readFeedVersions(path.join(os.tmpdir(), 'release-feed-absent'))).toEqual([]);
     expect(readFeedVersions('')).toEqual([]);
+  });
+
+  it('reads a Flux revisioned feed for the app that publishes revisions', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-feed-revision-'));
+    fs.writeFileSync(path.join(directory, 'latest-linux.yml'), FLUX_LINUX_METADATA);
+
+    expect(readFeedVersions(directory, 'flux')).toEqual(['0.11.0+1']);
+    expect(() => readFeedVersions(directory, 'cast')).toThrow('stable semantic version');
+    expect(() => readFeedVersions(directory)).toThrow('stable semantic version');
   });
 });
 
@@ -486,6 +661,23 @@ describe('release-feed rewrite command', () => {
       x64: `${DOWNLOAD_BASE}/LumaCast-1.2.0-win.exe`,
       ia32: `${DOWNLOAD_BASE}/LumaCast-1.2.0-win-ia32.exe`,
     });
+  });
+
+  it('rewrites a revisioned Flux release from the command line', () => {
+    const outputFile = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'release-feed-flux-cli-')),
+      'latest-linux.yml',
+    );
+    const result = runCli(['rewrite'], {
+      RELEASE_APP: 'flux',
+      METADATA_FILE: writeTempFile('latest-linux.yml', FLUX_LINUX_METADATA),
+      OUTPUT_FILE: outputFile,
+      DOWNLOAD_BASE_URL: FLUX_DOWNLOAD_BASE,
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(parseUpdateMetadata(fs.readFileSync(outputFile, 'utf8'), 'update metadata', 'flux'))
+      .toMatchObject({ version: '0.11.0+1' });
   });
 
   it('fails on a relative download base', () => {
@@ -566,6 +758,58 @@ describe('release-feed guard command', () => {
       feed_version: '1.2.0',
       incoming_version: '1.2.0',
     });
+  });
+
+  it('repairs a Flux feed split across a base version and its revision', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-feed-flux-split-'));
+    fs.writeFileSync(
+      path.join(directory, 'latest-linux.yml'),
+      FLUX_LINUX_METADATA.replace('version: 0.11.0+1', 'version: 0.11.0'),
+    );
+    fs.writeFileSync(path.join(directory, 'latest-mac.yml'), FLUX_LINUX_METADATA);
+
+    const output = outputOf(runCli(['guard'], {
+      RELEASE_APP: 'flux',
+      INCOMING_VERSION: '0.11.0+1',
+      RELEASE_PUBLISHED: 'true',
+      FEED_METADATA_DIR: directory,
+    }));
+
+    expect(output).toEqual({
+      should_update: 'true',
+      reason: 'feed-repair',
+      feed_tag: 'flux-feed',
+      feed_version: '0.11.0+1',
+      incoming_version: '0.11.0+1',
+    });
+  });
+
+  it('refuses to heal a split Flux feed with an older revision', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-feed-flux-old-'));
+    fs.writeFileSync(path.join(directory, 'latest-linux.yml'), FLUX_LINUX_METADATA);
+    fs.writeFileSync(path.join(directory, 'latest-mac.yml'), FLUX_NEWER_METADATA);
+
+    const result = runCli(['guard'], {
+      RELEASE_APP: 'flux',
+      INCOMING_VERSION: '0.11.0+1',
+      RELEASE_PUBLISHED: 'true',
+      FEED_METADATA_DIR: directory,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('refusing to roll the feed back');
+  });
+
+  it('refuses a revisioned incoming version for a strict app', () => {
+    const result = runCli(['guard'], {
+      RELEASE_APP: 'cloud',
+      INCOMING_VERSION: '0.11.0+1',
+      RELEASE_PUBLISHED: 'true',
+      FEED_METADATA_DIR: path.join(os.tmpdir(), 'release-feed-absent'),
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('stable semantic version');
   });
 
   it('does not read the feed when the version release is unpublished', () => {

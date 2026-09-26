@@ -51,7 +51,7 @@ export function feedTagFor(app: string): string;
 
 export function isFeedMetadataFile(fileName: string): boolean;
 
-export function parseUpdateMetadata(text: string, source?: string): UpdateInfo;
+export function parseUpdateMetadata(text: string, source?: string, app?: string): UpdateInfo;
 
 export function normalizeDownloadBase(downloadBaseUrl: string): string;
 
@@ -59,8 +59,9 @@ export function rewriteUpdateMetadata(input: {
   text: string;
   downloadBaseUrl: string;
   source?: string;
+  app?: string;
 }): RewriteResult;
 
-export function readFeedVersions(directory: string): string[];
+export function readFeedVersions(directory: string, app?: string): string[];
 
 export function decideFeedUpdate(input: FeedUpdateInput): FeedUpdateDecision;

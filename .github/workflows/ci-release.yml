@@ -126,6 +126,10 @@ jobs:
             git show "$1" | node -e "let input='';process.stdin.on('data',(chunk)=>{input+=chunk});process.stdin.on('end',()=>{const manifest=JSON.parse(input);process.stdout.write(manifest.version ?? '');});"
           }
 
+          # A Flux version may carry a numeric build revision (`0.11.0+1`); the
+          # gate below compares it as a fourth component, so the tag and the
+          # published-version max are revision-aware for Flux and stay strict
+          # plain SemVer for Cast and Cloud.
           APP_MANIFEST="apps/$APP/package.json"
           CURRENT_VERSION="$(node -p "require('./$APP_MANIFEST').version")"
           PREVIOUS_VERSION=""
@@ -146,8 +150,11 @@ jobs:
           fi
 
           TAG="$APP-v$CURRENT_VERSION"
+          # `+` is legal in a url path but a release tag that carries a build
+          # revision is addressed by its percent-encoded form.
+          TAG_URL="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$TAG")"
           TAG_EXISTS=false
-          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.draft' 2>/dev/null || echo true)" = "false" ]; then
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_URL" --jq '.draft' 2>/dev/null || echo true)" = "false" ]; then
             TAG_EXISTS=true
           fi
 
@@ -448,7 +455,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          DOWNLOAD_BASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          # Artifact names and the release tag can both carry a build
+          # revision, so the base is addressed percent-encoded; the rewritten
+          # artifact names below are encoded the same way.
+          TAG_URL="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$TAG")"
+          DOWNLOAD_BASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG_URL"
 
           shopt -s nullglob
           metadata_files=(raw/latest*.yml)

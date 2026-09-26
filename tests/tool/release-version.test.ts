@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  allowsBuildRevision,
   appManifestPath,
   compareStableVersions,
   decideStableRelease,
@@ -279,6 +280,145 @@ describe('decideStableRelease', () => {
     })).toThrow('Unknown release app');
   });
 
+  it('releases a Flux build revision as a version increase', () => {
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '0.11.0+1',
+      previousVersion: '0.11.0',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toEqual({ shouldRelease: true, reason: 'version-increased' });
+  });
+
+  it('releases a higher Flux build revision of an already-revisioned baseline', () => {
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '0.11.0+2',
+      previousVersion: '0.11.0+1',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toEqual({ shouldRelease: true, reason: 'version-increased' });
+  });
+
+  it('rejects a Flux build revision downgrade', () => {
+    expect(() => decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '0.11.0+1',
+      previousVersion: '0.11.0+2',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toThrow('must be greater than');
+  });
+
+  it('refuses a Flux push older than the highest published revision', () => {
+    expect(() => decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '0.11.0+1',
+      previousVersion: '0.11.0',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+      highestPublishedVersion: '0.11.0+2',
+    })).toThrow('highest published');
+  });
+
+  it('treats a published Flux revision as already released', () => {
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '0.11.0+1',
+      previousVersion: '0.11.0',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+      highestPublishedVersion: '0.11.0+1',
+    })).toEqual({ shouldRelease: false, reason: 'tag-exists' });
+  });
+
+  it('lets a feature-version increase outrank any revision', () => {
+    // A revision is only a fourth component: 0.11.1 still beats 0.11.0+99.
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '0.11.1',
+      previousVersion: '0.11.0+99',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toEqual({ shouldRelease: true, reason: 'version-increased' });
+  });
+
+  it('releases a Flux version whose components all sit at the build boundary', () => {
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '65535.0.0+65535',
+      previousVersion: '65535.0.0',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toEqual({ shouldRelease: true, reason: 'version-increased' });
+  });
+
+  it.each([
+    ['major', '65536.0.0'],
+    ['minor', '0.65536.0'],
+    ['patch', '0.0.65536'],
+    ['revision', '0.11.0+65536'],
+  ])('refuses to release a Flux push whose %s exceeds the build boundary', (_label, currentVersion) => {
+    // The Windows build reads these components as 16-bit fields, so the gate
+    // refuses before packaging rather than after an upload.
+    expect(() => decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion,
+      previousVersion: '0.11.0',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toThrow('between 0 and 65535');
+  });
+
+  it('refuses a Flux baseline past the build boundary', () => {
+    expect(() => decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion: '0.12.0',
+      previousVersion: '0.11.65536',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toThrow('between 0 and 65535');
+  });
+
+  it.each(['cast', 'cloud'])('keeps %s on strict plain SemVer', (app) => {
+    expect(() => decideStableRelease({
+      app,
+      eventName: 'push',
+      currentVersion: '0.11.0+1',
+      previousVersion: '0.11.0',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toThrow('stable semantic version');
+  });
+
+  it.each([
+    ['a prerelease alongside a revision', '0.11.0-rc.1+1'],
+    ['non-numeric build metadata', '0.11.0+build.1'],
+    ['a leading zero revision', '0.11.0+01'],
+    ['a signed revision', '0.11.0+-1'],
+    ['two revisions', '0.11.0+1+2'],
+    ['a revision beyond exact comparison', `0.11.0+${Number.MAX_SAFE_INTEGER + 10}`],
+    ['four numeric components', '0.11.0.1'],
+  ])('rejects a Flux version carrying %s', (_label, currentVersion) => {
+    expect(() => decideStableRelease({
+      app: 'flux',
+      eventName: 'push',
+      currentVersion,
+      previousVersion: '0.11.0',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+    })).toThrow(/stable semantic version|exactly comparable range/);
+  });
+
   it('rejects a baseline without a declared source', () => {
     expect(() => decideStableRelease({
       app: 'cast',
@@ -319,6 +459,55 @@ describe('version helpers', () => {
     expect(() => parseStableVersion('1.2')).toThrow('stable semantic version');
   });
 
+  it('reads a Flux build revision as a fourth component', () => {
+    expect(parseStableVersion('0.11.0+1', 'flux')).toEqual([0, 11, 0, 1]);
+    expect(parseStableVersion('0.11.0+0', 'flux')).toEqual([0, 11, 0, 0]);
+  });
+
+  it('allows every Flux component at the 65535 Windows build boundary', () => {
+    // 65535 is the largest value the four 16-bit Windows buildVersion fields
+    // hold, so it is a Flux version, not merely a near miss.
+    expect(parseStableVersion('65535.65535.65535', 'flux')).toEqual([65535, 65535, 65535]);
+    expect(parseStableVersion('65535.65535.65535+65535', 'flux')).toEqual([65535, 65535, 65535, 65535]);
+  });
+
+  it.each([
+    ['major', '65536.0.0'],
+    ['minor', '0.65536.0'],
+    ['patch', '0.0.65536'],
+    ['revision', '0.0.0+65536'],
+    ['a revision beyond the build boundary', '0.11.0+65536'],
+  ])('rejects a Flux %s above the 65535 Windows build boundary', (_label, version) => {
+    expect(() => parseStableVersion(version, 'flux')).toThrow('between 0 and 65535');
+  });
+
+  it.each(['cast', 'cloud', undefined])('leaves %s outside the Windows build boundary cap', (app) => {
+    // The 16-bit cap is a Flux packaging constraint. Cast and Cloud must keep
+    // their exact current strict reading rather than inherit a new rejection.
+    expect(parseStableVersion('65536.70000.0', app)).toEqual([65536, 70000, 0]);
+  });
+
+  it('rejects a build revision without an app and for the strict apps', () => {
+    for (const app of [undefined, 'cast', 'cloud']) {
+      expect(() => parseStableVersion('0.11.0+1', app)).toThrow('stable semantic version');
+    }
+  });
+
+  it('orders build revisions numerically as a fourth component', () => {
+    expect(compareStableVersions('0.11.0+1', '0.11.0', 'flux')).toBeGreaterThan(0);
+    expect(compareStableVersions('0.11.0', '0.11.0+1', 'flux')).toBeLessThan(0);
+    expect(compareStableVersions('0.11.0+2', '0.11.0+10', 'flux')).toBeLessThan(0);
+    expect(compareStableVersions('0.11.1', '0.11.0+99', 'flux')).toBeGreaterThan(0);
+    expect(compareStableVersions('0.11.0+1', '0.11.0+1', 'flux')).toBe(0);
+    expect(compareStableVersions([0, 11, 0, 1], '0.11.0', 'flux')).toBeGreaterThan(0);
+  });
+
+  it('names the apps that publish build revisions', () => {
+    expect(allowsBuildRevision('flux')).toBe(true);
+    expect(allowsBuildRevision('cast')).toBe(false);
+    expect(allowsBuildRevision('cloud')).toBe(false);
+  });
+
   it('orders stable versions numerically rather than lexically', () => {
     expect(compareStableVersions('0.1.9', '0.1.10')).toBeLessThan(0);
     expect(compareStableVersions('1.10.0', '1.9.9')).toBeGreaterThan(0);
@@ -349,13 +538,50 @@ describe('version helpers', () => {
       'cast-feed-v0.1.97',
       'cast-v0.1.101',
       'cast-v0.1.96-extra',
-    ])).toBe('0.1.101');
+  ])).toBe('0.1.101');
+  });
+
+  it('compares Flux revision tags against plain and invalid ones', () => {
+    expect(highestPublishedVersionFor('flux', [
+      'flux-v0.11.0+2',
+      'flux-v0.11.0+10',
+      'flux-v0.11.0',
+      'flux-v0.11.1',
+      'flux-v0.11.2-rc.1',
+      'flux-v0.11.0+build.1',
+      'flux-v0.11.0+9007199254740993',
+      'cast-v0.1.100',
+    ])).toBe('0.11.1');
+  });
+
+  it('never accepts a revision tag for a strict app', () => {
+    expect(highestPublishedVersionFor('cast', ['cast-v0.1.28+1', 'cast-v0.1.27'])).toBe('0.1.27');
+  });
+
+  it('skips Flux tags past the Windows build boundary instead of throwing', () => {
+    // The published tag list is external input, so an unbuildable tag must be
+    // skipped rather than fail the scan for every other tag in the set.
+    expect(highestPublishedVersionFor('flux', [
+      'flux-v65536.0.0',
+      'flux-v0.65536.0',
+      'flux-v0.0.65536',
+      'flux-v0.11.0+65536',
+      'flux-v0.11.0+2',
+    ])).toBe('0.11.0+2');
+  });
+
+  it('reads a Flux tag at the build boundary as the highest published version', () => {
+    expect(highestPublishedVersionFor('flux', [
+      'flux-v0.11.0',
+      'flux-v65535.65535.65535+65535',
+    ])).toBe('65535.65535.65535+65535');
   });
 
   it('prefixes release tags per app', () => {
     expect(releaseTagFor('cast', '0.1.28')).toBe('cast-v0.1.28');
     expect(releaseTagFor('cloud', '1.0.0')).toBe('cloud-v1.0.0');
     expect(releaseTagFor('flux', '1.0.0')).toBe('flux-v1.0.0');
+    expect(releaseTagFor('flux', '0.11.0+1')).toBe('flux-v0.11.0+1');
   });
 
   it('resolves the app manifest path inside apps', () => {
@@ -496,6 +722,48 @@ describe('release-version command interface', () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('stable semantic version');
+  });
+
+  it('publishes a Flux revision manifest under its revisioned tag', () => {
+    const output = outputOf(runCli({
+      RELEASE_APP: 'flux',
+      APP_MANIFEST: writeManifest('0.11.0+1'),
+      PREVIOUS_VERSION: '0.11.0',
+      PREVIOUS_VERSION_SOURCE: 'app-manifest',
+    }));
+
+    expect(output).toEqual({
+      app: 'flux',
+      version: '0.11.0+1',
+      tag: 'flux-v0.11.0+1',
+      should_release: 'true',
+      reason: 'version-increased',
+      previous_version: '0.11.0',
+      previous_version_source: 'app-manifest',
+    });
+  });
+
+  it('fails a Cast manifest that carries a build revision', () => {
+    const result = runCli({
+      APP_MANIFEST: writeManifest('0.11.0+1'),
+      PREVIOUS_VERSION: '0.11.0',
+      PREVIOUS_VERSION_SOURCE: 'app-manifest',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('stable semantic version');
+  });
+
+  it('fails a Flux manifest whose component exceeds the Windows build boundary', () => {
+    const result = runCli({
+      RELEASE_APP: 'flux',
+      APP_MANIFEST: writeManifest('0.11.0+65536'),
+      PREVIOUS_VERSION: '0.11.0',
+      PREVIOUS_VERSION_SOURCE: 'app-manifest',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('between 0 and 65535');
   });
 
   it('fails for a missing app manifest', () => {

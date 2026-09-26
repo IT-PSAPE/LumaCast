@@ -16,6 +16,11 @@
 // partial upload that leaves channel files on two versions heals by
 // republishing the known version release (same-version repair), never by
 // downgrade.
+//
+// Versions are read with the same rules the release gate applies, so a Flux
+// build revision (`0.11.0+1`) is a comparable version here and Cast and Cloud
+// stay on strict plain SemVer. `app` is optional on every export and defaults
+// to the strict reading.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -41,7 +46,7 @@ function describe(source) {
   return typeof source === 'string' && source.length > 0 ? source : 'update metadata';
 }
 
-export function parseUpdateMetadata(text, source = 'update metadata') {
+export function parseUpdateMetadata(text, source = 'update metadata', app) {
   let parsed;
   try {
     parsed = yaml.load(text);
@@ -55,7 +60,7 @@ export function parseUpdateMetadata(text, source = 'update metadata') {
   if (typeof parsed.version !== 'string') {
     throw new Error(`${describe(source)} declares no version.`);
   }
-  parseStableVersion(parsed.version);
+  parseStableVersion(parsed.version, app);
   if (!Array.isArray(parsed.files) || parsed.files.length === 0) {
     throw new Error(`${describe(source)} declares no files.`);
   }
@@ -99,11 +104,12 @@ function absoluteArtifactUrl(downloadBase, reference, { source, field }) {
  *   text: string;
  *   downloadBaseUrl: string;
  *   source?: string;
+ *   app?: string;
  * }} input
  */
-export function rewriteUpdateMetadata({ text, downloadBaseUrl, source = 'update metadata' }) {
+export function rewriteUpdateMetadata({ text, downloadBaseUrl, source = 'update metadata', app }) {
   const downloadBase = normalizeDownloadBase(downloadBaseUrl);
-  const parsed = parseUpdateMetadata(text, source);
+  const parsed = parseUpdateMetadata(text, source, app);
   const label = describe(source);
 
   const files = parsed.files.map((file, index) => {
@@ -156,7 +162,7 @@ export function rewriteUpdateMetadata({ text, downloadBaseUrl, source = 'update 
   };
 }
 
-export function readFeedVersions(directory) {
+export function readFeedVersions(directory, app) {
   if (!directory || !fs.existsSync(directory)) return [];
 
   return fs
@@ -167,10 +173,11 @@ export function readFeedVersions(directory) {
       parseUpdateMetadata(
         fs.readFileSync(path.join(directory, fileName), 'utf8'),
         `feed metadata ${fileName}`,
+        app,
       ).version);
 }
 
-function assertConsistentFeedVersions(versions, incomingVersion) {
+function assertConsistentFeedVersions(versions, incomingVersion, app) {
   const unique = [...new Set(versions)];
   if (unique.length <= 1) {
     return { version: unique[0], inconsistent: false };
@@ -182,12 +189,12 @@ function assertConsistentFeedVersions(versions, incomingVersion) {
   // version at or ahead of the highest served version may repair the feed.
   let max = unique[0];
   for (const candidate of unique.slice(1)) {
-    if (compareStableVersions(candidate, max) > 0) {
+    if (compareStableVersions(candidate, max, app) > 0) {
       max = candidate;
     }
   }
-  const incoming = parseStableVersion(incomingVersion);
-  if (compareStableVersions(incoming, parseStableVersion(max)) < 0) {
+  const incoming = parseStableVersion(incomingVersion, app);
+  if (compareStableVersions(incoming, parseStableVersion(max, app), app) < 0) {
     throw new Error(
       `Feed metadata versions disagree (${unique.join(', ')}) and incoming ${incomingVersion} is older than ${max}; refusing to roll the feed back.`,
     );
@@ -206,7 +213,7 @@ function assertConsistentFeedVersions(versions, incomingVersion) {
  */
 export function decideFeedUpdate({ app, incomingVersion, currentFeedVersion, releasePublished, feedInconsistent = false }) {
   const feedTag = feedTagFor(app);
-  const incoming = parseStableVersion(incomingVersion);
+  const incoming = parseStableVersion(incomingVersion, app);
   const decision = { feedTag, incomingVersion, feedVersion: currentFeedVersion ?? '' };
 
   if (!releasePublished) {
@@ -216,7 +223,7 @@ export function decideFeedUpdate({ app, incomingVersion, currentFeedVersion, rel
     return { ...decision, shouldUpdate: true, reason: 'feed-empty' };
   }
 
-  const comparison = compareStableVersions(incoming, parseStableVersion(currentFeedVersion));
+  const comparison = compareStableVersions(incoming, parseStableVersion(currentFeedVersion, app), app);
   if (comparison < 0) {
     throw new Error(
       `Feed ${feedTag} already serves ${currentFeedVersion}; refusing to roll it back to ${incomingVersion}.`,
@@ -243,6 +250,7 @@ function runRewriteCommand() {
     text: fs.readFileSync(metadataFile, 'utf8'),
     downloadBaseUrl: process.env.DOWNLOAD_BASE_URL ?? '',
     source: `update metadata ${path.basename(metadataFile)}`,
+    app,
   });
 
   const outputFile = process.env.OUTPUT_FILE ?? '';
@@ -266,9 +274,9 @@ function runGuardCommand() {
   // The feed directory is only read once the version release is known to be
   // published: an unpublished release may have no feed at all yet.
   const feedVersions = releasePublished
-    ? readFeedVersions(process.env.FEED_METADATA_DIR ?? '')
+    ? readFeedVersions(process.env.FEED_METADATA_DIR ?? '', app)
     : [];
-  const resolved = assertConsistentFeedVersions(feedVersions, incomingVersion);
+  const resolved = assertConsistentFeedVersions(feedVersions, incomingVersion, app);
   const currentFeedVersion = resolved.version;
 
   const decision = decideFeedUpdate({
