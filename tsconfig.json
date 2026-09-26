@@ -20,6 +20,7 @@
       "@lumacast/canvas": ["packages/canvas/src/index.ts"],
       "@lumacast/ui": ["packages/ui/src/index.ts"],
       "@lumacast/suite": ["packages/suite/src/index.ts"],
+      "@lumacast/markers": ["packages/markers/src/index.ts"],
       "@lumacast/photo-model": ["packages/photo-model/src/index.ts"],
       "@lumacast/photo-imaging": ["packages/photo-imaging/src/index.ts"],
       "@lumacast/photo-library": ["packages/photo-library/src/index.ts"]
@@ -34,6 +35,9 @@
     "apps/cloud/electron.vite.config.ts",
     "apps/cloud/main/**/*.ts",
     "apps/cloud/shared/**/*.ts",
+    "apps/chord/electron.vite.config.ts",
+    "apps/chord/main/**/*.ts",
+    "apps/chord/shared/**/*.ts",
     "apps/flux/electron.vite.config.ts",
     "apps/flux/main/**/*.ts",
     "packages/**/*.ts",
@@ -45,5 +49,5 @@
     "vitest.setup.ts",
     "playwright.config.ts"
   ],
-  "exclude": ["**/node_modules", "**/out", "**/dist", "apps/cloud/renderer", "apps/flux/renderer"]
+  "exclude": ["**/node_modules", "**/out", "**/dist", "apps/chord/renderer", "apps/cloud/renderer", "apps/flux/renderer"]
 }

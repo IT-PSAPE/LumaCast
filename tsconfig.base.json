@@ -31,6 +31,7 @@
       "@lumacast/canvas": ["packages/canvas/src/index.ts"],
       "@lumacast/ui": ["packages/ui/src/index.ts"],
       "@lumacast/suite": ["packages/suite/src/index.ts"],
+      "@lumacast/markers": ["packages/markers/src/index.ts"],
       "@lumacast/photo-model": ["packages/photo-model/src/index.ts"],
       "@lumacast/photo-imaging": ["packages/photo-imaging/src/index.ts"],
       "@lumacast/photo-library": ["packages/photo-library/src/index.ts"]

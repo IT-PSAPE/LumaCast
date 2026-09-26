@@ -23,6 +23,7 @@ export default defineConfig({
       '@lumacast/canvas': path.resolve(__dirname, 'packages/canvas/src/index.ts'),
       '@lumacast/ui': path.resolve(__dirname, 'packages/ui/src/index.ts'),
       '@lumacast/suite': path.resolve(__dirname, 'packages/suite/src/index.ts'),
+      '@lumacast/markers': path.resolve(__dirname, 'packages/markers/src/index.ts'),
       '@lumacast/photo-model': path.resolve(__dirname, 'packages/photo-model/src/index.ts'),
       '@lumacast/photo-imaging': path.resolve(__dirname, 'packages/photo-imaging/src/index.ts'),
       '@lumacast/photo-library': path.resolve(__dirname, 'packages/photo-library/src/index.ts'),

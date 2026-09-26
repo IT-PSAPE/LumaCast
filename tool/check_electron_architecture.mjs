@@ -112,6 +112,9 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // app-state derivation. Kernel only, and renderer-safe (no Node builtins), so
   // the Cloud renderer and main can share one reading of the catalog.
   suite: ['kernel'],
+  // Timed lyric-cue interchange (CSV/LRC/SRT) shared by LumaCast (records
+  // audio-sync markers) and LumaChord (imports/exports a lyric video).
+  markers: ['kernel'],
   // The approved Flux photo packages. They form a strict one-way stack above
   // kernel: the pure photo domain model, the imaging/derivation layer that
   // reads and transforms image bytes, and the library layer that owns the
