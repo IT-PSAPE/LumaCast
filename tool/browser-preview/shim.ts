@@ -1,11 +1,11 @@
-// Browser-preview shim: stands in for app/main/preload.ts's contextBridge
+// Browser-preview shim: stands in for apps/cast/main/preload.ts's contextBridge
 // bridge when the built renderer is loaded in a plain Chrome tab instead of
 // Electron (`npm run preview:browser`, see tool/browser-preview/server.ts).
 //
 // tool/browser-preview/server.ts injects this file as a classic (non-module)
 // `<script src="/__browser-shim.js">` tag ordered ahead of the renderer's
 // `type="module"` entry point in the served index.html. That ordering is
-// load-bearing: app/renderer/features/workbench/app-toolbar.tsx and
+// load-bearing: apps/cast/renderer/features/workbench/app-toolbar.tsx and
 // windows-inline-menu-bar.tsx read `window.castApi.platform` at MODULE TOP
 // LEVEL, so `window.castApi` must already exist before the module graph
 // starts evaluating, or those modules throw before React ever mounts.
@@ -35,7 +35,7 @@ declare global {
   interface Window {
     /**
      * Overrides the `cast-media://` scheme prefix that
-     * app/renderer/utils/slides.ts's `castMediaSrc` builds for a
+     * apps/cast/renderer/utils/slides.ts's `castMediaSrc` builds for a
      * freshly-picked file's outbound import-capability reference. Set here,
      * before any other module evaluates, so that call site — the only
      * cast-media-URL *builder* in the renderer — points at this server's
@@ -71,7 +71,7 @@ function detectPlatform(): NodeJS.Platform {
  * same way main's `cast-media:` protocol handler does.
  *
  * Managed media ids are exactly `m` + 32 lowercase hex characters
- * (app/main/media-capability.ts), so a verbatim substring replace is safe:
+ * (apps/cast/main/media-capability.ts), so a verbatim substring replace is safe:
  * nothing else in the JSON can legitimately contain the literal
  * `cast-media://`.
  */

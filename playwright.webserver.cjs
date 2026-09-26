@@ -2,7 +2,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const root = path.join(__dirname, 'out', 'renderer');
+const root = path.join(__dirname, 'apps', 'cast', 'out', 'renderer');
 const port = Number(process.env.E2E_PORT || '4173');
 
 const contentTypes = new Map([

@@ -5,8 +5,8 @@
 // the same way tests/packages/persistence-sqlite/src/migrations/schema-equivalence.test.ts does.
 import { describe, expect, it } from 'vitest';
 import { LATEST_SCHEMA_VERSION } from '@lumacast/persistence-sqlite';
-import { defaultSeedFor, generateFixture } from '../../../benchmarks/fixtures/generator';
-import { FIXTURE_CLASSES, isManifestCurrent, type FixtureClass } from '../../../benchmarks/fixtures/manifest';
+import { defaultSeedFor, generateFixture } from '../../../apps/cast/benchmarks/fixtures/generator';
+import { FIXTURE_CLASSES, isManifestCurrent, type FixtureClass } from '../../../apps/cast/benchmarks/fixtures/manifest';
 
 describe('generateFixture — determinism (#200 acceptance: repeated generation)', () => {
   for (const fixtureClass of FIXTURE_CLASSES) {

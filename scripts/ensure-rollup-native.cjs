@@ -4,16 +4,26 @@ const { execFileSync } = require('node:child_process');
 const { existsSync, readFileSync } = require('node:fs');
 const path = require('node:path');
 
+// Root-aware on purpose: this script is invoked both as `node
+// scripts/ensure-rollup-native.cjs` from the workspace root and as `node
+// ../../scripts/ensure-rollup-native.cjs` from inside apps/* (their
+// predev/prebuild hooks). Native packages are installed once, in the root
+// node_modules, so every lookup below anchors at the repo root derived from
+// this file's location — never at process.cwd(), which is the invoking
+// package's directory under workspaces.
+const REPO_ROOT = path.resolve(__dirname, '..');
+
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const npmExecOptions = {
   stdio: 'inherit',
   shell: process.platform === 'win32',
+  cwd: REPO_ROOT,
 };
 
 function getInstalledPackageVersion(packageName) {
-  const packageJsonPath = path.join(process.cwd(), 'node_modules', ...packageName.split('/'), 'package.json');
+  const packageJsonPath = path.join(REPO_ROOT, 'node_modules', ...packageName.split('/'), 'package.json');
   if (!existsSync(packageJsonPath)) {
-    throw new Error(`${packageName} is not installed. Run npm ci before ensure-rollup-native.`);
+    throw new Error(`${packageName} is not installed. Run npm install from the workspace root before ensure-rollup-native.`);
   }
 
   const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
@@ -106,7 +116,7 @@ function getTailwindOxidePlatformPackageName() {
 
 function hasPackage(packageName) {
   try {
-    require.resolve(packageName);
+    require.resolve(packageName, { paths: [REPO_ROOT] });
     return true;
   } catch {
     return false;

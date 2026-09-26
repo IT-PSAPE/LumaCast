@@ -1,0 +1,29 @@
+{
+  // Flux typecheck surface. TS "paths" replaces base paths wholesale, so the
+  // full @lumacast/* table is repeated here plus Flux's own @renderer/*
+  // (never the Cast renderer; matches Flux's Vite alias, preserves app
+  // isolation). baseUrl "../.." keeps entries root-relative.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@renderer/*": ["apps/flux/renderer/*"],
+      "@lumacast/kernel": ["packages/kernel/src/index.ts"],
+      "@lumacast/composition": ["packages/composition/src/index.ts"],
+      "@lumacast/automation": ["packages/automation/src/index.ts"],
+      "@lumacast/commands": ["packages/commands/src/index.ts"],
+      "@lumacast/protocol": ["packages/protocol/src/index.ts"],
+      "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"],
+      "@lumacast/engine": ["packages/engine/src/index.ts"],
+      "@lumacast/playback": ["packages/playback/src/index.ts"],
+      "@lumacast/canvas": ["packages/canvas/src/index.ts"],
+      "@lumacast/ui": ["packages/ui/src/index.ts"]
+    }
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "main/**/*.ts",
+    "renderer/**/*.ts",
+    "renderer/**/*.tsx"
+  ]
+}

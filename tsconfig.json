@@ -1,19 +1,14 @@
 {
+  // Root typecheck: Cast sources plus every package, the test tree, and the
+  // checked-in TS tooling. @renderer here is Cast-only (for Cast sources and
+  // Cast tests). Cloud/Flux renderers are excluded here and checked via their
+  // own app tsconfigs (`npm run typecheck --workspaces`), so a foreign alias
+  // never silently typechecks them. TS "paths" replaces base paths wholesale,
+  // so the full @lumacast/* table is repeated with the Cast @renderer/*.
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "jsx": "react-jsx",
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "types": ["node", "electron"],
-    "baseUrl": ".",
     "paths": {
-      "@renderer/*": ["app/renderer/*"],
+      "@renderer/*": ["apps/cast/renderer/*"],
       "@lumacast/kernel": ["packages/kernel/src/index.ts"],
       "@lumacast/composition": ["packages/composition/src/index.ts"],
       "@lumacast/automation": ["packages/automation/src/index.ts"],
@@ -22,19 +17,28 @@
       "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"],
       "@lumacast/engine": ["packages/engine/src/index.ts"],
       "@lumacast/playback": ["packages/playback/src/index.ts"],
-      "@lumacast/canvas": ["packages/canvas/src/index.ts"]
+      "@lumacast/canvas": ["packages/canvas/src/index.ts"],
+      "@lumacast/ui": ["packages/ui/src/index.ts"]
     }
   },
   "include": [
-    "electron.vite.config.ts",
-    "app/**/*.ts",
-    "app/**/*.tsx",
-    "benchmarks/**/*.ts",
+    "apps/cast/electron.vite.config.ts",
+    "apps/cast/main/**/*.ts",
+    "apps/cast/renderer/**/*.ts",
+    "apps/cast/renderer/**/*.tsx",
+    "apps/cast/benchmarks/**/*.ts",
+    "apps/cloud/electron.vite.config.ts",
+    "apps/cloud/main/**/*.ts",
+    "apps/flux/electron.vite.config.ts",
+    "apps/flux/main/**/*.ts",
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "tests/**/*.ts",
     "tests/**/*.tsx",
+    "tool/browser-preview/**/*.ts",
+    "vitest.config.ts",
     "vitest.setup.ts",
-    "tool/browser-preview/**/*.ts"
-  ]
+    "playwright.config.ts"
+  ],
+  "exclude": ["**/node_modules", "**/out", "**/dist", "apps/cloud/renderer", "apps/flux/renderer"]
 }

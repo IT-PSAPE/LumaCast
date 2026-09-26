@@ -1,0 +1,9 @@
+{
+  "name": "@lumacast/widget",
+  "private": true,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./deep": "./src/deep/thing.ts"
+  }
+}

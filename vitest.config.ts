@@ -11,8 +11,7 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom', 'konva', 'react-konva'],
     alias: {
-      '@renderer': path.resolve(__dirname, 'app/renderer'),
-      '@rendering': path.resolve(__dirname, 'app/rendering'),
+      '@renderer': path.resolve(__dirname, 'apps/cast/renderer'),
       '@lumacast/kernel': path.resolve(__dirname, 'packages/kernel/src/index.ts'),
       '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
       '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
@@ -22,6 +21,7 @@ export default defineConfig({
       '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts'),
       '@lumacast/playback': path.resolve(__dirname, 'packages/playback/src/index.ts'),
       '@lumacast/canvas': path.resolve(__dirname, 'packages/canvas/src/index.ts'),
+      '@lumacast/ui': path.resolve(__dirname, 'packages/ui/src/index.ts'),
     },
   },
 });

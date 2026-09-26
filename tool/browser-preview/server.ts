@@ -1,5 +1,5 @@
-// `npm run preview:browser`: serves the built renderer (out/renderer, from
-// `npm run build`) to a plain Chrome browser instead of Electron, with the
+// `npm run preview:browser`: serves the built Cast renderer
+// (apps/cast/out/renderer, from `npm run build:cast`) to a plain Chrome browser instead of Electron, with the
 // user's REAL project data, read-only, so a design-capture extension can grab
 // live UI. See tool/browser-preview/shim.ts for the `window.castApi` stand-in
 // this server's HTML injects, and tool/browser-preview/build.mjs for how both
@@ -21,13 +21,14 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { CastRepository, createTestRepository } from '@lumacast/persistence-sqlite';
-import { maskAppSnapshot, resolveManagedMedia, type ManagedMediaUse } from '../../app/main/media-capability';
+import { maskAppSnapshot, resolveManagedMedia, type ManagedMediaUse } from '../../apps/cast/main/media-capability';
 
 const APP_NAME = 'LumaCast';
 const DEFAULT_PORT = 4318;
 // out/tool/server.js sits next to out/tool/browser-shim.js (both written by
-// build.mjs) and one level below out/renderer (from `npm run build`).
-const RENDERER_ROOT = path.resolve(__dirname, '../renderer');
+// build.mjs) at the workspace root; the served renderer is Cast's own build
+// output at apps/cast/out/renderer (from `npm run build:cast`).
+const RENDERER_ROOT = path.resolve(__dirname, '../../apps/cast/out/renderer');
 const SHIM_PATH = path.join(__dirname, 'browser-shim.js');
 
 interface CliOptions {
@@ -53,7 +54,7 @@ function parseArgs(argv: string[]): CliOptions {
 }
 
 // Mirrors Electron's default `app.getPath('userData')` for the productName
-// app/main/index.ts forces via `app.setName('LumaCast')`. There is no
+// apps/cast/main/index.ts forces via `app.setName('LumaCast')`. There is no
 // Electron process to ask here, so the per-platform default is reimplemented
 // directly; `--user-data-dir` overrides it exactly like the real app's own
 // CLI flag of the same name.
@@ -69,7 +70,7 @@ function defaultUserDataDir(): string {
   }
 }
 
-// Mirrors app/main/index.ts: `path.join(app.getPath('documents'), APP_NAME)`.
+// Mirrors apps/cast/main/index.ts: `path.join(app.getPath('documents'), APP_NAME)`.
 function defaultDocumentsDir(): string {
   return path.join(os.homedir(), 'Documents', APP_NAME);
 }
@@ -182,7 +183,7 @@ function serveIndexHtml(req: http.IncomingMessage, res: http.ServerResponse): vo
   fs.readFile(path.join(RENDERER_ROOT, 'index.html'), 'utf8', (error, html) => {
     if (error) {
       res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('Renderer build not found. Run `npm run build` first.');
+      res.end('Renderer build not found. Run `npm run build:cast` first.');
       return;
     }
     const host = req.headers.host ?? `localhost:${DEFAULT_PORT}`;
@@ -366,7 +367,7 @@ function serveCastMedia(req: http.IncomingMessage, res: http.ServerResponse, id:
 function main(): void {
   if (!fs.existsSync(path.join(RENDERER_ROOT, 'index.html'))) {
     console.error(`[browser-preview] renderer build not found at ${RENDERER_ROOT}`);
-    console.error('[browser-preview] run `npm run build` first');
+    console.error('[browser-preview] run `npm run build:cast` first');
     process.exit(1);
   }
 

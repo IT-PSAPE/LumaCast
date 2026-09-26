@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
-// Deterministic import/command-boundary checker for the committed Electron
-// `app/` tree (parent issue #117, leaf #156).
+// Deterministic import/command-boundary checker for the committed monorepo
+// tree: every application under `apps/<name>/`, the legacy single-app root
+// `app/`, and every workspace package under `packages/<name>/` (parent issue
+// #117, leaf #156, monorepo migration).
 //
 // It parses static ES imports/exports only. Unsupported dynamic patterns
 // (`import(<non-literal>)`, `require(<non-literal>)`) fail loudly instead of
-// being guessed.
+// being guessed. The file list comes from walking the working tree, so
+// uncommitted source is checked too; build output and installed dependencies
+// are skipped.
 //
 // Two severity tiers:
 // - Hard errors (fail the check): every rule except the feature-boundary pair
@@ -23,18 +27,38 @@ const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TOOL_DIR, '..');
 const FIXTURES_ROOT = path.join(TOOL_DIR, 'fixtures', 'electron-architecture');
 
-const ALIASES = {
-  '@renderer': 'app/renderer',
-  '@rendering': 'app/rendering',
+// Apps are never addressable as modules. `@renderer`/`@rendering` are
+// app-scoped: they resolve to the *importing* app's own tree, so a renderer
+// import can never silently reach a sibling app. Everything an app shares with
+// another app must be reached through a package under `packages/*`.
+const APP_SCOPED_ALIASES = {
+  '@renderer': 'renderer',
+  '@rendering': 'rendering',
 };
+
+// The NDI engine session belongs to the cast app alone. A different app may
+// ship a `main/ndi/` directory, but that is ordinary main code: it may not
+// touch the native module or the raw host command protocol. The legacy root
+// app keeps its own session so migration-time and fixture trees stay covered.
+const NDI_ENGINE_SESSION_ROOTS = ['apps/cast/main/ndi', 'app/main/ndi'];
+const NDI_PROTOCOL_FILES = new Set([
+  'apps/cast/main/ndi/ndi-protocol.ts',
+  'app/main/ndi/ndi-protocol.ts',
+]);
+
+// Never walked: build output, installed dependencies, and the Playwright
+// drivers under an app's `e2e/` (not app source).
+const IGNORED_SOURCE_DIRS = new Set(['node_modules', 'out', 'dist', 'e2e']);
 
 const NDI_HOST_COMMAND_EXPORTS = new Set(['NdiHostCommand', 'NdiHostEvent']);
 
-// Packages allowed to import react/react-dom/konva/react-konva under
-// package-purity (issue #219, W9). Only @lumacast/canvas is a rendering
-// package — every other package stays headless. Electron stays banned for
-// every package regardless of membership here.
-const REACT_ALLOWED_PACKAGES = new Set(['canvas']);
+// Packages allowed to import react/react-dom under package-purity (issue
+// #219, W9). @lumacast/canvas renders the Konva scene; @lumacast/ui holds
+// generic React controls and styling; every other package stays headless.
+// konva/react-konva stays exclusive to @lumacast/canvas, and Electron stays
+// banned for every package regardless of membership here.
+const REACT_ALLOWED_PACKAGES = new Set(['canvas', 'ui']);
+const KONVA_ALLOWED_PACKAGES = new Set(['canvas']);
 
 // ---------------------------------------------------------------------------
 // Package graph (issue #223, parent #219). npm workspace packages live under
@@ -59,6 +83,10 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // the persistence-purity rule below, which is not expressible as a
   // package-name allow list).
   'persistence-sqlite': ['kernel', 'composition', 'automation', 'protocol'],
+  // Shared generic UI: React controls and styling, deliberately independent of
+  // any one app's version and build. Kernel only, so the visual layer cannot
+  // couple itself to a domain package.
+  ui: ['kernel'],
   // The native NDI addon (@lumacast/ndi-native) is not a dependency-direction
   // entry here — it is resolved via classifyExternal's 'native' kind, not a
   // pkg:* zone, and is governed by the engine-session rule below instead.
@@ -92,21 +120,23 @@ const RULE_TITLES = {
   'observability-port':
     'Observability is consumed through a port; only screens, the shell, and the observability feature itself may reference it directly.',
   'engine-session':
-    'Only the NDI engine-session boundary (app/main/ndi and packages/engine) may touch the native module or reference raw NDI host commands; ndi-service-proxy.ts is the sole command writer.',
+    'Only the NDI engine-session boundary (apps/cast/main/ndi and packages/engine) may touch the native module or reference raw NDI host commands; ndi-service-proxy.ts is the sole command writer. No other app has an NDI engine session.',
   'public-entry':
     'Feature imports must go through the feature public entry point when one exists; deep internal imports fail.',
   'allow-list':
     'The frozen architecture allow-list must not grow and every entry must be used.',
+  'app-isolation':
+    'Apps are self-contained: no app may import another app, whether through a relative path, an app-scoped alias (@renderer, @rendering), or an app module specifier (@lumacast/<app>, @workspace/<app>/…). An app-scoped alias resolves only inside the importing app, and an alias that resolves nowhere is an error rather than a sibling-app fallback. Share code through a package under packages/* instead.',
   'application-boundary':
     'app/application is the composition root: it may import any zone or package, but only the shell and screens may import app/application.',
   'package-app-boundary':
-    'No package under packages/* may import application code under app/; packages may not depend on the application.',
+    'No package under packages/* may import application code under apps/* or the legacy app/ root; packages may not depend on any app.',
   'package-purity':
-    'A package must not import React, React DOM, Konva, React-Konva, or Electron; packages are headless domain/platform code, except @lumacast/canvas, which may import react/react-dom/konva/react-konva (never electron).',
+    'A package must not import React, React DOM, Konva, React-Konva, or Electron; packages are headless domain/platform code, except @lumacast/canvas, which may import react/react-dom/konva/react-konva, and @lumacast/ui, which may import react/react-dom but never konva/react-konva (Electron stays banned for both).',
   'persistence-purity':
     'A persistence package must not import renderer code; persistence is process/storage logic and must not depend on the renderer.',
   'package-public-entry':
-    'Package imports must go through the package public entry point (src/index.ts or index.ts); deep internal imports fail.',
+    'Package imports must go through the package public entry point: src/index.ts (or the index.ts at the package root), plus a stylesheet the export map names explicitly (e.g. @lumacast/ui/theme.css). Naming a second TypeScript file in the export map does not make it public, and no asset is importable from outside a package unless the export map declares it.',
   'package-dependency-direction':
     'Packages may only depend on other packages in the direction recorded in issue #219; this edge is not on that list.',
   'package-cycle':
@@ -120,48 +150,48 @@ const RULE_TITLES = {
 // ---------------------------------------------------------------------------
 const DEFAULT_ALLOW_LIST = [
   {
-    from: 'app/renderer/components/display/lazy-scene-stage.tsx',
-    to: 'app/renderer/features/canvas/scene-stage.tsx',
+    from: 'apps/cast/renderer/components/display/lazy-scene-stage.tsx',
+    to: 'apps/cast/renderer/features/canvas/scene-stage.tsx',
     rules: ['ui-purity'],
     reason:
       'SceneStage is a canvas-feature render component consumed by a shared display primitive. Extract the render-only scene layer to shared rendering so shared display components need no feature dependency.',
     removedBy: 'shared scene-layer (plan 0.11, Atlas)',
   },
   {
-    from: 'app/renderer/components/form/doc-sortable-block.tsx',
-    to: 'app/renderer/features/items/lyric-text-utils.ts',
+    from: 'apps/cast/renderer/components/form/doc-sortable-block.tsx',
+    to: 'apps/cast/renderer/features/items/lyric-text-utils.ts',
     rules: ['ui-purity'],
     reason:
       'Lyric import text parsing lives in the items feature but is used by a shared doc-sortable form component. Move the parser to app/core so shared form components need no feature dependency.',
     removedBy: 'Atlas (move lyric import parser to app/core)',
   },
   {
-    from: 'app/renderer/features/automation/automation-context.tsx',
-    to: 'app/renderer/features/observability/metrics-store.ts',
-    rules: ['feature-isolation', 'observability-port'],
+    from: 'apps/cast/renderer/features/automation/automation-context.tsx',
+    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
+    rules: ['observability-port'],
     reason:
       'Automation records telemetry directly into the observability feature and crosses a feature boundary to do so. Route telemetry through an observability port before this can be removed.',
     removedBy: 'observability port (plan 1.3, Atlas)',
   },
   {
-    from: 'app/renderer/contexts/app-context.tsx',
-    to: 'app/renderer/features/observability/metrics-store.ts',
+    from: 'apps/cast/renderer/contexts/app-context.tsx',
+    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
     rules: ['observability-port'],
     reason:
       'App shell wiring records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
     removedBy: 'observability port (plan 1.3, Atlas)',
   },
   {
-    from: 'app/renderer/contexts/app-store.ts',
-    to: 'app/renderer/features/observability/metrics-store.ts',
+    from: 'apps/cast/renderer/contexts/app-store.ts',
+    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
     rules: ['observability-port'],
     reason:
       'The application store records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
     removedBy: 'observability port (plan 1.3, Atlas)',
   },
   {
-    from: 'app/renderer/contexts/playback/playback-context.tsx',
-    to: 'app/renderer/features/observability/metrics-store.ts',
+    from: 'apps/cast/renderer/contexts/playback/playback-context.tsx',
+    to: 'apps/cast/renderer/features/observability/metrics-store.ts',
     rules: ['observability-port'],
     reason:
       'Playback wiring records telemetry directly into the observability feature. Route through an observability port before this can be removed.',
@@ -171,31 +201,85 @@ const DEFAULT_ALLOW_LIST = [
 
 // ---------------------------------------------------------------------------
 // Zones
+//
+// A path belongs to exactly one app (`apps/<name>/…`, or the legacy root
+// `app/…`) or to one package (`packages/<name>/…`), or to neither (repo
+// tooling, configs, tests). `zoneOf` reports the within-app or within-package
+// zone; `appOf` reports app ownership, which is what the app-isolation rule
+// keys on.
 // ---------------------------------------------------------------------------
+// The legacy single-app root. `app/` is still checked so in-flight migration
+// trees and the historical fixture graphs keep their coverage; it behaves
+// exactly like an app named for its directory.
+const LEGACY_APP_DIR = 'app';
+const LEGACY_APP_ID = 'root';
+
 const RENDERER_ZONES = new Set(['screens', 'shell', 'ui', 'contexts', 'hooks', 'rendererOther']);
 
 function isRendererZone(zone) {
   return zone != null && (RENDERER_ZONES.has(zone) || zone.startsWith('feature:'));
 }
 
+function isNdiSessionPath(rel) {
+  return NDI_ENGINE_SESSION_ROOTS.some((root) => rel === root || rel.startsWith(root + '/'));
+}
+
+// `apps/<name>/…` -> { dir: 'apps/<name>', id: '<name>' }; `app/…` -> the
+// legacy root app. Returns null for anything that is not app source.
+function appOfPath(rel) {
+  const p = rel.split('/');
+  if (p[0] === 'apps' && p.length >= 2) return { dir: `apps/${p[1]}`, id: p[1] };
+  if (p[0] === LEGACY_APP_DIR && p.length >= 2) return { dir: LEGACY_APP_DIR, id: LEGACY_APP_ID };
+  return null;
+}
+
+function packageOfPath(rel) {
+  const p = rel.split('/');
+  if (p[0] === 'packages' && p.length >= 2) return p[1];
+  return null;
+}
+
+// The app id an app-scoped path belongs to, or null for packages and repo
+// tooling.
+function appOf(rel) {
+  const app = appOfPath(rel);
+  return app ? app.id : null;
+}
+
+function appPrefixOf(rel) {
+  const app = appOfPath(rel);
+  return app ? app.dir : null;
+}
+
+// The directory an app id refers to, for messages that name a whole app.
+function appDirOfId(id) {
+  return id === LEGACY_APP_ID ? 'app' : `apps/${id}`;
+}
+
 function zoneOf(rel) {
   const p = rel.split('/');
   if (p[0] === 'packages' && p.length >= 2) return 'pkg:' + p[1];
-  if (p[0] !== 'app' || p.length < 2) return null;
-  const sec = p[1];
+  const app = appOfPath(rel);
+  if (!app) return null;
+  const sec = p[app.dir === 'app' ? 1 : 2];
   if (sec === 'core') return 'core';
   if (sec === 'contracts') return 'contracts';
   if (sec === 'database') return 'data';
   if (sec === 'application') return 'application';
-  if (sec === 'main') return p[2] === 'ndi' ? 'mainNdi' : 'main';
+  // main/ndi is the NDI engine session only inside an app that owns one.
+  if (sec === 'main') return isNdiSessionPath(rel) ? 'mainNdi' : 'main';
   if (sec === 'renderer') {
-    const third = p[2];
-    if (third === 'features') return 'feature:' + p[3];
+    const third = p[app.dir === 'app' ? 2 : 3];
+    if (third === 'features') return 'feature:' + p[app.dir === 'app' ? 3 : 4];
     if (third === 'screens') return 'screens';
     if (third === 'components' || third === 'utils' || third === 'types') return 'ui';
     if (third === 'contexts') return 'contexts';
     if (third === 'hooks') return 'hooks';
-    if (third === 'App.tsx' || third === 'main.tsx' || third === 'workbench-screen-router.tsx') return 'shell';
+    // The shell is the composition boundary, whichever extension it is written
+    // in: compare the name, not the exact `.tsx` filename.
+    if (['App', 'main', 'workbench-screen-router'].includes(third?.replace(/\.(ts|tsx|mjs|js|cjs)$/, ''))) {
+      return 'shell';
+    }
     return 'rendererOther';
   }
   return null;
@@ -416,33 +500,133 @@ function parseImports(source) {
 // ---------------------------------------------------------------------------
 // Specifier resolution
 // ---------------------------------------------------------------------------
+// Classifies a bare specifier by its package name, so a subpath import such as
+// `react-dom/client` or `konva/lib/Stage` is judged the same as the package
+// root. A scoped package is two segments (`@base-ui/react`), everything else is
+// one.
+function packageNameOf(spec) {
+  const parts = spec.split('/');
+  return spec.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+}
+
 function classifyExternal(spec) {
   if (spec.startsWith('node:')) return 'node';
-  if (spec === 'electron') return 'electron';
-  if (spec === 'react' || spec === 'react-dom' || spec === 'konva' || spec === 'react-konva') return 'react';
-  if (spec === '@lumacast/ndi-native') return 'native';
+  const name = packageNameOf(spec);
+  if (name === 'electron') return 'electron';
+  if (name === 'react' || name === 'react-dom') return 'react';
+  if (name === 'konva' || name === 'react-konva') return 'konva';
+  if (name === '@lumacast/ndi-native') return 'native';
   return 'other';
 }
 
+// Source extensions the checker classifies as code. `.js`/`.cjs` are code too:
+// treating them as assets would let a JavaScript file inside an app or a package
+// import Electron or another app while every zone rule silently skipped it.
+const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.mjs', '.js', '.cjs']);
+
+function codeOrAsset(hit) {
+  return CODE_EXTENSIONS.has(path.extname(hit)) ? 'file' : 'asset';
+}
+
 function findExisting(base) {
-  const exts = ['', '.ts', '.tsx', '.mjs', '.js'];
+  const exts = ['', '.ts', '.tsx', '.mjs', '.js', '.cjs', '.css'];
   for (const ext of exts) {
     const cand = base + ext;
     if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return cand;
   }
-  for (const idx of ['/index.ts', '/index.tsx', '/index.mjs', '/index.js']) {
+  for (const idx of ['/index.ts', '/index.tsx', '/index.mjs', '/index.js', '/index.cjs']) {
     const cand = base + idx;
     if (fs.existsSync(cand) && fs.statSync(cand).isFile()) return cand;
   }
   return null;
 }
 
+function readPackageManifest(pkgDir) {
+  const manifestPath = path.join(pkgDir, 'package.json');
+  if (!fs.existsSync(manifestPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// Targets named by a manifest field, e.g. `exports["./theme.css"]`.
+function collectExportTargets(value, out) {
+  if (typeof value === 'string') {
+    out.push(value);
+    return;
+  }
+  if (value && typeof value === 'object') {
+    for (const nested of Object.values(value)) collectExportTargets(nested, out);
+  }
+}
+
+// The public surface of a package: its entry points, as absolute paths. A
+// package has exactly one public *source* entry — `src/index.ts`, or `index.ts`
+// at the package root — and an export map naming a second TypeScript file does
+// not make that file public. The single asset exception is an explicitly
+// exported stylesheet (@lumacast/ui/theme.css), which the bundler has to be
+// able to import by subpath. check() normalizes rootDir to an absolute path,
+// so the cache key and every entry below are absolute and directly comparable
+// with a resolved import target.
+const SOURCE_ENTRY_REL_PATHS = ['src/index.ts', 'src/index.tsx', 'index.ts', 'index.tsx'];
+const publicEntryCache = new Map();
+function packagePublicEntries(root, pkgName) {
+  const cacheKey = `${root}\u0000${pkgName}`;
+  const cached = publicEntryCache.get(cacheKey);
+  if (cached) return cached;
+  const pkgDir = path.join(path.resolve(root), 'packages', pkgName);
+  const entries = new Set();
+  const manifest = readPackageManifest(pkgDir);
+  if (manifest?.exports) {
+    const targets = [];
+    collectExportTargets(manifest.exports, targets);
+    for (const target of targets) {
+      // Only a declared stylesheet counts. A manifest field such as `style`,
+      // `sass`, or `unpkg` is not a declaration, and a JS/TS target is code,
+      // not an asset: the sole source-entry rule below governs it.
+      if (typeof target !== 'string' || !target.startsWith('.') || !target.endsWith('.css')) continue;
+      const abs = path.resolve(pkgDir, target);
+      if (fs.existsSync(abs) && fs.statSync(abs).isFile()) entries.add(abs);
+    }
+  }
+  for (const rel of SOURCE_ENTRY_REL_PATHS) {
+    const abs = path.join(pkgDir, rel);
+    if (fs.existsSync(abs) && fs.statSync(abs).isFile()) entries.add(abs);
+  }
+  publicEntryCache.set(cacheKey, entries);
+  return entries;
+}
+
+// Resolves a subpath through the package's own export map (`'.'` for the root
+// entry, `'./theme.css'` for a stylesheet). Returns null when the map does not
+// name the subpath, so the caller can fall back to a disk lookup and let
+// package-public-entry report the deep import.
+function resolveViaExports(pkgDir, manifest, subpath) {
+  if (!manifest || manifest.exports == null) return null;
+  const key = subpath === '' ? '.' : `./${subpath}`;
+  const map = manifest.exports;
+  const target = typeof map === 'string' ? (key === '.' ? map : undefined) : map?.[key];
+  if (target == null) return null;
+  const targets = [];
+  collectExportTargets(target, targets);
+  for (const t of targets) {
+    if (typeof t !== 'string' || !t.startsWith('.')) continue;
+    const abs = path.resolve(pkgDir, t);
+    if (fs.existsSync(abs)) return { type: codeOrAsset(abs), path: abs };
+  }
+  return null;
+}
+
 // Resolves a bare `@lumacast/<name>` specifier to a file inside
-// packages/<name>, mirroring the fixed ALIASES map above but keyed off
-// whatever package directories actually exist under packages/ (real or
+// packages/<name>, mirroring the fixed APP_SCOPED_ALIASES map above but keyed
+// off whatever package directories actually exist under packages/ (real or
 // fixture). `@lumacast/ndi-native` is excluded: it is the native module,
 // already governed by the engine-session rule via classifyExternal, and is
-// never resolved to a file.
+// never resolved to a file. A `@lumacast/<name>` specifier with no matching
+// package is not a typo to be tolerated: an app is not a module, so it is
+// reported as an app-module specifier.
 function resolvePackageAlias(specifier, root) {
   if (!specifier.startsWith('@lumacast/')) return null;
   const rest = specifier.slice('@lumacast/'.length);
@@ -451,33 +635,64 @@ function resolvePackageAlias(specifier, root) {
   if (pkgName === 'ndi-native') return null;
   const subpath = slashIdx === -1 ? '' : rest.slice(slashIdx + 1);
   const pkgDir = path.join(root, 'packages', pkgName);
-  if (!fs.existsSync(pkgDir)) return null;
+  if (!fs.existsSync(pkgDir)) {
+    return { type: 'app-module', specifier, detail: `@lumacast/${pkgName}` };
+  }
+  const viaExports = resolveViaExports(pkgDir, readPackageManifest(pkgDir), subpath);
+  if (viaExports) return viaExports;
   if (subpath === '') {
     const hit = findExisting(path.join(pkgDir, 'src', 'index')) ?? findExisting(path.join(pkgDir, 'index'));
-    if (hit) return { type: /\.(ts|tsx|mjs)$/.test(hit) ? 'file' : 'asset', path: hit };
+    if (hit) return { type: codeOrAsset(hit), path: hit };
     return { type: 'unresolved', specifier };
   }
   const hit = findExisting(path.join(pkgDir, subpath));
-  if (hit) return { type: /\.(ts|tsx|mjs)$/.test(hit) ? 'file' : 'asset', path: hit };
+  if (hit) return { type: codeOrAsset(hit), path: hit };
   return { type: 'unresolved', specifier };
+}
+
+// An app-scoped alias (`@renderer/…`, `@rendering/…`) resolves inside the
+// importing app's own directory and nowhere else. There is deliberately no
+// sibling-app fallback: a hit in another app would be a cross-app import, and
+// an alias that resolves in neither the importing app nor a package is a
+// broken specifier, not a licence to borrow a neighbour's tree. Either way it
+// is reported (app-isolation, or package-app-boundary from a package).
+function resolveAppScopedAlias(specifier, fromAbs, root) {
+  const alias = specifier.split('/')[0];
+  const subdir = APP_SCOPED_ALIASES[alias];
+  if (!subdir) return null;
+  const rest = specifier.slice(alias.length + 1);
+  const fromRel = normRel(root, fromAbs);
+  const ownApp = appOfPath(fromRel);
+  if (!ownApp) return { type: 'app-module', specifier, detail: alias };
+  const base = rest
+    ? path.resolve(root, ownApp.dir, subdir, rest)
+    : path.resolve(root, ownApp.dir, subdir);
+  const hit = findExisting(base);
+  if (hit) return { type: codeOrAsset(hit), path: hit };
+  return { type: 'app-module', specifier, detail: 'unresolved-app-alias' };
+}
+
+// `@workspace/<name>/…` is an app module alias in the monorepo. It names an app
+// when <name> is not a workspace package, so a new app is covered without the
+// checker naming it.
+function resolveWorkspaceAppAlias(specifier, root) {
+  if (!specifier.startsWith('@workspace/')) return null;
+  const rest = specifier.slice('@workspace/'.length);
+  const name = rest.split('/')[0];
+  if (!name) return null;
+  if (fs.existsSync(path.join(root, 'packages', name))) return null;
+  return { type: 'app-module', specifier, detail: `@workspace/${name}` };
 }
 
 function resolveSpecifier(specifier, fromAbs, root) {
   if (specifier.startsWith('.')) {
     const base = path.resolve(path.dirname(fromAbs), specifier);
     const hit = findExisting(base);
-    if (hit) return { type: /\.(ts|tsx|mjs)$/.test(hit) ? 'file' : 'asset', path: hit };
+    if (hit) return { type: codeOrAsset(hit), path: hit };
     return { type: 'unresolved', specifier };
   }
-  const alias = specifier.split('/')[0];
-  const aliasBase = ALIASES[alias];
-  if (aliasBase) {
-    const rest = specifier.slice(alias.length + 1);
-    const base = path.resolve(root, aliasBase, rest);
-    const hit = findExisting(base);
-    if (hit) return { type: /\.(ts|tsx|mjs)$/.test(hit) ? 'file' : 'asset', path: hit };
-    return { type: 'unresolved', specifier };
-  }
+  const scoped = resolveAppScopedAlias(specifier, fromAbs, root) ?? resolveWorkspaceAppAlias(specifier, root);
+  if (scoped) return scoped;
   const pkgResolved = resolvePackageAlias(specifier, root);
   if (pkgResolved) return pkgResolved;
   return { type: 'external', externalKind: classifyExternal(specifier) };
@@ -486,6 +701,23 @@ function resolveSpecifier(specifier, fromAbs, root) {
 // ---------------------------------------------------------------------------
 // Walk + check
 // ---------------------------------------------------------------------------
+
+// The source tree, not the committed set: untracked and modified app/package
+// source is checked exactly like committed source, so a migration in progress
+// cannot pass by being unstaged. Build output, dependencies, and an app's
+// Playwright drivers are skipped.
+// Every code file the checker walks. `.js`/`.cjs` are included so a JavaScript
+// file cannot sit outside the rules by naming itself an asset.
+const CODE_FILE_NAME_RE = /\.(ts|tsx|mjs|js|cjs)$/;
+
+// The native addon is governed by the engine-session rule instead: its loader
+// is plain CommonJS that requires the built `.node` binary by a path computed
+// at runtime, which this checker cannot follow as a static specifier.
+const EXEMPT_SOURCE_FILES = new Set(['packages/ndi-native/index.js']);
+function isExemptSourceFile(rel) {
+  return EXEMPT_SOURCE_FILES.has(rel);
+}
+
 function walkFiles(dir, root) {
   const out = [];
   let entries;
@@ -495,12 +727,29 @@ function walkFiles(dir, root) {
     return out;
   }
   for (const ent of entries) {
-    if (ent.name.startsWith('.') || ent.name === 'node_modules') continue;
+    if (ent.name.startsWith('.') || IGNORED_SOURCE_DIRS.has(ent.name)) continue;
     const full = path.join(dir, ent.name);
     if (ent.isDirectory()) out.push(...walkFiles(full, root));
-    else if (/\.(ts|tsx|mjs)$/.test(ent.name)) out.push(path.relative(root, full));
+    else if (CODE_FILE_NAME_RE.test(ent.name)) {
+      const rel = path.relative(root, full).split(path.sep).join('/');
+      if (!isExemptSourceFile(rel)) out.push(rel);
+    }
   }
   return out;
+}
+
+// Every app root in the tree: `apps/<name>` plus the legacy root `app/`.
+function appRoots(rootDir) {
+  const roots = [];
+  const appsDir = path.join(rootDir, 'apps');
+  if (fs.existsSync(appsDir)) {
+    for (const ent of fs.readdirSync(appsDir, { withFileTypes: true })) {
+      if (!ent.isDirectory() || IGNORED_SOURCE_DIRS.has(ent.name) || ent.name.startsWith('.')) continue;
+      roots.push(`apps/${ent.name}`);
+    }
+  }
+  if (fs.existsSync(path.join(rootDir, LEGACY_APP_DIR))) roots.push(LEGACY_APP_DIR);
+  return roots.sort();
 }
 
 function isTestFile(rel) {
@@ -512,26 +761,28 @@ function normRel(root, abs) {
 }
 
 export function check(options = {}) {
-  const rootDir = options.rootDir ?? REPO_ROOT;
+  // Resolved once, to an absolute path: every path below (the walked files, the
+  // resolver, the public-entry cache keys) is then built from the same base, so
+  // a relative rootDir cannot produce entries that no resolved import matches.
+  const rootDir = path.resolve(options.rootDir ?? REPO_ROOT);
   const allowList = options.allowList ?? DEFAULT_ALLOW_LIST;
-  const appDir = path.join(rootDir, 'app');
+  const appsDir = path.join(rootDir, 'apps');
+  const legacyAppDir = path.join(rootDir, 'app');
   const packagesDir = path.join(rootDir, 'packages');
   const errors = [];
-  const stats = { files: 0, edges: 0, exceptionsUsed: 0 };
+  const stats = { files: 0, edges: 0, exceptionsUsed: 0, apps: 0 };
 
-  const files = [...walkFiles(appDir, rootDir), ...walkFiles(packagesDir, rootDir)]
-    .filter((rel) => (rel.startsWith('app/') && !rel.startsWith('app/e2e/')) || rel.startsWith('packages/'))
-    .filter((rel) => !isTestFile(rel));
+  const roots = appRoots(rootDir);
+  stats.apps = roots.length;
+  const files = [
+    ...roots.flatMap((dir) => walkFiles(path.join(rootDir, dir), rootDir)),
+    ...walkFiles(packagesDir, rootDir),
+  ].filter((rel) => !isTestFile(rel));
 
   const publicIndexes = new Set();
-  const publicPackageIndexes = new Set();
   for (const rel of files) {
-    if (/^app\/renderer\/features\/[^/]+\/index\.tsx?$/.test(rel)) {
+    if (/^(?:apps\/[^/]+\/|app\/)renderer\/features\/[^/]+\/index\.tsx?$/.test(rel)) {
       publicIndexes.add(rel.replace(/\/index\.tsx?$/, ''));
-    }
-    const pkgIndexMatch = rel.match(/^(packages\/[^/]+)\/(?:src\/)?index\.tsx?$/);
-    if (pkgIndexMatch) {
-      publicPackageIndexes.add(pkgIndexMatch[1]);
     }
   }
 
@@ -555,12 +806,16 @@ export function check(options = {}) {
     resolvedEdges.push({ ...e, res: resolveSpecifier(e.specifier, fromAbs, rootDir) });
   }
 
+  // Feature pairs are scoped to one app: two apps may each contain a `canvas`
+  // and a `playback` feature with edges in opposite directions without either
+  // app containing a cycle.
   const featurePairs = [];
   for (const e of resolvedEdges) {
     const fromZone = zoneOf(e.from);
-    const toZone = e.res.type === 'file' ? zoneOf(normRel(rootDir, e.res.path)) : null;
-    if (fromZone?.startsWith('feature:') && toZone?.startsWith('feature:') && fromZone !== toZone) {
-      featurePairs.push(`${fromZone.slice(8)}->${toZone.slice(8)}`);
+    const toRel = e.res.type === 'file' ? normRel(rootDir, e.res.path) : null;
+    const toZone = toRel ? zoneOf(toRel) : null;
+    if (fromZone?.startsWith('feature:') && toZone?.startsWith('feature:') && fromZone !== toZone && appOf(e.from) === appOf(toRel)) {
+      featurePairs.push(`${appOf(e.from)} ${fromZone.slice(8)}->${toZone.slice(8)}`);
     }
   }
   const uniqueFeaturePairs = [...new Set(featurePairs)];
@@ -581,14 +836,62 @@ export function check(options = {}) {
   for (const e of resolvedEdges) {
     const fromRel = e.from;
     const fromZone = zoneOf(fromRel);
+    const fromApp = appOf(fromRel);
     const fromFeature = fromZone?.startsWith('feature:') ? fromZone.slice(8) : null;
     const res = e.res;
     const line = e.line;
-    const toRel = res.type === 'file' ? normRel(rootDir, res.path) : null;
+    // An asset (a stylesheet, an image) still has a location, so it participates
+    // in the app-isolation and package-public-entry rules. Only the zone rules,
+    // which describe code dependencies, stop at `res.type !== 'file'`.
+    const toRel = res.type === 'file' || res.type === 'asset' ? normRel(rootDir, res.path) : null;
     const toZone = toRel ? zoneOf(toRel) : null;
+    const toApp = toRel ? appOf(toRel) : null;
     const toFeature = toZone?.startsWith('feature:') ? toZone.slice(8) : null;
 
     const add = (rule, detail) => violations.push({ rule, from: fromRel, line, to: toRel ?? e.specifier, detail });
+
+    // An app is not a module. Naming one — `@lumacast/<app>`,
+    // `@workspace/<app>/…`, or an app-scoped alias from outside an app — is
+    // reported wherever it appears, including for an app that does not exist
+    // yet, so a new app is covered without an exemption.
+    if (res.type === 'app-module') {
+      if (fromZone?.startsWith('pkg:')) {
+        add('package-app-boundary', `imports app code through "${e.specifier}"; packages may not depend on any app`);
+      } else if (res.detail === 'unresolved-app-alias') {
+        add(
+          'app-isolation',
+          `imports "${e.specifier}", which resolves only inside the importing app and does not exist there; an app-scoped alias never falls back to a sibling app or a package`,
+        );
+      } else {
+        add('app-isolation', `imports app code through "${e.specifier}" (${res.detail})`);
+      }
+      continue;
+    }
+
+    // Apps are self-contained: nothing in one app may reach into another,
+    // however the specifier spells it.
+    if (fromApp && toApp && fromApp !== toApp) {
+      add('app-isolation', `imports another app (${toApp}) ${toRel}`);
+    }
+
+    // A package's public surface is its entry point: `src/index.ts` (or the
+    // package-root `index.ts`), plus a stylesheet the export map names. Every
+    // other file inside the package is internal, whether the import is code or
+    // an asset, so this check runs before the code-only `continue` below.
+    if (toZone?.startsWith('pkg:') && !fromRel.startsWith(`packages/${toZone.slice(4)}/`)) {
+      const toPkg = toZone.slice(4);
+      const entries = packagePublicEntries(rootDir, toPkg);
+      if (!entries.has(e.res.path)) {
+        const publicList = [...entries]
+          .map((abs) => normRel(rootDir, abs))
+          .sort()
+          .join(', ');
+        add(
+          'package-public-entry',
+          `imports ${toRel}, which is not a public entry point of @lumacast/${toPkg} (public: ${publicList || 'none declared'})`,
+        );
+      }
+    }
 
     if (res.type === 'external') {
       const k = res.externalKind;
@@ -605,12 +908,14 @@ export function check(options = {}) {
         add('renderer-isolation', `imports ${e.specifier}`);
       }
       if (k === 'native' && fromZone !== 'mainNdi' && fromZone !== 'pkg:engine') {
-        add('engine-session', `imports native module ${e.specifier} outside the NDI engine-session boundary (app/main/ndi or packages/engine)`);
+        add('engine-session', `imports native module ${e.specifier} outside the NDI engine-session boundary (apps/cast/main/ndi or packages/engine)`);
       }
       if (fromZone?.startsWith('pkg:')) {
         const fromPkg = fromZone.slice(4);
-        const reactAllowed = REACT_ALLOWED_PACKAGES.has(fromPkg);
-        if (k === 'electron' || (k === 'react' && !reactAllowed)) {
+        if (k === 'electron' || (k === 'react' && !REACT_ALLOWED_PACKAGES.has(fromPkg))) {
+          add('package-purity', `imports ${e.specifier}`);
+        }
+        if (k === 'konva' && !KONVA_ALLOWED_PACKAGES.has(fromPkg)) {
           add('package-purity', `imports ${e.specifier}`);
         }
       }
@@ -649,26 +954,33 @@ export function check(options = {}) {
     if (fromZone?.startsWith('feature:') && (toZone === 'screens' || toZone === 'shell')) {
       add('composition-boundary', `imports composition code ${toRel}`);
     }
-    if (
-      toRel &&
-      toRel.startsWith('app/renderer/features/observability/') &&
-      !fromRel.startsWith('app/renderer/features/observability/') &&
-      fromZone !== 'screens' &&
-      fromZone !== 'shell'
-    ) {
-      add('observability-port', `imports observability implementation ${toRel} outside a port`);
+    // Observability is consumed through a port: within one app, only screens,
+    // the shell, and the observability feature itself may reference it. A
+    // cross-app reference is app-isolation, not a port problem.
+    if (toApp && toApp === fromApp) {
+      const appPrefix = appPrefixOf(toRel);
+      const observabilityPrefix = `${appPrefix}/renderer/features/observability/`;
+      if (
+        toRel.startsWith(observabilityPrefix) &&
+        !fromRel.startsWith(observabilityPrefix) &&
+        fromZone !== 'screens' &&
+        fromZone !== 'shell'
+      ) {
+        add('observability-port', `imports observability implementation ${toRel} outside a port`);
+      }
     }
     // NdiHostCommand/NdiHostEvent are the main<->utility-process wire
     // protocol. Historically this checked only the literal pre-extraction
-    // path app/main/ndi/ndi-protocol.ts; now that the types live in
-    // packages/engine (re-exported from its public index.ts), also catch
-    // any import whose resolved target is inside that package — covering
-    // both a deep import (blocked separately by package-public-entry) and
-    // the normal barrel import `from '@lumacast/engine'`. Only the
-    // app/main/ndi shims (ndi-host.ts, ndi-service-proxy.ts) and the
-    // package's own internals may reference these names.
+    // protocol path; now that the types live in packages/engine
+    // (re-exported from its public index.ts), also catch any import whose
+    // resolved target is inside that package — covering both a deep import
+    // (blocked separately by package-public-entry) and the normal barrel
+    // import `from '@lumacast/engine'`. Only the engine session that owns NDI
+    // (apps/cast/main/ndi, and the legacy root app's copy) and the package's
+    // own internals may reference these names; another app's main/ndi
+    // directory has no NDI session of its own.
     if (
-      (toRel === 'app/main/ndi/ndi-protocol.ts' || toZone === 'pkg:engine') &&
+      (toRel != null && NDI_PROTOCOL_FILES.has(toRel) || toZone === 'pkg:engine') &&
       fromZone !== 'mainNdi' &&
       fromZone !== 'pkg:engine'
     ) {
@@ -677,8 +989,8 @@ export function check(options = {}) {
         add('engine-session', `references raw NDI host commands (${cmdNames.join(', ')}) outside the NDI engine-session boundary`);
       }
     }
-    if (toZone?.startsWith('feature:')) {
-      const featurePrefix = 'app/renderer/features/' + toFeature;
+    if (toZone?.startsWith('feature:') && toApp === fromApp) {
+      const featurePrefix = `${appPrefixOf(toRel)}/renderer/features/` + toFeature;
       const hasIndex = publicIndexes.has(featurePrefix);
       if (
         hasIndex &&
@@ -697,8 +1009,9 @@ export function check(options = {}) {
       add('application-boundary', `imports the composition root ${toRel}`);
     }
 
-    // No package may depend on the application (issue #223 / #219).
-    if (fromZone?.startsWith('pkg:') && toZone && !toZone.startsWith('pkg:')) {
+    // No package may depend on any app (issue #223 / #219): packages are
+    // shared below the apps, and app code is not importable from one.
+    if (fromZone?.startsWith('pkg:') && ((toZone && !toZone.startsWith('pkg:')) || toApp)) {
       add('package-app-boundary', `imports application code ${toRel}`);
     }
 
@@ -717,33 +1030,18 @@ export function check(options = {}) {
         add('package-dependency-direction', `imports package ${toPkg}, which is not on ${fromPkg}'s allowed dependency list (see issue #219)`);
       }
     }
-
-    // Package imports must go through the package's public entry point.
-    if (toZone?.startsWith('pkg:')) {
-      const toPkg = toZone.slice(4);
-      const pkgPrefix = 'packages/' + toPkg;
-      const hasPkgIndex = publicPackageIndexes.has(pkgPrefix);
-      if (
-        hasPkgIndex &&
-        toRel !== pkgPrefix + '/index.ts' &&
-        toRel !== pkgPrefix + '/index.tsx' &&
-        toRel !== pkgPrefix + '/src/index.ts' &&
-        toRel !== pkgPrefix + '/src/index.tsx' &&
-        !fromRel.startsWith(pkgPrefix + '/')
-      ) {
-        add('package-public-entry', `deep import into package ${toRel} bypasses its public entry point`);
-      }
-    }
   }
 
   for (const key of uniqueFeaturePairs) {
-    const [a, b] = key.split('->');
-    if (hasPair.has(`${b}->${a}`)) {
+    const [appKey, edge] = key.split(' ');
+    const [a, b] = edge.split('->');
+    if (hasPair.has(`${appKey} ${b}->${a}`)) {
+      const prefix = `${appDirOfId(appKey)}/renderer/features/`;
       violations.push({
         rule: 'feature-cycle',
-        from: 'app/renderer/features/' + a,
+        from: prefix + a,
         line: 0,
-        to: 'app/renderer/features/' + b,
+        to: prefix + b,
         detail: `bidirectional feature dependency between features ${a} and ${b}`,
       });
     }
@@ -814,10 +1112,10 @@ function main() {
   }
   if (result.ok) {
     console.log(
-      `Electron architecture check passed (${result.stats.files} files, ${result.stats.edges} import edges, ${result.stats.exceptionsUsed} frozen allow-list exceptions in use, ${result.warnings.length} warning(s)).`,
+      `Monorepo architecture check passed (${result.stats.apps} app(s), ${result.stats.files} files, ${result.stats.edges} import edges, ${result.stats.exceptionsUsed} frozen allow-list exceptions in use, ${result.warnings.length} warning(s)).`,
     );
   } else {
-    console.error(`Electron architecture check failed with ${result.errors.length} problem(s).`);
+    console.error(`Monorepo architecture check failed with ${result.errors.length} problem(s).`);
     process.exitCode = 1;
   }
 }
@@ -915,6 +1213,73 @@ function runSelfTests() {
     // Proves the direction table permits the documented edges (kernel <-
     // composition <- application) rather than rejecting everything.
     scenario('packages/allowed', 'scenarios/packages/allowed', 'pass'),
+    // Monorepo: several apps side by side, each self-contained, sharing only
+    // packages.
+    scenario('monorepo/apps-allowed', 'scenarios/monorepo/apps-allowed', 'pass'),
+    // app-isolation: an app may not reach into another app, however the
+    // specifier spells it.
+    scenario('monorepo/app-isolation-relative', 'scenarios/monorepo/app-isolation-relative', 'fail', {
+      rules: ['app-isolation'],
+    }),
+    scenario('monorepo/app-isolation-workspace-alias', 'scenarios/monorepo/app-isolation-workspace-alias', 'fail', {
+      rules: ['app-isolation'],
+    }),
+    scenario('monorepo/app-isolation-app-name-alias', 'scenarios/monorepo/app-isolation-app-name-alias', 'fail', {
+      rules: ['app-isolation'],
+    }),
+    scenario('monorepo/app-isolation-renderer-alias', 'scenarios/monorepo/app-isolation-renderer-alias', 'fail', {
+      rules: ['app-isolation'],
+    }),
+    // An app-scoped alias is strict in both directions: it resolves inside the
+    // importing app only, and an alias that resolves in no app is still an
+    // error rather than a sibling-app or package fallback.
+    scenario('monorepo/app-alias-no-sibling-fallback', 'scenarios/monorepo/app-alias-no-sibling-fallback', 'fail', {
+      rules: ['app-isolation'],
+    }),
+    // package-app-boundary, by relative path and by app-scoped alias.
+    scenario('monorepo/package-to-app', 'scenarios/monorepo/package-to-app', 'fail', {
+      rules: ['package-app-boundary'],
+    }),
+    // …and by naming an app as a module, for any app in the workspace.
+    scenario('monorepo/package-to-app-module-specifier', 'scenarios/monorepo/package-to-app-module-specifier', 'fail', {
+      rules: ['package-app-boundary'],
+    }),
+    // A package's public source entry is src/index.ts and nothing else: an
+    // export map naming a second TypeScript file does not publish it, and a
+    // stylesheet is public only when `exports` names it (not `style`/`unpkg`).
+    scenario('monorepo/package-entry-map-not-public', 'scenarios/monorepo/package-entry-map-not-public', 'fail', {
+      rules: ['package-public-entry'],
+    }),
+    scenario('monorepo/package-asset-not-declared', 'scenarios/monorepo/package-asset-not-declared', 'fail', {
+      rules: ['package-public-entry'],
+    }),
+    // .js/.cjs are code: they are walked and they are classified, so they
+    // cannot reach around the renderer and package rules.
+    scenario('js-is-code', 'scenarios/js-is-code', 'fail', {
+      rules: ['renderer-isolation', 'package-purity'],
+    }),
+    // Only cast owns an NDI engine session: another app's main/ndi is ordinary
+    // main code, and main may not import the renderer.
+    scenario('monorepo/noncast-main-renderer', 'scenarios/monorepo/noncast-main-renderer', 'fail', {
+      rules: ['main-boundary'],
+    }),
+    scenario('monorepo/noncast-ndi-forbidden', 'scenarios/monorepo/noncast-ndi-forbidden', 'fail', {
+      rules: ['engine-session'],
+    }),
+    // Feature graphs are per app: opposite one-way edges in two apps are not a
+    // cycle, while a genuine cycle inside one app still is.
+    scenario('monorepo/feature-graph-per-app', 'scenarios/monorepo/feature-graph-per-app', 'pass', {
+      warnRules: ['feature-isolation'],
+    }),
+    scenario('monorepo/feature-cycle-same-app', 'scenarios/monorepo/feature-cycle-same-app', 'pass', {
+      warnRules: ['feature-cycle'],
+    }),
+    // @lumacast/ui: React allowed, Konva/Electron banned, kernel-only
+    // direction, and a stylesheet public only through its export map.
+    scenario('monorepo/ui-allowed', 'scenarios/monorepo/ui-allowed', 'pass'),
+    scenario('monorepo/ui-forbidden', 'scenarios/monorepo/ui-forbidden', 'fail', {
+      rules: ['package-purity', 'package-dependency-direction'],
+    }),
   ];
 
   let failed = 0;
@@ -946,4 +1311,4 @@ function runSelfTests() {
 const invokedDirectly = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) main();
 
-export { DEFAULT_ALLOW_LIST, parseImports, zoneOf };
+export { DEFAULT_ALLOW_LIST, appOf, appOfPath, appRoots, parseImports, zoneOf };

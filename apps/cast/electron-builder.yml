@@ -1,0 +1,66 @@
+appId: com.lumacast.app
+productName: LumaCast
+copyright: Copyright © 2026 LumaCast
+
+directories:
+  buildResources: resources
+  output: dist
+
+publish:
+  provider: generic
+  url: https://github.com/IT-PSAPE/LumaCast/releases/download/cast-feed
+  updaterCacheDirName: lumacast-updater
+
+# The scoped npm name (@lumacast/cast) makes electron-builder derive the deb
+# package name from productName (LumaCast), which is invalid for deb.
+deb:
+  packageName: lumacast
+
+electronUpdaterCompatibility: ">=2.16"
+
+files:
+  - out/**/*
+  - resources/**/*
+  - "!node_modules/@lumacast/ndi-native/{src,binding.gyp}"
+
+extraResources:
+  - from: resources/
+    to: .
+    filter:
+      - "**/*"
+
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.icns
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+
+dmg:
+  artifactName: "${productName}-${version}-mac.${ext}"
+
+win:
+  icon: resources/icon.ico
+  target:
+    - nsis
+  artifactName: "${productName}-${version}-win.${ext}"
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+
+linux:
+  # Pins the legacy Linux executable: the scoped npm name would otherwise
+  # derive it from the package name.
+  executableName: lumacast
+  icon: resources/icon.png
+  category: Utility
+  maintainer: Craig Chihururu <craigchihururu@gmail.com>
+  target:
+    - AppImage
+    - deb
+  artifactName: "${productName}-${version}-linux.${ext}"

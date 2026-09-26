@@ -1,0 +1,385 @@
+import { Layers2, LayoutTemplate, ListMusic, Monitor, Search, Workflow } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { getItemTypeLabel } from '@lumacast/composition';
+import type { ItemRef, ItemType, MediaAsset, Overlay, Stage } from '@lumacast/composition';
+import { Dialog } from '@renderer/components/overlays/dialog';
+import { ItemIcon, MediaAssetIcon } from '@renderer/components/display/entity-icon';
+import { useCast } from '@renderer/contexts/app-context';
+import { useNavigation } from '@renderer/contexts/navigation-context';
+import { useWorkbench } from '@renderer/contexts/workbench-context';
+import { useProjectContent } from '@renderer/contexts/use-project-content';
+import { useAudio, usePresentationMediaLayer, useVideo } from '@renderer/contexts/playback/playback-context';
+import {
+  useOverlayEditor,
+  useStageEditor,
+  useThemeEditor,
+} from '@renderer/contexts/asset-editor/asset-editor-context';
+import { cn } from '@lumacast/ui';
+import { useCommandPalette } from './command-palette-context';
+import { useAutomation } from '../automation/automation-context';
+
+type ResultKind =
+  | 'playlist'
+  | 'presentation'
+  | 'lyric'
+  | 'overlay'
+  | 'theme'
+  | 'stage'
+  | 'media'
+  | 'audio'
+  | 'macro';
+
+interface ResultItem {
+  id: string;
+  kind: ResultKind;
+  label: string;
+  subtitle?: string;
+  icon: ResultIcon;
+  onSelect: () => void;
+}
+
+type ResultIcon =
+  | { kind: 'playlist' }
+  | { kind: 'item'; entity: ItemRef }
+  | { kind: 'overlay' }
+  | { kind: 'theme' }
+  | { kind: 'stage' }
+  | { kind: 'media'; asset: MediaAsset }
+  | { kind: 'macro' };
+
+const SECTION_ORDER: Array<{ kind: ResultKind; title: string }> = [
+  { kind: 'playlist', title: 'Playlists' },
+  { kind: 'presentation', title: 'Presentations' },
+  { kind: 'lyric', title: 'Lyrics' },
+  { kind: 'overlay', title: 'Overlays' },
+  { kind: 'theme', title: 'Themes' },
+  { kind: 'stage', title: 'Stages' },
+  { kind: 'media', title: 'Media' },
+  { kind: 'audio', title: 'Audio' },
+  { kind: 'macro', title: 'Macros' },
+];
+
+const SECTION_BY_KIND = new Map(SECTION_ORDER.map((entry, index) => [entry.kind, { ...entry, order: index }]));
+
+const RESULT_LIMIT = 50;
+
+export function CommandPalette() {
+  const { isOpen, close } = useCommandPalette();
+  const { snapshot } = useCast();
+  const {
+    presentations, lyrics, mediaAssets,
+    presentationThemes, lyricThemes,
+  } = useProjectContent();
+  const navigation = useNavigation();
+  const { actions: workbenchActions } = useWorkbench();
+  const overlayEditor = useOverlayEditor();
+  const themeEditor = useThemeEditor();
+  const stageEditor = useStageEditor();
+  const { setMediaLayerAsset } = usePresentationMediaLayer();
+  const video = useVideo();
+  const audio = useAudio();
+  const { state: { macros }, actions: { runMacro } } = useAutomation();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setQuery('');
+      setActiveIndex(0);
+      return;
+    }
+    queueMicrotask(() => {
+      inputRef.current?.focus();
+    });
+  }, [isOpen]);
+
+  const results = useMemo<ResultItem[]>(() => {
+    if (!snapshot) return [];
+
+    const playlistItems: ResultItem[] = snapshot.playlists.map((playlist) => ({
+      id: `playlist:${playlist.id}`,
+      kind: 'playlist',
+      label: playlist.name,
+      subtitle: 'Playlist',
+      icon: { kind: 'playlist' },
+      onSelect: () => {
+        navigation.setCurrentPlaylistId(playlist.id);
+        workbenchActions.setWorkbenchMode('show');
+      },
+    }));
+
+    function itemResults(type: ItemType, items: Array<{ id: string; title: string }>): ResultItem[] {
+      return items.map((item) => {
+        const itemRef: ItemRef = { type, id: item.id };
+        return {
+          id: `${type}:${item.id}`,
+          kind: type,
+          label: item.title,
+          subtitle: getItemTypeLabel(type),
+          icon: { kind: 'item', entity: itemRef },
+          onSelect: () => {
+            navigation.browseItem(itemRef);
+            workbenchActions.setWorkbenchMode('item-editor');
+          },
+        };
+      });
+    }
+
+    const presentationResults = itemResults('presentation', presentations);
+    const lyricResults = itemResults('lyric', lyrics);
+
+    const overlayResults: ResultItem[] = overlayEditor.overlays.map((overlay: Overlay) => ({
+      id: `overlay:${overlay.id}`,
+      kind: 'overlay',
+      label: overlay.name,
+      subtitle: 'Overlay',
+      icon: { kind: 'overlay' },
+      onSelect: () => {
+        overlayEditor.setCurrentOverlayId(overlay.id);
+        workbenchActions.setWorkbenchMode('overlay-editor');
+      },
+    }));
+
+    function themeResultsFor(themeType: ItemType, themes: Array<{ id: string; name: string }>): ResultItem[] {
+      return themes.map((theme) => ({
+        id: `theme:${themeType}:${theme.id}`,
+        kind: 'theme',
+        label: theme.name,
+        subtitle: `Theme · ${getItemTypeLabel(themeType)}`,
+        icon: { kind: 'theme' },
+        onSelect: () => {
+          themeEditor.openThemeEditor(themeType, theme.id);
+          workbenchActions.setWorkbenchMode('theme-editor');
+        },
+      }));
+    }
+
+    const themeResults: ResultItem[] = [
+      ...themeResultsFor('presentation', presentationThemes),
+      ...themeResultsFor('lyric', lyricThemes),
+    ];
+
+    const stageResults: ResultItem[] = stageEditor.stages.map((stage: Stage) => ({
+      id: `stage:${stage.id}`,
+      kind: 'stage',
+      label: stage.name,
+      subtitle: 'Stage layout',
+      icon: { kind: 'stage' },
+      onSelect: () => {
+        stageEditor.setCurrentStageId(stage.id);
+        workbenchActions.setWorkbenchMode('stage-editor');
+      },
+    }));
+
+    const mediaResults: ResultItem[] = mediaAssets
+      .filter((asset: MediaAsset) => asset.type !== 'audio')
+      .map((asset) => ({
+        id: `media:${asset.id}`,
+        kind: 'media',
+        label: asset.name,
+        subtitle: `Media · ${asset.type}`,
+        icon: { kind: 'media', asset },
+        onSelect: () => {
+          // Behaves like clicking the asset in its bin: arms the relevant
+          // layer. Image assets live in the resource drawer; video assets
+          // should arm the video transport and begin playback immediately.
+          if (asset.type === 'video') {
+            video.armVideo(asset.id);
+            return;
+          }
+          workbenchActions.setDrawerTab('image');
+          setMediaLayerAsset(asset.id);
+        },
+      }));
+
+    const audioResults: ResultItem[] = mediaAssets
+      .filter((asset: MediaAsset) => asset.type === 'audio')
+      .map((asset) => ({
+        id: `audio:${asset.id}`,
+        kind: 'audio',
+        label: asset.name,
+        subtitle: 'Audio',
+        icon: { kind: 'media', asset },
+        onSelect: () => {
+          // Same behavior as clicking an audio row in the audio bin: arm it
+          // for playback. Don't switch screens — the user is presenting.
+          audio.armAudio(asset.id);
+        },
+      }));
+
+    const macroResults: ResultItem[] = macros.map((macro) => ({
+      id: `macro:${macro.id}`,
+      kind: 'macro',
+      label: macro.name,
+      subtitle: macro.description || `Macro · ${macro.cues.length} cues`,
+      icon: { kind: 'macro' },
+      onSelect: () => {
+        void runMacro(macro.id);
+      },
+    }));
+
+    const all: ResultItem[] = [
+      ...playlistItems,
+      ...presentationResults,
+      ...lyricResults,
+      ...overlayResults,
+      ...themeResults,
+      ...stageResults,
+      ...mediaResults,
+      ...audioResults,
+      ...macroResults,
+    ];
+
+    const trimmed = query.trim().toLowerCase();
+    if (!trimmed) {
+      return all.slice(0, RESULT_LIMIT);
+    }
+
+    return all
+      .map((item) => ({ item, score: scoreMatch(item, trimmed) }))
+      .filter((scored) => scored.score > 0)
+      .sort((left, right) => right.score - left.score || left.item.label.localeCompare(right.item.label))
+      .map(({ item }) => item)
+      .slice(0, RESULT_LIMIT);
+  }, [
+    snapshot, presentations, lyrics, mediaAssets,
+    presentationThemes, lyricThemes,
+    overlayEditor, themeEditor, stageEditor, audio, macros, runMacro,
+    setMediaLayerAsset, video, query, navigation, workbenchActions,
+  ]);
+
+  const sectionedResults = useMemo(() => groupBySection(results), [results]);
+
+  useEffect(() => {
+    if (activeIndex >= results.length) setActiveIndex(0);
+  }, [results, activeIndex]);
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveIndex((prev) => (results.length === 0 ? 0 : (prev + 1) % results.length));
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveIndex((prev) => (results.length === 0 ? 0 : (prev - 1 + results.length) % results.length));
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const target = results[activeIndex];
+      if (!target) return;
+      target.onSelect();
+      close();
+    }
+  }
+
+  return (
+    <Dialog.Root open={isOpen} onOpenChange={(next) => { if (!next) close(); }}>
+      <Dialog.Portal>
+        <Dialog.Backdrop />
+        <Dialog.Positioner className="items-start pt-[15vh]">
+          <Dialog.Content className="w-full max-w-xl">
+            <div className="flex items-center gap-2 border-b border-primary px-4 py-3">
+              <Search size={16} className="text-secondary shrink-0" />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }}
+                onKeyDown={handleKeyDown}
+                placeholder="Search playlists, items, overlays, themes, stages, media…"
+                className="w-full bg-transparent text-sm text-primary placeholder:text-tertiary outline-none"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </div>
+            <Dialog.Body className="overflow-y-auto px-1 py-1 max-h-[50vh]">
+              {results.length === 0 ? (
+                <div className="px-3 py-6 text-center text-sm text-secondary">
+                  {snapshot ? 'No matches' : 'Loading…'}
+                </div>
+              ) : (
+                <div role="listbox" className="flex flex-col">
+                  {sectionedResults.map(({ kind, title, items }) => (
+                    <section key={kind} className="flex flex-col">
+                      <h3 className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-tertiary">
+                        {title}
+                      </h3>
+                      <ul className="flex flex-col">
+                        {items.map((item) => {
+                          const flatIndex = results.indexOf(item);
+                          const isActive = flatIndex === activeIndex;
+                          return (
+                            <li key={item.id}>
+                              <button
+                                type="button"
+                                role="option"
+                                aria-selected={isActive}
+                                onMouseEnter={() => setActiveIndex(flatIndex)}
+                                onClick={() => { item.onSelect(); close(); }}
+                                className={cn(
+                                  'w-full flex items-center gap-3 rounded-md px-3 py-2 text-left text-sm',
+                                  isActive ? 'bg-secondary text-primary' : 'text-primary',
+                                )}
+                              >
+                                <span className="text-secondary shrink-0"><ResultIconView icon={item.icon} /></span>
+                                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                                {item.subtitle && (
+                                  <span className="text-xs text-tertiary shrink-0">{item.subtitle}</span>
+                                )}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </Dialog.Body>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function ResultIconView({ icon }: { icon: ResultIcon }) {
+  switch (icon.kind) {
+    case 'item': return <ItemIcon entity={icon.entity} size={16} />;
+    case 'media': return <MediaAssetIcon asset={icon.asset} size={16} />;
+    case 'playlist': return <ListMusic size={16} />;
+    case 'overlay': return <Layers2 size={16} />;
+    case 'theme': return <LayoutTemplate size={16} />;
+    case 'stage': return <Monitor size={16} />;
+    case 'macro': return <Workflow size={16} />;
+  }
+
+  return assertNever(icon);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled result icon: ${String(value)}`);
+}
+
+function groupBySection(items: ResultItem[]): Array<{ kind: ResultKind; title: string; items: ResultItem[] }> {
+  const groups = new Map<ResultKind, ResultItem[]>();
+  for (const item of items) {
+    const list = groups.get(item.kind) ?? [];
+    list.push(item);
+    groups.set(item.kind, list);
+  }
+  return [...groups.entries()]
+    .map(([kind, sectionItems]) => {
+      const meta = SECTION_BY_KIND.get(kind);
+      return { kind, title: meta?.title ?? kind, order: meta?.order ?? Number.MAX_SAFE_INTEGER, items: sectionItems };
+    })
+    .sort((left, right) => left.order - right.order);
+}
+
+function scoreMatch(item: ResultItem, query: string): number {
+  const haystack = `${item.label} ${item.subtitle ?? ''}`.toLowerCase();
+  const labelLower = item.label.toLowerCase();
+  if (labelLower === query) return 1000;
+  if (labelLower.startsWith(query)) return 500;
+  if (labelLower.includes(query)) return 100;
+  if (haystack.includes(query)) return 10;
+  return 0;
+}

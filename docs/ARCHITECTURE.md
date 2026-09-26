@@ -4,24 +4,34 @@ This document describes the actual implemented architecture for theme lifecycle,
 
 ## Dependency Boundaries
 
-The application is an app shell (`app/`) built on ten npm workspace packages
-under `packages/*`. Dependency direction across both is enforced by
+The repository is an npm workspace of three self-contained apps under `apps/*`
+— `cast` (LumaCast), `cloud` (LumaCloud), and `flux` (LumaFlux) — built on the
+headless packages under `packages/*`. An app never imports another app and a
+package never imports an app, in either direction; shared code lives in a
+package. Dependency direction is enforced by
 `tool/check_electron_architecture.mjs` (`npm run check:architecture`), which
-parses static ES imports/exports and applies a frozen allow-list that can only
-shrink.
+parses static ES imports/exports (`.ts`, `.tsx`, `.mjs`, `.js`, and `.cjs` are
+all code) and applies a frozen allow-list that can only shrink. The legacy
+root tree `app/` is still checked so an in-flight migration keeps its
+coverage, but every app now lives under `apps/<app>/` (ADR-0043).
 
-### App shell (`app/`)
+### App tree (`apps/<app>`)
 
-- `app/main` is the Electron main-process bootstrap (window/menu/IPC wiring,
-  security policy) plus the thin Electron-shaped shims in `app/main/ndi/` and
-  `app/main/persistence/` that connect headless packages to utility processes.
+Written for Cast, the only app that ships the full workbench; the rules apply
+per app.
+
+- `<app>/main` is the Electron main-process bootstrap (window/menu/IPC wiring,
+  security policy) plus the thin Electron-shaped shims in
+  `apps/cast/main/ndi/` and `apps/cast/main/persistence/` that connect headless
+  packages to utility processes.
   It is the process composition root and imports no renderer or feature code.
-- `app/renderer` is the UI: screens, feature UI, shared components, and the
+- `<app>/renderer` is the UI: screens, feature UI, shared components, and the
   contexts that wire package ports to concrete app state. It reaches main
   only through the typed `castApi` IPC contract (`@lumacast/protocol`); it
   imports no Electron, main-process, or database code.
-- `app/renderer/components`, `utils`, and `types` are UI/rendering primitives
-  and import no feature implementations.
+- `<app>/renderer/components`, `utils`, and `types` are UI/rendering primitives
+  and import no feature implementations. Presentation that more than one app
+  needs belongs in `@lumacast/ui` instead.
 - Renderer UI is composed declaratively from named components. Shared and
   feature-owned primitives expose compound parts where a visual structure has
   meaningful slots (`Tabs.*`, `EmptyState.*`, `Section.*`, `Thumbnail.*`), and
@@ -32,19 +42,25 @@ shrink.
   meaning. Control-flow guards remain appropriate for validation, events,
   async work, algorithms, exhaustive domain dispatch, and rendering hot paths
   (ADR 0036).
-- Features (`app/renderer/features/*`) have no cross-feature imports except
+- Features (`apps/<app>/renderer/features/*`) have no cross-feature imports
+  except
   directed, documented public edges; bidirectional feature dependencies must be
   removed, never allow-listed. Features import no screens or application shell
   (`App.tsx`, `main.tsx`, `workbench-screen-router.tsx`), which are the
   composition boundaries. When a feature exposes a public entry point
   (`index.ts`), external imports must go through it.
 - Observability is consumed through a port; only screens, the shell, and the
-  observability feature itself may reference `app/renderer/features/observability`
-  directly.
-- The NDI engine-session boundary is `app/main/ndi` and `packages/engine`:
-  only they touch `@lumacast/ndi-native` and the raw NDI host command
-  protocol. The rest of the app reaches NDI through `NdiServiceLike`, and
-  `ndi-service-proxy.ts` is the sole writer of host commands.
+  observability feature itself may reference
+  `apps/<app>/renderer/features/observability` directly.
+- The NDI engine-session boundary is `apps/cast/main/ndi` and
+  `packages/engine`: only they touch `@lumacast/ndi-native` and the raw NDI
+  host command protocol. The rest of the app reaches NDI through
+  `NdiServiceLike`, and `ndi-service-proxy.ts` is the sole writer of host
+  commands. No other app owns an NDI engine session: a `main/ndi/` directory
+  in Cloud or Flux is ordinary main code.
+- An app-scoped alias (`@renderer/…`, `@rendering/…`) resolves inside the
+  importing app only. An alias that resolves in no app is a violation, not a
+  fallback into a sibling app or a package.
 
 The checker runs its fixture graphs via `npm run test:architecture`. Adding an
 architecture exception means editing the checker's allow-list with a reason and
@@ -58,17 +74,21 @@ must be covered by the frozen allow-list.
 
 ## Workspace Layout and Package Boundaries (issue #223, parent #219)
 
-`package.json` declares an npm `workspaces` field (`packages/*`); `npm ci`
-resolves the whole tree from the single authoritative `package-lock.json`.
-The application itself is not a workspace member — it stays the root package,
-unmoved. `packages/ndi-native`'s native build scripts (`build:ndi-native`,
-`clean:ndi-native`, `rebuild:ndi-native`) are unaffected by workspace support.
+`package.json` declares an npm `workspaces` field covering `apps/*` and
+`packages/*`; `npm ci` resolves the whole tree from the single authoritative
+`package-lock.json`. The workspace root is the root package and is not itself a
+workspace member. `packages/ndi-native`'s native build scripts
+(`build:ndi-native`, `clean:ndi-native`, `rebuild:ndi-native`) are unaffected by
+workspace support.
 
-Ten packages exist today, each following the same convention:
+Eleven packages exist today, each following the same convention:
 `packages/<name>/src/index.ts` is its only public entry point (deep imports
 from outside the package fail `package-public-entry`), and internal files
 import each other with relative paths, never via the package's own
-`@lumacast/<name>` specifier.
+`@lumacast/<name>` specifier. The single asset exception is a stylesheet the
+export map names by subpath, `@lumacast/ui/theme.css`; a manifest field such as
+`style` or `unpkg` is a bundler hint, not a declaration, and naming a second
+TypeScript file in the export map does not publish it.
 
 | Package | Charter |
 | --- | --- |
@@ -78,9 +98,10 @@ import each other with relative paths, never via the package's own
 | `@lumacast/commands` | Keyboard-shortcut definitions and the app-menu command vocabulary, plus headless keyboard-event matching helpers. Modifier matching is exact — an omitted modifier must not be pressed. The two surfaces overlap on twelve chords, so the package also holds the claim registry that keeps one keypress to one action (ADR-0022). `ShortcutActionId`/`AppMenuCommandId` unification is tracked as `TODO(commands-canonical-ids)` in the package. |
 | `@lumacast/protocol` | The versioned IPC surface, snapshot patches, the deck-bundle manifest, NDI observability and project-backup contracts, and the runtime codecs that decode them at trust boundaries. |
 | `@lumacast/persistence-sqlite` | SQLite-backed persistence: the `CastRepository` store, schema migrations, fixtures, and deterministic test-support helpers. |
-| `@lumacast/engine` | The authoritative NDI output runtime: sender lifecycle, frame/audio pipeline, and diagnostics. The Electron-shaped host process/IPC proxy stay as shims in `app/main/ndi`. |
+| `@lumacast/engine` | The authoritative NDI output runtime: sender lifecycle, frame/audio pipeline, and diagnostics. The Electron-shaped host process/IPC proxy stay as shims in `apps/cast/main/ndi`. |
 | `@lumacast/playback` | Headless playback decisions: overlay lifecycle, presentation-layer transitions, playlist adjacency, and deterministic media-residency prediction (`resolveMediaResidencyPlan`). DOM media-element lifecycle, cache execution, and IPC/NDI wiring stay in the app-side provider. |
 | `@lumacast/canvas` | The Konva render/editing layer: scene-node components, stage editing/marquee/viewport interaction, image/video resolution, inline text editing, and the shared image-cache / video-pool residency mechanisms consumed by renderer surfaces. The only package permitted to import react/react-dom/konva/react-konva. |
+| `@lumacast/ui` | Shared, domain-agnostic UI primitives every app may reuse (class-name helpers, buttons, segmented control, typography, empty state) plus the shared Tailwind theme at `@lumacast/ui/theme.css`. React and React DOM are in bounds; Konva, React-Konva, and Electron are not, and it depends only on `kernel`. |
 | `@lumacast/ndi-native` | The native NDI sender bridge (native addon), governed by the engine-session rule above rather than the headless-source rules below. |
 
 Rich text rendering inside `@lumacast/canvas` keeps Konva `sceneFunc`s paint-only.
@@ -106,7 +127,7 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   variant subscribes to the element-editing context and `useSceneStageEditor`;
   read-only thumbnail, monitor, and NDI capture surfaces render the same scene
   tree without pulling in selection, marquee, transform, or inline-text state.
-- Shared UI primitives in `app/renderer/components` are built on Base UI
+- Shared UI primitives in `apps/cast/renderer/components` are built on Base UI
   (`@base-ui/react`) for behaviour, keyboard interaction, focus management,
   and ARIA, behind the components' existing exported APIs; overlays portal
   into `#overlay-root`, carry the `data-popover-content` /
@@ -184,16 +205,20 @@ Renderer playback/rendering splits responsibility at two narrow seams:
 `tool/check_electron_architecture.mjs` walks `packages/*` and enforces, as
 hard errors that are never allow-listable:
 
-- No package may import anything under `app/` — packages may not depend on the
-  application.
+- No package may import anything under `apps/` (or the legacy `app/` root) —
+  packages may not depend on an application.
 - A package must not import React, React DOM, Konva, React-Konva, or Electron
   — packages are headless domain/platform code, except `@lumacast/canvas`,
-  which may import react/react-dom/konva/react-konva (never Electron).
+  which may import react/react-dom/konva/react-konva (never Electron), and
+  `@lumacast/ui`, which may import react/react-dom but never konva/react-konva
+  (Electron stays banned for both).
 - A persistence package (name starting with `persistence`) must not import
   renderer code.
 - Package imports must go through the package's public entry point
-  (`packages/<name>/src/index.ts` or `packages/<name>/index.ts`); deep
-  internal imports fail.
+  (`packages/<name>/src/index.ts` or `packages/<name>/index.ts`), plus a
+  stylesheet the export map names explicitly (e.g. `@lumacast/ui/theme.css`);
+  deep internal imports fail, and naming a second TypeScript file in the export
+  map does not publish it.
 - Package-to-package dependency direction is a default-deny allow list keyed
   by package name (`PACKAGE_DEPENDENCY_DIRECTIONS` in the checker), recording
   the directions decided in issue #219: kernel depends on nothing and
@@ -202,8 +227,9 @@ hard errors that are never allow-listable:
   protocol depends on kernel, composition, automation, and commands;
   persistence-sqlite depends on kernel, composition, automation, and
   protocol; engine depends on kernel, composition, protocol, and ndi-native;
-  playback and canvas each depend on kernel, composition, and protocol. An
-  unlisted package name starts with zero permitted package dependencies.
+  playback and canvas each depend on kernel, composition, and protocol, while
+  ui depends on kernel only. An unlisted package name starts with zero
+  permitted package dependencies.
 - Cycles between packages are forbidden and must be removed, never
   allow-listed.
 
@@ -230,7 +256,7 @@ Each rule is also proven by a committed fixture scenario under
   handshake. A malformed frame with a valid attempt id receives a rejected
   release without being mistaken for channel failure.
 - The renderer's off-screen NDI capture loop in
-  `app/renderer/features/playback/ndi-frame-capture.tsx` is still a one-slot
+  `apps/cast/renderer/features/playback/ndi-frame-capture.tsx` is still a one-slot
   backpressure boundary, but the slot is now keyed by a monotonic
   per-attempt id. Both transport routes preserve that id through the utility
   host and `@lumacast/engine`; the matching host-side `frameReleased` returns
@@ -278,7 +304,7 @@ Each rule is also proven by a committed fixture scenario under
   slide therefore force one fresh send attempt even when the scene signature is
   unchanged.
 - Renderer observability remains always-on through
-  `app/renderer/features/observability/observability-runtime.ts`. The canvas
+  `apps/cast/renderer/features/observability/observability-runtime.ts`. The canvas
   collector records visible-only rAF cadence plus threshold events with the
   context it can actually observe (visibility, mounted canvas/video counts, and
   workbench mode). It does not claim element- or surface-level attribution it
@@ -333,7 +359,7 @@ Each rule is also proven by a committed fixture scenario under
 
 ### Persistence Utility-Process Lifecycle (issue #241, ADR-0014)
 
-- `app/main/index.ts` forks `persistence-host.js` after Electron is ready, then
+- `apps/cast/main/index.ts` forks `persistence-host.js` after Electron is ready, then
   registers IPC and creates the window immediately. It does not await database
   opening or migrations; `PersistenceServiceProxy` queues pre-ready calls in a
   monotonic FIFO and sends them only after the host reports ready.
@@ -369,9 +395,9 @@ Each rule is also proven by a committed fixture scenario under
   (`packages/protocol/src/agent-actions.ts`) to the renderer over
   `AGENT_ACTION_EVENTS.request` and receive exactly one `AgentActionResponse`
   back through the `agentRespondAction` RPC, decoded at that boundary with
-  `decodeAgentActionResponse`. `app/main/agent/action-broker.ts` correlates the
-  two; `getAgentActionBroker()` in `app/main/ipc.ts` publishes the instance.
-- `app/renderer/features/agent/use-agent-action-dispatcher.ts` is the single
+  `decodeAgentActionResponse`. `apps/cast/main/agent/action-broker.ts` correlates the
+  two; `getAgentActionBroker()` in `apps/cast/main/ipc.ts` publishes the instance.
+- `apps/cast/renderer/features/agent/use-agent-action-dispatcher.ts` is the single
   execution gate. It processes requests sequentially, checks permission,
   flushes the active editor's staged edits before any write, executes — via
   `window.castApi` for `site: 'main'` actions and renderer contexts for
@@ -399,7 +425,7 @@ Each rule is also proven by a committed fixture scenario under
 
 ## In-App Agent Runtime (ADR-0038)
 
-- `app/main/agent/agent-runtime.ts` runs the assistant's model loop in main,
+- `apps/cast/main/agent/agent-runtime.ts` runs the assistant's model loop in main,
   on the user's own provider key (`AgentCredentialStore`, OS keychain via
   `safeStorage`). The renderer drives it over the `agent:*` RPCs and renders
   the `AgentThreadEvent` stream that arrives on `AGENT_EVENTS.threadEvent`; it
@@ -423,7 +449,7 @@ Each rule is also proven by a committed fixture scenario under
   catalog pricing, or an OpenRouter `:free` variant), and a best-effort
   `vendor` from `inferModelVendor` (id prefix, Models.dev npm package,
   catalog name, model family). The renderer keys vendor logos
-  (`app/renderer/features/agent/model-vendor-logo.tsx`, bundled
+  (`apps/cast/renderer/features/agent/model-vendor-logo.tsx`, bundled
   `@lobehub/icons-static-svg` marks) off `vendor` and never parses ids
   itself. `AgentConfig.composerModels` is the per-provider shortlist the
   Assistant settings curate for the chat composer's model picker; an empty
@@ -450,7 +476,7 @@ Each rule is also proven by a committed fixture scenario under
   incomplete tool batches are cancelled without execution. OpenRouter tool
   requests require routes that support their parameters. Runs log provider,
   model, duration, turn count and terminal reason without message content.
-- The chat popup (`app/renderer/features/agent/chat/`) never shows a tool
+- The chat popup (`apps/cast/renderer/features/agent/chat/`) never shows a tool
   call's raw arguments or result. `tool-call-summary.ts` turns each
   `tool_call` part into one narrated line — "Listing playlists…" while it
   runs, "Found 4 playlists: …" once settled — from the action's
@@ -464,7 +490,7 @@ Each rule is also proven by a committed fixture scenario under
   same JSON Schema `decodeActionParams` validates against, minus the
   deliberately withheld `project.getSnapshot`, `logs.*` and `clipboard.*`
   actions. An unknown tool name, invalid params, or a `deny` decision from
-  `app/main/agent/permission-policy.ts` is answered as a tool error inside
+  `apps/cast/main/agent/permission-policy.ts` is answered as a tool error inside
   main and never reaches the renderer as a request.
 - One assistant turn's tool calls run sequentially inside a single
   `broker.beginBatch`/`endBatch` pair, so a multi-action turn is one undo
@@ -487,12 +513,12 @@ Each rule is also proven by a committed fixture scenario under
   (endpoint, bearer header, Claude Code / `mcp-remote` snippets) for a local
   agent.
   `getAgentRuntime()`/`getAgentMcpService()`/`setAgentMcpService()` in
-  `app/main/ipc.ts` publish both the runtime and the MCP service; see the MCP
+  `apps/cast/main/ipc.ts` publish both the runtime and the MCP service; see the MCP
   Server section below for the latter.
 
 ## MCP Server (ADR-0039)
 
-- `app/main/mcp/mcp-host.ts` is a third utility process (bundled to
+- `apps/cast/main/mcp/mcp-host.ts` is a third utility process (bundled to
   `out/main/mcp-host.js` alongside `ndi-host.js`/`persistence-host.js`) that
   binds an `http.Server` to **127.0.0.1 only** and speaks MCP Streamable HTTP
   at `/mcp`, using the SDK's low-level `Server` (raw JSON Schema tool
@@ -504,7 +530,7 @@ Each rule is also proven by a committed fixture scenario under
 - Every `tools/call`/`resources/read` a connected client makes is forwarded
   to main as a `call` message over the same `process.parentPort` channel the
   other utility hosts use, and is answered by exactly one `call-result`.
-  `McpService` (`app/main/mcp/mcp-service-proxy.ts`) is the sole resolver: it
+  `McpService` (`apps/cast/main/mcp/mcp-service-proxy.ts`) is the sole resolver: it
   decodes params, resolves the calling client's permissions
   (`resolvePrincipalPermissions`/`decideAction`), and dispatches through the
   **same** `AgentActionBroker` the in-app assistant uses — there is no second
@@ -532,7 +558,7 @@ Each rule is also proven by a committed fixture scenario under
 
 ## Automation Runtime Guardrails
 
-- `@lumacast/automation` owns macro-run pacing, lifecycle, and revert bookkeeping in the headless runtime (`packages/automation/src/runtime.ts`); `AutomationProvider` in `app/renderer/features/automation/automation-context.tsx` remains the renderer composition boundary that supplies playback, clock, observability, and status-text ports.
+- `@lumacast/automation` owns macro-run pacing, lifecycle, and revert bookkeeping in the headless runtime (`packages/automation/src/runtime.ts`); `AutomationProvider` in `apps/cast/renderer/features/automation/automation-context.tsx` remains the renderer composition boundary that supplies playback, clock, observability, and status-text ports.
 - Looping macros are paced to a minimum inter-iteration interval in the runtime itself. The floor is a deadline pad, not an added delay: authored cue-step delays still determine cadence when they already exceed the floor, but zero-delay infinite loops must yield often enough to stay cancellable and avoid monopolizing the renderer thread.
 - Run revert bookkeeping is bounded by canonical cue identity, not by every iteration. A run records the first application of each cue object and reverts static inverses in reverse first-application order. This preserves the existing end-state semantics (`Cancel` leaves applied effects live; `Revert` clears them via static inverses) without growing revert cost or memory with loop duration.
 - Global lifecycle cancellation is an app-level operator control, not a package concern. The renderer exposes `cancelActiveMacros()` from `useAutomation()` and wires it to the Program panel's macros toolbar. The control cancels active runs only; it does not revert already-applied effects.
@@ -540,10 +566,10 @@ Each rule is also proven by a committed fixture scenario under
 
 ## Renderer Navigation and Window-Open Trust Boundary (issue #158, ADR-0007)
 
-- `app/main/index.ts`'s `createMainWindow()` attaches `will-navigate` and
+- `apps/cast/main/index.ts`'s `createMainWindow()` attaches `will-navigate` and
   `setWindowOpenHandler` to the window's `webContents`; both are deny-by-default.
   `will-navigate` allows only the application's own origin
-  (`isTrustedWebContentsUrl` in `app/main/security.ts`: the dev-server hosts in
+  (`isTrustedWebContentsUrl` in `apps/cast/main/security.ts`: the dev-server hosts in
   `DEV_ALLOWED_HOSTS`, or the exact packaged `renderer/index.html` path) and
   otherwise calls `event.preventDefault()`. The window-open handler always
   returns `{ action: 'deny' }` — no new `BrowserWindow` is ever created from
@@ -551,7 +577,7 @@ Each rule is also proven by a committed fixture scenario under
   `APPROVED_EXTERNAL_ORIGINS` allow-list in `security.ts` (currently
   `https://github.com`, the Help menu's "Learn more" item), calls
   `shell.openExternal(url)` as a side effect before still returning deny.
-- Both allow-lists live in source (`app/main/security.ts`) and are extended
+- Both allow-lists live in source (`apps/cast/main/security.ts`) and are extended
   only by editing that file; neither is ever populated from renderer input,
   IPC payloads, or configuration. `isTrustedWebContentsUrl` is also reused by
   `assertTrustedIpcSender`, so its file-path and credentials handling harden
@@ -559,12 +585,12 @@ Each rule is also proven by a committed fixture scenario under
 - Denial never logs or surfaces the denied URL: both handlers log only
   `describeUrlSchemeForLogging(url)` (the scheme, or `'unparseable'`), since a
   `file:` URL can carry an absolute filesystem path.
-- The `cast-media:` privileged scheme (registered in `app/main/index.ts`,
+- The `cast-media:` privileged scheme (registered in `apps/cast/main/index.ts`,
   gated by `resolveTrustedCastMediaRequest`) is a resource-fetch boundary for
   `<audio>`/`<video>` elements, not a navigation/window-open target, and is
   intentionally not part of either allow-list above. What it resolves is
   described below (issue #159, ADR-0008).
-- `fetchLocalFileResponse()` in `app/main/security.ts` is also the media HTTP
+- `fetchLocalFileResponse()` in `apps/cast/main/security.ts` is also the media HTTP
   validator boundary for `cast-media:`. It dedupes only concurrent
   `fs.promises.stat()` calls, emits weak `ETag` / `Last-Modified` validators,
   honours `If-None-Match` / `If-Range`, serves HEAD and byte ranges, and keeps
@@ -579,19 +605,19 @@ Each rule is also proven by a committed fixture scenario under
 
 - Imported files are **copied into `<userData>/media`** and the database stores
   a reference to the copy, so a project depends only on files the app owns.
-  `app/main/media-library.ts` (`MediaLibraryService`) owns the directory;
+  `apps/cast/main/media-library.ts` (`MediaLibraryService`) owns the directory;
   copies are content-addressed (`<sha256>.<ext>`), written through a `.part`
   file and renamed into place, and cloned copy-on-write where the filesystem
   supports it.
 - The stored form is `cast-media://library/<64 hex>[.<ext>]`, resolved relative
   to the library directory. Its pattern admits no separator, `%`, or `..`, so it
   cannot express a path outside the library. `resolveLocalMediaSourcePath`
-  exists in two copies — `app/main/media-source-path.ts` and
+  exists in two copies — `apps/cast/main/media-source-path.ts` and
   `packages/persistence-sqlite/src/media-source-utils.ts`, because the store
   runs in a utility process — and both check the library branch before the
   generic percent-decode. They must move in step.
 - `MediaLibraryService.adopt` sits in front of every media write in
-  `app/main/ipc.ts`: `createMediaAsset`, `updateMediaAssetSrc`, and the relink
+  `apps/cast/main/ipc.ts`: `createMediaAsset`, `updateMediaAssetSrc`, and the relink
   decisions of `finalizeImportBundle`. Sources with nothing to copy (`blob:`,
   `http(s):`, relative, empty, or an existing library reference) pass through
   unchanged.
@@ -615,10 +641,10 @@ Each rule is also proven by a committed fixture scenario under
 - The renderer never holds a filesystem path for managed media. Every media
   source crossing IPC outbound is replaced by an opaque **managed media id** —
   `cast-media://m<32 hex>` — that main mints and resolves
-  (`app/main/media-capability.ts`). The renderer treats it as an opaque URL it
+  (`apps/cast/main/media-capability.ts`). The renderer treats it as an opaque URL it
   may render or hand back, and never constructs or parses one.
 - Translation is wired once at the RPC dispatch loop in `registerRpcHandlers`
-  (`app/main/ipc.ts`), not per handler: arguments have managed ids resolved back
+  (`apps/cast/main/ipc.ts`), not per handler: arguments have managed ids resolved back
   to stored sources on the way in (`resolveManagedMediaArgs`) and results have
   stored sources replaced by managed ids on the way out
   (`maskManagedMediaResult`). No repository method knows managed ids exist.
@@ -638,7 +664,7 @@ Each rule is also proven by a committed fixture scenario under
   when `WHERE id = ? AND src = ?` still matches so stale async work cannot
   overwrite a replaced source.
 - Thumbnails are a **rebuildable main-process cache**, not durable project
-  state. `app/main/media-derivatives.ts` keeps a bounded (max 3) deduplicating
+  state. `apps/cast/main/media-derivatives.ts` keeps a bounded (max 3) deduplicating
   generation queue and a manifest under `userData/thumbs`, keyed by durable
   asset id plus stored-source fingerprint. Cache entries are invalidated when
   the source path, size, mtime, or decoded thumbnail no longer matches. Project
@@ -677,7 +703,7 @@ Each rule is also proven by a committed fixture scenario under
   database out from under the renderer.
 - **Not generalized:** a file the user just picked in a native dialog or dropped
   on the window travels inbound as a raw `cast-media://<encoded path>` string
-  (`castMediaSrc` in `app/renderer/utils/slides.ts`). These are short-lived
+  (`castMediaSrc` in `apps/cast/renderer/utils/slides.ts`). These are short-lived
   import capabilities, are not renderable, and pass the inbound transform
   untouched — pass one to an IPC mutation and render the `src` that comes back.
 
@@ -864,11 +890,11 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 - **Category decision (issue #215, parent #116/#153): this family is a serialization contract, not a persistence DTO**, and lives in `app/contracts/project-backup.ts` (`ProjectBackup`, `ProjectBackupTables`, and the seventeen `ProjectBackup*Row` interfaces). #153 classified it as the textbook persistence-DTO candidate on shape alone (snake_case fields mirroring SQL columns verbatim) and set out to move it to `app/database/dto/`. That is architecturally impossible: the family is consumed as a type-level dependency by `app/core/deck-bundles.ts` (`validateProjectBackup`, `ProjectBackupTableKey`) and by the IPC contract (`app/core/ipc.ts`, `app/main/ipc.ts`, `app/main/preload.ts`, `app/main/deck-bundle-archive.ts`) as well as by `app/database/store.ts`, and `core-purity` categorically forbids `app/core` from importing `app/database`. Shape alone does not decide the category — the deciding fact is which zones hold a type-level dependency on it; a shape mirroring SQL columns that only the database layer ever names would belong in `app/database/dto/` instead. `app/contracts/` is the correct home because it is the neutral runtime-decode boundary every zone may already import (issue #149), and it must not import `app/database`, `app/main`, `app/renderer`, React, Electron, or the native module (`contracts-purity`, issue #216) — so this move cannot relocate the original problem back through the database. `app/core/types.ts` keeps export-only re-exports of the family for existing `@core/types` importers, per the #153 facade convention; #155 is the exit condition that removes them. Record this decision here rather than relitigating it at the next split.
 - Core policy owns the contract: `validateProjectBackup` in `packages/protocol/src/deck-bundles.ts` (with `ProjectBackupValidationError`) rejects legacy and future format versions, unsupported schema versions, wrong format strings, envelope drift, missing or extra tables/columns, malformed types/enums/flags, invalid tag colors, and slide rows that break the single-owner invariant. Column lists are enumerated via `PROJECT_BACKUP_COLUMN_SPECS`; cross-table referential integrity is checked before restore.
 - The repository produces and validates without mutating the active database: `exportProjectBackup()` refuses a `user_version` other than `LATEST_SCHEMA_VERSION` and gates every produced document through `validateProjectBackup` before returning; `validateProjectBackup(backup)` on `CastRepository`.
-- Archives are written/read by `writeProjectBackupArchive`/`readProjectBackupArchive` in `app/main/deck-bundle-archive.ts` (single `backup.json` zip entry, shared zip helpers with the deck-bundle archive); both write and read validate the document through core policy, and the single-entry zip reader verifies archive bounds, entry counts, offsets, lengths, central/local name agreement, and CRC/size agreement (local and central headers must agree with each other and with the extracted payload) before the document is parsed.
+- Archives are written/read by `writeProjectBackupArchive`/`readProjectBackupArchive` in `apps/cast/main/deck-bundle-archive.ts` (single `backup.json` zip entry, shared zip helpers with the deck-bundle archive); both write and read validate the document through core policy, and the single-entry zip reader verifies archive bounds, entry counts, offsets, lengths, central/local name agreement, and CRC/size agreement (local and central headers must agree with each other and with the extracted payload) before the document is parsed.
 
 ## Deck Bundle Manifest (file format, issue #154, `.cst` extension)
 
-- The deck-bundle manifest — `BundleManifest` (format `'cast-deck-bundle'`, `version: 2`) and its `BundleTheme`/`BundleSlide`/`BundleTalkScriptBlock`/`BundleItem`/`BundleMediaReference`/`BundleStage`/`BundleOverlay`/`BundlePlaylistItemEntry`/`BundlePlaylistSeparator`/`BundlePlaylistRow`/`BundlePlaylist` family — lives in `packages/protocol/src/deck-bundle-manifest.ts`, is decoded by `decodeBundleManifest` in `packages/protocol/src/codecs.ts`, and is read/written by `app/main/deck-bundle-archive.ts`. The `Bundle*` rename (from `DeckBundle*`) is issue #219 decision D8's vocabulary rule; the module's filename and the `.cst` file extension were kept unchanged.
+- The deck-bundle manifest — `BundleManifest` (format `'cast-deck-bundle'`, `version: 2`) and its `BundleTheme`/`BundleSlide`/`BundleTalkScriptBlock`/`BundleItem`/`BundleMediaReference`/`BundleStage`/`BundleOverlay`/`BundlePlaylistItemEntry`/`BundlePlaylistSeparator`/`BundlePlaylistRow`/`BundlePlaylist` family — lives in `packages/protocol/src/deck-bundle-manifest.ts`, is decoded by `decodeBundleManifest` in `packages/protocol/src/codecs.ts`, and is read/written by `apps/cast/main/deck-bundle-archive.ts`. The `Bundle*` rename (from `DeckBundle*`) is issue #219 decision D8's vocabulary rule; the module's filename and the `.cst` file extension were kept unchanged.
 - **Manifest version 2 (issue #219, decision D8)**: `BundleItem.type: ItemType` replaces the unified deck-item concept — there is no shared `Item` union entity, only three separate item shapes distinguished by `type`. `BundleTheme.themeType: ThemeOwnerType` replaces `kind`. `BundlePlaylist.rows` is a flat, ordered `BundlePlaylistRow[]` — `BundlePlaylistItemEntry` (`kind: 'item'`, one of `presentationId`/`lyricId`/`talkId`) interleaved with `BundlePlaylistSeparator` (`kind: 'separator'`, `label`/`colorKey`) — instead of entries nested inside groups; a separator is a row *in* the flat list, never a container *around* a subset of entries. There is no `libraryName` on `BundlePlaylist` (the library concept is gone) and `BundleInspectionPlaylist.groupCount`/`libraryName` are replaced by `separatorCount`. `getBundlePlaylistEntryReference` must only ever see a `kind: 'item'` row — callers discriminate on `kind` before parsing a reference.
 - **Version 1 manifests are normalized at decode**: `decodeBundleManifest`'s `version === 1` branch runs `decodeLegacyBundleManifest` (structural v1 decode against the frozen `BundleManifestV1` shapes) followed by `normalizeBundleManifestV1` — a pure v1→v2 transform using the same canonical flattening order as the v25 migration (each group becomes a separator row carrying its name/`colorKey`, followed by its entries, renumbered 0..n; `kind: 'slides'` themes map to the presentation family, with a talk-family clone synthesized for any 'slides' theme a talk item referenced; `libraryName` is dropped). `inspectImportBundle`/`finalizeImportBundle` operate on the normalized manifest with no v1-specific logic; unknown/future manifest versions are still rejected explicitly.
 - **Category decision (issue #154, parent #116): this is an application contract, not an IPC contract**, despite sitting alongside the RPC wire-payload shapes. None of its types is ever named in the RPC method signatures (`packages/protocol/src/ipc.ts`) — the manifest round-trips through a `.cst` file on disk, not through an IPC call's argument or return type. It is kept in its own module, separate from `rpc-inputs.ts`/`rpc-results.ts`, so the file-format versus wire-payload distinction is visible in the import path.
@@ -879,15 +905,15 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
   the copy fallback returns it through main. In either route the backpressure
   slot is freed only for the matching attempt after the host-side send returns
   or is rejected. A release is not a downstream-receiver capacity claim.
-- Observability collection is always-on and owned by the app shell: `App.tsx` mounts an `ObservabilityRuntime` child inside `WorkbenchProvider`; that child runs `useObservabilityRuntime()` from `app/renderer/features/observability/observability-runtime.ts`, continuously sampling renderer memory/rAF/video/audio health and polling `obsGetSystemMetrics()` for main-process CPU/memory/event-loop lag. The observability panel is now display-only. Timeline-to-log mirroring is opt-in state in the observability store rather than an unconditional console side effect.
+- Observability collection is always-on and owned by the app: `App.tsx` mounts an `ObservabilityRuntime` child inside `WorkbenchProvider`; that child runs `useObservabilityRuntime()` from `apps/cast/renderer/features/observability/observability-runtime.ts`, continuously sampling renderer memory/rAF/video/audio health and polling `obsGetSystemMetrics()` for main-process CPU/memory/event-loop lag. The observability panel is now display-only. Timeline-to-log mirroring is opt-in state in the observability store rather than an unconditional console side effect.
 - The `app/core/types.ts` facade described above was retired once every moved family had a real package owner (#155, folded into the #219 package split's W4). Its only two non-re-exported declarations, `PlaybackState` and `SlideBrowserMode`, were app-shell view state rather than shared domain/wire types, so they now live in `app/renderer/types/view-state.ts` instead of any package.
 
 ## Shared Scene Render Contract (issue #111)
 
-- Editor preview (`app/renderer/features/canvas/scene-stage.tsx`) and NDI output (`app/renderer/features/playback/ndi-frame-capture.tsx`) render through one shared, render-only contract: `scene-traversal.ts` (node visibility, frame geometry, back-to-front ordering — now `packages/composition/src/scene/scene-traversal.ts`), `scene-node-content.tsx` (per-kind Konva node content) and `scene-slide-background.tsx` (`SceneSlideBackground`, colour/gradient/image background painting and `needsOpaqueBackdrop`) — both now `packages/canvas/src/`. Both surfaces build their scene via `buildRenderScene`/`buildResolvedRenderScene` (`app/renderer/features/canvas/build-render-scene.ts`) and mount the shared traversal inside their own `react-konva` `Stage`/`Layer` tree; layer order is background first, then nodes back-to-front.
-- `tests/app/renderer/rendering/scene-parity.test.tsx` is the structural parity test for this contract: it feeds identical fixtures through both the Konva traversal (`traverseSceneNodes`/`renderSceneNodeContent`) and the resolved-scene builder and asserts equivalent node identity, order, visibility, and geometry, including background kinds.
-- `app/renderer/rendering/scene-layer.tsx`, an earlier render-only DOM component from #147 (`<div>`/`<img>`/`<video>` with inline styles), never gained a production consumer — both real surfaces render via `react-konva`, not the DOM — and was removed in #207 rather than adopted, to avoid two parallel answers to "what is the shared scene layer."
-- NDI-only concerns (alpha/`withAlpha`, key/fill, scaling, frame timing, cancellation, frame-release watchdog, backpressure, corrective retries, and exact-once take-to-accepted-native-send correlation via `app/renderer/utils/ndi-take-correlation.ts`) remain solely in `ndi-frame-capture.tsx` and are not part of the shared contract.
+- Editor preview (`apps/cast/renderer/features/canvas/scene-stage.tsx`) and NDI output (`apps/cast/renderer/features/playback/ndi-frame-capture.tsx`) render through one shared, render-only contract: `scene-traversal.ts` (node visibility, frame geometry, back-to-front ordering — now `packages/composition/src/scene/scene-traversal.ts`), `scene-node-content.tsx` (per-kind Konva node content) and `scene-slide-background.tsx` (`SceneSlideBackground`, colour/gradient/image background painting and `needsOpaqueBackdrop`) — both now `packages/canvas/src/`. Both surfaces build their scene via `buildRenderScene`/`buildResolvedRenderScene` (`apps/cast/renderer/features/canvas/build-render-scene.ts`) and mount the shared traversal inside their own `react-konva` `Stage`/`Layer` tree; layer order is background first, then nodes back-to-front.
+- `tests/apps/cast/renderer/rendering/scene-parity.test.tsx` is the structural parity test for this contract: it feeds identical fixtures through both the Konva traversal (`traverseSceneNodes`/`renderSceneNodeContent`) and the resolved-scene builder and asserts equivalent node identity, order, visibility, and geometry, including background kinds.
+- `apps/cast/renderer/rendering/scene-layer.tsx`, an earlier render-only DOM component from #147 (`<div>`/`<img>`/`<video>` with inline styles), never gained a production consumer — both real surfaces render via `react-konva`, not the DOM — and was removed in #207 rather than adopted, to avoid two parallel answers to "what is the shared scene layer."
+- NDI-only concerns (alpha/`withAlpha`, key/fill, scaling, frame timing, cancellation, frame-release watchdog, backpressure, corrective retries, and exact-once take-to-accepted-native-send correlation via `apps/cast/renderer/utils/ndi-take-correlation.ts`) remain solely in `ndi-frame-capture.tsx` and are not part of the shared contract.
 
 ## Project Restore / Promotion (issue #146)
 
@@ -902,7 +928,7 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
   repository's validation, preparation, migration, insertion, verification,
   promotion, and completion phases; renderer loading status remains responsive
   while the restore runs.
-- The IPC contract lives in `packages/protocol/src/ipc.ts` (`ProjectRestoreResult`, `IPC.restoreProjectBackup`), wired in `app/main/ipc.ts` and typed through the `app/main/preload.ts` bridge; recovery and export/validation share the `packages/persistence-sqlite/src/store.ts` implementation.
+- The IPC contract lives in `packages/protocol/src/ipc.ts` (`ProjectRestoreResult`, `IPC.restoreProjectBackup`), wired in `apps/cast/main/ipc.ts` and typed through the `apps/cast/main/preload.ts` bridge; recovery and export/validation share the `packages/persistence-sqlite/src/store.ts` implementation.
 
 ## Snapshot Restore (flat tables, no bin-identity reseeding — issue #219 supersedes #208)
 
@@ -948,6 +974,46 @@ Audio and layer-video volume are independent session controls applied to their m
 
 Linux validation runs Electron end-to-end tests under Xvfb and configures the installed `chrome-sandbox` helper with root ownership and mode `4755`. Playwright browser diagnostics expose Electron startup failures in the CI log.
 
-The main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver.
+Cast's main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver. Cloud and Flux have no runtime updater, menu, or startup checks implemented yet.
 
-`.github/workflows/ci-release.yml` is the single validation and release pipeline (ADR-0035). Pull requests stop after validation. A validated `main` push proceeds only when `package.json` contains a higher stable version and `v<version>` does not already exist, then packages Windows, macOS, and Linux in parallel and publishes one GitHub Release after all platforms succeed. Manual dispatch supports retrying an unpublished current version; prereleases are not generated.
+`.github/workflows/ci-release.yml` is the single validation and release pipeline
+(ADR-0043, which supersedes ADR-0035's single-release decision). Each app calls
+it through a thin wrapper — `cast.yml`, `cloud.yml`, `flux.yml` — that passes
+one input, `app`, so the three apps validate and release independently from one
+repository and a Cast run never collides with a Cloud or Flux run. The pipeline
+logic itself is not duplicated per app.
+
+- **Trigger.** Pull requests stop after validation. A `main` push releases an app
+  only when that app's own manifest version (`apps/<app>/package.json`) is a
+  stable semantic version strictly greater than its baseline; an unchanged
+  version ends after validation, and a manual dispatch is CI-only. Prereleases
+  are not generated.
+- **Baseline.** The baseline is `apps/<app>/package.json` as it stood before the
+  push. Cast moved out of the repository root, so while the migration is in
+  flight its pushes fall back to the previous root `package.json` version and
+  keep releasing normally. Cloud and Flux have no such history: with no
+  baseline, a first push validates and publishes nothing. The current version
+  must also exceed the highest already published `<app>-v<version>` release, so
+  a delayed or reverted push cannot hand the latest slot to an old version.
+- **Version release.** Immutable, tagged `<app>-v<version>`, and carrying the
+  installers. It is assembled as a draft and published in one request, so a
+  partially uploaded release is never visible to an updater. Cast keeps the
+  signed Windows/macOS/Linux matrix and the native NDI addon; Cloud and Flux
+  package unsigned Linux artifacts.
+- **Update feed.** A permanent `<app>-feed` release carries generic updater
+  metadata only. Its installer URLs are absolute and point at the immutable
+  `<app>-v<version>` release that produced them, and the feed is updated on every
+  `main` push so a failed update heals without republishing a version. The feed
+  job drops channel files the release no longer produces, so a feed can never
+  serve two versions.
+- **Latest slot.** Only a Cast version release is published with
+  `make_latest=true`. That is the legacy bridge: only legacy shipped Cast
+  versions (`provider: github`) resolve the repository's latest release, which
+  is always a Cast release. Every new build — Cast, Cloud, and Flux — uses
+  `provider: generic` against its own `<app>-feed` release; Cloud, Flux, and
+  every feed release are published with `make_latest=false`, so their updates
+  can never resolve against a Cast release.
+
+Cast's identity is unchanged by the move: product name `LumaCast`, app id
+`com.lumacast.app`. Cloud and Flux are new, deliberately blank apps;
+management features for them are future work.

@@ -26,6 +26,9 @@ const WORKSPACE_ALIAS = {
   '@lumacast/protocol': path.resolve(REPO_ROOT, 'packages/protocol/src/index.ts'),
   '@lumacast/persistence-sqlite': path.resolve(REPO_ROOT, 'packages/persistence-sqlite/src/index.ts'),
   '@lumacast/engine': path.resolve(REPO_ROOT, 'packages/engine/src/index.ts'),
+  '@lumacast/playback': path.resolve(REPO_ROOT, 'packages/playback/src/index.ts'),
+  '@lumacast/canvas': path.resolve(REPO_ROOT, 'packages/canvas/src/index.ts'),
+  '@lumacast/ui': path.resolve(REPO_ROOT, 'packages/ui/src/index.ts'),
 };
 
 async function buildServer() {

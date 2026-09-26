@@ -1,0 +1,35 @@
+{
+  // Shared compiler options for the monorepo root and every app. App-agnostic
+  // on purpose: no @renderer alias here, so Cloud/Flux never inherit the Cast
+  // renderer path (matches each app's own Vite @renderer alias, preserves app
+  // isolation). Every @lumacast/* entry points at that package's public entry
+  // point. App tsconfigs must repeat the full @lumacast/* table because TS
+  // "paths" overrides merge (an extending config replaces base paths whole).
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "types": ["node", "electron"],
+    "baseUrl": ".",
+    "paths": {
+      "@lumacast/kernel": ["packages/kernel/src/index.ts"],
+      "@lumacast/composition": ["packages/composition/src/index.ts"],
+      "@lumacast/automation": ["packages/automation/src/index.ts"],
+      "@lumacast/commands": ["packages/commands/src/index.ts"],
+      "@lumacast/protocol": ["packages/protocol/src/index.ts"],
+      "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"],
+      "@lumacast/engine": ["packages/engine/src/index.ts"],
+      "@lumacast/playback": ["packages/playback/src/index.ts"],
+      "@lumacast/canvas": ["packages/canvas/src/index.ts"],
+      "@lumacast/ui": ["packages/ui/src/index.ts"]
+    }
+  }
+}

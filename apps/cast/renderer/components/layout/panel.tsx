@@ -1,0 +1,119 @@
+import { forwardRef, type ButtonHTMLAttributes, type ComponentPropsWithoutRef, type ReactNode } from 'react';
+import { cn, cv } from '@lumacast/ui';
+
+type PanelMenuLevelProps = {
+    child?: boolean;
+};
+
+function PanelRoot({ children, className, ...rest }: ComponentPropsWithoutRef<'aside'>) {
+    return (
+        <aside {...rest} className={cn('w-full flex flex-col border-r border-secondary overflow-hidden bg-primary area-sidebar w-sidebar', className)} >
+            {children}
+        </aside>
+    );
+}
+
+function PanelHeader({ children, className, ...rest }: ComponentPropsWithoutRef<'header'>) {
+    return (
+        <header {...rest} className={cn('w-full px-2 border-b border-secondary inline-flex justify-start items-center overflow-hidden', className)} >
+            {children}
+        </header>
+    );
+}
+
+function PanelContent({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
+    return (
+        <div {...rest} className={cn('w-full inline-flex flex-col justify-start items-start min-h-0 flex-1 overflow-y-auto scrollbar-hidden', className)} >
+            {children}
+        </div>
+    );
+}
+
+function PanelFooter({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
+    return (
+        <div {...rest} className={cn('px-2 border-t border-secondary inline-flex justify-start items-center overflow-hidden', className)} >
+            <div className="flex-1 rounded-lg flex justify-start items-center gap-2">{children}</div>
+        </div>
+    );
+}
+
+function PanelGroup({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
+    return (
+        <div {...rest} className={cn('w-full inline-flex flex-col justify-start items-start', className)}>{children}</div>
+    );
+}
+
+
+function PanelGroupTitle({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
+    return (
+        <div {...rest} className={cn('w-full h-9 px-2 inline-flex justify-start items-center gap-2.5 border-b border-secondary', className)}>
+            {children}
+        </div>
+    );
+}
+
+function PanelGroupFooter({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
+    return (
+        <div {...rest} className={cn('w-full h-6 px-2 inline-flex justify-start items-center gap-2.5 border-t border-secondary', className)}>
+            {children}
+        </div>
+    );
+}
+
+function PanelGroupContent({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
+    return (
+        <div {...rest} className={cn('w-full flex flex-col justify-start items-start', className)}>{children}</div>
+    );
+}
+
+type PanelMenuItemProps = PanelMenuLevelProps & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> & {
+    active?: boolean;
+    children?: ReactNode;
+};
+
+const menuItemVariants = cv({
+    base: ['w-full min-h-7 py-1 px-2 inline-flex justify-start items-center gap-2 overflow-hidden'],
+    variants: {
+        state: {
+            active: ['bg-brand/10 text-brand hover:bg-brand/15 active:bg-brand/20'],
+            inactive: ['bg-transparent text-secondary hover:bg-tertiary active:bg-secondary'],
+        },
+    },
+    defaultVariants: {
+        state: 'inactive',
+    },
+});
+
+const PanelMenuItem = forwardRef<HTMLButtonElement, PanelMenuItemProps>(function PanelMenuItem(
+    { children, active = false, className, onClick, ...buttonProps },
+    ref,
+) {
+    const itemState = active ? 'active' : 'inactive';
+    const cursorClassName = onClick ? 'cursor-pointer' : 'cursor-default';
+
+    return (
+        <div className="w-full">
+            <button
+                ref={ref}
+                type="button"
+                className={cn(menuItemVariants({ state: itemState }), cursorClassName, className)}
+                onClick={onClick}
+                {...buttonProps}
+            >
+                {children}
+            </button>
+        </div>
+    );
+});
+
+export const LumaCastPanel = {
+    Root: PanelRoot,
+    Header: PanelHeader,
+    Content: PanelContent,
+    Footer: PanelFooter,
+    Group: PanelGroup,
+    GroupTitle: PanelGroupTitle,
+    GroupFooter: PanelGroupFooter,
+    GroupContent: PanelGroupContent,
+    MenuItem: PanelMenuItem,
+};

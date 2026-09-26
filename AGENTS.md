@@ -45,27 +45,41 @@ Be concise. Be explicit. Do not leave ambiguous decisions hidden in implementati
 
 ## Layering Rules
 
-The application is an app shell (`app/`) that consumes ten headless-by-default
-npm workspace packages under `packages/*`. `node
-tool/check_electron_architecture.mjs` is the executable authority for both the
-Electron `app/` tree boundaries and the package boundaries below. It parses
-static ES imports/exports only, rejects unsupported dynamic patterns, and runs
-the rules below against every committed file. `npm run check:architecture`
-checks the tree; `npm run test:architecture` runs its fixture graphs.
+The repository is an npm workspace of three self-contained Electron apps under
+`apps/*` (`cast`, `cloud`, `flux`) that consume the headless-by-default packages
+under `packages/*`. `node tool/check_electron_architecture.mjs` is the
+executable authority for both the per-app tree boundaries and the package
+boundaries below. It parses static ES imports/exports only (`.ts`, `.tsx`,
+`.mjs`, `.js`, and `.cjs` are all code and are all checked), rejects unsupported
+dynamic patterns, and runs the rules below against every committed file. `npm
+run check:architecture` checks the tree; `npm run test:architecture` runs its
+fixture graphs.
 
-### App shell (`app/`)
+- Apps are self-contained: no app may import another app, by relative path, by
+  app-scoped alias (`@renderer/…`, `@rendering/…`), or by module specifier
+  (`@lumacast/<app>`, `@workspace/<app>/…`). An app-scoped alias resolves inside
+  the importing app only and never falls back to a sibling app. Shared code
+  belongs in a package under `packages/*`.
+- No package may import app code, by any of those specifiers. Packages sit
+  below the apps, never above them.
 
-- `app/main` is the Electron main-process bootstrap: window/menu/IPC wiring,
+### App tree (`apps/<app>`)
+
+The tree below is written for Cast, which is the only app that ships the full
+workbench today; it applies per app, and `apps/<app>/…` is the path every rule
+is keyed on.
+
+- `<app>/main` is the Electron main-process bootstrap: window/menu/IPC wiring,
   security policy, and the app-side shims that make Electron-shaped things
   (the NDI utility-process host/proxy, config paths) available to
   `@lumacast/engine`. It is the process composition root and imports no
   renderer or feature code.
-- `app/renderer` is the UI: screens, feature UI, shared components, and the
+- `<app>/renderer` is the UI: screens, feature UI, shared components, and the
   contexts that wire package ports (e.g. canvas data, playback, automation)
   to concrete app state. It imports no Electron, main-process modules, or
   database code; it reaches main only through the typed `castApi` IPC contract
   (`@lumacast/protocol`).
-  - UI/rendering primitives (`app/renderer/components`, `utils`, `types`)
+  - UI/rendering primitives (`<app>/renderer/components`, `utils`, `types`)
     import no feature implementations.
   - A feature may not import another feature; allowed feature dependencies
     are directed, documented, public edges only. Bidirectional feature
@@ -80,11 +94,11 @@ checks the tree; `npm run test:architecture` runs its fixture graphs.
     imports of it must go through that entry point.
   - Observability is consumed through a port; only screens, the shell, and
     the observability feature itself may reference it directly.
-- Only the NDI engine-session boundary (`app/main/ndi` and `@lumacast/engine`)
-  may touch the native module (`@lumacast/ndi-native`) or reference raw NDI
-  host commands (`NdiHostCommand`, `NdiHostEvent`). `ndi-service-proxy.ts` is
-  the sole host command writer; everything else reaches NDI through
-  `NdiServiceLike`.
+- Only the NDI engine-session boundary (`apps/cast/main/ndi` and
+  `@lumacast/engine`) may touch the native module (`@lumacast/ndi-native`) or
+  reference raw NDI host commands (`NdiHostCommand`, `NdiHostEvent`).
+  `ndi-service-proxy.ts` is the sole host command writer; everything else
+  reaches NDI through `NdiServiceLike`.
 
 Current exceptions live in the checker's frozen allow-list. Adding an exception
 means editing the allow-list in the script *and* saying why and who removes it,
@@ -95,8 +109,9 @@ be allow-listed, and become hard errors once the refactor lands.
 
 ## Workspace packages (issue #223, parent #219)
 
-`package.json` declares an npm `workspaces` field covering `packages/*`; the
-application stays the root package and is not itself a workspace member.
+`package.json` declares an npm `workspaces` field covering `apps/*` and
+`packages/*`; the workspace root is the root package and is not itself a
+workspace member.
 `package-lock.json` is the single authoritative lockfile — never hand-edit it
 and never introduce another package manager or lockfile. Each package follows
 the same convention: `packages/<name>/src/index.ts` is its only public entry
@@ -127,7 +142,7 @@ mirrors the file it covers, so a package's tests sit in
   test-support helpers.
 - **`@lumacast/engine`** — the authoritative NDI output runtime: sender
   lifecycle, frame/audio pipeline, and diagnostics. The Electron-shaped host
-  process and IPC proxy stay as thin shims in `app/main/ndi`.
+  process and IPC proxy stay as thin shims in `apps/cast/main/ndi`.
 - **`@lumacast/playback`** — headless playback decisions: overlay lifecycle,
   presentation-layer transitions, playlist adjacency, and stage-arming state.
   DOM media-element lifecycle and IPC/NDI wiring stay in the app-side
@@ -135,7 +150,14 @@ mirrors the file it covers, so a package's tests sit in
 - **`@lumacast/canvas`** — the Konva render/editing layer: scene-node
   components, stage editing/marquee/viewport interaction, image/video
   resolution, and inline text editing. The only package permitted to import
-  react/react-dom/konva/react-konva (Electron stays banned even here).
+  Konva/React-Konva, and one of two (with `@lumacast/ui`) permitted to import
+  React/React DOM (Electron stays banned even here).
+- **`@lumacast/ui`** — shared, domain-agnostic UI primitives every app may
+  reuse (class-name helpers, buttons, segmented control, typography, empty
+  state) plus the shared Tailwind theme, published as the
+  `@lumacast/ui/theme.css` subpath. React and React DOM are in bounds; Konva,
+  React-Konva, and Electron are not, and it may depend only on `kernel`, so a
+  shared control can never couple itself to a domain model or to one app.
 - **`@lumacast/ndi-native`** — the native NDI sender bridge; a native addon,
   exempt from the headless-source rules below and governed instead by the
   engine-session rule above.
@@ -143,15 +165,19 @@ mirrors the file it covers, so a package's tests sit in
 `tool/check_electron_architecture.mjs` also walks `packages/*` and enforces,
 as hard errors that are never allow-listable:
 
-- No package may import anything under `app/` — packages may not depend on the
-  application.
+- No package may import anything under `apps/` (or the legacy `app/` root) —
+  packages may not depend on an application.
 - A package must not import React, React DOM, Konva, React-Konva, or
   Electron, except `@lumacast/canvas`, which may import
-  react/react-dom/konva/react-konva (never Electron).
+  react/react-dom/konva/react-konva (never Electron), and `@lumacast/ui`,
+  which may import react/react-dom but never konva/react-konva (Electron stays
+  banned for both).
 - A persistence package (name starting with `persistence`) must not import
   renderer code.
 - Package imports must go through the package's public entry point
-  (`src/index.ts` or `index.ts`); deep internal imports fail.
+  (`src/index.ts` or `index.ts`), plus a stylesheet the export map names
+  explicitly (e.g. `@lumacast/ui/theme.css`); deep internal imports fail, and
+  naming a second TypeScript file in the export map does not publish it.
 - Package-to-package dependencies must follow the direction recorded in issue
   #219 (a default-deny table in the checker,
   `PACKAGE_DEPENDENCY_DIRECTIONS`): kernel depends on nothing and everything
@@ -159,9 +185,9 @@ as hard errors that are never allow-listable:
   kernel and composition; commands depends only on kernel; protocol depends
   on kernel, composition, automation, and commands; persistence-sqlite
   depends on kernel, composition, automation, and protocol; engine depends on
-  kernel, composition, protocol, and ndi-native; playback and canvas each
-  depend on kernel, composition, and protocol. An unlisted package name
-  starts with zero permitted dependencies.
+  kernel, composition, protocol, and ndi-native; playback, canvas, and ui each
+  depend on kernel, composition, and protocol, except that ui depends on kernel
+  only. An unlisted package name starts with zero permitted dependencies.
 - Cycles between packages are forbidden and must be removed, never
   allow-listed.
 

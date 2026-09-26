@@ -1,0 +1,10 @@
+@import "@lumacast/ui/theme.css";
+@source ".";
+@source "../../../packages/ui/src";
+
+.shell {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

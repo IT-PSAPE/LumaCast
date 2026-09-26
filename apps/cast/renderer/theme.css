@@ -1,0 +1,13 @@
+/* Cast's stylesheet entry point.
+ *
+ * The theme itself is shared: design tokens, typography classes and the
+ * Tailwind base live in `@lumacast/ui/theme.css`. What stays here is the
+ * source list Tailwind needs for Cast — the shared package's components and
+ * the canvas renderer both carry utility classes but live outside this app, and
+ * a consumer that forgets to declare them silently loses the styles. */
+
+@import '@lumacast/ui/theme.css';
+
+@source "./**/*.{ts,tsx,html}";
+@source "../../../packages/ui/src/**/*.{ts,tsx}";
+@source "../../../packages/canvas/src/**/*.{ts,tsx}";

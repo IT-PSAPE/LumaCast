@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-// `app/main/preload.ts` calls `contextBridge.exposeInMainWorld` as a module
+// `apps/cast/main/preload.ts` calls `contextBridge.exposeInMainWorld` as a module
 // side effect. Mocking 'electron' lets us load the real preload module in
 // vitest and inspect exactly what it hands to the renderer, instead of
 // trusting that its `satisfies MainApi` annotation alone is enough — a
@@ -36,7 +36,7 @@ import {
 // Importing the real preload module runs `contextBridge.exposeInMainWorld`
 // as a side effect; this is the only way to observe the bridge object it
 // actually builds, as opposed to what `MainApi` merely permits it to build.
-await import('../../../../app/main/preload');
+await import('../../../../apps/cast/main/preload');
 
 const frameTransportPortRegistration = on.mock.calls.find(
   ([channel]) => channel === NDI_FRAME_TRANSPORT_PORT_CHANNEL,
@@ -49,7 +49,7 @@ function exposedApi(): Record<string, unknown> {
 }
 
 // Explicit channel -> preload method name tables for the two event maps.
-// These mirror `app/core/ipc.ts`'s `NdiEventPayloads`/`AppMenuEventPayloads`
+// These mirror `apps/cast/main/ipc.ts`'s `NdiEventPayloads`/`AppMenuEventPayloads`
 // and preload's `onNdi*`/`onAppMenuCommand` subscription wrappers. Kept
 // separate from the RPC and frame name sets below on purpose: this is the
 // runtime half of "events/subscriptions and frame/message channels are

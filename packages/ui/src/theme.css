@@ -1,0 +1,450 @@
+/* The shared LumaCast theme. Public export: `@lumacast/ui/theme.css`.
+ *
+ * Owns the design tokens (fonts, sizes, colours, radii) and the typography
+ * utility classes every LumaCast surface renders with, so Cast, Cloud and Flux
+ * look the same without copying a stylesheet between apps.
+ *
+ * Tailwind's automatic source detection only scans the consuming app's tree,
+ * so this file declares the shared package's own sources. Each app that
+ * imports it must add its own `@source` lines for its sources (and for any
+ * workspace package whose components carry utility classes), e.g. Cast's
+ * apps/cast/renderer/theme.css. */
+
+@import "tailwindcss";
+
+@source "./**/*.{ts,tsx}";
+
+@theme {
+    /* FONT FAMILY */
+    --font-body: var(--font-inter, "Open Sans"), -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --font-display: var(--font-inter, "Open Sans"), -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --font-mono: ui-monospace, "Roboto Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    --font-family-sans: 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif;
+
+    /* FONT SIZE */
+    --text-sm: calc(var(--spacing) * 2.875);
+    --text-sm--line-height: calc(var(--spacing) * 3.75);
+
+    --text-md: calc(var(--spacing) * 3.25);
+    --text-md--line-height: calc(var(--spacing) * 4);
+
+    --text-lg: calc(var(--spacing) * 3.5);
+    --text-lg--line-height: calc(var(--spacing) * 5.5);
+
+    /* FIGMA TEXT STYLES */
+    --text-title-h1: 56px;
+    --text-title-h1--line-height: 1.1;
+    --text-title-h1--letter-spacing: -0.56px;
+    --text-title-h1--font-weight: 500;
+
+    --text-title-h2: 48px;
+    --text-title-h2--line-height: 1.1;
+    --text-title-h2--letter-spacing: -0.48px;
+    --text-title-h2--font-weight: 500;
+
+    --text-title-h3: 40px;
+    --text-title-h3--line-height: 1.1;
+    --text-title-h3--letter-spacing: -0.4px;
+    --text-title-h3--font-weight: 500;
+
+    --text-title-h4: 32px;
+    --text-title-h4--line-height: 1.1;
+    --text-title-h4--letter-spacing: -0.16px;
+    --text-title-h4--font-weight: 500;
+
+    --text-title-h5: 24px;
+    --text-title-h5--line-height: 1.1;
+    --text-title-h5--letter-spacing: 0px;
+    --text-title-h5--font-weight: 500;
+
+    --text-title-h6: 20px;
+    --text-title-h6--line-height: 1.1;
+    --text-title-h6--letter-spacing: 0px;
+    --text-title-h6--font-weight: 500;
+
+    --text-label-lg: 24px;
+    --text-label-lg--line-height: 1.1;
+    --text-label-lg--letter-spacing: 0.36px;
+    --text-label-lg--font-weight: 500;
+
+    --text-label-bg: 18px;
+    --text-label-bg--line-height: 1.1;
+    --text-label-bg--letter-spacing: 0.27px;
+    --text-label-bg--font-weight: 500;
+
+    --text-label-md: 16px;
+    --text-label-md--line-height: 1.1;
+    --text-label-md--letter-spacing: 0.176px;
+    --text-label-md--font-weight: 500;
+
+    --text-label-sm: 14px;
+    --text-label-sm--line-height: 1.1;
+    --text-label-sm--letter-spacing: 0.084px;
+    --text-label-sm--font-weight: 500;
+
+    --text-label-xs: 12px;
+    --text-label-xs--line-height: 1.1;
+    --text-label-xs--letter-spacing: 0px;
+    --text-label-xs--font-weight: 500;
+
+    --text-paragraph-lg: 24px;
+    --text-paragraph-lg--line-height: 1.4;
+    --text-paragraph-lg--letter-spacing: -0.36px;
+    --text-paragraph-lg--font-weight: 400;
+
+    --text-paragraph-bg: 18px;
+    --text-paragraph-bg--line-height: 1.4;
+    --text-paragraph-bg--letter-spacing: -0.27px;
+    --text-paragraph-bg--font-weight: 400;
+
+    --text-paragraph-md: 16px;
+    --text-paragraph-md--line-height: 1.4;
+    --text-paragraph-md--letter-spacing: -0.176px;
+    --text-paragraph-md--font-weight: 400;
+
+    --text-paragraph-sm: 14px;
+    --text-paragraph-sm--line-height: 1.4;
+    --text-paragraph-sm--letter-spacing: -0.084px;
+    --text-paragraph-sm--font-weight: 400;
+
+    --text-paragraph-xs: 12px;
+    --text-paragraph-xs--line-height: 1.4;
+    --text-paragraph-xs--letter-spacing: 0px;
+    --text-paragraph-xs--font-weight: 400;
+
+    /* BASE VALUES
+       The only raw colours in the app. Every semantic token below points at
+       one of these, so a palette experiment is a change here and nowhere else.
+       Tailwind's default palette is switched off so no stray `text-red-400`
+       can bypass the semantic layer. */
+    --color-*: initial;
+    --color-transparent: transparent;
+    --color-white: #FFFFFF;
+    --color-black: #000000;
+
+    --color-gray-25: #FDFDFD;
+    --color-gray-50: #F6F6F6;
+    --color-gray-100: #F4F4F4;
+    --color-gray-200: #E8E8E8;
+    --color-gray-300: #CBCBCB;
+    --color-gray-400: #999999;
+    --color-gray-500: #707070;
+    --color-gray-600: #525252;
+    --color-gray-700: #2D2D2D;
+    --color-gray-800: #222222;
+    --color-gray-900: #1A1A1A;
+    --color-gray-950: #171717;
+
+    --color-brand-400: #33A7FF;
+    --color-brand-500: #0091FF;
+    --color-brand-600: #0074CC;
+
+    --color-red-400: #FD5F6A;
+    --color-red-500: #F83341;
+    --color-red-600: #E4313D;
+
+    --color-orange-400: #FF9960;
+    --color-orange-500: #F86721;
+    --color-orange-600: #DC5B1C;
+
+    --color-green-400: #43D981;
+    --color-green-500: #2CB763;
+    --color-green-600: #28A459;
+
+    /* SEMANTIC TOKENS (light; dark overrides live in the @layer base block below)
+       Twelve tokens carry every colour meaning in the UI:
+         bg-primary / bg-secondary / bg-tertiary   app canvas, panels, controls
+         text-primary / text-secondary / text-tertiary
+         border-primary / border-secondary
+         brand, error, warning, success           usable in any namespace:
+                                                  bg-brand, text-error, ring-brand,
+                                                  border-success/40, bg-error/15 …
+       States and tints are opacity modifiers on these (bg-brand/90 on hover,
+       bg-error/15 for a soft badge), not additional tokens. */
+    --background-color-primary: var(--color-white);
+    --background-color-secondary: var(--color-gray-50);
+    --background-color-tertiary: var(--color-gray-100);
+
+    --text-color-primary: var(--color-gray-900);
+    --text-color-secondary: var(--color-gray-700);
+    --text-color-tertiary: var(--color-gray-600);
+
+    --border-color-primary: var(--color-gray-300);
+    --border-color-secondary: var(--color-gray-200);
+
+    --color-brand: var(--color-brand-600);
+    --color-error: var(--color-red-600);
+    --color-warning: var(--color-orange-600);
+    --color-success: var(--color-green-600);
+
+    /* MOTION (agent chat)
+       Small, named motion tokens for the assistant transcript (ADR-0038): a
+       message/step settling in, the "Thinking…" shimmer, and the streaming
+       text caret. Tailwind v4 resolves `@keyframes` declared inside `@theme`
+       the same as top-level ones, so they stay next to the tokens that use them. */
+    --animate-chat-enter: chat-enter 180ms ease-out both;
+    --animate-chat-shimmer: chat-shimmer 1.6s linear infinite;
+    --animate-chat-caret: chat-caret 1s steps(1) infinite;
+
+    @keyframes chat-enter {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes chat-shimmer {
+        from { background-position: 200% 0; }
+        to { background-position: -200% 0; }
+    }
+
+    @keyframes chat-caret {
+        0%, 49% { opacity: 1; }
+        50%, 100% { opacity: 0; }
+    }
+}
+
+/* BASE STYLES */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+*:focus,
+*:focus-visible {
+  outline: none;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--background-color-primary);
+  color: var(--text-color-primary);
+  font-family: var(--font-family-sans);
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  isolation: isolate;
+}
+
+#overlay-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+/* SCROLLBAR */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gray-300) transparent;
+}
+
+[data-theme="dark"] * {
+  scrollbar-color: var(--color-gray-700) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-gray-300);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-400);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: var(--color-gray-700);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gray-600);
+}
+
+/* DARK MODE OVERRIDES */
+@layer base {
+    [data-theme="dark"] {
+        --background-color-primary: var(--color-gray-950);
+        --background-color-secondary: var(--color-gray-900);
+        --background-color-tertiary: var(--color-gray-800);
+
+        --text-color-primary: var(--color-gray-50);
+        --text-color-secondary: var(--color-gray-300);
+        --text-color-tertiary: var(--color-gray-400);
+
+        --border-color-primary: var(--color-gray-700);
+        --border-color-secondary: var(--color-gray-800);
+
+        --color-brand: var(--color-brand-500);
+        --color-error: var(--color-red-500);
+        --color-warning: var(--color-orange-500);
+        --color-success: var(--color-green-500);
+    }
+}
+
+.scrollbar-hidden {
+  /* Firefox */
+  scrollbar-width: none;
+  /* Internet Explorer/Edge */
+  -ms-overflow-style: none;
+}
+/* Chrome, Safari, and Opera */
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+@layer components {
+  .title-h1,
+  .title-h2,
+  .title-h3,
+  .title-h4,
+  .title-h5,
+  .title-h6 {
+    font-family: var(--font-title);
+    font-style: normal;
+  }
+
+  .title-h1 {
+    font-size: var(--text-title-h1);
+    font-weight: var(--text-title-h1--font-weight);
+    letter-spacing: var(--text-title-h1--letter-spacing);
+    line-height: var(--text-title-h1--line-height);
+  }
+
+  .title-h2 {
+    font-size: var(--text-title-h2);
+    font-weight: var(--text-title-h2--font-weight);
+    letter-spacing: var(--text-title-h2--letter-spacing);
+    line-height: var(--text-title-h2--line-height);
+  }
+
+  .title-h3 {
+    font-size: var(--text-title-h3);
+    font-weight: var(--text-title-h3--font-weight);
+    letter-spacing: var(--text-title-h3--letter-spacing);
+    line-height: var(--text-title-h3--line-height);
+  }
+
+  .title-h4 {
+    font-size: var(--text-title-h4);
+    font-weight: var(--text-title-h4--font-weight);
+    letter-spacing: var(--text-title-h4--letter-spacing);
+    line-height: var(--text-title-h4--line-height);
+  }
+
+  .title-h5 {
+    font-size: var(--text-title-h5);
+    font-weight: var(--text-title-h5--font-weight);
+    letter-spacing: var(--text-title-h5--letter-spacing);
+    line-height: var(--text-title-h5--line-height);
+  }
+
+  .title-h6 {
+    font-size: var(--text-title-h6);
+    font-weight: var(--text-title-h6--font-weight);
+    letter-spacing: var(--text-title-h6--letter-spacing);
+    line-height: var(--text-title-h6--line-height);
+  }
+
+  .label-lg,
+  .label-bg,
+  .label-md,
+  .label-sm,
+  .label-xs {
+    font-family: var(--font-label);
+    font-style: normal;
+  }
+
+  .label-lg {
+    font-size: var(--text-label-lg);
+    font-weight: var(--text-label-lg--font-weight);
+    letter-spacing: var(--text-label-lg--letter-spacing);
+    line-height: var(--text-label-lg--line-height);
+  }
+
+  .label-bg {
+    font-size: var(--text-label-bg);
+    font-weight: var(--text-label-bg--font-weight);
+    letter-spacing: var(--text-label-bg--letter-spacing);
+    line-height: var(--text-label-bg--line-height);
+  }
+
+  .label-md {
+    font-size: var(--text-label-md);
+    font-weight: var(--text-label-md--font-weight);
+    letter-spacing: var(--text-label-md--letter-spacing);
+    line-height: var(--text-label-md--line-height);
+  }
+
+  .label-sm {
+    font-size: var(--text-label-sm);
+    font-weight: var(--text-label-sm--font-weight);
+    letter-spacing: var(--text-label-sm--letter-spacing);
+    line-height: var(--text-label-sm--line-height);
+  }
+
+  .label-xs {
+    font-size: var(--text-label-xs);
+    font-weight: var(--text-label-xs--font-weight);
+    letter-spacing: var(--text-label-xs--letter-spacing);
+    line-height: var(--text-label-xs--line-height);
+  }
+
+  .paragraph-lg,
+  .paragraph-bg,
+  .paragraph-md,
+  .paragraph-sm,
+  .paragraph-xs {
+    font-family: var(--font-paragraph);
+    font-style: normal;
+  }
+
+  .paragraph-lg {
+    font-size: var(--text-paragraph-lg);
+    font-weight: var(--text-paragraph-lg--font-weight);
+    letter-spacing: var(--text-paragraph-lg--letter-spacing);
+    line-height: var(--text-paragraph-lg--line-height);
+  }
+
+  .paragraph-bg {
+    font-size: var(--text-paragraph-bg);
+    font-weight: var(--text-paragraph-bg--font-weight);
+    letter-spacing: var(--text-paragraph-bg--letter-spacing);
+    line-height: var(--text-paragraph-bg--line-height);
+  }
+
+  .paragraph-md {
+    font-size: var(--text-paragraph-md);
+    font-weight: var(--text-paragraph-md--font-weight);
+    letter-spacing: var(--text-paragraph-md--letter-spacing);
+    line-height: var(--text-paragraph-md--line-height);
+  }
+
+  .paragraph-sm {
+    font-size: var(--text-paragraph-sm);
+    font-weight: var(--text-paragraph-sm--font-weight);
+    letter-spacing: var(--text-paragraph-sm--letter-spacing);
+    line-height: var(--text-paragraph-sm--line-height);
+  }
+
+  .paragraph-xs {
+    font-size: var(--text-paragraph-xs);
+    font-weight: var(--text-paragraph-xs--font-weight);
+    letter-spacing: var(--text-paragraph-xs--letter-spacing);
+    line-height: var(--text-paragraph-xs--line-height);
+  }
+}
+
+.all-unset {
+  all: unset;
+}

@@ -1,0 +1,10 @@
+{
+  "name": "@lumacast/widget",
+  "private": true,
+  "main": "src/index.ts",
+  "style": "./theme.css",
+  "unpkg": "./theme.css",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
