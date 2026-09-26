@@ -13,14 +13,15 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 interface AppPackaging {
   appDir: string;
   appId: string;
+  productName: string;
   linuxIdentity: string;
   feedTag: string;
 }
 
 const APPS: AppPackaging[] = [
-  { appDir: 'cast', appId: 'com.lumacast.app', linuxIdentity: 'lumacast', feedTag: 'cast-feed' },
-  { appDir: 'cloud', appId: 'com.lumacast.cloud', linuxIdentity: 'lumacloud', feedTag: 'cloud-feed' },
-  { appDir: 'flux', appId: 'com.lumacast.flux', linuxIdentity: 'lumaflux', feedTag: 'flux-feed' },
+  { appDir: 'cast', appId: 'com.lumacast.app', productName: 'LumaCast', linuxIdentity: 'lumacast', feedTag: 'cast-feed' },
+  { appDir: 'cloud', appId: 'com.lumacast.cloud', productName: 'LumaCloud', linuxIdentity: 'lumacloud', feedTag: 'cloud-feed' },
+  { appDir: 'flux', appId: 'app.lumaflux.desktop', productName: 'Lumaflux', linuxIdentity: 'lumaflux', feedTag: 'flux-feed' },
 ];
 
 interface BuilderConfig {
@@ -90,11 +91,27 @@ describe('app packaging config', () => {
     expect(config.deb.packageName).toBe(LEGACY_CAST_LINUX_IDENTITY);
   });
 
-  it('each APPS manifest has a stable major.minor.patch version', () => {
+  it('each APPS manifest has a stable release version', () => {
     for (const app of APPS) {
       const { version } = readPackageJson(app.appDir);
 
-      expect(() => parseStableVersion(version)).not.toThrow();
+      expect(() => parseStableVersion(version, app.appDir)).not.toThrow();
+    }
+  });
+
+  it('gives every app a product name that matches its manifest', () => {
+    for (const app of APPS) {
+      expect(readBuilderConfig(app.appDir).productName).toBe(app.productName);
+    }
+  });
+
+  it('accepts a numeric build revision for Flux only', () => {
+    // A build revision lets Flux ship a rebuild of the same feature version.
+    // Cast and Cloud stay on strict plain SemVer, and an app-unaware caller
+    // cannot read a revision at all.
+    expect(parseStableVersion('0.11.0+1', 'flux')).toEqual([0, 11, 0, 1]);
+    for (const app of [undefined, 'cast', 'cloud']) {
+      expect(() => parseStableVersion('0.11.0+1', app)).toThrow('stable semantic version');
     }
   });
 });

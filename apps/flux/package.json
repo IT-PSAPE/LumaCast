@@ -1,30 +1,46 @@
 {
   "name": "@lumacast/flux",
-  "version": "0.1.0",
+  "version": "0.11.0+1",
+  "productName": "Lumaflux",
   "private": true,
-  "description": "LumaFlux Electron shell",
-  "license": "UNLICENSED",
+  "description": "Lumaflux: a local photo editor with MCP automation.",
   "author": "IT-PSAPE",
+  "license": "MIT",
+  "homepage": "https://github.com/IT-PSAPE/LumaCast#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/IT-PSAPE/LumaCast.git"
   },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "main": "out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "node script/dev.mjs dev",
     "build": "electron-vite build",
-    "preview": "electron-vite preview",
+    "preview": "node script/dev.mjs preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "pack": "electron-vite build && electron-builder --dir",
     "dist": "electron-vite build && electron-builder",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:win": "electron-vite build && electron-builder --win",
-    "dist:linux": "electron-vite build && electron-builder --linux"
+    "dist:linux": "electron-vite build && electron-builder --linux",
+    "e2e": "node e2e/flux-e2e.mjs"
   },
   "dependencies": {
+    "@base-ui/react": "1.8.0",
+    "@lumacast/photo-imaging": "file:../../packages/photo-imaging",
+    "@lumacast/photo-library": "file:../../packages/photo-library",
+    "@lumacast/photo-model": "file:../../packages/photo-model",
     "@lumacast/ui": "file:../../packages/ui",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "exif-reader": "^2.0.3",
+    "libraw-wasm": "1.6.0",
+    "lucide-react": "^0.577.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "sharp": "0.35.4",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",
@@ -32,7 +48,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
-    "electron": "35.7.5",
+    "electron": "44.3.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^3.1.0",
     "tailwindcss": "^4.2.1",

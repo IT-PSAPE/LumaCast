@@ -16,7 +16,10 @@
       "@lumacast/engine": ["packages/engine/src/index.ts"],
       "@lumacast/playback": ["packages/playback/src/index.ts"],
       "@lumacast/canvas": ["packages/canvas/src/index.ts"],
-      "@lumacast/ui": ["packages/ui/src/index.ts"]
+      "@lumacast/ui": ["packages/ui/src/index.ts"],
+      "@lumacast/photo-model": ["packages/photo-model/src/index.ts"],
+      "@lumacast/photo-imaging": ["packages/photo-imaging/src/index.ts"],
+      "@lumacast/photo-library": ["packages/photo-library/src/index.ts"]
     }
   },
   "include": ["electron.vite.config.ts", "main/**/*.ts", "renderer/**/*.ts", "renderer/**/*.tsx", "benchmarks/**/*.ts"]

@@ -20,6 +20,7 @@
 //   allow-listed. They flip to hard errors once the feature web is refactored.
 
 import fs from 'node:fs';
+import { isBuiltin } from "node:module";
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -60,6 +61,25 @@ const NDI_HOST_COMMAND_EXPORTS = new Set(['NdiHostCommand', 'NdiHostEvent']);
 const REACT_ALLOWED_PACKAGES = new Set(['canvas', 'ui']);
 const KONVA_ALLOWED_PACKAGES = new Set(['canvas']);
 
+// The Flux photo packages split into a renderer-safe domain model and two
+// Node-side packages. `photo-imaging` decodes, resizes and encodes image bytes
+// and `photo-library` owns the indexed, on-disk photo library; both are process
+// and filesystem code. A renderer in *any* app may depend on `photo-model` (and
+// on the shared `@lumacast/ui` primitives) but never on these two, whatever the
+// specifier or the file it resolves to. Image work happens in main and reaches
+// the renderer as data over the typed IPC contract.
+const PHOTO_RENDERER_SAFE_PACKAGES = new Set(["photo-model"]);
+const PHOTO_RENDERER_BANNED_PACKAGES = new Set([
+  "photo-imaging",
+  "photo-library",
+]);
+
+// `photo-model` is the one photo package the renderer may hold, so it must be
+// usable in *both* processes: importing a Node builtin there would make the
+// renderer depend on `node:fs` the moment the model is pulled in. The two
+// Node-side packages are exempt by design — they are Node code.
+const NODE_BUILTIN_FREE_PACKAGES = new Set([...PHOTO_RENDERER_SAFE_PACKAGES]);
+
 // ---------------------------------------------------------------------------
 // Package graph (issue #223, parent #219). npm workspace packages live under
 // packages/*. No packages exist yet beyond packages/ndi-native (a native
@@ -87,6 +107,18 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // any one app's version and build. Kernel only, so the visual layer cannot
   // couple itself to a domain package.
   ui: ['kernel'],
+  // The approved Flux photo packages. They form a strict one-way stack above
+  // kernel: the pure photo domain model, the imaging/derivation layer that
+  // reads and transforms image bytes, and the library layer that owns the
+  // on-disk/indexed library. A renderer may consume the domain model but never
+  // the two Node-side packages (see PHOTO_RENDERER_BANNED_PACKAGES), so the
+  // renderer/Node split is part of the recorded direction, not an app-local
+  // convention. No React or Electron in any of them: package-purity already bans
+  // both for every package outside REACT_ALLOWED_PACKAGES/KONVA_ALLOWED_PACKAGES,
+  // and none of these names is added to either set.
+  "photo-model": ["kernel"],
+  "photo-imaging": ["kernel", "photo-model"],
+  "photo-library": ["kernel", "photo-model", "photo-imaging"],
   // The native NDI addon (@lumacast/ndi-native) is not a dependency-direction
   // entry here — it is resolved via classifyExternal's 'native' kind, not a
   // pkg:* zone, and is governed by the engine-session rule below instead.
@@ -141,6 +173,10 @@ const RULE_TITLES = {
     'Packages may only depend on other packages in the direction recorded in issue #219; this edge is not on that list.',
   'package-cycle':
     'Cycles between packages are forbidden and must be removed, never allow-listed.',
+  "photo-renderer-boundary":
+    "A renderer may not import the Node-side Flux photo packages: photo-imaging (image decode/encode) and photo-library (indexed on-disk library) are process and filesystem code. A renderer consumes the photo domain model (@lumacast/photo-model) and shared UI primitives, and reaches image work over the typed IPC contract.",
+  "shared-contract":
+    "An app shared/ directory holds the app's explicit typed IPC contract modules (e.g. apps/flux/shared DesktopAPI). It is a contract boundary: main and renderer may both import it, but it must not import main, renderer, feature, or database code, and it must stay process-neutral — no Node builtins, no Electron, and none of the Node-side Flux photo packages, directly or by naming them.",
 };
 
 // ---------------------------------------------------------------------------
@@ -266,6 +302,11 @@ function zoneOf(rel) {
   if (sec === 'contracts') return 'contracts';
   if (sec === 'database') return 'data';
   if (sec === 'application') return 'application';
+  // An app-owned `shared/` directory holds the app's explicit typed IPC
+  // contract modules — the one surface main and renderer are meant to meet on
+  // (apps/flux/shared DesktopAPI). It is neither process code nor UI: it is the
+  // contract both sides depend on, governed by shared-contract below.
+  if (sec === "shared") return "shared";
   // main/ndi is the NDI engine session only inside an app that owns one.
   if (sec === 'main') return isNdiSessionPath(rel) ? 'mainNdi' : 'main';
   if (sec === 'renderer') {
@@ -500,6 +541,40 @@ function parseImports(source) {
 // ---------------------------------------------------------------------------
 // Specifier resolution
 // ---------------------------------------------------------------------------
+
+// The Node-side photo package a specifier names, whether it resolves to a file
+// or not. A renderer that imports `@lumacast/photo-imaging` is denied whether
+// the package is present (it resolves to a file, so the file's package zone
+// gives the name), only its subpath is missing (unresolved), or the package is
+// not there at all (an app-module specifier) — the name is judged either way,
+// so the rule cannot be dodged by choosing a specifier that fails to resolve.
+//
+// The name must be scoped to `@lumacast/`: an unrelated third-party package
+// that happens to be called `photo-imaging` is not our Node-side imaging layer
+// and is left to the ordinary external rules. A relative import is judged by
+// the file it resolves to, so a relative path that reaches into a photo package
+// is covered by the first branch.
+function bannedPhotoPackageName(res, toZone, specifier) {
+  if (toZone?.startsWith("pkg:")) {
+    const pkg = toZone.slice(4);
+    return PHOTO_RENDERER_BANNED_PACKAGES.has(pkg) ? pkg : null;
+  }
+  let name = null;
+  if (
+    res.type === "app-module" &&
+    typeof res.detail === "string" &&
+    res.detail.startsWith("@lumacast/")
+  ) {
+    name = res.detail;
+  } else if (res.type === "unresolved" || res.type === "external") {
+    const pkg = packageNameOf(specifier);
+    if (pkg.startsWith("@lumacast/")) name = pkg;
+  }
+  if (!name) return null;
+  const pkg = name.slice("@lumacast/".length);
+  return PHOTO_RENDERER_BANNED_PACKAGES.has(pkg) ? pkg : null;
+}
+
 // Classifies a bare specifier by its package name, so a subpath import such as
 // `react-dom/client` or `konva/lib/Stage` is judged the same as the package
 // root. A scoped package is two segments (`@base-ui/react`), everything else is
@@ -512,6 +587,10 @@ function packageNameOf(spec) {
 function classifyExternal(spec) {
   if (spec.startsWith('node:')) return 'node';
   const name = packageNameOf(spec);
+  // `import fs from "fs"` names the same builtin as `node:fs`, so an
+  // unprefixed specifier must reach the same rules rather than fall through to
+  // "other" and escape the Node-builtin denials.
+  if (isBuiltin(name)) return "node";
   if (name === 'electron') return 'electron';
   if (name === 'react' || name === 'react-dom') return 'react';
   if (name === 'konva' || name === 'react-konva') return 'konva';
@@ -850,6 +929,46 @@ export function check(options = {}) {
 
     const add = (rule, detail) => violations.push({ rule, from: fromRel, line, to: toRel ?? e.specifier, detail });
 
+    // Two rules have to see a specifier that does not resolve to a file — the
+    // `continue`s below for an app-module and an external specifier would
+    // otherwise skip them — so both run first and judge the package a specifier
+    // names as well as the file it resolves to.
+    //
+    // 1. The renderer/Node split of the Flux photo stack, enforced for every
+    //    app: the renderer may hold the photo domain model, never the
+    //    image-processing or library packages.
+    // 2. An app's shared/ directory is the explicit typed IPC contract surface
+    //    (apps/flux/shared DesktopAPI). Main and renderer may both import it;
+    //    it may not depend on either side, nor on the database, a feature, or
+    //    the Node-side photo packages. The contract describes the wire, not
+    //    either implementation of it, so it stays process-neutral: a contract
+    //    that reaches `node:fs` or Electron would drag one side's runtime into
+    //    the other the moment the other side imports it.
+    const namedPhotoPkg = bannedPhotoPackageName(res, toZone, e.specifier);
+    if (isRendererZone(fromZone) && namedPhotoPkg) {
+      add(
+        "photo-renderer-boundary",
+        `imports @lumacast/${namedPhotoPkg}, a Node-side photo package; a renderer may only import ${[...PHOTO_RENDERER_SAFE_PACKAGES].map((p) => `@lumacast/${p}`).join(", ")} and shared UI, and reaches image work over the typed IPC contract`,
+      );
+    }
+    if (fromZone === "shared") {
+      if (namedPhotoPkg) {
+        add(
+          "shared-contract",
+          `imports @lumacast/${namedPhotoPkg}, a Node-side photo package; the contract is reached by both processes, so image work crosses it as data over the typed IPC contract`,
+        );
+      }
+      if (
+        res.type === "external" &&
+        (res.externalKind === "node" || res.externalKind === "electron")
+      ) {
+        add(
+          "shared-contract",
+          `imports ${e.specifier}, a ${res.externalKind === "node" ? "Node builtin" : "process-runtime module"}; a contract module must stay usable from both the main and renderer processes`,
+        );
+      }
+    }
+
     // An app is not a module. Naming one — `@lumacast/<app>`,
     // `@workspace/<app>/…`, or an app-scoped alias from outside an app — is
     // reported wherever it appears, including for an app that does not exist
@@ -918,9 +1037,17 @@ export function check(options = {}) {
         if (k === 'konva' && !KONVA_ALLOWED_PACKAGES.has(fromPkg)) {
           add('package-purity', `imports ${e.specifier}`);
         }
+        // A package a renderer is allowed to hold must not need a Node runtime.
+        if (k === "node" && NODE_BUILTIN_FREE_PACKAGES.has(fromPkg)) {
+          add(
+            "package-purity",
+            `imports ${e.specifier}, a Node builtin; @lumacast/${fromPkg} is renderer-safe and may not depend on a Node runtime`,
+          );
+        }
       }
       continue;
     }
+
     if (res.type !== 'file') continue;
 
     if (fromZone === 'core') {
@@ -937,6 +1064,27 @@ export function check(options = {}) {
     }
     if (fromZone === 'data' && isRendererZone(toZone)) {
       add('data-purity', `imports renderer code ${toRel}`);
+    }
+    // The file half of shared-contract: the side-specific code and the
+    // composition root, which the early guard above cannot see because these
+    // targets do resolve to files. A shared module in another app is
+    // app-isolation, not a contract problem, so the rule is scoped to the
+    // importing app's own shared directory.
+    if (fromZone === "shared" && toApp === fromApp) {
+      if (isRendererZone(toZone))
+        add("shared-contract", `imports renderer code ${toRel}`);
+      else if (
+        toZone === "main" ||
+        toZone === "mainNdi" ||
+        toZone === "data" ||
+        toZone === "application" ||
+        toZone?.startsWith("feature:")
+      ) {
+        add(
+          "shared-contract",
+          `imports ${toZone.startsWith("feature:") ? "feature" : toZone} code ${toRel}`,
+        );
+      }
     }
     if ((fromZone === 'main' || fromZone === 'mainNdi') && isRendererZone(toZone)) {
       add('main-boundary', `imports renderer code ${toRel}`);
@@ -1280,6 +1428,88 @@ function runSelfTests() {
     scenario('monorepo/ui-forbidden', 'scenarios/monorepo/ui-forbidden', 'fail', {
       rules: ['package-purity', 'package-dependency-direction'],
     }),
+    // Approved Flux photo packages: a one-way stack (photo-model -> kernel,
+    // photo-imaging -> kernel/photo-model, photo-library ->
+    // kernel/photo-model/photo-imaging), headless, and split so a renderer may
+    // hold the domain model but never the Node-side imaging/library code.
+    scenario("photo/allowed", "scenarios/photo/allowed", "pass"),
+    // The recorded direction is enforced in both directions: a reverse edge
+    // (model -> imaging, imaging -> library) and an off-stack edge are denied.
+    scenario(
+      "photo/direction-denied",
+      "scenarios/photo/direction-denied",
+      "fail",
+      {
+        rules: ["package-dependency-direction"],
+      },
+    ),
+    scenario(
+      "photo/deep-import-denied",
+      "scenarios/photo/deep-import-denied",
+      "fail",
+      {
+        rules: ["package-public-entry"],
+      },
+    ),
+    scenario(
+      "photo/app-import-denied",
+      "scenarios/photo/app-import-denied",
+      "fail",
+      {
+        rules: ["package-app-boundary"],
+      },
+    ),
+    scenario(
+      "photo/renderer-node-denied",
+      "scenarios/photo/renderer-node-denied",
+      "fail",
+      {
+        rules: ["photo-renderer-boundary"],
+      },
+    ),
+    scenario(
+      "photo/headless-purity",
+      "scenarios/photo/headless-purity",
+      "fail",
+      {
+        rules: ["package-purity"],
+      },
+    ),
+    // A specifier that does not resolve to a file is still judged by the
+    // package it names, and only a scoped name is ours: an unrelated third-party
+    // package called `photo-imaging` is left to the ordinary external rules.
+    scenario(
+      "photo/renderer-named-denied",
+      "scenarios/photo/renderer-named-denied",
+      "fail",
+      {
+        rules: ["photo-renderer-boundary"],
+      },
+    ),
+    // The renderer-safe package must not need a Node runtime, while the
+    // Node-side packages are Node code by design.
+    scenario(
+      "photo/model-node-purity",
+      "scenarios/photo/model-node-purity",
+      "fail",
+      {
+        rules: ["package-purity"],
+      },
+    ),
+    // An app shared/ directory is the explicit typed IPC contract
+    // surface; main and renderer may both depend on it, it may depend on
+    // neither, and it must not reach a Node runtime.
+    scenario("shared/forbidden", "scenarios/shared/forbidden", "fail", {
+      rules: ["shared-contract"],
+    }),
+    scenario(
+      "shared/builtin-denied",
+      "scenarios/shared/builtin-denied",
+      "fail",
+      {
+        rules: ["shared-contract"],
+      },
+    ),
   ];
 
   let failed = 0;

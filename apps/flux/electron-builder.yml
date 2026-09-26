@@ -1,10 +1,37 @@
-# LumaFlux ships from its own app-isolated generic feed so an update can
-# never resolve against a LumaCast release: the artifact names below include
-# the product name, version, and architecture, and the feed URL is a
+# Lumaflux ships from its own app-isolated generic feed so an update can never
+# resolve against a LumaCast release: the artifact names below include the
+# product name, version, and architecture, and the feed URL is a
 # release-specific path rather than the repository's /releases/latest.
-appId: com.lumacast.flux
-productName: LumaFlux
-copyright: Copyright © 2026 LumaCast
+#
+# appId and productName are the identity the standalone Lumaflux app already
+# used (app.lumaflux.desktop / Lumaflux). They are deliberately unchanged so
+# existing installs are upgraded in place instead of appearing as a second,
+# parallel app with an empty library.
+appId: app.lumaflux.desktop
+productName: Lumaflux
+copyright: Copyright © 2026 Lumaflux
+
+# The release version is owned by the app manifest (`0.11.0+1`: feature version
+# plus numeric build revision), which is also what the release gate tags and
+# compares. electron-builder has no `version` config key — the app version comes
+# from the manifest — and it cannot be pinned here either: electron-builder runs
+# `semver.clean` over the manifest version, which drops the `+1`, so artifact
+# names and the generated update feed would ship `0.11.0` against a
+# `flux-v0.11.0+1` tag. Nor can the four-component build number
+# (CFBundleVersion / FileVersion) be written here without going stale on the
+# next revision bump. `beforePack` therefore reads the manifest and, from it,
+# restores the revisioned version onto the shared metadata and both AppInfo
+# objects and sets the build number, so `0.11.0+1` builds as `0.11.0.1` and
+# `0.12.0+3` as `0.12.0.3`. The hook is named by its workspace package specifier
+# rather than a relative path because electron-builder resolves a relative
+# `beforePack` against the *invocation* directory, and this app is built both
+# from `apps/flux` (npm scripts) and from the repository root (`--projectDir`).
+#
+# The Electron runtime is pinned to the single version this app is built and
+# tested against, so a packaged app can never pick up a different runtime
+# through a hoisted or newer dependency.
+beforePack: "@lumacast/flux/script/build-version.cjs"
+electronVersion: 44.3.0
 
 directories:
   output: dist
@@ -14,25 +41,52 @@ publish:
   url: https://github.com/IT-PSAPE/LumaCast/releases/download/flux-feed
   updaterCacheDirName: lumaflux-updater
 
-# The scoped npm name (@lumacast/flux) makes electron-builder derive the deb
-# package name from productName (LumaFlux), which is invalid for deb.
-deb:
-  packageName: lumaflux
-
 electronUpdaterCompatibility: ">=2.16"
 
-# No `icon:` and no buildResources: LumaFlux deliberately uses the generic
+# No `icon:` and no buildResources: Lumaflux deliberately uses the generic
 # Electron icon rather than copying LumaCast brand assets.
 files:
   - out/**/*
 
+# Sharp (libvips) and the LibRaw WASM decoder are native/binary payloads: they
+# must sit as real files on disk, not inside the asar archive.
+asarUnpack:
+  - node_modules/sharp/**/*
+  - node_modules/@img/**/*
+  - node_modules/libraw-wasm/**/*
+
+extraResources:
+  # The stdio MCP bridge is spawned by an external client with `node`, from
+  # outside the app bundle, so it ships as a standalone single file.
+  - from: out/mcp/stdio.mjs
+    to: mcp/stdio.mjs
+  # Lensfun calibration database and its licence (CC BY-SA 3.0), shipped
+  # alongside the app as attribution for the transformed profile data.
+  - from: data/lensfun
+    to: licenses/lensfun
+    filter:
+      - COPYING
+      - README.md
+  - from: THIRD_PARTY_NOTICES.md
+    to: licenses/THIRD_PARTY_NOTICES.md
+  - from: LICENSE
+    to: licenses/LICENSE
+  # The bundled professional photo-editing skill, which the MCP surface serves
+  # to agents.
+  - from: skills/professional-photo-editing
+    to: skills/professional-photo-editing
+
 mac:
-  category: public.app-category.productivity
+  category: public.app-category.photography
   target:
     - dmg
     - zip
   hardenedRuntime: true
   gatekeeperAssess: false
+  # No `bundleShortVersion` here: it is the Apple three-integer marketing
+  # version, so `beforePack` sets it to the manifest's feature version
+  # (`0.11.0`) rather than letting the revisioned `AppInfo.version`
+  # (`0.11.0+1`) reach CFBundleShortVersionString.
   artifactName: "${productName}-${version}-${arch}-mac.${ext}"
 
 win:
@@ -41,17 +95,19 @@ win:
   artifactName: "${productName}-${version}-${arch}-win.${ext}"
 
 nsis:
-  oneClick: true
+  oneClick: false
+  allowToChangeInstallationDirectory: true
   perMachine: false
-  allowToChangeInstallationDirectory: false
-  deleteAppDataOnUninstall: false
+
+# The scoped npm name (@lumacast/flux) makes electron-builder derive the deb
+# package name and the Linux executable from it, which is wrong for this app.
+deb:
+  packageName: lumaflux
 
 linux:
-  # Pins the Linux executable: the scoped npm name would otherwise derive it
-  # from the package name.
   executableName: lumaflux
-  category: Utility
-  maintainer: Craig Chihururu <craigchihururu@gmail.com>
+  category: Graphics
+  maintainer: IT-PSAPE
   target:
     - AppImage
     - deb

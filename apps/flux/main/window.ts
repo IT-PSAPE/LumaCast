@@ -9,10 +9,12 @@ import {
   resolveDevServerOrigin,
 } from './navigation-policy';
 
-const WINDOW_WIDTH = 1280;
-const WINDOW_HEIGHT = 800;
-const WINDOW_MIN_WIDTH = 960;
-const WINDOW_MIN_HEIGHT = 600;
+// The editor's own preferred geometry: the adjustments panel, the viewer, and
+// the filmstrip all have to fit side by side at once.
+const WINDOW_WIDTH = 1440;
+const WINDOW_HEIGHT = 960;
+const WINDOW_MIN_WIDTH = 1060;
+const WINDOW_MIN_HEIGHT = 700;
 
 // Both paths are resolved from this bundle's own __dirname, so the main-process
 // bundle and the preload bundle each derive the same files they are built
@@ -28,7 +30,7 @@ function createWindowOptions(): BrowserWindowConstructorOptions {
     minWidth: WINDOW_MIN_WIDTH,
     minHeight: WINDOW_MIN_HEIGHT,
     show: false,
-    backgroundColor: '#171717',
+    backgroundColor: '#171819',
     webPreferences: createSecureWebPreferences(PRELOAD_PATH),
   };
 }

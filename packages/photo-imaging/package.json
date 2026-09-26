@@ -1,0 +1,19 @@
+{
+  "name": "@lumacast/photo-imaging",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "The headless photo imaging runtime: image inspection, the render pipeline (exposure, tone, denoise, lens correction, calibrated lens profiles, RAW decode), auto-tone analysis, and the render worker pool.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@lumacast/photo-model": "*",
+    "exif-reader": "^2.0.3",
+    "libraw-wasm": "1.6.0",
+    "sharp": "0.35.4",
+    "zod": "^4.3.6"
+  }
+}

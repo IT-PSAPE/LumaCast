@@ -6,10 +6,12 @@ export interface AppIdentity {
 }
 
 // Deliberately not read from the environment: a stable bundle id and product
-// name are what keep LumaFlux's installers, user-data directory, and update
+// name are what keep Lumaflux's installers, user-data directory, and update
 // feed separate from LumaCast's. Overridable values here would let a packaged
-// Flux build claim the Cast identity on disk.
+// Flux build claim the Cast identity on disk. These are the identity the
+// standalone Lumaflux app shipped with, so existing installs keep updating in
+// place rather than appearing as a second app.
 export const APP_IDENTITY: AppIdentity = Object.freeze({
-  name: 'LumaFlux',
-  id: 'com.lumacast.flux',
+  name: 'Lumaflux',
+  id: 'app.lumaflux.desktop',
 });

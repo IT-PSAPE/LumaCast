@@ -1,0 +1,15 @@
+{
+  "name": "@lumacast/photo-model",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "description": "The Flux photo domain model: adjustment vocabulary, recipe/crop/patch schemas, photo, edit, export, agent, and render-option types, plus the supported import formats and the lens-profile schema. Renderer-safe and headless; the desktop IPC contract lives with the app that owns it.",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  }
+}

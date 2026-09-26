@@ -155,3 +155,226 @@ describe('packages may not name an app as a module', () => {
     expect(specs).toContain('@workspace/flux/renderer/thing');
   });
 });
+
+describe("flux photo packages", () => {
+  it("permits the recorded one-way stack and a renderer that holds the domain model", () => {
+    // photo-model -> kernel; photo-imaging -> kernel/photo-model;
+    // photo-library -> kernel/photo-model/photo-imaging. Main owns the Node-side
+    // packages; the renderer holds photo-model, shared UI, and the typed
+    // apps/flux/shared DesktopAPI contract.
+    const result = check({
+      rootDir: fixture("photo", "allowed"),
+      allowList: [],
+    });
+
+    expect(rulesIn(result)).toBe("");
+    expect(result.ok).toBe(true);
+  });
+
+  it("denies reverse and off-stack photo edges", () => {
+    // photo-model -> photo-imaging and photo-imaging -> photo-library are
+    // reverse edges; photo-library -> composition leaves the photo stack.
+    const result = check({
+      rootDir: fixture("photo", "direction-denied"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const denied = result.violations.filter(
+      (v) => v.rule === "package-dependency-direction",
+    );
+    expect(denied.map((v) => `${v.from} -> ${v.to}`).sort()).toEqual(
+      [
+        "packages/photo-model/src/index.ts -> packages/photo-imaging/src/index.ts",
+        "packages/photo-imaging/src/index.ts -> packages/photo-library/src/index.ts",
+        "packages/photo-library/src/index.ts -> packages/composition/src/index.ts",
+      ].sort(),
+    );
+  });
+
+  it("keeps a photo package reachable only through its public entry point", () => {
+    // The renderer may use photo-model, but not a deep import into its source.
+    const result = check({
+      rootDir: fixture("photo", "deep-import-denied"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const violation = result.violations.find(
+      (v) =>
+        v.rule === "package-public-entry" &&
+        v.from === "apps/flux/renderer/main.tsx" &&
+        v.to === "packages/photo-model/src/internal/metadata.ts",
+    );
+    expect(violation?.detail).toContain(
+      "not a public entry point of @lumacast/photo-model",
+    );
+  });
+
+  it("denies a photo package importing app code", () => {
+    const result = check({
+      rootDir: fixture("photo", "app-import-denied"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.violations.some(
+        (v) =>
+          v.rule === "package-app-boundary" &&
+          v.from === "packages/photo-model/src/app-link.ts" &&
+          v.to === "apps/flux/main/index.ts",
+      ),
+    ).toBe(true);
+  });
+
+  it("bans the Node-side photo packages from every renderer", () => {
+    // photo-imaging and photo-library are decode/filesystem work. The split is
+    // not flux-local: cloud's renderer is denied the same import.
+    const result = check({
+      rootDir: fixture("photo", "renderer-node-denied"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const denied = result.violations.filter(
+      (v) => v.rule === "photo-renderer-boundary",
+    );
+    expect(denied.map((v) => `${v.from} -> ${v.to}`).sort()).toEqual(
+      [
+        "apps/flux/renderer/main.tsx -> packages/photo-imaging/src/index.ts",
+        "apps/cloud/renderer/main.tsx -> packages/photo-library/src/index.ts",
+      ].sort(),
+    );
+    expect(denied[0].detail).toContain("@lumacast/photo-model");
+  });
+
+  it("denies a renderer naming a Node-side photo package that does not resolve to a file", () => {
+    // Neither specifier here resolves: one names a subpath that does not exist,
+    // the other names a package that is not installed at all. Both are still
+    // judged by the package they name, so the rule cannot be dodged by choosing
+    // a specifier that fails to resolve.
+    const result = check({
+      rootDir: fixture("photo", "renderer-named-denied"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const denied = result.violations.filter(
+      (v) => v.rule === "photo-renderer-boundary",
+    );
+    expect(denied.map((v) => v.to).sort()).toEqual(
+      [
+        "@lumacast/photo-imaging/internal/decode",
+        "@lumacast/photo-library",
+      ].sort(),
+    );
+    for (const violation of denied) {
+      expect(violation.from).toBe("apps/flux/renderer/main.tsx");
+      expect(violation.detail).toContain("@lumacast/photo-model");
+    }
+  });
+
+  it("does not confuse an unrelated photo-imaging package with @lumacast/photo-imaging", () => {
+    // A third-party package that happens to share the name is not the Flux
+    // Node-side imaging layer, so the renderer/Node split does not apply and
+    // the import is left to the ordinary external rules.
+    const result = check({
+      rootDir: fixture("photo", "renderer-named-denied"),
+      allowList: [],
+    });
+
+    const fromThirdParty = result.violations.filter(
+      (v) => v.from === "apps/flux/renderer/third-party.ts",
+    );
+    expect(fromThirdParty).toEqual([]);
+  });
+
+  it("keeps Node builtins out of the renderer-safe model but not the Node-side packages", () => {
+    // photo-model is the one photo package a renderer may hold, so importing
+    // node:fs there would make the renderer need a Node runtime. The unprefixed
+    // `fs` names the same builtin and is denied identically. photo-imaging is
+    // Node code by design and is not denied the same import.
+    const result = check({
+      rootDir: fixture("photo", "model-node-purity"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const impure = result.violations.filter((v) => v.rule === "package-purity");
+    expect(impure.map((v) => `${v.from} -> ${v.to}`)).toEqual([
+      "packages/photo-model/src/index.ts -> fs",
+      "packages/photo-model/src/index.ts -> node:fs",
+    ]);
+    expect(impure[0].detail).toContain("renderer-safe");
+  });
+
+  it("keeps React and Electron out of a photo package", () => {
+    const result = check({
+      rootDir: fixture("photo", "headless-purity"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const impure = result.violations.filter((v) => v.rule === "package-purity");
+    expect(impure.map((v) => v.to).sort()).toEqual(["electron", "react"]);
+  });
+});
+
+describe("app shared contract zone", () => {
+  it("denies the typed contract module depending on main or renderer code", () => {
+    // apps/flux/shared holds the DesktopAPI contract: both sides import it, it
+    // imports neither.
+    const result = check({
+      rootDir: fixture("shared", "forbidden"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const violations = result.violations.filter(
+      (v) => v.rule === "shared-contract",
+    );
+    expect(violations.map((v) => v.to).sort()).toEqual(
+      ["apps/flux/main/index.ts", "apps/flux/renderer/entry.ts"].sort(),
+    );
+  });
+
+  it("keeps the contract module free of Node builtins, Electron, and the Node-side photo packages", () => {
+    // Both processes import the contract, so anything that pins it to one
+    // process's runtime leaks into the other: node:fs and electron are process
+    // code, and photo-imaging is Node-side image work that crosses the
+    // contract as data instead. The unprefixed `path` is the same denial.
+    const result = check({
+      rootDir: fixture("shared", "builtin-denied"),
+      allowList: [],
+    });
+
+    expect(result.ok).toBe(false);
+    const violations = result.violations.filter(
+      (v) => v.rule === "shared-contract",
+    );
+    expect(violations.map((v) => v.to).sort()).toEqual(
+      ["path", "node:fs", "electron", "packages/photo-imaging/src/index.ts"].sort(),
+    );
+    for (const violation of violations) {
+      expect(violation.from).toBe("apps/flux/shared/desktop-api.ts");
+    }
+  });
+
+  it("lets main and renderer both depend on their own contract and the domain model", () => {
+    // The contract is the one surface the two sides meet on, so importing it is
+    // allowed from each; only what the contract itself reaches is denied.
+    const result = check({
+      rootDir: fixture("shared", "builtin-denied"),
+      allowList: [],
+    });
+
+    const permitted = result.violations.filter(
+      (v) => v.from === "apps/flux/shared/desktop-api.ts",
+    );
+    expect(permitted.map((v) => v.to)).not.toContain("apps/flux/main/index.ts");
+    expect(permitted.map((v) => v.to)).not.toContain(
+      "apps/flux/renderer/entry.ts",
+    );
+  });
+});
