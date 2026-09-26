@@ -1,0 +1,54 @@
+@import "@lumacast/ui/theme.css";
+@source ".";
+@source "../../../packages/ui/src";
+@source "../../../packages/canvas/src";
+
+/* `@lumacast/ui`'s Modal and PlainButton hard-code these class names
+ * (`.modal-backdrop`/`.modal`/`.modal-heading`, `.btn`/`.btn.icon`) rather than
+ * accepting a className hook, and the shared theme does not style them — they
+ * were written for Flux's own pre-token stylesheet (see
+ * apps/cloud/renderer/theme.css, which carries the identical rules for the
+ * same reason). No Tailwind utility class reaches an unexposed internal
+ * element, so the app supplies the missing rules itself, built from the same
+ * design tokens as everything else here. */
+
+.modal-backdrop {
+  @apply fixed inset-0 z-50 bg-black/50;
+}
+
+.modal {
+  @apply fixed left-1/2 top-1/2 z-50 w-[32rem] max-w-[92vw] max-h-[85vh] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-primary bg-primary p-6 shadow-xl outline-hidden;
+}
+
+.modal-heading {
+  @apply mb-4 flex items-center justify-between gap-4;
+}
+
+.modal-heading h2 {
+  margin: 0;
+  color: var(--text-color-primary);
+  font-size: var(--text-title-h6);
+  font-weight: var(--text-title-h6--font-weight);
+  letter-spacing: var(--text-title-h6--letter-spacing);
+  line-height: var(--text-title-h6--line-height);
+}
+
+.btn {
+  @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-sm border border-primary bg-tertiary px-3 py-1.5 text-secondary transition-colors;
+  font-size: var(--text-label-xs);
+  font-weight: var(--text-label-xs--font-weight);
+  letter-spacing: var(--text-label-xs--letter-spacing);
+  line-height: var(--text-label-xs--line-height);
+}
+
+.btn:hover:not(:disabled) {
+  @apply bg-brand/10 text-primary;
+}
+
+.btn.icon {
+  @apply border-0 bg-transparent p-1.5 text-tertiary;
+}
+
+.btn.icon:hover:not(:disabled) {
+  @apply bg-tertiary text-primary;
+}
