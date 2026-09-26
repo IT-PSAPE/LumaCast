@@ -45,8 +45,8 @@ Be concise. Be explicit. Do not leave ambiguous decisions hidden in implementati
 
 ## Layering Rules
 
-The repository is an npm workspace of three self-contained Electron apps under
-`apps/*` (`cast`, `cloud`, `flux`) that consume the headless-by-default packages
+The repository is an npm workspace of four self-contained Electron apps under
+`apps/*` (`cast`, `cloud`, `flux`, `chord`) that consume the headless-by-default packages
 under `packages/*`. `node tool/check_electron_architecture.mjs` is the
 executable authority for both the per-app tree boundaries and the package
 boundaries below. It parses static ES imports/exports only (`.ts`, `.tsx`,
@@ -153,9 +153,9 @@ mirrors the file it covers, so a package's tests sit in
   Konva/React-Konva, and one of two (with `@lumacast/ui`) permitted to import
   React/React DOM (Electron stays banned even here).
 - **`@lumacast/ui`** — shared, domain-agnostic UI primitives every app may
-  reuse (class-name helpers, buttons, segmented control, typography, empty
-  state) plus the shared Tailwind theme, published as the
-  `@lumacast/ui/theme.css` subpath. React and React DOM are in bounds; Konva,
+  reuse (class-name helpers, buttons, segmented control, select, checkbox,
+  switch, typography, empty state) plus the shared Tailwind theme, published
+  as the `@lumacast/ui/theme.css` subpath. React and React DOM are in bounds; Konva,
   React-Konva, and Electron are not, and it may depend only on `kernel`, so a
   shared control can never couple itself to a domain model or to one app.
 - **`@lumacast/suite`** — the renderer-safe LumaCast suite model LumaCloud
@@ -164,6 +164,11 @@ mirrors the file it covers, so a package's tests sit in
   release-catalog and electron-builder updater-metadata parsing, installer
   artifact selection, and headless app-state derivation. Depends only on
   `kernel`, so Cloud's main process and renderer read the catalog identically.
+- **`@lumacast/markers`** — timed lyric cues shared by LumaCast, which
+  records audio-sync markers (time -> slide), and LumaChord, which imports
+  them to build a lyric video and exports them back: CSV/LRC/SRT parsing and
+  formatting, timestamp helpers, and format detection. Depends only on
+  `kernel`.
 - **`@lumacast/ndi-native`** — the native NDI sender bridge; a native addon,
   exempt from the headless-source rules below and governed instead by the
   engine-session rule above.
@@ -193,8 +198,8 @@ as hard errors that are never allow-listable:
   depends on kernel, composition, automation, and protocol; engine depends on
   kernel, composition, protocol, and ndi-native; playback, canvas, and ui each
   depend on kernel, composition, and protocol, except that ui depends on kernel
-  only; suite depends on kernel. An unlisted package name starts with zero
-  permitted dependencies.
+  only; suite depends on kernel; markers depends on kernel. An unlisted
+  package name starts with zero permitted dependencies.
 - Cycles between packages are forbidden and must be removed, never
   allow-listed.
 

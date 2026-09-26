@@ -2,11 +2,12 @@
 
 Cross-platform Electron prototype for a ProPresenter-style presentation workflow focused on reusable content, slide rendering, and NDI output.
 
-The repository is a workspace of three apps and their shared packages:
+The repository is a workspace of four apps and their shared packages:
 
 - `apps/cast` — LumaCast, the NDI presentation app
 - `apps/cloud` — LumaCloud, the suite manager: installs, updates, downgrades, and removes the other apps
 - `apps/flux` — Lumaflux, the photo editor
+- `apps/chord` — LumaChord, the lyric-video maker: audio plus timed lyric cues rendered and exported as video
 
 Each app is self-contained: it ships its own main process, renderer, and
 `package.json` (which owns its release version), and it shares only the
@@ -64,6 +65,7 @@ Start an app in development:
 npm run dev:cast
 npm run dev:cloud
 npm run dev:flux
+npm run dev:chord
 ```
 
 `npm run dev` is an alias for `npm run dev:cast`.
@@ -71,10 +73,11 @@ npm run dev:flux
 Build production assets:
 
 ```bash
-npm run build           # all three apps
+npm run build           # all four apps
 npm run build:cast
 npm run build:cloud
 npm run build:flux
+npm run build:chord
 ```
 
 Preview the built renderer bundle:
@@ -135,7 +138,7 @@ If the addon is missing or the runtime library cannot be found, the app falls ba
 
 ## CI and releases
 
-- One common workflow, [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml), does all the work. Each app has a thin wrapper — [cast.yml](.github/workflows/cast.yml), [cloud.yml](.github/workflows/cloud.yml), [flux.yml](.github/workflows/flux.yml) — that calls it with one input, so the apps validate and release independently from one repository.
+- One common workflow, [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml), does all the work. Each app has a thin wrapper — [cast.yml](.github/workflows/cast.yml), [cloud.yml](.github/workflows/cloud.yml), [flux.yml](.github/workflows/flux.yml), [chord.yml](.github/workflows/chord.yml) — that calls it with one input, so the apps validate and release independently from one repository.
 - Releases are stable only; there is no prerelease workflow.
 - A push to `main` releases an app only when that app's own `package.json` version (`apps/<app>/package.json`) is a stable semantic version **strictly greater** than its baseline. The baseline is the app manifest as it stood before the push; Cast falls back to the previous root `package.json` while the migration is in flight, and Cloud and Flux have no such history, so their first push validates and publishes nothing. A manual dispatch is CI-only. An unchanged version ends after validation.
 - The version release is immutable, tagged `<app>-v<version>`, and carries the installers. A permanent `<app>-feed` release carries generic updater metadata only: its installer URLs are absolute and point at the immutable `<app>-v<version>` release that produced them.
@@ -164,6 +167,7 @@ Installed Cast builds check for updates on startup and expose a manual `Check fo
 - `packages/canvas/`: the Konva render/editing layer
 - `packages/ui/`: shared, domain-agnostic React UI primitives and the Tailwind theme (`@lumacast/ui/theme.css`)
 - `packages/suite/`: the renderer-safe LumaCast suite model (app registry, version rules, release-catalog and updater-metadata parsing, app-state derivation) that LumaCloud renders
+- `packages/markers/`: timed lyric cues (CSV/LRC/SRT parsing and formatting, timestamp helpers, format detection) shared by LumaCast's audio-sync markers and LumaChord's lyric-video import/export
 - `packages/ndi-native/`: native Node-API bridge for NDI
 
 `packages/canvas` and `packages/ui` are the only packages that may use React and

@@ -1,7 +1,7 @@
 # Release and signing setup
 
 LumaCast uses one reusable pipeline for every app: `.github/workflows/ci-release.yml`.
-Thin wrappers (`cast.yml`, `cloud.yml`, `flux.yml`) call it with their `app` input
+Thin wrappers (`cast.yml`, `cloud.yml`, `flux.yml`, `chord.yml`) call it with their `app` input
 on pull request, push to `main`, and manual dispatch.
 
 ## Workflow
@@ -11,7 +11,7 @@ Every pull request, every push to `main`, and every manual dispatch runs CI:
 1. dependency installation
 2. TypeScript and architecture checks
 3. unit and NDI tests
-4. `npm run build:<app>` for the calling app (`@lumacast/cast`, `@lumacast/cloud`, `@lumacast/flux`)
+4. `npm run build:<app>` for the calling app (`@lumacast/cast`, `@lumacast/cloud`, `@lumacast/flux`, `@lumacast/chord`)
 5. Playwright end-to-end tests (Cast only)
 
 Only a push to `main` can release, and only when the calling app's manifest

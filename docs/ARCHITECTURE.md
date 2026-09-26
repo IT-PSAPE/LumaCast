@@ -4,8 +4,9 @@ This document describes the actual implemented architecture for theme lifecycle,
 
 ## Dependency Boundaries
 
-The repository is an npm workspace of three self-contained apps under `apps/*`
-— `cast` (LumaCast), `cloud` (LumaCloud), and `flux` (LumaFlux) — built on the
+The repository is an npm workspace of four self-contained apps under `apps/*`
+— `cast` (LumaCast), `cloud` (LumaCloud), `flux` (LumaFlux), and `chord`
+(LumaChord) — built on the
 headless packages under `packages/*`. An app never imports another app and a
 package never imports an app, in either direction; shared code lives in a
 package. Dependency direction is enforced by
@@ -1065,3 +1066,43 @@ removes, and launches the suite's apps (ADR-0044). Its layers, top to bottom:
   exposed as `window.lumacloud`, every IPC handler validates its sender and
   arguments, and the only external destination the app opens is a GitHub
   release page.
+
+## LumaChord lyric-video maker
+
+LumaChord (`apps/chord`) turns an audio track and timed lyric cues into a
+finished video (ADR-0045). Its layers:
+
+- **`@lumacast/markers`** (`packages/markers`) holds the timed-cue codecs shared
+  with LumaCast: the suite CSV (`order,timestamp,text`), LRC, and SRT, plus
+  format detection. LumaCast's audio-sync editor exports its markers through
+  it; LumaChord imports and exports through it. Kernel only, no Node builtins.
+- **The project** (`apps/chord/shared/project.ts`, validated by
+  `project-schema.ts`) is a JSON `.lumachord` document: composition size and
+  frame rate, audio and background media references, one universal theme
+  (text style, box, transition), and cues that inherit the theme unless
+  detached with an override. Text style and rich-text runs are the
+  composition types, so `@lumacast/canvas` renders a cue directly. The pure
+  cue model (`cue-model.ts`: end resolution, active cue lookup, move, trim,
+  split, snapping, transition easing) and the theme presets live beside it and
+  are shared by the renderer, the export engine, and main.
+- **Main** owns files and dialogs (`project-io.ts`, recent projects), the
+  native menu that pushes `MenuCommand`s to the renderer, the
+  `lumachord://file/<path>` media scheme served with Range support for
+  admitted paths only (`media-scheme.ts`), and the export file sink that
+  writes encoder chunks at byte offsets (`export-sink.ts`). The renderer
+  reaches it only through the typed `window.lumachord` bridge
+  (`shared/desktop-api.ts`); every IPC handler validates its sender frame and
+  arguments.
+- **The renderer** owns the document, undo history, dirty state, selection,
+  playback, and the timeline view in one store (`renderer/store`). The
+  playback clock is the audio element; the preview canvas builds a
+  `RenderNode` for the active cue and draws it with `SceneNodeText` over the
+  background. The timeline feature implements the transport, ruler, waveform
+  track, lyric clips with drag, trim, snap, split, marquee, zoom, and
+  tap-to-mark; the inspector edits the theme or a selected cue.
+- **Export** (`renderer/features/export`) renders every frame through the same
+  Konva stage at the export size, encodes with WebCodecs via mediabunny, muxes
+  the decoded audio, and streams MP4/MOV/WebM/MKV (or M4A/MP3/WAV, or a PNG
+  frame) to main's sink. Background video is decoded frame-accurately for
+  export. Codec choice degrades to what the platform can encode, with bundled
+  AAC and MP3 software encoders as the floor.
