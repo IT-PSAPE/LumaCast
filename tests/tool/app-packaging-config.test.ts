@@ -22,6 +22,7 @@ const APPS: AppPackaging[] = [
   { appDir: 'cast', appId: 'com.lumacast.app', productName: 'LumaCast', linuxIdentity: 'lumacast', feedTag: 'cast-feed' },
   { appDir: 'cloud', appId: 'com.lumacast.cloud', productName: 'LumaCloud', linuxIdentity: 'lumacloud', feedTag: 'cloud-feed' },
   { appDir: 'flux', appId: 'app.lumaflux.desktop', productName: 'Lumaflux', linuxIdentity: 'lumaflux', feedTag: 'flux-feed' },
+  { appDir: 'chord', appId: 'com.lumacast.chord', productName: 'LumaChord', linuxIdentity: 'lumachord', feedTag: 'chord-feed' },
 ];
 
 interface BuilderConfig {

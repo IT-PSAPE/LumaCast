@@ -11,6 +11,7 @@ describe('apps/cloud platform user-data names', () => {
     expect(UPDATER_CACHE_DIR_NAMES).toEqual({
       cast: 'lumacast-updater',
       flux: 'lumaflux-updater',
+      chord: 'lumachord-updater',
       cloud: 'lumacloud-updater',
     });
   });

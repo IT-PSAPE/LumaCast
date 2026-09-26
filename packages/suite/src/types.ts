@@ -3,7 +3,7 @@
 // this file may name Node, Electron, or a platform API.
 
 /** The workspace id of a managed app (`apps/<id>`). */
-export type SuiteAppId = 'cast' | 'cloud' | 'flux';
+export type SuiteAppId = 'cast' | 'cloud' | 'flux' | 'chord';
 
 export type HostPlatform = 'darwin' | 'win32' | 'linux';
 export type HostArch = 'x64' | 'arm64';

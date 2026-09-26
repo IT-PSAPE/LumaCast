@@ -54,6 +54,7 @@ const RELEASES_BY_APP: Record<SuiteAppId, AppRelease[]> = {
     release('flux', '0.11.0+1', 'flux-v0.11.0+1', false, daysAgo(3)),
     release('flux', '0.10.0', 'flux-v0.10.0', false, daysAgo(30)),
   ],
+  chord: [],
   cloud: [release('cloud', '0.1.0', 'cloud-v0.1.0', false, daysAgo(14))],
 };
 
@@ -115,6 +116,7 @@ export function createMockApi(): CloudDesktopAPI {
     apps: [
       buildInitialAppState('cast', '0.1.26', host),
       buildInitialAppState('flux', null, host),
+      buildInitialAppState('chord', null, host),
       buildInitialAppState('cloud', host.cloudVersion, host),
     ],
     selfUpdate: {

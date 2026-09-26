@@ -1,0 +1,35 @@
+{
+  // Chord typecheck surface. TS "paths" replaces base paths wholesale, so the
+  // full @lumacast/* table is repeated here plus Chord's own @renderer/*
+  // (never the Cast renderer; matches Chord's Vite alias, preserves app
+  // isolation). baseUrl "../.." keeps entries root-relative.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@renderer/*": ["apps/chord/renderer/*"],
+      "@lumacast/kernel": ["packages/kernel/src/index.ts"],
+      "@lumacast/composition": ["packages/composition/src/index.ts"],
+      "@lumacast/automation": ["packages/automation/src/index.ts"],
+      "@lumacast/commands": ["packages/commands/src/index.ts"],
+      "@lumacast/protocol": ["packages/protocol/src/index.ts"],
+      "@lumacast/persistence-sqlite": ["packages/persistence-sqlite/src/index.ts"],
+      "@lumacast/engine": ["packages/engine/src/index.ts"],
+      "@lumacast/playback": ["packages/playback/src/index.ts"],
+      "@lumacast/canvas": ["packages/canvas/src/index.ts"],
+      "@lumacast/ui": ["packages/ui/src/index.ts"],
+      "@lumacast/suite": ["packages/suite/src/index.ts"],
+      "@lumacast/markers": ["packages/markers/src/index.ts"],
+      "@lumacast/photo-model": ["packages/photo-model/src/index.ts"],
+      "@lumacast/photo-imaging": ["packages/photo-imaging/src/index.ts"],
+      "@lumacast/photo-library": ["packages/photo-library/src/index.ts"]
+    }
+  },
+  "include": [
+    "electron.vite.config.ts",
+    "main/**/*.ts",
+    "shared/**/*.ts",
+    "renderer/**/*.ts",
+    "renderer/**/*.tsx"
+  ]
+}

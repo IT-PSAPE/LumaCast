@@ -1,0 +1,58 @@
+# LumaChord ships from its own app-isolated generic feed so an update can
+# never resolve against a LumaCast release: the artifact names below include
+# the product name, version, and architecture, and the feed URL is a
+# release-specific path rather than the repository's /releases/latest.
+appId: com.lumacast.chord
+productName: LumaChord
+copyright: Copyright © 2026 LumaCast
+
+directories:
+  output: dist
+
+publish:
+  provider: generic
+  url: https://github.com/IT-PSAPE/LumaCast/releases/download/chord-feed
+  updaterCacheDirName: lumachord-updater
+
+# The scoped npm name (@lumacast/cloud) makes electron-builder derive the deb
+# package name from productName (LumaChord), which is invalid for deb.
+deb:
+  packageName: lumachord
+
+electronUpdaterCompatibility: ">=2.16"
+
+# No `icon:` and no buildResources: LumaChord deliberately uses the generic
+# Electron icon rather than copying LumaCast brand assets.
+files:
+  - out/**/*
+
+mac:
+  category: public.app-category.video
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  artifactName: "${productName}-${version}-${arch}-mac.${ext}"
+
+win:
+  target:
+    - nsis
+  artifactName: "${productName}-${version}-${arch}-win.${ext}"
+
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
+
+linux:
+  # Pins the Linux executable: the scoped npm name would otherwise derive it
+  # from the package name.
+  executableName: lumachord
+  category: AudioVideo
+  maintainer: Craig Chihururu <craigchihururu@gmail.com>
+  target:
+    - AppImage
+    - deb
+  artifactName: "${productName}-${version}-${arch}-linux.${ext}"

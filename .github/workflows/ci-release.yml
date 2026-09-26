@@ -1,7 +1,7 @@
 name: App CI and Release
 
 # Common CI and release pipeline for every application workspace. The Cast, Cloud,
-# and Flux workflows in this directory call this workflow with their `app` input;
+# Flux, and Chord workflows in this directory call this workflow with their `app` input;
 # nothing else may call it. Each app owns `apps/<app>/package.json` as the single
 # source of its release version and publishes under its own `<app>-v<version>`
 # tag and `<app>-feed` update feed.
@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       app:
-        description: Application workspace to validate and release (cast, cloud, or flux).
+        description: Application workspace to validate and release (cast, cloud, flux, or chord).
         required: true
         type: string
 
@@ -35,9 +35,9 @@ jobs:
         run: |
           set -euo pipefail
           case "$APP" in
-            cast|cloud|flux) ;;
+            cast|cloud|flux|chord) ;;
             *)
-              echo "::error::Unsupported app '$APP'; expected cast, cloud, or flux."
+              echo "::error::Unsupported app '$APP'; expected cast, cloud, flux, or chord."
               exit 1
               ;;
           esac

@@ -13,8 +13,8 @@
 //   <app>-v<version> release, so a delayed or reverted push cannot hand the
 //   Cast latest slot (or any feed) to an old version.
 //
-// Version tags are prefixed per app (`cast-v1.2.3`) because Cast, Cloud, and
-// Flux release independently from one repository.
+// Version tags are prefixed per app (`cast-v1.2.3`) because Cast, Cloud, Flux,
+// and Chord release independently from one repository.
 //
 // Flux versions may carry a numeric build revision (`0.11.0+1`), which the
 // release gate compares as a fourth component so a rebuild of the same
@@ -39,7 +39,7 @@ import { pathToFileURL } from 'node:url';
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const REVISION_VERSION = /^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))\+((?:0|[1-9]\d*))$/;
 
-export const RELEASE_APPS = Object.freeze(['cast', 'cloud', 'flux']);
+export const RELEASE_APPS = Object.freeze(['cast', 'cloud', 'flux', 'chord']);
 
 export const PREVIOUS_VERSION_SOURCES = Object.freeze(['app-manifest', 'root-manifest']);
 

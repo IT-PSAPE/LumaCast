@@ -34,6 +34,7 @@ export function updaterCacheDir(
 export const UPDATER_CACHE_DIR_NAMES: Record<SuiteAppId, string> = {
   cast: 'lumacast-updater',
   flux: 'lumaflux-updater',
+  chord: 'lumachord-updater',
   cloud: 'lumacloud-updater',
 };
 

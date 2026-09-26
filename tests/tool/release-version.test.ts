@@ -112,7 +112,7 @@ describe('decideStableRelease', () => {
   });
 
   it('never auto-releases when the previous app version is absent', () => {
-    for (const app of ['cast', 'cloud', 'flux']) {
+    for (const app of ['cast', 'cloud', 'flux', 'chord']) {
       expect(decideStableRelease({
         app,
         eventName: 'push',

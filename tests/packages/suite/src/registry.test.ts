@@ -25,7 +25,7 @@ describe('LEGACY_MANAGED_IDENTITIES', () => {
 
 describe('SUITE_APPS', () => {
   it('lists cast, flux, cloud in that order', () => {
-    expect(SUITE_APPS.map((app) => app.id)).toEqual(['cast', 'flux', 'cloud']);
+    expect(SUITE_APPS.map((app) => app.id)).toEqual(['cast', 'flux', 'chord', 'cloud']);
   });
 
   it('is frozen', () => {
