@@ -33,6 +33,14 @@ describe('ReacstButton', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('type', 'button');
   });
 
+  it('lays out icon + label in a row: inline-flex, centered, gapped, no wrap', () => {
+    render(<ReacstButton label="Save">Save</ReacstButton>);
+    const button = screen.getByRole('button', { name: 'Save' });
+    for (const rowClass of ['inline-flex', 'items-center', 'justify-center', 'gap-1.5', 'whitespace-nowrap']) {
+      expect(button.className).toContain(rowClass);
+    }
+  });
+
   it('renders every variant without throwing and keeps the accessible label', () => {
     for (const variant of ['default', 'take', 'danger', 'ghost'] as const) {
       const { unmount } = render(<ReacstButton variant={variant} label={`Do ${variant}`}>{variant}</ReacstButton>);

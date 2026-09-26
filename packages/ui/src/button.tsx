@@ -8,8 +8,12 @@ export type ButtonVariant = 'default' | 'take' | 'danger' | 'ghost';
 // Disabled styling keys off Base UI's `data-disabled` attribute (present
 // whenever `disabled` is true) instead of a bespoke variant, per the app's
 // convention of styling Base UI state through its data attributes.
+//
+// The root lays icon + label out as a row (`inline-flex items-center gap-1.5`)
+// so every consumer that pairs an icon with a label gets that for free,
+// instead of each app compensating with its own ad-hoc `flex` className.
 const buttonVariants = cv({
-  base: 'cursor-pointer transition-colors px-3 py-1.5 rounded-sm text-center label-xs data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
+  base: 'inline-flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors px-3 py-1.5 rounded-sm label-xs data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
   variants: {
     variant: {
       default: 'bg-tertiary text-primary hover:bg-brand/10',

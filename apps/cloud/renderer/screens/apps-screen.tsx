@@ -47,7 +47,6 @@ export function AppsScreen({ overview, operations, api, refresh }: AppsScreenPro
         <span className="label-xs text-tertiary">Last checked {formatRelativeTime(overview.catalog.fetchedAt, Date.now())}</span>
         <ReacstButton
           variant="ghost"
-          className="flex items-center gap-1.5"
           onClick={() => {
             void refresh();
           }}

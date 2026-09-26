@@ -17,4 +17,7 @@ export { TextBlock, Title, Paragraph, Label } from './text';
 export { EmptyState } from './empty-state';
 export { PlainButton } from './plain-button';
 export { Modal, type ModalProps } from './modal';
+export { Select, type SelectProps, type SelectOption } from './select';
+export { Checkbox, type CheckboxProps } from './checkbox';
+export { Switch, type SwitchProps } from './switch';
 export { PanelResize, PANEL_RESIZE_MIN, PANEL_RESIZE_MAX, PANEL_RESIZE_KEYBOARD_STEP, type PanelResizeProps } from './panel-resize';
