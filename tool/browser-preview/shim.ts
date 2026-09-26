@@ -182,6 +182,7 @@ const castApi = {
   chooseBundleImportPath: noop,
   chooseImportReplacementMediaPath: noop,
   exportBundle: noop,
+  exportTextFile: noop,
   inspectImportBundle: noop,
   finalizeImportBundle: noop,
   listPlaybackSchedules: async () => [],

@@ -17,6 +17,8 @@ import {
   decodeBundleManifest,
   decodeElementCreateInput,
   decodeElementUpdateInput,
+  decodeExportTextFileInput,
+  MAX_EXPORT_TEXT_FILE_BYTES,
   decodeInlineWindowMenuBounds,
   decodeItemCreateInput,
   decodeItemDuplicateInput,
@@ -1002,6 +1004,48 @@ describe('decodeBundleExportOptions / decodeBundleBrokenReferenceDecision', () =
       () => decodeBundleBrokenReferenceDecision({ source: 'asset://x', action: 'ignore' }, CONTEXT),
       'action',
     );
+  });
+});
+
+describe('decodeExportTextFileInput', () => {
+  const VALID = { suggestedName: 'My Song', extension: 'csv', filterName: 'CSV', text: 'order,timestamp,text' };
+
+  it('decodes a valid input unchanged', () => {
+    expect(decodeExportTextFileInput(VALID, CONTEXT)).toEqual(VALID);
+  });
+
+  it('rejects a non-object value', () => {
+    expectCodecError(() => decodeExportTextFileInput('nope', CONTEXT), '');
+  });
+
+  it('rejects an unknown field', () => {
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, bogus: 1 }, CONTEXT), 'unknown field');
+  });
+
+  it('rejects a non-string field', () => {
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, suggestedName: 42 }, CONTEXT), 'suggestedName');
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, text: 42 }, CONTEXT), 'text');
+  });
+
+  it('rejects an extension that is not a short alphanumeric token', () => {
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, extension: '' }, CONTEXT), 'extension');
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, extension: '.csv' }, CONTEXT), 'extension');
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, extension: 'csv/../etc' }, CONTEXT), 'extension');
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, extension: 'a'.repeat(11) }, CONTEXT), 'extension');
+  });
+
+  it('accepts a 10-character alphanumeric extension', () => {
+    expect(decodeExportTextFileInput({ ...VALID, extension: 'a'.repeat(10) }, CONTEXT).extension).toBe('a'.repeat(10));
+  });
+
+  it('rejects an empty filterName', () => {
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, filterName: '' }, CONTEXT), 'filterName');
+  });
+
+  it('accepts text right at the byte cap and rejects one byte over it', () => {
+    const atCap = 'a'.repeat(MAX_EXPORT_TEXT_FILE_BYTES);
+    expect(decodeExportTextFileInput({ ...VALID, text: atCap }, CONTEXT).text).toBe(atCap);
+    expectCodecError(() => decodeExportTextFileInput({ ...VALID, text: `${atCap}a` }, CONTEXT), 'text');
   });
 });
 

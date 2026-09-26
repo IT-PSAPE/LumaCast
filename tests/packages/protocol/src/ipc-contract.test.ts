@@ -170,6 +170,13 @@ describe('ipc contract: RPC operations invoke, never send', () => {
     expect(invoke).toHaveBeenCalledWith(IPC.assignSlideTags, input);
     expect(send).not.toHaveBeenCalled();
   });
+
+  it('routes the audio-sync export-lyrics text-file save through its canonical invoke channel', async () => {
+    const input = { suggestedName: 'My Song', extension: 'csv', filterName: 'CSV', text: 'order,timestamp,text' };
+    await (exposedApi().exportTextFile as (value: typeof input) => Promise<unknown>)(input);
+    expect(invoke).toHaveBeenCalledWith(IPC.exportTextFile, input);
+    expect(send).not.toHaveBeenCalled();
+  });
 });
 
 describe('ipc contract: events subscribe/unsubscribe, never invoke', () => {

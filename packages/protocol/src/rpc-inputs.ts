@@ -223,6 +223,21 @@ export interface BundleExportOptions {
   playlistIds?: Id[];
 }
 
+/**
+ * Argument for `exportTextFile` (issue markers-package): a save-dialog-and-write
+ * in one round trip for a small renderer-generated text file — currently the
+ * audio-sync editor's CSV/LRC/SRT lyric export that LumaChord imports.
+ * `extension` has no leading dot (e.g. 'csv'); main appends `.${extension}` to
+ * the sanitized `suggestedName` for the dialog's default path and the file it
+ * writes. `filterName` labels the save dialog's file-type filter (e.g. 'CSV').
+ */
+export interface ExportTextFileInput {
+  suggestedName: string;
+  extension: string;
+  filterName: string;
+  text: string;
+}
+
 export interface SlideTagCreateInput {
   name: string;
   colorKey: SlideTagColorKey;

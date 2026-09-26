@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { Id } from '@lumacast/kernel';
 import type { Slide } from '@lumacast/composition';
@@ -60,8 +60,20 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/playback-schedules-contex
   }),
 }));
 
+// `vi.mock` factories are hoisted above every other module-scope statement,
+// so the map they close over must be created through `vi.hoisted` rather
+// than a plain top-level `const` (which would still be uninitialized).
+const { liveSlideElementsBySlideId } = vi.hoisted(() => ({
+  liveSlideElementsBySlideId: new Map<string, unknown[]>(),
+}));
+
 vi.mock('../../../../../../apps/cast/renderer/contexts/use-project-content', () => ({
-  useProjectContent: () => ({ lyrics: [], presentations: [], slidesForItemRef: () => [] }),
+  useProjectContent: () => ({
+    lyrics: [],
+    presentations: [],
+    slidesForItemRef: () => [],
+    liveSlideElementsBySlideId,
+  }),
 }));
 
 function makeMarker(id: string, timeMs: number, slideId: string | null = null): AudioSlideMarker {
@@ -93,6 +105,13 @@ function makeController(overrides: Partial<AudioSyncController> = {}): AudioSync
     ...overrides,
   };
 }
+
+beforeEach(() => {
+  liveSlideElementsBySlideId.clear();
+  window.castApi = {
+    exportTextFile: vi.fn(async () => ({ path: '/tmp/export.csv' })),
+  } as unknown as typeof window.castApi;
+});
 
 afterEach(() => {
   cleanup();
@@ -289,5 +308,84 @@ describe('AudioSyncEditor', () => {
     render(<>{controller.markers.map((marker, index) => <MarkerRow key={marker.id} marker={marker} index={index} controller={controller} />)}</>);
     expect(screen.queryByLabelText('Marker 1 slide')).toBeNull();
     expect(screen.getByText('Unassigned')).not.toBeNull();
+  });
+
+  describe('export lyrics', () => {
+    const itemRef = { type: 'lyric' as const, id: 'song-1' as Id };
+
+    function makeExportableController(overrides: Partial<AudioSyncController> = {}): AudioSyncController {
+      return makeController({
+        itemRef,
+        boundSlides: slides,
+        candidateItems: [{ itemRef, title: 'My Song' }],
+        markers: [makeMarker('m1', 1000, 's1'), makeMarker('m2', 3000, 's2')],
+        ...overrides,
+      });
+    }
+
+    it('is disabled with no markers', () => {
+      render(<AudioSyncEditor controller={makeExportableController({ markers: [] })} />);
+      expect(screen.getByLabelText('Export lyrics')).toBeDisabled();
+    });
+
+    it('is disabled with no bound item even when markers exist', () => {
+      render(<AudioSyncEditor controller={makeExportableController({ itemRef: null, candidateItems: [] })} />);
+      expect(screen.getByLabelText('Export lyrics')).toBeDisabled();
+    });
+
+    it('is enabled once markers and a bound item are both present', () => {
+      render(<AudioSyncEditor controller={makeExportableController()} />);
+      expect(screen.getByLabelText('Export lyrics')).not.toBeDisabled();
+    });
+
+    it('exports CSV built from marker order and each bound slide\'s text', async () => {
+      liveSlideElementsBySlideId.set('s1' as Id, [{ type: 'text', payload: { text: 'Hello' } }]);
+      liveSlideElementsBySlideId.set('s2' as Id, [{ type: 'text', payload: { text: 'World' } }]);
+      render(<AudioSyncEditor controller={makeExportableController()} />);
+
+      fireEvent.click(screen.getByLabelText('Export lyrics'));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'CSV' }));
+
+      await vi.waitFor(() => expect(window.castApi.exportTextFile).toHaveBeenCalled());
+      const call = vi.mocked(window.castApi.exportTextFile).mock.calls[0]![0];
+      expect(call.suggestedName).toBe('My Song');
+      expect(call.extension).toBe('csv');
+      expect(call.filterName).toBe('CSV');
+      expect(call.text).toBe('order,timestamp,text\n1,00:00:01.000,"Hello"\n2,00:00:03.000,"World"');
+    });
+
+    it('exports LRC and SRT under their own extension and filter name', async () => {
+      render(<AudioSyncEditor controller={makeExportableController()} />);
+
+      fireEvent.click(screen.getByLabelText('Export lyrics'));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'LRC' }));
+      await vi.waitFor(() => expect(window.castApi.exportTextFile).toHaveBeenCalledTimes(1));
+      expect(vi.mocked(window.castApi.exportTextFile).mock.calls[0]![0]).toMatchObject({ extension: 'lrc', filterName: 'LRC' });
+
+      fireEvent.click(screen.getByLabelText('Export lyrics'));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'SRT' }));
+      await vi.waitFor(() => expect(window.castApi.exportTextFile).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(window.castApi.exportTextFile).mock.calls[1]![0]).toMatchObject({ extension: 'srt', filterName: 'SRT' });
+    });
+
+    it('falls back to a generic suggested name without a matching candidate title', async () => {
+      render(<AudioSyncEditor controller={makeExportableController({ candidateItems: [] })} />);
+      fireEvent.click(screen.getByLabelText('Export lyrics'));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'CSV' }));
+      await vi.waitFor(() => expect(window.castApi.exportTextFile).toHaveBeenCalled());
+      expect(vi.mocked(window.castApi.exportTextFile).mock.calls[0]![0]).toMatchObject({ suggestedName: 'lyrics' });
+    });
+
+    it('surfaces a failed export as an inline error', async () => {
+      window.castApi = {
+        exportTextFile: vi.fn(async () => { throw new Error('Disk full'); }),
+      } as unknown as typeof window.castApi;
+      render(<AudioSyncEditor controller={makeExportableController()} />);
+
+      fireEvent.click(screen.getByLabelText('Export lyrics'));
+      fireEvent.click(screen.getByRole('menuitem', { name: 'CSV' }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent('Disk full');
+    });
   });
 });

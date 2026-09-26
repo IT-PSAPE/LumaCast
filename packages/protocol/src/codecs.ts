@@ -7,6 +7,7 @@ import type {
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ExportTextFileInput,
   ItemListInput,
   ItemGetInput,
   MacroCreateInput,
@@ -1341,6 +1342,34 @@ export function decodePlaybackSchedule(value: unknown, context: CodecContext): P
   }
 
   return value as unknown as PlaybackSchedule;
+}
+
+// ---------------------------------------------------------------------------
+// Text-file export (`exportTextFile`): the audio-sync editor's marker export
+// to CSV/LRC/SRT that LumaChord imports. Generic on purpose — any small
+// renderer-generated text payload can reuse this operation, not just lyrics.
+// ---------------------------------------------------------------------------
+
+/** No leading dot, short, filesystem-safe — it is appended directly to a path. */
+const EXPORT_TEXT_FILE_EXTENSION_RE = /^[A-Za-z0-9]{1,10}$/;
+
+/** 10 MB: generous for any plausible lyric/marker export, small enough to reject a mistaken whole-project dump. */
+export const MAX_EXPORT_TEXT_FILE_BYTES = 10 * 1024 * 1024;
+
+export function decodeExportTextFileInput(value: unknown, context: CodecContext): ExportTextFileInput {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['suggestedName', 'extension', 'filterName', 'text']);
+  const suggestedName = expectString(value.suggestedName, context, 'suggestedName');
+  const extension = expectString(value.extension, context, 'extension');
+  if (!EXPORT_TEXT_FILE_EXTENSION_RE.test(extension)) {
+    fail(child(context, 'extension'), `must match ${EXPORT_TEXT_FILE_EXTENSION_RE}, got ${describe(extension)}`);
+  }
+  const filterName = expectNonEmptyString(value.filterName, context, 'filterName');
+  const text = expectString(value.text, context, 'text');
+  if (new TextEncoder().encode(text).length > MAX_EXPORT_TEXT_FILE_BYTES) {
+    fail(child(context, 'text'), `must be <= ${MAX_EXPORT_TEXT_FILE_BYTES} bytes`);
+  }
+  return { suggestedName, extension, filterName, text };
 }
 
 // ---------------------------------------------------------------------------

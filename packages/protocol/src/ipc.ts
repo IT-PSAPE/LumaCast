@@ -7,6 +7,7 @@ import type {
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ExportTextFileInput,
   ItemListInput,
   ItemGetInput,
   LyricBlankSlidesUpdateInput,
@@ -140,6 +141,8 @@ interface RpcMethodSignatures {
   chooseBundleImportPath: () => Promise<string | null>;
   chooseImportReplacementMediaPath: () => Promise<string | null>;
   exportBundle: (itemIds: Id[], filePath: string, options?: BundleExportOptions) => Promise<{ filePath: string; itemCount: number }>;
+  /** Save-dialog-and-write in one round trip for a small renderer-generated text file (e.g. the audio-sync editor's lyric export). `null` when the user cancels the dialog. */
+  exportTextFile: (input: ExportTextFileInput) => Promise<{ path: string } | null>;
   inspectImportBundle: (filePath: string) => Promise<BundleInspection>;
   finalizeImportBundle: (filePath: string, decisions: BundleBrokenReferenceDecision[]) => Promise<AppSnapshot>;
   listCues: () => Promise<Cue[]>;
@@ -597,6 +600,7 @@ export const IPC = {
   chooseBundleImportPath: 'cast:chooseBundleImportPath',
   chooseImportReplacementMediaPath: 'cast:chooseImportReplacementMediaPath',
   exportBundle: 'cast:exportBundle',
+  exportTextFile: 'cast:exportTextFile',
   inspectImportBundle: 'cast:inspectImportBundle',
   finalizeImportBundle: 'cast:finalizeImportBundle',
   listCues: 'cast:listCues',

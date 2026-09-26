@@ -1,5 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, safeStorage, shell, type IpcMainInvokeEvent, type MessagePortMain } from 'electron';
 import { randomBytes } from 'node:crypto';
+import { writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { AGENT_EVENTS, MEDIA_DERIVATIVE_EVENTS, MEDIA_LIBRARY_EVENTS, PERSISTENCE_CHANNELS, PERSISTENCE_EVENTS, matrixForTier, validateProjectBackupAsync } from '@lumacast/protocol';
 import {
@@ -31,6 +32,7 @@ import type {
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ExportTextFileInput,
   ItemListInput,
   ItemGetInput,
   MacroCreateInput,
@@ -71,6 +73,7 @@ import {
   decodeCueUpdateInput,
   decodeBundleBrokenReferenceDecision,
   decodeBundleExportOptions,
+  decodeExportTextFileInput,
   decodeItemCreateInput,
   decodeItemDuplicateInput,
   decodeLyricBlankSlidesUpdateInput,
@@ -590,13 +593,23 @@ export const registerIpcHandlers = (
     return BrowserWindow.fromWebContents(event.sender) ?? getMainWindow();
   }
 
-  function sanitizeSuggestedBundleName(name: string): string {
+  /** Strips filesystem-unsafe characters from a user/content-supplied name for use as a save-dialog default path. */
+  function sanitizeSuggestedFileBaseName(name: string, fallback: string): string {
     const sanitized = name.trim().replace(/[<>:"/\\|?*\u0000-\u001F]+/g, ' ').replace(/\s+/g, ' ');
-    return sanitized || 'cast-deck';
+    return sanitized || fallback;
+  }
+
+  function sanitizeSuggestedBundleName(name: string): string {
+    return sanitizeSuggestedFileBaseName(name, 'cast-deck');
+  }
+
+  function ensureFileExtension(filePath: string, extension: string): string {
+    const suffix = `.${extension}`;
+    return filePath.toLowerCase().endsWith(suffix.toLowerCase()) ? filePath : `${filePath}${suffix}`;
   }
 
   function ensureBundleExtension(filePath: string): string {
-    return filePath.endsWith('.cst') ? filePath : `${filePath}.cst`;
+    return ensureFileExtension(filePath, 'cst');
   }
 
   ndiService.onFrameReleased((release) => {
@@ -783,6 +796,19 @@ export const registerIpcHandlers = (
       const normalizedPath = ensureBundleExtension(filePath);
       await writeDeckBundleArchive(normalizedPath, bundle);
       return { filePath: normalizedPath, itemCount: bundle.items.length };
+    },
+    exportTextFile: async (event, input: ExportTextFileInput) => {
+      const decoded = decodeExportTextFileInput(input, rpcContext('exportTextFile'));
+      const result = await showSaveDialogForEvent(event, {
+        title: 'Export',
+        defaultPath: `${sanitizeSuggestedFileBaseName(decoded.suggestedName, 'export')}.${decoded.extension}`,
+        filters: [{ name: decoded.filterName, extensions: [decoded.extension] }],
+        properties: ['createDirectory', 'showOverwriteConfirmation'],
+      });
+      if (result.canceled || !result.filePath) return null;
+      const normalizedPath = ensureFileExtension(result.filePath, decoded.extension);
+      await writeFile(normalizedPath, decoded.text, 'utf8');
+      return { path: normalizedPath };
     },
     inspectImportBundle: async (_event, filePath: string) => {
       expectRpcPrimitiveArgs([filePath], [{ name: 'filePath', kind: 'string' }], rpcContext('inspectImportBundle'));

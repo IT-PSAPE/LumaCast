@@ -42,6 +42,7 @@ import type {
   BundleExportOptions,
   ElementCreateInput,
   ElementUpdateInput,
+  ExportTextFileInput,
   ItemListInput,
   ItemGetInput,
   MacroCreateInput,
@@ -138,6 +139,8 @@ const api = {
   chooseImportReplacementMediaPath: () => ipcRenderer.invoke(IPC.chooseImportReplacementMediaPath) as Promise<string | null>,
   exportBundle: (itemIds: Id[], filePath: string, options?: BundleExportOptions) =>
     ipcRenderer.invoke(IPC.exportBundle, itemIds, filePath, options) as Promise<{ filePath: string; itemCount: number }>,
+  exportTextFile: (input: ExportTextFileInput) =>
+    ipcRenderer.invoke(IPC.exportTextFile, input) as Promise<{ path: string } | null>,
   inspectImportBundle: (filePath: string) => ipcRenderer.invoke(IPC.inspectImportBundle, filePath) as Promise<BundleInspection>,
   finalizeImportBundle: (filePath: string, decisions: BundleBrokenReferenceDecision[]) =>
     ipcRenderer.invoke(IPC.finalizeImportBundle, filePath, decisions) as Promise<AppSnapshot>,

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, LocateFixed, Trash2 } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
-import type { ItemRef, Slide } from '@lumacast/composition';
+import type { ItemRef, Slide, SlideElement } from '@lumacast/composition';
 import { createAudioSlideMarker, roundToMs, type AudioSlideMarker, type PlaybackSchedule } from '@lumacast/automation';
+import { formatCues, type CueFormat } from '@lumacast/markers';
 import { Switch } from '@base-ui/react/switch';
 import { ReacstButton } from '@lumacast/ui';
 import { Field } from '@renderer/components/form/field';
@@ -11,6 +12,13 @@ import { useAudio } from '../../contexts/playback/playback-context';
 import { usePlaybackSchedules } from '../../contexts/playback-schedules-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { formatPlaybackTime } from './format-playback-time';
+import { buildTimedCues } from './audio-sync-export';
+
+const EXPORT_CUE_FORMATS: readonly { format: CueFormat; label: string }[] = [
+  { format: 'csv', label: 'CSV' },
+  { format: 'lrc', label: 'LRC' },
+  { format: 'srt', label: 'SRT' },
+];
 
 // Audio sync records markers at the playhead into one stable schedule per
 // audio asset (`audio:<assetId>`). The schedule borrows content — an optional
@@ -404,12 +412,23 @@ export function useAudioSync(): AudioSyncController {
   ]);
 }
 
-function itemTriggerLabel(controller: AudioSyncController): string {
-  if (!controller.itemRef) return 'No item';
+/** The bound item's display title, or null when nothing is bound or the binding is stale. */
+function matchedCandidateTitle(controller: AudioSyncController): string | null {
+  if (!controller.itemRef) return null;
   const match = controller.candidateItems.find(
     (candidate) => candidate.itemRef.type === controller.itemRef!.type && candidate.itemRef.id === controller.itemRef!.id,
   );
-  return match ? match.title : 'Unknown item';
+  return match ? match.title : null;
+}
+
+function itemTriggerLabel(controller: AudioSyncController): string {
+  if (!controller.itemRef) return 'No item';
+  return matchedCandidateTitle(controller) ?? 'Unknown item';
+}
+
+/** File-name base for "Export lyrics…" — the bound item's title, or a generic fallback. */
+function exportSuggestedName(controller: AudioSyncController): string {
+  return matchedCandidateTitle(controller) ?? 'lyrics';
 }
 
 function markerSlideLabel(marker: AudioSlideMarker, slides: Slide[]): string {
@@ -511,7 +530,37 @@ interface AudioSyncEditorProps {
 }
 
 export function AudioSyncEditor({ controller }: AudioSyncEditorProps) {
+  const { liveSlideElementsBySlideId } = useProjectContent();
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
   if (!controller.assetId) return null;
+
+  const exportDisabled = exporting || controller.markers.length === 0 || !controller.itemRef;
+
+  async function handleExport(format: CueFormat) {
+    if (exportDisabled) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const slidesById = new Map<Id, { elements: SlideElement[] }>();
+      for (const slide of controller.boundSlides) {
+        slidesById.set(slide.id, { elements: liveSlideElementsBySlideId.get(slide.id) ?? [] });
+      }
+      const text = formatCues(buildTimedCues(controller.markers, slidesById), format);
+      await window.castApi.exportTextFile({
+        suggestedName: exportSuggestedName(controller),
+        extension: format,
+        filterName: format.toUpperCase(),
+        text,
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Could not export lyrics.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div data-ui-region="audio-sync-editor" className="flex shrink-0 items-center gap-2">
       {controller.syncSuspended ? (
@@ -543,6 +592,22 @@ export function AudioSyncEditor({ controller }: AudioSyncEditorProps) {
           ))}
         </Dropdown.Panel>
       </Dropdown>
+      <Dropdown className="w-32 shrink-0">
+        <Dropdown.Trigger
+          disabled={exportDisabled}
+          aria-label="Export lyrics"
+          className="flex h-7 w-full min-w-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary disabled:opacity-50"
+        >
+          <span className="min-w-0 flex-1 truncate text-left">Export lyrics</span>
+          <ChevronDown className="size-3 shrink-0 text-tertiary" />
+        </Dropdown.Trigger>
+        <Dropdown.Panel>
+          {EXPORT_CUE_FORMATS.map(({ format, label }) => (
+            <Dropdown.Item key={format} onClick={() => void handleExport(format)}>{label}</Dropdown.Item>
+          ))}
+        </Dropdown.Panel>
+      </Dropdown>
+      {exportError ? <span role="alert" className="text-[10px] text-error">{exportError}</span> : null}
     </div>
   );
 }
