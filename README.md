@@ -2,6 +2,17 @@
 
 Cross-platform Electron prototype for a ProPresenter-style presentation workflow focused on reusable content, slide rendering, and NDI output.
 
+The repository is a workspace of three apps and their shared packages:
+
+- `apps/cast` — LumaCast, the NDI presentation app
+- `apps/cloud` — LumaCloud, a new, deliberately blank app
+- `apps/flux` — LumaFlux, a new, deliberately blank app
+
+Each app is self-contained: it ships its own main process, renderer, and
+`package.json` (which owns its release version), and it shares only the
+headless packages under `packages/`. No app imports another, and no package
+imports an app; `tool/check_electron_architecture.mjs` enforces both.
+
 ## Stack
 
 - Electron + TypeScript
@@ -30,6 +41,9 @@ need the platform NDI runtime described below.
 
 ## Install
 
+`package-lock.json` at the repository root is the only lockfile. The root
+package is the workspace root; `apps/*` and `packages/*` are its members.
+
 For local development:
 
 ```bash
@@ -44,16 +58,23 @@ npm ci
 
 ## Run
 
-Start the Electron app in development:
+Start an app in development:
 
 ```bash
-npm run dev
+npm run dev:cast
+npm run dev:cloud
+npm run dev:flux
 ```
+
+`npm run dev` is an alias for `npm run dev:cast`.
 
 Build production assets:
 
 ```bash
-npm run build
+npm run build           # all three apps
+npm run build:cast
+npm run build:cloud
+npm run build:flux
 ```
 
 Preview the built renderer bundle:
@@ -74,6 +95,18 @@ Run end-to-end tests:
 
 ```bash
 npm run test:e2e
+```
+
+Check the architecture rules against the working tree:
+
+```bash
+npm run check:architecture
+```
+
+Run the architecture rule fixtures:
+
+```bash
+npm run test:architecture
 ```
 
 `npm run test:e2e` now bootstraps itself from a fresh shell:
@@ -102,20 +135,24 @@ If the addon is missing or the runtime library cannot be found, the app falls ba
 
 ## CI and releases
 
-- [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml) runs validation on pull requests and `main`. After a successful `main` run, a stable `package.json` version increase builds Windows, macOS, and Linux packages and publishes one GitHub Release. An unchanged version ends after validation.
+- One common workflow, [.github/workflows/ci-release.yml](.github/workflows/ci-release.yml), does all the work. Each app has a thin wrapper — [cast.yml](.github/workflows/cast.yml), [cloud.yml](.github/workflows/cloud.yml), [flux.yml](.github/workflows/flux.yml) — that calls it with one input, so the apps validate and release independently from one repository.
 - Releases are stable only; there is no prerelease workflow.
+- A push to `main` releases an app only when that app's own `package.json` version (`apps/<app>/package.json`) is a stable semantic version **strictly greater** than its baseline. The baseline is the app manifest as it stood before the push; Cast falls back to the previous root `package.json` while the migration is in flight, and Cloud and Flux have no such history, so their first push validates and publishes nothing. A manual dispatch is CI-only. An unchanged version ends after validation.
+- The version release is immutable, tagged `<app>-v<version>`, and carries the installers. A permanent `<app>-feed` release carries generic updater metadata only: its installer URLs are absolute and point at the immutable `<app>-v<version>` release that produced them.
+- All three apps ship `provider: generic` against their own `<app>-feed` release. Only legacy shipped Cast versions read the repository's "latest release" slot (`provider: github`); that slot is still taken only by a Cast version release (`make_latest=true`), and no other app or feed release ever takes it.
+- Cast keeps its identity through the move: product name `LumaCast`, app id `com.lumacast.app`, current version `0.1.27`.
 - Release note grouping is configured in [.github/release.yml](.github/release.yml).
 
 See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release conventions, and [docs/release-setup.md](docs/release-setup.md) for signing, packaging, and platform-support detail.
 
 ## Updater status
 
-Installed builds now check GitHub Releases for updates on startup and expose a manual `Check for Updates…` action from the native application menu. The updater flow is wired through `electron-updater`, so release artifacts and updater metadata published by the release workflow are consumed directly by the app.
+Installed Cast builds check for updates on startup and expose a manual `Check for Updates…` action from the native application menu, wired through `electron-updater`. New builds of every app resolve updates from their own app-isolated `<app>-feed` release via `provider: generic`, so a Cloud or Flux update can never resolve against a Cast release; only legacy shipped Cast versions read the repository's latest release directly. Cloud and Flux are blank shells with no runtime updater, menu, or startup checks implemented yet.
 
 ## Architecture
 
-- `app/main/`: Electron main process, IPC, and NDI integration
-- `app/renderer/`: React workbench and editor surfaces
+- `apps/cast/main/`: Electron main process, IPC, and NDI integration
+- `apps/cast/renderer/`: React workbench and editor surfaces
 - `packages/kernel/`: dependency-free primitives shared by every package
 - `packages/composition/`: the visual-document domain model and headless scene contract
 - `packages/automation/`: the cue/macro/trigger model and deterministic runtime
@@ -125,9 +162,16 @@ Installed builds now check GitHub Releases for updates on startup and expose a m
 - `packages/engine/`: the NDI output-engine runtime and diagnostics
 - `packages/playback/`: headless playback decisions
 - `packages/canvas/`: the Konva render/editing layer
+- `packages/ui/`: shared, domain-agnostic React UI primitives and the Tailwind theme (`@lumacast/ui/theme.css`)
 - `packages/ndi-native/`: native Node-API bridge for NDI
 
-See [AGENTS.md](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layering rules and per-package charters.
+`packages/canvas` and `packages/ui` are the only packages that may use React and
+React DOM for presentation; only `packages/canvas` may additionally use Konva and
+React-Konva (Electron stays banned for both). `packages/ui` depends only on
+`packages/kernel`, so a shared control can never couple itself to a domain model
+or to one app.
+
+See [AGENTS.md](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layering rules and per-package charters, and [docs/adr/0043-root-apps-and-per-app-release-pipeline.md](docs/adr/0043-root-apps-and-per-app-release-pipeline.md) for the app layout and release pipeline decisions.
 
 ## Notes
 

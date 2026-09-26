@@ -1,0 +1,31 @@
+name: Flux
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# Per-app group: Flux runs never overlap each other, so a release and its
+# packaging fan-out cannot interleave. Pull request runs are cancelled freely
+# because they publish nothing.
+concurrency:
+  group: app-flux-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci-release:
+    name: Flux CI and release
+    uses: ./.github/workflows/ci-release.yml
+    with:
+      app: flux
+    permissions:
+      contents: write
+    secrets: inherit

@@ -1,11 +1,17 @@
-name: CI and Release
+name: App CI and Release
 
+# Common CI and release pipeline for every application workspace. The Cast, Cloud,
+# and Flux workflows in this directory call this workflow with their `app` input;
+# nothing else may call it. Each app owns `apps/<app>/package.json` as the single
+# source of its release version and publishes under its own `<app>-v<version>`
+# tag and `<app>-feed` update feed.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      app:
+        description: Application workspace to validate and release (cast, cloud, or flux).
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,18 +19,32 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-concurrency:
-  group: ci-release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   validate:
-    name: Validate
+    name: ${{ inputs.app }} validate
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Resolve app manifest
+        shell: bash
+        env:
+          APP: ${{ inputs.app }}
+        run: |
+          set -euo pipefail
+          case "$APP" in
+            cast|cloud|flux) ;;
+            *)
+              echo "::error::Unsupported app '$APP'; expected cast, cloud, or flux."
+              exit 1
+              ;;
+          esac
+          if [ ! -f "apps/$APP/package.json" ]; then
+            echo "::error::apps/$APP/package.json is missing; the app manifest owns the release version."
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -37,7 +57,7 @@ jobs:
         run: npm ci
 
       - name: Ensure native packages
-        run: node scripts/ensure-rollup-native.cjs
+        run: npm run ensure:native-deps
 
       - name: Typecheck
         run: npm run typecheck
@@ -52,27 +72,39 @@ jobs:
         run: npm test
 
       - name: Install Playwright browser dependencies
+        if: inputs.app == 'cast'
         run: npx playwright install --with-deps chromium
 
       - name: Configure Electron sandbox helper
+        if: inputs.app == 'cast'
         run: |
           sudo chown root:root node_modules/electron/dist/chrome-sandbox
           sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
 
+      - name: Build app
+        run: npm run build:${{ inputs.app }}
+
       - name: Run end-to-end tests
+        if: inputs.app == 'cast'
         env:
           # Include Electron stderr when Playwright reports only "Process failed to launch!".
           DEBUG: pw:browser
-        run: xvfb-run --auto-servernum npm run test:e2e
+        run: xvfb-run --auto-servernum npx playwright test
 
-  release-gate:
-    name: Check release version
+  detect:
+    name: ${{ inputs.app }} release gate
     needs: validate
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
+      app: ${{ steps.detect.outputs.app }}
       version: ${{ steps.detect.outputs.version }}
+      tag: ${{ steps.detect.outputs.tag }}
       should_release: ${{ steps.detect.outputs.should_release }}
+      reason: ${{ steps.detect.outputs.reason }}
+      previous_version: ${{ steps.detect.outputs.previous_version }}
+      previous_version_source: ${{ steps.detect.outputs.previous_version_source }}
+      packaging_matrix: ${{ steps.matrix.outputs.matrix }}
 
     steps:
       - name: Checkout history
@@ -80,53 +112,93 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect stable version bump
+      - name: Detect stable version increase
         id: detect
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          APP: ${{ inputs.app }}
           BEFORE_SHA: ${{ github.event.before }}
-        shell: bash
         run: |
           set -euo pipefail
 
-          CURRENT_VERSION="$(node -p "require('./package.json').version")"
-          PREVIOUS_VERSION=""
+          read_manifest_version() {
+            git show "$1" | node -e "let input='';process.stdin.on('data',(chunk)=>{input+=chunk});process.stdin.on('end',()=>{const manifest=JSON.parse(input);process.stdout.write(manifest.version ?? '');});"
+          }
 
-          if [ "$GITHUB_EVENT_NAME" = "push" ] &&
-             [ -n "${BEFORE_SHA:-}" ] &&
-             [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] &&
-             git cat-file -e "$BEFORE_SHA:package.json" 2>/dev/null; then
-            PREVIOUS_VERSION="$(git show "$BEFORE_SHA:package.json" | node -e "let input='';process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>process.stdout.write(JSON.parse(input).version));")"
+          APP_MANIFEST="apps/$APP/package.json"
+          CURRENT_VERSION="$(node -p "require('./$APP_MANIFEST').version")"
+          PREVIOUS_VERSION=""
+          PREVIOUS_VERSION_SOURCE=""
+
+          # The baseline is the app manifest as it stood before this push. Cast
+          # moved out of the repository root, so its first pushes fall back to the
+          # root manifest version; Cloud and Flux have no such history, so their
+          # first push has no baseline and cannot auto-release.
+          if [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            if git cat-file -e "$BEFORE_SHA:$APP_MANIFEST" 2>/dev/null; then
+              PREVIOUS_VERSION="$(read_manifest_version "$BEFORE_SHA:$APP_MANIFEST")"
+              PREVIOUS_VERSION_SOURCE="app-manifest"
+            elif [ "$APP" = "cast" ] && git cat-file -e "$BEFORE_SHA:package.json" 2>/dev/null; then
+              PREVIOUS_VERSION="$(read_manifest_version "$BEFORE_SHA:package.json")"
+              PREVIOUS_VERSION_SOURCE="root-manifest"
+            fi
           fi
 
+          TAG="$APP-v$CURRENT_VERSION"
           TAG_EXISTS=false
-          if gh release view "v$CURRENT_VERSION" --json tagName >/dev/null 2>&1; then
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.draft' 2>/dev/null || echo true)" = "false" ]; then
             TAG_EXISTS=true
           fi
 
-          CURRENT_VERSION="$CURRENT_VERSION" \
+          # Highest already published <app>-v<version> release. A delayed or
+          # reverted push can be newer than its baseline yet older than this
+          # maximum; releasing it would hand the latest slot and the feed to an
+          # old version, so the gate refuses it. Fail closed on API errors.
+          # gh applies --jq per page, so a per-page max would emit one line per
+          # page once releases paginate (>100) and fail the stable gate. Stream
+          # every tag name across all pages and reduce to a single numeric max
+          # in node instead.
+          PUBLISHED_TAGS="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | select(.draft == false) | .tag_name')"
+          HIGHEST_PUBLISHED_VERSION="$(printf '%s\n' "$PUBLISHED_TAGS" | \
+            node --input-type=module -e 'import { highestPublishedVersionFor } from "./tool/release-version.mjs";let input="";process.stdin.on("data",(c)=>{input+=c;});process.stdin.on("end",()=>{const result=highestPublishedVersionFor(process.env.APP,input.split("\n"));process.stdout.write(result ?? "");});')"
+
+          RELEASE_APP="$APP" \
+          APP_MANIFEST="$APP_MANIFEST" \
           PREVIOUS_VERSION="$PREVIOUS_VERSION" \
+          PREVIOUS_VERSION_SOURCE="$PREVIOUS_VERSION_SOURCE" \
           TAG_EXISTS="$TAG_EXISTS" \
+          HIGHEST_PUBLISHED_VERSION="$HIGHEST_PUBLISHED_VERSION" \
+          GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
           node tool/release-version.mjs >> "$GITHUB_OUTPUT"
 
+          echo "::notice::$APP $CURRENT_VERSION, baseline ${PREVIOUS_VERSION:-none} (${PREVIOUS_VERSION_SOURCE:-none}), highest published ${HIGHEST_PUBLISHED_VERSION:-none}, tag $TAG already published: $TAG_EXISTS"
+
+      - name: Resolve packaging matrix
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Every app packages Windows, macOS, and Linux with the same formula.
+          # Signing secrets are optional; unsigned artifacts are produced when
+          # they are absent. Only Cast builds the native NDI addon.
+          MATRIX='{"include":[{"os":"windows-latest","platform":"windows","builder_flag":"--win"},{"os":"macos-14","platform":"macos","builder_flag":"--mac"},{"os":"ubuntu-latest","platform":"linux","builder_flag":"--linux"}]}'
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
   package:
-    name: Package (${{ matrix.platform }})
-    needs: release-gate
-    if: needs.release-gate.outputs.should_release == 'true'
+    name: ${{ inputs.app }} package ${{ matrix.platform }}
+    needs:
+      - validate
+      - detect
+    if: needs.detect.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows
-            builder_flag: --win
-          - os: macos-14
-            platform: macos
-            builder_flag: --mac
-          - os: ubuntu-latest
-            platform: linux
-            builder_flag: --linux
+      matrix: ${{ fromJSON(needs.detect.outputs.packaging_matrix) }}
+
+    env:
+      APP: ${{ inputs.app }}
 
     steps:
       - name: Checkout
@@ -149,13 +221,14 @@ jobs:
         run: npm ci
 
       - name: Ensure native packages
-        run: node scripts/ensure-rollup-native.cjs
+        run: npm run ensure:native-deps
 
       - name: Build native NDI addon
+        if: inputs.app == 'cast'
         run: npm run build:ndi-native
 
       - name: Build application
-        run: npm run build
+        run: npm run build:${{ inputs.app }}
 
       - name: Configure macOS signing
         if: matrix.platform == 'macos'
@@ -203,51 +276,250 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: npx electron-builder ${{ matrix.builder_flag }} --publish never
+        run: npx electron-builder --projectDir "apps/$APP" --publish never ${{ matrix.builder_flag }}
 
       - name: Upload packaged artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: lumacast-${{ matrix.platform }}
+          name: release-${{ inputs.app }}-${{ matrix.platform }}
           if-no-files-found: error
           retention-days: 14
           path: |
-            dist/*.AppImage
-            dist/*.blockmap
-            dist/*.deb
-            dist/*.dmg
-            dist/*.exe
-            dist/*.zip
-            dist/latest*.yml
+            apps/${{ inputs.app }}/dist/*.AppImage
+            apps/${{ inputs.app }}/dist/*.blockmap
+            apps/${{ inputs.app }}/dist/*.deb
+            apps/${{ inputs.app }}/dist/*.dmg
+            apps/${{ inputs.app }}/dist/*.exe
+            apps/${{ inputs.app }}/dist/*.zip
+            apps/${{ inputs.app }}/dist/latest*.yml
 
   release:
-    name: Publish GitHub Release
+    name: ${{ inputs.app }} version release
     needs:
-      - release-gate
+      - detect
       - package
-    if: needs.release-gate.outputs.should_release == 'true'
+    if: needs.detect.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+
+    env:
+      APP: ${{ needs.detect.outputs.app }}
+      TAG: ${{ needs.detect.outputs.tag }}
 
     steps:
       - name: Download packaged artifacts
         uses: actions/download-artifact@v8
         with:
           path: artifacts
-          pattern: lumacast-*
+          pattern: release-${{ needs.detect.outputs.app }}-*
           merge-multiple: true
 
-      - name: Publish stable release
+      - name: Publish immutable version release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.release-gate.outputs.version }}
-        shell: bash
+          MAKE_LATEST: ${{ inputs.app == 'cast' }}
         run: |
           set -euo pipefail
-          gh release create "v$VERSION" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "v$VERSION" \
-            --generate-notes \
-            --target "$GITHUB_SHA" \
-            artifacts/*
+
+          # Draft releases only appear in the release list, so the list is the
+          # source of truth for "already created" and "already published".
+          release_row() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+              --jq ".[] | select(.tag_name == \"$TAG\") | [.id, .draft] | @tsv" | head -n 1
+          }
+
+          # The release is assembled as a draft and published once, so a
+          # partially uploaded release is never visible to an updater. A rerun
+          # reuses the existing draft; an already published release is left alone.
+          # Release notes are generated on creation (the only endpoint that
+          # supports them); publishing uses gh release edit so draft/latest stay
+          # correctly typed. Only Cast takes the repository latest slot,
+          # preserving the legacy Cast GitHub updater.
+          ROW="$(release_row)"
+          if [ -n "$ROW" ]; then
+            IS_DRAFT="$(printf '%s' "$ROW" | cut -f2)"
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --generate-notes \
+              --title "$TAG" \
+              --target "$GITHUB_SHA" > /dev/null
+            IS_DRAFT=true
+          fi
+
+          if [ "$IS_DRAFT" != "true" ]; then
+            echo "::notice::$TAG is already published; leaving it unchanged."
+            exit 0
+          fi
+
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber artifacts/*
+
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest="$MAKE_LATEST"
+
+  feed:
+    name: ${{ inputs.app }} update feed
+    needs:
+      - detect
+      - release
+    # Runs after the version release so the feed never races packaging. It also
+    # runs when the release is skipped (already published) so a failed feed
+    # heals on the next main push without rebuilding installers. The guard
+    # makes it a no-op unless the version release is published and newer than
+    # (or a repair of) what the feed serves.
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      always() &&
+      needs.detect.result == 'success' &&
+      (needs.release.result == 'success' || needs.release.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      APP: ${{ needs.detect.outputs.app }}
+      TAG: ${{ needs.detect.outputs.tag }}
+      VERSION: ${{ needs.detect.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22.13.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Guard feed update
+        id: guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p raw feed feed-next
+
+          # Only a published (non-draft) version release is immutable enough to be
+          # the target of the feed's absolute URLs. Compare with brackets: a bare
+          # `if RELEASE_PUBLISHED=true` would assign instead of testing.
+          # The paginated release list is the single source of truth for both
+          # the version publish state and the feed existence/draft state. gh
+          # applies --jq per page, so stream one object per release and slurp
+          # into a single array before querying; any gh failure fails closed
+          # via pipefail instead of looking like an absent feed.
+          RELEASES_JSON="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+            --jq '.[] | {tag_name, draft}' | jq -s '.')"
+          RELEASE_PUBLISHED=false
+          if [ "$(printf '%s' "$RELEASES_JSON" | jq -r --arg tag "$TAG" '[.[] | select(.tag_name==$tag)] | if length==0 then "absent" else .[0].draft end')" = "false" ]; then
+            RELEASE_PUBLISHED=true
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'latest*.yml' --dir raw --clobber
+            # An absent or draft feed release means an empty baseline: repair
+            # proceeds without downloading unavailable metadata. A published
+            # feed downloads here, and its download failures stay errors.
+             FEED_STATE="$(printf '%s' "$RELEASES_JSON" | jq -r --arg tag "$APP-feed" '[.[] | select(.tag_name==$tag)] | if length==0 then "absent" else .[0].draft end')"
+            if [ "$FEED_STATE" = "false" ]; then
+              gh release download "$APP-feed" --repo "$GITHUB_REPOSITORY" --pattern 'latest*.yml' --dir feed --clobber
+            elif [ "$FEED_STATE" != "absent" ] && [ "$FEED_STATE" != "true" ]; then
+              echo "::error::Unexpected feed state '$FEED_STATE' for $APP-feed."
+              exit 1
+            fi
+          fi
+
+          RELEASE_APP="$APP" \
+          INCOMING_VERSION="$VERSION" \
+          RELEASE_PUBLISHED="$RELEASE_PUBLISHED" \
+          FEED_METADATA_DIR="$PWD/feed" \
+          node tool/release-feed.mjs guard >> "$GITHUB_OUTPUT"
+
+      - name: Publish generic update feed
+        if: steps.guard.outputs.should_update == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEED_TAG: ${{ steps.guard.outputs.feed_tag }}
+        run: |
+          set -euo pipefail
+
+          DOWNLOAD_BASE_URL="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+
+          shopt -s nullglob
+          metadata_files=(raw/latest*.yml)
+          shopt -u nullglob
+
+          if [ "${#metadata_files[@]}" -eq 0 ]; then
+            echo "::error::$TAG published no updater metadata; the $FEED_TAG feed would be empty."
+            exit 1
+          fi
+
+          for metadata in "${metadata_files[@]}"; do
+            RELEASE_APP="$APP" \
+            METADATA_FILE="$metadata" \
+            OUTPUT_FILE="feed-next/$(basename "$metadata")" \
+            DOWNLOAD_BASE_URL="$DOWNLOAD_BASE_URL" \
+            node tool/release-feed.mjs rewrite
+          done
+
+          # Every rewritten channel file must carry the published version; a
+          # stale draft from a delayed pipeline fails here instead of moving the
+          # feed. Hashes, sizes, and payloads were validated by the rewrite.
+          for metadata in feed-next/latest*.yml; do
+            file_version="$(node -e "const yaml=require('js-yaml');const fs=require('fs');process.stdout.write(String(yaml.load(fs.readFileSync(process.argv[1],'utf8')).version ?? ''));" "$metadata")"
+            if [ "$file_version" != "$VERSION" ]; then
+              echo "::error::$metadata serves $file_version, expected published $VERSION; refusing a stale feed."
+              exit 1
+            fi
+          done
+
+          # The feed release carries metadata only. Installers stay in the
+          # immutable version release the rewritten URLs point at.
+          cat > "$RUNNER_TEMP/feed-notes.md" <<'NOTES'
+          Generic update feed for this application.
+
+          This release carries updater metadata only. Every installer URL in it points at the
+          immutable `<app>-v<version>` release that produced the metadata; the installers live
+          there. Feed releases are never the repository's latest release.
+          NOTES
+
+          feed_release_id() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases" \
+              --jq ".[] | select(.tag_name == \"$FEED_TAG\") | .id" | head -n 1
+          }
+
+          FEED_RELEASE_ID="$(feed_release_id)"
+          if [ -z "$FEED_RELEASE_ID" ]; then
+            # Assemble the first feed as a draft so no empty visible feed ever
+            # appears, then publish once the metadata is uploaded below.
+            gh release create "$FEED_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --draft \
+              --latest=false \
+              --title "$APP update feed" \
+              --notes-file "$RUNNER_TEMP/feed-notes.md" \
+              --target "$GITHUB_SHA" > /dev/null
+            FEED_RELEASE_ID="$(feed_release_id)"
+          else
+            # Drop channel files this release no longer produces so the feed can
+            # never serve two different versions.
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$FEED_RELEASE_ID/assets" \
+              --jq '.[] | select(.name | test("^latest.*[.]yml$")) | [.id, .name] | @tsv' |
+              while IFS=$'\t' read -r asset_id asset_name; do
+                if [ ! -f "feed-next/$asset_name" ]; then
+                  gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
+                fi
+              done
+          fi
+
+          gh release upload "$FEED_TAG" --repo "$GITHUB_REPOSITORY" --clobber feed-next/latest*.yml
+
+          # Always publish once uploads complete: a rerun that reuses a draft
+          # left by a failed first upload must not leave it a draft forever.
+          # Feed releases never take the repository latest slot from Cast.
+          gh release edit "$FEED_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
