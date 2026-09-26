@@ -15,3 +15,6 @@ export { ReacstButtonGroup } from './button-group';
 export { SegmentedControl } from './segmented-control';
 export { TextBlock, Title, Paragraph, Label } from './text';
 export { EmptyState } from './empty-state';
+export { PlainButton } from './plain-button';
+export { Modal, type ModalProps } from './modal';
+export { PanelResize, PANEL_RESIZE_MIN, PANEL_RESIZE_MAX, PANEL_RESIZE_KEYBOARD_STEP, type PanelResizeProps } from './panel-resize';
