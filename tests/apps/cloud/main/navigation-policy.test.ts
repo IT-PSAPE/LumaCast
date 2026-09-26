@@ -85,13 +85,23 @@ describe('apps/cloud resolveDevServerOrigin', () => {
 });
 
 describe('apps/cloud isApprovedExternalUrl', () => {
-  it('denies everything while the external allow-list is empty', () => {
+  it('denies everything outside the external allow-list', () => {
     expect(isApprovedExternalUrl('https://example.com/')).toBe(false);
     expect(isApprovedExternalUrl('https://example.com/some/page')).toBe(false);
     expect(isApprovedExternalUrl('http://example.com/')).toBe(false);
     expect(isApprovedExternalUrl('https://user:pass@example.com/')).toBe(false);
     expect(isApprovedExternalUrl('javascript:alert(1)')).toBe(false);
     expect(isApprovedExternalUrl('')).toBe(false);
+  });
+
+  it('allows GitHub, the one entry on the list (release notes)', () => {
+    expect(isApprovedExternalUrl('https://github.com/')).toBe(true);
+    expect(isApprovedExternalUrl('https://github.com/IT-PSAPE/LumaCast/releases/tag/cast-v1.2.3')).toBe(true);
+  });
+
+  it('denies http and credentialed GitHub URLs even though the origin is approved', () => {
+    expect(isApprovedExternalUrl('http://github.com/')).toBe(false);
+    expect(isApprovedExternalUrl('https://user:pass@github.com/')).toBe(false);
   });
 });
 

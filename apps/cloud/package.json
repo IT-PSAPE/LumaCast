@@ -2,7 +2,7 @@
   "name": "@lumacast/cloud",
   "version": "0.1.0",
   "private": true,
-  "description": "LumaCloud Electron shell",
+  "description": "LumaCloud: the suite manager that installs, updates, downgrades, and removes the LumaCast apps.",
   "license": "UNLICENSED",
   "author": "IT-PSAPE",
   "repository": {
@@ -22,9 +22,14 @@
     "dist:linux": "electron-vite build && electron-builder --linux"
   },
   "dependencies": {
+    "@base-ui/react": "^1.8.0",
+    "@lumacast/suite": "file:../../packages/suite",
     "@lumacast/ui": "file:../../packages/ui",
+    "electron-updater": "^6.8.3",
+    "lucide-react": "^1.7.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.1",

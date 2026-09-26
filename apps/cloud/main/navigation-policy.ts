@@ -11,11 +11,16 @@ import { fileURLToPath } from 'node:url';
 // process on another port from inheriting navigation trust.
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
 
-// LumaCloud has no outbound links yet, so the external allow-list starts empty.
-// It is the only place a destination may be added, and only for an https:
-// origin the app deliberately links to; entries must never come from renderer
+// The only place a destination may be added, and only for an https: origin
+// the app deliberately links to; entries must never come from renderer
 // input, IPC payloads, or configuration.
-const APPROVED_EXTERNAL_ORIGINS: ReadonlySet<string> = new Set();
+//
+// https://github.com — release notes only. `suite-open-release-notes`
+// resolves a release's notes URL from the signed catalog (always a
+// github.com/IT-PSAPE/LumaCast release page) and hands it to
+// `shell.openExternal`; this is what lets that call through the deny-by-default
+// window-open handler.
+const APPROVED_EXTERNAL_ORIGINS: ReadonlySet<string> = new Set(['https://github.com']);
 
 export interface RendererTrustOptions {
   /**
