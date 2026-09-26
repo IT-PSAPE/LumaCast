@@ -158,6 +158,12 @@ mirrors the file it covers, so a package's tests sit in
   `@lumacast/ui/theme.css` subpath. React and React DOM are in bounds; Konva,
   React-Konva, and Electron are not, and it may depend only on `kernel`, so a
   shared control can never couple itself to a domain model or to one app.
+- **`@lumacast/suite`** — the renderer-safe LumaCast suite model LumaCloud
+  renders from: the registry of managed apps and identities, the
+  release-version rules mirroring `tool/release-version.mjs`, GitHub
+  release-catalog and electron-builder updater-metadata parsing, installer
+  artifact selection, and headless app-state derivation. Depends only on
+  `kernel`, so Cloud's main process and renderer read the catalog identically.
 - **`@lumacast/ndi-native`** — the native NDI sender bridge; a native addon,
   exempt from the headless-source rules below and governed instead by the
   engine-session rule above.
@@ -187,7 +193,8 @@ as hard errors that are never allow-listable:
   depends on kernel, composition, automation, and protocol; engine depends on
   kernel, composition, protocol, and ndi-native; playback, canvas, and ui each
   depend on kernel, composition, and protocol, except that ui depends on kernel
-  only. An unlisted package name starts with zero permitted dependencies.
+  only; suite depends on kernel. An unlisted package name starts with zero
+  permitted dependencies.
 - Cycles between packages are forbidden and must be removed, never
   allow-listed.
 

@@ -107,6 +107,11 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // any one app's version and build. Kernel only, so the visual layer cannot
   // couple itself to a domain package.
   ui: ['kernel'],
+  // The LumaCast suite model LumaCloud manages the other apps with: the app
+  // registry and identities, version rules, release-catalog parsing, and
+  // app-state derivation. Kernel only, and renderer-safe (no Node builtins), so
+  // the Cloud renderer and main can share one reading of the catalog.
+  suite: ['kernel'],
   // The approved Flux photo packages. They form a strict one-way stack above
   // kernel: the pure photo domain model, the imaging/derivation layer that
   // reads and transforms image bytes, and the library layer that owns the
