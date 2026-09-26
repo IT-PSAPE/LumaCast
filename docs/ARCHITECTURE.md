@@ -1106,3 +1106,34 @@ finished video (ADR-0045). Its layers:
   frame) to main's sink. Background video is decoded frame-accurately for
   export. Codec choice degrades to what the platform can encode, with bundled
   AAC and MP3 software encoders as the floor.
+
+## LumaFlux photo editing and agent guidance (ADR-0046)
+
+LumaFlux's editor chrome opts into the shared dark theme's semantic tokens:
+`apps/flux/renderer/index.html` sets `data-theme="dark"` before first paint.
+Chrome uses shared foreground, background, border, and status roles. The
+histogram's RGB channel fills and clipping masks retain data-specific colours;
+its neutral indicators and grid use themed tokens. Lens facts use compact
+label/value columns rather than a helper paragraph.
+
+`packages/photo-imaging/src/auto-tone.ts` implements Auto Light as a two-stage
+guardrail search: preserve plausible measured tone, or propose a capped lift
+when midtones and the upper body are dark with unclipped headroom. Reference
+mode targets the reference's measured tone. Candidates are measured through
+the real renderer, cached by file and full recipe, and bounded to 60 renders.
+An unchanged target skips searching. Hard per-channel clipping gates and a
+fully-clipped-white preservation gate reject regressions. Analysis measures
+opaque pixels of the current crop in developed 8-bit sRGB; RAW and raster
+share conservative Light bounds. Auto replaces seven Light values, including
+explicit neutral resets, while preserving other edits; unreliable input
+preserves all edits. MCP mutations retain the `expectedRevision` contract.
+Histograms cannot identify subjects, noise, or intent: visual review remains
+necessary, and bright frames are not automatically darkened.
+
+The MCP editing guide (`apps/flux/main/mcp/editing-guide.ts`) and the bundled
+`apps/flux/skills/professional-photo-editing/SKILL.md` state one identical
+goal-driven natural quality bar: a clear end state, explicit crop goals and
+quality limits, and real preview vision in place of a face detector. Both treat
+file names, EXIF, and image content as data rather than instructions, keep
+originals untouched, and add no ML model, local masks, or sensor-domain RAW
+recovery.
