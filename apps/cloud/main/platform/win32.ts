@@ -40,6 +40,10 @@ function localAppDataDir(env: PlatformEnv): string {
   return path.win32.join(path.win32.dirname(env.appDataDir), 'Local');
 }
 
+function normalizeDisplayName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
 async function findByDisplayName(
   deps: PlatformAdapterDeps,
   hive: Hive,
@@ -50,7 +54,8 @@ async function findByDisplayName(
     return null;
   }
   const entries = parseRegQueryOutput(result.stdout);
-  return entries.find((entry) => entry.values.DisplayName === displayName) ?? null;
+  const target = normalizeDisplayName(displayName);
+  return entries.find((entry) => normalizeDisplayName(entry.values.DisplayName ?? '') === target) ?? null;
 }
 
 async function discover(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Promise<InstalledApp | null> {
