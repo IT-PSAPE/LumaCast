@@ -1,16 +1,22 @@
 # Release and signing setup
 
 LumaCast uses one reusable pipeline for every app: `.github/workflows/ci-release.yml`.
-Thin wrappers (`cast.yml`, `cloud.yml`, `flux.yml`, `chord.yml`) call it with their `app` input
-on pull request, push to `main`, and manual dispatch.
+One gating workflow, `.github/workflows/ci.yml`, runs on pull request, push to
+`main`, and manual dispatch; it detects which apps the change affects
+(`tool/ci/affected-apps.mjs`) and calls the pipeline with the `app` input once
+per affected app (ADR-0047).
 
 ## Workflow
 
-Every pull request, every push to `main`, and every manual dispatch runs CI:
+Every pull request and every push to `main` runs the detector, then CI for each
+affected app. A manual dispatch chooses its apps through the `apps` input
+(`all`, `affected`, or a comma-separated list). Validation is
+`node tool/ci/run.mjs --app <app> --e2e`, the same command that reproduces it
+locally (`npm run ci -- --app <app>`):
 
-1. dependency installation
-2. TypeScript and architecture checks
-3. unit and NDI tests
+1. dependency installation and native packages
+2. TypeScript (root plus the app workspace) and architecture checks
+3. unit tests scoped to the app, its packages, and the shared tool tests; NDI tests (Cast only)
 4. `npm run build:<app>` for the calling app (`@lumacast/cast`, `@lumacast/cloud`, `@lumacast/flux`, `@lumacast/chord`)
 5. Playwright end-to-end tests (Cast only)
 

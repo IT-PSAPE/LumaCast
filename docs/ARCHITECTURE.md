@@ -978,11 +978,27 @@ Linux validation runs Electron end-to-end tests under Xvfb and configures the in
 Cast's main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver. Cloud initializes `electron-updater` the same way against its own `cloud-feed` (ADR-0044) and surfaces the updater's state in its UI instead of dialogs; Flux has no runtime updater, menu, or startup checks implemented yet.
 
 `.github/workflows/ci-release.yml` is the single validation and release pipeline
-(ADR-0043, which supersedes ADR-0035's single-release decision). Each app calls
-it through a thin wrapper — `cast.yml`, `cloud.yml`, `flux.yml` — that passes
-one input, `app`, so the three apps validate and release independently from one
-repository and a Cast run never collides with a Cloud or Flux run. The pipeline
-logic itself is not duplicated per app.
+(ADR-0043, which supersedes ADR-0035's single-release decision). It is called
+only by the gating workflow `.github/workflows/ci.yml` (ADR-0047), once per app
+the change affects, with one input, `app`, so the apps validate and release
+independently from one repository and a Cast run never collides with a Cloud,
+Flux, or Chord run. The pipeline logic itself is not duplicated per app.
+
+- **Gate.** `tool/ci/affected-apps.mjs` derives the app-to-package graph from
+  the workspaces' static `@lumacast/*` imports and declared dependencies, closed
+  transitively. A change under `apps/<app>` or `tests/apps/<app>` selects that
+  app; a change under `packages/<pkg>` or `tests/packages/<pkg>` selects every
+  app that consumes the package; shared tooling (root manifests and
+  configuration, `tool/`, `scripts/`, `tests/tool/`, `.github/`) selects every
+  app; documentation selects none; anything unclassified selects every app. A
+  push diffs from the last successful push run on the branch (so a failed app is
+  retried by the next push), a pull request from its base, and a manual run
+  takes an `apps` input (`all`, `affected`, or a list).
+- **Local parity.** `tool/ci/run.mjs` is the validation step CI executes and the
+  command a developer runs (`npm run ci -- --app <app>`, `npm run ci:affected`):
+  typecheck, architecture checks, unit tests scoped to the app and its packages,
+  Cast's native NDI tests, the app build, and (with `--e2e`) Cast's Playwright
+  suite. `.nvmrc` pins the Node version CI uses.
 
 - **Trigger.** Pull requests stop after validation. A `main` push releases an app
   only when that app's own manifest version (`apps/<app>/package.json`) is a

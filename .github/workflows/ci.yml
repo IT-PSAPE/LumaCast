@@ -1,0 +1,235 @@
+name: CI
+
+# The one entry point for validation and release. Every push to main and every
+# pull request starts here; the `detect` job works out which application
+# workspaces the change actually touches (tool/ci/affected-apps.mjs) and only
+# those apps' pipelines run. A change under apps/<app> selects that app; a
+# change under packages/<pkg> selects every app that imports the package,
+# directly or through other packages; shared tooling selects every app; and
+# documentation selects none. The per-app pipeline itself lives in
+# ci-release.yml and is never triggered directly.
+#
+# Baseline for a push: the head of the last successful push run of this
+# workflow on the branch, so an app whose run failed is retried by the next
+# push even if that push did not touch it. Without such a run the push's
+# `before` commit is used, and without any usable baseline every app runs.
+#
+# Manual runs choose their apps: `all` (default), a comma-separated list such as
+# `cast,flux`, or `affected` to apply the same detection as a push.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: Apps to validate — "all", "affected", or a comma-separated list (cast,cloud,flux,chord).
+        required: false
+        default: all
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  detect:
+    name: Detect affected apps
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      cast: ${{ steps.affected.outputs.cast }}
+      cloud: ${{ steps.affected.outputs.cloud }}
+      flux: ${{ steps.affected.outputs.flux }}
+      chord: ${{ steps.affected.outputs.chord }}
+      apps: ${{ steps.affected.outputs.apps }}
+      any: ${{ steps.affected.outputs.any }}
+
+    steps:
+      - name: Checkout history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Resolve baseline
+        id: baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUESTED_APPS: ${{ inputs.apps }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          MODE="diff"
+          BASE=""
+          HEAD="$GITHUB_SHA"
+          APPS=""
+
+          last_successful_push() {
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=$BRANCH&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true
+          }
+
+          case "$EVENT_NAME" in
+            pull_request)
+              BASE="$PR_BASE_SHA"
+              HEAD="$PR_HEAD_SHA"
+              ;;
+            push)
+              BASE="$(last_successful_push)"
+              if [ -z "$BASE" ] || ! git merge-base --is-ancestor "$BASE" "$HEAD" 2>/dev/null; then
+                BASE="$PUSH_BEFORE"
+              fi
+              ;;
+            workflow_dispatch)
+              if [ "${REQUESTED_APPS:-all}" = "affected" ]; then
+                BASE="$(last_successful_push)"
+              else
+                MODE="explicit"
+                APPS="${REQUESTED_APPS:-all}"
+              fi
+              ;;
+            *)
+              MODE="explicit"
+              APPS=all
+              ;;
+          esac
+
+          {
+            echo "mode=$MODE"
+            echo "base=$BASE"
+            echo "head=$HEAD"
+            echo "apps=$APPS"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::$EVENT_NAME → mode $MODE, base ${BASE:-none}, head $HEAD${APPS:+, apps $APPS}"
+
+      - name: Detect affected apps
+        id: affected
+        shell: bash
+        env:
+          MODE: ${{ steps.baseline.outputs.mode }}
+          BASE: ${{ steps.baseline.outputs.base }}
+          HEAD: ${{ steps.baseline.outputs.head }}
+          APPS: ${{ steps.baseline.outputs.apps }}
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = "explicit" ]; then
+            node tool/ci/affected-apps.mjs --apps "$APPS" --format github | tee -a "$GITHUB_OUTPUT"
+          else
+            node tool/ci/affected-apps.mjs --base "$BASE" --head "$HEAD" --format github | tee -a "$GITHUB_OUTPUT"
+          fi
+
+  cast:
+    name: Cast
+    needs: detect
+    if: needs.detect.outputs.cast == 'true'
+    uses: ./.github/workflows/ci-release.yml
+    with:
+      app: cast
+    permissions:
+      contents: write
+    secrets: inherit
+    # Per-app group: Cast runs never overlap each other, so a release and its
+    # packaging fan-out cannot interleave. Pull request runs are cancelled
+    # freely because they publish nothing.
+    concurrency:
+      group: app-cast-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+  cloud:
+    name: Cloud
+    needs: detect
+    if: needs.detect.outputs.cloud == 'true'
+    uses: ./.github/workflows/ci-release.yml
+    with:
+      app: cloud
+    permissions:
+      contents: write
+    secrets: inherit
+    concurrency:
+      group: app-cloud-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+  flux:
+    name: Flux
+    needs: detect
+    if: needs.detect.outputs.flux == 'true'
+    uses: ./.github/workflows/ci-release.yml
+    with:
+      app: flux
+    permissions:
+      contents: write
+    secrets: inherit
+    concurrency:
+      group: app-flux-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+  chord:
+    name: Chord
+    needs: detect
+    if: needs.detect.outputs.chord == 'true'
+    uses: ./.github/workflows/ci-release.yml
+    with:
+      app: chord
+    permissions:
+      contents: write
+    secrets: inherit
+    concurrency:
+      group: app-chord-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+  # A single required status for branch protection: green when every selected
+  # app passed, and also when nothing was selected (documentation-only change).
+  summary:
+    name: CI result
+    needs:
+      - detect
+      - cast
+      - cloud
+      - flux
+      - chord
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate app results
+        shell: bash
+        env:
+          APPS: ${{ needs.detect.outputs.apps }}
+          DETECT: ${{ needs.detect.result }}
+          CAST: ${{ needs.cast.result }}
+          CLOUD: ${{ needs.cloud.result }}
+          FLUX: ${{ needs.flux.result }}
+          CHORD: ${{ needs.chord.result }}
+        run: |
+          set -euo pipefail
+          echo "Selected apps: ${APPS:-[]}"
+          echo "detect=$DETECT cast=$CAST cloud=$CLOUD flux=$FLUX chord=$CHORD"
+          if [ "$DETECT" != "success" ]; then
+            echo "::error::Affected-app detection failed."
+            exit 1
+          fi
+          for result in "$CAST" "$CLOUD" "$FLUX" "$CHORD"; do
+            case "$result" in
+              success|skipped) ;;
+              *)
+                echo "::error::An app pipeline ended with '$result'."
+                exit 1
+                ;;
+            esac
+          done
