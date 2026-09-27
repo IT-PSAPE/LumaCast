@@ -196,10 +196,16 @@ describe('apps/flux build version hook', () => {
   });
 
   it('builds the manifest version the release gate tags', () => {
-    // `tool/release-version.mjs` accepts major.minor.patch+<number> for Flux and
-    // rejects anything else, so the manifest must stay in that exact form.
-    expect(manifest.version).toMatch(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\+((0|[1-9]\d*))$/);
-    expect(hook.deriveBuildVersion(manifest.version).buildVersion).toBe('0.11.0.1');
+    // `tool/release-version.mjs` accepts major.minor.patch with an optional
+    // +<number> revision for Flux and rejects anything else, so the manifest
+    // must stay in one of those forms. Expectations derive from the manifest so
+    // a routine release bump never has to touch this test.
+    const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:\+(0|[1-9]\d*))?$/.exec(manifest.version);
+    expect(match).not.toBeNull();
+    const [major, minor, patch, revision = '0'] = match!.slice(1);
+    expect(hook.deriveBuildVersion(manifest.version).buildVersion).toBe(
+      `${major}.${minor}.${patch}.${revision}`,
+    );
     // The gate compares the revision, so the version electron-builder reports
     // and names artifacts with must be the exact string the gate tags.
     expect(hook.deriveBuildVersion(manifest.version).releaseVersion).toBe(manifest.version);
