@@ -6,6 +6,7 @@
 // so this file's path logic is identical whether tests run it on macOS/Linux
 // CI or a real Windows host.
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import type { InstalledApp, SuiteAppDescriptor } from '@lumacast/suite';
 import type { InstallScope } from '../../shared/desktop-api';
 import type {
@@ -44,6 +45,21 @@ function normalizeDisplayName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+/** Reads the file version from a Windows executable via PowerShell. */
+async function readExeVersion(exePath: string, exec: PlatformAdapterDeps['exec']): Promise<string | null> {
+  try {
+    // Use PowerShell to get the file version info
+    const psCommand = `(Get-Item "${exePath.replace(/"/g, '""')}").VersionInfo.FileVersion`;
+    const result = await exec('powershell', ['-NoProfile', '-Command', psCommand], { timeoutMs: 5000 });
+    if (result.code === 0 && result.stdout.trim()) {
+      return result.stdout.trim();
+    }
+  } catch {
+    // Ignore errors, fall through to null
+  }
+  return null;
+}
+
 async function findByDisplayName(
   deps: PlatformAdapterDeps,
   hive: Hive,
@@ -79,15 +95,22 @@ async function discover(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Pro
     };
   }
 
-  // Neither hive has an uninstall entry. Probe for the executable purely so
-  // this path is observable (tests, diagnostics) — but still report
-  // not-installed either way: without a registry entry there is no real
-  // version to show, and inventing "unknown" or a fabricated "0.0.0" would
-  // render as installed and could hide a real update, which is worse than
-  // under-reporting.
+  // Neither hive has an uninstall entry. Try to find the executable and read
+  // its version from the file metadata. This handles portable installs or apps
+  // installed before Cloud was present.
   const locations = installLocations(deps.env);
   const fallbackExe = path.win32.join(locations.user, app.productName, app.win.executableName);
-  await deps.fs.exists(fallbackExe);
+  if (await deps.fs.exists(fallbackExe)) {
+    const version = await readExeVersion(fallbackExe, deps.exec);
+    if (version) {
+      return {
+        app: app.id,
+        version,
+        location: path.win32.dirname(fallbackExe),
+        scope: 'user',
+      };
+    }
+  }
   return null;
 }
 

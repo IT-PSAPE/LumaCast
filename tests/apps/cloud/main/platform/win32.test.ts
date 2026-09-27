@@ -137,6 +137,41 @@ describe('win32 platform adapter', () => {
       await expect(adapter.discover(CAST_APP)).resolves.toBeNull();
     });
 
+    it('discovers app from executable file version when no registry entry exists', async () => {
+      const rig = createRig({
+        dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast'],
+        files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast\\LumaCast.exe': 'binary' },
+        exec: (call) => {
+          if (call.file === 'powershell' && call.args[0] === '-NoProfile') {
+            return { code: 0, stdout: '1.5.0', stderr: '' };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(CAST_APP)).resolves.toEqual({
+        app: 'cast',
+        version: '1.5.0',
+        location: 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast',
+        scope: 'user',
+      });
+    });
+
+    it('returns null when executable exists but version cannot be read', async () => {
+      const rig = createRig({
+        dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast'],
+        files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast\\LumaCast.exe': 'binary' },
+        exec: (call) => {
+          if (call.file === 'powershell' && call.args[0] === '-NoProfile') {
+            return { code: 1, stdout: '', stderr: 'error' };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(CAST_APP)).resolves.toBeNull();
+    });
+
     it('returns null when the registry query itself fails', async () => {
       const rig = createRig({ exec: () => ({ code: 1, stdout: '', stderr: 'access denied' }) });
       const adapter = createWin32PlatformAdapter(rig.deps);
