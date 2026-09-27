@@ -118,7 +118,7 @@ async function install(deps: PlatformAdapterDeps, request: InstallRequest): Prom
   const { app, artifact, artifactPath, signal } = request;
   assertNotSelf(app);
   if (artifact.kind !== 'win-nsis') {
-    throw new Error(`win32 adapter cannot install artifact kind ${artifact.kind}`);
+    throw new Error(`win32 adapter expects artifact kind "win-nsis", got "${artifact.kind}"`);
   }
 
   // NSIS here is always oneClick + perMachine:false: there is no per-machine

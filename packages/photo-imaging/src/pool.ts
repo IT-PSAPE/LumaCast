@@ -14,6 +14,7 @@ const SOURCE_WORKER_EXTENSIONS = new Set([".ts", ".mts", ".cts"]);
 // The compiled worker and its TypeScript source, beside the module that loads it.
 const COMPILED_WORKER = "./worker.js";
 const SOURCE_WORKER = "./worker.ts";
+const SOURCE_LOADER_EXEC_ARGV = ["--require", "tsx/cjs"];
 const MISSING_WORKER_MESSAGE =
   `Image worker not found: neither ${COMPILED_WORKER} nor ${SOURCE_WORKER} exists next to this module ` +
   `(looked in ${new URL(".", import.meta.url).pathname}). This happens when the imaging package is ` +
@@ -22,7 +23,12 @@ const MISSING_WORKER_MESSAGE =
   "resolveImagingResources(__dirname).renderWorkerEntry.";
 // A TypeScript entry has to be loaded through tsx, whether the package fell back
 // to its own source or an app passed a .ts worker explicitly. An emitted .js
-// entry runs as-is.
+// entry runs as-is. The loader is the CommonJS require hook on purpose: the ESM
+// `--import tsx` hooks are not applied inside a worker thread on Node 22.13
+// (the engines minimum and the CI pin), so the worker failed with "Unknown file
+// extension .ts" there while Node 24 masked it with native type stripping.
+// `--require tsx/cjs` installs synchronously in the worker on every supported
+// Node version.
 function isSourceEntry(entry: URL | string): boolean {
   const raw = typeof entry === "string" ? entry : entry.pathname;
   return SOURCE_WORKER_EXTENSIONS.has(
@@ -56,7 +62,7 @@ export class RenderPool {
   }
   private spawn() {
     const worker = new Worker(this.workerEntry, {
-      execArgv: this.needsSourceLoader ? ["--import", "tsx"] : [],
+      execArgv: this.needsSourceLoader ? SOURCE_LOADER_EXEC_ARGV : [],
     });
     const slot: Slot = { worker, failed: false };
     this.slots.push(slot);

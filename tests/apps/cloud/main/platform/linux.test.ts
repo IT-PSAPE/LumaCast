@@ -128,7 +128,13 @@ describe('linux platform adapter', () => {
     }
 
     it('copies the AppImage into ~/Applications, chmods it 0o755, and discovers it', async () => {
-      const rig = createRig({ dirs: ['/home/test/Applications'], exec: () => NOT_FOUND });
+      const rig = createRig({
+        dirs: ['/home/test/Applications'],
+        // The downloaded artifact `install()` is asked to copy from — a real
+        // OperationQueue run would have already placed it here.
+        files: { '/home/test/.config/lumacloud/downloads/LumaCast-1.2.3-x64-linux.AppImage': 'downloaded binary' },
+        exec: () => NOT_FOUND,
+      });
       const adapter = createLinuxPlatformAdapter(rig.deps);
       const installed = await adapter.install(appImageRequest());
       expect(installed).toEqual({
@@ -151,7 +157,11 @@ describe('linux platform adapter', () => {
     it('removes an older AppImage of the same product', async () => {
       const rig = createRig({
         dirs: ['/home/test/Applications'],
-        files: { '/home/test/Applications/LumaCast-1.0.0-x64-linux.AppImage': 'old binary' },
+        files: {
+          '/home/test/Applications/LumaCast-1.0.0-x64-linux.AppImage': 'old binary',
+          // The downloaded artifact `install()` is asked to copy from.
+          '/home/test/.config/lumacloud/downloads/LumaCast-1.2.3-x64-linux.AppImage': 'downloaded binary',
+        },
         exec: () => NOT_FOUND,
       });
       const adapter = createLinuxPlatformAdapter(rig.deps);

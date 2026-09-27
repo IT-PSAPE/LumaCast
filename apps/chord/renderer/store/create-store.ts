@@ -94,6 +94,7 @@ export function createChordStore(api: ChordDesktopAPI) {
       timeline: { zoom: 80, scrollMs: 0, viewportWidth: 0 },
       tool: 'select',
       tapIndex: null,
+      tapOrder: null,
       inspectorTab: 'cue',
       media: { audioUrl: null, backgroundUrl: null },
       canUndo: false,
@@ -115,6 +116,7 @@ export function createChordStore(api: ChordDesktopAPI) {
           selection: [],
           tool: 'select',
           tapIndex: null,
+          tapOrder: null,
           inspectorTab: 'cue',
           playback: { playing: false, timeMs: 0, loop: false },
           media: { audioUrl: null, backgroundUrl: null },
@@ -382,7 +384,12 @@ export function createChordStore(api: ChordDesktopAPI) {
 
       clearSelection: () => set({ selection: [] }),
 
-      setTool: (tool) => set({ tool, tapIndex: tool === 'tap' ? 0 : null }),
+      setTool: (tool) =>
+        set({
+          tool,
+          tapIndex: tool === 'tap' ? 0 : null,
+          tapOrder: tool === 'tap' ? get().document.project.cues.map((cue) => cue.id) : null,
+        }),
 
       setInspectorTab: (tab) => set({ inspectorTab: tab }),
 
@@ -434,22 +441,27 @@ export function createChordStore(api: ChordDesktopAPI) {
       tapMark: () => {
         const state = get();
         const project = state.document.project;
-        const cues = project.cues;
         const index = state.tapIndex ?? 0;
+        // `tapOrder` is the stable order captured when tap mode started;
+        // `project.cues` itself gets re-sorted by `startMs` on every
+        // `updateProject`, so once a tap re-times a cue ahead of its
+        // neighbours, a live array position no longer points at "the next
+        // untimed cue" (see the field doc in `./types.ts`).
+        const order = state.tapOrder ?? project.cues.map((cue) => cue.id);
         const quantized = quantizeToFrame(state.playback.timeMs, project.composition.fps);
 
-        if (index < cues.length) {
-          const targetId = cues[index]!.id;
+        if (index < order.length) {
+          const targetId = order[index]!;
           get().updateProject('Time cue', (draft) => {
-            draft.cues = draft.cues.map((cue, i) => (i === index ? { ...cue, startMs: quantized } : cue));
+            draft.cues = draft.cues.map((cue) => (cue.id === targetId ? { ...cue, startMs: quantized } : cue));
           });
-          set({ tapIndex: index + 1, selection: [targetId] });
+          set({ tapIndex: index + 1, tapOrder: order, selection: [targetId] });
         } else {
           const id = createId();
           get().updateProject('Add cue', (draft) => {
             draft.cues = insertCue(draft.cues, { id, startMs: quantized, endMs: null, text: 'New line', override: null });
           });
-          set({ tapIndex: index + 1, selection: [id] });
+          set({ tapIndex: index + 1, tapOrder: [...order, id], selection: [id] });
         }
       },
 

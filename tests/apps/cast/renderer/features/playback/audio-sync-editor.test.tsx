@@ -361,6 +361,10 @@ describe('AudioSyncEditor', () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'LRC' }));
       await vi.waitFor(() => expect(window.castApi.exportTextFile).toHaveBeenCalledTimes(1));
       expect(vi.mocked(window.castApi.exportTextFile).mock.calls[0]![0]).toMatchObject({ extension: 'lrc', filterName: 'LRC' });
+      // The trigger disables itself for the duration of the export; wait for
+      // it to re-enable before starting the next one, otherwise the second
+      // click can land while `exporting` is still true and never opens the menu.
+      await vi.waitFor(() => expect(screen.getByLabelText('Export lyrics')).not.toBeDisabled());
 
       fireEvent.click(screen.getByLabelText('Export lyrics'));
       fireEvent.click(screen.getByRole('menuitem', { name: 'SRT' }));

@@ -9,10 +9,10 @@ import { FileDropNavigationGuard } from '../../../../apps/cast/renderer/App';
 // import stays on the click-driven "Choose bundle…" picker. These tests pin
 // that contract: no global overlay/import, navigation safety kept.
 
-const APP_PATH = path.join(process.cwd(), 'app/renderer/App.tsx');
+const APP_PATH = path.join(process.cwd(), 'apps/cast/renderer/App.tsx');
 const DROP_IMPORT_PATH = path.join(
   process.cwd(),
-  'app/renderer/features/items/bundle-drop-import.tsx',
+  'apps/cast/renderer/features/items/bundle-drop-import.tsx',
 );
 
 function dispatchWindowFileDrop(type: 'dragover' | 'drop', files: File[]): boolean {

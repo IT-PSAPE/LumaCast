@@ -15,7 +15,7 @@ vi.mock('../../../../../../apps/chord/renderer/features/library/import-flows', (
   importLyrics: vi.fn(),
 }));
 
-vi.mock('../../../../../../apps/chord/renderer/features/export', () => ({
+vi.mock('../../../../../../apps/chord/renderer/features/export/export-dialog', () => ({
   ExportDialog: ({ open }: { open: boolean }) => (open ? <div data-testid="export-dialog" /> : null),
   useExport: () => ({}),
 }));

@@ -125,8 +125,13 @@ function createTracker(queue: OperationQueue) {
   });
   return {
     events,
+    // Progress updates during a download re-emit 'change' with the status
+    // unchanged (e.g. several 'downloading' events carrying new byte counts),
+    // so this collapses consecutive repeats down to the actual status
+    // transitions a caller cares about.
     statusesFor(id: string): OperationStatus[] {
-      return events.filter((e) => e.id === id).map((e) => e.status);
+      const statuses = events.filter((e) => e.id === id).map((e) => e.status);
+      return statuses.filter((status, index) => index === 0 || status !== statuses[index - 1]);
     },
     waitFor(predicate: (op: OperationSnapshot) => boolean): Promise<OperationSnapshot> {
       const already = events.find(predicate);
@@ -146,7 +151,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await rm(downloadsDir, { recursive: true, force: true });
+  await rm(downloadsDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
 function baseDeps(overrides: Partial<OperationQueueDeps> = {}): OperationQueueDeps {
@@ -208,9 +213,11 @@ describe('apps/cloud OperationQueue install', () => {
         discover: async () => installed,
       }),
     );
+    const tracker = createTracker(queue);
     const snapshot = await queue.enqueueInstall({ app: 'cast' });
     expect(snapshot.kind).toBe('update');
     expect(snapshot.version).toBe('1.1.0');
+    await tracker.waitForTerminal(snapshot.id);
   });
 
   it('decides "downgrade" when an older version is explicitly requested', async () => {
@@ -224,8 +231,10 @@ describe('apps/cloud OperationQueue install', () => {
         discover: async () => installed,
       }),
     );
+    const tracker = createTracker(queue);
     const snapshot = await queue.enqueueInstall({ app: 'cast', version: '1.0.0' });
     expect(snapshot.kind).toBe('downgrade');
+    await tracker.waitForTerminal(snapshot.id);
   });
 
   it('decides "install" (reinstall) when the requested version equals what is installed', async () => {
@@ -238,8 +247,10 @@ describe('apps/cloud OperationQueue install', () => {
         discover: async () => installed,
       }),
     );
+    const tracker = createTracker(queue);
     const snapshot = await queue.enqueueInstall({ app: 'cast', version: '1.0.0' });
     expect(snapshot.kind).toBe('install');
+    await tracker.waitForTerminal(snapshot.id);
   });
 
   it('throws when the requested version is not in the catalog', async () => {
@@ -330,6 +341,7 @@ describe('apps/cloud OperationQueue install', () => {
     expect(tracker.statusesFor(queuedOnly.id)).toEqual(['queued', 'cancelled']);
 
     await queue.cancel(running.id).catch(() => {});
+    await tracker.waitForTerminal(running.id);
   });
 
   it('rejects cancelling an operation that is already installing', async () => {

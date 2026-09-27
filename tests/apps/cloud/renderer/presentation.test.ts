@@ -95,8 +95,11 @@ describe('statusLabel', () => {
   });
 
   it('shows the installed version when the status is unknown but a copy is on disk', () => {
-    const state = makeAppState({ status: 'unknown' });
-    expect(statusLabel(state)).toBe(`Installed ${state.installed?.version}`);
+    const state = makeAppState({
+      status: 'unknown',
+      installed: { app: 'cast', version: '0.1.27', location: '/Applications/LumaCast.app', scope: 'user' },
+    });
+    expect(statusLabel(state)).toBe('Installed 0.1.27');
   });
 });
 

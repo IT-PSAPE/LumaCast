@@ -34,10 +34,11 @@ export interface CheckboxProps {
 
 // Wrapping the root in a native `<label>` gives the hidden input Base UI
 // renders beside the box a click target for free (the same trick a native
-// `<input type="checkbox">` relies on). The rendered control's accessible
-// role lives on Base UI's own `<span>` rather than that hidden input though,
-// so label-wrapping alone does not reach it — `aria-label` is set directly
-// so the control has a real accessible name regardless of DOM association.
+// `<input type="checkbox">` relies on). Base UI's own `Checkbox.Root` detects
+// that wrapping `<label>` and derives its accessible name from the label's
+// text content automatically, so the visible `<span>{label}</span>` below is
+// already enough — an explicit `aria-label` here would double up with that
+// derived name (both get concatenated into the accessible name).
 export function Checkbox({ checked, onCheckedChange, label, disabled, className }: CheckboxProps) {
   return (
     <label
@@ -51,7 +52,6 @@ export function Checkbox({ checked, onCheckedChange, label, disabled, className 
         checked={checked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
-        aria-label={label}
         className="flex size-4 shrink-0 items-center justify-center rounded-sm border border-primary bg-tertiary text-transparent transition-colors data-[checked]:border-brand data-[checked]:bg-brand data-[checked]:text-white data-disabled:cursor-not-allowed"
       >
         <BaseCheckbox.Indicator keepMounted={false} className="flex items-center justify-center">

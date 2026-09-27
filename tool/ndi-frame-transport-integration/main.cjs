@@ -130,8 +130,10 @@ async function run() {
     'fixtures',
     'libndi_mock.dylib',
   );
-  const hostModulePath = path.join(ROOT, 'out', 'main', 'ndi-host.js');
-  const preloadPath = path.join(ROOT, 'out', 'preload', 'preload.js');
+  // Cast builds into its own workspace since the apps/* split; the bundles the
+  // harness forks and preloads live there, not at the repository root.
+  const hostModulePath = path.join(ROOT, 'apps', 'cast', 'out', 'main', 'ndi-host.js');
+  const preloadPath = path.join(ROOT, 'apps', 'cast', 'out', 'preload', 'preload.js');
   const rendererPath = path.join(__dirname, 'renderer.html');
   for (const requiredPath of [mockRuntimePath, hostModulePath, preloadPath, rendererPath]) {
     assert.ok(fs.existsSync(requiredPath), `required integration-test artifact is missing: ${requiredPath}`);

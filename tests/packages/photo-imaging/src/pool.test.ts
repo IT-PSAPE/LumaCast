@@ -107,7 +107,7 @@ describe('RenderPool worker entry selection', () => {
     await pool.close();
 
     expect(entryPath(spawned[0]!.entry)).toMatch(/worker\.ts$/);
-    expect(spawned[0]!.execArgv).toEqual(['--import', 'tsx']);
+    expect(spawned[0]!.execArgv).toEqual(['--require', 'tsx/cjs']);
   });
 
   it('fails at construction with an actionable error when a bundle carries no worker', async () => {
@@ -128,7 +128,7 @@ describe('RenderPool worker entry selection', () => {
     await pool.close();
 
     expect(spawned[0]!.entry).toBe(entry);
-    expect(spawned[0]!.execArgv).toEqual(['--import', 'tsx']);
+    expect(spawned[0]!.execArgv).toEqual(['--require', 'tsx/cjs']);
   });
 
   it('runs an explicit emitted .js entry with no source loader', async () => {

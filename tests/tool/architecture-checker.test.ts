@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -302,7 +303,7 @@ describe("flux photo packages", () => {
 
     expect(result.ok).toBe(false);
     const impure = result.violations.filter((v) => v.rule === "package-purity");
-    expect(impure.map((v) => `${v.from} -> ${v.to}`)).toEqual([
+    expect(impure.map((v) => `${v.from} -> ${v.to}`).sort()).toEqual([
       "packages/photo-model/src/index.ts -> fs",
       "packages/photo-model/src/index.ts -> node:fs",
     ]);

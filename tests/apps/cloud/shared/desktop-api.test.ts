@@ -9,7 +9,15 @@ describe('apps/cloud DesktopAPI contract', () => {
   const source = readFileSync(CONTRACT_PATH, 'utf8');
 
   it('declares exactly the capabilities the LumaCloud renderer uses', () => {
-    const methods = [...source.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
+    // Scope the extraction to the `CloudDesktopAPI` interface body only —
+    // matching any 2-space-indented `name:` line against the whole file
+    // also picks up every other interface declared above it (HostInfo,
+    // CloudSettings, OperationSnapshot, ...), whose fields (platform, arch,
+    // cloudVersion, ...) are not renderer-facing API members at all.
+    const interfaceMatch = source.match(/export interface CloudDesktopAPI \{([\s\S]*?)\n\}/);
+    expect(interfaceMatch).not.toBeNull();
+    const body = interfaceMatch![1];
+    const methods = [...body.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]);
 
     expect(methods).toEqual([
       'overview',

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { createMockApi } from '../../../../../apps/cloud/renderer/mock-api';
 import { useSuite } from '../../../../../apps/cloud/renderer/hooks/use-suite';
 import { AppsScreen } from '../../../../../apps/cloud/renderer/screens/apps-screen';
@@ -25,7 +25,13 @@ describe('AppsScreen', () => {
     expect(screen.getByText('Update available 0.1.26 → 0.1.27')).toBeInTheDocument();
 
     expect(screen.getByText('Lumaflux')).toBeInTheDocument();
-    expect(screen.getByText('Not installed')).toBeInTheDocument();
+    // Chord also ships no releases and isn't installed, so 'Not installed'
+    // renders on two cards (Lumaflux and LumaChord) — scope to Lumaflux's
+    // own card instead of asserting on the ambiguous shared text.
+    const fluxCard = screen.getByText('Lumaflux').closest('.rounded-lg') as HTMLElement;
+    expect(fluxCard).not.toBeNull();
+    expect(within(fluxCard).getByText('Not installed')).toBeInTheDocument();
+    expect(screen.getAllByText('Not installed')).toHaveLength(2);
 
     expect(screen.getByText('LumaCloud')).toBeInTheDocument();
     expect(screen.getByText('Installed 0.1.0')).toBeInTheDocument();

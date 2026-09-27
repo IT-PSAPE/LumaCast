@@ -32,11 +32,21 @@ describe('straightening geometry', () => {
               .ensureAlpha()
               .raw()
               .toBuffer({ resolveWithObject: true });
+            // Scan in a plain loop rather than asserting per pixel: calling
+            // `expect` once per byte (up to ~60k per iteration, ~1.4M for
+            // the full angle/rotation/size matrix) is what pushed this test
+            // past the 5s default timeout, not the image work itself (the
+            // whole matrix renders and re-decodes in well under a second).
+            let firstTransparentAt = -1;
             for (let i = 3; i < data.length; i += 4)
-              expect(
-                data[i],
-                `${width}x${height}, rotation ${rotation}, angle ${straighten}, pixel ${i}`,
-              ).toBe(255);
+              if (data[i] !== 255) {
+                firstTransparentAt = i;
+                break;
+              }
+            expect(
+              firstTransparentAt,
+              `${width}x${height}, rotation ${rotation}, angle ${straighten}, pixel ${firstTransparentAt}`,
+            ).toBe(-1);
             expect(info.width > 0 && info.height > 0).toBe(true);
           }
       }

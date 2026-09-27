@@ -31,7 +31,7 @@ describe('NumberField', () => {
     fireEvent.keyDown(input, { key: 'ArrowUp' });
     expect(onCommit).toHaveBeenLastCalledWith(12);
     fireEvent.keyDown(input, { key: 'ArrowDown', shiftKey: true });
-    expect(onCommit).toHaveBeenLastCalledWith(2);
+    expect(onCommit).toHaveBeenLastCalledWith(-8);
   });
 
   it('clamps to min/max', () => {

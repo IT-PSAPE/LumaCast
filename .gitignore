@@ -7,6 +7,7 @@ dist
 packages/ndi-native/build
 tests/packages/ndi-native/fixtures/libndi_mock.dylib
 tests/packages/ndi-native/fixtures/mock_report.json
+tests/packages/ndi-native/fixtures/mock_audio_report.jsonl
 .electron-dev-dist
 .npm-cache
 .local

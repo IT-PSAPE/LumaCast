@@ -177,7 +177,8 @@ describe("Adjustments lens correction panel", () => {
 
   it("keeps the light group auto affordance on the adjustments tab", () => {
     const { onAction } = renderInspector({ tab: "Adjustments" });
-    const light = screen.getByRole("group", { name: /light/i });
+    // Exact name: `/light/i` also matches the Highlights slider group.
+    const light = screen.getByRole("group", { name: "Light" });
     fireEvent.click(within(light).getByRole("button", { name: "Auto light" }));
     expect(onAction).toHaveBeenCalledWith("auto_adjust");
   });

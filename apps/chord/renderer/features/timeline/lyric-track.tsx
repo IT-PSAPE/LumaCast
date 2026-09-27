@@ -39,6 +39,7 @@ export function LyricTrack() {
   const view = useChordStore((state) => state.timeline);
   const tool = useChordStore((state) => state.tool);
   const tapIndex = useChordStore((state) => state.tapIndex);
+  const tapOrder = useChordStore((state) => state.tapOrder);
   const select = useChordStore((state) => state.select);
   const clearSelection = useChordStore((state) => state.clearSelection);
   const seek = useChordStore((state) => state.seek);
@@ -211,7 +212,10 @@ export function LyricTrack() {
           const width = Math.max(MIN_CLIP_WIDTH_PX, msToPx(endMs - cue.startMs, view.zoom));
           const selected = selection.includes(cue.id);
           const active = index === activeIndex;
-          const tapTarget = tool === 'tap' && tapIndex === index;
+          // `cues` is sorted by `startMs` (which tapping just re-times), so
+          // the "next cue to tap" is looked up by id via `tapOrder`, not by
+          // its live array position — see the field doc in `store/types.ts`.
+          const tapTarget = tool === 'tap' && tapIndex !== null && tapOrder?.[tapIndex] === cue.id;
           return (
             <div
               key={cue.id}

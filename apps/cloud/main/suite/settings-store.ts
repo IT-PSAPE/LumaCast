@@ -83,13 +83,11 @@ export class SettingsStore {
   }
 
   async update(patch: CloudSettingsPatch): Promise<CloudSettings> {
-    const next: CloudSettings = {
-      ...this.settings,
+    return this.mutate((current) => ({
+      ...current,
       ...(patch.installScope !== undefined ? { installScope: patch.installScope } : {}),
       ...(patch.checkOnLaunch !== undefined ? { checkOnLaunch: patch.checkOnLaunch } : {}),
-    };
-    await this.persist(next);
-    return this.get();
+    }));
   }
 
   /**
@@ -103,30 +101,39 @@ export class SettingsStore {
   async grant(app: SuiteAppId, bundleId: string): Promise<CloudSettings> {
     if (app === 'cloud') return this.get();
     if (!isManagedIdentity(bundleId) || bundleId !== suiteApp(app).bundleId) return this.get();
-    if (this.settings.grants.some((grant) => grant.app === app)) return this.get();
 
-    const next: CloudSettings = {
-      ...this.settings,
-      grants: [...this.settings.grants, { app, bundleId, grantedAt: new Date().toISOString() }],
-    };
-    await this.persist(next);
-    return this.get();
+    return this.mutate((current) => {
+      if (current.grants.some((grant) => grant.app === app)) return null;
+      return {
+        ...current,
+        grants: [...current.grants, { app, bundleId, grantedAt: new Date().toISOString() }],
+      };
+    });
   }
 
   /** Idempotent: revoking an app with no grant is a no-op. */
   async revoke(app: SuiteAppId): Promise<CloudSettings> {
-    if (!this.settings.grants.some((grant) => grant.app === app)) return this.get();
-
-    const next: CloudSettings = {
-      ...this.settings,
-      grants: this.settings.grants.filter((grant) => grant.app !== app),
-    };
-    await this.persist(next);
-    return this.get();
+    return this.mutate((current) => {
+      if (!current.grants.some((grant) => grant.app === app)) return null;
+      return { ...current, grants: current.grants.filter((grant) => grant.app !== app) };
+    });
   }
 
-  private async persist(next: CloudSettings): Promise<void> {
+  /**
+   * Serializes every read-modify-write through `writeTail`, and — critically
+   * — defers reading `this.settings` until this mutation's turn in that
+   * queue actually runs. Concurrent callers (e.g. two grants racing an
+   * update via `Promise.all`) must each see the previous mutation's result,
+   * not the settings that were current when they were first called; reading
+   * `this.settings` up front (as the old `persist(next)` helper's callers
+   * did) let concurrent writes compute `next` from the same stale snapshot
+   * and silently clobber each other. `compute` returning `null` means "no
+   * change" (an idempotent grant/revoke) and skips the disk write entirely.
+   */
+  private async mutate(compute: (current: CloudSettings) => CloudSettings | null): Promise<CloudSettings> {
     const run = this.writeTail.then(async () => {
+      const next = compute(this.settings);
+      if (next === null) return;
       await mkdir(path.dirname(this.filePath), { recursive: true });
       const tmp = `${this.filePath}.tmp`;
       await writeFile(tmp, JSON.stringify(next, null, 2), { mode: 0o600 });
@@ -135,5 +142,6 @@ export class SettingsStore {
     });
     this.writeTail = run.catch(() => {});
     await run;
+    return this.get();
   }
 }

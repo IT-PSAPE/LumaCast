@@ -53,13 +53,16 @@ afterAll(() => {
   }
 });
 
-function pointer(type: string, init: { clientX: number; pointerId?: number } = { clientX: 0 }) {
-  return new PointerEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    clientX: init.clientX,
-    pointerId: init.pointerId ?? 1,
-  });
+// `fireEvent.pointerX(element, init)` (see `createEvent` in
+// `@testing-library/dom`) treats `init` as a plain object of event properties
+// and builds the real `PointerEvent` from it itself — it does not accept an
+// already-constructed event. A constructed `PointerEvent` instance exposes
+// `clientX`/`pointerId` as inherited getters rather than own enumerable
+// properties, so handing one to `fireEvent` as `init` silently drops them once
+// it spreads `{ ...init }`. Return a plain init object instead so `clientX`
+// and `pointerId` actually reach the dispatched event.
+function pointer(_type: string, init: { clientX: number; pointerId?: number } = { clientX: 0 }) {
+  return { clientX: init.clientX, pointerId: init.pointerId ?? 1 };
 }
 
 describe('PanelResize', () => {

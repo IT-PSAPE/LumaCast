@@ -85,7 +85,11 @@ interface OperationRecord {
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
+  // Deliberately not `error instanceof Error`: in some realms (e.g. jsdom's
+  // test environment) `DOMException` and the ambient `Error` come from
+  // different global objects, so an `instanceof` check silently fails and a
+  // user-initiated cancel gets reported as a failure instead of `cancelled`.
+  return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError';
 }
 
 function decideKind(

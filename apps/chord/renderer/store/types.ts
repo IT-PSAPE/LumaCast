@@ -61,6 +61,14 @@ export interface ChordState {
   tool: Tool;
   /** Index of the next cue tap-to-mark will time; null when not tapping. */
   tapIndex: number | null;
+  /**
+   * Cue ids in the order tap-to-mark will time them, snapshotted when tap
+   * mode starts (and extended as new cues are appended past the end); null
+   * when not tapping. `updateProject` re-sorts `cues` by `startMs` after
+   * every mutation, so a live array position can't be used as a stable
+   * "next cue" pointer once a tap re-times a cue ahead of its neighbours.
+   */
+  tapOrder: readonly string[] | null;
   inspectorTab: InspectorTab;
   media: ResolvedMedia;
   canUndo: boolean;

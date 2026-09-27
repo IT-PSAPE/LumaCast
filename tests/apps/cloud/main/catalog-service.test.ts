@@ -153,10 +153,10 @@ describe('apps/cloud CatalogService', () => {
       'version: 1.2.0',
       'files:',
       '  - url: LumaCast-1.2.0-arm64-mac.zip',
-      '    sha512: ' + 'A'.repeat(84) + '==',
+      '    sha512: ' + 'A'.repeat(86) + '==',
       '    size: 1000',
       'path: LumaCast-1.2.0-arm64-mac.zip',
-      'sha512: ' + 'A'.repeat(84) + '==',
+      'sha512: ' + 'A'.repeat(86) + '==',
       "releaseDate: '2026-02-01T00:00:00.000Z'",
       '',
     ].join('\n');
@@ -183,8 +183,8 @@ describe('apps/cloud CatalogService', () => {
     const metadata = await catalog.metadataFor(release, 'darwin');
     expect(metadata.version).toBe('1.2.0');
     expect(metadata.files).toEqual([
-      { url: 'LumaCast-1.2.0-arm64-mac.zip', sha512: 'A'.repeat(84) + '==', size: 1000 },
+      { url: 'LumaCast-1.2.0-arm64-mac.zip', sha512: 'A'.repeat(86) + '==', size: 1000 },
     ]);
-    expect(metadata.sha512).toBe('A'.repeat(84) + '==');
+    expect(metadata.sha512).toBe('A'.repeat(86) + '==');
   });
 });

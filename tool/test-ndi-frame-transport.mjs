@@ -21,7 +21,8 @@ function run(command, args, env = process.env) {
 }
 
 run(npmCommand, ['--prefix', 'packages/ndi-native', 'run', 'build:mock-ndi']);
-run(npmCommand, ['run', 'build']);
+// Only Cast owns the NDI host and preload the harness exercises.
+run(npmCommand, ['run', 'build:cast']);
 
 const electronBinary = join(
   root,

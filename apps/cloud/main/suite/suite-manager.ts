@@ -104,11 +104,24 @@ export class SuiteManager extends EventEmitter {
     });
 
     this.operationQueue.on('change', (operation) => {
-      this.emit('operation-change', operation);
       if (TERMINAL_OPERATION_STATUSES.has(operation.status)) {
-        // Reinstalling/uninstalling/updating changes what's on disk; the next
-        // overview must reflect it without the renderer having to ask.
-        void this.rescanInstalls().then(() => this.emitOverviewChange());
+        // Reinstalling/uninstalling/updating changes what's on disk. Rescan
+        // *before* telling listeners the operation is done: emitting
+        // 'operation-change' first (rescanning only afterwards, in the
+        // background) let a caller that reacts to the terminal status —
+        // including `overview()` read synchronously right after seeing
+        // 'done' — observe stale install state, since the rescan is an
+        // async install-discovery pass that hadn't finished yet.
+        // A failed rescan must not swallow the terminal event: listeners still
+        // learn the operation ended, on the previous install view.
+        void this.rescanInstalls()
+          .catch(() => undefined)
+          .then(() => {
+            this.emit('operation-change', operation);
+            this.emitOverviewChange();
+          });
+      } else {
+        this.emit('operation-change', operation);
       }
     });
   }

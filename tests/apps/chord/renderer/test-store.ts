@@ -75,6 +75,7 @@ export function createTestStore(overrides: Partial<TestChordStore> = {}): TestCh
     timeline: { zoom: 80, scrollMs: 0, viewportWidth: 800 },
     tool: 'select',
     tapIndex: null,
+    tapOrder: null,
     inspectorTab: 'cue',
     media: { audioUrl: null, backgroundUrl: null },
     canUndo: false,
