@@ -115,7 +115,9 @@ export class SuiteManager extends EventEmitter {
         // A failed rescan must not swallow the terminal event: listeners still
         // learn the operation ended, on the previous install view.
         void this.rescanInstalls()
-          .catch(() => undefined)
+          .catch((error) => {
+            console.error('[suite-manager] rescan after operation failed', error);
+          })
           .then(() => {
             this.emit('operation-change', operation);
             this.emitOverviewChange();
@@ -128,7 +130,11 @@ export class SuiteManager extends EventEmitter {
 
   /** Runs the initial install scan. Call once at startup before serving `overview()`. */
   async initialize(): Promise<SuiteOverview> {
-    await this.rescanInstalls();
+    try {
+      await this.rescanInstalls();
+    } catch (error) {
+      console.error('[suite-manager] initial install scan failed', error);
+    }
     return this.overview();
   }
 
