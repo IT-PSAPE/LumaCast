@@ -5,7 +5,9 @@
 Accepted. Supersedes ADR-0035's versioning and release-output decisions (one
 repository-root version, one GitHub Release). ADR-0035 remains accurate on the
 CI mechanics it settled — one common workflow, validation, stable-only releases,
-Xvfb, no updater in unpackaged builds — and those parts stand.
+Xvfb, no updater in unpackaged builds — and those parts stand. ADR-0048
+amends the rule that a manual dispatch is CI-only: a dispatch that checks its
+`release` input may release.
 
 ## Date
 

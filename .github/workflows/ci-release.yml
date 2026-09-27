@@ -12,6 +12,11 @@ on:
         description: Application workspace to validate and release (cast, cloud, flux, or chord).
         required: true
         type: string
+      release:
+        description: A manual dispatch packages and publishes only when this is true.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -75,7 +80,9 @@ jobs:
   detect:
     name: ${{ inputs.app }} release gate
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release))
     runs-on: ubuntu-latest
     outputs:
       app: ${{ steps.detect.outputs.app }}
@@ -100,6 +107,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           APP: ${{ inputs.app }}
           BEFORE_SHA: ${{ github.event.before }}
+          RELEASE_REQUESTED: ${{ inputs.release }}
         run: |
           set -euo pipefail
 
@@ -159,6 +167,7 @@ jobs:
           TAG_EXISTS="$TAG_EXISTS" \
           HIGHEST_PUBLISHED_VERSION="$HIGHEST_PUBLISHED_VERSION" \
           GITHUB_EVENT_NAME="$GITHUB_EVENT_NAME" \
+          RELEASE_REQUESTED="$RELEASE_REQUESTED" \
           node tool/release-version.mjs >> "$GITHUB_OUTPUT"
 
           echo "::notice::$APP $CURRENT_VERSION, baseline ${PREVIOUS_VERSION:-none} (${PREVIOUS_VERSION_SOURCE:-none}), highest published ${HIGHEST_PUBLISHED_VERSION:-none}, tag $TAG already published: $TAG_EXISTS"
@@ -358,7 +367,8 @@ jobs:
     # makes it a no-op unless the version release is published and newer than
     # (or a repair of) what the feed serves.
     if: >-
-      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release)) &&
       always() &&
       needs.detect.result == 'success' &&
       (needs.release.result == 'success' || needs.release.result == 'skipped')

@@ -5,7 +5,9 @@
 //
 // - only a push may release, and only when the app manifest version is a stable
 //   semantic version that is strictly greater than the baseline;
-// - a manual dispatch is CI-only and never packages;
+// - a manual dispatch is CI-only unless the operator explicitly requests a
+//   release; a requested manual release needs no baseline (the request is the
+//   intent) but still refuses an already published or older version;
 // - a missing baseline never auto-releases, so the commit that introduces an app
 //   manifest (or the repository-to-apps migration) cannot publish by accident;
 // - an already published <app>-v<version> release makes a rerun a no-op;
@@ -226,6 +228,7 @@ export function readManifestVersion(manifestPath) {
  *   previousVersionSource?: string;
  *   tagExists: boolean;
  *   highestPublishedVersion?: string;
+ *   releaseRequested?: boolean;
  * }} input
  */
 export function decideStableRelease(input) {
@@ -244,10 +247,11 @@ export function decideStableRelease(input) {
     throw new Error('A baseline version requires a previous version source.');
   }
 
-  if (input.eventName === 'workflow_dispatch') {
+  const manual = input.eventName === 'workflow_dispatch';
+  if (manual && input.releaseRequested !== true) {
     return { shouldRelease: false, reason: 'manual-ci-only' };
   }
-  if (input.eventName !== 'push') {
+  if (!manual && input.eventName !== 'push') {
     return { shouldRelease: false, reason: 'unsupported-event' };
   }
 
@@ -273,6 +277,12 @@ export function decideStableRelease(input) {
   if (input.tagExists) {
     return { shouldRelease: false, reason: 'tag-exists' };
   }
+  // A requested manual release ships the current manifest version as long as
+  // it is unpublished and newer than every published release (checked above);
+  // it does not need a baseline increase within the run.
+  if (manual) {
+    return { shouldRelease: true, reason: 'manual-release' };
+  }
   if (!input.previousVersion) {
     return { shouldRelease: false, reason: 'no-baseline-version' };
   }
@@ -297,6 +307,7 @@ function runCommandInterface() {
   const tagExists = process.env.TAG_EXISTS === 'true';
   const highestPublishedVersion = process.env.HIGHEST_PUBLISHED_VERSION || undefined;
   const eventName = process.env.GITHUB_EVENT_NAME ?? '';
+  const releaseRequested = process.env.RELEASE_REQUESTED === 'true';
 
   const decision = decideStableRelease({
     app,
@@ -306,6 +317,7 @@ function runCommandInterface() {
     previousVersionSource,
     tagExists,
     highestPublishedVersion,
+    releaseRequested,
   });
 
   process.stdout.write([

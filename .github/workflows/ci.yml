@@ -15,7 +15,10 @@ name: CI
 # `before` commit is used, and without any usable baseline every app runs.
 #
 # Manual runs choose their apps: `all` (default), a comma-separated list such as
-# `cast,flux`, or `affected` to apply the same detection as a push.
+# `cast,flux`, or `affected` to apply the same detection as a push. A manual run
+# on main also packages and publishes each selected app whose manifest version
+# is unpublished and newer than its latest release, but only when `release` is
+# checked; otherwise it is CI-only.
 
 on:
   pull_request:
@@ -29,6 +32,11 @@ on:
         required: false
         default: all
         type: string
+      release:
+        description: Package and publish each selected app whose manifest version is not yet released (main only).
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -142,6 +150,7 @@ jobs:
     uses: ./.github/workflows/ci-release.yml
     with:
       app: cast
+      release: ${{ github.event_name == 'workflow_dispatch' && inputs.release == true }}
     permissions:
       contents: write
     secrets: inherit
@@ -159,6 +168,7 @@ jobs:
     uses: ./.github/workflows/ci-release.yml
     with:
       app: cloud
+      release: ${{ github.event_name == 'workflow_dispatch' && inputs.release == true }}
     permissions:
       contents: write
     secrets: inherit
@@ -173,6 +183,7 @@ jobs:
     uses: ./.github/workflows/ci-release.yml
     with:
       app: flux
+      release: ${{ github.event_name == 'workflow_dispatch' && inputs.release == true }}
     permissions:
       contents: write
     secrets: inherit
@@ -187,6 +198,7 @@ jobs:
     uses: ./.github/workflows/ci-release.yml
     with:
       app: chord
+      release: ${{ github.event_name == 'workflow_dispatch' && inputs.release == true }}
     permissions:
       contents: write
     secrets: inherit

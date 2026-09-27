@@ -90,7 +90,7 @@ describe('decideStableRelease', () => {
     })).toEqual({ shouldRelease: false, reason: 'tag-exists' });
   });
 
-  it('never releases from a manual dispatch', () => {
+  it('never releases from a manual dispatch that does not request one', () => {
     expect(decideStableRelease({
       app: 'cast',
       eventName: 'workflow_dispatch',
@@ -99,6 +99,108 @@ describe('decideStableRelease', () => {
       previousVersionSource: 'app-manifest',
       tagExists: false,
     })).toEqual({ shouldRelease: false, reason: 'manual-ci-only' });
+  });
+
+  it('never releases from a manual dispatch when a release is not requested', () => {
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'workflow_dispatch',
+      currentVersion: '0.11.1',
+      tagExists: false,
+      releaseRequested: false,
+    })).toEqual({ shouldRelease: false, reason: 'manual-ci-only' });
+  });
+
+  it('releases an unpublished version from a requested manual dispatch without a baseline', () => {
+    for (const app of ['cast', 'cloud', 'flux', 'chord']) {
+      expect(decideStableRelease({
+        app,
+        eventName: 'workflow_dispatch',
+        currentVersion: '0.1.28',
+        tagExists: false,
+        releaseRequested: true,
+      })).toEqual({ shouldRelease: true, reason: 'manual-release' });
+    }
+  });
+
+  it('releases a requested manual dispatch whose version equals its baseline', () => {
+    // The push that bumped the version failed, so the next run sees no increase.
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'workflow_dispatch',
+      currentVersion: '0.11.1',
+      previousVersion: '0.11.1',
+      previousVersionSource: 'app-manifest',
+      tagExists: false,
+      releaseRequested: true,
+    })).toEqual({ shouldRelease: true, reason: 'manual-release' });
+  });
+
+  it('releases a requested manual Flux revision above the highest published version', () => {
+    expect(decideStableRelease({
+      app: 'flux',
+      eventName: 'workflow_dispatch',
+      currentVersion: '0.11.1+1',
+      tagExists: false,
+      highestPublishedVersion: '0.11.1',
+      releaseRequested: true,
+    })).toEqual({ shouldRelease: true, reason: 'manual-release' });
+  });
+
+  it('skips a requested manual dispatch whose version is already published', () => {
+    expect(decideStableRelease({
+      app: 'cast',
+      eventName: 'workflow_dispatch',
+      currentVersion: '0.1.28',
+      tagExists: true,
+      releaseRequested: true,
+    })).toEqual({ shouldRelease: false, reason: 'tag-exists' });
+    expect(decideStableRelease({
+      app: 'cast',
+      eventName: 'workflow_dispatch',
+      currentVersion: '0.1.28',
+      tagExists: false,
+      highestPublishedVersion: '0.1.28',
+      releaseRequested: true,
+    })).toEqual({ shouldRelease: false, reason: 'tag-exists' });
+  });
+
+  it('refuses a requested manual dispatch older than the highest published version', () => {
+    expect(() => decideStableRelease({
+      app: 'cast',
+      eventName: 'workflow_dispatch',
+      currentVersion: '0.1.27',
+      tagExists: false,
+      highestPublishedVersion: '0.1.28',
+      releaseRequested: true,
+    })).toThrow(/must be greater than highest published 0\.1\.28/);
+  });
+
+  it('refuses an invalid version from a requested manual dispatch', () => {
+    expect(() => decideStableRelease({
+      app: 'cast',
+      eventName: 'workflow_dispatch',
+      currentVersion: '0.1.28+1',
+      tagExists: false,
+      releaseRequested: true,
+    })).toThrow(/stable semantic version/);
+  });
+
+  it('ignores a release request outside a manual dispatch', () => {
+    expect(decideStableRelease({
+      app: 'cast',
+      eventName: 'pull_request',
+      currentVersion: '0.1.28',
+      tagExists: false,
+      releaseRequested: true,
+    })).toEqual({ shouldRelease: false, reason: 'unsupported-event' });
+    expect(decideStableRelease({
+      app: 'cast',
+      eventName: 'push',
+      currentVersion: '0.1.28',
+      tagExists: false,
+      releaseRequested: true,
+    })).toEqual({ shouldRelease: false, reason: 'no-baseline-version' });
   });
 
   it('never releases from a pull request', () => {
@@ -668,6 +770,38 @@ describe('release-version command interface', () => {
 
     expect(output.should_release).toBe('false');
     expect(output.reason).toBe('manual-ci-only');
+  });
+
+  it('keeps a manual dispatch CI-only unless RELEASE_REQUESTED is exactly true', () => {
+    for (const requested of ['false', '', '1', 'TRUE']) {
+      const output = outputOf(runCli({
+        APP_MANIFEST: writeManifest('0.1.28'),
+        GITHUB_EVENT_NAME: 'workflow_dispatch',
+        RELEASE_REQUESTED: requested,
+      }));
+      expect(output.reason).toBe('manual-ci-only');
+    }
+  });
+
+  it('releases from a requested manual dispatch', () => {
+    const output = outputOf(runCli({
+      RELEASE_APP: 'flux',
+      APP_MANIFEST: writeManifest('0.11.1'),
+      PREVIOUS_VERSION: '0.11.1',
+      PREVIOUS_VERSION_SOURCE: 'app-manifest',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      RELEASE_REQUESTED: 'true',
+    }));
+
+    expect(output).toEqual({
+      app: 'flux',
+      version: '0.11.1',
+      tag: 'flux-v0.11.1',
+      should_release: 'true',
+      reason: 'manual-release',
+      previous_version: '0.11.1',
+      previous_version_source: 'app-manifest',
+    });
   });
 
   it('reports no baseline when the previous app version is absent', () => {

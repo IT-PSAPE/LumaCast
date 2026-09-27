@@ -993,7 +993,8 @@ Flux, or Chord run. The pipeline logic itself is not duplicated per app.
   app; documentation selects none; anything unclassified selects every app. A
   push diffs from the last successful push run on the branch (so a failed app is
   retried by the next push), a pull request from its base, and a manual run
-  takes an `apps` input (`all`, `affected`, or a list).
+  takes an `apps` input (`all`, `affected`, or a list) and an opt-in `release`
+  input (ADR-0048).
 - **Local parity.** `tool/ci/run.mjs` is the validation step CI executes and the
   command a developer runs (`npm run ci -- --app <app>`, `npm run ci:affected`):
   typecheck, architecture checks, unit tests scoped to the app and its packages,
@@ -1003,8 +1004,11 @@ Flux, or Chord run. The pipeline logic itself is not duplicated per app.
 - **Trigger.** Pull requests stop after validation. A `main` push releases an app
   only when that app's own manifest version (`apps/<app>/package.json`) is a
   stable semantic version strictly greater than its baseline; an unchanged
-  version ends after validation, and a manual dispatch is CI-only. Prereleases
-  are not generated.
+  version ends after validation. A manual dispatch is CI-only unless its
+  `release` input is checked; on `main` it then releases each selected app's
+  manifest version without a baseline increase, still skipping a published
+  version and refusing one older than the highest published release
+  (ADR-0048). Prereleases are not generated.
 - **Baseline.** The baseline is `apps/<app>/package.json` as it stood before the
   push. Cast moved out of the repository root, so while the migration is in
   flight its pushes fall back to the previous root `package.json` version and

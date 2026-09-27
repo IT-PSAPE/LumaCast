@@ -1,4 +1,4 @@
-export type ReleaseApp = 'cast' | 'cloud' | 'flux';
+export type ReleaseApp = 'cast' | 'cloud' | 'flux' | 'chord';
 
 export type PreviousVersionSource = 'app-manifest' | 'root-manifest';
 
@@ -8,7 +8,8 @@ export type StableReleaseReason =
   | 'unsupported-event'
   | 'no-baseline-version'
   | 'version-unchanged'
-  | 'version-increased';
+  | 'version-increased'
+  | 'manual-release';
 
 export interface StableReleaseInput {
   app: ReleaseApp | string;
@@ -18,6 +19,8 @@ export interface StableReleaseInput {
   previousVersionSource?: PreviousVersionSource | string;
   tagExists: boolean;
   highestPublishedVersion?: string;
+  /** A manual dispatch releases only when this is true. */
+  releaseRequested?: boolean;
 }
 
 export interface StableReleaseDecision {
