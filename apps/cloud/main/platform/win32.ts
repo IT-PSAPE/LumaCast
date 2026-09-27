@@ -1,6 +1,17 @@
-// The Windows platform adapter: the NSIS oneClick/perMachine:false installer
-// every managed app ships (apps/*/electron-builder.yml), discovered through
-// the uninstall registry key it writes rather than by guessing a path.
+// The Windows platform adapter: every managed app ships an NSIS installer
+// (apps/*/electron-builder.yml), discovered through the uninstall registry
+// key it writes rather than by guessing a path.
+//
+// The registry shape is messier than the key name suggests: the entry key is
+// an opaque GUID, `DisplayName` carries a version suffix (`LumaChord 0.1.1`,
+// not `LumaChord`), and `InstallLocation` is usually absent. Matching is
+// therefore done per app descriptor — version-suffix-tolerant display-name
+// comparison plus the executable name as an app-id signal in the uninstall
+// and icon paths — and the install location is inferred from
+// `InstallLocation`, else the uninstall command's executable, else the icon
+// path. Only when no registry entry matches does discovery fall back to
+// probing the filesystem (and reading the version off the executable via
+// PowerShell).
 //
 // `path.win32` is used explicitly throughout (never the bare `path` module)
 // so this file's path logic is identical whether tests run it on macOS/Linux
@@ -44,6 +55,33 @@ function normalizeDisplayName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+/**
+ * Strips the version suffix NSIS appends to the registry display name
+ * (`LumaChord 0.1.1` -> `LumaChord`); a bare product name is returned
+ * unchanged.
+ */
+function stripVersionSuffix(displayName: string): string {
+  return displayName.replace(/\s+\d+\.\d+(\.\d+)*(\+\d+)?$/, '');
+}
+
+/**
+ * Whether an uninstall registry entry belongs to `app`. The display name is
+ * compared version-suffix-tolerantly, and the executable name acts as the
+ * app-id signal inside the uninstall and icon paths, so an entry is still
+ * recognized when its display name was customized.
+ */
+function entryMatchesApp(entry: RegQueryEntry, app: SuiteAppDescriptor): boolean {
+  const display = entry.values.DisplayName ?? '';
+  const target = normalizeDisplayName(app.win.displayName);
+  if (normalizeDisplayName(display) === target) return true;
+  if (normalizeDisplayName(stripVersionSuffix(display)) === target) return true;
+  const exeName = app.win.executableName.toLowerCase();
+  for (const field of [entry.values.UninstallString, entry.values.QuietUninstallString, entry.values.DisplayIcon]) {
+    if (field && field.toLowerCase().includes(exeName)) return true;
+  }
+  return false;
+}
+
 /** Reads the file version from a Windows executable via PowerShell. */
 async function readExeVersion(exePath: string, exec: PlatformAdapterDeps['exec']): Promise<string | null> {
   try {
@@ -59,55 +97,119 @@ async function readExeVersion(exePath: string, exec: PlatformAdapterDeps['exec']
   return null;
 }
 
-async function findByDisplayName(
+async function findAppEntry(
   deps: PlatformAdapterDeps,
   hive: Hive,
-  displayName: string,
+  app: SuiteAppDescriptor,
 ): Promise<RegQueryEntry | null> {
   const result = await deps.exec('reg', ['query', `${hive}\\${UNINSTALL_SUBKEY}`, '/s']);
   if (result.code !== 0) {
     return null;
   }
   const entries = parseRegQueryOutput(result.stdout);
-  const target = normalizeDisplayName(displayName);
-  return entries.find((entry) => normalizeDisplayName(entry.values.DisplayName ?? '') === target) ?? null;
+  return entries.find((entry) => entryMatchesApp(entry, app)) ?? null;
+}
+
+/** Best-effort executable path out of an uninstall command; null when unparseable. */
+function exeDirFromCommand(command: string | undefined): string | null {
+  if (!command) return null;
+  try {
+    return path.win32.dirname(parseCommandLine(command).file);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The install directory for a registry entry. NSIS entries usually omit
+ * `InstallLocation`, so it is inferred from the uninstall command's
+ * executable, else the icon path (`<dir>\<exe>,0`).
+ */
+function inferInstallLocation(entry: RegQueryEntry): string {
+  const installLocation = (entry.values.InstallLocation ?? '').trim();
+  if (installLocation) return installLocation;
+  const fromUninstall =
+    exeDirFromCommand(entry.values.QuietUninstallString) ?? exeDirFromCommand(entry.values.UninstallString);
+  if (fromUninstall) return fromUninstall;
+  const iconPath = (entry.values.DisplayIcon ?? '').split(',')[0]?.trim().replace(/^"|"$/g, '');
+  if (iconPath) return path.win32.dirname(iconPath);
+  return '';
+}
+
+async function entryToInstalled(
+  deps: PlatformAdapterDeps,
+  entry: RegQueryEntry,
+  app: SuiteAppDescriptor,
+  scope: InstalledApp['scope'],
+): Promise<InstalledApp> {
+  const location = inferInstallLocation(entry);
+  let version = (entry.values.DisplayVersion ?? '').trim();
+  if (!version && location) {
+    version = (await readExeVersion(path.win32.join(location, app.win.executableName), deps.exec)) ?? '';
+  }
+  return { app: app.id, version: version || '0.0.0', location, scope };
+}
+
+/**
+ * Finds a subdirectory of `baseDir` containing `exeName`. The NSIS install
+ * directory is derived from the npm package name rather than the product
+ * name (`@lumacast/chord` -> `@lumacastchord`, `@lumacast/cast` ->
+ * `lumacast`), so the directory cannot be guessed from the descriptor alone
+ * and is searched instead.
+ */
+async function findExeDir(
+  deps: PlatformAdapterDeps,
+  baseDir: string,
+  exeName: string,
+): Promise<string | null> {
+  let names: string[];
+  try {
+    names = await deps.fs.readDir(baseDir);
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    const candidate = path.win32.join(baseDir, name, exeName);
+    try {
+      if (await deps.fs.exists(candidate)) return path.win32.join(baseDir, name);
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 async function discover(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Promise<InstalledApp | null> {
-  const userEntry = await findByDisplayName(deps, 'HKCU', app.win.displayName);
+  const userEntry = await findAppEntry(deps, 'HKCU', app);
   if (userEntry) {
-    return {
-      app: app.id,
-      version: userEntry.values.DisplayVersion ?? '0.0.0',
-      location: userEntry.values.InstallLocation ?? '',
-      scope: 'user',
-    };
+    return entryToInstalled(deps, userEntry, app, 'user');
   }
 
-  const systemEntry = await findByDisplayName(deps, 'HKLM', app.win.displayName);
+  const systemEntry = await findAppEntry(deps, 'HKLM', app);
   if (systemEntry) {
-    return {
-      app: app.id,
-      version: systemEntry.values.DisplayVersion ?? '0.0.0',
-      location: systemEntry.values.InstallLocation ?? '',
-      scope: 'system',
-    };
+    return entryToInstalled(deps, systemEntry, app, 'system');
   }
 
-  // Neither hive has an uninstall entry. Try to find the executable and read
-  // its version from the file metadata. This handles portable installs or apps
-  // installed before Cloud was present.
+  // Neither hive has an uninstall entry. Probe the conventional product-name
+  // directory first (the common case), then scan the install locations for
+  // the executable, and read its version from the file metadata. This handles
+  // portable installs or apps installed before Cloud was present.
   const locations = installLocations(deps.env);
-  const fallbackExe = path.win32.join(locations.user, app.productName, app.win.executableName);
-  if (await deps.fs.exists(fallbackExe)) {
-    const version = await readExeVersion(fallbackExe, deps.exec);
-    if (version) {
-      return {
-        app: app.id,
-        version,
-        location: path.win32.dirname(fallbackExe),
-        scope: 'user',
-      };
+  const candidates: Array<{ dir: string; scope: InstalledApp['scope'] }> = [
+    { dir: path.win32.join(locations.user, app.productName), scope: 'user' },
+  ];
+  const scannedUserDir = await findExeDir(deps, locations.user, app.win.executableName);
+  if (scannedUserDir) candidates.push({ dir: scannedUserDir, scope: 'user' });
+  const scannedSystemDir = await findExeDir(deps, locations.system, app.win.executableName);
+  if (scannedSystemDir) candidates.push({ dir: scannedSystemDir, scope: 'system' });
+
+  for (const candidate of candidates) {
+    const exePath = path.win32.join(candidate.dir, app.win.executableName);
+    if (await deps.fs.exists(exePath)) {
+      const version = await readExeVersion(exePath, deps.exec);
+      if (version) {
+        return { app: app.id, version, location: candidate.dir, scope: candidate.scope };
+      }
     }
   }
   return null;
@@ -175,7 +277,7 @@ async function uninstall(deps: PlatformAdapterDeps, request: UninstallRequest): 
   assertNotSelf(app);
 
   const hive: Hive = installed.scope === 'system' ? 'HKLM' : 'HKCU';
-  const entry = await findByDisplayName(deps, hive, app.win.displayName);
+  const entry = await findAppEntry(deps, hive, app);
   if (!entry) {
     throw new Error(`No uninstall registry entry found for ${app.win.displayName}`);
   }
