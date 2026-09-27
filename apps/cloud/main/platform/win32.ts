@@ -6,7 +6,6 @@
 // so this file's path logic is identical whether tests run it on macOS/Linux
 // CI or a real Windows host.
 import path from 'node:path';
-import { execFile } from 'node:child_process';
 import type { InstalledApp, SuiteAppDescriptor } from '@lumacast/suite';
 import type { InstallScope } from '../../shared/desktop-api';
 import type {
