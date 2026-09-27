@@ -150,6 +150,11 @@ export interface CloudDesktopAPI {
   openReleaseNotes: (app: SuiteAppId, version: string) => Promise<void>;
 
   checkForSelfUpdate: () => Promise<SelfUpdateState>;
+  /**
+   * Downloads Cloud's pending update when it is only `available`, then
+   * restarts into it once it is `ready`. Download progress arrives through
+   * `onOverview`.
+   */
   installSelfUpdate: () => Promise<void>;
 
   onOverview: (callback: (overview: SuiteOverview) => void) => () => void;

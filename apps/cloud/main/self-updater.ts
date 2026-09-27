@@ -25,6 +25,7 @@ export class SelfUpdater extends EventEmitter {
   private error: string | null = null;
   private checkedAt: string | null = null;
   private initialized = false;
+  private installPromise: Promise<void> | null = null;
   private readonly now: () => Date;
 
   constructor(options: SelfUpdaterOptions = {}) {
@@ -88,11 +89,44 @@ export class SelfUpdater extends EventEmitter {
   async download(): Promise<void> {
     if (!app.isPackaged) return;
     this.initialize();
-    await autoUpdater.downloadUpdate();
+    try {
+      await autoUpdater.downloadUpdate();
+    } catch (error) {
+      this.apply({ status: 'error', error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    }
   }
 
-  installAndRestart(): void {
+  /**
+   * Installs Cloud's own pending update, downloading it first when it is
+   * merely `available` and only restarting once it is `ready`. Previously
+   * this called `quitAndInstall()` directly while `autoDownload` is false,
+   * so clicking "Install Update" on an update that had never downloaded
+   * always failed. A second call while a download is in flight joins it
+   * instead of starting another download.
+   */
+  async installAndRestart(): Promise<void> {
     if (!app.isPackaged) return;
+    this.initialize();
+    if (this.installPromise) {
+      await this.installPromise;
+      return;
+    }
+    this.installPromise = this.runInstallAndRestart();
+    try {
+      await this.installPromise;
+    } finally {
+      this.installPromise = null;
+    }
+  }
+
+  private async runInstallAndRestart(): Promise<void> {
+    if (this.status === 'available') {
+      await this.download();
+    }
+    if (this.status !== 'ready') {
+      throw new Error(this.error ?? 'No Cloud update is ready to install');
+    }
     autoUpdater.quitAndInstall();
   }
 
