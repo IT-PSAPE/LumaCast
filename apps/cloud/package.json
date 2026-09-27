@@ -1,6 +1,6 @@
 {
   "name": "@lumacast/cloud",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "LumaCloud: the suite manager that installs, updates, downgrades, and removes the LumaCast apps.",
   "license": "UNLICENSED",

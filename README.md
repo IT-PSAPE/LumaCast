@@ -144,7 +144,7 @@ If the addon is missing or the runtime library cannot be found, the app falls ba
 - A push to `main` releases an app only when that app's own `package.json` version (`apps/<app>/package.json`) is a stable semantic version **strictly greater** than its baseline. The baseline is the app manifest as it stood before the push; Cast falls back to the previous root `package.json` while the migration is in flight, and Cloud and Flux have no such history, so their first push validates and publishes nothing. A manual dispatch is CI-only. An unchanged version ends after validation.
 - The version release is immutable, tagged `<app>-v<version>`, and carries the installers. A permanent `<app>-feed` release carries generic updater metadata only: its installer URLs are absolute and point at the immutable `<app>-v<version>` release that produced them.
 - All three apps ship `provider: generic` against their own `<app>-feed` release. Only legacy shipped Cast versions read the repository's "latest release" slot (`provider: github`); that slot is still taken only by a Cast version release (`make_latest=true`), and no other app or feed release ever takes it.
-- Cast keeps its identity through the move: product name `LumaCast`, app id `com.lumacast.app`, current version `0.1.27`.
+- Cast keeps its identity through the move: product name `LumaCast`, app id `com.lumacast.app`, current version `0.1.28`.
 - Release note grouping is configured in [.github/release.yml](.github/release.yml).
 
 See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release conventions, and [docs/release-setup.md](docs/release-setup.md) for signing, packaging, and platform-support detail.

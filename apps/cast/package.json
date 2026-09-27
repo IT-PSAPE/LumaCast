@@ -1,6 +1,6 @@
 {
   "name": "@lumacast/cast",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "productName": "LumaCast",
   "private": true,
   "description": "LumaCast: the cross-platform presentation desktop app with NDI output.",

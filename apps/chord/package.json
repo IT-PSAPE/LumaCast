@@ -1,6 +1,6 @@
 {
   "name": "@lumacast/chord",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "LumaChord: builds a lyric video from an audio track and timed lyric cues.",
   "license": "UNLICENSED",
