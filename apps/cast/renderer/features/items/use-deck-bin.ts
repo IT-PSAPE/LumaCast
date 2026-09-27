@@ -39,9 +39,10 @@ export function useDeckBin() {
     () => filterAndSort(lyrics, 'lyric', searchValue, sort, slidesByItem),
     [lyrics, searchValue, slidesByItem, sort],
   );
-  const sections = useMemo<[ItemBinSection<Presentation>, ItemBinSection<Lyric>]>(() => [
-    { type: 'presentation', label: 'Presentations', items: filteredPresentations },
+  // Lyrics lead every grouped listing; presentations follow.
+  const sections = useMemo<[ItemBinSection<Lyric>, ItemBinSection<Presentation>]>(() => [
     { type: 'lyric', label: 'Lyrics', items: filteredLyrics },
+    { type: 'presentation', label: 'Presentations', items: filteredPresentations },
   ], [filteredPresentations, filteredLyrics]);
 
   function handleRename(itemRef: ItemRef, title: string) {

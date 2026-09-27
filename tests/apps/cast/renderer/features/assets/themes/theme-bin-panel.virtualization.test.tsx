@@ -46,8 +46,8 @@ vi.mock('../../../../../../../apps/cast/renderer/features/assets/themes/theme-bi
 function renderPanel() {
   mocks.themeBin.value = {
     sections: [
-      { type: 'presentation', label: 'Presentations', themes: [{ id: 'p-1', name: 'Summit', width: 1, height: 1, elements: [], createdAt: 't', updatedAt: 't', slideId: 's' }] },
       { type: 'lyric', label: 'Lyrics', themes: [] },
+      { type: 'presentation', label: 'Presentations', themes: [{ id: 'p-1', name: 'Summit', width: 1, height: 1, elements: [], createdAt: 't', updatedAt: 't', slideId: 's' }] },
       { type: 'overlay', label: 'Overlays', themes: [] },
     ],
     handleApplyTheme: vi.fn(),

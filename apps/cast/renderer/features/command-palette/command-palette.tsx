@@ -49,8 +49,8 @@ type ResultIcon =
 
 const SECTION_ORDER: Array<{ kind: ResultKind; title: string }> = [
   { kind: 'playlist', title: 'Playlists' },
-  { kind: 'presentation', title: 'Presentations' },
   { kind: 'lyric', title: 'Lyrics' },
+  { kind: 'presentation', title: 'Presentations' },
   { kind: 'overlay', title: 'Overlays' },
   { kind: 'theme', title: 'Themes' },
   { kind: 'stage', title: 'Stages' },
@@ -156,8 +156,8 @@ export function CommandPalette() {
     }
 
     const themeResults: ResultItem[] = [
-      ...themeResultsFor('presentation', presentationThemes),
       ...themeResultsFor('lyric', lyricThemes),
+      ...themeResultsFor('presentation', presentationThemes),
     ];
 
     const stageResults: ResultItem[] = stageEditor.stages.map((stage: Stage) => ({

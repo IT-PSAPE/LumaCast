@@ -45,8 +45,8 @@ interface FakeItem {
 
 function makeEmptySections(): Array<{ type: ItemType; label: string; items: FakeItem[] }> {
   return [
-    { type: 'presentation', label: 'Presentations', items: [] },
     { type: 'lyric', label: 'Lyrics', items: [] },
+    { type: 'presentation', label: 'Presentations', items: [] },
   ];
 }
 

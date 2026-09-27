@@ -31,8 +31,8 @@ export function ThemeEditorScreenContent() {
                       <Plus />
                     </Dropdown.Trigger>
                     <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={() => actions.createTheme('presentation')}>New presentation theme</Dropdown.Item>
                       <Dropdown.Item onClick={() => actions.createTheme('lyric')}>New lyric theme</Dropdown.Item>
+                      <Dropdown.Item onClick={() => actions.createTheme('presentation')}>New presentation theme</Dropdown.Item>
                     </Dropdown.Panel>
                   </Dropdown>
                 </LumaCastPanel.GroupTitle>
@@ -43,8 +43,8 @@ export function ThemeEditorScreenContent() {
                         {allEmpty ? (
                           <p className="px-1 text-xs text-tertiary">No themes yet.</p>
                         ) : null}
-                        <ThemeFamilySection themeType="presentation" />
                         <ThemeFamilySection themeType="lyric" />
+                        <ThemeFamilySection themeType="presentation" />
                       </div>
                     </ScrollArea.Viewport>
                     <ScrollArea.Scrollbar>

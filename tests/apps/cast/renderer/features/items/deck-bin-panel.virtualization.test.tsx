@@ -57,8 +57,8 @@ function renderPanel() {
   mocks.createItem.value = { open: vi.fn(), close: vi.fn() };
   mocks.deckBin.value = {
     sections: [
-      { type: 'presentation', label: 'Presentations', items: [{ id: 'p-1', title: 'Deck A' }, { id: 'p-2', title: 'Deck B' }] },
-      { type: 'lyric', label: 'Lyrics', items: [] },
+      { type: 'lyric', label: 'Lyrics', items: [{ id: 'l-1', title: 'Song A' }, { id: 'l-2', title: 'Song B' }] },
+      { type: 'presentation', label: 'Presentations', items: [] },
     ],
     editingItemRef: null,
     browseItem: vi.fn(),
@@ -92,10 +92,10 @@ describe('DeckBinPanel virtualization', () => {
   it('keeps section headers and empty sections while windowing grouped rows', () => {
     renderPanel();
 
-    expect(screen.getByText('Presentations')).not.toBeNull();
-    expect(screen.getByText('Deck A')).not.toBeNull();
-    expect(screen.queryByText('Deck B')).toBeNull();
     expect(screen.getByText('Lyrics')).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'Create lyric' })).not.toBeNull();
+    expect(screen.getByText('Song A')).not.toBeNull();
+    expect(screen.queryByText('Song B')).toBeNull();
+    expect(screen.getByText('Presentations')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Create presentation' })).not.toBeNull();
   });
 });

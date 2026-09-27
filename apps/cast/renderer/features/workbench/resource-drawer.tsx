@@ -288,8 +288,8 @@ function DeckMenuItems() {
 
   return (
     <>
-      <Dropdown.Item onClick={() => openCreateItem('presentation')}>New presentation</Dropdown.Item>
       <Dropdown.Item onClick={() => openCreateItem('lyric')}>New lyric</Dropdown.Item>
+      <Dropdown.Item onClick={() => openCreateItem('presentation')}>New presentation</Dropdown.Item>
       <Dropdown.Separator />
       <SortMenuItem sortKey="name" label="Name" sort={deckSort.sort} onChange={deckSort.setSort} />
       <SortMenuItem sortKey="created" label="Date created" sort={deckSort.sort} onChange={deckSort.setSort} />
@@ -344,8 +344,8 @@ function ThemesMenuItems() {
 
   return (
     <>
-      <Dropdown.Item onClick={() => handleCreateTheme('presentation')}>New presentation theme</Dropdown.Item>
       <Dropdown.Item onClick={() => handleCreateTheme('lyric')}>New lyric theme</Dropdown.Item>
+      <Dropdown.Item onClick={() => handleCreateTheme('presentation')}>New presentation theme</Dropdown.Item>
       <Dropdown.Separator />
       <SortMenuItems options={STANDARD_SORT_OPTIONS} sort={themeSort.sort} onChange={themeSort.setSort} />
     </>

@@ -26,16 +26,17 @@ export function useThemeBin() {
   const { state: { searchValue } } = useBinControls();
 
   const sections = useMemo<ThemeBinSection[]>(() => (
+    // Lyrics lead every grouped listing; presentations follow.
     [
-      {
-        type: 'presentation',
-        label: 'Presentations',
-        themes: filterAndSortThemes(themesByType.presentation, searchValue, sort),
-      },
       {
         type: 'lyric',
         label: 'Lyrics',
         themes: filterAndSortThemes(themesByType.lyric, searchValue, sort),
+      },
+      {
+        type: 'presentation',
+        label: 'Presentations',
+        themes: filterAndSortThemes(themesByType.presentation, searchValue, sort),
       },
     ]
   ), [searchValue, sort, themesByType]);

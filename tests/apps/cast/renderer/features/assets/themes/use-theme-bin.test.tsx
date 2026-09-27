@@ -97,10 +97,10 @@ describe('useThemeBin sections', () => {
       },
     });
 
-    expect(result.current.sections.map((s) => s.type)).toEqual(['presentation', 'lyric']);
-    expect(result.current.sections.map((s) => s.label)).toEqual(['Presentations', 'Lyrics']);
-    expect(result.current.sections[0].themes.map((t) => t.id)).toEqual(['p1']);
-    expect(result.current.sections[1].themes.map((t) => t.id)).toEqual(['l1']);
+    expect(result.current.sections.map((s) => s.type)).toEqual(['lyric', 'presentation']);
+    expect(result.current.sections.map((s) => s.label)).toEqual(['Lyrics', 'Presentations']);
+    expect(result.current.sections[0].themes.map((t) => t.id)).toEqual(['l1']);
+    expect(result.current.sections[1].themes.map((t) => t.id)).toEqual(['p1']);
   });
 
   it('filters each section independently and keeps a fully-filtered section present', () => {
@@ -114,8 +114,8 @@ describe('useThemeBin sections', () => {
     });
 
     expect(result.current.sections).toHaveLength(2);
-    expect(result.current.sections[0].themes.map((t) => t.id)).toEqual(['p1']);
-    expect(result.current.sections[1].themes.map((t) => t.id)).toEqual(['l1']);
+    expect(result.current.sections[0].themes.map((t) => t.id)).toEqual(['l1']);
+    expect(result.current.sections[1].themes.map((t) => t.id)).toEqual(['p1']);
   });
 
   it('sorts each section by the shared sort key', () => {
@@ -128,8 +128,8 @@ describe('useThemeBin sections', () => {
       },
     });
 
-    expect(result.current.sections[0].themes.map((t) => t.name)).toEqual(['Alpha', 'Zulu']);
-    expect(result.current.sections[1].themes.map((t) => t.name)).toEqual(['Bravo', 'Yankee']);
+    expect(result.current.sections[0].themes.map((t) => t.name)).toEqual(['Bravo', 'Yankee']);
+    expect(result.current.sections[1].themes.map((t) => t.name)).toEqual(['Alpha', 'Zulu']);
   });
 });
 
@@ -143,7 +143,7 @@ describe('useThemeBin quick-apply', () => {
     });
 
     await act(async () => {
-      await result.current.handleApplyTheme(result.current.sections[0].themes[0]);
+      await result.current.handleApplyTheme(result.current.sections[1].themes[0]);
     });
 
     expect(applyThemeToTarget).toHaveBeenCalledTimes(1);
@@ -157,7 +157,7 @@ describe('useThemeBin quick-apply', () => {
     });
 
     await act(async () => {
-      await result.current.handleApplyTheme(result.current.sections[0].themes[0]);
+      await result.current.handleApplyTheme(result.current.sections[1].themes[0]);
     });
 
     expect(applyThemeToTarget).not.toHaveBeenCalled();
@@ -186,7 +186,7 @@ describe('useThemeBin quick-apply', () => {
     });
 
     await act(async () => {
-      await result.current.handleApplyTheme(result.current.sections[0].themes[0]);
+      await result.current.handleApplyTheme(result.current.sections[1].themes[0]);
     });
 
     expect(applyThemeToTarget).not.toHaveBeenCalled();
