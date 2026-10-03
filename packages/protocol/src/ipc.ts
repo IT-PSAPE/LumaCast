@@ -446,6 +446,7 @@ type AgentActionEventSurface = {
 // payloads above: these intentionally skip the request/response round trip
 // for latency, and their direction is the opposite of the event maps.
 export interface NdiFrameChannels {
+  publishNdiGpuScene: import('./ndi-gpu').NdiGpuSceneSnapshot;
   requestNdiFrameTransport: { name: NdiOutputName };
   // Direct audio transport uses the same one-shot MessagePort handoff as the
   // frame transport, carrying planar float32 audio instead of pixels.
@@ -455,6 +456,7 @@ export interface NdiFrameChannels {
 }
 
 type NdiFrameSurface = {
+  publishNdiGpuScene: (snapshot: import('./ndi-gpu').NdiGpuSceneSnapshot) => void;
   requestNdiFrameTransport: (name: NdiOutputName) => void;
   requestNdiAudioTransport: (name: NdiOutputName) => void;
   sendNdiFrame: (
@@ -691,6 +693,7 @@ export const IPC = {
   updateNdiOutputConfig: 'ndi:updateOutputConfig',
   getNdiDiagnostics: 'ndi:getDiagnostics',
   requestNdiFrameTransport: 'ndi:requestFrameTransport',
+  publishNdiGpuScene: 'ndi:publishGpuScene',
   requestNdiAudioTransport: 'ndi:requestAudioTransport',
   sendNdiFrame: 'ndi:sendFrame',
   sendNdiAudio: 'ndi:sendAudio',
@@ -792,7 +795,7 @@ export const PERSISTENCE_CHANNELS = {
 // this module exports, not just the RPC/frame split.
 // ---------------------------------------------------------------------------
 
-export const NDI_FRAME_CHANNEL_NAMES = ['requestNdiFrameTransport', 'requestNdiAudioTransport', 'sendNdiFrame', 'sendNdiAudio'] as const satisfies readonly (keyof typeof IPC)[];
+export const NDI_FRAME_CHANNEL_NAMES = ['publishNdiGpuScene', 'requestNdiFrameTransport', 'requestNdiAudioTransport', 'sendNdiFrame', 'sendNdiAudio'] as const satisfies readonly (keyof typeof IPC)[];
 
 type FrameChannelName = (typeof NDI_FRAME_CHANNEL_NAMES)[number];
 type RpcChannelName = Exclude<keyof typeof IPC, FrameChannelName>;

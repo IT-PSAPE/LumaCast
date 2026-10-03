@@ -90,6 +90,7 @@ export type NdiFrameReleaseReason =
   | 'nativeSendFailed';
 
 export interface NdiFrameRelease {
+  gpuFrameResult?: import('./ndi-gpu').NdiGpuFrameResult;
   name: NdiOutputName;
   attemptId?: string;
   accepted: boolean;

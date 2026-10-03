@@ -4,6 +4,9 @@ import { createDefaultNdiOutputConfigs } from '@lumacast/protocol';
 const mocks = vi.hoisted(() => {
   const frameReleasedListener = { current: null as ((release: import('@lumacast/protocol').NdiFrameRelease) => void) | null };
   const service = {
+    getGpuTransport: vi.fn(() => ({ supported: true, pid: 1234, receiverEndpoint: 'test-gpu' })),
+    receiveSharedTextureFrame: vi.fn(async () => {}),
+    reportGpuSourceError: vi.fn(),
     getOutputState: vi.fn(() => ({ audience: false, stage: false })),
     getOutputConfigs: vi.fn(() => createDefaultNdiOutputConfigs()),
     getDiagnostics: vi.fn(() => ({
@@ -86,6 +89,18 @@ describe('ndi-host teardown acknowledgments', () => {
     expect(mocks.service.destroy).toHaveBeenCalledOnce();
     expect(postMessage).toHaveBeenCalledWith({ type: 'teardownComplete' });
     expect(postMessage).toHaveBeenCalledTimes(3);
+  });
+
+  it('publishes GPU transport readiness and stamps shared-texture submissions', async () => {
+    await import('../../../../../apps/cast/main/ndi/ndi-host');
+    onMessage?.({ data: { type: 'init', outputConfigs: createDefaultNdiOutputConfigs() } });
+    expect(mocks.NdiService).toHaveBeenCalledWith(expect.objectContaining({ gpuRequired: true }));
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'ready', gpuTransport: { supported: true, pid: 1234, receiverEndpoint: 'test-gpu' } }));
+    const handle = { platform: 'darwin', token: 'texture-test' };
+    onMessage?.({ data: { type: 'gpuFrame', name: 'audience', handle, format: 'bgra', telemetry: { attemptId: 'gpu:1' } } });
+    expect(mocks.service.receiveSharedTextureFrame).toHaveBeenCalledWith('audience', handle, 'bgra', expect.objectContaining({ attemptId: 'gpu:1', hostReceivedAtMs: expect.any(Number) }));
+    onMessage?.({ data: { type: 'gpuSourceError', message: 'renderer failed' } });
+    expect(mocks.service.reportGpuSourceError).toHaveBeenCalledWith('renderer failed');
   });
 
   function createFramePort() {

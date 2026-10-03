@@ -18,6 +18,7 @@ export * from './codecs';
 export * from './deck-bundle-manifest';
 export * from './deck-bundles';
 export * from './ndi';
+export * from './ndi-gpu';
 export * from './ndi-audio-transport';
 export * from './ndi-frame-transport';
 export * from './ndi-observability';
