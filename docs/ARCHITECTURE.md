@@ -735,7 +735,8 @@ Each rule is also proven by a committed fixture scenario under
 
 - A lyric persists only `blank_slide_mode` (`none`, `start`, `end`, or `both`). The renderer projects deterministic start/end slide identities into navigation and output at runtime; no blank slide or blank-slide element row is stored.
 - A projected blank linked to a lyric theme resolves the theme background and non-text elements while filtering all text. Without a linked theme it has no background or elements.
-- Runtime blanks cannot be reordered, duplicated, deleted, or edited as stored slides. The active-slide context menu and the agent action `lyric.setBlankSlides` update the lyric configuration through the same typed IPC mutation.
+- Runtime blanks cannot be reordered, duplicated, deleted, or edited as stored slides. Creation, the lyric library context menu, deck View options, the lyric editor, the active-slide context menu, and the agent action `lyric.setBlankSlides` expose the same configuration. Menus update it immediately through the typed IPC mutation; the editor stages it until Save and confirms discarding changes. Library context menus target their own lyric independently of the active selection.
+- The lyric editor reads and mutates only stored slides; runtime boundary blanks never become editable text blocks or stored-slide mutation targets.
 - On failure, selection and navigation state are retained.
 
 ## Exact-Copy Duplication

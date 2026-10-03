@@ -9,6 +9,7 @@ import { useDeckBrowser } from './deck-browser-context';
 import { useLyricEditor } from './lyric-editor';
 import { PlaylistTabItem } from './playlist-tab-item';
 import type { PlaylistDeckSequenceItem } from './use-playlist-deck-sequence';
+import { LyricBlankSlidesMenu } from './lyric-blank-slides-menu';
 
 interface DeckBrowserToolbarProps {
   items: PlaylistDeckSequenceItem[];
@@ -18,7 +19,7 @@ interface DeckBrowserToolbarProps {
 export function DeckBrowserToolbar({ items, showPlaylistTabs }: DeckBrowserToolbarProps) {
   const [timingOpen, setTimingOpen] = useState(false);
   const { open: openLyricEditor } = useLyricEditor();
-  const { createSlide } = useSlides();
+  const { createSlide, setLyricBlankSlides } = useSlides();
   const { currentItem, currentItemRef } = useNavigation();
   const { slideBrowserMode, setSlideBrowserMode, gridItemSize, gridSizeMin, gridSizeMax, gridSizeStep, setGridItemSize } = useDeckBrowser();
 
@@ -53,6 +54,13 @@ export function DeckBrowserToolbar({ items, showPlaylistTabs }: DeckBrowserToolb
             {/* Ordered by reach frequency: slide actions, size, then view. */}
             <Dropdown.Panel placement="bottom-end" className="min-w-64">
               <Dropdown.Item disabled={!currentItem} onClick={handleAddSlide}>Add slide</Dropdown.Item>
+              {currentItemRef?.type === 'lyric' && currentItem ? (
+                <LyricBlankSlidesMenu
+                  surface="dropdown"
+                  mode={'blankSlideMode' in currentItem ? currentItem.blankSlideMode ?? 'none' : 'none'}
+                  onChange={(mode) => { void setLyricBlankSlides(mode).catch(() => undefined); }}
+                />
+              ) : null}
               <Dropdown.Item disabled={currentItemRef?.type !== 'lyric'} onClick={handleOpenEditor}>Open lyric editor</Dropdown.Item>
               <Dropdown.Item disabled={!currentItemRef} onClick={() => setTimingOpen(true)}>Slide timing</Dropdown.Item>
               {isGridMode && (

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import type { Id } from '@lumacast/kernel';
-import type { Slide, SlideElement } from '@lumacast/composition';
+import type { LyricBlankSlideMode, Slide, SlideElement } from '@lumacast/composition';
 import type { SnapshotPatch } from '@lumacast/protocol';
 import { useLyricEditorSave } from '../../../../../../apps/cast/renderer/features/items/use-lyric-editor-document';
 
@@ -120,6 +120,10 @@ function setupHarness(initial: HarnessSnapshot) {
   };
 
   const castApi = {
+    setLyricBlankSlides: async (input: { lyricId: Id; mode: LyricBlankSlideMode }) => {
+      calls.push({ method: 'setLyricBlankSlides', args: input });
+      return {} as SnapshotPatch;
+    },
     createSlide: async (input: { lyricId: Id }) => {
       calls.push({ method: 'createSlide', args: input });
       createdCount += 1;
@@ -220,6 +224,61 @@ afterEach(() => {
 });
 
 describe('useLyricEditorSave', () => {
+  it('excludes runtime blanks from editor blocks and stored-slide mutations', async () => {
+    const start = { ...makeSlide('runtime-start', -1), runtimeBlank: 'start' as const };
+    const end = { ...makeSlide('runtime-end', 1), runtimeBlank: 'end' as const };
+    const { calls } = setupHarness({
+      slides: [start, makeSlide('s1', 0), end],
+      slideElements: [makeTextElement('e1', 's1', 'First')],
+    });
+    const onClose = vi.fn();
+    const { result } = renderSaveHook(onClose);
+
+    expect(result.current.initialBlocks).toEqual([{ id: 's1', content: 'First' }]);
+    await act(async () => { await result.current.saveBlocks(result.current.initialBlocks); });
+    expect(calls).toEqual([]);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it.each(['none', 'start', 'end', 'both'] as const)('saves blank-slide mode %s without creating blank slide rows', async (mode) => {
+    const { calls } = setupHarness({
+      slides: [makeSlide('s1', 0)],
+      slideElements: [makeTextElement('e1', 's1', 'First')],
+    });
+    mocks.navigation.value = {
+      currentItem: { id: 'lyric-1', blankSlideMode: mode === 'none' ? 'both' : 'none' },
+      currentItemRef: { type: 'lyric', id: 'lyric-1' },
+    };
+    const { result } = renderSaveHook(vi.fn());
+
+    await act(async () => { await result.current.saveBlocks(result.current.initialBlocks, { blankSlideMode: mode }); });
+    expect(calls).toEqual([{ method: 'setLyricBlankSlides', args: { lyricId: 'lyric-1', mode } }]);
+  });
+
+  it('leaves the editor open when saving blank-slide configuration fails', async () => {
+    setupHarness({ slides: [makeSlide('s1', 0)], slideElements: [] });
+    window.castApi.setLyricBlankSlides = vi.fn().mockRejectedValue(new Error('Unable to save blank slides'));
+    const onClose = vi.fn();
+    const { result } = renderSaveHook(onClose);
+
+    await act(async () => { await result.current.saveBlocks(result.current.initialBlocks, { blankSlideMode: 'both' }); });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(mocks.cast.setStatusText).toHaveBeenCalledWith('Unable to save blank slides');
+    expect(result.current.isSaving).toBe(false);
+  });
+
+  it('does not write an unchanged blank-slide setting', async () => {
+    const { calls } = setupHarness({ slides: [makeSlide('s1', 0)], slideElements: [] });
+    mocks.navigation.value = {
+      currentItem: { id: 'lyric-1', blankSlideMode: 'both' },
+      currentItemRef: { type: 'lyric', id: 'lyric-1' },
+    };
+    const { result } = renderSaveHook(vi.fn());
+
+    await act(async () => { await result.current.saveBlocks(result.current.initialBlocks, { blankSlideMode: 'both' }); });
+    expect(calls).toEqual([]);
+  });
+
   it('performs zero mutations when saving unedited blocks', async () => {
     const { calls } = setupHarness({
       slides: [makeSlide('s1', 0), makeSlide('s2', 1)],

@@ -12,6 +12,7 @@ const overlayStack = {
 
 const mocks = vi.hoisted(() => ({
   createSlide: vi.fn(),
+  setLyricBlankSlides: vi.fn().mockResolvedValue(undefined),
   openLyricEditor: vi.fn(),
   navigation: { currentItem: null as unknown, currentItemRef: null as unknown },
 }));
@@ -25,7 +26,7 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/navigation-context', () =
 }));
 
 vi.mock('../../../../../../apps/cast/renderer/contexts/slide-context', () => ({
-  useSlides: () => ({ createSlide: mocks.createSlide }),
+  useSlides: () => ({ createSlide: mocks.createSlide, setLyricBlankSlides: mocks.setLyricBlankSlides }),
 }));
 
 vi.mock('../../../../../../apps/cast/renderer/features/items/deck-browser-context', () => ({
@@ -86,6 +87,7 @@ describe('DeckBrowserToolbar — item-dependent actions', () => {
     fireEvent.click(screen.getByText('Open lyric editor'));
     expect(mocks.createSlide).not.toHaveBeenCalled();
     expect(mocks.openLyricEditor).not.toHaveBeenCalled();
+    expect(screen.queryByText('Blank slides')).toBeNull();
   });
 
   it('enables "Add slide" for a current presentation but keeps "Open lyric editor" disabled', async () => {
@@ -95,6 +97,7 @@ describe('DeckBrowserToolbar — item-dependent actions', () => {
 
     expect(screen.getByText('Add slide').getAttribute('data-disabled')).toBeNull();
     expect(screen.getByText('Open lyric editor').getAttribute('data-disabled')).toBe('');
+    expect(screen.queryByText('Blank slides')).toBeNull();
 
     // A real (non-disabled) item closes the menu on click, so the disabled
     // "Open lyric editor" is exercised in a freshly reopened menu.
@@ -116,5 +119,19 @@ describe('DeckBrowserToolbar — item-dependent actions', () => {
 
     fireEvent.click(screen.getByText('Open lyric editor'));
     expect(mocks.openLyricEditor).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['None', 'none'], ['At beginning', 'start'], ['At end', 'end'], ['Beginning and end', 'both'],
+  ])('sets %s from the lyric options submenu', async (label, mode) => {
+    mocks.navigation.currentItem = { id: 'l1', title: 'Song', blankSlideMode: 'end' };
+    mocks.navigation.currentItemRef = { type: 'lyric', id: 'l1' };
+    await openToolbarMenu();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Blank slides' }));
+    await settle();
+    expect(screen.getByRole('menuitem', { name: 'At end Selected' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: new RegExp(`^${label}( Selected)?$`) }));
+    expect(mocks.setLyricBlankSlides).toHaveBeenCalledWith(mode);
   });
 });

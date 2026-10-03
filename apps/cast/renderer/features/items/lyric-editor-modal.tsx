@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
 import { ReacstButton } from '@lumacast/ui';
+import type { LyricBlankSlideMode } from '@lumacast/composition';
 import { Dialog } from '../../components/overlays/dialog';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
 import DocEditor, { type Block } from '../../components/form/doc-editor';
@@ -9,6 +10,7 @@ import { useLyricEditorSave } from './use-lyric-editor-document';
 import { useLyricLayoutConfig, loadMeasureFont } from './lyric-layout-config';
 import { groupBlocksForSlides } from './lyric-slide-grouping';
 import { LyricLayoutConfigDialog } from './lyric-layout-config-dialog';
+import { LyricBlankSlidesField } from './lyric-blank-slides-menu';
 
 interface LyricEditorModalProps {
   isOpen: boolean;
@@ -21,7 +23,7 @@ function blocksEqual(left: Block[], right: Block[]): boolean {
 }
 
 export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
-  const { currentItemRef } = useNavigation();
+  const { currentItem, currentItemRef } = useNavigation();
   const { config, updateConfig } = useLyricLayoutConfig();
   const { initialBlocks, saveBlocks, isSaving } = useLyricEditorSave({ isOpen, onClose, config });
   const confirm = useConfirm();
@@ -33,10 +35,15 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
   const [prePreviewBlocks, setPrePreviewBlocks] = useState<Block[] | null>(null);
   const blocksRef = useRef<Block[]>([]);
   const sessionBlocksRef = useRef<Block[]>([]);
+  const [blankSlideMode, setBlankSlideMode] = useState<LyricBlankSlideMode>('none');
+  const sessionBlankSlideModeRef = useRef<LyricBlankSlideMode>('none');
 
   useEffect(() => {
     if (!isOpen) return;
     setSessionBlocks(initialBlocks);
+    const mode = currentItem && 'blankSlideMode' in currentItem ? currentItem.blankSlideMode ?? 'none' : 'none';
+    setBlankSlideMode(mode);
+    sessionBlankSlideModeRef.current = mode;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -61,7 +68,8 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
   }
 
   function isDirty() {
-    return !blocksEqual(blocksRef.current, sessionBlocksRef.current);
+    return blankSlideMode !== sessionBlankSlideModeRef.current
+      || !blocksEqual(blocksRef.current, sessionBlocksRef.current);
   }
 
   async function requestClose() {
@@ -77,7 +85,7 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
   }
 
   function handleSave() {
-    void saveBlocks(blocksRef.current, { skipGrouping: hasAppliedGrouping });
+    void saveBlocks(blocksRef.current, { skipGrouping: hasAppliedGrouping, blankSlideMode });
   }
 
   async function handlePreview() {
@@ -115,8 +123,15 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
                   <Dialog.CloseButton />
                 </div>
               </Dialog.Header>
-              <Dialog.Body className="h-full overflow-auto bg-primary/95 px-0 py-0">
-                <DocEditor key={editorEpoch} initialBlocks={editorBlocks} onChange={handleChange} />
+              <Dialog.Body className="flex h-full flex-col overflow-auto bg-primary/95 px-0 py-0">
+                <div className="shrink-0 border-b border-secondary px-4 py-2">
+                  <fieldset disabled={isSaving} className="max-w-56">
+                    <LyricBlankSlidesField value={blankSlideMode} onChange={setBlankSlideMode} />
+                  </fieldset>
+                </div>
+                <div className="min-h-0 flex-1">
+                  <DocEditor key={editorEpoch} initialBlocks={editorBlocks} onChange={handleChange} />
+                </div>
               </Dialog.Body>
               <Dialog.Footer>
                 <div className="flex items-center gap-2">

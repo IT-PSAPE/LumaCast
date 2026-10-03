@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
-import type { SlideElement } from '@lumacast/composition';
+import type { LyricBlankSlideMode, SlideElement } from '@lumacast/composition';
 import type { ElementCreateInput, ElementUpdateInput } from '@lumacast/protocol';
 import type { Block } from '../../components/form/doc-editor';
 import { useCast } from '../../contexts/app-context';
@@ -29,16 +29,17 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
   const { mutatePatch, runOperation, setStatusText } = useCast();
   const [isSaving, setIsSaving] = useState(false);
   const isLyric = currentItemRef?.type === 'lyric';
+  const storedSlides = useMemo(() => slides.filter((slide) => !slide.runtimeBlank), [slides]);
 
   const initialBlocks = useMemo<Block[]>(() => {
     if (!isOpen || !currentItem || !isLyric) return [];
-    return slides.map((slide) => ({
+    return storedSlides.map((slide) => ({
       id: slide.id,
       content: slideTextDetails(slideElementsBySlideId.get(slide.id) ?? []).text,
     }));
-  }, [isOpen, currentItem, isLyric, slideElementsBySlideId, slides]);
+  }, [isOpen, currentItem, isLyric, slideElementsBySlideId, storedSlides]);
 
-  const saveBlocks = useCallback(async (blocks: Block[], options?: { skipGrouping?: boolean }) => {
+  const saveBlocks = useCallback(async (blocks: Block[], options?: { skipGrouping?: boolean; blankSlideMode?: LyricBlankSlideMode }) => {
     if (!currentItem || !isLyric) return;
 
     setIsSaving(true);
@@ -48,8 +49,8 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
         await loadMeasureFont(config);
 
         const lyricId = currentItem.id;
-        const knownSlideIds = new Set(slides.map((slide) => slide.id));
-        const currentOrderIds = slides.map((slide) => slide.id);
+        const knownSlideIds = new Set(storedSlides.map((slide) => slide.id));
+        const currentOrderIds = storedSlides.map((slide) => slide.id);
         let workingOrderIds = [...currentOrderIds];
         const grouped = (options?.skipGrouping ? blocks : groupBlocksForSlides(blocks, { config }))
           .map((block) => ({ id: block.id, content: normalizeLyricText(block.content) }));
@@ -121,6 +122,12 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
           workingOrderIds.splice(index, 0, slideId);
         }
 
+        const currentBlankSlideMode = 'blankSlideMode' in currentItem ? currentItem.blankSlideMode ?? 'none' : 'none';
+        const nextBlankSlideMode = options?.blankSlideMode;
+        if (nextBlankSlideMode !== undefined && nextBlankSlideMode !== currentBlankSlideMode) {
+          await mutatePatch(() => window.castApi.setLyricBlankSlides({ lyricId, mode: nextBlankSlideMode }));
+        }
+
         setStatusText('Saved lyrics');
         onClose();
       });
@@ -130,7 +137,7 @@ export function useLyricEditorSave({ isOpen, onClose, config }: UseLyricEditorSa
     } finally {
       setIsSaving(false);
     }
-  }, [config, currentItem, isLyric, mutatePatch, onClose, runOperation, setStatusText, slideElementsBySlideId, slides]);
+  }, [config, currentItem, isLyric, mutatePatch, onClose, runOperation, setStatusText, slideElementsBySlideId, storedSlides]);
 
   return { initialBlocks, saveBlocks, isSaving };
 }

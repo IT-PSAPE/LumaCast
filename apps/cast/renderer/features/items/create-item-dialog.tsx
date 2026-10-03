@@ -9,6 +9,7 @@ import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLyricEditor } from './lyric-editor';
+import { LyricBlankSlidesField } from './lyric-blank-slides-menu';
 
 interface CreateItemDialogProps {
   isOpen: boolean;
@@ -153,17 +154,7 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
                 </FieldSelect>
               ) : null}
               {type === 'lyric' ? (
-                <FieldSelect
-                  label="Blank slides"
-                  value={blankSlideMode}
-                  onChange={(value) => setBlankSlideMode(value as LyricBlankSlideMode)}
-                  options={[
-                    { value: 'none', label: 'None' },
-                    { value: 'start', label: 'At beginning' },
-                    { value: 'end', label: 'At end' },
-                    { value: 'both', label: 'Beginning and end' },
-                  ]}
-                />
+                <LyricBlankSlidesField value={blankSlideMode} onChange={setBlankSlideMode} />
               ) : null}
               {playlistOptions.length > 0 ? (
                 <FieldSelect

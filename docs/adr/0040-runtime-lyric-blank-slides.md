@@ -39,3 +39,13 @@ Runtime slide IDs are stable for a lyric and boundary, but are not repository
 IDs and must never be sent to stored-slide mutation methods. Removing or
 changing the setting immediately changes the projected sequence without data
 migration beyond the lyric setting itself.
+
+## Refinement — 2026-10-03
+
+The existing setting is also exposed in the lyric library context menu, deck
+View options, and lyric editor. Menus apply changes immediately and show the
+current mode. Library menus target the lyric attached to the menu rather than
+the active lyric. The editor stages the mode until Save and includes mode-only
+changes in its discard confirmation. Runtime blanks are excluded from the
+editor document and every stored-slide save operation. The persisted setting
+and runtime projection contract remain unchanged.
