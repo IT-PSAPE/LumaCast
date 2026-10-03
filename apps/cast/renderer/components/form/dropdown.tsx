@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
 import { Menu } from '@base-ui/react/menu';
+import { ChevronRight } from 'lucide-react';
 import { cn } from '@lumacast/ui';
 import { useOverlayContainer, useOverlayStackEntry } from '../overlays/overlay-primitives';
 import type { PopoverPlacement } from '../overlays/popover';
@@ -13,6 +14,7 @@ import type { PopoverPlacement } from '../overlays/popover';
 
 interface DropdownContextValue {
   open: boolean;
+  zIndex: number;
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   panelRef: React.RefObject<HTMLDivElement | null>;
   // Trigger width captured when the menu opens, so the panel can match it.
@@ -39,6 +41,7 @@ interface RootProps {
 
 function Root({ className, children }: RootProps) {
   const [open, setOpen] = useState(false);
+  const { zIndex } = useOverlayStackEntry(open);
   const [triggerWidth, setTriggerWidth] = useState<number | undefined>(undefined);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -68,13 +71,14 @@ function Root({ className, children }: RootProps) {
 
   const ctx = useMemo<DropdownContextValue>(() => ({
     open,
+    zIndex,
     triggerRef,
     panelRef,
     triggerWidth,
     onOpen: handleOpen,
     onClose: handleClose,
     handleKeyDown,
-  }), [open, triggerWidth, handleOpen, handleClose, handleKeyDown]);
+  }), [open, zIndex, triggerWidth, handleOpen, handleClose, handleKeyDown]);
 
   return (
     <DropdownContext.Provider value={ctx}>
@@ -119,13 +123,12 @@ interface PanelProps {
 function Panel({ children, className, placement = 'bottom' }: PanelProps) {
   const ctx = useDropdown();
   const container = useOverlayContainer();
-  const { zIndex } = useOverlayStackEntry(ctx.open);
   const separator = placement.indexOf('-');
   const side = (separator === -1 ? placement : placement.slice(0, separator)) as 'top' | 'bottom' | 'left' | 'right';
   const align = (separator === -1 ? 'center' : placement.slice(separator + 1)) as 'start' | 'center' | 'end';
 
   return (
-    <Menu.Portal container={container} className="pointer-events-none fixed inset-0" style={{ zIndex }}>
+    <Menu.Portal container={container} className="pointer-events-none fixed inset-0" style={{ zIndex: ctx.zIndex }}>
       {/* Menu's default collision avoidance never falls back to a perpendicular
           side, so the panel flips bottom↔top instead of appearing beside its
           trigger — the `axisLock` the popover version asked for. */}
@@ -175,7 +178,32 @@ function Separator() {
   return <Menu.Separator className="my-1 h-px bg-tertiary" />;
 }
 
+function Submenu({ label, children }: { label: string; children: ReactNode }) {
+  const ctx = useDropdown();
+  const container = useOverlayContainer();
+
+  return (
+    <Menu.SubmenuRoot>
+      <Menu.SubmenuTrigger
+        render={<button type="button" />}
+        nativeButton
+        className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-secondary outline-hidden data-[highlighted]:bg-secondary data-[popup-open]:bg-tertiary"
+      >
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        <ChevronRight className="size-3.5 shrink-0 text-tertiary" />
+      </Menu.SubmenuTrigger>
+      <Menu.Portal container={container} className="pointer-events-none fixed inset-0" style={{ zIndex: ctx.zIndex }}>
+        <Menu.Positioner sideOffset={6} className="outline-hidden">
+          <Menu.Popup className="pointer-events-auto min-w-48 max-h-80 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg outline-hidden">
+            {children}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.SubmenuRoot>
+  );
+}
+
 // ─── Export ──────────────────────────────────────────────
 
 export { useDropdown };
-export const Dropdown = Object.assign(Root, { Trigger, Panel, Item, Separator });
+export const Dropdown = Object.assign(Root, { Trigger, Panel, Item, Separator, Submenu });
