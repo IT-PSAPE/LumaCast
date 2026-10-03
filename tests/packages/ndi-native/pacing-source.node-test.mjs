@@ -11,8 +11,9 @@ test('#246 shared native source keeps renderer-owned 30000/1001 pacing', () => {
   assert.match(source, /kSenderClockVideo\s*=\s*false/);
   assert.doesNotMatch(source, /frame\.frame_rate_N\s*=\s*60000/);
   assert.doesNotMatch(source, /createDesc\.clock_video\s*=\s*true/);
-  assert.equal((source.match(/frame\.frame_rate_N\s*=\s*kVideoFrameRateN/g) ?? []).length, 3);
-  assert.equal((source.match(/frame\.frame_rate_D\s*=\s*kVideoFrameRateD/g) ?? []).length, 3);
+  // Teardown black, BGRA, RGBA, and shared-texture sends use the same rate.
+  assert.equal((source.match(/frame\.frame_rate_N\s*=\s*kVideoFrameRateN/g) ?? []).length, 4);
+  assert.equal((source.match(/frame\.frame_rate_D\s*=\s*kVideoFrameRateD/g) ?? []).length, 4);
 });
 
 test('native audio submission is isolated without changing the A/V clock contract', () => {

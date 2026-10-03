@@ -77,10 +77,48 @@ jobs:
       - name: Validate ${{ inputs.app }}
         run: node tool/ci/run.mjs --app ${{ inputs.app }} --e2e
 
+  native-gpu:
+    name: Cast native GPU ${{ matrix.platform }}
+    if: inputs.app == 'cast'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: windows }
+          - { os: macos-14, platform: macos }
+          - { os: ubuntu-latest, platform: linux }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Setup Python on Windows
+        if: matrix.platform == 'windows'
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Install Linux graphics headers
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl-dev libgles-dev
+      - name: Install dependencies
+        run: npm ci
+      - name: Build native NDI addon
+        run: npm run build:ndi-native
+      - name: Verify addon exports
+        run: node -e "const n = require('./packages/ndi-native/build/Release/ndi_native.node'); if (typeof n.sendSharedTextureFrame !== 'function' || typeof n.replaySharedTextureFrame !== 'function' || typeof n.exportSharedTexture !== 'function') process.exit(1)"
+      - name: Test Mach transfer and available Metal conversion
+        if: matrix.platform == 'macos'
+        run: npm --prefix packages/ndi-native run test:gpu-texture
+
   detect:
     name: ${{ inputs.app }} release gate
-    needs: validate
+    needs: [validate, native-gpu]
     if: >-
+      always() && needs.validate.result == 'success' &&
+      (inputs.app != 'cast' || needs.native-gpu.result == 'success') &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.release))
     runs-on: ubuntu-latest
@@ -219,6 +257,10 @@ jobs:
 
       - name: Ensure native packages
         run: npm run ensure:native-deps
+
+      - name: Install Linux graphics headers
+        if: inputs.app == 'cast' && matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libegl-dev libgles-dev
 
       - name: Build native NDI addon
         if: inputs.app == 'cast'

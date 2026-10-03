@@ -11,6 +11,7 @@
     "clean": "node-gyp clean",
     "rebuild": "npm run clean && npm run build",
     "build:mock-ndi": "node ../../tests/packages/ndi-native/build-mock-runtime.mjs",
+    "test:gpu-texture": "node ../../tests/packages/ndi-native/run-gpu-texture-test.mjs",
     "test": "npm run build:mock-ndi && node ../../tests/packages/ndi-native/run-pacing-test.mjs"
   },
   "dependencies": {

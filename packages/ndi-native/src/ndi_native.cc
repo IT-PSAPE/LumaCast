@@ -1,4 +1,5 @@
 #include <napi.h>
+#include "gpu-texture.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -17,6 +18,7 @@
 #include <vector>
 #include <thread>
 #include <chrono>
+#include <cmath>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -307,6 +309,10 @@ struct SenderInstance {
   std::vector<uint8_t> bgraScratch[kDoubleBufferCount];
   int currentBuffer = 0;
   std::unique_ptr<AudioSendWorker> audioWorker;
+  std::unique_ptr<ndi_gpu::Converter> gpuConverter;
+  bool gpuFramePending = false;
+  uint64_t generation = 0;
+  ndi_gpu::Pixels gpuLastFrame{};
 };
 
 struct SenderState {
@@ -317,6 +323,7 @@ struct SenderState {
   NdiSymbols symbols;
   std::unordered_map<std::string, SenderInstance> senders;
   std::mutex mutex;
+  uint64_t nextGeneration = 0;
 };
 
 SenderState& State() {
@@ -563,6 +570,8 @@ void DestroySenderInstanceUnlocked(SenderState& state, SenderInstance* sender) {
   }
 
   sender->sender = nullptr;
+  sender->gpuConverter.reset();
+  sender->gpuFramePending = false;
   sender->width = 0;
   sender->height = 0;
   sender->withAlpha = true;
@@ -628,6 +637,7 @@ void EnsureSender(SenderState& state,
   instance.width = width;
   instance.height = height;
   instance.withAlpha = withAlpha;
+  instance.generation = ++state.nextGeneration;
 
   const int32_t stride = width * 4;
   size_t size = 0;
@@ -693,6 +703,309 @@ void CopyRgbaFrame(const uint8_t* source,
       dstLine[x * 4 + 3] = withAlpha ? srcLine[x * 4 + 3] : static_cast<uint8_t>(255);
     }
   }
+}
+
+class GpuFrameWorker final : public Napi::AsyncWorker {
+ public:
+  GpuFrameWorker(Napi::Env env, std::string name, uint64_t generation,
+                 ndi_gpu::Handle handle, int32_t width, int32_t height, std::string format, bool replay = false)
+      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
+        name_(std::move(name)), generation_(generation), handle_(std::move(handle)),
+        width_(width), height_(height), format_(std::move(format)), replay_(replay) {}
+
+  ~GpuFrameWorker() override {
+    if (!consumed_ && !replay_) {
+      try { ndi_gpu::Discard(handle_); } catch (...) {}
+    }
+  }
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    auto& state = State();
+    std::lock_guard<std::mutex> guard(state.mutex);
+    auto found = state.senders.find(name_);
+    if (found == state.senders.end() || found->second.generation != generation_) {
+      SetError("NDI GPU sender was replaced or destroyed");
+      return;
+    }
+    auto& sender = found->second;
+    try {
+      const auto started = std::chrono::steady_clock::now();
+      ndi_gpu::Pixels pixels = sender.gpuLastFrame;
+      if (!replay_) {
+        auto surface = ndi_gpu::Lookup(handle_, width_, height_, format_);
+        ndi_gpu::Discard(handle_);
+        consumed_ = true;
+        if (!sender.gpuConverter) {
+          sender.gpuConverter = ndi_gpu::CreateConverter(sender.width, sender.height, sender.withAlpha);
+        }
+        pixels = sender.gpuConverter->Convert(*surface, sender.currentBuffer);
+      }
+      if (!pixels.data) throw std::runtime_error("No cached native NDI frame");
+      const auto converted = std::chrono::steady_clock::now();
+      NDIlib_video_frame_v2_t frame{};
+      frame.xres = sender.width;
+      frame.yres = sender.height;
+      frame.FourCC = pixels.fourCC;
+      frame.frame_rate_N = kVideoFrameRateN;
+      frame.frame_rate_D = kVideoFrameRateD;
+      frame.picture_aspect_ratio = static_cast<float>(sender.width) / sender.height;
+      frame.frame_format_type = kFrameFormatProgressive;
+      frame.timecode = kTimecodeSynthesize;
+      frame.p_data = pixels.data;
+      frame.line_stride_in_bytes = pixels.stride;
+      if (state.symbols.sendVideoAsyncV2) state.symbols.sendVideoAsyncV2(sender.sender, &frame);
+      else state.symbols.sendVideoV2(sender.sender, &frame);
+      if (!replay_) sender.currentBuffer = (sender.currentBuffer + 1) % kDoubleBufferCount;
+      sender.gpuLastFrame = pixels;
+      conversionMs_ = std::chrono::duration<double, std::milli>(converted - started).count();
+      sendMs_ = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - converted).count();
+      frameBytes_ = pixels.size;
+    } catch (const std::exception& error) {
+      SetError(error.what());
+    }
+    sender.gpuFramePending = false;
+  }
+
+  void OnOK() override {
+    Napi::Object result = Napi::Object::New(Env());
+    result.Set("conversionDurationMs", conversionMs_);
+    result.Set("sendDurationMs", sendMs_);
+    result.Set("frameBytes", static_cast<double>(frameBytes_));
+    deferred_.Resolve(result);
+  }
+  void OnError(const Napi::Error& error) override { deferred_.Reject(error.Value()); }
+
+ private:
+  Napi::Promise::Deferred deferred_;
+  std::string name_;
+  uint64_t generation_;
+  ndi_gpu::Handle handle_;
+  int32_t width_, height_;
+  std::string format_;
+  bool replay_ = false, consumed_ = false;
+  double conversionMs_ = 0, sendMs_ = 0;
+  size_t frameBytes_ = 0;
+};
+
+Napi::Value GetSharedTextureSupport(const Napi::CallbackInfo& info) {
+  return Napi::Boolean::New(info.Env(), ndi_gpu::Supported());
+}
+
+ndi_gpu::Handle ReadGpuHandle(Napi::Object object) {
+  ndi_gpu::Handle handle;
+#if defined(__APPLE__)
+  if (object.Get("platform").ToString().Utf8Value() != "darwin") throw std::runtime_error("Invalid IOSurface descriptor");
+  handle.token = object.Get("token").ToString().Utf8Value();
+  if (handle.token.size() != 32 || handle.token.find_first_not_of("0123456789abcdef") != std::string::npos) {
+    throw std::runtime_error("Invalid IOSurface token");
+  }
+#elif defined(_WIN32)
+  if (object.Get("platform").ToString().Utf8Value() != "win32") throw std::runtime_error("Invalid D3D descriptor");
+  const auto text = object.Get("dxgiHandle").ToString().Utf8Value();
+  if (text.empty() || text.size() > 16 || text.find_first_not_of("0123456789abcdef") != std::string::npos) {
+    throw std::runtime_error("Invalid D3D handle");
+  }
+  handle.dxgiHandle = static_cast<uintptr_t>(std::stoull(text, nullptr, 16));
+  if (!handle.dxgiHandle) throw std::runtime_error("Empty D3D handle");
+  const double targetPid = object.Get("targetPid").ToNumber().DoubleValue();
+  if (!std::isfinite(targetPid) || targetPid < 1 || targetPid > INT32_MAX || std::floor(targetPid) != targetPid) {
+    throw std::runtime_error("Invalid D3D target process");
+  }
+  handle.targetPid = static_cast<int>(targetPid);
+#else
+  if (object.Get("platform").ToString().Utf8Value() != "linux") throw std::runtime_error("Invalid DMA-BUF descriptor");
+  handle.token = object.Get("token").ToString().Utf8Value();
+  if (handle.token.size() != 32 || handle.token.find_first_not_of("0123456789abcdef") != std::string::npos) {
+    throw std::runtime_error("Invalid DMA-BUF token");
+  }
+  const auto modifier = object.Get("modifier").ToString().Utf8Value();
+  if (modifier.empty() || modifier.size() > 16 || modifier.find_first_not_of("0123456789abcdef") != std::string::npos) {
+    throw std::runtime_error("Invalid DMA-BUF modifier");
+  }
+  handle.modifier = std::stoull(modifier, nullptr, 16);
+  if (!object.Get("planes").IsArray()) throw std::runtime_error("Invalid DMA-BUF planes");
+  const auto planes = object.Get("planes").As<Napi::Array>();
+  if (planes.Length() == 0 || planes.Length() > 4) throw std::runtime_error("Invalid DMA-BUF plane count");
+  for (uint32_t i = 0; i < planes.Length(); ++i) {
+    const auto plane = planes.Get(i).As<Napi::Object>();
+    const double stride = plane.Get("stride").ToNumber().DoubleValue();
+    const double offset = plane.Get("offset").ToNumber().DoubleValue();
+    const double size = plane.Get("size").ToNumber().DoubleValue();
+    if (!std::isfinite(stride) || !std::isfinite(offset) || !std::isfinite(size)
+        || stride <= 0 || stride > 65536 || offset < 0 || size < 1 || size > 128 * 1024 * 1024
+        || offset >= size || std::floor(stride) != stride || std::floor(offset) != offset || std::floor(size) != size) {
+      throw std::runtime_error("Invalid DMA-BUF plane bounds");
+    }
+    handle.planes.push_back({-1, static_cast<uint32_t>(stride), static_cast<uint32_t>(offset), static_cast<uint64_t>(size)});
+  }
+#endif
+  return handle;
+}
+
+Napi::Value GetSharedTextureReceiver(const Napi::CallbackInfo& info) {
+  try { return Napi::String::New(info.Env(), ndi_gpu::ReceiverEndpoint()); }
+  catch (const std::exception& error) {
+    Napi::Error::New(info.Env(), error.what()).ThrowAsJavaScriptException();
+    return info.Env().Undefined();
+  }
+}
+
+Napi::Value ExportSharedTexture(const Napi::CallbackInfo& info) {
+  const auto env = info.Env();
+  if (info.Length() != 3 || !info[0].IsObject() || !info[1].IsNumber() || !info[2].IsString()) {
+    Napi::TypeError::New(env, "exportSharedTexture expects (textureInfo, targetPid, receiverEndpoint)").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  try {
+    const auto input = info[0].As<Napi::Object>();
+    const auto bytesValue = input.Get("sharedTextureHandle");
+    std::vector<uint8_t> bytes;
+    if (bytesValue.IsBuffer()) {
+      const auto buffer = bytesValue.As<Napi::Buffer<uint8_t>>();
+      bytes.assign(buffer.Data(), buffer.Data() + buffer.Length());
+    }
+    std::vector<ndi_gpu::Plane> planes;
+    if (input.Get("planes").IsArray()) {
+      const auto array = input.Get("planes").As<Napi::Array>();
+      if (array.Length() > 4) throw std::runtime_error("Invalid DMA-BUF plane count");
+      for (uint32_t i = 0; i < array.Length(); ++i) {
+        const auto plane = array.Get(i).As<Napi::Object>();
+        planes.push_back({plane.Get("fd").ToNumber().Int32Value(), plane.Get("stride").ToNumber().Uint32Value(),
+                          plane.Get("offset").ToNumber().Uint32Value(), static_cast<uint64_t>(plane.Get("size").ToNumber().DoubleValue())});
+      }
+    }
+    uint64_t modifier = UINT64_MAX;
+    if (input.Get("modifier").IsString()) modifier = std::stoull(input.Get("modifier").ToString().Utf8Value(), nullptr, 0);
+    const auto handle = ndi_gpu::Export(bytes.data(), bytes.size(), info[1].As<Napi::Number>().Int32Value(),
+                                       info[2].As<Napi::String>().Utf8Value(), planes, modifier);
+    auto output = Napi::Object::New(env);
+#if defined(__APPLE__)
+    output.Set("platform", "darwin"); output.Set("token", handle.token);
+#elif defined(_WIN32)
+    std::ostringstream encoded; encoded << std::hex << handle.dxgiHandle;
+    output.Set("platform", "win32"); output.Set("dxgiHandle", encoded.str()); output.Set("targetPid", handle.targetPid);
+#else
+    std::ostringstream encoded; encoded << std::hex << handle.modifier;
+    output.Set("platform", "linux"); output.Set("token", handle.token); output.Set("modifier", encoded.str());
+    auto resultPlanes = Napi::Array::New(env, handle.planes.size());
+    for (uint32_t i = 0; i < handle.planes.size(); ++i) {
+      auto plane = Napi::Object::New(env);
+      plane.Set("stride", handle.planes[i].stride); plane.Set("offset", handle.planes[i].offset);
+      plane.Set("size", static_cast<double>(handle.planes[i].size)); resultPlanes.Set(i, plane);
+    }
+    output.Set("planes", resultPlanes);
+#endif
+    return output;
+  } catch (const std::exception& error) {
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+}
+
+Napi::Value DiscardSharedTexture(const Napi::CallbackInfo& info) {
+  try {
+    if (info.Length() != 1 || !info[0].IsObject()) throw std::runtime_error("Invalid shared texture descriptor");
+    ndi_gpu::Discard(ReadGpuHandle(info[0].As<Napi::Object>()));
+  } catch (const std::exception& error) { Napi::Error::New(info.Env(), error.what()).ThrowAsJavaScriptException(); }
+  return info.Env().Undefined();
+}
+
+Napi::Value GetSharedTextureId(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() != 1 || !info[0].IsBuffer()) {
+    Napi::TypeError::New(env, "getSharedTextureId expects an Electron texture handle Buffer").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  try {
+    const auto handle = info[0].As<Napi::Buffer<uint8_t>>();
+    return Napi::Number::New(env, ndi_gpu::SurfaceId(handle.Data(), handle.Length()));
+  } catch (const std::exception& error) {
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+}
+
+Napi::Value SendSharedTextureFrame(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() != 5 || !info[0].IsString() || !info[1].IsObject()
+      || !info[2].IsNumber() || !info[3].IsNumber() || !info[4].IsString()) {
+    if (info.Length() > 1 && info[1].IsObject()) {
+      try { ndi_gpu::Discard(ReadGpuHandle(info[1].As<Napi::Object>())); } catch (...) {}
+    }
+    Napi::TypeError::New(env, "sendSharedTextureFrame expects (senderName, descriptor, width, height, pixelFormat)")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  ndi_gpu::Handle handle;
+  try { handle = ReadGpuHandle(info[1].As<Napi::Object>()); }
+  catch (const std::exception& error) {
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const auto reject = [&](const char* message, bool typeError = false) -> Napi::Value {
+    ndi_gpu::Discard(handle);
+    if (typeError) Napi::TypeError::New(env, message).ThrowAsJavaScriptException();
+    else Napi::Error::New(env, message).ThrowAsJavaScriptException();
+    return env.Undefined();
+  };
+  const auto name = info[0].As<Napi::String>().Utf8Value();
+  const auto width = info[2].As<Napi::Number>().Int32Value();
+  const auto height = info[3].As<Napi::Number>().Int32Value();
+  const auto format = info[4].As<Napi::String>().Utf8Value();
+  if (width != 1920 || height != 1080 || (format != "bgra" && format != "rgba")) {
+    return reject("Invalid shared NDI texture metadata", true);
+  }
+  auto& state = State();
+  std::lock_guard<std::mutex> guard(state.mutex);
+  auto found = state.senders.find(name);
+  if (found == state.senders.end() || found->second.width != width || found->second.height != height
+      || found->second.gpuFramePending) {
+    return reject("NDI GPU sender unavailable or busy");
+  }
+  bool transferred = false;
+  try {
+    auto* worker = new GpuFrameWorker(env, name, found->second.generation, handle, width, height, format);
+    transferred = true;
+    auto promise = worker->Promise();
+    found->second.gpuFramePending = true;
+    try { worker->Queue(); }
+    catch (...) { found->second.gpuFramePending = false; delete worker; throw; }
+    return promise;
+  } catch (const std::exception& error) {
+    if (!transferred) ndi_gpu::Discard(handle);
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+}
+
+Napi::Value ReplaySharedTextureFrame(const Napi::CallbackInfo& info) {
+  auto env = info.Env();
+  if (info.Length() != 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "replaySharedTextureFrame expects senderName").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const auto name = info[0].As<Napi::String>().Utf8Value();
+  auto& state = State();
+  std::lock_guard<std::mutex> guard(state.mutex);
+  auto found = state.senders.find(name);
+  if (found == state.senders.end() || found->second.gpuFramePending || !found->second.gpuLastFrame.data) {
+    Napi::Error::New(env, "Cached NDI GPU frame unavailable or busy").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  auto* worker = new GpuFrameWorker(env, name, found->second.generation, {}, found->second.width,
+                                   found->second.height, "", true);
+  auto promise = worker->Promise();
+  found->second.gpuFramePending = true;
+  try { worker->Queue(); }
+  catch (const std::exception& error) {
+    found->second.gpuFramePending = false;
+    delete worker;
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  return promise;
 }
 
 Napi::Value InitializeSender(const Napi::CallbackInfo& info) {
@@ -1134,6 +1447,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("initializeSender", Napi::Function::New(env, InitializeSender));
   exports.Set("sendBgraFrame", Napi::Function::New(env, SendBgraFrame));
   exports.Set("sendRgbaFrame", Napi::Function::New(env, SendRgbaFrame));
+  exports.Set("getSharedTextureSupport", Napi::Function::New(env, GetSharedTextureSupport));
+  exports.Set("getSharedTextureId", Napi::Function::New(env, GetSharedTextureId));
+  exports.Set("sendSharedTextureFrame", Napi::Function::New(env, SendSharedTextureFrame));
+  exports.Set("getSharedTextureReceiver", Napi::Function::New(env, GetSharedTextureReceiver));
+  exports.Set("exportSharedTexture", Napi::Function::New(env, ExportSharedTexture));
+  exports.Set("discardSharedTexture", Napi::Function::New(env, DiscardSharedTexture));
+  exports.Set("replaySharedTextureFrame", Napi::Function::New(env, ReplaySharedTextureFrame));
   exports.Set("sendAudioFrame", Napi::Function::New(env, SendAudioFrame));
   exports.Set("getSenderConnections", Napi::Function::New(env, GetSenderConnections));
   exports.Set("getSenderTally", Napi::Function::New(env, GetSenderTally));

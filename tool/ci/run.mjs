@@ -143,6 +143,7 @@ function planFor(app, graph, options) {
   if (stepEnabled('native', options, app)) {
     add('native', `${app}: NDI native tests`, 'npm', ['run', 'test:ndi-native']);
     add('native', `${app}: NDI transport tests`, 'npm', ['run', 'test:ndi-transport']);
+    add('native', `${app}: NDI GPU output tests`, 'npm', ['run', 'test:ndi-gpu']);
   }
   if (stepEnabled('build', options, app)) {
     add('build', `${app}: build`, 'npm', ['run', `build:${app}`]);

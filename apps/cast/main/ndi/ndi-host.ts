@@ -323,6 +323,7 @@ parentPort.on('message', (event: { data: NdiHostCommand; ports?: MessagePortMain
   if (cmd.type === 'init') {
     if (service) return;
     service = new NdiService({
+      gpuRequired: true,
       outputConfigs: cmd.outputConfigs,
       onOutputConfigsChanged: (outputConfigs) => {
         emit({ type: 'outputConfigsChanged', outputConfigs });
@@ -337,6 +338,7 @@ parentPort.on('message', (event: { data: NdiHostCommand; ports?: MessagePortMain
     service.onFrameReleased(routeFrameRelease);
     emit({
       type: 'ready',
+      gpuTransport: service.getGpuTransport(),
       outputState: service.getOutputState(),
       outputConfigs: service.getOutputConfigs(),
       diagnostics: service.getDiagnostics(),
@@ -362,6 +364,12 @@ parentPort.on('message', (event: { data: NdiHostCommand; ports?: MessagePortMain
     case 'updateOutputConfig':
       if (!service) return;
       service.updateOutputConfig(cmd.name, cmd.config);
+      break;
+    case 'gpuSourceError':
+      service?.reportGpuSourceError(cmd.message);
+      break;
+    case 'gpuFrame':
+      if (service) void service.receiveSharedTextureFrame(cmd.name, cmd.handle, cmd.format, { ...cmd.telemetry, hostReceivedAtMs: Date.now() });
       break;
     case 'frame': {
       if (!service) return;

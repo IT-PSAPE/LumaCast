@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; audio consequence superseded by ADR-0020
+Superseded for video by ADR-0049; audio consequence superseded by ADR-0020
 
 ## Date
 

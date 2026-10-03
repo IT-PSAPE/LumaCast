@@ -1,5 +1,7 @@
 import type {
   NdiDiagnostics,
+  NdiSharedTextureHandle,
+  NdiGpuTransport,
   NdiFrameRelease,
   NdiFrameTelemetry,
   NdiOutputConfig,
@@ -21,6 +23,8 @@ export interface BlackoutFlushOptions {
 // Sent from main process to the NDI utility process.
 export type NdiHostCommand =
   | { type: 'init'; outputConfigs: NdiOutputConfigMap }
+  | { type: 'gpuSourceError'; message: string }
+  | { type: 'gpuFrame'; name: NdiOutputName; handle: NdiSharedTextureHandle; format: string; telemetry: NdiFrameTelemetry }
   | { type: 'attachFramePort'; name: NdiOutputName }
   | { type: 'attachAudioPort'; name: NdiOutputName }
   | { type: 'setOutputEnabled'; name: NdiOutputName; enabled: boolean }
@@ -49,6 +53,7 @@ export type NdiHostCommand =
 export type NdiHostEvent =
   | {
       type: 'ready';
+      gpuTransport?: NdiGpuTransport;
       outputState: NdiOutputState;
       outputConfigs: NdiOutputConfigMap;
       diagnostics: NdiDiagnostics;

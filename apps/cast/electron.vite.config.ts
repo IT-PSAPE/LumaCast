@@ -126,7 +126,7 @@ export default defineConfig({
     build: {
       outDir: 'out/preload',
       lib: {
-        entry: path.resolve(__dirname, 'main/preload.ts')
+        entry: { preload: path.resolve(__dirname, 'main/preload.ts'), 'ndi-gpu-preload': path.resolve(__dirname, 'main/ndi-gpu-preload.ts') }
       }
     },
     resolve: {

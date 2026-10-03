@@ -131,6 +131,9 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   const imageState = useKImage(isThumbnailSurface ? null : imageSrc);
   const proxyImageState = useKImage(proxyImageSrc);
   const isLayerVideoNode = node.element.id === LAYER_VIDEO_NODE_ID;
+  // The GPU output window follows the source player's snapshots. Autoplay here
+  // would race a paused/seeked snapshot each time the scene is mounted.
+  if (isLayerVideoNode && (surface === 'ndi-show' || surface === 'ndi-stage')) videoOptions.autoplay = false;
   const videoState = useKVideo(isThumbnailSurface ? null : videoSrc, {
     autoplay: videoOptions.autoplay,
     loop: videoOptions.loop,

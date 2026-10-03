@@ -10,7 +10,7 @@ import { isSceneNodeVisible, sceneNodeFrame, traverseSceneNodes } from '@lumacas
 // Structural parity between the two scene traversals that exist post-#147/#148:
 //
 //  - The Konva pipeline (buildRenderScene → traverseSceneNodes → renderSceneNodeContent)
-//    that both the editor (scene-stage.tsx) and NDI (ndi-frame-capture.tsx) now share.
+//    that both the editor (scene-stage.tsx) and NDI (SceneOutputStage) share.
 //  - The provider-independent resolved contract (buildResolvedRenderScene)
 //    that landed in #147.
 //
@@ -299,7 +299,7 @@ describe('known scope-bounded divergence: invalid numeric fields', () => {
 // ─── Slide/stage background parity (#206) ──────────────────────────────
 //
 // SceneSlideBackground is the one shared implementation the editor stage
-// (scene-stage.tsx) and the NDI capture path (ndi-frame-capture.tsx) both
+// (scene-stage.tsx) and the NDI GPU output stage both
 // render through. Both call sites pass the same `scene.slide.background`,
 // `scene.width`/`scene.height`, and their own SceneSurface tag; calling the
 // component directly here (JSX creation does not execute the function body,

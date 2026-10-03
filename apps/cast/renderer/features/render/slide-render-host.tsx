@@ -22,8 +22,7 @@ import {
 //
 // This builds its own minimal Konva tree from @lumacast/canvas primitives
 // (SceneSlideBackground, renderSceneNodeContent) rather than importing the
-// canvas feature's <SceneStage>, mirroring ndi-frame-capture.tsx — both are
-// read-only output surfaces that need a raw Konva.Stage ref, which
+// canvas feature's <SceneStage>. This review surface needs a raw Konva.Stage ref, which
 // <SceneStage> does not expose, and reusing it would be a feature-to-feature
 // import this feature does not need.
 
@@ -178,9 +177,8 @@ async function captureStage(
   try {
     return stage.toDataURL({ mimeType: config.mimeType, quality: config.quality, pixelRatio: config.pixelRatio });
   } catch {
-    // Mirrors the NDI capture fallback (ndi-frame-capture.tsx): a tainted or
-    // otherwise export-hostile canvas still yields pixels through a plain
-    // bitmap copy.
+    // A canvas that cannot be exported directly can still yield pixels
+    // through a plain bitmap copy.
     try {
       const canvasEl = stage.getLayers()[0]?.getNativeCanvasElement();
       if (!canvasEl) throw new Error('No native canvas to capture.');

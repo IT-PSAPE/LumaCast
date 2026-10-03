@@ -1,6 +1,9 @@
 import { MessageChannelMain, utilityProcess, type MessagePortMain, type UtilityProcess } from 'electron';
 import type {
   NdiDiagnostics,
+  NdiGpuTransport,
+  NdiGpuFrameResult,
+  NdiSharedTextureHandle,
   NdiFrameRelease,
   NdiFrameTelemetry,
   NdiOutputConfig,
@@ -38,6 +41,9 @@ export class NdiServiceProxy implements NdiServiceLike {
   private readonly onOutputConfigsChanged: (configs: NdiOutputConfigMap) => void;
   private stateChangeListeners: StateChangeCallback[] = [];
   private diagnosticsChangeListeners: DiagnosticsChangeCallback[] = [];
+  private gpuTransport: NdiGpuTransport | null = null;
+  private hostExited = false;
+  private gpuPending = new Map<string, { resolve: (result: NdiGpuFrameResult) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private frameReleasedListeners: FrameReleasedCallback[] = [];
 
   constructor(options: NdiServiceProxyOptions) {
@@ -62,6 +68,10 @@ export class NdiServiceProxy implements NdiServiceLike {
       console.error(`[ndi-host] ${stripTrailingNewline(chunk.toString())}`);
     });
     this.host.on('exit', (code) => {
+      this.hostExited = true;
+      this.gpuTransport = null;
+      for (const pending of this.gpuPending.values()) { clearTimeout(pending.timer); pending.reject(new Error('NDI host exited before texture completion')); }
+      this.gpuPending.clear();
       if (!this.destroyed) {
         console.error(`[NdiServiceProxy] Host process exited unexpectedly with code ${code}`);
       }
@@ -80,6 +90,29 @@ export class NdiServiceProxy implements NdiServiceLike {
 
   getDiagnostics(): NdiDiagnostics {
     return this.cachedDiagnostics;
+  }
+
+  reportGpuSourceError(message: string): void { this.send({ type: 'gpuSourceError', message: message.slice(0, 1024) }); }
+
+  getGpuTransport(): NdiGpuTransport | null { return this.gpuTransport; }
+
+  submitGpuFrame(name: NdiOutputName, handle: NdiSharedTextureHandle, format: string, telemetry: NdiFrameTelemetry): Promise<NdiGpuFrameResult> {
+    if (this.destroyed || this.teardownStarted || this.hostExited || !this.gpuTransport?.supported || !telemetry.attemptId) {
+      throw new Error('NDI GPU host unavailable');
+    }
+    const attemptId = telemetry.attemptId;
+    return new Promise((resolve, reject) => {
+      // A timeout terminates the reader. Input leases are released only on its exit event.
+      const timer = setTimeout(() => { this.host.kill(); }, 5000);
+      this.gpuPending.set(attemptId, { resolve, reject, timer });
+      try { this.send({ type: 'gpuFrame', name, handle, format, telemetry: { ...telemetry, proxyForwardedAtMs: Date.now() } }); }
+      catch (error) {
+        clearTimeout(timer);
+        this.gpuPending.delete(attemptId);
+        (require('@lumacast/ndi-native') as typeof import('@lumacast/ndi-native')).discardSharedTexture(handle);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
   }
 
   createFrameTransport(name: NdiOutputName): MessagePortMain | null {
@@ -237,9 +270,10 @@ export class NdiServiceProxy implements NdiServiceLike {
       this.finishDestroy();
       return;
     }
-    if (this.destroyed || this.teardownStarted) return;
+    if ((this.destroyed || this.teardownStarted) && event.type !== 'frameReleased') return;
     switch (event.type) {
       case 'ready':
+        this.gpuTransport = event.gpuTransport ?? null;
         this.cachedOutputState = event.outputState;
         this.cachedOutputConfigs = event.outputConfigs;
         this.cachedDiagnostics = event.diagnostics;
@@ -258,9 +292,17 @@ export class NdiServiceProxy implements NdiServiceLike {
         this.cachedDiagnostics = event.diagnostics;
         for (const listener of this.diagnosticsChangeListeners) listener(event.diagnostics);
         break;
-      case 'frameReleased':
+      case 'frameReleased': {
+        const pending = event.release.attemptId ? this.gpuPending.get(event.release.attemptId) : undefined;
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.gpuPending.delete(event.release.attemptId!);
+          if (event.release.accepted && event.release.gpuFrameResult) pending.resolve(event.release.gpuFrameResult);
+          else pending.reject(new Error(`NDI GPU frame rejected: ${event.release.reason}`));
+        }
         for (const listener of this.frameReleasedListeners) listener(event.release);
         break;
+      }
     }
   }
 

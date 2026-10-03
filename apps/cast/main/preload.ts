@@ -247,6 +247,7 @@ const api = {
   requestNdiAudioTransport: (name: NdiOutputName) => {
     ipcRenderer.send(IPC.requestNdiAudioTransport, { name });
   },
+  publishNdiGpuScene: (snapshot) => ipcRenderer.send(IPC.publishNdiGpuScene, snapshot),
   sendNdiFrame: (name: NdiOutputName, buffer: ArrayBuffer, width: number, height: number, telemetry?: NdiFrameTelemetry) => {
     // Use ordinary IPC cloning for frame delivery. Electron's renderer
     // transfer-list path rejects ArrayBuffer here, which prevents frames from
