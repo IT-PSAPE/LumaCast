@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
     }
   }
   @autoreleasepool {
-    assert(ndi_gpu::Supported());
+    const bool hasMetal = ndi_gpu::Supported();
     NSDictionary* properties = @{
       (id)kIOSurfaceWidth: @2, (id)kIOSurfaceHeight: @2,
       (id)kIOSurfaceBytesPerElement: @4, (id)kIOSurfaceBytesPerRow: @16,
@@ -119,22 +119,26 @@ int main(int argc, char** argv) {
     mach_port_deallocate(mach_task_self(), malformedPort);
     mach_port_mod_refs(mach_task_self(), replyPort, MACH_PORT_RIGHT_RECEIVE, -1);
     auto imported = ndi_gpu::Lookup(id, 2, 2, "bgra");
-    auto converter = ndi_gpu::CreateConverter(2, 2, true);
-    const auto output = converter->Convert(*imported, 0);
-    assert(output.size == 12 && output.stride == 4 && output.fourCC == 0x41565955U);
-    assert(std::abs(int(output.data[0]) - 102) <= 1);
-    assert(std::abs(int(output.data[1]) - 63) <= 1);
-    assert(std::abs(int(output.data[2]) - 240) <= 1);
-    for (int i = 0; i < 4; ++i) assert(output.data[i] == output.data[i + 4]);
-    assert(output.data[8] == 255 && output.data[9] == 255);
-    assert(output.data[10] == 128 && output.data[11] == 128);
-    const auto second = converter->Convert(*imported, 1);
-    assert(second.data != output.data);
-    assert(converter->Convert(*imported, 0).data == output.data);
-    auto opaque = ndi_gpu::CreateConverter(2, 2, false);
-    const auto opaqueOutput = opaque->Convert(*imported, 0);
-    assert(opaqueOutput.size == 8 && opaqueOutput.fourCC == 0x59565955U);
-    assert(opaqueOutput.data[5] < opaqueOutput.data[1]);
+    if (hasMetal) {
+      auto converter = ndi_gpu::CreateConverter(2, 2, true);
+      const auto output = converter->Convert(*imported, 0);
+      assert(output.size == 12 && output.stride == 4 && output.fourCC == 0x41565955U);
+      assert(std::abs(int(output.data[0]) - 102) <= 1);
+      assert(std::abs(int(output.data[1]) - 63) <= 1);
+      assert(std::abs(int(output.data[2]) - 240) <= 1);
+      for (int i = 0; i < 4; ++i) assert(output.data[i] == output.data[i + 4]);
+      assert(output.data[8] == 255 && output.data[9] == 255);
+      assert(output.data[10] == 128 && output.data[11] == 128);
+      const auto second = converter->Convert(*imported, 1);
+      assert(second.data != output.data);
+      assert(converter->Convert(*imported, 0).data == output.data);
+      auto opaque = ndi_gpu::CreateConverter(2, 2, false);
+      const auto opaqueOutput = opaque->Convert(*imported, 0);
+      assert(opaqueOutput.size == 8 && opaqueOutput.fourCC == 0x59565955U);
+      assert(opaqueOutput.data[5] < opaqueOutput.data[1]);
+    } else {
+      std::puts("Mach/IOSurface transfer passed; Metal conversion skipped: no Metal device on this host");
+    }
     bool rejected = false;
     try { ndi_gpu::Lookup(id, 4, 2, "bgra"); } catch (const std::runtime_error&) { rejected = true; }
     assert(rejected);

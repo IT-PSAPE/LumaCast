@@ -109,7 +109,7 @@ jobs:
         run: npm run build:ndi-native
       - name: Verify addon exports
         run: node -e "const n = require('./packages/ndi-native/build/Release/ndi_native.node'); if (typeof n.sendSharedTextureFrame !== 'function' || typeof n.replaySharedTextureFrame !== 'function' || typeof n.exportSharedTexture !== 'function') process.exit(1)"
-      - name: Test IOSurface lookup and Metal conversion
+      - name: Test Mach transfer and available Metal conversion
         if: matrix.platform == 'macos'
         run: npm --prefix packages/ndi-native run test:gpu-texture
 

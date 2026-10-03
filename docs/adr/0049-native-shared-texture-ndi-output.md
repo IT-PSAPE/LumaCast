@@ -59,3 +59,7 @@ output is reported instead of silently switching back to the retired pipeline.
 Linux builds require EGL/GLES development headers; Debian packages declare the
 EGL/GLES runtime libraries alongside Electron dependencies. AppImage hosts need
 compatible graphics drivers providing those libraries.
+
+Hosted macOS CI without a Metal device still checks Mach/IOSurface transfer and
+reports the conversion test as skipped. Metal conversion and live Chromium
+capture are verified on a physical Mac.
