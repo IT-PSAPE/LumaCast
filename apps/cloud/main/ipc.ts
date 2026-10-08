@@ -49,7 +49,7 @@ export interface IpcSuiteManager {
 export interface IpcSelfUpdater {
   state(): SelfUpdateState;
   check(): Promise<SelfUpdateState>;
-  installAndRestart(): void;
+  installAndRestart(): Promise<void>;
   on(event: 'change', listener: (state: SelfUpdateState) => void): unknown;
 }
 
@@ -141,7 +141,7 @@ export function createIpcHandlers(
     [IPC_CHANNELS.checkForSelfUpdate]: async () => selfUpdater.check(),
 
     [IPC_CHANNELS.installSelfUpdate]: async () => {
-      selfUpdater.installAndRestart();
+      await selfUpdater.installAndRestart();
     },
   };
 }

@@ -4,6 +4,7 @@ import { createWin32PlatformAdapter } from '../../../../../apps/cloud/main/platf
 import {
   CAST_APP,
   CLOUD_APP,
+  FLUX_APP,
   createFakeFs,
   createScriptedExec,
   win32Env,
@@ -127,11 +128,173 @@ describe('win32 platform adapter', () => {
       await expect(adapter.discover(CAST_APP)).resolves.toBeNull();
     });
 
+    it('matches a DisplayName carrying a version suffix and infers the location from the uninstall command', async () => {
+      const uninstallExe = 'C:\\Users\\test\\AppData\\Local\\Programs\\lumacast\\Uninstall LumaCast.exe';
+      const rig = createRig({
+        exec: (call) => {
+          if (call.args[1]?.startsWith('HKCU')) {
+            return {
+              code: 0,
+              stdout: regEntry('LumaCast 0.1.28', {
+                DisplayVersion: '0.1.28',
+                UninstallString: `"${uninstallExe}" /currentuser`,
+              }),
+              stderr: '',
+            };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(CAST_APP)).resolves.toEqual({
+        app: 'cast',
+        version: '0.1.28',
+        location: 'C:\\Users\\test\\AppData\\Local\\Programs\\lumacast',
+        scope: 'user',
+      });
+    });
+
+    it('discovers a system install from HKLM with a version-suffixed DisplayName and icon-inferred location', async () => {
+      const rig = createRig({
+        exec: (call) => {
+          if (call.args[1]?.startsWith('HKLM')) {
+            return {
+              code: 0,
+              stdout: [
+                `HKEY_LOCAL_MACHINE\\${UNINSTALL_KEY}\\f38ae49a-b24f-5cf4-8b9f-ee379e214b14`,
+                '    DisplayName    REG_SZ    Lumaflux 0.11.1',
+                '    DisplayVersion    REG_SZ    0.11.1',
+                '    UninstallString    REG_SZ    "C:\\Program Files\\Lumaflux\\Uninstall Lumaflux.exe" /allusers',
+                '    QuietUninstallString    REG_SZ    "C:\\Program Files\\Lumaflux\\Uninstall Lumaflux.exe" /allusers /S',
+                '    DisplayIcon    REG_SZ    C:\\Program Files\\Lumaflux\\Lumaflux.exe,0',
+                '',
+              ].join('\r\n'),
+              stderr: '',
+            };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(FLUX_APP)).resolves.toEqual({
+        app: 'flux',
+        version: '0.11.1',
+        location: 'C:\\Program Files\\Lumaflux',
+        scope: 'system',
+      });
+    });
+
+    it('matches via the executable name when the DisplayName is unfamiliar', async () => {
+      const uninstallExe = 'C:\\Users\\test\\AppData\\Local\\Programs\\lumacast\\Uninstall LumaCast.exe';
+      const rig = createRig({
+        exec: (call) => {
+          if (call.args[1]?.startsWith('HKCU')) {
+            return {
+              code: 0,
+              stdout: regEntry('Something Else Entirely', {
+                DisplayVersion: '3.0.0',
+                UninstallString: `"${uninstallExe}" /currentuser`,
+              }),
+              stderr: '',
+            };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(CAST_APP)).resolves.toEqual({
+        app: 'cast',
+        version: '3.0.0',
+        location: 'C:\\Users\\test\\AppData\\Local\\Programs\\lumacast',
+        scope: 'user',
+      });
+    });
+
+    it('falls back to the icon path when there is no uninstall command', async () => {
+      const rig = createRig({
+        exec: (call) => {
+          if (call.args[1]?.startsWith('HKCU')) {
+            return {
+              code: 0,
+              stdout: regEntry('LumaCast 0.1.28', {
+                DisplayVersion: '0.1.28',
+                DisplayIcon: 'C:\\Users\\test\\AppData\\Local\\Programs\\lumacast\\LumaCast.exe,0',
+              }),
+              stderr: '',
+            };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(CAST_APP)).resolves.toEqual({
+        app: 'cast',
+        version: '0.1.28',
+        location: 'C:\\Users\\test\\AppData\\Local\\Programs\\lumacast',
+        scope: 'user',
+      });
+    });
+
+    it('finds the executable in a non-product-name directory when no registry entry exists', async () => {
+      const rig = createRig({
+        dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\@lumacastflux'],
+        files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\@lumacastflux\\Lumaflux.exe': 'binary' },
+        exec: (call) => {
+          if (call.file === 'powershell' && call.args[0] === '-NoProfile') {
+            return { code: 0, stdout: '0.11.1', stderr: '' };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(FLUX_APP)).resolves.toEqual({
+        app: 'flux',
+        version: '0.11.1',
+        location: 'C:\\Users\\test\\AppData\\Local\\Programs\\@lumacastflux',
+        scope: 'user',
+      });
+    });
+
     it('probes for the executable but still reports not-installed when no registry entry exists', async () => {
       const rig = createRig({
         dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast'],
         files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast\\LumaCast.exe': 'binary' },
         exec: () => emptyReg(),
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(CAST_APP)).resolves.toBeNull();
+    });
+
+    it('discovers app from executable file version when no registry entry exists', async () => {
+      const rig = createRig({
+        dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast'],
+        files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast\\LumaCast.exe': 'binary' },
+        exec: (call) => {
+          if (call.file === 'powershell' && call.args[0] === '-NoProfile') {
+            return { code: 0, stdout: '1.5.0', stderr: '' };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await expect(adapter.discover(CAST_APP)).resolves.toEqual({
+        app: 'cast',
+        version: '1.5.0',
+        location: 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast',
+        scope: 'user',
+      });
+    });
+
+    it('returns null when executable exists but version cannot be read', async () => {
+      const rig = createRig({
+        dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast'],
+        files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast\\LumaCast.exe': 'binary' },
+        exec: (call) => {
+          if (call.file === 'powershell' && call.args[0] === '-NoProfile') {
+            return { code: 1, stdout: '', stderr: 'error' };
+          }
+          return emptyReg();
+        },
       });
       const adapter = createWin32PlatformAdapter(rig.deps);
       await expect(adapter.discover(CAST_APP)).resolves.toBeNull();
@@ -271,6 +434,29 @@ describe('win32 platform adapter', () => {
             return {
               code: 0,
               stdout: regEntry('LumaCast', { UninstallString: `"${uninstallExe}"` }),
+              stderr: '',
+            };
+          }
+          return emptyReg();
+        },
+      });
+      const adapter = createWin32PlatformAdapter(rig.deps);
+      await adapter.uninstall(baseUninstall());
+      const uninstallCall = rig.calls.find((call) => call.file === uninstallExe);
+      expect(uninstallCall?.args).toEqual(['/S']);
+    });
+
+    it('finds a version-suffixed registry entry when uninstalling', async () => {
+      const uninstallExe = 'C:\\Users\\test\\AppData\\Local\\Programs\\lumacast\\Uninstall LumaCast.exe';
+      const rig = createRig({
+        exec: (call) => {
+          if (call.args[1]?.startsWith('HKCU')) {
+            return {
+              code: 0,
+              stdout: regEntry('LumaCast 0.1.28', {
+                DisplayVersion: '0.1.28',
+                QuietUninstallString: `"${uninstallExe}" /S`,
+              }),
               stderr: '',
             };
           }

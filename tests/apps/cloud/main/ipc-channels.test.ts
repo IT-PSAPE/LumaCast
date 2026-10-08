@@ -42,7 +42,7 @@ function fakeSelfUpdater(): IpcSelfUpdater {
   return {
     state: () => ({ status: 'unavailable', availableVersion: null, percent: null, error: null, checkedAt: null }),
     check: async () => ({ status: 'unavailable', availableVersion: null, percent: null, error: null, checkedAt: null }),
-    installAndRestart: () => undefined,
+    installAndRestart: async () => undefined,
     on: () => undefined,
   };
 }
