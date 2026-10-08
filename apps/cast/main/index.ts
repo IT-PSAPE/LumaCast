@@ -6,6 +6,8 @@ import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';
 import { initializeLogger, getLogFilePath } from './logger';
+import { NdiGpuOutput } from './ndi/ndi-gpu-output';
+import { stopWorkbenchNdi } from './ndi/workbench-ndi-lifecycle';
 import { NdiServiceProxy } from './ndi/ndi-service-proxy';
 import { NoopNdiService, NdiConfigStore, type NdiServiceLike } from '@lumacast/engine';
 import { resolveAppIdentity } from './app-identity';
@@ -60,6 +62,8 @@ const WORKBENCH_MIN_WIDTH = 140 + 360 + 140;
 const WORKBENCH_MIN_HEIGHT = Math.max(360 + 96, 240 + 120) + 96;
 const ndiConfigStore = new NdiConfigStore(userDataPath);
 let ndiService: NdiServiceLike | null = null;
+let ndiGpuOutput: NdiGpuOutput | null = null;
+let ndiGpuResetPromise: Promise<void> | null = null;
 let persistenceService: PersistenceServiceProxy | null = null;
 let latestPersistenceProgress: PersistenceProgress | null = null;
 let persistenceShutdownPromise: Promise<void> | null = null;
@@ -68,6 +72,19 @@ let isShuttingDown = false;
 const appUpdater = new AppUpdater({
   getMainWindow: () => mainWindow,
 });
+
+function resetGpuOutput(): Promise<void> {
+  if (ndiGpuResetPromise) return ndiGpuResetPromise;
+  const output = ndiGpuOutput;
+  ndiGpuOutput = null;
+  ndiGpuResetPromise = stopWorkbenchNdi(output, ndiService).finally(() => {
+    ndiGpuResetPromise = null;
+    if (!isShuttingDown && mainWindow && !mainWindow.isDestroyed() && ndiService instanceof NdiServiceProxy) {
+      ndiGpuOutput = new NdiGpuOutput(ndiService, __dirname);
+    }
+  });
+  return ndiGpuResetPromise;
+}
 
 function teardownNdi(reason: string, error?: unknown) {
   if (error !== undefined) {
@@ -78,7 +95,7 @@ function teardownNdi(reason: string, error?: unknown) {
   try {
     // destroy() now performs its own best-effort blackout burst before
     // releasing the native sender, so receivers see a clean cutoff.
-    ndiService.destroy();
+    void (ndiGpuOutput?.stop() ?? ndiGpuResetPromise ?? Promise.resolve()).finally(() => ndiService?.destroy());
   } catch (destroyError) {
     console.error('[Main process NDI teardown failure]', destroyError);
   }
@@ -240,7 +257,7 @@ function createMainWindow(): void {
     // blackout burst so the cutoff is visually clean.
     if (ndiService) {
       try {
-        ndiService.flushBlackoutAndDestroy(undefined, { totalBudgetMs: 500 });
+        void resetGpuOutput();
       } catch (error) {
         console.error('[Main process render-process-gone blackout]', error);
       }
@@ -282,6 +299,7 @@ function createMainWindow(): void {
   window.on('closed', () => {
     if (mainWindow === window) {
       mainWindow = null;
+      void resetGpuOutput().finally(() => { if (process.platform !== 'darwin') app.quit(); });
     }
   });
 }
@@ -330,6 +348,7 @@ app.whenReady().then(() => {
       outputConfigs: initialNdiConfigs,
       onOutputConfigsChanged: (configs) => {
         ndiConfigStore.save(configs);
+        ndiGpuOutput?.invalidate();
       },
       hostModulePath: path.join(__dirname, 'ndi-host.js'),
     });
@@ -338,6 +357,7 @@ app.whenReady().then(() => {
     console.error('[Main process NDI init failed — continuing without NDI]', error);
     ndiService = new NoopNdiService(initialNdiConfigs, `NDI service unavailable: ${message}`);
   }
+  if (ndiService instanceof NdiServiceProxy) ndiGpuOutput = new NdiGpuOutput(ndiService, __dirname);
   persistenceService = startPersistenceShell({
     createService: () => {
       const service = new PersistenceServiceProxy({
@@ -367,6 +387,7 @@ app.whenReady().then(() => {
       {
         onPersistenceProgress: reportPersistenceProgress,
         getLatestPersistenceProgress: () => latestPersistenceProgress,
+        publishNdiGpuScene: (snapshot) => ndiGpuOutput?.publish(snapshot),
         createNdiFrameTransport: (name) => (
           ndiService instanceof NdiServiceProxy
             ? ndiService.createFrameTransport(name)
@@ -385,8 +406,12 @@ app.whenReady().then(() => {
   appUpdater.scheduleStartupCheck();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      void (ndiGpuResetPromise ?? Promise.resolve()).then(() => {
+        if (isShuttingDown || (mainWindow && !mainWindow.isDestroyed())) return;
+        if (ndiService instanceof NdiServiceProxy && !ndiGpuOutput) ndiGpuOutput = new NdiGpuOutput(ndiService, __dirname);
+        createMainWindow();
+      });
     }
   });
 }).catch((error) => {
@@ -404,7 +429,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (persistenceShutdownPromise) return;
 
-  persistenceShutdownPromise = (persistenceService?.destroy(2_000) ?? Promise.resolve())
+  persistenceShutdownPromise = Promise.all([persistenceService?.destroy(2_000) ?? Promise.resolve(), ndiGpuOutput?.stop() ?? ndiGpuResetPromise ?? Promise.resolve()]).then(() => undefined)
     .catch((error) => {
       console.error('[Main process persistence shutdown failure]', error);
     })

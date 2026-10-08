@@ -28,6 +28,8 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock('@lumacast/ndi-native', () => ({ discardSharedTexture: vi.fn() }));
+
 vi.mock('electron', () => ({
   utilityProcess: { fork: mocks.fork },
   MessageChannelMain: mocks.MessageChannelMain,
@@ -192,5 +194,36 @@ describe('NdiServiceProxy teardown lifecycle', () => {
     mocks.host.postMessage.mockClear();
     expect(proxy.createAudioTransport('audience')).toBeNull();
     expect(mocks.host.postMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('GPU texture acknowledgements', () => {
+  beforeEach(() => { mocks.listeners.clear(); vi.clearAllMocks(); vi.useFakeTimers(); });
+  afterEach(() => vi.useRealTimers());
+  function setup() {
+    const configs = createDefaultNdiOutputConfigs();
+    const proxy = new NdiServiceProxy({ outputConfigs: configs, onOutputConfigsChanged: vi.fn(), hostModulePath: '/host.js' });
+    mocks.listeners.get('message')?.({ type: 'ready', outputState: { audience: true, stage: false }, outputConfigs: configs, diagnostics: proxy.getDiagnostics(), gpuTransport: { supported: true, receiverEndpoint: 'private-test-endpoint', pid: 123 } });
+    return proxy;
+  }
+  const telemetry = { attemptId: 'revision:1', captureDurationMs: 0, readbackDurationMs: 0, skippedCaptures: 0, framesDroppedBackpressure: 0, correctiveFrameRetries: 0 };
+  const handle = { platform: 'darwin' as const, token: '0'.repeat(32) };
+  it('waits for the matching native acknowledgement', async () => {
+    const proxy = setup(); let settled = false;
+    const pending = proxy.submitGpuFrame('audience', handle, 'bgra', telemetry).then((result) => { settled = true; return result; });
+    mocks.listeners.get('message')?.({ type: 'frameReleased', release: { name: 'audience', attemptId: 'different:1', accepted: true, reason: 'sent', releasedAtMs: 1 } });
+    await Promise.resolve(); expect(settled).toBe(false);
+    const result = { conversionDurationMs: 2, sendDurationMs: 1, frameBytes: 123 };
+    mocks.listeners.get('message')?.({ type: 'frameReleased', release: { name: 'audience', attemptId: telemetry.attemptId, accepted: true, reason: 'sent', releasedAtMs: 1, gpuFrameResult: result } });
+    expect(await pending).toEqual(result); proxy.destroy(); mocks.listeners.get('message')?.({ type: 'teardownComplete' });
+  });
+  it('terminates a timed out reader but keeps the input lease pending until exit', async () => {
+    const proxy = setup(); let settled = false;
+    const pending = proxy.submitGpuFrame('audience', handle, 'bgra', telemetry).catch((error) => { settled = true; return error; });
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(mocks.host.kill).toHaveBeenCalledOnce(); expect(settled).toBe(false);
+    mocks.listeners.get('exit')?.(1);
+    expect(await pending).toBeInstanceOf(Error); expect(settled).toBe(true);
+    proxy.destroy(); mocks.listeners.get('message')?.({ type: 'teardownComplete' });
   });
 });

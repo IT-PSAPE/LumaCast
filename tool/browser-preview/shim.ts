@@ -167,6 +167,7 @@ const castApi = {
   onAgentMcpStatus: noSubscription,
   requestNdiFrameTransport: noopVoid,
   requestNdiAudioTransport: noopVoid,
+  publishNdiGpuScene: noopVoid,
   sendNdiFrame: noopVoid,
   sendNdiAudio: noopVoid,
 

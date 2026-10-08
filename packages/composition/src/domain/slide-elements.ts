@@ -115,6 +115,10 @@ export interface ImageElementPayload extends ElementVisualPayload {
   src: string;
   /** Object-fit mode for the image inside its element bounds. Default 'cover'. */
   fit?: SlideBackgroundFit;
+  /** Optional normalized source rectangle. Null explicitly clears an inherited crop. */
+  crop?: MediaCrop | null;
+  /** Optional normalized destination rectangle inside the element bounds. */
+  cropFrame?: MediaCrop | null;
 }
 
 export interface VideoElementPayload extends ElementVisualPayload {
@@ -125,6 +129,18 @@ export interface VideoElementPayload extends ElementVisualPayload {
   playbackRate?: number;
   /** Object-fit mode for the video inside its element bounds. Default 'contain'. */
   fit?: SlideBackgroundFit;
+  /** Optional normalized source rectangle. Null explicitly clears an inherited crop. */
+  crop?: MediaCrop | null;
+  /** Optional normalized destination rectangle inside the element bounds. */
+  cropFrame?: MediaCrop | null;
+}
+
+/** A source-media rectangle in normalized coordinates, with (0, 0) at top-left. */
+export interface MediaCrop {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface ShapeElementPayload extends ElementVisualPayload {

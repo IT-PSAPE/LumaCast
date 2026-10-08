@@ -22,6 +22,30 @@ export function sendBgraFrame(senderName: string, frame: Uint8Array, width: numb
 
 export function sendRgbaFrame(senderName: string, frame: Uint8Array, width: number, height: number): void;
 
+export function getSharedTextureSupport(): boolean;
+// Trusted Electron main-process pointer. Keep the original texture lease
+// alive until sendSharedTextureFrame resolves, even across process boundaries.
+export function getSharedTextureId(handle: Buffer): number;
+export interface SharedTextureHandle {
+  platform: 'darwin' | 'win32' | 'linux';
+  surfaceId?: number;
+  dxgiHandle?: string;
+  targetPid?: number;
+  token?: string;
+  modifier?: string;
+  planes?: Array<{ stride: number; offset: number; size: number }>;
+}
+export function getSharedTextureReceiver(): string;
+export function exportSharedTexture(
+  info: { sharedTextureHandle?: Buffer; modifier?: string; planes?: Array<{ fd: number; stride: number; offset: number; size: number }> },
+  targetPid: number, receiverEndpoint: string,
+): SharedTextureHandle;
+export function discardSharedTexture(handle: SharedTextureHandle): void;
+export function sendSharedTextureFrame(
+  senderName: string, handle: SharedTextureHandle, width: number, height: number, pixelFormat: 'bgra' | 'rgba',
+): Promise<{ conversionDurationMs: number; sendDurationMs: number; frameBytes: number }>;
+export function replaySharedTextureFrame(senderName: string): Promise<{ conversionDurationMs: number; sendDurationMs: number; frameBytes: number }>;
+
 // Planar 32-bit float audio: samples = [ch0..., ch1..., ...], length = channels * samplesPerChannel.
 export function sendAudioFrame(
   senderName: string,

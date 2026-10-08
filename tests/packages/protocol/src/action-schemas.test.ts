@@ -124,6 +124,28 @@ describe('element.create', () => {
     expect(decode('element.create', params)).toEqual(params);
   });
 
+  it('exposes nullable normalized crops for agent image/video payloads', () => {
+    const imageParams = {
+      slideId: 's1', type: 'image', x: 0, y: 0, width: 200, height: 80,
+      payload: { assetId: 'asset-1', crop: { x: 0.1, y: 0.2, width: 0.5, height: 0.5 } },
+    };
+    expect(decode('element.create', imageParams)).toEqual(imageParams);
+    const cleared = { ...imageParams, payload: { assetId: 'asset-1', crop: null } };
+    expect(decode('element.create', cleared)).toEqual(cleared);
+    rejects('element.create', { ...imageParams, payload: { assetId: 'asset-1', crop: { x: 0.8, y: 0, width: 0.5, height: 0.5 } } });
+  });
+
+  it('exposes nullable destination frames on media payloads', () => {
+    const params = {
+      slideId: 's1', type: 'video', x: 0, y: 0, width: 200, height: 80,
+      payload: { assetId: 'asset-1', autoplay: false, loop: false, cropFrame: { x: 0.1, y: 0.2, width: 0.5, height: 0.6 } },
+    };
+    expect(decode('element.create', params)).toEqual(params);
+    const cleared = { ...params, payload: { ...params.payload, cropFrame: null } };
+    expect(decode('element.create', cleared)).toEqual(cleared);
+    rejects('element.create', { ...params, payload: { ...params.payload, cropFrame: { x: 0.8, y: 0, width: 0.5, height: 0.5 } } });
+  });
+
   it('rejects an image payload that still carries src instead of assetId', () => {
     rejects('element.create', {
       slideId: 's1',

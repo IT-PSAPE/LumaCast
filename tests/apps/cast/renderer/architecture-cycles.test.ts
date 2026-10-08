@@ -43,7 +43,7 @@ const check = uncheckedCheck as (options?: ArchitectureCheckOptions) => Architec
 // canvas-outbound direction were removed:
 //   - scene-stage.tsx now publishes its capture canvas through the shared,
 //     feature-agnostic apps/cast/renderer/rendering/capture-surface-registry.ts
-//     instead of calling playback's ndi-capture-source.ts directly.
+//     instead of calling playback directly; the old NDI consumer is retired.
 //   - use-stage-viewport-controller.ts now reads/writes the inspector tab
 //     through the shared apps/cast/renderer/contexts/workbench-context.tsx instead
 //     of importing the inspector feature's useInspector() facade.
@@ -102,7 +102,7 @@ describe('canvas feature no longer cycles with playback or inspector (real tree)
   it('still allows the one remaining direction: playback and inspector may still import canvas', () => {
     // The fix only had to remove the canvas-outbound edge; playback and
     // inspector depending on canvas (program-panel.tsx -> SceneStage,
-    // ndi-frame-capture.tsx -> scene-node-shape/scene-types,
+    // other playback UI -> canvas components,
     // use-shape-inspector.ts -> align-element-draft) is a one-directional
     // feature dependency, not a cycle, and stays untouched by this fix.
     const result = check({});

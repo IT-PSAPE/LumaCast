@@ -8,6 +8,9 @@ import {
 } from '@lumacast/protocol';
 import type {
   NdiActiveSenderDiagnostics,
+  NdiSharedTextureHandle,
+  NdiGpuTransport,
+  NdiGpuFrameResult,
   NdiDiagnostics,
   NdiFrameDropReason,
   NdiFrameDropReasonCounts,
@@ -65,6 +68,7 @@ interface NdiServiceOptions {
   outputConfigs: NdiOutputConfigMap;
   onOutputConfigsChanged: (configs: NdiOutputConfigMap) => void;
   moduleLoader?: () => NdiNativeModule;
+  gpuRequired?: boolean;
 }
 
 export interface BlackoutOptions {
@@ -106,6 +110,8 @@ interface SenderState {
   diagnostics: NdiActiveSenderDiagnostics;
   outputName: NdiOutputName;
   lastFrame: Uint8Array | null;
+  hasGpuFrame: boolean;
+  gpuFrameInFlight: Promise<void> | null;
   lastFrameWidth: number;
   lastFrameHeight: number;
   lastFrameReceivedAt: number;
@@ -215,6 +221,7 @@ export class NdiService {
   };
   private onOutputConfigsChanged: (configs: NdiOutputConfigMap) => void;
   private moduleLoader: () => NdiNativeModule;
+  private readonly gpuRequired: boolean;
   private senders: Map<NdiOutputName, SenderState> = new Map();
   private sourceStatus: NdiSourceStatus = 'idle';
   private lastError: string | null = null;
@@ -237,6 +244,7 @@ export class NdiService {
     this.outputConfigs = options.outputConfigs;
     this.onOutputConfigsChanged = options.onOutputConfigsChanged;
     this.moduleLoader = options.moduleLoader ?? defaultNdiModuleLoader;
+    this.gpuRequired = options.gpuRequired ?? false;
   }
 
   getOutputState(): NdiOutputState {
@@ -385,6 +393,92 @@ export class NdiService {
       reason: sendReason,
       releasedAtMs: Date.now(),
     });
+  }
+
+  getGpuTransport(): NdiGpuTransport {
+    this.loadModuleIfNeeded();
+    try {
+      const supported = !!this.module?.getSharedTextureSupport?.();
+      if (!supported) this.lastError = 'Native shared-texture NDI output is unavailable';
+      return { supported, receiverEndpoint: supported ? this.module?.getSharedTextureReceiver?.() ?? '' : '', pid: process.pid };
+    } catch (error) {
+      this.reportGpuSourceError(error instanceof Error ? error.message : String(error));
+      return { supported: false, receiverEndpoint: '', pid: process.pid };
+    }
+  }
+
+  reportGpuSourceError(message: string): void {
+    this.lastError = message.slice(0, 1024);
+    this.queueDiagnosticsEmit();
+  }
+
+  async receiveSharedTextureFrame(name: NdiOutputName, handle: NdiSharedTextureHandle, format: string, telemetry: NdiFrameTelemetry): Promise<void> {
+    const sender = this.senders.get(name);
+    const sanitized = sanitizeNdiFrameTelemetry(telemetry);
+    let reason: NdiFrameReleaseReason = 'senderUnavailable';
+    let result: NdiGpuFrameResult | undefined;
+    let handedOff = false;
+    try {
+      if (sender?.gpuFrameInFlight) await sender.gpuFrameInFlight;
+      if (!this.outputState[name]) reason = 'outputDisabled';
+      else if (!this.destroyed && sender && this.senders.get(name) === sender && this.module?.sendSharedTextureFrame) {
+        sender.lastFrameReceivedAt = Date.now();
+        sender.diagnostics.performance.framesCaptured += 1;
+        const send = this.module.sendSharedTextureFrame;
+        const job = (async () => {
+          handedOff = true;
+          result = await send(sender.diagnostics.senderName, handle, NDI_OUTPUT_WIDTH, NDI_OUTPUT_HEIGHT, format);
+          if (this.senders.get(name) !== sender || this.destroyed) return;
+          sender.hasGpuFrame = true;
+          sender.lastFrame = null;
+          this.recordGpuSend(sender, result, false, sanitized);
+          reason = 'sent';
+          this.sourceStatus = 'live';
+          this.lastError = null;
+        })();
+        sender.gpuFrameInFlight = job;
+        try { await job; } finally { if (sender.gpuFrameInFlight === job) sender.gpuFrameInFlight = null; }
+      }
+    } catch (error) {
+      reason = 'nativeSendFailed';
+      this.lastError = error instanceof Error ? error.message : String(error);
+      if (sender) sender.diagnostics.performance.frameDrops.nativeSendFailed += 1;
+    } finally {
+      // Native send owns the exported handle on every path once invoked.
+      if (!handedOff) this.module?.discardSharedTexture?.(handle);
+      if (reason === 'outputDisabled') this.availabilityDrops[name].outputDisabled += 1;
+      if (reason === 'senderUnavailable') this.availabilityDrops[name].senderUnavailable += 1;
+      this.emitFrameReleased({ name, attemptId: sanitized?.attemptId, accepted: (reason as NdiFrameReleaseReason) === 'sent', reason, releasedAtMs: Date.now(), ...(result ? { gpuFrameResult: result } : {}) });
+      this.queueDiagnosticsEmit();
+    }
+  }
+
+  private recordGpuSend(sender: SenderState, result: NdiGpuFrameResult, replayed: boolean, telemetry?: NdiFrameTelemetry): void {
+    const data = sender.diagnostics.performance;
+    const now = performance.now();
+    data.framesSent += 1;
+    if (replayed) data.framesReplayed += 1;
+    data.lastFrameBytes = result.frameBytes;
+    data.minFrameBytes = data.minFrameBytes === 0 ? result.frameBytes : Math.min(data.minFrameBytes, result.frameBytes);
+    data.maxFrameBytes = Math.max(data.maxFrameBytes, result.frameBytes);
+    data.avgSendDurationMs = sender.sendDurationRolling.push(result.sendDurationMs);
+    if (!replayed) data.avgReadbackDurationMs = sender.readbackDurationRolling.push(result.conversionDurationMs);
+    sender.sendDurationSamples.push(result.sendDurationMs);
+    if (sender.lastSendAt > 0) sender.sendIntervalSamples.push(now - sender.lastSendAt);
+    sender.lastSendAt = now;
+    const sorted = sender.sendDurationSamples.snapshot().sort((a,b) => a-b);
+    data.p50SendDurationMs = percentile(sorted,50);
+    data.p95SendDurationMs = percentile(sorted,95);
+    data.p99SendDurationMs = percentile(sorted,99);
+    data.sendIntervalJitterMs = standardDeviation(sender.sendIntervalSamples.snapshot());
+    if (telemetry && !replayed) {
+      data.framesDroppedBackpressure = saturatingAddInt(data.framesDroppedBackpressure, telemetry.framesDroppedBackpressure);
+      mergeFrameDropReasons(data.frameDrops, telemetry.dropReasons);
+      const stamp = Date.now();
+      recordPipelineSpans(sender, telemetry, stamp, planAcceptedCorrelationAggregation(sender, telemetry, stamp));
+    }
+    sender.diagnostics.connectionCount = this.module?.getSenderConnections?.(sender.diagnostics.senderName,0) ?? null;
+    sender.diagnostics.tally = this.module?.getSenderTally?.(sender.diagnostics.senderName,0) ?? null;
   }
 
   receiveAudioFrame(
@@ -619,6 +713,10 @@ export class NdiService {
   private ensureSender(name: NdiOutputName): void {
     if (!this.loadModuleIfNeeded()) return;
     if (this.senders.has(name)) return;
+    if (this.gpuRequired && !this.module?.getSharedTextureSupport?.()) {
+      this.lastError = 'Native shared-texture NDI output is unavailable';
+      return;
+    }
 
     const config = this.outputConfigs[name];
     const senderName = this.resolveSenderName(name);
@@ -649,6 +747,8 @@ export class NdiService {
         },
         outputName: name,
         lastFrame: null,
+        hasGpuFrame: false,
+        gpuFrameInFlight: null,
         lastFrameWidth: 0,
         lastFrameHeight: 0,
         lastFrameReceivedAt: 0,
@@ -873,7 +973,21 @@ export class NdiService {
         for (const [name, sender] of this.senders) {
           if (!this.outputState[name]) continue;
           if (now - sender.lastFrameReceivedAt <= HEARTBEAT_STALL_THRESHOLD_MS) continue;
-          if (sender.lastFrame) {
+          if (sender.hasGpuFrame && !sender.gpuFrameInFlight && this.module?.replaySharedTextureFrame) {
+            const job = this.module.replaySharedTextureFrame(sender.diagnostics.senderName).then((result) => {
+              if (this.senders.get(name) === sender && !this.destroyed) {
+                this.recordGpuSend(sender, result, true);
+                this.queueDiagnosticsEmit();
+              }
+            }).catch((error) => {
+              if (this.senders.get(name) === sender) {
+                this.lastError = error instanceof Error ? error.message : String(error);
+                sender.diagnostics.performance.frameDrops.nativeSendFailed += 1;
+                this.queueDiagnosticsEmit();
+              }
+            }).finally(() => { if (sender.gpuFrameInFlight === job) sender.gpuFrameInFlight = null; });
+            sender.gpuFrameInFlight = job;
+          } else if (sender.lastFrame) {
             this.sendFrame(name, sender.lastFrame, sender.lastFrameWidth, sender.lastFrameHeight, true);
             replayedFrame = true;
           }

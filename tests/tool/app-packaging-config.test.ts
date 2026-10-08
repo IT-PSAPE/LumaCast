@@ -30,7 +30,7 @@ interface BuilderConfig {
   productName: string;
   publish: { provider: string; url: string };
   linux: { executableName: string };
-  deb: { packageName: string };
+  deb: { packageName: string; depends?: string[] };
 }
 
 function readBuilderConfig(appDir: string): BuilderConfig {
@@ -66,6 +66,12 @@ describe('app packaging config', () => {
       expect(config.deb.packageName).toBe(app.linuxIdentity);
       expect(app.linuxIdentity).toMatch(/^[a-z0-9][a-z0-9+.-]*$/);
     }
+  });
+
+  it('installs the Cast native GPU libraries alongside Electron runtime dependencies', () => {
+    expect(readBuilderConfig('cast').deb.depends).toEqual(expect.arrayContaining([
+      'libegl1', 'libgles2', 'libgtk-3-0', 'libnss3', 'libxss1', 'libsecret-1-0',
+    ]));
   });
 
   it('publishes every app from its own generic feed', () => {

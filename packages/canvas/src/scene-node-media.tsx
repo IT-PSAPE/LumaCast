@@ -3,7 +3,7 @@ import type Konva from 'konva';
 import type { Context } from 'konva/lib/Context';
 import { Group, Image as KonvaImage, Rect } from 'react-konva';
 import type { Id } from '@lumacast/kernel';
-import { LAYER_VIDEO_NODE_ID, readMediaFit } from '@lumacast/composition';
+import { LAYER_VIDEO_NODE_ID, readMediaCrop, readMediaCropFrame, readMediaFit } from '@lumacast/composition';
 import type { ImageElementPayload, VideoElementPayload } from '@lumacast/composition';
 import type { RenderNode, ResolvedMediaState, SceneSurface, SlideBackgroundFit } from '@lumacast/composition';
 import { MISSING_MEDIA_SURFACES, MissingMediaPlaceholder } from './missing-media-placeholder';
@@ -66,10 +66,17 @@ function getMediaRequestKey(node: RenderNode): string | null {
   return null;
 }
 
-function resolveDraw(media: LoadedMedia, fit: SlideBackgroundFit, width: number, height: number) {
+function resolveDraw(
+  media: LoadedMedia,
+  fit: SlideBackgroundFit,
+  width: number,
+  height: number,
+  crop: ReturnType<typeof readMediaCrop>,
+  cropFrame: ReturnType<typeof readMediaCropFrame>,
+) {
   const sourceWidth = media.kind === 'image' ? media.resource.naturalWidth : media.resource.videoWidth;
   const sourceHeight = media.kind === 'image' ? media.resource.naturalHeight : media.resource.videoHeight;
-  return resolveMediaFit(sourceWidth, sourceHeight, width, height, fit);
+  return resolveMediaFit(sourceWidth, sourceHeight, width, height, fit, crop, cropFrame);
 }
 
 // Konva's Image has no `cornerRadius`, so a rounded corner clips the media
@@ -124,6 +131,8 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   const videoPayload = isVideoNode ? node.element.payload as VideoElementPayload : null;
   const videoSrc = videoPayload?.src ?? null;
   const fit = readMediaFit(isVideoNode ? 'video' : 'image', (isVideoNode ? videoPayload : imagePayload) ?? { src: '' });
+  const crop = readMediaCrop(isVideoNode ? videoPayload : imagePayload);
+  const cropFrame = readMediaCropFrame(isVideoNode ? videoPayload : imagePayload);
   const proxyImageSrc = node.proxyMediaKey && node.proxyMediaKey !== imageSrc && node.proxyMediaKey !== videoSrc
     ? node.proxyMediaKey
     : null;
@@ -131,6 +140,9 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   const imageState = useKImage(isThumbnailSurface ? null : imageSrc);
   const proxyImageState = useKImage(proxyImageSrc);
   const isLayerVideoNode = node.element.id === LAYER_VIDEO_NODE_ID;
+  // The GPU output window follows the source player's snapshots. Autoplay here
+  // would race a paused/seeked snapshot each time the scene is mounted.
+  if (isLayerVideoNode && (surface === 'ndi-show' || surface === 'ndi-stage')) videoOptions.autoplay = false;
   const videoState = useKVideo(isThumbnailSurface ? null : videoSrc, {
     autoplay: videoOptions.autoplay,
     loop: videoOptions.loop,
@@ -229,7 +241,7 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
   }, [displayedMedia]);
 
   const draw = displayedMedia
-    ? resolveDraw(displayedMedia, fit, node.element.width, node.element.height)
+    ? resolveDraw(displayedMedia, fit, node.element.width, node.element.height, crop, cropFrame)
     : null;
   // Thumbnail surfaces never decode the full source (ADR-0013 keeps them
   // derivative-only), so there the proxy is the only thing that can report a
@@ -268,6 +280,7 @@ export function SceneNodeMedia({ node, surface = 'show', onLoad }: SceneNodeMedi
         <Group clipFunc={clipFunc}>
           <KonvaImage
             ref={imageRef}
+            name="element-media"
             image={displayedMedia.resource}
             x={draw.x}
             y={draw.y}

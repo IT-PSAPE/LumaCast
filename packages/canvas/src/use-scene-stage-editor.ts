@@ -12,6 +12,7 @@ import { useSceneStageMarquee } from './use-scene-stage-marquee';
 import { useSceneStageDraftBuffer } from './use-scene-stage-draft-buffer';
 import { bindFixedClientRect } from './scene-node-bounds';
 import { fitTextElementToBody } from './inline-text-editor-utils';
+import { useSceneStageMediaCrop } from './use-scene-stage-media-crop';
 
 // The narrow slice of the app-shell's element context this editor actually
 // touches. The app (contexts/canvas/canvas-context.tsx) owns the full
@@ -67,6 +68,11 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   const shiftPressed = useSceneStageShift(editable);
   const selectedIdsSet = useMemo(() => new Set(selectedElementIds), [selectedElementIds]);
   const { applyDraftPatch, flushDraftBuffer } = useSceneStageDraftBuffer({ setDraftElements });
+  const mediaCrop = useSceneStageMediaCrop({
+    editable, stageRef, transformerRef, nodeRefs, effectiveElementsRef, baseElementsRef,
+    selectedElementIdsRef, applyDraftPatch, flushDraftBuffer,
+    elements: { commitElementUpdates, setDraftElements, setCanvasInteracting },
+  });
   const marquee = useSceneStageMarquee({
     editable,
     stageRef,
@@ -296,6 +302,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   }, [commitSelectionFromNodes]);
 
   const handleNodeTransform = useCallback(() => {
+    if (mediaCrop.handleTransform()) { setGuideLines([]); return; }
     setCanvasInteracting(true);
     let nextGuides: GuideLine[] = [];
     const activeAnchor = transformerRef.current?.getActiveAnchor() ?? null;
@@ -371,12 +378,13 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       });
     }
     setGuideLines(nextGuides);
-  }, [applyDraftPatch, scene.height, scene.width, setCanvasInteracting]);
+  }, [applyDraftPatch, scene.height, scene.width, setCanvasInteracting, mediaCrop.handleTransform]);
 
   const handleNodeTransformEnd = useCallback(async () => {
     setGuideLines([]);
+    if (await mediaCrop.handleTransformEnd()) return;
     await commitSelectionFromNodes();
-  }, [commitSelectionFromNodes]);
+  }, [commitSelectionFromNodes, mediaCrop.handleTransformEnd]);
 
   return {
     stageRef,
@@ -397,6 +405,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     handleNodeDragMove,
     handleNodeDragEnd,
     handleNodeTransform,
+    handleNodeTransformStart: mediaCrop.handleTransformStart,
     handleNodeTransformEnd,
     handleStageMouseDown: marquee.handleStageMouseDown,
     handleStageMouseMove: marquee.handleStageMouseMove,

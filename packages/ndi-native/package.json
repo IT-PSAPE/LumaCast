@@ -11,7 +11,9 @@
     "clean": "node-gyp clean",
     "rebuild": "npm run clean && npm run build",
     "build:mock-ndi": "node ../../tests/packages/ndi-native/build-mock-runtime.mjs",
-    "test": "npm run build:mock-ndi && node ../../tests/packages/ndi-native/run-pacing-test.mjs"
+    "test:gpu-pixel-copy": "node ../../tests/packages/ndi-native/run-gpu-pixel-copy-test.mjs",
+    "test:gpu-texture": "node ../../tests/packages/ndi-native/run-gpu-texture-test.mjs",
+    "test": "npm run build:mock-ndi && node ../../tests/packages/ndi-native/run-pacing-test.mjs && npm run test:gpu-pixel-copy"
   },
   "dependencies": {
     "node-addon-api": "^8.3.1"

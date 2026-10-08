@@ -400,6 +400,7 @@ function EditableSceneStage({
               ))}
               <Transformer
                 ref={editor.transformerRef}
+                onTransformStart={editor.handleNodeTransformStart}
                 visible={editor.editingTextId === null}
                 rotateEnabled
                 rotationSnaps={editor.shiftPressed ? snaps : []}

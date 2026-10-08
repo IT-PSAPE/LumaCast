@@ -128,6 +128,7 @@ describe('ipc contract: RPC/event/frame classification', () => {
 
   it('keeps exactly four NDI frame/control channels, all real IPC channels', () => {
     expect(NDI_FRAME_CHANNEL_NAMES).toEqual([
+      'publishNdiGpuScene',
       'requestNdiFrameTransport',
       'requestNdiAudioTransport',
       'sendNdiFrame',

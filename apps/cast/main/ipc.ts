@@ -1,3 +1,4 @@
+import { decodeNdiGpuSceneSnapshot, type NdiGpuSceneSnapshot } from '@lumacast/protocol';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, safeStorage, shell, type IpcMainInvokeEvent, type MessagePortMain } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
@@ -462,6 +463,7 @@ export const registerIpcHandlers = (
   options: {
     onPersistenceProgress?: (progress: PersistenceProgress) => void;
     getLatestPersistenceProgress?: () => PersistenceProgress | null;
+    publishNdiGpuScene?: (snapshot: NdiGpuSceneSnapshot) => void;
     createNdiFrameTransport?: (name: NdiOutputName) => MessagePortMain | null;
     createNdiAudioTransport?: (name: NdiOutputName) => MessagePortMain | null;
   } = {},
@@ -1532,6 +1534,16 @@ export const registerIpcHandlers = (
     },
   };
   registerRpcHandlers(rpcHandlers, (result) => mediaDerivatives.attachToResult(result));
+
+  ipcMain.on(IPC.publishNdiGpuScene, (event, payload: unknown) => {
+    try {
+      assertTrustedIpcSender(event);
+      if (event.sender !== getMainWindow()?.webContents) throw new Error('NDI scenes must originate in the workbench');
+      const snapshot = decodeNdiGpuSceneSnapshot(payload);
+      if (!snapshot) throw new Error('Invalid NDI scene');
+      options.publishNdiGpuScene?.(snapshot);
+    } catch (error) { console.error('[NDI GPU scene rejected]', error); }
+  });
 
   ipcMain.on(IPC.requestNdiFrameTransport, (event, payload: unknown) => {
     let port: MessagePortMain | null = null;

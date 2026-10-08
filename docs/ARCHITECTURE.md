@@ -144,6 +144,18 @@ Renderer playback/rendering splits responsibility at two narrow seams:
   auto-fit size is the canvas's own `computeAutoFitRichTextFontSize`. A text
   box grows around text taller than itself, live and on commit
   (`fitTextElementToBody`), and never shrinks below its authored height.
+- Image/video elements can author a normalized source `crop` and destination
+  `cropFrame` rectangle (ADR 0050). `useSceneStageMediaCrop` in
+  `@lumacast/canvas` owns Command (macOS) / Control (Windows/Linux) transformer
+  gestures: corners retain the initial frame ratio and edge handles change one
+  axis. The initial source-to-canvas mapping stays fixed while frame bounds
+  change, including rotated/flipped media and asymmetric letterbox margins.
+  Ordinary transforms retain the existing resize behavior. One completed crop
+  commits frame geometry and crop fields through element history; missing
+  media metadata blocks cropping. `SceneNodeMedia` applies both rectangles to
+  sources and proxies on every output surface. Payload JSON carries them through
+  persistence, undo, duplication, and bundles without a schema migration;
+  explicit null clears a theme-inherited rectangle.
 - `CanvasProvider` consumes a stable presentation-layer set (content visibility,
   media/video layer assets, and overlay membership/order) and builds the base
   layered program scene from that discrete set only.
@@ -240,49 +252,36 @@ Each rule is also proven by a committed fixture scenario under
 
 ## NDI Telemetry and Observability Contracts
 
-- Video frames normally travel over one versioned `MessagePort` from the
-  renderer readback worker directly to the NDI utility process. Main and
-  preload establish and forward the port, but the 1920x1080 RGBA/BGRA payload
-  bypasses both the renderer and main-process event loops. Electron 35 does not
-  preserve this `ArrayBuffer` with a transfer list, so the worker deliberately
-  performs one structured clone on that direct port. The utility host accepts
-  frames only after a matching version/name handshake and validates the output
-  name, attempt id, dimensions, exact byte length, and advisory telemetry.
-- Readback requests carry an immutable telemetry snapshot. The readback worker submits the captured frame directly on completion; its informational completion notification does not wait for the renderer to authorize submission. The renderer subtracts only that attempt's captured counters, preserving drops recorded while readback was in flight.
-- The direct channel is optional. A handshake timeout, invalid handshake or
-  host response, closed port, unavailable host, or frame-release watchdog
-  resets it and requests a replacement with bounded exponential backoff;
-  frames use the existing renderer -> main -> proxy -> utility copy path until
-  a replacement is ready. The backoff resets only after a successful direct
-  handshake. A malformed frame with a valid attempt id receives a rejected
-  release without being mistaken for channel failure.
-- The renderer's off-screen NDI capture loop in
-  `apps/cast/renderer/features/playback/ndi-frame-capture.tsx` is still a one-slot
-  backpressure boundary, but the slot is now keyed by a monotonic
-  per-attempt id. Both transport routes preserve that id through the utility
-  host and `@lumacast/engine`; the matching host-side `frameReleased` returns
-  on the originating route and is the only release that can clear the
-  in-flight attempt. Watchdog expiry is local policy only; it never claims a
-  later attempt was released.
-- Renderer-supplied frame telemetry is advisory, not authoritative. Main IPC
-  sanitizes optional copy-path telemetry before stamping `mainReceivedAtMs`;
-  the utility validates direct-path telemetry and strips timestamps owned by
-  bypassed boundaries. `@lumacast/engine` sanitizes again before merging
-  counters or pipeline spans. Invalid enums are dropped, count fields must be
-  bounded nonnegative integers, duration/span samples are bounded before
-  aggregation, and only renderer-authored drop reasons are merged. Duplicate
-  backpressure sources are canonicalized to one count, and activate/take
-  dedupe keys exist only for a fully valid correlation tuple (`kind`, `reason`,
-  `issuedAt`, `session`, and `sequence`) whose intended sender-side span is
-  actually aggregatable. Malformed telemetry therefore cannot turn a
-  successful native send into `nativeSendFailed`, poison aggregates to
-  `Infinity`, or suppress a later valid activate/take frame with the same key.
-- Pipeline diagnostics keep the routes distinct: the copy path populates
-  `rendererToMainIpc`, `mainHandler`, and `mainToHostIpc`; only the direct path
-  populates `directWorkerToHostIpc`. Both then populate `hostToNative`.
-- The native sender declares every video frame as 30000/1001 progressive and
-  creates NDI senders with `clock_video=false`. The renderer's one-frame loop
-  owns cadence; the native SDK must not add a second blocking video clock.
+- Each enabled audience/stage output has a sandboxed offscreen Chromium window
+  rendering the shared `SceneOutputStage`. The workbench sends bounded scene,
+  binding and timestamped layer-video controls through `publishNdiGpuScene`;
+  its renderer no longer reads or clones video pixel buffers. The output
+  preload exposes only scene subscription and readiness acknowledgement.
+- Main retains Chromium shared textures in a bounded queue: one native
+  submission and one newest waiting texture per output. The native NDI utility
+  process imports macOS IOSurfaces through Mach ports, Windows D3D textures
+  through duplicated handles, and Linux DMA-BUF planes through an owner-only
+  Unix socket. Native handles never enter renderer IPC. Only the workbench may
+  publish scenes, and output-window acknowledgements must match its webContents.
+- Readback, alpha handling and NDI submission execute on native workers.
+  macOS uses Metal for Rec.709 UYVY/UYVA conversion; Windows/Linux read native
+  BGRA/RGBA and use the SDK's colour conversion. Two native buffers preserve
+  asynchronous send ownership. Static scenes replay the native cache; sender
+  rebuilds force a new Chromium paint. Opaque output composites over black;
+  Windows copies premultiplied RGB into opaque BGRX/RGBX and sets the fourth
+  byte to 255 in a single pass, avoiding a separate alpha-normalization pass.
+- A texture lease is released only after native input readback completes or
+  the utility process exits. Submission timeout kills the reader before lease
+  release. Shutdown waits for active leases before destroying output windows.
+  Native failures appear in engine diagnostics. There is no renderer CPU
+  capture fallback; legacy frame contracts remain for tooling and blackout.
+- Advisory take and pipeline telemetry is sanitized by the engine before
+  aggregation. Scene revisions identify capture attempts; accepted releases
+  describe native sender acceptance, not downstream display. Pixel-byte and
+  JavaScript cache-copy counters remain zero for shared-texture submissions.
+- Chromium paints at 30 fps and the engine replays static frames at the existing
+  interval. Native frames remain 30000/1001 progressive, with `clock_video=false`.
+  See ADR-0049 for platform ownership and the superseded capture policy.
 - Web Audio remains the audio sample clock and both audio/video frames retain
   NDI synthesized timecodes. Each enabled output normally receives planar PCM
   over its own versioned port directly from the AudioWorklet to the NDI utility
@@ -299,7 +298,7 @@ Each rule is also proven by a committed fixture scenario under
 - Slide/take latency correlation is scoped by the target output item/playlist
   entry, not by slide id alone. `SlideProvider` records the intended
   `activate`/`take` plus the truthful reason available at that boundary today
-  (`sequential`, `jump`, or `crossItem`); `ndi-frame-capture.tsx` leases that
+  (`sequential`, `jump`, or `crossItem`); the GPU scene publisher leases that
   correlation to the first matching sender attempt and consumes it only after
   the matching accepted `frameReleased`. Repeated takes on an already-live
   slide therefore force one fresh send attempt even when the scene signature is
@@ -328,7 +327,7 @@ Each rule is also proven by a committed fixture scenario under
   `AppProvider` starts the asynchronous load and exposes loading/error state;
   `AppLayoutContent` owns the loading, retry, and ready branches. Database open
   or migration work therefore does not block creation of the Electron window.
-- NDI output capture is behind a lazy `NdiOutputsGate`. The capture tree and its
+- NDI output capture is behind a lazy `NdiOutputsGate`. Scene publishing and its
   canvas/Konva dependencies mount only while an output is enabled, and disabling
   all outputs releases the capture/audio resources again.
 - Scene-stage entry points are lazy boundaries. Production chunking keeps Konva
@@ -903,19 +902,19 @@ every other structural migration in this system. `LATEST_SCHEMA_VERSION` is
 - This applies the precedent #215 set for `ProjectBackup*` above, one level down. `deck-bundles.ts` type-depends directly on the manifest family, and `BundlePlaylistItemEntry` deliberately mirrors the legacy owner-column shape (nullable `presentationId`/`lyricId`/`talkId`, see its declaration comment) so exported bundles keep a stable versioned on-disk schema — exactly the shape that reads as a persistence DTO and is not one. Record this here rather than relitigating it at the next split.
 - The IPC surface moved in the same slice: RPC mutation inputs live in `packages/protocol/src/rpc-inputs.ts`, RPC results and query shapes in `packages/protocol/src/rpc-results.ts`, and the NDI plus observability surface in `packages/protocol/src/ndi-observability.ts`. `AppSnapshot` is classified as an IPC contract because its wire use forces its shape, but it is also the database layer's undo representation and the renderer's cached state; that dual role is recorded at its declaration, since changing it changes all three.
 - The NDI frame transport has an explicit host-side release boundary. The
-  preferred worker-to-utility port returns `frameReleased` on that same port;
-  the copy fallback returns it through main. In either route the backpressure
-  slot is freed only for the matching attempt after the host-side send returns
-  or is rejected. A release is not a downstream-receiver capacity claim.
+  shared-texture route returns `frameReleased` through main after native
+  readback and submission. The matching input lease is released on completion
+  or confirmed host exit; replacement waiting textures are released immediately.
+  A release is not a downstream-receiver capacity claim.
 - Observability collection is always-on and owned by the app: `App.tsx` mounts an `ObservabilityRuntime` child inside `WorkbenchProvider`; that child runs `useObservabilityRuntime()` from `apps/cast/renderer/features/observability/observability-runtime.ts`, continuously sampling renderer memory/rAF/video/audio health and polling `obsGetSystemMetrics()` for main-process CPU/memory/event-loop lag. The observability panel is now display-only. Timeline-to-log mirroring is opt-in state in the observability store rather than an unconditional console side effect.
 - The `app/core/types.ts` facade described above was retired once every moved family had a real package owner (#155, folded into the #219 package split's W4). Its only two non-re-exported declarations, `PlaybackState` and `SlideBrowserMode`, were app-shell view state rather than shared domain/wire types, so they now live in `app/renderer/types/view-state.ts` instead of any package.
 
 ## Shared Scene Render Contract (issue #111)
 
-- Editor preview (`apps/cast/renderer/features/canvas/scene-stage.tsx`) and NDI output (`apps/cast/renderer/features/playback/ndi-frame-capture.tsx`) render through one shared, render-only contract: `scene-traversal.ts` (node visibility, frame geometry, back-to-front ordering — now `packages/composition/src/scene/scene-traversal.ts`), `scene-node-content.tsx` (per-kind Konva node content) and `scene-slide-background.tsx` (`SceneSlideBackground`, colour/gradient/image background painting and `needsOpaqueBackdrop`) — both now `packages/canvas/src/`. Both surfaces build their scene via `buildRenderScene`/`buildResolvedRenderScene` (`apps/cast/renderer/features/canvas/build-render-scene.ts`) and mount the shared traversal inside their own `react-konva` `Stage`/`Layer` tree; layer order is background first, then nodes back-to-front.
+- Editor preview (`apps/cast/renderer/features/canvas/scene-stage.tsx`) and NDI output (`apps/cast/renderer/output/ndi-gpu-view.tsx`) render through one shared, render-only contract: `scene-traversal.ts` (node visibility, frame geometry, back-to-front ordering — now `packages/composition/src/scene/scene-traversal.ts`), `scene-node-content.tsx` (per-kind Konva node content) and `scene-slide-background.tsx` (`SceneSlideBackground`, colour/gradient/image background painting and `needsOpaqueBackdrop`) — both now `packages/canvas/src/`. Both surfaces build their scene via `buildRenderScene`/`buildResolvedRenderScene` (`apps/cast/renderer/features/canvas/build-render-scene.ts`) and mount the shared traversal inside their own `react-konva` `Stage`/`Layer` tree; layer order is background first, then nodes back-to-front.
 - `tests/apps/cast/renderer/rendering/scene-parity.test.tsx` is the structural parity test for this contract: it feeds identical fixtures through both the Konva traversal (`traverseSceneNodes`/`renderSceneNodeContent`) and the resolved-scene builder and asserts equivalent node identity, order, visibility, and geometry, including background kinds.
 - `apps/cast/renderer/rendering/scene-layer.tsx`, an earlier render-only DOM component from #147 (`<div>`/`<img>`/`<video>` with inline styles), never gained a production consumer — both real surfaces render via `react-konva`, not the DOM — and was removed in #207 rather than adopted, to avoid two parallel answers to "what is the shared scene layer."
-- NDI-only concerns (alpha/`withAlpha`, key/fill, scaling, frame timing, cancellation, frame-release watchdog, backpressure, corrective retries, and exact-once take-to-accepted-native-send correlation via `apps/cast/renderer/utils/ndi-take-correlation.ts`) remain solely in `ndi-frame-capture.tsx` and are not part of the shared contract.
+- NDI-only texture ownership, backpressure, native conversion and sender cadence remain in the main/engine/native boundary. The renderer scene publisher owns take claims through `apps/cast/renderer/utils/ndi-take-correlation.ts`; `SceneOutputStage` only renders the shared scene.
 
 ## Project Restore / Promotion (issue #146)
 

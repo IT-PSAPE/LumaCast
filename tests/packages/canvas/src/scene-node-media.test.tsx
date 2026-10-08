@@ -158,6 +158,29 @@ describe('SceneNodeMedia fit', () => {
     expect(draw).toMatchObject({ x: 0, y: 0, width: 200, height: 100 });
     expect(draw.crop).toMatchObject({ x: 0, y: 250, width: 1000, height: 500 });
   });
+
+  it('applies the authored normalized crop to image and video sources', () => {
+    const crop = { x: 0.25, y: 0.2, width: 0.5, height: 0.5 };
+    render(<SceneNodeMedia node={mediaNode('image', { src: 'asset://square.png', fit: 'fill', crop })} surface="deck-editor" />);
+    expect(lastImageProps().crop).toEqual({ x: 250, y: 200, width: 500, height: 500 });
+
+    cleanup();
+    images.length = 0;
+    videoStates.set('asset://clip.mp4', { status: 'loaded', resource: makeVideo(1000, 800) });
+    render(<SceneNodeMedia node={mediaNode('video', { src: 'asset://clip.mp4', fit: 'contain', crop })} surface="deck-editor" />);
+    expect(lastImageProps().crop).toEqual({ x: 250, y: 160, width: 500, height: 400 });
+  });
+
+  it('renders contain-fit media within an asymmetric crop frame and names its gesture source', () => {
+    imageStates.set('asset://landscape.png', { status: 'loaded', resource: loadedImage(1000, 500) });
+    render(<SceneNodeMedia node={mediaNode('image', {
+      src: 'asset://landscape.png',
+      fit: 'contain',
+      cropFrame: { x: 0.15, y: 0.2, width: 0.6, height: 0.5 },
+    })} surface="deck-editor" />);
+
+    expect(lastImageProps()).toMatchObject({ name: 'element-media', x: 40, y: 20, width: 100, height: 50 });
+  });
 });
 
 describe('SceneNodeMedia visual payload', () => {

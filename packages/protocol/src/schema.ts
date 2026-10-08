@@ -339,6 +339,17 @@ function nullableSchema<T>(inner: Schema<T>): Schema<T | null> {
   );
 }
 
+function refineSchema<T>(inner: Schema<T>, predicate: (value: T) => boolean, message: string): Schema<T> {
+  return createSchema<T>(
+    (value, context) => {
+      const decoded = inner.decode(value, context);
+      if (!predicate(decoded)) fail(context, message);
+      return decoded;
+    },
+    () => inner.toJsonSchema(),
+  );
+}
+
 function optionalSchema<T>(inner: Schema<T>): Schema<T | undefined> {
   return createSchema<T | undefined>(
     (value, context) => (value === undefined ? undefined : inner.decode(value, context)),
@@ -396,6 +407,7 @@ export const s = {
   union: unionSchema,
   discriminatedUnion: discriminatedUnionSchema,
   nullable: nullableSchema,
+  refine: refineSchema,
   optional: optionalSchema,
   unknown: unknownSchema,
   lazy: lazySchema,

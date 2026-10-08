@@ -1,3 +1,4 @@
+import type { NdiSharedTextureHandle, NdiGpuFrameResult } from '@lumacast/protocol';
 export interface NdiSenderConfig {
   senderName: string;
   width: number;
@@ -13,6 +14,11 @@ export interface NdiRuntimeInfo {
 }
 
 export interface NdiNativeModule {
+  getSharedTextureSupport?: () => boolean;
+  getSharedTextureReceiver?: () => string;
+  discardSharedTexture?: (handle: NdiSharedTextureHandle) => void;
+  sendSharedTextureFrame?: (name: string, handle: NdiSharedTextureHandle, width: number, height: number, format: string) => Promise<NdiGpuFrameResult>;
+  replaySharedTextureFrame?: (name: string) => Promise<NdiGpuFrameResult>;
   initializeSender: (config: NdiSenderConfig) => void;
   sendRgbaFrame: (senderName: string, buffer: Uint8Array, width: number, height: number) => void;
   // Only present when the loaded NDI runtime exports NDIlib_send_send_audio_v2.

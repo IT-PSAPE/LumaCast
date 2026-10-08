@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted. The shared-texture video watchdog release policy is superseded by
+[ADR-0049](0049-native-shared-texture-ndi-output.md); observability and take
+correlation decisions remain unchanged.
 
 ## Date
 

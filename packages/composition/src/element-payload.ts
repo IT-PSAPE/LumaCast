@@ -9,6 +9,7 @@ import type {
   TextHorizontalAlign,
   TextVerticalAlign,
   StrokePosition,
+  MediaCrop,
 } from './domain/slide-elements';
 import type { SlideBackgroundFit } from './domain/slides';
 
@@ -76,6 +77,31 @@ export const DEFAULT_VIDEO_FIT: SlideBackgroundFit = 'contain';
 /** Resolves an image/video element's effective fit, defaulting per type when absent. */
 export function readMediaFit(type: 'image' | 'video', payload: ImageElementPayload | VideoElementPayload): SlideBackgroundFit {
   return payload.fit ?? (type === 'image' ? DEFAULT_IMAGE_FIT : DEFAULT_VIDEO_FIT);
+}
+
+/** Reads a valid normalized crop from an untrusted media payload, or null when absent/invalid. */
+export function readMediaCrop(payload: { crop?: unknown } | null | undefined): MediaCrop | null {
+  return readNormalizedMediaRect(payload?.crop);
+}
+
+/** Reads a valid normalized destination frame from an untrusted media payload. */
+export function readMediaCropFrame(payload: { cropFrame?: unknown } | null | undefined): MediaCrop | null {
+  return readNormalizedMediaRect(payload?.cropFrame);
+}
+
+function readNormalizedMediaRect(value: unknown): MediaCrop | null {
+  const crop = value;
+  if (!crop || typeof crop !== 'object' || Array.isArray(crop)) return null;
+  const candidate = crop as Record<string, unknown>;
+  const { x, y, width, height } = candidate;
+  if (
+    typeof x !== 'number' || !Number.isFinite(x)
+    || typeof y !== 'number' || !Number.isFinite(y)
+    || typeof width !== 'number' || !Number.isFinite(width)
+    || typeof height !== 'number' || !Number.isFinite(height)
+  ) return null;
+  if (x < 0 || y < 0 || width <= 0 || height <= 0 || x + width > 1 || y + height > 1) return null;
+  return { x, y, width, height };
 }
 
 export function supportsVisualStyling(type: SlideElement['type']): boolean {

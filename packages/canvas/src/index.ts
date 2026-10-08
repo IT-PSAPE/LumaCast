@@ -92,3 +92,4 @@ export { SceneNodeShape } from './scene-node-shape';
 export { SceneNodeText } from './scene-node-text';
 
 export { needsOpaqueBackdrop, SceneSlideBackground } from './scene-slide-background';
+export { SceneOutputStage } from './scene-output-stage';

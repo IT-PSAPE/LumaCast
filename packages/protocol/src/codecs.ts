@@ -170,6 +170,21 @@ function checkOptionalFields(
   }
 }
 
+function decodeMediaCrop(value: unknown, context: CodecContext): void {
+  if (!isRecord(value)) fail(context, 'must be an object');
+  rejectUnknownKeys(value, context, ['x', 'y', 'width', 'height']);
+  const x = expectFiniteNumber(value.x, context, 'x');
+  const y = expectFiniteNumber(value.y, context, 'y');
+  const width = expectFiniteNumber(value.width, context, 'width');
+  const height = expectFiniteNumber(value.height, context, 'height');
+  if (x < 0 || x > 1) fail(child(context, 'x'), 'must be within [0, 1]');
+  if (y < 0 || y > 1) fail(child(context, 'y'), 'must be within [0, 1]');
+  if (width <= 0) fail(child(context, 'width'), 'must be greater than 0');
+  if (height <= 0) fail(child(context, 'height'), 'must be greater than 0');
+  if (x + width > 1) fail(context, 'x + width must be <= 1');
+  if (y + height > 1) fail(context, 'y + height must be <= 1');
+}
+
 /** Parses a persisted JSON column and decodes it; malformed JSON fails with the codec's boundary context. */
 export function decodePersisted<T>(
   json: string,
@@ -327,6 +342,8 @@ export function decodeSlideElementPayload(
       expectString(value.src, context, 'src');
       checkOptionalFields(value, context, VISUAL_OPTIONAL_FIELDS);
       if (value.fit !== undefined) expectEnum(value.fit, context, 'fit', MEDIA_FIT_VALUES);
+      if (value.crop !== undefined && value.crop !== null) decodeMediaCrop(value.crop, child(context, 'crop'));
+      if (value.cropFrame !== undefined && value.cropFrame !== null) decodeMediaCrop(value.cropFrame, child(context, 'cropFrame'));
       break;
     case 'video':
       expectString(value.src, context, 'src');
@@ -334,6 +351,8 @@ export function decodeSlideElementPayload(
       expectBoolean(value.loop, context, 'loop');
       checkOptionalFields(value, context, { ...VISUAL_OPTIONAL_FIELDS, ...VIDEO_OPTIONAL_FIELDS });
       if (value.fit !== undefined) expectEnum(value.fit, context, 'fit', MEDIA_FIT_VALUES);
+      if (value.crop !== undefined && value.crop !== null) decodeMediaCrop(value.crop, child(context, 'crop'));
+      if (value.cropFrame !== undefined && value.cropFrame !== null) decodeMediaCrop(value.cropFrame, child(context, 'cropFrame'));
       break;
     case 'shape':
       expectString(value.fillColor, context, 'fillColor');

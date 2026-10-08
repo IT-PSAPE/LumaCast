@@ -152,11 +152,39 @@ static void AppendFrameReport(const NDIlib_video_frame_v2_t* frame) {
   if (out == nullptr) {
     return;
   }
+  constexpr uint32_t kFourCcUyvy = 0x59565955U;
+  constexpr uint32_t kFourCcUyva = 0x41565955U;
+  if (frame->FourCC == kFourCcUyvy || frame->FourCC == kFourCcUyva) {
+    if (frame->xres < 2 || frame->line_stride_in_bytes < frame->xres * 2) {
+      std::fclose(out);
+      return;
+    }
+    const auto* bytes = frame->p_data;
+    const int64_t colorBytes = static_cast<int64_t>(frame->line_stride_in_bytes) * frame->yres;
+    const int alphaFirst = frame->FourCC == kFourCcUyva ? bytes[colorBytes] : -1;
+    const int alphaLast = frame->FourCC == kFourCcUyva ? bytes[colorBytes + pixelCount - 1] : -1;
+    std::fprintf(out,
+        "{\"width\":%d,\"height\":%d,\"stride\":%d,\"fourCC\":%u,"
+        "\"uyvy0\":%u,\"uyvy1\":%u,\"uyvy2\":%u,\"uyvy3\":%u,"
+        "\"alphaFirst\":%d,\"alphaLast\":%d}\n",
+        frame->xres, frame->yres, frame->line_stride_in_bytes, frame->FourCC,
+        bytes[0], bytes[1], bytes[2], bytes[3], alphaFirst, alphaLast);
+    std::fclose(out);
+    return;
+  }
+  const bool rgbaLayout = frame->FourCC == 0x41524742U || frame->FourCC == 0x58524742U
+      || frame->FourCC == 0x41424752U || frame->FourCC == 0x58424752U;
+  if (!rgbaLayout || frame->line_stride_in_bytes < frame->xres * 4) {
+    std::fprintf(out, "{\"width\":%d,\"height\":%d,\"stride\":%d,\"fourCC\":%u}\n",
+                 frame->xres, frame->yres, frame->line_stride_in_bytes, frame->FourCC);
+    std::fclose(out);
+    return;
+  }
   std::fprintf(
       out,
-      "{\"width\":%d,\"height\":%d,\"stride\":%d,"
+      "{\"width\":%d,\"height\":%d,\"stride\":%d,\"fourCC\":%u,"
       "\"marker0\":%u,\"marker1\":%u,\"marker2\":%u,\"marker3\":%u}\n",
-      frame->xres, frame->yres, frame->line_stride_in_bytes,
+      frame->xres, frame->yres, frame->line_stride_in_bytes, frame->FourCC,
       ReadRgbMarker(frame, 0),
       ReadRgbMarker(frame, pixelCount / 3),
       ReadRgbMarker(frame, (pixelCount * 2) / 3),

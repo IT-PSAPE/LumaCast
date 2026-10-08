@@ -4,6 +4,8 @@ import {
   DEFAULT_VIDEO_FIT,
   applyVisualPayload,
   readMediaFit,
+  readMediaCrop,
+  readMediaCropFrame,
   readTextFormatting,
   readVisualPayload,
   type VisualPayloadState,
@@ -37,6 +39,36 @@ describe('readMediaFit', () => {
   it('honors an explicit fit for either type', () => {
     expect(readMediaFit('image', imagePayload({ fit: 'contain' }))).toBe('contain');
     expect(readMediaFit('video', videoPayload({ fit: 'fill' }))).toBe('fill');
+  });
+});
+
+describe('readMediaCrop', () => {
+  it('reads a valid crop and treats missing or null crops as uncropped', () => {
+    const crop = { x: 0.1, y: 0.2, width: 0.5, height: 0.6 };
+    expect(readMediaCrop({ crop })).toEqual(crop);
+    expect(readMediaCrop({})).toBeNull();
+    expect(readMediaCrop({ crop: null })).toBeNull();
+    expect(readMediaCrop({ crop: { x: 0, y: 0, width: 1, height: 1 } })).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+  });
+
+  it.each([
+    { x: -0.1, y: 0, width: 0.5, height: 0.5 },
+    { x: 0, y: 0, width: 0, height: 0.5 },
+    { x: 0.6, y: 0, width: 0.5, height: 0.5 },
+    { x: 0, y: 0.6, width: 0.5, height: 0.5 },
+    { x: Number.NaN, y: 0, width: 0.5, height: 0.5 },
+  ])('safely falls back for invalid crops', (crop) => {
+    expect(readMediaCrop({ crop })).toBeNull();
+  });
+});
+
+describe('readMediaCropFrame', () => {
+  it('reads valid destination frames and treats missing/null/invalid frames as absent', () => {
+    const frame = { x: 0.15, y: 0.2, width: 0.6, height: 0.5 };
+    expect(readMediaCropFrame({ cropFrame: frame })).toEqual(frame);
+    expect(readMediaCropFrame({})).toBeNull();
+    expect(readMediaCropFrame({ cropFrame: null })).toBeNull();
+    expect(readMediaCropFrame({ cropFrame: { x: 0.8, y: 0, width: 0.5, height: 0.5 } })).toBeNull();
   });
 });
 

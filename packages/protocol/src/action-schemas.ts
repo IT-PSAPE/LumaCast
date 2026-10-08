@@ -45,6 +45,7 @@ import type {
   TextElementPayload,
   ImageElementPayload,
   VideoElementPayload,
+  MediaCrop,
   ShapeElementPayload,
   TextHorizontalAlign,
   TextVerticalAlign,
@@ -210,6 +211,17 @@ const strokePositionSchema = s.enum(STROKE_POSITION_VALUES);
 
 const MEDIA_FIT_VALUES = ['cover', 'contain', 'fill'] as const satisfies readonly SlideBackgroundFit[];
 const mediaFitSchema = s.enum(MEDIA_FIT_VALUES);
+const mediaCropShapeSchema = s.object({
+  x: s.number({ min: 0, max: 1 }),
+  y: s.number({ min: 0, max: 1 }),
+  width: s.number({ min: Number.MIN_VALUE, max: 1 }),
+  height: s.number({ min: Number.MIN_VALUE, max: 1 }),
+});
+const mediaCropSchema = s.refine(
+  mediaCropShapeSchema,
+  (crop) => crop.x + crop.width <= 1 && crop.y + crop.height <= 1,
+  'crop must be wholly within the source bounds',
+) satisfies Schema<MediaCrop>;
 
 // Every field shared by text/image/video/shape elements. Individually
 // optional here; a variant that needs one required (e.g. shape's
@@ -317,6 +329,8 @@ const agentImageElementPayloadSchema = s.object({
   ...visualPayloadProps,
   assetId: idSchema.describe('Image media asset id, from media.list'),
   fit: s.optional(mediaFitSchema),
+  crop: s.optional(s.nullable(mediaCropSchema)),
+  cropFrame: s.optional(s.nullable(mediaCropSchema)),
 }) satisfies Schema<AgentImageElementPayload>;
 
 const agentVideoElementPayloadSchema = s.object({
@@ -327,6 +341,8 @@ const agentVideoElementPayloadSchema = s.object({
   muted: s.optional(s.boolean()),
   playbackRate: s.optional(s.number()),
   fit: s.optional(mediaFitSchema),
+  crop: s.optional(s.nullable(mediaCropSchema)),
+  cropFrame: s.optional(s.nullable(mediaCropSchema)),
 }) satisfies Schema<AgentVideoElementPayload>;
 
 // The domain `ShapeElementPayload` type declares fillColor/borderColor/

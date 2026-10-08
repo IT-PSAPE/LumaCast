@@ -133,6 +133,24 @@ describe('scene media proxy rendering', () => {
     expect(lastImageProps?.image).toBe(full);
   });
 
+  it('applies the same normalized crop to a derivative and full source at their own resolutions', () => {
+    const proxy = loadedImage(1000, 500);
+    const full = loadedImage(1920, 1080);
+    imageStates.set('asset://full.png', { status: 'loading' });
+    imageStates.set('asset://thumb.png', { status: 'loaded', resource: proxy });
+
+    const node = imageNode('asset://full.png', 'asset://thumb.png');
+    node.element.payload = { ...(node.element.payload as object), fit: 'fill', crop: { x: 0.25, y: 0.2, width: 0.5, height: 0.5 } } as typeof node.element.payload;
+    const view = render(<SceneNodeMedia node={node} surface={'show' satisfies SceneSurface} />);
+    expect(lastImageProps?.image).toBe(proxy);
+    expect(lastImageProps?.crop).toEqual({ x: 250, y: 100, width: 500, height: 250 });
+
+    imageStates.set('asset://full.png', { status: 'loaded', resource: full });
+    view.rerender(<SceneNodeMedia node={node} surface={'show' satisfies SceneSurface} />);
+    expect(lastImageProps?.image).toBe(full);
+    expect(lastImageProps?.crop).toEqual({ x: 480, y: 216, width: 960, height: 540 });
+  });
+
   it('renders a video derivative image until the video element is ready', () => {
     const proxy = loadedImage();
     const fullVideo = loadedVideo();

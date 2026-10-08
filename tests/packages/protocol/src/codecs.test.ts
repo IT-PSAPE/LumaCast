@@ -379,6 +379,38 @@ describe('decodeSlideElementPayload', () => {
     });
   });
 
+  describe('image/video crop', () => {
+    const validCrop = { x: 0.25, y: 0.2, width: 0.5, height: 0.5 };
+
+    it('accepts absent, null, and valid crops for image/video payloads', () => {
+      expect(decodeSlideElementPayload(imagePayload(), 'image', CONTEXT)).toMatchObject({ src: 'asset://logo' });
+      expect(decodeSlideElementPayload(imagePayload({ crop: null }), 'image', CONTEXT)).toMatchObject({ crop: null });
+      expect(decodeSlideElementPayload(imagePayload({ crop: validCrop }), 'image', CONTEXT)).toMatchObject({ crop: validCrop });
+      expect(decodeSlideElementPayload(videoPayload({ crop: validCrop }), 'video', CONTEXT)).toMatchObject({ crop: validCrop });
+      expect(decodeSlideElementPayload(imagePayload({ cropFrame: validCrop }), 'image', CONTEXT)).toMatchObject({ cropFrame: validCrop });
+      expect(decodeSlideElementPayload(videoPayload({ cropFrame: validCrop }), 'video', CONTEXT)).toMatchObject({ cropFrame: validCrop });
+      expect(decodeSlideElementPayload(imagePayload({ cropFrame: null }), 'image', CONTEXT)).toMatchObject({ cropFrame: null });
+      const edgeCrop = { x: 0.5, y: 0.5, width: 0.5, height: 0.5 };
+      expect(decodeSlideElementPayload(imagePayload({ crop: edgeCrop }), 'image', CONTEXT)).toMatchObject({ crop: edgeCrop });
+    });
+
+    it.each([
+      { x: -0.1, y: 0, width: 0.5, height: 0.5 },
+      { x: 0, y: 0, width: 0, height: 0.5 },
+      { x: 0.75, y: 0, width: 0.5, height: 0.5 },
+      { x: 0, y: 0.75, width: 0.5, height: 0.5 },
+      { x: Number.POSITIVE_INFINITY, y: 0, width: 0.5, height: 0.5 },
+    ])('rejects invalid normalized crop geometry', (crop) => {
+      expectCodecError(() => decodeSlideElementPayload(imagePayload({ crop }), 'image', CONTEXT), 'crop');
+    });
+
+    it('rejects unknown crop keys and non-object crop values', () => {
+      expectCodecError(() => decodeSlideElementPayload(imagePayload({ crop: { x: 0, y: 0, width: 1, height: 1, extra: true } }), 'image', CONTEXT), 'extra');
+      expectCodecError(() => decodeSlideElementPayload(videoPayload({ crop: 'full' }), 'video', CONTEXT), 'crop');
+      expectCodecError(() => decodeSlideElementPayload(imagePayload({ cropFrame: { x: 0.8, y: 0, width: 0.5, height: 0.5 } }), 'image', CONTEXT), 'cropFrame');
+    });
+  });
+
   describe('image/video fillColor and borderRadius (visual payload, shared with shape/text)', () => {
     it('accepts fillColor, strokeEnabled, and borderRadius on an image', () => {
       const payload = imagePayload({ fillEnabled: true, fillColor: '#ff00aa', borderRadius: 12, strokeEnabled: true, strokeColor: '#123456', strokeWidth: 2 });
