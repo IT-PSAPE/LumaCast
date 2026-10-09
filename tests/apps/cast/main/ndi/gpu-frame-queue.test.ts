@@ -42,6 +42,50 @@ describe('GPU frame ownership', () => {
     expect(queue.report()).toMatchObject({ failed: 1, sent: 1, lastError: 'native send failed' });
   });
 
+  it('discards a waiting scene frame but keeps the active lease and accepts the next scene frame', async () => {
+    const first = deferred();
+    const submit = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue(result);
+    const queue = new GpuFrameQueue(submit);
+    const active = { release: vi.fn() };
+    const stale = { release: vi.fn() };
+    const fresh = { release: vi.fn() };
+
+    queue.offer(active);
+    queue.offer(stale);
+    queue.discardPending();
+    queue.discardPending();
+    queue.offer(fresh);
+
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(stale.release).toHaveBeenCalledTimes(1);
+    expect(active.release).not.toHaveBeenCalled();
+    expect(fresh.release).not.toHaveBeenCalled();
+
+    first.resolve(result);
+    await queue.flush();
+
+    expect(submit).toHaveBeenNthCalledWith(2, fresh);
+    expect(submit).not.toHaveBeenCalledWith(stale);
+    expect(active.release).toHaveBeenCalledTimes(1);
+    expect(fresh.release).toHaveBeenCalledTimes(1);
+    expect(queue.report()).toMatchObject({ received: 3, sent: 2, replaced: 0, failed: 0 });
+  });
+
+  it('allows discarding with no waiting frame and remains reusable', async () => {
+    const submit = vi.fn().mockResolvedValue(result);
+    const queue = new GpuFrameQueue(submit);
+    const frame = { release: vi.fn() };
+
+    queue.discardPending();
+    queue.offer(frame);
+    queue.discardPending();
+    await queue.flush();
+
+    expect(submit).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledWith(frame);
+    expect(frame.release).toHaveBeenCalledTimes(1);
+  });
+
   it('discards waiting frames on shutdown but retains the active texture until native work finishes', async () => {
     const first = deferred();
     const queue = new GpuFrameQueue(() => first.promise);

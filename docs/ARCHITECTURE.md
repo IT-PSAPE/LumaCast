@@ -258,7 +258,10 @@ Each rule is also proven by a committed fixture scenario under
   its renderer no longer reads or clones video pixel buffers. The output
   preload exposes only scene subscription and readiness acknowledgement.
 - Main retains Chromium shared textures in a bounded queue: one native
-  submission and one newest waiting texture per output. The native NDI utility
+  submission and one newest waiting texture per output. Scene revision changes
+  and output disable discard waiting textures immediately; an active native
+  submission keeps its lease until completion. These invalidations are not
+  counted as backpressure drops. The native NDI utility
   process imports macOS IOSurfaces through Mach ports, Windows D3D textures
   through duplicated handles, and Linux DMA-BUF planes through an owner-only
   Unix socket. Native handles never enter renderer IPC. Only the workbench may
@@ -281,6 +284,10 @@ Each rule is also proven by a committed fixture scenario under
   JavaScript cache-copy counters remain zero for shared-texture submissions.
 - Chromium paints at 30 fps and the engine replays static frames at the existing
   interval. Native frames remain 30000/1001 progressive, with `clock_video=false`.
+  Capture refreshes coalesce by scene revision and take session/sequence, including
+  after acceptance or timeout. Repeated playback-clock updates do not restart
+  painting or reset the five-second retry budget. Sender invalidation and output
+  re-enable explicitly force a fresh refresh for the current committed scene.
   See ADR-0049 for platform ownership and the superseded capture policy.
 - Web Audio remains the audio sample clock and both audio/video frames retain
   NDI synthesized timecodes. Each enabled output normally receives planar PCM

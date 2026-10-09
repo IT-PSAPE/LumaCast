@@ -50,6 +50,20 @@ process must continue to isolate native work from the operator UI.
   for compatibility tests and blackout; the application has no CPU capture
   fallback.
 
+## 2026-10-09 refinement: refresh identity and obsolete waiting frames
+
+Capture refresh identity is the committed scene revision plus take session and
+sequence. Repeated snapshots for that identity share one five-second retry
+window and do not restart painting after acceptance or timeout. Sender rebuilds
+and output re-enable force a new refresh even when the scene is unchanged. This
+prevents periodic playback updates from interrupting capture and making slow
+native acknowledgements obsolete indefinitely.
+
+Scene changes and output disable release the waiting texture immediately,
+without counting it as a backpressure drop. An already active native submission
+still completes before its lease is released. This removes obsolete waiting
+frames from the path to the next scene while preserving native input ownership.
+
 ## Consequences
 
 JavaScript no longer reads, caches or transfers video pixels. Chromium scene

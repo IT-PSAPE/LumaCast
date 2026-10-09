@@ -73,10 +73,14 @@ export class GpuFrameQueue<T extends FrameLease> {
 
   async flush(): Promise<void> { while (this.draining) await this.draining; }
 
-  async stop(): Promise<void> {
-    this.stopped = true;
+  discardPending(): void {
     this.pending?.release();
     this.pending = null;
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    this.discardPending();
     await this.flush();
   }
 

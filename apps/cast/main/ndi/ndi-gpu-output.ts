@@ -35,8 +35,12 @@ export class NdiGpuOutput {
     ipcMain.on(NDI_GPU_SCENE_READY_CHANNEL, this.onReady);
     this.unsubscribe = service.onOutputStateChanged((state) => {
       for (const [name, output] of this.outputs) {
-        if (state[name] && output.committed) { this.requestFrame(output); }
-        else { output.refresh.accept(output.refresh.id); output.window.webContents.stopPainting(); }
+        if (state[name] && output.committed) { this.requestFrame(output, true); }
+        else {
+          output.refresh.accept(output.refresh.id);
+          output.queue.discardPending();
+          output.window.webContents.stopPainting();
+        }
       }
     });
   }
@@ -51,6 +55,7 @@ export class NdiGpuOutput {
       if (output.snapshot.revisionId !== snapshot.revisionId) {
         output.committed = null;
         output.refresh.accept(output.refresh.id);
+        output.queue.discardPending();
         output.window.webContents.stopPainting();
       }
       output.snapshot = snapshot;
@@ -64,7 +69,7 @@ export class NdiGpuOutput {
 
   invalidate(): void {
     for (const output of this.outputs.values()) {
-      if (!output.window.isDestroyed() && this.service.getOutputState()[output.snapshot.name]) this.requestFrame(output);
+      if (!output.window.isDestroyed() && this.service.getOutputState()[output.snapshot.name]) this.requestFrame(output, true);
     }
   }
 
@@ -81,10 +86,16 @@ export class NdiGpuOutput {
     this.outputs.clear();
   }
 
-  private requestFrame(output: Output): void {
+  private requestFrame(output: Output, force = false): void {
     // Electron 35 invalidate() composites only the bitmap backing. Restarting
     // its video capturer requests a fresh shared texture even for a static scene.
-    output.refresh.request();
+    const snapshot = output.committed;
+    if (!snapshot) return;
+    // Clock updates retain scene/take identity. Restarting their capturer on
+    // every update interrupts video and invalidates slow native completions.
+    const key = JSON.stringify([snapshot.revisionId,
+      snapshot.telemetry?.takeSessionId ?? null, snapshot.telemetry?.takeSequenceId ?? null]);
+    output.refresh.request(key, force);
   }
 
   private sendScene(output: Output): void {
