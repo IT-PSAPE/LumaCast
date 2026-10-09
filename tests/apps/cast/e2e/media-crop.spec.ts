@@ -68,6 +68,11 @@ test(`modifier handles crop images and ${videoFit} videos without scaling, prese
       canvas.width = 400;
       canvas.height = 200;
       const context = canvas.getContext('2d')!;
+      const paintColorBars = () => {
+        context.fillStyle = 'red'; context.fillRect(0, 0, 200, 200);
+        context.fillStyle = 'blue'; context.fillRect(200, 0, 200, 200);
+      };
+      paintColorBars();
       const stream = canvas.captureStream(10);
       const recorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp8' });
       const chunks: BlobPart[] = [];
@@ -75,8 +80,7 @@ test(`modifier handles crop images and ${videoFit} videos without scaling, prese
       const stopped = new Promise<void>((resolve) => { recorder.onstop = () => resolve(); });
       recorder.start();
       for (let index = 0; index < 4; index++) {
-        context.fillStyle = 'red'; context.fillRect(0, 0, 200, 200);
-        context.fillStyle = 'blue'; context.fillRect(200, 0, 200, 200);
+        paintColorBars();
         await new Promise((resolve) => setTimeout(resolve, 120));
       }
       recorder.stop();
