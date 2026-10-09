@@ -11,7 +11,8 @@ const imageSrc = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://ww
 const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 async function dragHandle(page: Page, frame: { x: number; y: number; width: number; height: number },
-  anchor: 'left' | 'right' | 'bottom-right' | 'top', dx: number, dy: number, crop = true) {
+  anchor: 'left' | 'right' | 'bottom-right' | 'top', dx: number, dy: number, crop = true,
+  quantizePointer = false) {
   const canvas = page.locator('[data-ui-region="stage-panel"] canvas').first();
   const box = (await canvas.boundingBox())!;
   const scale = Math.min(box.width / 1920, box.height / 1080);
@@ -19,12 +20,67 @@ async function dragHandle(page: Page, frame: { x: number; y: number; width: numb
   const offsetY = box.y + (box.height - 1080 * scale) / 2;
   const x = frame.x + (anchor === 'left' ? 0 : anchor === 'top' ? frame.width / 2 : frame.width);
   const y = frame.y + (anchor === 'bottom-right' ? frame.height : anchor === 'top' ? 0 : frame.height / 2);
-  await page.mouse.move(offsetX + x * scale, offsetY + y * scale);
+  const startFloat = { x: offsetX + x * scale, y: offsetY + y * scale };
+  const start = quantizePointer ? { x: Math.round(startFloat.x), y: Math.round(startFloat.y) } : startFloat;
+  const endX = quantizePointer ? start.x + Math.round(dx * scale) : offsetX + (x + dx) * scale;
+  const endY = quantizePointer ? start.y + Math.round(dy * scale) : offsetY + (y + dy) * scale;
+  const end = { x: endX, y: endY };
+  await page.mouse.move(start.x, start.y);
   if (crop) await page.keyboard.down(modifier);
   await page.mouse.down();
-  await page.mouse.move(offsetX + (x + dx) * scale, offsetY + (y + dy) * scale, { steps: 12 });
+  await page.mouse.move(end.x, end.y, { steps: 12 });
   await page.mouse.up();
   if (crop) await page.keyboard.up(modifier);
+  return {
+    dx: (end.x - start.x) / scale,
+    dy: (end.y - start.y) / scale,
+    // Bound pointer and fitted-viewport rounding in scene units, rather than
+    // assuming the requested scene delta maps to an exact screen coordinate.
+    pixelBound: quantizePointer ? 1 / scale : 0,
+  };
+}
+
+function expectedVideoCrop(
+  frame: { x: number; y: number; width: number; height: number },
+  originalFrame: { x: number; y: number; width: number; height: number },
+  fit: 'cover' | 'contain',
+) {
+  const sourceWidth = 400;
+  const sourceHeight = 200;
+  const contentHeight = fit === 'cover' ? originalFrame.height : originalFrame.width * sourceHeight / sourceWidth;
+  const contentRect = {
+    x: 0,
+    y: (originalFrame.height - contentHeight) / 2,
+    width: originalFrame.width,
+    height: contentHeight,
+  };
+  const sourceRect = fit === 'cover'
+    ? { x: (sourceWidth - sourceHeight) / 2, y: 0, width: sourceHeight, height: sourceHeight }
+    : { x: 0, y: 0, width: sourceWidth, height: sourceHeight };
+  const frameX = frame.x - originalFrame.x;
+  const frameY = frame.y - originalFrame.y;
+  const left = Math.max(frameX, contentRect.x);
+  const top = Math.max(frameY, contentRect.y);
+  const right = Math.min(frameX + frame.width, contentRect.x + contentRect.width);
+  const bottom = Math.min(frameY + frame.height, contentRect.y + contentRect.height);
+  const sourcePerSceneX = sourceRect.width / contentRect.width;
+  const sourcePerSceneY = sourceRect.height / contentRect.height;
+  return {
+    crop: {
+      x: (sourceRect.x + (left - contentRect.x) * sourcePerSceneX) / sourceWidth,
+      y: (sourceRect.y + (top - contentRect.y) * sourcePerSceneY) / sourceHeight,
+      width: (right - left) * sourcePerSceneX / sourceWidth,
+      height: (bottom - top) * sourcePerSceneY / sourceHeight,
+    },
+    cropFrame: {
+      x: (left - frameX) / frame.width,
+      y: (top - frameY) / frame.height,
+      width: (right - left) / frame.width,
+      height: (bottom - top) / frame.height,
+    },
+    sourcePerSceneX,
+    sourcePerSceneY,
+  };
 }
 
 async function paintedColors(page: Page) {
@@ -177,33 +233,53 @@ test(`modifier handles crop images and ${videoFit} videos without scaling, prese
     })).toBe(true);
     await page.screenshot({ path: 'test-results/media-crop-video-before.png' });
     // Corners retain the frame ratio; video cover pixels remain at their original scale.
-    await dragHandle(page, originalVideo, 'bottom-right', -100, -100);
+    const videoCornerDrag = await dragHandle(page, originalVideo, 'bottom-right', -100, -100, true, true);
     await saveChanges();
     const videoAfter = await read(videoId);
     const videoPayload = videoAfter.payload as VideoElementPayload;
+    const expectedVideoWidth = originalVideo.width + videoCornerDrag.dx;
+    const expectedVideoHeight = originalVideo.height + videoCornerDrag.dy;
     expect(videoPayload).toMatchObject({ autoplay: false, loop: true, muted: false, playbackRate: 1.25 });
-    expect(videoAfter.width).toBeCloseTo(300, 0);
-    expect(videoAfter.height).toBeCloseTo(300, 0);
-    expect(videoPayload.crop!.x).toBeCloseTo(videoFit === 'cover' ? 0.25 : 0, 2);
-    expect(videoPayload.crop!.width).toBeCloseTo(videoFit === 'cover' ? 0.375 : 0.75, 2);
-    expect(videoPayload.crop!.height).toBeCloseTo(videoFit === 'cover' ? 0.75 : 1, 2);
-    if (videoFit === 'contain') {
-      expect(videoPayload.cropFrame!.y).toBeCloseTo(1 / 3, 2);
-      expect(videoPayload.cropFrame!.height).toBeCloseTo(2 / 3, 2);
-    }
+    expect(Math.abs(videoAfter.width - expectedVideoWidth)).toBeLessThan(videoCornerDrag.pixelBound);
+    expect(Math.abs(videoAfter.height - expectedVideoHeight)).toBeLessThan(videoCornerDrag.pixelBound);
+    expect(Math.abs(videoAfter.width - videoAfter.height)).toBeLessThan(0.01);
+    const expectedCropAfterResize = expectedVideoCrop(videoAfter, originalVideo, videoFit);
+    expect(videoPayload.crop!.x).toBeCloseTo(expectedCropAfterResize.crop.x, 3);
+    expect(videoPayload.crop!.y).toBeCloseTo(expectedCropAfterResize.crop.y, 3);
+    expect(videoPayload.crop!.width).toBeCloseTo(expectedCropAfterResize.crop.width, 3);
+    expect(videoPayload.crop!.height).toBeCloseTo(expectedCropAfterResize.crop.height, 3);
+    expect(videoPayload.cropFrame!.x).toBeCloseTo(expectedCropAfterResize.cropFrame.x, 3);
+    expect(videoPayload.cropFrame!.y).toBeCloseTo(expectedCropAfterResize.cropFrame.y, 3);
+    expect(videoPayload.cropFrame!.width).toBeCloseTo(expectedCropAfterResize.cropFrame.width, 3);
+    expect(videoPayload.cropFrame!.height).toBeCloseTo(expectedCropAfterResize.cropFrame.height, 3);
+    expect(videoPayload.crop!.width * 400 / (videoPayload.cropFrame!.width * videoAfter.width))
+      .toBeCloseTo(expectedCropAfterResize.sourcePerSceneX, 2);
+    expect(videoPayload.crop!.height * 200 / (videoPayload.cropFrame!.height * videoAfter.height))
+      .toBeCloseTo(expectedCropAfterResize.sourcePerSceneY, 2);
     // Top handles affect only height.
-    await dragHandle(page, videoAfter, 'top', 0, 50);
+    const videoTopDrag = await dragHandle(page, videoAfter, 'top', 0, 50, true, true);
     await saveChanges();
     const videoTop = await read(videoId);
+    const expectedVideoTopY = videoAfter.y + videoTopDrag.dy;
+    const expectedVideoTopHeight = videoAfter.height - videoTopDrag.dy;
     expect(videoTop.width).toBeCloseTo(videoAfter.width, 0);
-    // Native pointer coordinates round to screen pixels at this viewport scale.
-    expect(Math.abs(videoTop.y - (videoAfter.y + 50))).toBeLessThan(2);
-    expect(Math.abs(videoTop.height - 250)).toBeLessThan(2);
+    expect(Math.abs(videoTop.y - expectedVideoTopY)).toBeLessThan(videoTopDrag.pixelBound);
+    expect(Math.abs(videoTop.height - expectedVideoTopHeight)).toBeLessThan(videoTopDrag.pixelBound);
     if (videoFit === 'contain') {
       const afterTop = videoTop.payload as VideoElementPayload;
-      expect(afterTop.crop!.height).toBeCloseTo(1, 2);
-      expect(afterTop.cropFrame!.y).toBeCloseTo(0.2, 2);
-      expect(afterTop.cropFrame!.height).toBeCloseTo(0.8, 2);
+      const expectedCropAfterTop = expectedVideoCrop(videoTop, originalVideo, videoFit);
+      expect(afterTop.crop!.x).toBeCloseTo(expectedCropAfterTop.crop.x, 3);
+      expect(afterTop.crop!.y).toBeCloseTo(expectedCropAfterTop.crop.y, 3);
+      expect(afterTop.crop!.width).toBeCloseTo(expectedCropAfterTop.crop.width, 3);
+      expect(afterTop.crop!.height).toBeCloseTo(expectedCropAfterTop.crop.height, 3);
+      expect(afterTop.cropFrame!.x).toBeCloseTo(expectedCropAfterTop.cropFrame.x, 3);
+      expect(afterTop.cropFrame!.y).toBeCloseTo(expectedCropAfterTop.cropFrame.y, 3);
+      expect(afterTop.cropFrame!.width).toBeCloseTo(expectedCropAfterTop.cropFrame.width, 3);
+      expect(afterTop.cropFrame!.height).toBeCloseTo(expectedCropAfterTop.cropFrame.height, 3);
+      expect(afterTop.crop!.width * 400 / (afterTop.cropFrame!.width * videoTop.width))
+        .toBeCloseTo(expectedCropAfterTop.sourcePerSceneX, 2);
+      expect(afterTop.crop!.height * 200 / (afterTop.cropFrame!.height * videoTop.height))
+        .toBeCloseTo(expectedCropAfterTop.sourcePerSceneY, 2);
     }
     await page.screenshot({ path: `test-results/media-crop-${videoFit}-editor.png` });
     await app.close();
