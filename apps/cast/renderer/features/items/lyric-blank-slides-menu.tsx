@@ -32,7 +32,7 @@ export function LyricBlankSlidesMenu({ mode, onChange, surface = 'context' }: {
         const label = <>
           <Check aria-hidden className={`size-3.5 shrink-0 ${mode === option.value ? '' : 'invisible'}`} />
           {option.label}
-          {mode === option.value ? <span className="sr-only"> Selected</span> : null}
+          {mode === option.value ? <>{' '}<span className="sr-only">Selected</span></> : null}
         </>;
         return surface === 'dropdown'
           ? <Dropdown.Item key={option.value} onClick={() => onChange(option.value)}>{label}</Dropdown.Item>

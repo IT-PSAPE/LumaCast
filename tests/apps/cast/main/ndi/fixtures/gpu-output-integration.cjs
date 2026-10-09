@@ -86,6 +86,12 @@ async function run() {
     window.__sourceVideo = source;
   })()`);
   const moving = snapshot('audience', '#000000', 'integration-video');
+  // Keep one take attached throughout the clock updates to exercise repeated
+  // snapshots while its workbench acknowledgement is delayed.
+  moving.telemetry = { captureDurationMs: 0, readbackDurationMs: 0, skippedCaptures: 0,
+    framesDroppedBackpressure: 0, correctiveFrameRetries: 0,
+    takeKind: 'take', takeReason: 'sequential', takeSessionId: 'gpu-video',
+    takeSequenceId: 1, takeIssuedAtMs: Date.now() };
   moving.scene.nodes = [{ id: '__layer_video', element: { id: '__layer_video', type: 'video', x: 0, y: 0, width: 1920, height: 1080, rotation: 0, opacity: 1, payload: { src: videoUrl, loop: true } }, visual: { borderRadius: 0 } }];
   const publishVideo = async () => {
     const state = await audienceWindow.webContents.executeJavaScript('({ currentTime: window.__sourceVideo.currentTime, observedAtMs: Date.now() })');
@@ -95,6 +101,7 @@ async function run() {
   await delay(1000);
   const decodedBefore = await audienceWindow.webContents.executeJavaScript('window.__outputVideos.at(-1).getVideoPlaybackQuality().totalVideoFrames');
   const entry = output.outputs.get('audience');
+  const refreshId = entry.refresh.id;
   const beforeVideo = entry.queue.report();
   const intervals = [];
   let lastAccepted = 0;
@@ -116,6 +123,7 @@ async function run() {
   const seeks = await audienceWindow.webContents.executeJavaScript('window.__videoSeeks');
   const decodedFrames = await audienceWindow.webContents.executeJavaScript('window.__outputVideos.at(-1).getVideoPlaybackQuality().totalVideoFrames') - decodedBefore;
   console.log('Decoded video integration measurements', JSON.stringify({ freshFps, decodedFrames, intervalP95Ms, maxIntervalMs: Math.max(...intervals), seeks, replaced: afterVideo.replaced - beforeVideo.replaced, failures: afterVideo.failed - beforeVideo.failed }));
+  assert.equal(entry.refresh.id, refreshId, 'repeated take/clock snapshots must not restart capture');
   assert.equal(afterVideo.failed, beforeVideo.failed, 'decoded video must have no native submission failures');
   assert.ok(decodedFrames / seconds >= 24, 'source video must actually decode continuously');
   assert.ok(freshFps >= 24, 'decoded video with source synchronization must sustain at least 24 fresh fps');
