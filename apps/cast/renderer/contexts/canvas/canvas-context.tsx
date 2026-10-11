@@ -74,7 +74,6 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const { currentItemRef } = useNavigation();
   const { currentSlide, liveSlide, liveElements, slideElementsById } = useSlides();
   const {
-    slides: projectSlides,
     liveSlideElementsBySlideId: projectLiveElementsBySlideId,
     liveSlidesById: projectLiveSlidesById,
     resolveElementsForSlide,
@@ -517,12 +516,6 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   const hasLiveProgram = liveSlide !== null;
   const programScene = !hasLiveProgram ? liveScene : isEditing && frozenProgramScene ? frozenProgramScene : liveScene;
 
-  const projectSlidesById = useMemo(() => {
-    const map = new Map<Id, (typeof projectSlides)[number]>();
-    for (const slide of projectSlides) map.set(slide.id, slide);
-    return map;
-  }, [projectSlides]);
-
   // Thumbnail scene cache keyed by slide id. Each entry remembers every
   // reference that contributes to the built scene. `stableArray` in
   // useProjectContent keeps these refs stable when content is unchanged, so
@@ -538,14 +531,14 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const cache = thumbnailCacheRef.current;
     for (const id of cache.keys()) {
-      if (!projectSlidesById.has(id)) cache.delete(id);
+      if (!projectLiveSlidesById.has(id)) cache.delete(id);
     }
-  }, [projectSlidesById]);
+  }, [projectLiveSlidesById]);
 
   const getThumbnailScene = useCallback((slideId: Id, surface: SceneSurface): RenderScene | null => {
-    const slide = projectSlidesById.get(slideId);
-    if (!slide) return null;
-    const frame = projectLiveSlidesById.get(slideId) ?? slide;
+    // The live projection includes generated lyric blanks as well as stored slides.
+    const frame = projectLiveSlidesById.get(slideId);
+    if (!frame) return null;
     const policy = thumbnailSourcePolicy(surface, currentSlide?.id === slideId);
     const elements = policy === 'draft'
       ? resolveElementsForSlide(slideId, currentSlide?.id === slideId ? effectiveElements : getSlideElements(slideId))
@@ -563,7 +556,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
     const scene = buildThumbnailScene(frame, elements, { proxyMediaBySource: mediaProxyBySource });
     cache.set(slideId, { frame, elements, mediaProxyBySource, scene });
     return scene;
-  }, [currentSlide?.id, effectiveElements, getSlideElements, mediaProxyBySource, projectLiveElementsBySlideId, projectLiveSlidesById, projectSlidesById, resolveElementsForSlide]);
+  }, [currentSlide?.id, effectiveElements, getSlideElements, mediaProxyBySource, projectLiveElementsBySlideId, projectLiveSlidesById, resolveElementsForSlide]);
 
   const scenesValue = useMemo<RenderSceneValue>(() => ({
     editScene, showScene, liveScene, programScene, getThumbnailScene, commitProgramScene,

@@ -842,6 +842,12 @@ describe('decodeMacroCreateInput', () => {
 });
 
 describe('decodeTriggerBindingCreateInput', () => {
+  it('accepts a slide Exit trigger and rejects unknown trigger types', () => {
+    const input = { triggerType: 'slide.exit', sourceId: 'slide-1', targetType: 'cue', targetId: 'cue-1' };
+    expect(decodeTriggerBindingCreateInput(input, CONTEXT)).toMatchObject(input);
+    expectCodecError(() => decodeTriggerBindingCreateInput({ ...input, triggerType: 'slide.unknown' }, CONTEXT), 'triggerType');
+  });
+
   it('decodes a valid input with a nullable sourceId and free-form config', () => {
     const input = decodeTriggerBindingCreateInput(
       { triggerType: 'slide.take', sourceId: null, targetType: 'cue', targetId: 'cue-1', config: { anything: 'goes' } },

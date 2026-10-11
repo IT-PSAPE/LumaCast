@@ -20,7 +20,7 @@ export type CueKind =
   | 'layer.clear'
   | 'layer.clearAll'
   | 'flow.lifecycle';
-export type TriggerType = 'slide.take' | 'slide.activate' | 'app.startup';
+export type TriggerType = 'slide.take' | 'slide.activate' | 'slide.exit' | 'app.startup';
 export type TriggerBindingTargetType = 'cue' | 'macro';
 
 /** Level a macro's lifetime is bound to. The concrete context is captured from the trigger. */

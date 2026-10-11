@@ -7,13 +7,13 @@ import { SlideAutomationMenu } from '../automation/slide-automation-menu';
 import { SlideBindingsMenu } from '../automation/slide-bindings-menu';
 import { SlideTagMenu } from './slide-tag-menu';
 
-export function SlideActionsMenu({ slideIds }: { slideIds: Id[] }) {
+export function SlideActionsMenu({ slideIds: selectedSlideIds }: { slideIds: Id[] }) {
   const { slides, duplicateSlide, deleteSlide, moveSlide, setLyricBlankSlides } = useSlides();
   const { currentItemRef } = useNavigation();
   const confirm = useConfirm();
+  const slideIds = selectedSlideIds.filter((id) => !slides.find((slide) => slide.id === id)?.runtimeBlank);
   const count = slideIds.length;
-  const singleIndex = count === 1 ? slides.findIndex((slide) => slide.id === slideIds[0]) : -1;
-  const isRuntimeBlank = count === 1 && Boolean(slides[singleIndex]?.runtimeBlank);
+  const isRuntimeBlank = count === 0;
   const storedSlides = slides.filter((slide) => !slide.runtimeBlank);
   const storedSingleIndex = count === 1 ? storedSlides.findIndex((slide) => slide.id === slideIds[0]) : -1;
   const isFirst = storedSingleIndex <= 0;
@@ -38,7 +38,7 @@ export function SlideActionsMenu({ slideIds }: { slideIds: Id[] }) {
 
   return (
     <>
-      {count === 1 && currentItemRef?.type === 'lyric' ? (
+      {(count === 1 || isRuntimeBlank) && currentItemRef?.type === 'lyric' ? (
         <>
           <ContextMenu.Submenu label="Blank slides">
             <ContextMenu.Item onSelect={() => { void setLyricBlankSlides('none'); }}>None</ContextMenu.Item>

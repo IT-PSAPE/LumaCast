@@ -30,6 +30,12 @@ that the feature explicitly does not have.
 - Runtime blank slides are immutable. Configuration changes use the typed
   `setLyricBlankSlides` RPC, also exposed as the agent action
   `lyric.setBlankSlides`.
+- Thumbnail lookup uses the live slide projection, including generated blanks,
+  while the authored `slides` collection stays persistence-only. Grid and list
+  tiles label blanks `Auto-generated`; pointer/keyboard reordering and bulk
+  mutation actions preserve their immutable runtime identity (2026-10-11 refinement).
+- Automation resolves item scope through the same projection, so entering a
+  generated boundary preserves macros scoped to its lyric.
 - Project backups move to schema 35. Schema-34 and earlier supported backups
   normalize lyric rows to `blank_slide_mode = none`.
 

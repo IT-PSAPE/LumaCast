@@ -36,7 +36,7 @@ export function TriggersInspector() {
           } else {
             const sourceSlide = binding.sourceId ? slidesContext.slides.find((slide) => slide.id === binding.sourceId) ?? null : null;
             label = sourceSlide ? `Slide ${slidesContext.slides.indexOf(sourceSlide) + 1}` : 'Slide';
-            triggerLabel = binding.triggerType === 'slide.take' ? 'on Take' : 'on Activate';
+            triggerLabel = binding.triggerType === 'slide.exit' ? 'on Exit' : binding.triggerType === 'slide.take' ? 'on Take' : 'on Activate';
           }
           return (
             <div key={binding.id} className="flex items-center justify-between gap-2 rounded border border-primary bg-secondary/40 px-2 py-1.5 text-sm text-primary">

@@ -37,6 +37,10 @@ export function SingleSlideList() {
   const activeRowIndex = dnd.activeId ? rows.findIndex((row) => row.slide.id === dnd.activeId) : -1;
   const activeRow = activeRowIndex === -1 ? null : rows[activeRowIndex];
   const activeScene = activeRow ? getThumbnailScene(activeRow.slide.id, 'list') : null;
+  const onKeyboardMoveToIndex = useCallback((index: number) => {
+    if (rows[index]?.slide.runtimeBlank) return;
+    dnd.onKeyboardMoveToIndex(index);
+  }, [dnd.onKeyboardMoveToIndex, rows]);
 
   function renderRow(row: (typeof rows)[number]) {
     const scene = getThumbnailScene(row.slide.id, 'list');
@@ -72,7 +76,7 @@ export function SingleSlideList() {
           measuring={VIRTUALIZED_SORTABLE_MEASURING}
           activeId={dnd.activeId}
           virtualizedKeyboard={{
-            onMoveToIndex: dnd.onKeyboardMoveToIndex,
+            onMoveToIndex: onKeyboardMoveToIndex,
             scrollToIndex,
           }}
           dragOverlay={activeRow && activeScene ? (

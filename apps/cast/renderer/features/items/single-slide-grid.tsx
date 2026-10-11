@@ -33,11 +33,15 @@ export function SingleSlideGrid() {
     currentItemRef ? `${currentItemRef.type}:${currentItemRef.id}` : null,
   );
   const virtualizedGrid = useMemo(() => ({ columns: gridItemSize }), [gridItemSize]);
+  const onKeyboardMoveToIndex = useCallback((index: number) => {
+    if (slides[index]?.runtimeBlank) return;
+    dnd.onKeyboardMoveToIndex(index);
+  }, [dnd.onKeyboardMoveToIndex, slides]);
   const virtualizedKeyboard = useMemo(() => ({
     columns: gridItemSize,
-    onMoveToIndex: dnd.onKeyboardMoveToIndex,
+    onMoveToIndex: onKeyboardMoveToIndex,
     scrollToIndex,
-  }), [dnd.onKeyboardMoveToIndex, gridItemSize, scrollToIndex]);
+  }), [onKeyboardMoveToIndex, gridItemSize, scrollToIndex]);
   const activeSlideIndex = dnd.activeId ? slides.findIndex((slide) => slide.id === dnd.activeId) : -1;
   const activeSlide = activeSlideIndex === -1 ? null : slides[activeSlideIndex];
   const activeElements = activeSlide ? slideElementsById.get(activeSlide.id) ?? [] : [];
@@ -68,6 +72,7 @@ export function SingleSlideGrid() {
               focused={activeSlideIndex === currentSlideIndex}
               isLive={activeState === 'live'}
               isEmpty={activeState === 'warning'}
+              isGenerated={Boolean(activeSlide.runtimeBlank)}
               onActivate={activateSlide}
               onFocus={setCurrentSlideIndex}
               onRangeSelect={selection.selectSlide}
@@ -103,6 +108,7 @@ export function SingleSlideGrid() {
                   focused={idx === currentSlideIndex}
                   isLive={state === 'live'}
                   isEmpty={state === 'warning'}
+                  isGenerated={Boolean(slide.runtimeBlank)}
                   onActivate={activateSlide}
                   onFocus={setCurrentSlideIndex}
                   onRangeSelect={selection.selectSlide}

@@ -92,6 +92,21 @@ describe('SlideActionsMenu — move up/down (single selection only)', () => {
 });
 
 describe('SlideActionsMenu', () => {
+  it('excludes generated blanks from bulk duplicate and delete actions', async () => {
+    mocks.slides = [{ id: 'start', runtimeBlank: 'start' }, { id: 'slide-1' }, { id: 'slide-2' }, { id: 'end', runtimeBlank: 'end' }];
+    mocks.duplicateSlide.mockResolvedValue(undefined);
+    mocks.deleteSlide.mockResolvedValue(undefined);
+    mocks.confirm.mockResolvedValue(true);
+    render(<SlideActionsMenu slideIds={['start', 'slide-1', 'slide-2', 'end']} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate 2 slides' }));
+    await waitFor(() => expect(mocks.duplicateSlide).toHaveBeenCalledTimes(2));
+    expect(mocks.duplicateSlide.mock.calls.map(([id]) => id)).toEqual(['slide-1', 'slide-2']);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 slides' }));
+    await waitFor(() => expect(mocks.deleteSlide).toHaveBeenCalledTimes(2));
+    expect(mocks.deleteSlide.mock.calls.map(([id]) => id)).toEqual(['slide-2', 'slide-1']);
+  });
+
   it('configures lyric blank slides and keeps runtime blanks immutable', () => {
     mocks.currentItemRef = { type: 'lyric', id: 'lyric-1' };
     mocks.slides = [{ id: 'runtime:lyric:lyric-1:blank:start', runtimeBlank: 'start' }];

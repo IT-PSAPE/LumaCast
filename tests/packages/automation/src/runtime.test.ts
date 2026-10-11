@@ -7,6 +7,7 @@ import {
   resolveMacroScope,
   type AutomationObservabilityPort,
   type AutomationClock,
+  type AutomationTriggerData,
   type AutomationPlaybackPort,
   type AutomationRuntime,
   type AutomationRuntimePorts,
@@ -125,6 +126,12 @@ afterEach(() => {
 });
 
 describe('resolveMacroScope', () => {
+  it.each(['slide', 'item'] as const)('runs an Exit macro globally instead of binding it to its expired %s scope', (scopeLevel) => {
+    const macro = makeMacro('exit', [], { scopeLevel, onScopeExit: 'cancel' });
+    expect(resolveMacroScope(macro, 'slide.exit', 'slide-1', () => ({ type: 'lyric', id: 'song' })))
+      .toEqual({ scope: 'global', boundContextId: null, onScopeExit: 'cancel' });
+  });
+
   it('binds a slide-scoped macro to the triggering slide', () => {
     const macro = makeMacro('m1', [], { scopeLevel: 'slide' });
     const scope = resolveMacroScope(macro, 'slide.take', 'slide-1', () => null);
@@ -135,6 +142,81 @@ describe('resolveMacroScope', () => {
     const macro = makeMacro('m1', [], { scopeLevel: 'item' });
     const scope = resolveMacroScope(macro, null, null, () => null);
     expect(scope).toEqual({ scope: 'global', boundContextId: null, onScopeExit: 'none' });
+  });
+});
+
+describe('slide Exit triggers', () => {
+  function triggerData(bindings: TriggerBinding[], cues: Cue[], macros: Macro[] = []): AutomationTriggerData {
+    return {
+      triggerBindings: bindings,
+      resolveCue: (id) => cues.find((cue) => cue.id === id),
+      resolveMacro: (id) => macros.find((macro) => macro.id === id),
+      resolveItemRef: () => ({ type: 'lyric', id: 'song' }),
+    };
+  }
+
+  it('fires the outgoing Exit before the incoming Activate, with no Exit when retaking the same slide', () => {
+    const playback = makePlaybackPort();
+    const order: string[] = [];
+    vi.mocked(playback.clearAudio).mockImplementation(() => { order.push('exit'); });
+    vi.mocked(playback.armVideo).mockImplementation(() => { order.push('enter'); });
+    const runtime = makeRuntime(playback);
+    const exit = makeCue('exit', 'audio.clear', {});
+    const enter = makeCue('enter', 'video.arm', { assetId: 'video' });
+    const data = triggerData([
+      makeBinding({ id: 'exit', triggerType: 'slide.exit', sourceId: 's1', targetType: 'cue', targetId: exit.id }),
+      makeBinding({ id: 'enter', triggerType: 'slide.activate', sourceId: 's2', targetType: 'cue', targetId: enter.id }),
+    ], [exit, enter]);
+
+    runtime.fireTrigger('slide.activate', 's1', data);
+    expect(order).toEqual([]);
+    runtime.fireTrigger('slide.activate', 's2', data);
+    expect(order).toEqual(['exit', 'enter']);
+    runtime.setLiveSlide('s2', data); // Renderer confirms the same transition.
+    runtime.fireTrigger('slide.activate', 's2', data);
+    runtime.fireTrigger('slide.take', 's2', data);
+    expect(order).toEqual(['exit', 'enter', 'enter']);
+  });
+
+  it('fires once when output is unarmed, and ignores disabled and missing targets', () => {
+    const playback = makePlaybackPort();
+    const runtime = makeRuntime(playback);
+    const exit = makeCue('exit', 'audio.clear', {});
+    const data = triggerData([
+      makeBinding({ id: 'exit', triggerType: 'slide.exit', sourceId: 's1', targetType: 'cue', targetId: exit.id }),
+      makeBinding({ id: 'disabled', triggerType: 'slide.exit', sourceId: 's1', targetType: 'cue', targetId: exit.id, enabled: false }),
+      makeBinding({ id: 'missing-cue', triggerType: 'slide.exit', sourceId: 's1', targetType: 'cue', targetId: 'missing' }),
+      makeBinding({ id: 'missing-macro', triggerType: 'slide.exit', sourceId: 's1', targetType: 'macro', targetId: 'missing' }),
+    ], [exit]);
+
+    runtime.setLiveSlide('s1', data);
+    expect(playback.clearAudio).not.toHaveBeenCalled();
+    runtime.setLiveSlide(null, data);
+    runtime.setLiveSlide(null, data);
+    expect(playback.clearAudio).toHaveBeenCalledTimes(1);
+  });
+
+  it('expires outgoing runs before Exit macros start and lets delayed cleanup finish', async () => {
+    const playback = makePlaybackPort();
+    const runtime = makeRuntime(playback);
+    const overlay = makeCue('overlay', 'overlay.activate', { overlayId: 'overlay' });
+    const cleanupCue = makeCue('cleanup', 'audio.clear', {});
+    const entering = makeMacro('enter', [makeMacroCue(overlay, 0, 0, 1_000)], { scopeLevel: 'slide', onScopeExit: 'revert' });
+    const exiting = makeMacro('exit', [makeMacroCue(cleanupCue, 0, 50)], { scopeLevel: 'slide', onScopeExit: 'cancel' });
+    const data = triggerData([
+      makeBinding({ id: 'enter', triggerType: 'slide.activate', sourceId: 's1', targetId: entering.id }),
+      makeBinding({ id: 'exit', triggerType: 'slide.exit', sourceId: 's1', targetId: exiting.id }),
+    ], [overlay, cleanupCue], [entering, exiting]);
+
+    runtime.fireTrigger('slide.activate', 's1', data);
+    expect(runtime.runs.size).toBe(1);
+    runtime.fireTrigger('slide.activate', 's2', data);
+    expect(playback.clearOverlay).toHaveBeenCalledWith('overlay');
+    expect([...runtime.runs.values()].map((run) => run.scope)).toEqual(['global']);
+    runtime.fireTrigger('slide.activate', 's3', data);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(playback.clearAudio).toHaveBeenCalledTimes(1);
+    expect(runtime.runs.size).toBe(0);
   });
 });
 

@@ -1158,7 +1158,7 @@ const RPC_CUE_KINDS = [
 const RPC_CUE_FAILURE_POLICIES = ['continue', 'abort'] as const;
 const RPC_SCOPE_LEVELS = ['global', 'item', 'slide'] as const;
 const RPC_ON_SCOPE_EXITS = ['cancel', 'revert', 'none'] as const;
-const RPC_TRIGGER_TYPES = ['slide.take', 'slide.activate', 'app.startup'] as const;
+const RPC_TRIGGER_TYPES = ['slide.take', 'slide.activate', 'slide.exit', 'app.startup'] as const;
 const RPC_TRIGGER_BINDING_TARGET_TYPES = ['cue', 'macro'] as const;
 
 export function decodeCueCreateInput(value: unknown, context: CodecContext): CueCreateInput {

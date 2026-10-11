@@ -54,6 +54,12 @@ export function SlideAutomationMenu({ slideId, slideIds }: { slideId?: Id; slide
             Take
           </span>
         </ContextMenu.Item>
+        <ContextMenu.Item closeOnSelect={false} onSelect={() => setTriggerType('slide.exit')}>
+          <span className="inline-flex items-center gap-1.5">
+            {triggerType === 'slide.exit' ? <Check className="size-3.5" /> : <span className="inline-block size-3.5" />}
+            Exit
+          </span>
+        </ContextMenu.Item>
       </ContextMenu.Submenu>
       <ContextMenu.Separator />
 

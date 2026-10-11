@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   totalSize: 996,
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
+  onKeyboardMoveToIndex: vi.fn(),
 }));
 
 vi.mock('../../../../../../apps/cast/renderer/contexts/navigation-context', () => ({
@@ -36,7 +37,7 @@ vi.mock('../../../../../../apps/cast/renderer/features/items/use-slide-reorder',
     dnd: {
       ids: [],
       disabled: false,
-      onKeyboardMoveToIndex: vi.fn(),
+      onKeyboardMoveToIndex: mocks.onKeyboardMoveToIndex,
       onDragStart: vi.fn(),
       onDragEnd: vi.fn(),
       onDragCancel: vi.fn(),
@@ -78,16 +79,18 @@ vi.mock('@renderer/components/layout/scroll-area', async () => {
 });
 
 vi.mock('../../../../../../apps/cast/renderer/features/items/sortable-slide-grid-tile', () => ({
-  SortableSlideGridTile: ({ slideId, index, selected, onRangeSelect, onActivate }: {
+  SortableSlideGridTile: ({ slideId, index, selected, isGenerated, onRangeSelect, onActivate }: {
     slideId: string;
     index: number;
     selected: boolean;
+    isGenerated?: boolean;
     onRangeSelect: (index: number, extend: boolean) => void;
     onActivate: (index: number) => void;
   }) => (
     <button
       type="button"
       data-selected={selected ? 'true' : 'false'}
+      data-generated={isGenerated ? 'true' : 'false'}
       onClick={(event) => {
         onRangeSelect(index, event.shiftKey);
         if (!event.shiftKey) onActivate(index);
@@ -107,9 +110,37 @@ afterEach(() => {
   mocks.rootProps = null;
   mocks.measureElement.mockReset();
   mocks.scrollToIndex.mockReset();
+  mocks.onKeyboardMoveToIndex.mockReset();
 });
 
 describe('SingleSlideGrid', () => {
+  it('shows and activates generated boundaries in sequence and rejects keyboard reorder into them', () => {
+    const activateSlide = vi.fn();
+    mocks.navigation.value = {
+      currentItemRef: { type: 'lyric', id: 'song' }, currentOutputItemRef: null, isDetachedDeckBrowser: false,
+    };
+    mocks.slides.value = {
+      slides: [{ id: 'blank-start', runtimeBlank: 'start' }, { id: 'authored' }, { id: 'blank-end', runtimeBlank: 'end' }],
+      currentSlideIndex: 0, liveSlideIndex: -1, slideElementsById: new Map(),
+      activateSlide, setCurrentSlideIndex: vi.fn(), reorderSlide: vi.fn(),
+    };
+    mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
+    mocks.deckBrowser.value = { gridItemSize: 3 };
+    render(<SingleSlideGrid />);
+
+    expect(screen.getByRole('button', { name: 'blank-start' })).toHaveAttribute('data-generated', 'true');
+    expect(screen.getByRole('button', { name: 'blank-end' })).toHaveAttribute('data-generated', 'true');
+    expect(screen.getByRole('button', { name: 'authored' })).toHaveAttribute('data-generated', 'false');
+    fireEvent.click(screen.getByRole('button', { name: 'blank-end' }));
+    expect(activateSlide).toHaveBeenCalledWith(2);
+    const keyboard = (mocks.rootProps as { virtualizedKeyboard: { onMoveToIndex: (index: number) => void } }).virtualizedKeyboard;
+    keyboard.onMoveToIndex(0);
+    keyboard.onMoveToIndex(2);
+    expect(mocks.onKeyboardMoveToIndex).not.toHaveBeenCalled();
+    keyboard.onMoveToIndex(1);
+    expect(mocks.onKeyboardMoveToIndex).toHaveBeenCalledWith(1);
+  });
+
   it('renders a bounded subset and uses the row virtualizer for high-index keyboard scroll targets', () => {
     mocks.navigation.value = {
       currentItemRef: { type: 'presentation', id: 'item-1' },

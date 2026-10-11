@@ -32,7 +32,7 @@ export interface SlideOutlineRowProps {
 
 export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelect, onOpen, onRangeSelect, actionSlideIds, containerRef, containerStyle, dragging = false, dragHandleProps, overlay = false }: SlideOutlineRowProps) {
   const { slides, slideTagsById } = useProjectContent();
-  const slideOwned = slides.some((slide) => slide.id === row.slide.id);
+  const slideOwned = Boolean(row.slide.runtimeBlank) || slides.some((slide) => slide.id === row.slide.id);
   const tagColors = getLabelColors(row.slide.tagId ? slideTagsById.get(row.slide.tagId)?.colorKey ?? null : null);
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isFocused && !overlay);
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: overlay || !slideOwned });
@@ -59,7 +59,7 @@ export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelec
         onDoubleClick={overlay ? undefined : (event) => { if (!event.shiftKey) onOpen(row.index); }}
         variant="slide"
         selected={isSelected}
-        className={cn('select-none bg-transparent', dragging ? 'cursor-grabbing shadow-lg' : 'cursor-grab')}
+        className={cn('select-none bg-transparent', row.slide.runtimeBlank ? 'cursor-pointer' : dragging ? 'cursor-grabbing shadow-lg' : 'cursor-grab')}
       >
         <Thumbnail.Preview className="border-secondary">
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
@@ -71,6 +71,7 @@ export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelec
         </Thumbnail.Preview>
         <Thumbnail.Body className="content-center" style={tagColors ?? undefined}>
           <span className="shrink-0 text-sm font-normal tabular-nums text-tertiary">{row.index + 1}</span>
+          {row.slide.runtimeBlank ? <span className="ml-2 rounded-[2px] bg-secondary px-1.5 text-xs text-secondary">Auto-generated</span> : null}
         </Thumbnail.Body>
         {row.state === 'live' ? (
           <Thumbnail.Overlay position="top-right" className="right-2 top-2">

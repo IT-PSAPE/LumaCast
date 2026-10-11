@@ -12,7 +12,7 @@ export function SlideBindingsBadge({ slideId }: { slideId: Id }) {
   } = useAutomation();
   const { mediaAssets } = useProjectContent();
 
-  const bindings = getBindingsForSourceTriggers(['slide.activate', 'slide.take'], slideId);
+  const bindings = getBindingsForSourceTriggers(['slide.activate', 'slide.take', 'slide.exit'], slideId);
   if (bindings.length === 0) return null;
 
   const cueById = new Map(cues.map((cue) => [cue.id, cue]));

@@ -77,10 +77,16 @@ describe('SlideBindingsMenu', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('asks for bindings across both slide.activate and slide.take', () => {
+  it('asks for Activate, Take, and Exit bindings', () => {
     mocks.getBindingsForSourceTriggers.mockReturnValue([]);
     render(<SlideBindingsMenu slideId="slide-1" />);
-    expect(mocks.getBindingsForSourceTriggers).toHaveBeenCalledWith(['slide.activate', 'slide.take'], 'slide-1');
+    expect(mocks.getBindingsForSourceTriggers).toHaveBeenCalledWith(['slide.activate', 'slide.take', 'slide.exit'], 'slide-1');
+  });
+
+  it.each(['cue', 'macro'])('labels an Exit %s binding', (targetType) => {
+    mocks.getBindingsForSourceTriggers.mockReturnValue([binding({ triggerType: 'slide.exit', targetType, targetId: targetType === 'cue' ? 'cue-1' : 'macro-1' })]);
+    render(<SlideBindingsMenu slideId="slide-1" />);
+    expect(screen.getByTestId('submenu-label').textContent).toContain(' · exit');
   });
 
   it('lists an activate-only cue binding without a take suffix (unchanged behaviour)', () => {

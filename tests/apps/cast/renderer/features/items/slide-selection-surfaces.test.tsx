@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RenderScene, Slide } from '@lumacast/composition';
 import { SlideGridTileBody } from '../../../../../../apps/cast/renderer/features/items/slide-grid-tile-body';
@@ -66,6 +66,27 @@ function slide(id: string): Slide {
 afterEach(cleanup);
 
 describe('slide selection surfaces', () => {
+  it('labels a generated grid tile and leaves authored tiles unlabelled', () => {
+    const props = {
+      slideId: 'runtime:lyric:song:blank:start', index: 0, scene, selected: false,
+      focused: false, isLive: false, isEmpty: true, onActivate: noopIndex,
+      onFocus: noopIndex, onRangeSelect: noopRange, actionSlideIds: [],
+    };
+    const view = render(<SlideGridTileBody {...props} isGenerated />);
+    expect(screen.getByText('Auto-generated')).toBeInTheDocument();
+    view.rerender(<SlideGridTileBody {...props} slideId="authored" isGenerated={false} />);
+    expect(screen.queryByText('Auto-generated')).toBeNull();
+  });
+
+  it('labels generated blanks in the list too', () => {
+    render(<SlideOutlineRowBody
+      row={{ slide: { ...slide('blank'), runtimeBlank: 'end' }, elements: [], index: 2, state: 'queued' }}
+      scene={scene} isFocused={false} isSelected={false} onSelect={noopIndex}
+      onOpen={noopIndex} onRangeSelect={noopRange} actionSlideIds={['blank']}
+    />);
+    expect(screen.getByText('Auto-generated')).toBeInTheDocument();
+  });
+
   it.each([
     [
       'show grid tile',

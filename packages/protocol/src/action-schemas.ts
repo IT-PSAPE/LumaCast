@@ -785,7 +785,7 @@ const macroUpdateSchema = s.object({
   cues: s.optional(s.array(macroCueUpdateEntrySchema)),
 }) satisfies Schema<MacroUpdateInput>;
 
-const TRIGGER_TYPE_VALUES = ['slide.take', 'slide.activate', 'app.startup'] as const satisfies readonly TriggerType[];
+const TRIGGER_TYPE_VALUES = ['slide.take', 'slide.activate', 'slide.exit', 'app.startup'] as const satisfies readonly TriggerType[];
 const triggerTypeSchema = s.enum(TRIGGER_TYPE_VALUES);
 
 const TRIGGER_BINDING_TARGET_TYPE_VALUES = ['cue', 'macro'] as const satisfies readonly TriggerBindingTargetType[];

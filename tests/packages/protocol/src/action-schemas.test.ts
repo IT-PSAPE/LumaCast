@@ -22,6 +22,12 @@ function rejects(actionId: ActionId, params: unknown): void {
 
 const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 
+it('accepts Exit bindings through the agent action schema', () => {
+  const input = { triggerType: 'slide.exit', sourceId: 'slide-1', targetType: 'macro', targetId: 'macro-1' };
+  expect(decode('triggerBinding.create', input)).toEqual(input);
+  rejects('triggerBinding.create', { ...input, triggerType: 'slide.unknown' });
+});
+
 describe('ACTION_SCHEMAS completeness', () => {
   it('has exactly one entry per ActionId, and only ActionIds', () => {
     const schemaKeys = Object.keys(ACTION_SCHEMAS).sort();

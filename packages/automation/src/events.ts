@@ -8,6 +8,12 @@ import type { Id } from '@lumacast/kernel';
 import type { TriggerType } from './model';
 
 export const AUTOMATION_TRIGGER_EVENT = 'lumacast:automation-trigger';
+export const AUTOMATION_LIVE_SLIDE_EVENT = 'lumacast:automation-live-slide';
+
+/** Sent before arming the incoming output so Exit cleanup precedes the new slide. */
+export interface AutomationLiveSlideEventDetail {
+  slideId: Id | null;
+}
 
 export interface AutomationTriggerEventDetail {
   triggerType: TriggerType;

@@ -3,7 +3,8 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { ReactNode } from 'react';
-import type { Cue, Macro } from '@lumacast/automation';
+import { AUTOMATION_LIVE_SLIDE_EVENT, AUTOMATION_TRIGGER_EVENT, type Cue, type Macro, type TriggerBinding } from '@lumacast/automation';
+import type { Slide } from '@lumacast/composition';
 import { AutomationProvider, useAutomation } from '../../../../../../apps/cast/renderer/features/automation/automation-context';
 import type { PlaybackCommandPort } from '../../../../../../apps/cast/renderer/contexts/playback/playback-context';
 
@@ -20,11 +21,12 @@ const mocks = vi.hoisted(() => ({
   project: {
     cues: [] as Cue[],
     macros: [] as Macro[],
-    triggerBindings: [],
+    triggerBindings: [] as TriggerBinding[],
     cuesById: new Map<string, Cue>(),
     macrosById: new Map<string, Macro>(),
-    slides: [],
+    liveSlidesById: new Map<string, Slide>(),
   },
+  liveSlide: null as Slide | null,
   playbackCommands: {
     activateOverlay: vi.fn(),
     clearOverlay: vi.fn(),
@@ -57,6 +59,10 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/playback/playback-context
   usePlaybackCommands: () => mocks.playbackCommands,
 }));
 
+vi.mock('../../../../../../apps/cast/renderer/contexts/slide-context', () => ({
+  useSlides: () => ({ liveSlide: mocks.liveSlide }),
+}));
+
 vi.mock('../../../../../../apps/cast/renderer/features/observability/metrics-store', () => ({
   recordObsEvent: vi.fn(),
 }));
@@ -71,6 +77,9 @@ beforeEach(() => {
   mocks.project.macros = [];
   mocks.project.cuesById = new Map();
   mocks.project.macrosById = new Map();
+  mocks.project.triggerBindings = [];
+  mocks.project.liveSlidesById = new Map();
+  mocks.liveSlide = null;
 });
 
 afterEach(() => {
@@ -117,6 +126,89 @@ function makeMacro(id: string, name: string, cues: Array<{ cue: Cue; orderIndex:
 }
 
 describe('automation playback boundary (#222)', () => {
+  it('keeps a song-scoped macro running when output enters its generated blank', async () => {
+    vi.useFakeTimers();
+    try {
+      const cue = makeCue('video', 'video.arm', { assetId: 'video' });
+      const macro = {
+        ...makeMacro('song-macro', 'Song macro', [{ cue, orderIndex: 0, delayBeforeMs: 50 }]),
+        scopeLevel: 'item' as const, onScopeExit: 'cancel' as const,
+      };
+      mocks.project.cues = [cue];
+      mocks.project.cuesById = new Map([[cue.id, cue]]);
+      mocks.project.macros = [macro];
+      mocks.project.macrosById = new Map([[macro.id, macro]]);
+      const authored = { id: 's1', presentationId: null, lyricId: 'song' } as Slide;
+      const blank = { ...authored, id: 'runtime:lyric:song:blank:end', runtimeBlank: 'end' } as Slide;
+      mocks.project.liveSlidesById = new Map([[authored.id, authored], [blank.id, blank]]);
+      mocks.project.triggerBindings = [{
+        id: 'enter', sourceId: authored.id, triggerType: 'slide.activate', targetType: 'macro', targetId: macro.id,
+        config: {}, enabled: true, createdAt: '', updatedAt: '',
+      }];
+      mocks.liveSlide = authored;
+      const view = renderHook(() => useAutomation(), { wrapper });
+      act(() => {
+        window.dispatchEvent(new CustomEvent(AUTOMATION_TRIGGER_EVENT, { detail: { triggerType: 'slide.activate', sourceId: authored.id } }));
+      });
+      mocks.liveSlide = blank;
+      view.rerender();
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+      expect(mocks.playbackCommands.armVideo).toHaveBeenCalledWith('video');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('runs Exit cleanup before output arming and does not repeat it on Activate', () => {
+    const cue = makeCue('exit-clear', 'layer.clearAll', {});
+    mocks.project.cues = [cue];
+    mocks.project.cuesById = new Map([[cue.id, cue]]);
+    mocks.project.triggerBindings = [{
+      id: 'exit', sourceId: 's1', triggerType: 'slide.exit', targetType: 'cue', targetId: cue.id,
+      config: {}, enabled: true, createdAt: '', updatedAt: '',
+    }];
+    mocks.liveSlide = { id: 's1' } as Slide;
+    const view = renderHook(() => useAutomation(), { wrapper });
+    const armIncoming = vi.fn();
+    act(() => {
+      window.dispatchEvent(new CustomEvent(AUTOMATION_LIVE_SLIDE_EVENT, { detail: { slideId: 's2' } }));
+      armIncoming();
+      window.dispatchEvent(new CustomEvent(AUTOMATION_TRIGGER_EVENT, { detail: { triggerType: 'slide.activate', sourceId: 's2' } }));
+    });
+    expect(mocks.playbackCommands.clearAllLayers).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(mocks.playbackCommands.clearAllLayers).mock.invocationCallOrder[0]).toBeLessThan(armIncoming.mock.invocationCallOrder[0]);
+    mocks.liveSlide = { id: 's2' } as Slide;
+    view.rerender();
+    expect(mocks.playbackCommands.clearAllLayers).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires Exit on output changes and unarming without repeating an activation transition', () => {
+    const cue = makeCue('exit', 'audio.clear', {});
+    mocks.project.cues = [cue];
+    mocks.project.cuesById = new Map([[cue.id, cue]]);
+    mocks.project.triggerBindings = ['s1', 's2'].map((sourceId) => ({
+      id: sourceId, sourceId, triggerType: 'slide.exit', targetType: 'cue', targetId: cue.id,
+      config: {}, enabled: true, createdAt: '', updatedAt: '',
+    }));
+    mocks.liveSlide = { id: 's1' } as Slide;
+    const view = renderHook(() => useAutomation(), { wrapper });
+    expect(mocks.playbackCommands.clearAudio).not.toHaveBeenCalled();
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(AUTOMATION_TRIGGER_EVENT, {
+        detail: { triggerType: 'slide.activate', sourceId: 's2' },
+      }));
+    });
+    expect(mocks.playbackCommands.clearAudio).toHaveBeenCalledTimes(1);
+    mocks.liveSlide = { id: 's2' } as Slide;
+    view.rerender();
+    expect(mocks.playbackCommands.clearAudio).toHaveBeenCalledTimes(1);
+    mocks.liveSlide = null;
+    view.rerender();
+    view.rerender();
+    expect(mocks.playbackCommands.clearAudio).toHaveBeenCalledTimes(2);
+  });
+
   it('routes single cue playback execution strictly through PlaybackCommandPort', async () => {
     const videoCue = makeCue('cue-v1', 'video.arm', { assetId: 'asset-video-1' });
     mocks.project.cues = [videoCue];

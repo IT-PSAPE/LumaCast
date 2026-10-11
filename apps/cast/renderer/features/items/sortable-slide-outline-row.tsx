@@ -3,7 +3,7 @@ import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { SlideOutlineRow } from './slide-list-row';
 
 export function SortableSlideOutlineRow(props: ComponentProps<typeof SlideOutlineRow>) {
-  const { containerRef, containerStyle, isDragging, handleProps } = useSortableItem(props.row.slide.id);
+  const { containerRef, containerStyle, isDragging, handleProps } = useSortableItem(props.row.slide.id, Boolean(props.row.slide.runtimeBlank));
   return (
     <SlideOutlineRow
       {...props}

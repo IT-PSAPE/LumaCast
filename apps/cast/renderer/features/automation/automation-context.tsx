@@ -22,9 +22,10 @@ import { getSlideItemRef } from '@lumacast/composition';
 import type { ItemRef } from '@lumacast/composition';
 import { useCast } from '@renderer/contexts/app-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
+import { useSlides } from '@renderer/contexts/slide-context';
 import { usePlaybackCommands } from '@renderer/contexts/playback/playback-context';
 import { recordObsEvent } from '@renderer/features/observability/metrics-store';
-import { AUTOMATION_TRIGGER_EVENT, type AutomationTriggerEventDetail } from './automation-events';
+import { AUTOMATION_LIVE_SLIDE_EVENT, AUTOMATION_TRIGGER_EVENT, type AutomationLiveSlideEventDetail, type AutomationTriggerEventDetail } from './automation-events';
 
 // The runtime's ports are structurally-typed (issue #219 W8): the runtime
 // declares its own minimal port interfaces so the package never imports
@@ -70,7 +71,7 @@ interface AutomationContextValue {
     createBinding: (input: { triggerType: TriggerType; sourceId: Id | null; targetType: TriggerBindingTargetType; targetId: Id }) => Promise<void>;
     deleteBinding: (bindingId: Id) => Promise<void>;
     getBindingsForSource: (triggerType: TriggerType, sourceId: Id | null) => TriggerBinding[];
-    /** Same as `getBindingsForSource`, but matches any of several trigger types (e.g. both slide.activate and slide.take). */
+    /** Same as `getBindingsForSource`, but matches any of several trigger types. */
     getBindingsForSourceTriggers: (triggerTypes: TriggerType[], sourceId: Id | null) => TriggerBinding[];
     getBindingsForMacro: (macroId: Id) => TriggerBinding[];
   };
@@ -80,8 +81,9 @@ const AutomationContext = createContext<AutomationContextValue | null>(null);
 
 export function AutomationProvider({ children }: { children: ReactNode }) {
   const { snapshot, mutatePatch, runOperation, setStatusText } = useCast();
-  const { cues, macros, triggerBindings, cuesById, macrosById, slides } = useProjectContent();
+  const { cues, macros, triggerBindings, cuesById, macrosById, liveSlidesById } = useProjectContent();
   const playback = usePlaybackCommands();
+  const { liveSlide } = useSlides();
   const [currentMacroId, setCurrentMacroId] = useState<Id | null>(null);
   const cuesRef = useRef<Cue[]>(cues);
   cuesRef.current = cues;
@@ -96,9 +98,9 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
   const slideItemRefByIdRef = useRef<Map<Id, ItemRef | null>>(new Map());
   slideItemRefByIdRef.current = useMemo(() => {
     const map = new Map<Id, ItemRef | null>();
-    for (const slide of slides) map.set(slide.id, getSlideItemRef(slide));
+    for (const slide of liveSlidesById.values()) map.set(slide.id, getSlideItemRef(slide));
     return map;
-  }, [slides]);
+  }, [liveSlidesById]);
   const resolveItemRef = useCallback((slideId: Id) => slideItemRefByIdRef.current.get(slideId) ?? null, []);
 
   // The deterministic macro/cue runtime core (issue #219 W8, @lumacast/automation):
@@ -275,14 +277,36 @@ export function AutomationProvider({ children }: { children: ReactNode }) {
     });
   }, [triggerBindings, cuesById, macrosById, resolveItemRef, runtime]);
 
+  const setLiveSlide = useCallback((slideId: Id | null) => {
+    runtime.setLiveSlide(slideId, {
+      triggerBindings,
+      resolveCue: (cueId) => cuesById.get(cueId),
+      resolveMacro: (macroId) => macrosById.get(macroId),
+      resolveItemRef,
+    });
+  }, [triggerBindings, cuesById, macrosById, resolveItemRef, runtime]);
+
+  // Preparatory events handle Exit before output is armed. Observing output
+  // also covers unarming, deletion, and configuration changes.
   useEffect(() => {
+    setLiveSlide(liveSlide?.id ?? null);
+  }, [liveSlide?.id, setLiveSlide]);
+
+  useEffect(() => {
+    function handleLiveSlide(event: Event) {
+      setLiveSlide((event as CustomEvent<AutomationLiveSlideEventDetail>).detail.slideId);
+    }
     function handleTrigger(event: Event) {
       const customEvent = event as CustomEvent<AutomationTriggerEventDetail>;
       fireTrigger(customEvent.detail.triggerType, customEvent.detail.sourceId);
     }
     window.addEventListener(AUTOMATION_TRIGGER_EVENT, handleTrigger);
-    return () => window.removeEventListener(AUTOMATION_TRIGGER_EVENT, handleTrigger);
-  }, [fireTrigger]);
+    window.addEventListener(AUTOMATION_LIVE_SLIDE_EVENT, handleLiveSlide);
+    return () => {
+      window.removeEventListener(AUTOMATION_TRIGGER_EVENT, handleTrigger);
+      window.removeEventListener(AUTOMATION_LIVE_SLIDE_EVENT, handleLiveSlide);
+    };
+  }, [fireTrigger, setLiveSlide]);
 
   // Fire startup triggers once after the snapshot has loaded. The ref guard
   // makes this a one-shot per app session even if bindings change later.

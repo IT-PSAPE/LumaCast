@@ -19,7 +19,7 @@ export function SlideBindingsMenu({ slideId }: { slideId: Id }) {
   const { setCurrentStageId } = useStageEditor();
   const { actions: { setWorkbenchMode } } = useWorkbench();
 
-  const bindings = getBindingsForSourceTriggers(['slide.activate', 'slide.take'], slideId);
+  const bindings = getBindingsForSourceTriggers(['slide.activate', 'slide.take', 'slide.exit'], slideId);
   if (bindings.length === 0) return null;
 
   const cueById = new Map(cues.map((cue) => [cue.id, cue]));
@@ -93,6 +93,7 @@ function MacroBindingMenuItem({ binding, cue, macro, onEdit, onRemove }: Paramet
           <span className="min-w-0 truncate">
             {macro?.name ?? 'Unknown macro'}
             {binding.triggerType === 'slide.take' ? ' · take' : ''}
+            {binding.triggerType === 'slide.exit' ? ' · exit' : ''}
           </span>
         </span>
       )}
@@ -113,6 +114,7 @@ function CueBindingMenuItem({ binding, cue, overlays, stages, mediaAssets, macro
           <span className="min-w-0 truncate">
             {describeCue(cue, { overlays, stages, mediaAssets, macros })}
             {binding.triggerType === 'slide.take' ? ' · take' : ''}
+            {binding.triggerType === 'slide.exit' ? ' · exit' : ''}
           </span>
         </span>
       )}

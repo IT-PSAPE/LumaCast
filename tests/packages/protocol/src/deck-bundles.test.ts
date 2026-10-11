@@ -50,6 +50,16 @@ function makePlaylistRow(index: number): ProjectBackupTables['playlists'][number
 }
 
 describe('validateProjectBackupAsync', () => {
+  it('preserves Exit bindings in synchronous and asynchronous backup validation', async () => {
+    const backup = makeBackup();
+    backup.tables.trigger_bindings.push({
+      id: 'exit', trigger_type: 'slide.exit', source_id: 'slide-1', target_type: 'cue', target_id: 'cue-1',
+      config_json: '{}', enabled: 1, created_at: 'now', updated_at: 'now',
+    });
+    expect(validateProjectBackup(backup).tables.trigger_bindings[0].trigger_type).toBe('slide.exit');
+    expect((await validateProjectBackupAsync(backup)).tables.trigger_bindings[0].trigger_type).toBe('slide.exit');
+  });
+
   it('returns the original valid backup object', async () => {
     const backup = makeBackup([makePlaylistRow(0)]);
 

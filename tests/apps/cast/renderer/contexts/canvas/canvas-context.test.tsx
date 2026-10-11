@@ -416,6 +416,40 @@ describe('CanvasProvider thumbnail scene cache', () => {
     cleanup();
   });
 
+  it.each(['start', 'end'] as const)('builds a %s blank thumbnail from the runtime projection', (position) => {
+    const blank = {
+      ...mocks.slideA,
+      id: `runtime:lyric:song:blank:${position}`,
+      runtimeBlank: position,
+      background: { type: 'color', color: '#123456' },
+    } as Slide;
+    mocks.liveSlidesById.set(blank.id, blank);
+    mocks.liveElementsBySlideId.set(blank.id, [imageElement]);
+    let getThumbnailScene!: ReturnType<typeof useThumbnailScene>;
+    render(<ThumbnailHarness onReady={(value) => { getThumbnailScene = value; }} />);
+
+    for (const surface of ['show', 'list'] as const) {
+      const thumbnail = getThumbnailScene(blank.id, surface);
+      expect(thumbnail?.slide.id).toBe(blank.id);
+      expect(thumbnail?.slide.background).toEqual(blank.background);
+      expect(thumbnail?.nodes).toHaveLength(1);
+    }
+    expect(getThumbnailScene('missing', 'show')).toBeNull();
+  });
+
+  it('drops a generated blank thumbnail when its setting is removed', () => {
+    const blank = { ...mocks.slideA, id: 'runtime:lyric:song:blank:start', runtimeBlank: 'start' } as Slide;
+    mocks.liveSlidesById.set(blank.id, blank);
+    let getThumbnailScene!: ReturnType<typeof useThumbnailScene>;
+    const onReady = (value: ReturnType<typeof useThumbnailScene>) => { getThumbnailScene = value; };
+    const view = render(<ThumbnailHarness onReady={onReady} />);
+    expect(getThumbnailScene(blank.id, 'show')).not.toBeNull();
+
+    mocks.liveSlidesById = new Map([[mocks.slideA.id, mocks.slideA as Slide]]);
+    view.rerender(<ThumbnailHarness onReady={onReady} />);
+    expect(getThumbnailScene(blank.id, 'show')).toBeNull();
+  });
+
   it('rebuilds a cached thumbnail scene when a media derivative becomes available', () => {
     let getThumbnailScene!: ReturnType<typeof useThumbnailScene>;
     const onReady = (value: ReturnType<typeof useThumbnailScene>) => {

@@ -43,6 +43,22 @@ afterEach(() => {
 });
 
 describe('SlideAutomationMenu', () => {
+  it('binds cues and macros to Exit for each selected slide', async () => {
+    mocks.ensureCue.mockResolvedValue({ id: 'cue-exit' });
+    render(<SlideAutomationMenu slideIds={['slide-1', 'slide-2']} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Exit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'All Layers' }));
+    await waitFor(() => expect(mocks.createBinding).toHaveBeenCalledTimes(2));
+    for (const sourceId of ['slide-1', 'slide-2']) {
+      expect(mocks.createBinding).toHaveBeenCalledWith({ triggerType: 'slide.exit', sourceId, targetType: 'cue', targetId: 'cue-exit' });
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Fade macro' }));
+    await waitFor(() => expect(mocks.createBinding).toHaveBeenCalledTimes(4));
+    for (const sourceId of ['slide-1', 'slide-2']) {
+      expect(mocks.createBinding).toHaveBeenCalledWith({ triggerType: 'slide.exit', sourceId, targetType: 'macro', targetId: 'macro-1' });
+    }
+  });
+
   it('binds the Video submenu to video.arm, not mediaLayer.set', async () => {
     mocks.ensureCue.mockResolvedValue({ id: 'cue-video' } as any);
     render(<SlideAutomationMenu slideId="slide-1" />);

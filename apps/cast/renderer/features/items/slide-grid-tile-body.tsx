@@ -20,6 +20,7 @@ export interface SlideGridTileProps {
   focused: boolean;
   isLive: boolean;
   isEmpty: boolean;
+  isGenerated?: boolean;
   onActivate: (index: number) => void;
   onFocus: (index: number) => void;
   onRangeSelect: (index: number, extendRange: boolean) => void;
@@ -39,6 +40,7 @@ export function SlideGridTileBody({
   focused,
   isLive,
   isEmpty,
+  isGenerated = false,
   onActivate,
   onFocus,
   onRangeSelect,
@@ -91,7 +93,7 @@ export function SlideGridTileBody({
         onDoubleClick={overlay ? undefined : handleDoubleClick}
         selected={selected}
         variant="slide"
-        className={dragging ? 'select-none cursor-grabbing shadow-lg' : 'select-none cursor-grab'}
+        className={isGenerated ? 'select-none cursor-pointer' : dragging ? 'select-none cursor-grabbing shadow-lg' : 'select-none cursor-grab'}
       >
         <Thumbnail.Body>
           <SceneFrame
@@ -122,6 +124,7 @@ export function SlideGridTileBody({
         <Thumbnail.Caption className="border-secondary py-0.5" style={tagColors ?? undefined}>
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-sm font-normal tabular-nums text-tertiary">{index + 1}</span>
+            {isGenerated ? <span className="rounded-[2px] bg-secondary px-1.5 text-xs text-secondary">Auto-generated</span> : null}
           </div>
         </Thumbnail.Caption>
       </Thumbnail.Tile>

@@ -52,10 +52,16 @@ describe('SlideBindingsBadge', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('asks for bindings across both slide.activate and slide.take', () => {
+  it('asks for Activate, Take, and Exit bindings', () => {
     mocks.getBindingsForSourceTriggers.mockReturnValue([]);
     render(<SlideBindingsBadge slideId="slide-1" />);
-    expect(mocks.getBindingsForSourceTriggers).toHaveBeenCalledWith(['slide.activate', 'slide.take'], 'slide-1');
+    expect(mocks.getBindingsForSourceTriggers).toHaveBeenCalledWith(['slide.activate', 'slide.take', 'slide.exit'], 'slide-1');
+  });
+
+  it('shows an Exit binding', () => {
+    mocks.getBindingsForSourceTriggers.mockReturnValue([binding({ triggerType: 'slide.exit' })]);
+    render(<SlideBindingsBadge slideId="slide-1" />);
+    expect(screen.getAllByTestId('cue-icon')).toHaveLength(1);
   });
 
   it('counts an activate-only binding (unchanged behaviour)', () => {

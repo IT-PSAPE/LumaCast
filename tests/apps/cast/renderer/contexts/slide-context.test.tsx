@@ -1,6 +1,6 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AUTOMATION_TRIGGER_EVENT, type AutomationTriggerEventDetail } from '@lumacast/automation';
+import { AUTOMATION_LIVE_SLIDE_EVENT, AUTOMATION_TRIGGER_EVENT, type AutomationLiveSlideEventDetail, type AutomationTriggerEventDetail } from '@lumacast/automation';
 import type { PlaylistItemEntry } from '@lumacast/composition';
 import type { Slide } from '@lumacast/composition';
 import { SlideProvider, useSlides } from '../../../../../apps/cast/renderer/contexts/slide-context';
@@ -131,6 +131,35 @@ function triggerTypes() {
 }
 
 describe('SlideProvider activateScheduledSlide', () => {
+  it.each(['activate', 'take', 'scheduled', 'arm'] as const)('announces the incoming identity before %s arms output', (operation) => {
+    mocks.currentItemRef = ITEM_REF;
+    mocks.currentPlaylistItemRef = ITEM_REF;
+    mocks.currentPlaylistEntryId = 'entry-a';
+    mocks.currentOutputPlaylistEntryId = 'entry-a';
+    mocks.currentOutputItemRef = ITEM_REF;
+    mocks.currentPlaylistRows = [itemRow('entry-a', 'item1')];
+    const order: string[] = [];
+    const beforeArm = (event: Event) => {
+      order.push(`prepare:${(event as CustomEvent<AutomationLiveSlideEventDetail>).detail.slideId}`);
+    };
+    mocks.armOutputPlaylistEntry.mockImplementation(() => { order.push('arm'); });
+    window.addEventListener(AUTOMATION_LIVE_SLIDE_EVENT, beforeArm);
+    try {
+      render(<Harness />);
+      act(() => { slidesCtx?.setCurrentSlideIndex(1); });
+      act(() => {
+        if (operation === 'activate') slidesCtx?.activateSlide(1);
+        else if (operation === 'take') slidesCtx?.takeSlide();
+        else if (operation === 'scheduled') slidesCtx?.activateScheduledSlide(ITEM_REF, 's2');
+        else slidesCtx?.armCurrentPlaylistSelection();
+      });
+      expect(order).toEqual(['prepare:s2', 'arm']);
+    } finally {
+      window.removeEventListener(AUTOMATION_LIVE_SLIDE_EVENT, beforeArm);
+      mocks.armOutputPlaylistEntry.mockReset();
+    }
+  });
+
   it('keeps the current matching playlist row when the item occurs twice and emits activate/take once', () => {
     mocks.currentPlaylistRows = [itemRow('entry-a', 'item1'), itemRow('entry-b', 'item1')];
     mocks.currentOutputPlaylistEntryId = 'entry-b';

@@ -141,7 +141,8 @@ function cancelRun(run: MacroRun): void {
  * Resolve the Scope a Macro Run should bind to for a given trigger. The
  * Scope *level* is authored on the Macro; the concrete bound context (which
  * slide / item) is captured from the trigger, falling back to global
- * when there is no slide context (manual run / app.startup).
+ * when there is no live slide context (manual run / app.startup / slide.exit).
+ * Exit macros run globally so the outgoing slide's expiry cannot cancel cleanup.
  */
 export function resolveMacroScope(
   macro: Macro,
@@ -180,6 +181,8 @@ export interface AutomationRuntime {
   startMacroRun(macro: Macro, resolveCue: (cueId: Id) => Cue | undefined, scopeContext: MacroScopeContext): Promise<void>;
   /** Scope exit sweep: expire Runs whose bound context no longer matches, applying each Run's authored on-exit behavior (Cancel, Revert, or none). Global Runs never exit. */
   handleScopeChange(newSlideId: Id | null, resolveItemRef: (slideId: Id) => ItemRef | null): void;
+  /** Track live slide identity, expire outgoing scopes, then fire its Exit bindings once. */
+  setLiveSlide(newSlideId: Id | null, data: AutomationTriggerData): void;
   /** Cancel or Revert every Run matching `target` (a macro id, or `'*'` for all), excluding `selfRunId`. */
   applyLifecycle(action: LifecycleAction, target: LifecycleTarget, selfRunId: string | null): void;
   /** Resolve trigger bindings for `(triggerType, sourceId)` and fire each match (fire-and-forget; stacks Runs, never dedupes). */
@@ -196,6 +199,7 @@ export interface AutomationRuntime {
 export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts): AutomationRuntime {
   const runs = new Map<string, MacroRun>();
   let runCounter = 0;
+  let liveSlideId: Id | null = null;
 
   function nextRunId(): string {
     runCounter += 1;
@@ -426,12 +430,21 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
     }
   }
 
+  function setLiveSlide(newSlideId: Id | null, data: AutomationTriggerData): void {
+    if (liveSlideId === newSlideId) return;
+    const outgoingSlideId = liveSlideId;
+    liveSlideId = newSlideId;
+    handleScopeChange(newSlideId, data.resolveItemRef);
+    if (outgoingSlideId) fireTrigger('slide.exit', outgoingSlideId, data);
+  }
+
   function fireTrigger(triggerType: TriggerType, sourceId: Id | null, data: AutomationTriggerData): void {
     // Slide activation moves the live context. Sweep first so Runs bound to
     // the slide we're leaving are expired; Runs bound to the incoming slide
     // survive.
     if (triggerType === 'slide.activate') {
-      handleScopeChange(sourceId, data.resolveItemRef);
+      if (liveSlideId === sourceId) handleScopeChange(sourceId, data.resolveItemRef);
+      else setLiveSlide(sourceId, data);
     }
 
     const matches = data.triggerBindings.filter((binding) => binding.triggerType === triggerType && binding.sourceId === sourceId && binding.enabled);
@@ -459,6 +472,7 @@ export function createAutomationRuntime(getPorts: () => AutomationRuntimePorts):
     runCue,
     startMacroRun,
     handleScopeChange,
+    setLiveSlide,
     applyLifecycle,
     fireTrigger,
   };

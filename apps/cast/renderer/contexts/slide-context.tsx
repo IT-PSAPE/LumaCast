@@ -10,7 +10,7 @@ import { useIndexedSelection } from '../hooks/use-indexed-selection';
 import { useCast } from './app-context';
 import { useNavigation } from './navigation-context';
 import { itemRefKey, useProjectContent } from './use-project-content';
-import { dispatchAutomationTriggerEvent } from '../features/automation/automation-events';
+import { dispatchAutomationLiveSlideEvent, dispatchAutomationTriggerEvent } from '../features/automation/automation-events';
 
 // #219 item-model refactor decision D9: selection stays keyed on playlist
 // entry ids (preserved across the migration) for the playlist/live cases;
@@ -218,10 +218,12 @@ export function SlideProvider({ children }: { children: ReactNode }) {
 
     let armedEntryId: Id | null = null;
     if (canDriveOutput && currentPlaylistEntryId) {
+      dispatchAutomationLiveSlideEvent(slides[nextIndex]?.id ?? null);
       armedEntryId = currentPlaylistEntryId;
       liveSelection.update(currentPlaylistEntryId, nextIndex);
       armOutputPlaylistEntry(currentPlaylistEntryId);
     } else if (isDetachedDeckBrowser) {
+      dispatchAutomationLiveSlideEvent(slides[nextIndex]?.id ?? null);
       // Direct (rowless) item opened from the Deck bin: arm the output item
       // directly, mirroring activateScheduledSlide's rowless fallback below —
       // there is no playlist entry to arm instead.
@@ -271,10 +273,12 @@ export function SlideProvider({ children }: { children: ReactNode }) {
 
     let armedEntryId: Id | null = null;
     if (canDriveOutput && currentPlaylistEntryId) {
+      dispatchAutomationLiveSlideEvent(slides[currentSlideIndex]?.id ?? null);
       armedEntryId = currentPlaylistEntryId;
       liveSelection.update(currentPlaylistEntryId, currentSlideIndex);
       armOutputPlaylistEntry(currentPlaylistEntryId);
     } else if (isDetachedDeckBrowser) {
+      dispatchAutomationLiveSlideEvent(slides[currentSlideIndex]?.id ?? null);
       // Direct (rowless) item opened from the Deck bin: arm the output item
       // directly, mirroring activateScheduledSlide's rowless fallback below —
       // there is no playlist entry to arm instead.
@@ -324,6 +328,7 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     if (!currentPlaylistItemRef || !currentPlaylistEntryId) return;
     const contentSlides = slidesForItemRef(currentPlaylistItemRef);
     const nextIndex = resolveSlideIndex(currentPlaylistEntryId, playlistSelection.indices, contentSlides.length);
+    dispatchAutomationLiveSlideEvent(contentSlides[nextIndex]?.id ?? null);
     if (contentSlides.length > 0) {
       liveSelection.update(currentPlaylistEntryId, nextIndex);
       const activatedSlideId = contentSlides[nextIndex]?.id;
@@ -480,6 +485,8 @@ export function SlideProvider({ children }: { children: ReactNode }) {
     });
     const foundRow = matchingRows.find((row) => row.id === currentOutputPlaylistEntryId)
       ?? matchingRows[0];
+
+    dispatchAutomationLiveSlideEvent(slideId);
 
     if (foundRow) {
       liveSelection.update(foundRow.id, slideIndex);

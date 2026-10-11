@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   totalSize: 560,
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
+  onKeyboardMoveToIndex: vi.fn(),
 }));
 
 vi.mock('../../../../../../apps/cast/renderer/features/items/use-slide-list-view', () => ({
@@ -40,7 +41,7 @@ vi.mock('@renderer/components/layout/sortable-list', () => ({
   VIRTUALIZED_SORTABLE_MEASURING: { droppable: { strategy: 0 } },
   useSortableOrder: ({ items }: { items: unknown[] }) => ({
     items,
-    dnd: { ids: [], disabled: false, onDragStart: vi.fn(), onDragEnd: vi.fn(), onDragCancel: vi.fn() },
+    dnd: { ids: [], disabled: false, onKeyboardMoveToIndex: mocks.onKeyboardMoveToIndex, onDragStart: vi.fn(), onDragEnd: vi.fn(), onDragCancel: vi.fn() },
   }),
 }));
 
@@ -97,9 +98,31 @@ afterEach(() => {
   mocks.virtualItems = [{ index: 0, key: 'row-0', start: 0 }, { index: 1, key: 'row-1', start: 56 }];
   mocks.scrollToIndex.mockReset();
   mocks.measureElement.mockReset();
+  mocks.onKeyboardMoveToIndex.mockReset();
 });
 
 describe('SingleSlideList', () => {
+  it('keeps generated boundaries fixed during keyboard reordering', () => {
+    mocks.navigation.value = { currentItemRef: { type: 'lyric', id: 'song' } };
+    mocks.outlineView.value = {
+      rows: [
+        { slide: { id: 'start', runtimeBlank: 'start' }, index: 0 },
+        { slide: { id: 'authored' }, index: 1 },
+        { slide: { id: 'end', runtimeBlank: 'end' }, index: 2 },
+      ],
+      currentSlideIndex: 1, selectSlide: vi.fn(), openSlide: vi.fn(),
+    };
+    mocks.slides.value = { reorderSlide: vi.fn() };
+    mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
+    render(<SingleSlideList />);
+    const keyboard = (mocks.rootProps as { virtualizedKeyboard: { onMoveToIndex: (index: number) => void } }).virtualizedKeyboard;
+    keyboard.onMoveToIndex(0);
+    keyboard.onMoveToIndex(2);
+    expect(mocks.onKeyboardMoveToIndex).not.toHaveBeenCalled();
+    keyboard.onMoveToIndex(1);
+    expect(mocks.onKeyboardMoveToIndex).toHaveBeenCalledWith(1);
+  });
+
   it('renders a bounded subset and scrolls the selected offscreen slide into view through the virtualizer', () => {
     mocks.navigation.value = { currentItemRef: { type: 'presentation', id: 'item-1' } };
     mocks.outlineView.value = {
