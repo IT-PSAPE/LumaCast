@@ -40,14 +40,23 @@ const DEFAULT_RETRY_OPTIONS: StreamOutputRetryOptions = {
 };
 
 function validateDestination(value: unknown): string {
-  if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value)) {
-    throw new Error('Enter a valid RTMP or RTMPS server URL.');
+  if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value) || value.includes('#')) {
+    throw new Error('Enter a valid RTMP, RTMPS, or SRT server URL.');
   }
   let url: URL;
-  try { url = new URL(value); } catch { throw new Error('Enter a valid RTMP or RTMPS server URL.'); }
+  try { url = new URL(value); } catch { throw new Error('Enter a valid RTMP, RTMPS, or SRT server URL.'); }
+  if (url.username || url.password || url.hash) {
+    throw new Error('Server URLs cannot contain user information or fragments.');
+  }
+  if (url.protocol === 'srt:') {
+    if (!url.hostname || !url.port || (url.pathname && url.pathname !== '/')) {
+      throw new Error('Enter an SRT server URL with a host and port, followed by optional FFmpeg query options.');
+    }
+    return url.toString();
+  }
   if ((url.protocol !== 'rtmp:' && url.protocol !== 'rtmps:') || !url.hostname
-    || !url.pathname || url.pathname === '/' || url.username || url.password || url.search || url.hash) {
-    throw new Error('Enter a server URL with an RTMP or RTMPS endpoint and stream key.');
+    || !url.pathname || url.pathname === '/' || url.search) {
+    throw new Error('Enter an RTMP or RTMPS endpoint URL with a stream key.');
   }
   return url.toString();
 }
@@ -162,13 +171,14 @@ export class StreamOutput {
   }
 
   private arguments(destination: string, settings: StreamOutputSettings): string[] {
+    const outputFormat = new URL(destination).protocol === 'srt:' ? 'mpegts' : 'flv';
     return [
       '-hide_banner', '-nostats', '-loglevel', 'error', '-progress', 'pipe:2',
       '-f', 'webm', '-i', 'pipe:0',
       '-map', '0:v:0', '-map', '0:a:0?',
       ...buildStreamVideoEncoderArguments(settings),
       '-c:a', 'aac', '-b:a', String(settings.audioBitrateKbps) + 'k',
-      '-ar', '48000', '-ac', '2', '-f', 'flv', destination,
+      '-ar', '48000', '-ac', '2', '-f', outputFormat, destination,
     ];
   }
 

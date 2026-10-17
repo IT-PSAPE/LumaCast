@@ -224,11 +224,12 @@ chroma key color, similarity, and smoothness. The renderer passes the cropped
 texture through a WebGL shader before it enters the 2D program compositor; main
 validates the saved values (ADR-0067, ADR-0068).
 
-Live RTMP/RTMPS output captures the program canvas and selected program audio bus as WebM
-chunks in the renderer. Main passes those chunks to a pinned, shared LGPL
-FFmpeg build through stdin; FFmpeg re-encodes H.264/AAC and sends FLV to the
-configured endpoint. The destination is transient, IPC accepts only the
-validated stream session, and status updates omit the endpoint and raw engine
+Live RTMP/RTMPS and SRT output capture the program canvas and selected program
+audio bus as WebM chunks in the renderer. Main passes those chunks to a pinned,
+shared LGPL FFmpeg build through stdin; FFmpeg re-encodes H.264/AAC and sends
+FLV for RTMP/RTMPS or MPEG-TS for SRT to the configured endpoint. The
+destination is transient, IPC accepts only the validated stream session, and
+status updates omit the endpoint and raw engine
 errors. The runtime is resolved only from Stream's bundled media-engine
 directory, never from `PATH` (ADR-0053). If the encoder process exits
 unexpectedly, Stream retries with bounded exponential backoff and replays the
@@ -248,7 +249,9 @@ positioning and resizing, Studio Mode, Cut/Fade/Swipe/Slide/Fade-to-Color transi
 and media playback, per-source crop, six-track source routing, selectable stream
 audio, multitrack recording, audio levels/mute/volume, compressor/limiter controls,
 and custom 320–16384 by 180–16384 canvas sizes at
-1–240 FPS, including fractional rates. RTMP/RTMPS streaming adds configurable
+1–240 FPS, including fractional rates. RTMP/RTMPS and SRT streaming use the
+bundled FFmpeg output engine; SRT URLs select MPEG-TS muxing and accept FFmpeg
+protocol options in the query string. Both transports add configurable
 video and audio bitrates, rate-control mode, encoder quality, keyframe interval,
 optional hardware encoding, and live bitrate status. MP4 recording has its own
 encoder settings. The main process can remux selected MKV or WebM recordings to

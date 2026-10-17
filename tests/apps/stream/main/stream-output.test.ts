@@ -52,11 +52,13 @@ class FakeOutputProcess extends EventEmitter {
   }
 }
 
-function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDelayMs = 0) {
+function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDelayMs = 0, destination = 'rtmps://example.com/live/key') {
   const children: FakeOutputProcess[] = [];
+  const argumentsList: string[][] = [];
   const statuses: StreamRuntimeStatus[] = [];
   const contents = { isDestroyed: () => false, send: (_channel: string, status: StreamRuntimeStatus) => statuses.push(status) };
-  const spawnProcess = vi.fn(() => {
+  const spawnProcess = vi.fn((_executable: string, args: string[]) => {
+    argumentsList.push(args);
     const child = new FakeOutputProcess();
     children.push(child);
     return child as unknown as ChildProcessByStdio<Writable, null, PassThrough>;
@@ -66,8 +68,8 @@ function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDela
     spawnProcess as unknown as typeof import('node:child_process').spawn,
     { maxRetries, retryDelayMs, maxRecoveryBufferBytes },
   );
-  const id = output.start('rtmps://example.com/live/key', settings);
-  return { output, id, children, statuses, spawnProcess };
+  const id = output.start(destination, settings);
+  return { output, id, children, statuses, spawnProcess, argumentsList };
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
@@ -82,7 +84,36 @@ function chunk(value: string): ArrayBuffer {
   return Uint8Array.from(Buffer.from(value)).buffer;
 }
 
-describe('Stream RTMP output reconnect', () => {
+describe('Stream output destination and reconnect', () => {
+  it('keeps RTMP output on FLV', () => {
+    const { argumentsList } = harness();
+
+    expect(argumentsList[0]?.slice(-2)).toEqual(['flv', 'rtmps://example.com/live/key']);
+  });
+
+  it('accepts SRT host and port with FFmpeg query options and selects MPEG-TS', () => {
+    const { argumentsList } = harness(2, 1024 * 1024, 0, 'srt://stream.example:9000?mode=caller&latency=120000');
+
+    expect(argumentsList[0]?.slice(-2)).toEqual(['mpegts', 'srt://stream.example:9000?mode=caller&latency=120000']);
+  });
+
+  it.each([
+    ['missing a port', 'srt://stream.example'],
+    ['missing a host', 'srt://:9000'],
+    ['using an out-of-range port', 'srt://stream.example:65536'],
+    ['containing a path', 'srt://stream.example:9000/channel'],
+    ['containing user information', 'srt://user:secret@stream.example:9000'],
+    ['containing a fragment', 'srt://stream.example:9000#channel'],
+  ])('rejects SRT URLs %s', (_reason, destination) => {
+    expect(() => harness(2, 1024 * 1024, 0, destination)).toThrow();
+  });
+
+  it('continues to reject query options and fragments on RTMP destinations', () => {
+    expect(() => harness(2, 1024 * 1024, 0, 'rtmp://stream.example/live/key?token=secret')).toThrow();
+    expect(() => harness(2, 1024 * 1024, 0, 'rtmp://stream.example/live/key#channel')).toThrow();
+    expect(() => harness(2, 1024 * 1024, 0, 'rtmp://user:secret@stream.example/live/key')).toThrow();
+  });
+
   it('restarts after a transient exit and re-feeds the WebM header and buffered media', async () => {
     const { output, id, children } = harness();
     await output.write(id, chunk('webm-header'));
