@@ -1,7 +1,7 @@
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CanvasComposition } from '../../../../apps/stream/renderer/canvas-composition';
-import { createDefaultProject, type StreamScene } from '../../../../apps/stream/shared/desktop-api';
+import { CanvasComposition, hitTestSource } from '../../../../apps/stream/renderer/canvas-composition';
+import { createDefaultProject, type SourceKind, type StreamScene } from '../../../../apps/stream/shared/desktop-api';
 
 interface FakeContext extends Partial<CanvasRenderingContext2D> {
   fillRect: ReturnType<typeof vi.fn>;
@@ -27,7 +27,7 @@ function createContext(): FakeContext {
   };
 }
 
-function source(id: string, kind: 'scene' | 'color', transform: { x: number; y: number; width: number; height: number }, extra: Record<string, unknown> = {}) {
+function source(id: string, kind: SourceKind, transform: { x: number; y: number; width: number; height: number }, extra: Record<string, unknown> = {}) {
   return {
     id,
     name: id,
@@ -128,5 +128,30 @@ describe('CanvasComposition Scene sources', () => {
     expect(targetContext.drawImage).toHaveBeenCalledTimes(1);
     const nestedCanvas = targetContext.drawImage.mock.calls[0]![0] as HTMLCanvasElement;
     expect(contexts.get(nestedCanvas)?.fillRect).toHaveBeenCalledWith(5, 6, 7, 8);
+  });
+
+  it('selects the topmost nested visual child and falls back to its group bounds', () => {
+    const back = source('back', 'color', { x: 0, y: 0, width: 50, height: 50 });
+    const front = source('front', 'color', { x: 20, y: 20, width: 40, height: 40 });
+    const group = source('group', 'group', { x: 0, y: 0, width: 100, height: 100 }, { children: [back, front] });
+    const scene = { sources: [group] } as StreamScene;
+
+    expect(hitTestSource(scene, 30, 30)?.id).toBe('front');
+    expect(hitTestSource(scene, 80, 80)?.id).toBe('group');
+  });
+
+  it('does not hit hidden group descendants or audio-only sources', () => {
+    const visual = source('visual', 'color', { x: 0, y: 0, width: 100, height: 100 });
+    const audio = source('audio', 'microphone', { x: 0, y: 0, width: 100, height: 100 });
+    const hiddenChild = source('hidden-child', 'color', { x: 0, y: 0, width: 100, height: 100 });
+    const hiddenGroup = source('hidden-group', 'group', { x: 0, y: 0, width: 100, height: 100 }, { visible: false, children: [hiddenChild] });
+
+    expect(hitTestSource({ sources: [visual, audio] } as StreamScene, 10, 10)?.id).toBe('visual');
+    expect(hitTestSource({ sources: [visual, hiddenGroup] } as StreamScene, 10, 10)?.id).toBe('visual');
+  });
+
+  it('treats Scene sources as a selectable source on the owner canvas', () => {
+    const sceneSource = source('scene-ref', 'scene', { x: 10, y: 20, width: 100, height: 50 }, { referencedSceneId: 'target' });
+    expect(hitTestSource({ sources: [sceneSource] } as StreamScene, 20, 30)?.id).toBe('scene-ref');
   });
 });

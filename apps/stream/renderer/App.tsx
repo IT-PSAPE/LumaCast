@@ -20,7 +20,7 @@ import { sceneEditorState, SceneHistory, type SceneEditorState } from './scene-h
 import { duplicateSource } from './source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slideshow';
 import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
-import { computeGroupBoundingTransform, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, ungroupSourceNode } from '../shared/source-tree';
+import { canGroupSourceSiblings, computeGroupBoundingTransform, findSourceSiblingSelection, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, ungroupSourceNode } from '../shared/source-tree';
 import { canReferenceScene, getVisibleSourceIdsForScenes } from '../shared/scene-reference-graph';
 import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from './recording-controls';
 import { cameraCaptureConstraints } from './camera-capture-settings';
@@ -663,13 +663,7 @@ export function App() {
     setSelectedSourceId(next.at(-1) ?? null);
   };
 
-  const selectedRootIndices = activeScene
-    ? selectedSourceIds.map((id) => activeScene.sources.findIndex((source) => source.id === id)).sort((left, right) => left - right)
-    : [];
-  const selectedRootSources = activeScene ? selectedSourceIds.map((id) => activeScene.sources.find((source) => source.id === id)).filter((source): source is StreamSource => Boolean(source)) : [];
-  const canGroupSelectedSources = selectedRootIndices.length >= 2 && selectedRootIndices[0] !== -1
-    && selectedRootSources.length === selectedRootIndices.length && selectedRootSources.every((source) => source.kind !== 'group')
-    && selectedRootIndices.every((index, position) => position === 0 || index === selectedRootIndices[position - 1]! + 1);
+  const canGroupSelectedSources = activeScene ? canGroupSourceSiblings(activeScene.sources, selectedSourceIds) : false;
 
   const resetSceneHistory = () => {
     sceneHistoryRef.current?.clear();
@@ -1705,8 +1699,8 @@ export function App() {
 
   const groupSelectedSources = () => {
     if (!canGroupSelectedSources || !activeScene || !project) return;
-    const selected = new Set(selectedSourceIds);
-    const selectedSources = activeScene.sources.filter((source) => selected.has(source.id));
+    const selectedSources = findSourceSiblingSelection(activeScene.sources, selectedSourceIds)?.sources ?? [];
+    if (selectedSources.length < 2) return;
     const bounds = computeGroupBoundingTransform(selectedSources) ?? { x: 0, y: 0, width: 1, height: 1 };
     const existingGroupNames = new Set(flattenSourceNodes(activeScene.sources).map((source) => source.name));
     let groupName = 'Group';
@@ -2350,7 +2344,8 @@ export function App() {
     const flatSources = flattenSourceNodes(scene.sources);
     const selected = selectedSourceId ? flatSources.find((source) => source.id === selectedSourceId) ?? null : null;
     const withinCanvas = x >= 0 && y >= 0 && x <= canvas.width && y <= canvas.height;
-    const selectedIsGroupedChild = selected && scene.sources.some((source) => source.kind === 'group' && source.children?.some((child) => child.id === selected.id));
+    const selectedIsGroupedChild = selected && flatSources.some((source) => source.kind === 'group'
+      && flattenSourceNodes(source.children ?? []).some((child) => child.id === selected.id));
     const selectedBounds = selected?.transform;
     const pointInsideSelected = selectedBounds && x >= selectedBounds.x && x <= selectedBounds.x + selectedBounds.width
       && y >= selectedBounds.y && y <= selectedBounds.y + selectedBounds.height;

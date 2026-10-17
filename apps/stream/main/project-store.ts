@@ -1,7 +1,7 @@
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, createDefaultTextStyle, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
-import { flattenSourceNodes } from '../shared/source-tree';
+import { flattenSourceNodes, MAX_SOURCE_GROUP_DEPTH } from '../shared/source-tree';
 import { getSceneReferenceValidationError } from '../shared/scene-reference-graph';
 
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
@@ -36,12 +36,12 @@ const CAPTURE_CURSOR_MODES = new Set<CaptureCursorMode>(['never', 'motion', 'alw
 const CAMERA_RESOLUTIONS = new Set<string>(CAMERA_RESOLUTION_OPTIONS.map((option) => option.value));
 const CAMERA_FRAME_RATES = new Set<number>(CAMERA_FRAME_RATE_OPTIONS);
 
-function decodeSource(value: unknown, nestedInGroup = false): StreamSource {
+function decodeSource(value: unknown, groupDepth = 0): StreamSource {
   if (!isRecord(value) || typeof value.id !== 'string' || value.id.length > 128 || typeof value.name !== 'string' || value.name.length > 120) {
     throw new Error('Project contains an invalid source.');
   }
   if (typeof value.kind !== 'string' || !SOURCE_KINDS.has(value.kind)) throw new Error('Project contains an unsupported source type.');
-  if (nestedInGroup && value.kind === 'group') throw new Error('Groups cannot contain other groups.');
+  if (value.kind === 'group' && groupDepth >= MAX_SOURCE_GROUP_DEPTH) throw new Error('Source groups exceed the maximum nesting depth.');
   if (typeof value.visible !== 'boolean' || typeof value.muted !== 'boolean' || !finiteNumber(value.volume, 0, 2)) {
     throw new Error('Project contains invalid source audio or visibility settings.');
   }
@@ -254,7 +254,7 @@ function decodeSource(value: unknown, nestedInGroup = false): StreamSource {
   let children: StreamSource[] | undefined;
   if (value.kind === 'group') {
     if (!Array.isArray(value.children) || value.children.length > 10000) throw new Error('Project contains an invalid source group.');
-    children = value.children.map((child) => decodeSource(child, true));
+    children = value.children.map((child) => decodeSource(child, groupDepth + 1));
   } else if (value.children !== undefined) throw new Error('Project contains invalid nested sources.');
   if (value.kind === 'scene') {
     if (typeof value.referencedSceneId !== 'string' || value.referencedSceneId.length < 1 || value.referencedSceneId.length > 128) {

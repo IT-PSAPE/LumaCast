@@ -416,11 +416,23 @@ function StageAudio({ source, mediaElements, isActive, onMediaElement, onMediaPl
 }
 
 export function hitTestSource(scene: StreamScene, x: number, y: number): StreamSource | null {
-  for (const source of [...scene.sources].reverse()) {
-    if (!source.visible || source.kind === 'microphone' || source.kind === 'desktop-audio' || source.kind === 'application-audio'
-      || (source.kind === 'media' && source.mediaKind === 'audio')) continue;
+  const isAudioOnly = (source: StreamSource) => source.kind === 'microphone' || source.kind === 'desktop-audio' || source.kind === 'application-audio'
+    || (source.kind === 'media' && source.mediaKind === 'audio');
+  const containsPoint = (source: StreamSource) => {
     const { x: left, y: top, width, height } = source.transform;
-    if (x >= left && x <= left + width && y >= top && y <= top + height) return source;
-  }
-  return null;
+    return x >= left && x <= left + width && y >= top && y <= top + height;
+  };
+  const hitTestSiblings = (sources: readonly StreamSource[]): StreamSource | null => {
+    for (const source of [...sources].reverse()) {
+      if (!source.visible || isAudioOnly(source) || !containsPoint(source)) continue;
+      if (source.kind === 'group') {
+        const childHit = hitTestSiblings(source.children ?? []);
+        if (childHit) return childHit;
+      }
+      return source;
+    }
+    return null;
+  };
+
+  return hitTestSiblings(scene.sources);
 }

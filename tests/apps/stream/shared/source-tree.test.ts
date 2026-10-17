@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SourceKind, SourceTransform, StreamSource } from '../../../../apps/stream/shared/desktop-api';
-import { computeGroupBoundingTransform, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, transformGroupChildren, ungroupSourceNode } from '../../../../apps/stream/shared/source-tree';
+import { canGroupSourceSiblings, computeGroupBoundingTransform, findSourceSiblingSelection, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, MAX_SOURCE_GROUP_DEPTH, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, transformGroupChildren, ungroupSourceNode } from '../../../../apps/stream/shared/source-tree';
 
 function makeSource(id: string, kind: SourceKind = 'image', transform: SourceTransform = { x: 0, y: 0, width: 100, height: 100 }, children?: StreamSource[]): StreamSource {
   return { id, name: id, kind, visible: true, muted: false, volume: 1, transform, ...(children ? { children } : {}) };
@@ -55,6 +55,18 @@ describe('Stream source tree helpers', () => {
     expect(movedAndScaled[1]).toBe(children[1]);
   });
 
+  it('moves and scales nested groups and their visual descendants as one unit', () => {
+    const nested = makeSource('nested', 'group', { x: 10, y: 20, width: 30, height: 40 }, [
+      makeSource('nested-child', 'image', { x: 10, y: 20, width: 30, height: 40 }),
+      makeSource('nested-audio', 'microphone', { x: 0, y: 0, width: 1, height: 1 }),
+    ]);
+
+    const result = transformGroupChildren([nested], { x: 0, y: 0, width: 100, height: 100 }, { x: 100, y: 100, width: 200, height: 200 });
+    expect(result[0]?.transform).toEqual({ x: 120, y: 140, width: 60, height: 80 });
+    expect(result[0]?.children?.[0]?.transform).toEqual({ x: 120, y: 140, width: 60, height: 80 });
+    expect(result[0]?.children?.[1]?.transform).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+  });
+
   it('recomputes group bounds after a child moves', () => {
     const group = makeSource('group', 'group', { x: 0, y: 0, width: 100, height: 100 }, [
       makeSource('child', 'image', { x: 0, y: 0, width: 50, height: 50 }),
@@ -74,6 +86,53 @@ describe('Stream source tree helpers', () => {
 
     expect(groupSourceSiblings(sources, ['middle', 'front'], group)?.map(({ id }) => id)).toEqual(['back', 'group']);
     expect(groupSourceSiblings(sources, ['back', 'front'], group)).toBeNull();
+  });
+
+  it('groups and ungroups contiguous siblings at nested levels', () => {
+    const inner = makeSource('inner', 'group', { x: 0, y: 0, width: 100, height: 100 }, [makeSource('back'), makeSource('middle'), makeSource('front')]);
+    const outer = makeSource('outer', 'group', { x: 0, y: 0, width: 100, height: 100 }, [makeSource('before'), inner, makeSource('after')]);
+    const selection = findSourceSiblingSelection([outer], ['back', 'middle']);
+    expect(selection).toMatchObject({ parentDepth: 2, sources: [{ id: 'back' }, { id: 'middle' }] });
+    expect(canGroupSourceSiblings([outer], ['back', 'middle'])).toBe(true);
+    const nestedGroup = makeSource('nested-group', 'group', { x: 0, y: 0, width: 100, height: 100 }, selection?.sources);
+
+    const grouped = groupSourceSiblings([outer], ['back', 'middle'], nestedGroup)!;
+    const outerAfterGroup = grouped[0]!;
+    expect(outerAfterGroup.children?.[1]?.children?.map(({ id }) => id)).toEqual(['nested-group', 'front']);
+    const ungrouped = ungroupSourceNode(grouped, 'nested-group')!;
+    expect(ungrouped[0]?.children?.[1]?.children?.map(({ id }) => id)).toEqual(['back', 'middle', 'front']);
+  });
+
+  it('allows grouping through the maximum depth and refuses the next level', () => {
+    const makeNested = (parentDepth: number, id: string): StreamSource[] => {
+      let children = [makeSource(`${id}-back`), makeSource(`${id}-front`)];
+      for (let depth = 0; depth < parentDepth; depth += 1) {
+        children = [makeSource(`${id}-group-${depth}`, 'group', { x: 0, y: 0, width: 100, height: 100 }, children)];
+      }
+      return children;
+    };
+
+    const allowedDepthSources = makeNested(MAX_SOURCE_GROUP_DEPTH - 1, 'allowed');
+    const allowedIds = flattenSourceNodes(allowedDepthSources).slice(-2).map(({ id }) => id);
+    const allowedSelection = findSourceSiblingSelection(allowedDepthSources, allowedIds)!;
+    const allowedGroup = makeSource('allowed-new-group', 'group', computeGroupBoundingTransform(allowedSelection.sources)!, allowedSelection.sources);
+    expect(canGroupSourceSiblings(allowedDepthSources, allowedIds)).toBe(true);
+    expect(groupSourceSiblings(allowedDepthSources, allowedIds, allowedGroup)).not.toBeNull();
+
+    const refusedDepthSources = makeNested(MAX_SOURCE_GROUP_DEPTH, 'refused');
+    const refusedIds = flattenSourceNodes(refusedDepthSources).slice(-2).map(({ id }) => id);
+    const refusedSelection = findSourceSiblingSelection(refusedDepthSources, refusedIds)!;
+    const refusedGroup = makeSource('refused-new-group', 'group', computeGroupBoundingTransform(refusedSelection.sources)!, refusedSelection.sources);
+    expect(canGroupSourceSiblings(refusedDepthSources, refusedIds)).toBe(false);
+    expect(groupSourceSiblings(refusedDepthSources, refusedIds, refusedGroup)).toBeNull();
+  });
+
+  it('computes outer group bounds from nested descendants', () => {
+    const nested = makeSource('nested', 'group', { x: 999, y: 999, width: 1, height: 1 }, [
+      makeSource('left', 'image', { x: -10, y: 5, width: 20, height: 10 }),
+      makeSource('right', 'image', { x: 30, y: 25, width: 15, height: 10 }),
+    ]);
+    expect(computeGroupBoundingTransform([nested])).toEqual({ x: -10, y: 5, width: 55, height: 30 });
   });
 
   it('ungroups and reorders siblings without changing source identities', () => {

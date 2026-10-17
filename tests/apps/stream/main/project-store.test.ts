@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDefaultProject, createDefaultTextStyle, type AudioFilters, type AudioTrack, type StreamProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
 import { ProjectStore } from '../../../../apps/stream/main/project-store';
+import { MAX_SOURCE_GROUP_DEPTH } from '../../../../apps/stream/shared/source-tree';
 
 const temporaryDirectories: string[] = [];
 
@@ -744,20 +745,43 @@ describe('LumaStream source group persistence', () => {
     expect(duplicateGroup?.children?.[0]?.id).not.toBe(group?.children?.[0]?.id);
   });
 
-  it('rejects nested groups and duplicate IDs inside a group', async () => {
+  it('accepts nested groups and rejects nesting beyond the safe limit or duplicate IDs', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-invalid-groups-'));
     temporaryDirectories.push(directory);
     const project = createDefaultProject();
+    const leaf: StreamSource = {
+      id: 'group-leaf', name: 'Leaf', kind: 'text', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1, height: 1 }, text: 'Leaf', color: '#ffffff',
+    };
     project.scenes[0]!.sources.push({
       id: 'group-root', name: 'Group', kind: 'group', visible: true, muted: false, volume: 1,
       transform: { x: 0, y: 0, width: 1, height: 1 },
-      children: [{
-        id: 'group-child', name: 'Nested', kind: 'group', visible: true, muted: false, volume: 1,
-        transform: { x: 0, y: 0, width: 1, height: 1 }, children: [],
-      }],
+      children: [{ id: 'group-child', name: 'Nested', kind: 'group', visible: true, muted: false, volume: 1, transform: { x: 0, y: 0, width: 1, height: 1 }, children: [leaf] }],
     });
     await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
-    await expect(new ProjectStore(directory).load()).rejects.toThrow('Groups cannot contain other groups.');
+    expect((await new ProjectStore(directory).load()).project.scenes[0]?.sources[0]?.children?.[0]?.children?.[0]?.id).toBe('group-leaf');
+
+    const maxDepthDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-max-depth-groups-'));
+    temporaryDirectories.push(maxDepthDirectory);
+    const maxDepthProject = createDefaultProject();
+    let maxDepthSource: StreamSource = leaf;
+    for (let depth = 0; depth < MAX_SOURCE_GROUP_DEPTH; depth += 1) {
+      maxDepthSource = { id: `max-group-${depth}`, name: `Max Group ${depth}`, kind: 'group', visible: true, muted: false, volume: 1, transform: { x: 0, y: 0, width: 1, height: 1 }, children: [maxDepthSource] };
+    }
+    maxDepthProject.scenes[0]!.sources.push(maxDepthSource);
+    await writeFile(path.join(maxDepthDirectory, 'scene-collection.json'), JSON.stringify(maxDepthProject), 'utf8');
+    expect((await new ProjectStore(maxDepthDirectory).load()).project.scenes[0]?.sources[0]?.id).toBe(`max-group-${MAX_SOURCE_GROUP_DEPTH - 1}`);
+
+    const tooDeepDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-deep-groups-'));
+    temporaryDirectories.push(tooDeepDirectory);
+    const tooDeepProject = createDefaultProject();
+    let nested: StreamSource = leaf;
+    for (let depth = 0; depth <= MAX_SOURCE_GROUP_DEPTH; depth += 1) {
+      nested = { id: `group-${depth}`, name: `Group ${depth}`, kind: 'group', visible: true, muted: false, volume: 1, transform: { x: 0, y: 0, width: 1, height: 1 }, children: [nested] };
+    }
+    tooDeepProject.scenes[0]!.sources.push(nested);
+    await writeFile(path.join(tooDeepDirectory, 'scene-collection.json'), JSON.stringify(tooDeepProject), 'utf8');
+    await expect(new ProjectStore(tooDeepDirectory).load()).rejects.toThrow('Source groups exceed the maximum nesting depth.');
 
     const duplicateDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-duplicate-group-ids-'));
     temporaryDirectories.push(duplicateDirectory);

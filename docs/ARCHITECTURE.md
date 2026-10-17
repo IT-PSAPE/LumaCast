@@ -298,7 +298,7 @@ device and driver. MP4-only controls stay inactive for WebM and Matroska output
 (ADR-0073, ADR-0075).
 
 The renderer currently provides scenes, reusable Scene sources, layer
-order/visibility, first-level source groups, direct canvas positioning and
+order/visibility, nested source groups, direct canvas positioning and
 resizing, Studio Mode,
 Cut/Fade/Swipe/Slide/Fade-to-Color transitions, image and media playback,
 per-source crop, six-track source routing, selectable stream audio, multitrack
@@ -346,10 +346,11 @@ keyboard, and transform-panel geometry changes while leaving visibility and
 layer order editable (ADR-0081). Groups preserve child stacking and source IDs
 inside the project tree, inherit visibility, and move or scale their visual
 children as a unit. Group contents remain in scene canvas coordinates; grouped
-audio keeps its existing per-source routes. Nested groups are not yet accepted
-by the project format (ADR-0112). Scene sources point to another scene and
-composite its canvas inside the source transform, so captures, media elements,
-and audio routes retain their original source IDs. Referenced-scene surfaces are
+audio keeps its existing per-source routes. Groups may nest to 32 levels, and
+moving or resizing an outer group preserves nested child geometry (ADR-0114).
+Scene sources point to another scene and composite its canvas inside the source
+transform, so captures, media elements, and audio routes retain their original
+source IDs. Referenced-scene surfaces are
 sized to their transformed bounds and capped at 16 megapixels per source. Hidden
 Scene sources suspend their referenced scene's visuals and audio; deleting a
 referenced scene removes its reference nodes. The validated scene-reference
