@@ -2,11 +2,12 @@ import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, createDefaultTextStyle, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
 import { flattenSourceNodes } from '../shared/source-tree';
+import { getSceneReferenceValidationError } from '../shared/scene-reference-graph';
 
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
 const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color', 'group']);
+const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color', 'group', 'scene']);
 const MEDIA_KINDS = new Set(['image', 'video', 'audio']);
 const MEDIA_EXTENSIONS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'],
@@ -255,6 +256,11 @@ function decodeSource(value: unknown, nestedInGroup = false): StreamSource {
     if (!Array.isArray(value.children) || value.children.length > 10000) throw new Error('Project contains an invalid source group.');
     children = value.children.map((child) => decodeSource(child, true));
   } else if (value.children !== undefined) throw new Error('Project contains invalid nested sources.');
+  if (value.kind === 'scene') {
+    if (typeof value.referencedSceneId !== 'string' || value.referencedSceneId.length < 1 || value.referencedSceneId.length > 128) {
+      throw new Error('Project contains an invalid Scene source reference.');
+    }
+  } else if (value.referencedSceneId !== undefined) throw new Error('Project contains an invalid Scene source reference.');
 
   return {
     id: value.id,
@@ -298,6 +304,7 @@ function decodeSource(value: unknown, nestedInGroup = false): StreamSource {
     ...(textStyle ? { textStyle } : {}),
     ...(typeof value.color === 'string' ? { color: value.color } : {}),
     ...(children ? { children } : {}),
+    ...(value.kind === 'scene' ? { referencedSceneId: value.referencedSceneId as string } : {}),
   };
 }
 
@@ -345,6 +352,8 @@ function decodeProject(value: unknown): StreamProject {
     return { id: sceneValue.id, name: sceneValue.name, sources: sceneValue.sources.map((source) => decodeSource(source)) };
   });
   const sceneIds = new Set(scenes.map((scene) => scene.id));
+  const referenceValidation = getSceneReferenceValidationError(scenes);
+  if (referenceValidation) throw new Error(referenceValidation);
   const sourceIds = scenes.flatMap((scene) => flattenSourceNodes(scene.sources).map((source) => source.id));
   const sourceIdSet = new Set(sourceIds);
   if (sceneIds.size !== scenes.length || !sceneIds.has(value.activeSceneId) || !sceneIds.has(value.liveSceneId)) {
@@ -512,9 +521,10 @@ async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> 
 
 function duplicateProject(project: StreamProject): StreamProject {
   const sceneIds = new Map(project.scenes.map((scene) => [scene.id, crypto.randomUUID()]));
+  const sourceIds = new Map(project.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)).map((source) => [source.id, crypto.randomUUID()]));
   const cloneSource = (source: StreamSource): StreamSource => ({
     ...source,
-    id: crypto.randomUUID(),
+    id: sourceIds.get(source.id)!,
     transform: { ...source.transform },
     ...(source.crop ? { crop: { ...source.crop } } : {}),
     ...(source.filters ? { filters: { ...source.filters } } : {}),
@@ -522,6 +532,7 @@ function duplicateProject(project: StreamProject): StreamProject {
     ...(source.audioFilters ? { audioFilters: { ...source.audioFilters } } : {}),
     ...(source.slideshowImages ? { slideshowImages: source.slideshowImages.map((image) => ({ ...image })) } : {}),
     ...(source.children ? { children: source.children.map(cloneSource) } : {}),
+    ...(source.kind === 'scene' && source.referencedSceneId ? { referencedSceneId: sceneIds.get(source.referencedSceneId) ?? source.referencedSceneId } : {}),
     audioTracks: [...(source.audioTracks ?? [1])],
   });
   const scenes = project.scenes.map((scene) => ({
@@ -535,6 +546,8 @@ function duplicateProject(project: StreamProject): StreamProject {
     hotkeys: { ...project.hotkeys },
     activeSceneId: sceneIds.get(project.activeSceneId)!,
     liveSceneId: sceneIds.get(project.liveSceneId)!,
+    sceneSwitchHotkeys: Object.fromEntries(Object.entries(project.sceneSwitchHotkeys).map(([sceneId, accelerator]) => [sceneIds.get(sceneId) ?? sceneId, accelerator])),
+    sourceVisibilityHotkeys: Object.fromEntries(Object.entries(project.sourceVisibilityHotkeys).map(([sourceId, accelerator]) => [sourceIds.get(sourceId) ?? sourceId, accelerator])),
     scenes,
   };
 }

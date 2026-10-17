@@ -775,6 +775,82 @@ describe('LumaStream source group persistence', () => {
   });
 });
 
+describe('LumaStream Scene source persistence', () => {
+  it('round-trips Scene source references and remaps scene, source, and hotkey IDs when duplicating a collection', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-scene-source-'));
+    temporaryDirectories.push(directory);
+    const store = new ProjectStore(directory);
+    const initial = await store.load();
+    const project = structuredClone(initial.project);
+    const owner = project.scenes[0]!;
+    const target = { id: 'reusable-scene', name: 'Reusable', sources: [] };
+    owner.sources.push({
+      id: 'scene-reference', name: 'Reusable', kind: 'scene', visible: true, muted: false, volume: 1,
+      transform: { x: 120, y: 90, width: 960, height: 540 }, referencedSceneId: target.id,
+    });
+    project.scenes.push(target);
+    project.sceneSwitchHotkeys = { [owner.id]: 'Control+1', [target.id]: 'Control+2' };
+    project.sourceVisibilityHotkeys = { 'scene-reference': 'Control+Shift+1' };
+
+    const imported = await store.importCollection('Reusable Scenes', project);
+    expect(imported.project.scenes[0]?.sources.find((source) => source.id === 'scene-reference')?.referencedSceneId).toBe(target.id);
+
+    const duplicate = await store.create('Reusable Scenes Copy', true);
+    const duplicateOwner = duplicate.project.scenes.find((scene) => scene.name === owner.name)!;
+    const duplicateTarget = duplicate.project.scenes.find((scene) => scene.name === target.name)!;
+    const duplicateReference = duplicateOwner.sources.find((source) => source.kind === 'scene');
+    expect(duplicateReference?.id).not.toBe('scene-reference');
+    expect(duplicateReference?.referencedSceneId).toBe(duplicateTarget.id);
+    expect(duplicate.project.sceneSwitchHotkeys).toEqual({ [duplicateOwner.id]: 'Control+1', [duplicateTarget.id]: 'Control+2' });
+    expect(duplicate.project.sourceVisibilityHotkeys).toEqual({ [duplicateReference!.id]: 'Control+Shift+1' });
+  });
+
+  it('rejects missing targets, self and indirect cycles, and references on non-Scene sources', async () => {
+    const invalidProjects: Array<{ project: StreamProject; error: string }> = [];
+    const missing = createDefaultProject();
+    missing.scenes[0]!.sources.push({
+      id: 'scene-ref', name: 'Missing', kind: 'scene', referencedSceneId: 'absent', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1920, height: 1080 },
+    });
+    invalidProjects.push({ project: missing, error: 'A scene source references a scene that does not exist.' });
+
+    const selfCycle = createDefaultProject();
+    selfCycle.scenes[0]!.sources.push({
+      id: 'scene-ref', name: 'Self', kind: 'scene', referencedSceneId: selfCycle.scenes[0]!.id, visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1920, height: 1080 },
+    });
+    invalidProjects.push({ project: selfCycle, error: 'Scene references cannot contain a cycle.' });
+
+    const indirectCycle = createDefaultProject();
+    const first = indirectCycle.scenes[0]!;
+    const second = { id: 'second-scene', name: 'Second', sources: [] as StreamSource[] };
+    first.sources.push({
+      id: 'first-to-second', name: 'Second', kind: 'scene', referencedSceneId: second.id, visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1920, height: 1080 },
+    });
+    second.sources.push({
+      id: 'second-to-first', name: 'First', kind: 'scene', referencedSceneId: first.id, visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1920, height: 1080 },
+    });
+    indirectCycle.scenes.push(second);
+    invalidProjects.push({ project: indirectCycle, error: 'Scene references cannot contain a cycle.' });
+
+    const wrongKind = createDefaultProject();
+    wrongKind.scenes[0]!.sources.push({
+      id: 'color-ref', name: 'Color', kind: 'color', color: '#ffffff', referencedSceneId: wrongKind.scenes[0]!.id, visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1920, height: 1080 },
+    });
+    invalidProjects.push({ project: wrongKind, error: 'Project contains an invalid Scene source reference.' });
+
+    for (const { project, error } of invalidProjects) {
+      const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-invalid-scene-ref-'));
+      temporaryDirectories.push(directory);
+      await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+      await expect(new ProjectStore(directory).load()).rejects.toThrow(error);
+    }
+  });
+});
+
 describe('LumaStream camera capture settings persistence', () => {
   it('round-trips selected camera resolution and frame rate', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));

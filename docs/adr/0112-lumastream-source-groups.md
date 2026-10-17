@@ -27,4 +27,5 @@ in OBS.
 
 Existing collections load without migration. Collection bundles include media
 referenced by group children, and duplicating a group or collection assigns new
-source IDs to copied nodes. Nested groups and Scene sources remain future work.
+source IDs to copied nodes. At this decision point, nested groups and Scene
+sources remained future work; ADR-0113 records the later Scene-source decision.

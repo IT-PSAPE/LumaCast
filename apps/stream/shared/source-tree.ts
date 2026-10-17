@@ -50,6 +50,14 @@ export function removeSourceTreeById(sources: readonly StreamSource[], sourceId:
   return next;
 }
 
+/** Removes scene-source nodes targeting a deleted scene, including nodes inside groups. */
+export function removeSceneReferenceSources(sources: readonly StreamSource[], referencedSceneId: string): StreamSource[] {
+  const referenceIds = flattenSourceNodes(sources)
+    .filter((source) => source.kind === 'scene' && source.referencedSceneId === referencedSceneId)
+    .map((source) => source.id);
+  return referenceIds.reduce((current, sourceId) => removeSourceTreeById(current, sourceId), [...sources]);
+}
+
 /** Reorders a source among siblings, including within a group. */
 export function moveSourceTreeNode(sources: readonly StreamSource[], sourceId: string, direction: -1 | 1): StreamSource[] {
   const index = sources.findIndex((source) => source.id === sourceId);

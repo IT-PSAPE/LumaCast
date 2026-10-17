@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type Keybo
 import {
   ArrowDownToLine, ArrowUpFromLine, AudioLines, ChevronDown, ChevronRight, ChevronUp, Clapperboard, Copy, Eye, EyeOff, ExternalLink, Lock, LockOpen,
   FileAudio, FileVideo, Globe, Grid2X2, Headphones, Image as ImageIcon, Layers2, Mic, Monitor, MoreHorizontal, Move, Pause, Play, Plus, Radio, Settings2,
-  Redo2, Square, Type, Undo2, Volume2, VolumeX, Webcam, X,
+  PanelsTopLeft, Redo2, Square, Type, Undo2, Volume2, VolumeX, Webcam, X,
 } from 'lucide-react';
 import { CanvasComposition, hitTestSource, RuntimeVideoBank } from './canvas-composition';
 import { createSceneTransition, type SceneTransition, type SceneTransitionType } from './scene-transition';
@@ -14,13 +14,14 @@ import { canvasPointFromOutputPoint, clampScaledOutputSize, outputRectFromCanvas
 import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { closeProjectorWindow, createProjectorWindowSession, openCanvasProjector } from './projector-window';
-import { getRenderedSourceIds, getVisibleSourceIds } from './scene-render-scope';
+import { getRenderedSourceIds } from './scene-render-scope';
 import { canTransformSource, fitSourceToCanvas } from './source-transform';
 import { sceneEditorState, SceneHistory, type SceneEditorState } from './scene-history';
 import { duplicateSource } from './source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slideshow';
 import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
-import { computeGroupBoundingTransform, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSourceTreeById, ungroupSourceNode } from '../shared/source-tree';
+import { computeGroupBoundingTransform, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, ungroupSourceNode } from '../shared/source-tree';
+import { canReferenceScene, getVisibleSourceIdsForScenes } from '../shared/scene-reference-graph';
 import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from './recording-controls';
 import { cameraCaptureConstraints } from './camera-capture-settings';
 import { retainDesktopAudioTracks } from './desktop-audio-capture';
@@ -205,6 +206,7 @@ function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
   if (kind === 'media') return mediaKind === 'audio' ? <FileAudio size={15} /> : <FileVideo size={15} />;
   if (kind === 'browser') return <Globe size={15} />;
   if (kind === 'text') return <Type size={15} />;
+  if (kind === 'scene') return <PanelsTopLeft size={15} />;
   return <Layers2 size={15} />;
 }
 
@@ -219,7 +221,7 @@ function createSource(kind: SourceKind, output: StreamProject['output'], name?: 
   const labels: Record<SourceKind, string> = {
     display: 'Display Capture', window: 'Window Capture', camera: 'Video Capture Device',
     microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', 'application-audio': 'Application Audio Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text', color: 'Color Source',
-    group: 'Group',
+    group: 'Group', scene: 'Scene',
   };
   return {
     id: crypto.randomUUID(),
@@ -613,6 +615,9 @@ export function App() {
   const runtimesSnapshot = useMemo(() => new Map(runtimes.current), [runtimeRevision]);
   const activeScene = project?.scenes.find((scene) => scene.id === project.activeSceneId) ?? null;
   const liveScene = project?.scenes.find((scene) => scene.id === project.liveSceneId) ?? null;
+  const referenceableScenes = useMemo(() => project && activeScene
+    ? project.scenes.filter((scene) => canReferenceScene(project.scenes, activeScene.id, scene.id))
+    : [], [project?.scenes, activeScene?.id]);
   const activeCollection = collections.find((collection) => collection.id === activeCollectionId) ?? null;
   const selectedSource = activeScene ? flattenSourceNodes(activeScene.sources).find((source) => source.id === selectedSourceId) ?? null : null;
   const activeSourceIds = useMemo(
@@ -626,7 +631,7 @@ export function App() {
     .map((source) => ({ id: source.id, kind: source.kind as InputCaptureKind, deviceId: source.deviceId ?? '', name: source.name })));
 
   useEffect(() => {
-    const programSourceIds = getVisibleSourceIds(liveScene?.sources ?? []);
+    const programSourceIds = liveScene ? getVisibleSourceIdsForScenes(project?.scenes ?? [], [liveScene.id]) : new Set<string>();
     for (const source of allSources) {
       mixer.current?.setSettings(source.id, { volume: source.volume, muted: source.muted });
       mixer.current?.setBalance(source.id, source.balance ?? 0);
@@ -635,7 +640,7 @@ export function App() {
       mixer.current?.setAudioTracks(source.id, source.audioTracks ?? [1]);
       mixer.current?.setAudioFilters(source.id, source.audioFilters);
     }
-  }, [allSources, liveScene]);
+  }, [allSources, liveScene, project?.scenes]);
 
   const setProjectValue = useCallback((update: (current: StreamProject) => StreamProject) => {
     setProject((current) => current ? update(current) : current);
@@ -1157,6 +1162,11 @@ export function App() {
     setActionError('');
     return source;
   }, [setProjectValue]);
+
+  const addSceneReference = (referencedScene: StreamScene) => {
+    if (!activeScene || !project || !canReferenceScene(project.scenes, activeScene.id, referencedScene.id)) return;
+    addToActiveScene(createSource('scene', project.output, referencedScene.name, { referencedSceneId: referencedScene.id }));
+  };
 
   const openCapturePicker = async (kind: 'screen' | 'window' | 'audio', targetSourceId?: string) => {
     setSourceMenuOpen(false);
@@ -1801,9 +1811,14 @@ export function App() {
     const removed = project.scenes.find((scene) => scene.id === project.activeSceneId);
     if (!removed) return;
     const removedNodes = flattenSourceNodes(removed.sources);
+    const removedReferenceNodes = project.scenes
+      .filter((scene) => scene.id !== removed.id)
+      .flatMap((scene) => flattenSourceNodes(scene.sources))
+      .filter((source) => source.kind === 'scene' && source.referencedSceneId === removed.id);
     for (const source of flattenSourceLeaves(removed.sources)) stopRuntime(source.id);
     setProjectValue((current) => {
-      const scenes = current.scenes.filter((scene) => scene.id !== current.activeSceneId);
+      const scenes = current.scenes.filter((scene) => scene.id !== current.activeSceneId)
+        .map((scene) => ({ ...scene, sources: removeSceneReferenceSources(scene.sources, removed.id) }));
       const replacement = scenes[0]!;
       return {
         ...current,
@@ -1811,7 +1826,7 @@ export function App() {
         activeSceneId: replacement.id,
         liveSceneId: current.liveSceneId === removed.id ? replacement.id : current.liveSceneId,
         sceneSwitchHotkeys: Object.fromEntries(Object.entries(current.sceneSwitchHotkeys).filter(([sceneId]) => sceneId !== removed.id)),
-        sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, removedNodes.map((source) => source.id)),
+        sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [...removedNodes, ...removedReferenceNodes].map((source) => source.id)),
       };
     });
     setTransition(null);
@@ -2455,7 +2470,9 @@ export function App() {
   const duration = formatElapsed(recordingStartedAt, recordingElapsedTime(clockNow, recordingPausedAt, recordingAccumulatedPauseMs));
   const streamDuration = formatElapsed(streamingStartedAt, clockNow);
   const totalSourceCount = flattenSourceNodes(activeScene.sources).length;
-  const activeSceneLeafSources = flattenSourceLeaves(activeScene.sources);
+  const activeSceneVisibleSourceIds = getVisibleSourceIdsForScenes(project.scenes, [activeScene.id]);
+  const activeSceneLeafSources = allSources.filter((source) => activeSceneVisibleSourceIds.has(source.id)
+    && source.kind !== 'group' && source.kind !== 'scene');
   const canSaveReplay = replayBufferRevision > 0 && Boolean(replayBuffer.current?.channels.some((channel) => channel.track === 0 && channel.header));
   const collectionOperationBlocked = working || recordingStartedAt !== null || streamingStartedAt !== null || replayBufferStartedAt !== null;
   const renderSourceRows = (sources: StreamSource[], depth = 0): JSX.Element[] => [...sources].reverse().map((source, displayIndex) => {
@@ -2754,10 +2771,21 @@ export function App() {
             <div className="menu-label menu-label-separator">Graphics</div>
             <button role="menuitem" onClick={addText}><Type size={15} />Text</button>
             <button role="menuitem" onClick={addColor}><Layers2 size={15} />Color Source</button>
+            {referenceableScenes.length > 0 && <>
+              <div className="menu-label menu-label-separator">Composition</div>
+              {referenceableScenes.map((scene) => <button key={scene.id} role="menuitem" onClick={() => addSceneReference(scene)}><PanelsTopLeft size={15} />{scene.name}</button>)}
+            </>}
           </AnchoredPopover>
           {selectedSource && <div className="source-properties">
             <div className="property-heading"><span>{sourceIcon(selectedSource.kind, selectedSource.mediaKind)}{selectedSource.name}</span><button className="mini-icon danger" aria-label="Remove source" onClick={removeSelectedSource}><X size={14} /></button></div>
             {selectedSource.kind === 'group' && <label className="text-property">Group name<input aria-label="Group name" maxLength={120} value={selectedSource.name} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, name: event.target.value }))} /></label>}
+            {selectedSource.kind === 'scene' && <label className="device-property">Scene<select aria-label="Referenced scene" value={selectedSource.referencedSceneId ?? ''} onChange={(event) => {
+              const target = project.scenes.find((scene) => scene.id === event.target.value);
+              if (!target || !canReferenceScene(project.scenes, activeScene.id, target.id)) return;
+              updateSource(selectedSource.id, (source) => ({ ...source, name: target.name, referencedSceneId: target.id }));
+            }}>
+              {referenceableScenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
+            </select></label>}
             {(selectedSource.kind === 'camera' || selectedSource.kind === 'microphone') && <label className="device-property">Device<select aria-label="Capture device" disabled={working} value={selectedSource.deviceId ?? ''} onChange={(event) => void switchInputDevice(selectedSource, event.target.value || undefined)}>
               {selectedSource.deviceId && !inputDeviceOptions[selectedSource.kind].some((device) => device.deviceId === selectedSource.deviceId) && <option value={selectedSource.deviceId}>{selectedSource.name} (Unavailable)</option>}
               <option value="">Default Device</option>
@@ -2862,7 +2890,7 @@ export function App() {
               <label className="filter-control"><span>Ratio</span><input type="range" min="1" max="20" step="1" value={selectedSource.audioFilters?.compressorRatio ?? 4} disabled={!selectedSource.audioFilters?.compressor} onChange={(event) => updateSourceAudioFilters(selectedSource.id, { compressorRatio: Number(event.target.value) })} /><b>{selectedSource.audioFilters?.compressorRatio ?? 4}:1</b></label>
               <label className="audio-filter-toggle"><input type="checkbox" checked={selectedSource.audioFilters?.limiter ?? false} onChange={(event) => updateSourceAudioFilters(selectedSource.id, { limiter: event.target.checked })} /><span>Limiter</span></label>
             </details>}
-            {selectedSource.kind !== 'group' && <details className="filter-details"><summary>Color Correction</summary>
+            {selectedSource.kind !== 'group' && selectedSource.kind !== 'scene' && <details className="filter-details"><summary>Color Correction</summary>
               <label className="filter-control"><span>Brightness</span><input type="range" min="0" max="200" value={selectedFilters.brightness} onChange={(event) => updateSourceFilters(selectedSource.id, { brightness: Number(event.target.value) })} /><b>{selectedFilters.brightness}%</b></label>
               <label className="filter-control"><span>Contrast</span><input type="range" min="0" max="200" value={selectedFilters.contrast} onChange={(event) => updateSourceFilters(selectedSource.id, { contrast: Number(event.target.value) })} /><b>{selectedFilters.contrast}%</b></label>
               <label className="filter-control"><span>Saturation</span><input type="range" min="0" max="200" value={selectedFilters.saturation} onChange={(event) => updateSourceFilters(selectedSource.id, { saturation: Number(event.target.value) })} /><b>{selectedFilters.saturation}%</b></label>

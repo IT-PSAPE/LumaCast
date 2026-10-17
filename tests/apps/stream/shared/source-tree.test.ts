@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SourceKind, SourceTransform, StreamSource } from '../../../../apps/stream/shared/desktop-api';
-import { computeGroupBoundingTransform, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSourceTreeById, transformGroupChildren, ungroupSourceNode } from '../../../../apps/stream/shared/source-tree';
+import { computeGroupBoundingTransform, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, transformGroupChildren, ungroupSourceNode } from '../../../../apps/stream/shared/source-tree';
 
 function makeSource(id: string, kind: SourceKind = 'image', transform: SourceTransform = { x: 0, y: 0, width: 100, height: 100 }, children?: StreamSource[]): StreamSource {
   return { id, name: id, kind, visible: true, muted: false, volume: 1, transform, ...(children ? { children } : {}) };
@@ -84,5 +84,16 @@ describe('Stream source tree helpers', () => {
     expect(ungroupSourceNode(sources, 'group')?.map(({ id }) => id)).toEqual(['back', 'child-back', 'child-front', 'front']);
     expect(moveSourceTreeNode(sources, 'group', 1).map(({ id }) => id)).toEqual(['back', 'front', 'group']);
     expect(removeSourceTreeById(sources, 'group').map(({ id }) => id)).toEqual(['back', 'front']);
+  });
+
+  it('removes references to a deleted scene, including from group children', () => {
+    const childReference = makeSource('scene-source', 'scene');
+    childReference.referencedSceneId = 'scene-to-delete';
+    const keep = makeSource('keep', 'text');
+    const group = makeSource('group', 'group', { x: 0, y: 0, width: 100, height: 100 }, [childReference, keep]);
+
+    const result = removeSceneReferenceSources([group], 'scene-to-delete');
+    expect(result[0]?.kind).toBe('group');
+    expect(result[0]?.children?.map((child) => child.id)).toEqual(['keep']);
   });
 });

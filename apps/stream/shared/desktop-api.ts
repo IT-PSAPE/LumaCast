@@ -1,6 +1,6 @@
 export type CaptureKind = 'screen' | 'window';
 export type CaptureCursorMode = 'never' | 'motion' | 'always';
-export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color' | 'group';
+export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color' | 'group' | 'scene';
 export type MediaKind = 'image' | 'video' | 'audio';
 export type RecordingContainer = 'webm' | 'mkv' | 'mp4';
 export type AudioMonitoring = 'off' | 'monitor-only' | 'monitor-and-output';
@@ -198,6 +198,8 @@ export interface StreamSource {
   transform: SourceTransform;
   /** Sources inside a group, kept in the scene's back-to-front stacking order. */
   children?: StreamSource[];
+  /** Referenced scene for a reusable Scene source. */
+  referencedSceneId?: string;
   crop?: SourceCrop;
   filters?: SourceFilters;
   chromaKey?: ChromaKeyFilter;

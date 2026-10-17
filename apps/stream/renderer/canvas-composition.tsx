@@ -7,6 +7,8 @@ import type { SceneTransition } from './scene-transition';
 import { drawTextSource } from './text-overlay';
 import { fitCanvasToOutput } from './output-scaling';
 import { getRenderableSources } from './source-render-list';
+import { MAX_SCENE_REFERENCE_DEPTH } from '../shared/scene-reference-graph';
+import { sceneSourceBufferSize } from './scene-source-buffer';
 
 interface Props {
   project: StreamProject;
@@ -34,6 +36,12 @@ function drawSources(
   videos: Map<string, HTMLVideoElement>,
   images: Map<string, HTMLImageElement>,
   keyProcessor: ChromaKeyProcessor | null,
+  scenesById: Map<string, StreamScene>,
+  sceneCanvases: Map<string, HTMLCanvasElement>,
+  scenePath: Set<string>,
+  referenceDepth: number,
+  pixelScaleX: number,
+  pixelScaleY: number,
 ): void {
   for (const source of getRenderableSources(sources)) {
     context.save();
@@ -47,7 +55,34 @@ function drawSources(
     context.filter = filterOperations.join(' ');
     context.globalAlpha *= (filters?.opacity ?? 100) / 100;
     const { x, y, width: boxWidth, height: boxHeight } = source.transform;
-    if (source.kind === 'color') {
+    if (source.kind === 'scene') {
+      const referencedSceneId = source.referencedSceneId;
+      const referencedScene = referencedSceneId ? scenesById.get(referencedSceneId) : undefined;
+      if (referencedScene && referenceDepth < MAX_SCENE_REFERENCE_DEPTH && !scenePath.has(referencedScene.id)) {
+        const bufferSize = sceneSourceBufferSize(boxWidth, boxHeight, pixelScaleX, pixelScaleY);
+        let sceneCanvas = sceneCanvases.get(source.id);
+        if (!sceneCanvas) {
+          sceneCanvas = document.createElement('canvas');
+          sceneCanvases.set(source.id, sceneCanvas);
+        }
+        if (sceneCanvas.width !== bufferSize.width) sceneCanvas.width = bufferSize.width;
+        if (sceneCanvas.height !== bufferSize.height) sceneCanvas.height = bufferSize.height;
+        const sceneContext = sceneCanvas.getContext('2d');
+        if (sceneContext) {
+          sceneContext.setTransform(1, 0, 0, 1, 0, 0);
+          sceneContext.globalAlpha = 1;
+          sceneContext.filter = 'none';
+          sceneContext.clearRect(0, 0, sceneCanvas.width, sceneCanvas.height);
+          const nestedPixelScaleX = bufferSize.width / canvasWidth;
+          const nestedPixelScaleY = bufferSize.height / canvasHeight;
+          sceneContext.setTransform(nestedPixelScaleX, 0, 0, nestedPixelScaleY, 0, 0);
+          scenePath.add(referencedScene.id);
+          drawSources(sceneContext, referencedScene.sources, canvasWidth, canvasHeight, videos, images, keyProcessor, scenesById, sceneCanvases, scenePath, referenceDepth + 1, nestedPixelScaleX, nestedPixelScaleY);
+          scenePath.delete(referencedScene.id);
+          try { context.drawImage(sceneCanvas, x, y, boxWidth, boxHeight); } catch { /* The target scene may be changing while its frame is drawn. */ }
+        }
+      }
+    } else if (source.kind === 'color') {
       context.fillStyle = source.color ?? '#17191f';
       context.fillRect(x, y, boxWidth, boxHeight);
     } else if (source.kind === 'text') {
@@ -98,13 +133,17 @@ function drawScene(
   videos: Map<string, HTMLVideoElement>,
   images: Map<string, HTMLImageElement>,
   keyProcessor: ChromaKeyProcessor | null,
+  scenesById: Map<string, StreamScene>,
+  sceneCanvases: Map<string, HTMLCanvasElement>,
+  pixelScaleX: number,
+  pixelScaleY: number,
   alpha: number,
   offsetX = 0,
 ): void {
   context.save();
   context.globalAlpha = alpha;
   if (offsetX !== 0) context.translate(offsetX, 0);
-  drawSources(context, scene.sources, canvasWidth, canvasHeight, videos, images, keyProcessor);
+  drawSources(context, scene.sources, canvasWidth, canvasHeight, videos, images, keyProcessor, scenesById, sceneCanvases, new Set([scene.id]), 0, pixelScaleX, pixelScaleY);
   context.restore();
 }
 
@@ -130,9 +169,12 @@ export const CanvasComposition = forwardRef<HTMLCanvasElement, Props>(function C
     );
     canvas.width = Math.max(1, Math.round(outputWidth * scale));
     canvas.height = Math.max(1, Math.round(outputHeight * scale));
+    const sourcePixelScale = (canvas.width / outputWidth) * canvasViewport.scale;
     let frame = 0;
     let finishedTransition = false;
     let keyProcessor: ChromaKeyProcessor | null = null;
+    const scenesById = new Map(project.scenes.map((item) => [item.id, item]));
+    const sceneCanvases = new Map<string, HTMLCanvasElement>();
     const keyRenderScale = scale * Math.min(1, canvasViewport.scale);
     try { keyProcessor = new ChromaKeyProcessor(baseWidth, baseHeight, keyRenderScale); } catch { /* Chroma key is unavailable when WebGL cannot initialize. */ }
     const draw = () => {
@@ -144,7 +186,7 @@ export const CanvasComposition = forwardRef<HTMLCanvasElement, Props>(function C
         context.save();
         context.translate(canvasViewport.x, canvasViewport.y);
         context.scale(canvasViewport.scale, canvasViewport.scale);
-        drawScene(context, targetScene, baseWidth, baseHeight, videoElements, imageElements, keyProcessor, alpha, offsetX);
+        drawScene(context, targetScene, baseWidth, baseHeight, videoElements, imageElements, keyProcessor, scenesById, sceneCanvases, sourcePixelScale, sourcePixelScale, alpha, offsetX);
         context.restore();
       };
       const fromScene = transition ? project.scenes.find((item) => item.id === transition.fromSceneId) : null;
@@ -190,6 +232,11 @@ export const CanvasComposition = forwardRef<HTMLCanvasElement, Props>(function C
     return () => {
       cancelAnimationFrame(frame);
       keyProcessor?.dispose();
+      for (const sceneCanvas of sceneCanvases.values()) {
+        sceneCanvas.width = 0;
+        sceneCanvas.height = 0;
+      }
+      sceneCanvases.clear();
     };
   }, [project.output.baseWidth, project.output.baseHeight, project.output.width, project.output.height, project.scenes, scene, videoElements, imageElements, renderScale, transition, onTransitionEnd]);
 

@@ -44,4 +44,15 @@ describe('getRenderedSourceIds', () => {
     };
     expect(getRenderedSourceIds([groupScene], groupScene.id, groupScene.id, false)).toEqual(new Set(['visible-group', 'nested-visible']));
   });
+
+  it('activates visible descendants of Scene sources and prunes hidden references', () => {
+    const sceneOwner = scene('owner', [{ id: 'visible-ref' }, { id: 'hidden-ref', visible: false }]);
+    sceneOwner.sources[0]!.kind = 'scene';
+    sceneOwner.sources[0]!.referencedSceneId = 'target';
+    sceneOwner.sources[1]!.kind = 'scene';
+    sceneOwner.sources[1]!.referencedSceneId = 'target';
+    const target = scene('target', [{ id: 'target-image' }, { id: 'target-hidden', visible: false }]);
+
+    expect(getRenderedSourceIds([sceneOwner, target], 'owner', 'owner', false)).toEqual(new Set(['visible-ref', 'target-image']));
+  });
 });

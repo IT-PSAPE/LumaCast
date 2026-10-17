@@ -1,4 +1,5 @@
 import type { StreamScene } from '../shared/desktop-api';
+import { getVisibleSourceIdsForScenes } from '../shared/scene-reference-graph';
 
 export function getVisibleSourceIds(sources: StreamScene['sources']): Set<string> {
   const rendered = new Set<string>();
@@ -22,7 +23,5 @@ export function getRenderedSourceIds(
   const renderedScenes = multiview
     ? scenes
     : scenes.filter((scene) => scene.id === activeSceneId || scene.id === liveSceneId);
-  const rendered = new Set<string>();
-  for (const scene of renderedScenes) for (const sourceId of getVisibleSourceIds(scene.sources)) rendered.add(sourceId);
-  return rendered;
+  return getVisibleSourceIdsForScenes(scenes, renderedScenes.map((scene) => scene.id));
 }
