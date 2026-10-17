@@ -310,6 +310,9 @@ button.multiview-tile:hover { border-color: #596777; background: #20252c; }
 .popover-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; color: #d8dfe7; font-size: 11px; }
 .settings-modal-body label { display: grid; gap: 5px; margin-top: 8px; color: #919ba7; font-size: 9px; }
 .settings-number-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.recording-directory-control { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 5px; }
+.recording-directory-control input { min-width: 0; }
+.recording-directory-control .secondary-button { height: 28px; padding: 0 8px; }
 .settings-modal-body select { height: 28px; padding: 0 7px; border: 1px solid #39414b; border-radius: 4px; color: #d5dce4; background: #15191e; font-size: 10px; }
 .settings-modal-body input { height: 28px; padding: 0 7px; border: 1px solid #39414b; border-radius: 4px; color: #d5dce4; background: #15191e; font-size: 10px; }
 .settings-modal-body input[readonly] { cursor: pointer; }

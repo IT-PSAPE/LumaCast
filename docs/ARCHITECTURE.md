@@ -224,6 +224,12 @@ speaker-selection only to the trusted main renderer; a disconnected or rejected
 device falls back to System Default until the saved device is available again
 (ADR-0108).
 
+Recording destination and filename format are machine-local preferences rather
+than output-profile data. Main chooses the recording folder through a native
+directory picker and stores the selection atomically. Both recordings and saved
+replays use the configured folder and filename format; generated collisions add
+a numeric suffix instead of replacing an existing file (ADR-0110).
+
 Output profiles hold independent base-canvas and scaled-output dimensions, frame
 rate, streaming and recording encoder/output settings, selected audio tracks,
 and global hotkeys.

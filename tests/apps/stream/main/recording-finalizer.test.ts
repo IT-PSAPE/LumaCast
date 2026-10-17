@@ -1,6 +1,9 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest';
-import { buildRecordingMuxArguments } from '../../../../apps/stream/main/recording-finalizer';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { buildRecordingMuxArguments, publishRecordingFileWithoutReplacing } from '../../../../apps/stream/main/recording-finalizer';
 import type { RecordingOutputSettings } from '../../../../apps/stream/shared/desktop-api';
 
 const settings: RecordingOutputSettings = {
@@ -15,6 +18,12 @@ const settings: RecordingOutputSettings = {
   hardwareEncoding: false,
   keyframeIntervalSeconds: 2,
 };
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 describe('Stream multitrack recording muxing', () => {
   it('maps each selected isolated audio input into the final file in track order', () => {
@@ -49,5 +58,32 @@ describe('Stream multitrack recording muxing', () => {
     const args = buildRecordingMuxArguments({ videoPath: 'capture-video.webm', audioTracks: [] }, 'recording.mp4', { ...settings, container: 'mp4', audioTracks: [] });
     expect(args).not.toContain('-c:a');
     expect(args).toEqual(expect.arrayContaining(['-map', '0:v:0', '-f', 'mp4', 'recording.mp4']));
+  });
+});
+
+describe('recording file publishing', () => {
+  it('publishes a completed file without replacing an existing destination', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-recording-publish-'));
+    temporaryDirectories.push(directory);
+    const source = path.join(directory, 'temporary.webm');
+    const destination = path.join(directory, 'capture.webm');
+    await writeFile(source, 'new recording', 'utf8');
+    await writeFile(destination, 'existing recording', 'utf8');
+
+    await expect(publishRecordingFileWithoutReplacing(source, destination)).rejects.toMatchObject({ code: 'EEXIST' });
+    await expect(readFile(source, 'utf8')).resolves.toBe('new recording');
+    await expect(readFile(destination, 'utf8')).resolves.toBe('existing recording');
+  });
+
+  it('publishes a completed file and removes its temporary name', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-recording-publish-'));
+    temporaryDirectories.push(directory);
+    const source = path.join(directory, 'temporary.webm');
+    const destination = path.join(directory, 'capture.webm');
+    await writeFile(source, 'new recording', 'utf8');
+
+    await publishRecordingFileWithoutReplacing(source, destination);
+    await expect(readFile(destination, 'utf8')).resolves.toBe('new recording');
+    await expect(readFile(source, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

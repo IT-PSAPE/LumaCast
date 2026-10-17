@@ -4,6 +4,7 @@ import { open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject } from '../shared/desktop-api';
 import type { AudioSettingsStore } from './audio-settings-store';
+import type { RecordingPreferencesStore } from './recording-preferences-store';
 import { DesktopCaptureController } from './desktop-capture';
 import { BrowserSourceManager } from './browser-sources';
 import { IPC_CHANNELS } from './ipc-channels';
@@ -32,6 +33,7 @@ function profileFileStem(name: string): string {
 export function registerStreamIpc(
   projectStore: ProjectStore,
   audioSettings: AudioSettingsStore,
+  recordingPreferences: RecordingPreferencesStore,
   capture: DesktopCaptureController,
   mediaAssets: MediaAssetStore,
   collectionBundles: CollectionBundleStore,
@@ -59,6 +61,26 @@ export function registerStreamIpc(
     }],
     [IPC_CHANNELS.loadAudioSettings, (event) => { authorize(event); return audioSettings.load(); }],
     [IPC_CHANNELS.saveAudioSettings, (event, settings: StreamAudioSettings) => { authorize(event); return audioSettings.save(settings); }],
+    [IPC_CHANNELS.loadRecordingPreferences, (event) => { authorize(event); return recordingPreferences.load(); }],
+    [IPC_CHANNELS.saveRecordingFilenameFormat, (event, filenameFormat: string) => {
+      authorize(event);
+      return recordingPreferences.update({ filenameFormat });
+    }],
+    [IPC_CHANNELS.chooseRecordingDirectory, async (event) => {
+      const window = BrowserWindow.fromWebContents(authorize(event));
+      if (!window || window.isDestroyed()) throw new Error('The Stream window is not available.');
+      const result = await dialog.showOpenDialog(window, {
+        title: 'Choose recording folder',
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      const directory = result.filePaths[0];
+      if (result.canceled || !directory) return null;
+      return recordingPreferences.update({ directory });
+    }],
+    [IPC_CHANNELS.useDefaultRecordingDirectory, (event) => {
+      authorize(event);
+      return recordingPreferences.update({ directory: '' });
+    }],
     [IPC_CHANNELS.createCollection, (event, name: string, duplicateCurrent: boolean) => {
       authorize(event);
       if (typeof duplicateCurrent !== 'boolean') throw new Error('Invalid collection operation.');

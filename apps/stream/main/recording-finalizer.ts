@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { rename, rm } from 'node:fs/promises';
+import { copyFile, link, rm } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import type { AudioTrack, RecordingOutputSettings } from '../shared/desktop-api';
 import { bundledMediaEnginePath } from './media-engine-path';
@@ -9,6 +10,19 @@ import { buildRecordingVideoEncoderArguments } from './output-encoder';
 export interface RecordingMuxInputs {
   videoPath: string;
   audioTracks: Array<{ track: AudioTrack; path: string }>;
+}
+
+export async function publishRecordingFileWithoutReplacing(sourcePath: string, finalPath: string): Promise<void> {
+  try {
+    await link(sourcePath, finalPath);
+  } catch (error) {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+    if (code === 'EEXIST') throw error;
+    if (code !== 'EPERM' && code !== 'EACCES' && code !== 'ENOTSUP' && code !== 'EOPNOTSUPP'
+      && code !== 'EXDEV' && code !== 'EMLINK' && code !== 'ENOSYS' && code !== 'EINVAL') throw error;
+    await copyFile(sourcePath, finalPath, fsConstants.COPYFILE_EXCL);
+  }
+  await rm(sourcePath, { force: true });
 }
 
 export function buildRecordingMuxArguments(inputs: RecordingMuxInputs, temporaryOutput: string, settings: RecordingOutputSettings): string[] {
@@ -34,7 +48,7 @@ export class RecordingFinalizer {
     const args = buildRecordingMuxArguments(inputs, temporaryOutput, settings);
     try {
       await this.run(args);
-      await rename(temporaryOutput, finalPath);
+      await publishRecordingFileWithoutReplacing(temporaryOutput, finalPath);
       await Promise.all([inputs.videoPath, ...inputs.audioTracks.map((audio) => audio.path)].map((input) => rm(input, { force: true }).catch(() => undefined)));
       return path.basename(finalPath);
     } catch (error) {

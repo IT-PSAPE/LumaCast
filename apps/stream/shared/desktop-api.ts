@@ -8,8 +8,17 @@ export interface StreamAudioSettings {
   monitoringDeviceId: string;
 }
 
+export interface StreamRecordingPreferences {
+  directory: string;
+  filenameFormat: string;
+}
+
 export function createDefaultStreamAudioSettings(): StreamAudioSettings {
   return { monitoringDeviceId: '' };
+}
+
+export function createDefaultStreamRecordingPreferences(): StreamRecordingPreferences {
+  return { directory: '', filenameFormat: 'LumaStream %CCYY-%MM-%DD %hh-%mm-%ss' };
 }
 export const CAMERA_RESOLUTION_OPTIONS = [
   { value: 'device-default', label: 'Device Default' },
@@ -345,6 +354,10 @@ export interface StreamAPI {
   saveProject(collectionId: string, profileId: string, project: StreamProject): Promise<void>;
   loadAudioSettings(): Promise<StreamAudioSettings>;
   saveAudioSettings(settings: StreamAudioSettings): Promise<void>;
+  loadRecordingPreferences(): Promise<StreamRecordingPreferences>;
+  saveRecordingFilenameFormat(filenameFormat: string): Promise<StreamRecordingPreferences>;
+  chooseRecordingDirectory(): Promise<StreamRecordingPreferences | null>;
+  useDefaultRecordingDirectory(): Promise<StreamRecordingPreferences>;
   createCollection(name: string, duplicateCurrent: boolean): Promise<StreamWorkspace>;
   activateCollection(id: string): Promise<StreamWorkspace>;
   renameCollection(id: string, name: string): Promise<SceneCollectionSummary[]>;

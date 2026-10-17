@@ -13,6 +13,7 @@ import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
 import { ApplicationAudioCapture } from './application-audio-capture';
 import { AudioSettingsStore } from './audio-settings-store';
+import { RecordingPreferencesStore } from './recording-preferences-store';
 import { allowsSpeakerSelection } from './audio-output-permissions';
 import { createMainWindow } from './window';
 
@@ -24,9 +25,10 @@ app.setPath('userData', path.join(dataDirectory, 'user-data'));
 let mainWindow: BrowserWindow | null = null;
 const projectStore = new ProjectStore(dataDirectory);
 const audioSettings = new AudioSettingsStore(dataDirectory);
+const recordingPreferences = new RecordingPreferencesStore(dataDirectory);
 const capture = new DesktopCaptureController(() => mainWindow);
 const mediaAssets = new MediaAssetStore(dataDirectory, () => mainWindow);
-const recordings = new RecordingStore(() => mainWindow, app.getPath('videos'));
+const recordings = new RecordingStore(() => mainWindow, app.getPath('videos'), recordingPreferences);
 const recordingRemuxer = new RecordingRemuxer(() => mainWindow);
 const streamOutput = new StreamOutput(() => mainWindow?.webContents ?? null);
 const browserSources = new BrowserSourceManager(() => mainWindow?.webContents ?? null);
@@ -39,7 +41,7 @@ const collectionBundles = new CollectionBundleStore(projectStore, mediaAssets, (
 const rendererFile = path.join(__dirname, '../renderer/index.html');
 const devServerOrigin = resolveDevServerOrigin(process.env.ELECTRON_RENDERER_URL);
 const isTrustedUrl = (url: string) => isTrustedRendererUrl(url, { packagedRendererFile: rendererFile, devServerOrigin });
-const unregisterIpc = registerStreamIpc(projectStore, audioSettings, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, () => mainWindow?.webContents ?? null, isTrustedUrl);
+const unregisterIpc = registerStreamIpc(projectStore, audioSettings, recordingPreferences, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, () => mainWindow?.webContents ?? null, isTrustedUrl);
 
 let shutdownComplete = false;
 app.on('before-quit', (event) => {

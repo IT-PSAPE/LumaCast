@@ -29,6 +29,7 @@ import {
   CAMERA_RESOLUTION_OPTIONS,
   createDefaultTextStyle,
   createDefaultStreamAudioSettings,
+  createDefaultStreamRecordingPreferences,
   type AudioApplicationOption,
   type CameraFrameRatePreset,
   type CameraResolutionPreset,
@@ -45,6 +46,7 @@ import {
   type AudioFilters,
   type AudioMonitoring,
   type StreamAudioSettings,
+  type StreamRecordingPreferences,
   type AudioTrack,
   AUDIO_TRACKS,
   type ChromaKeyFilter,
@@ -64,6 +66,7 @@ import {
   VIDEO_RATE_CONTROL_OPTIONS,
   type VideoEncoderFamily,
 } from '../shared/desktop-api';
+import { validateRecordingFilenameFormat } from '../shared/recording-filename';
 
 interface ActiveRecording {
   id: string;
@@ -317,6 +320,8 @@ export function App() {
   const [audioSettings, setAudioSettings] = useState<StreamAudioSettings>(createDefaultStreamAudioSettings);
   const [audioOutputDevices, setAudioOutputDevices] = useState<AudioOutputDeviceOption[]>([]);
   const [audioSettingsError, setAudioSettingsError] = useState('');
+  const [recordingPreferences, setRecordingPreferences] = useState<StreamRecordingPreferences>(createDefaultStreamRecordingPreferences);
+  const [recordingPreferencesError, setRecordingPreferencesError] = useState('');
   const [hotkeyDraft, setHotkeyDraft] = useState<StreamGlobalHotkeys | null>(null);
   const [sceneSwitchHotkeyDraft, setSceneSwitchHotkeyDraft] = useState<Record<string, string>>({});
   const [sourceVisibilityHotkeyDraft, setSourceVisibilityHotkeyDraft] = useState<Record<string, string>>({});
@@ -349,6 +354,7 @@ export function App() {
   const mixer = useRef<AudioMixerEngine | null>(null);
   const audioSettingsRef = useRef(audioSettings);
   audioSettingsRef.current = audioSettings;
+  const recordingPreferencesRef = useRef(recordingPreferences);
   const recording = useRef<ActiveRecording | null>(null);
   const streaming = useRef<ActiveStreaming | null>(null);
   const replayBuffer = useRef<ActiveReplayBuffer | null>(null);
@@ -432,6 +438,18 @@ export function App() {
       }
     }).catch((error) => {
       if (active) setAudioSettingsError(`Audio settings could not be loaded: ${friendlyError(error)}`);
+    });
+    return () => { active = false; };
+  }, [api]);
+
+  useEffect(() => {
+    let active = true;
+    void api.loadRecordingPreferences().then((preferences) => {
+      if (!active) return;
+      recordingPreferencesRef.current = preferences;
+      setRecordingPreferences(preferences);
+    }).catch((error) => {
+      if (active) setRecordingPreferencesError(`Recording preferences could not be loaded: ${friendlyError(error)}`);
     });
     return () => { active = false; };
   }, [api]);
@@ -665,6 +683,41 @@ export function App() {
       await mixer.current.setMonitoringDevice(monitoringDeviceId);
     } catch (error) {
       setAudioSettingsError(monitoringDeviceError(error));
+    }
+  };
+
+  const persistRecordingFilenameFormat = async (filenameFormat: string) => {
+    setRecordingPreferencesError('');
+    try {
+      const next = await api.saveRecordingFilenameFormat(filenameFormat);
+      recordingPreferencesRef.current = next;
+      setRecordingPreferences(next);
+    } catch (error) {
+      setRecordingPreferences(recordingPreferencesRef.current);
+      setRecordingPreferencesError(`Recording preferences could not be saved: ${friendlyError(error)}`);
+    }
+  };
+
+  const chooseRecordingDirectory = async () => {
+    setRecordingPreferencesError('');
+    try {
+      const next = await api.chooseRecordingDirectory();
+      if (!next) return;
+      recordingPreferencesRef.current = next;
+      setRecordingPreferences(next);
+    } catch (error) {
+      setRecordingPreferencesError(`Recording folder could not be selected: ${friendlyError(error)}`);
+    }
+  };
+
+  const useDefaultRecordingDirectory = async () => {
+    setRecordingPreferencesError('');
+    try {
+      const next = await api.useDefaultRecordingDirectory();
+      recordingPreferencesRef.current = next;
+      setRecordingPreferences(next);
+    } catch (error) {
+      setRecordingPreferencesError(`Recording preferences could not be saved: ${friendlyError(error)}`);
     }
   };
 
@@ -2504,6 +2557,21 @@ export function App() {
           setProjectValue((current) => ({ ...current, output: { ...current.output, frameRate } }));
         }} /></label>
         <div className="popover-heading video-heading"><strong>Recording</strong></div>
+        <label>Recording folder<div className="recording-directory-control">
+          <input aria-label="Recording folder" readOnly value={recordingPreferences.directory || 'Videos'} title={recordingPreferences.directory || 'Videos'} />
+          <button type="button" className="secondary-button" onClick={() => void chooseRecordingDirectory()}>Browse</button>
+          <button type="button" className="secondary-button" onClick={useDefaultRecordingDirectory}>Default</button>
+        </div></label>
+        <label>Filename format<input aria-label="Recording filename format" maxLength={120} value={recordingPreferences.filenameFormat} onChange={(event) => setRecordingPreferences((current) => ({ ...current, filenameFormat: event.target.value }))} onBlur={(event) => {
+          const filenameFormat = event.currentTarget.value;
+          if (!validateRecordingFilenameFormat(filenameFormat)) {
+            setRecordingPreferences(recordingPreferencesRef.current);
+            setRecordingPreferencesError('Use a valid Windows filename format.');
+            return;
+          }
+          void persistRecordingFilenameFormat(filenameFormat);
+        }} /></label>
+        {recordingPreferencesError && <p className="hotkey-error" role="alert">{recordingPreferencesError}</p>}
         <details className="filter-details settings-audio-tracks"><summary>Recording audio tracks</summary>
           <div className="audio-track-grid">{AUDIO_TRACKS.map((track) => <label key={track} className="audio-track-toggle"><input type="checkbox" disabled={recordingStartedAt !== null || recordingFinalizing || replayBufferStartedAt !== null} checked={project.output.recordingAudioTracks.includes(track)} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, recordingAudioTracks: event.target.checked ? [...new Set([...current.output.recordingAudioTracks, track])].sort((left, right) => left - right) : current.output.recordingAudioTracks.filter((item) => item !== track) } }))} /><span>Track {track}</span></label>)}</div>
         </details>

@@ -1,9 +1,12 @@
-import { open, rename, rm, type FileHandle } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, mkdir, open, rename, rm, stat, type FileHandle } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { dialog, type BrowserWindow } from 'electron';
-import { isAudioTrack, isVideoEncoderFamily, supportsVideoRateControl, type AudioTrack, type RecordingContainer, type RecordingOutputSettings, type RecordingTrackId, type VideoRateControlMode } from '../shared/desktop-api';
-import { RecordingFinalizer } from './recording-finalizer';
+import type { BrowserWindow } from 'electron';
+import { createDefaultStreamRecordingPreferences, isAudioTrack, isVideoEncoderFamily, supportsVideoRateControl, type AudioTrack, type RecordingContainer, type RecordingOutputSettings, type RecordingTrackId, type VideoRateControlMode } from '../shared/desktop-api';
+import { formatRecordingFilenameBase } from '../shared/recording-filename';
+import { publishRecordingFileWithoutReplacing, RecordingFinalizer } from './recording-finalizer';
+import type { RecordingPreferencesStore } from './recording-preferences-store';
 
 interface RecordingFile {
   path: string;
@@ -21,11 +24,6 @@ interface RecordingSession {
 }
 
 const EXTENSIONS: Record<RecordingContainer, string> = { webm: 'webm', mkv: 'mkv', mp4: 'mp4' };
-const FILTERS: Record<RecordingContainer, { name: string; extensions: string[] }> = {
-  webm: { name: 'WebM video', extensions: ['webm'] },
-  mkv: { name: 'Matroska video', extensions: ['mkv'] },
-  mp4: { name: 'MPEG-4 video', extensions: ['mp4'] },
-};
 
 function decodeRecordingSettings(value: unknown): RecordingOutputSettings {
   if (!value || typeof value !== 'object') throw new Error('Invalid recording output settings.');
@@ -64,22 +62,21 @@ export class RecordingStore {
   constructor(
     private readonly getWindow: () => BrowserWindow | null,
     private readonly videosDirectory: string,
+    private readonly preferences: Pick<RecordingPreferencesStore, 'load'> = { load: async () => createDefaultStreamRecordingPreferences() },
     private readonly finalizer = new RecordingFinalizer(),
   ) {}
+
+  private readonly reservedFinalPaths = new Set<string>();
 
   async open(settingsValue: unknown): Promise<{ id: string; name: string } | null> {
     const settings = decodeRecordingSettings(settingsValue);
     const window = this.getWindow();
     if (!window || window.isDestroyed()) throw new Error('The Stream window is not available.');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const preferences = await this.preferences.load();
+    const directory = await this.resolveDirectory(preferences.directory);
+    const baseName = formatRecordingFilenameBase(preferences.filenameFormat, new Date());
     const extension = EXTENSIONS[settings.container];
-    const result = await dialog.showSaveDialog(window, {
-      title: 'Save recording',
-      defaultPath: path.join(this.videosDirectory, `LumaStream-${stamp}.${extension}`),
-      filters: [FILTERS[settings.container]],
-    });
-    if (result.canceled || !result.filePath) return null;
-    const finalPath = path.extname(result.filePath).toLowerCase() === `.${extension}` ? result.filePath : `${result.filePath}.${extension}`;
+    const finalPath = await this.reserveFinalPath(directory, baseName, extension);
     const id = randomUUID();
     const files = new Map<RecordingTrackId, RecordingFile>();
     try {
@@ -90,6 +87,7 @@ export class RecordingStore {
         await file.handle.close().catch(() => undefined);
         await rm(file.path, { force: true }).catch(() => undefined);
       }));
+      this.reservedFinalPaths.delete(this.finalPathKey(finalPath));
       throw error;
     }
     this.sessions.set(id, { finalPath, settings, files, closing: false, closePromise: null });
@@ -148,7 +146,45 @@ export class RecordingStore {
       await file.handle.close().catch(() => undefined);
       await rm(file.path, { force: true }).catch(() => undefined);
     }));
+    this.reservedFinalPaths.delete(this.finalPathKey(session.finalPath));
     this.sessions.delete(id);
+  }
+
+  private async resolveDirectory(configuredDirectory: string): Promise<string> {
+    const directory = path.resolve(configuredDirectory || this.videosDirectory);
+    try {
+      if (!configuredDirectory) await mkdir(directory, { recursive: true });
+      const details = await stat(directory);
+      if (!details.isDirectory()) throw new Error('Recording folder is unavailable.');
+      await access(directory, constants.W_OK);
+      return directory;
+    } catch {
+      throw new Error('Recording folder is unavailable or not writable. Choose another folder in Settings.');
+    }
+  }
+
+  private async reserveFinalPath(directory: string, baseName: string, extension: string): Promise<string> {
+    for (let suffix = 1; suffix <= 1_000_000; suffix += 1) {
+      const filename = `${baseName}${suffix === 1 ? '' : ` (${suffix})`}.${extension}`;
+      const finalPath = path.join(directory, filename);
+      const key = this.finalPathKey(finalPath);
+      if (this.reservedFinalPaths.has(key)) continue;
+      this.reservedFinalPaths.add(key);
+      try {
+        await access(finalPath);
+        this.reservedFinalPaths.delete(key);
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return finalPath;
+        this.reservedFinalPaths.delete(key);
+        throw error;
+      }
+    }
+    throw new Error('Could not generate a unique recording filename.');
+  }
+
+  private finalPathKey(finalPath: string): string {
+    const normalized = path.resolve(finalPath);
+    return process.platform === 'win32' ? normalized.toLocaleLowerCase('en-US') : normalized;
   }
 
   private async createFile(finalPath: string, id: string, track: RecordingTrackId): Promise<RecordingFile> {
@@ -169,7 +205,7 @@ export class RecordingStore {
       const video = session.files.get(0)!;
       const audioTracks = session.settings.audioTracks.map((track) => ({ track, path: session.files.get(track)!.path }));
       if (session.settings.container === 'webm' && audioTracks.length === 0) {
-        await rename(video.path, session.finalPath);
+        await publishRecordingFileWithoutReplacing(video.path, session.finalPath);
         return path.basename(session.finalPath);
       }
       return await this.finalizer.finalize({ videoPath: video.path, audioTracks }, session.finalPath, session.settings);
@@ -190,6 +226,7 @@ export class RecordingStore {
       if (recoveryNames.length > 0) throw new Error(`${detail} Recovery WebM files: ${recoveryNames.join(', ')}.`);
       throw new Error(detail);
     } finally {
+      this.reservedFinalPaths.delete(this.finalPathKey(session.finalPath));
       this.sessions.delete(id);
     }
   }
