@@ -19,6 +19,7 @@ import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
 import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from './recording-controls';
 import { cameraCaptureConstraints } from './camera-capture-settings';
 import { retainDesktopAudioTracks } from './desktop-audio-capture';
+import { bindDesktopCaptureSource } from './desktop-capture-binding';
 import { listenForMediaStreamEnd } from './media-stream-ended';
 import {
   CAMERA_FRAME_RATE_OPTIONS,
@@ -927,6 +928,10 @@ export function App() {
   const openCapturePicker = async (kind: 'screen' | 'window' | 'audio', targetSourceId?: string) => {
     setSourceMenuOpen(false);
     setActionError('');
+    if (targetSourceId) {
+      const target = allSourcesRef.current.find((source) => source.id === targetSourceId);
+      if (target?.kind === 'display' || target?.kind === 'window') setCaptureCursorMode(target.cursorMode ?? 'motion');
+    }
     setWorking(true);
     try {
       const sources = await api.listDesktopSources(kind === 'audio' ? 'screen' : kind);
@@ -970,13 +975,17 @@ export function App() {
         source = reconnectSource
           ? { ...reconnectSource, captureId: option.id }
           : createSource('desktop-audio', project.output, 'Desktop Audio', { captureId: option.id });
+      } else if (captureTargetSourceId) {
+        const reconnectSource = allSourcesRef.current.find((item) => item.id === captureTargetSourceId);
+        if (!reconnectSource) throw new Error('The capture source is no longer available.');
+        source = bindDesktopCaptureSource(reconnectSource, option, captureCursorMode);
       } else {
         const kind = option.kind === 'screen' ? 'display' : 'window';
         source = createSource(kind, project.output, option.name, { captureId: option.id, cursorMode: captureCursorMode });
       }
       await attachRuntime(source, stream);
       if (captureTargetSourceId) {
-        updateSource(source.id, (current) => ({ ...current, captureId: option.id }));
+        updateSource(source.id, (current) => ({ ...current, captureId: option.id, ...(source.kind === 'display' || source.kind === 'window' ? { cursorMode: source.cursorMode } : {}) }));
       } else {
         addToActiveScene(source);
       }
@@ -2427,7 +2436,10 @@ export function App() {
               </select></label>
             </>}
             {selectedSource.kind === 'desktop-audio' && !runtimesSnapshot.has(selectedSource.id) && <button className="secondary-button device-property" disabled={working} onClick={() => void openCapturePicker('audio', selectedSource.id)}>Start Capture</button>}
-            {(selectedSource.kind === 'display' || selectedSource.kind === 'window') && <label className="device-property">Capture Cursor<select aria-label="Capture cursor" disabled={working} value={selectedSource.cursorMode ?? 'motion'} onChange={(event) => void updateCaptureCursorMode(selectedSource.id, event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>}
+            {(selectedSource.kind === 'display' || selectedSource.kind === 'window') && <>
+              <button className="secondary-button device-property" disabled={working} onClick={() => void openCapturePicker(selectedSource.kind === 'display' ? 'screen' : 'window', selectedSource.id)}>{runtimesSnapshot.has(selectedSource.id) ? 'Change Capture' : 'Reconnect Capture'}</button>
+              <label className="device-property">Capture Cursor<select aria-label="Capture cursor" disabled={working} value={selectedSource.cursorMode ?? 'motion'} onChange={(event) => void updateCaptureCursorMode(selectedSource.id, event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>
+            </>}
             {supportsSourceTransform(selectedSource) && <details className="filter-details"><summary>Transform</summary>
               <div className="source-transform-grid">
                 {(['x', 'y', 'width', 'height'] as const).map((key) => <label key={key}>{key === 'x' ? 'Position X' : key === 'y' ? 'Position Y' : key === 'width' ? 'Width' : 'Height'}<input aria-label={`Source ${key}`} disabled={selectedSource.locked} type="number" min={key === 'x' || key === 'y' ? -32768 : 1} max="32768" step="1" key={`${selectedSource.id}-${key}-${selectedSource.transform[key]}`} defaultValue={selectedSource.transform[key]} onBlur={(event) => updateSourceTransform(selectedSource.id, key, event.currentTarget.value)} /></label>)}
@@ -2608,7 +2620,7 @@ export function App() {
 
       {captureOptions && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setCaptureOptions(null); setCaptureKind(null); setCaptureTargetSourceId(null); } }}>
         <section className="capture-modal" role="dialog" aria-modal="true" aria-labelledby="capture-title">
-          <div className="modal-heading"><div><span className="modal-eyebrow">{captureTargetSourceId ? 'RESTART SOURCE' : 'NEW SOURCE'}</span><h2 id="capture-title">{captureKind === 'audio' ? 'Select a display for audio' : captureKind === 'screen' ? 'Select a display' : 'Select a window'}</h2></div><button className="icon-button" aria-label="Close" onClick={() => { setCaptureOptions(null); setCaptureKind(null); setCaptureTargetSourceId(null); }}><X size={17} /></button></div>
+          <div className="modal-heading"><div><span className="modal-eyebrow">{captureTargetSourceId ? (runtimesSnapshot.has(captureTargetSourceId) ? 'CHANGE CAPTURE' : 'RECONNECT CAPTURE') : 'NEW SOURCE'}</span><h2 id="capture-title">{captureKind === 'audio' ? 'Select a display for audio' : captureKind === 'screen' ? 'Select a display' : 'Select a window'}</h2></div><button className="icon-button" aria-label="Close" onClick={() => { setCaptureOptions(null); setCaptureKind(null); setCaptureTargetSourceId(null); }}><X size={17} /></button></div>
           <div className="capture-grid">{captureOptions.length === 0 ? <div className="capture-empty">No {captureKind === 'window' ? 'windows' : 'displays'} are available.</div> : captureOptions.map((option) => <button key={option.id} className="capture-option" disabled={working} onClick={() => void addDesktopCapture(option)}>
             <img src={option.thumbnail} alt="" /><span className="capture-option-name">{option.name}</span>
           </button>)}</div>

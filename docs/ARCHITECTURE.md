@@ -68,6 +68,15 @@ new user gesture to start capture after the source stops or Stream restarts;
 the current Electron loopback path captures system audio rather than selecting
 an individual output device or application.
 
+Display and Window Capture sources also persist their selected capture ID, but
+their live media tracks are session-only. The selected-source properties expose
+Reconnect Capture when the track is absent and Change Capture while it is live.
+Both actions use the trusted user-gesture picker; selecting a replacement binds
+the new track to the existing source ID and keeps the source's saved scene
+properties. Cursor mode is initialized from the saved source and persisted if
+changed in the picker. Stream does not start desktop capture automatically on
+project load (ADR-0104).
+
 Media sources persist their loop, restart-on-activation, and end-frame settings
 with the scene. `RuntimeVideoBank` binds each asset for the source lifetime,
 then separately pauses/resumes it as the source becomes active or inactive;
