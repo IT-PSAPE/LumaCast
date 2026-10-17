@@ -1,0 +1,21 @@
+appId: com.lumacast.soundboard
+productName: LumaSoundboard
+npmRebuild: false
+directories:
+  output: dist
+files:
+  - out/**/*
+win:
+  target: nsis
+  artifactName: "${productName}-${version}-${arch}-win.${ext}"
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+mac:
+  category: public.app-category.music
+  target: dmg
+linux:
+  executableName: lumasoundboard
+  category: AudioVideo
+  target: AppImage
