@@ -97,6 +97,12 @@ describe('Stream output destination and reconnect', () => {
     expect(argumentsList[0]?.slice(-2)).toEqual(['mpegts', 'srt://stream.example:9000?mode=caller&latency=120000']);
   });
 
+  it('accepts RIST host and port with FFmpeg query options and selects MPEG-TS', () => {
+    const { argumentsList } = harness(2, 1024 * 1024, 0, 'rist://stream.example:9001?buffer_size=2000&fifo_size=1024');
+
+    expect(argumentsList[0]?.slice(-2)).toEqual(['mpegts', 'rist://stream.example:9001?buffer_size=2000&fifo_size=1024']);
+  });
+
   it.each([
     ['missing a port', 'srt://stream.example'],
     ['missing a host', 'srt://:9000'],
@@ -105,6 +111,17 @@ describe('Stream output destination and reconnect', () => {
     ['containing user information', 'srt://user:secret@stream.example:9000'],
     ['containing a fragment', 'srt://stream.example:9000#channel'],
   ])('rejects SRT URLs %s', (_reason, destination) => {
+    expect(() => harness(2, 1024 * 1024, 0, destination)).toThrow();
+  });
+
+  it.each([
+    ['missing a port', 'rist://stream.example'],
+    ['missing a host', 'rist://:9001'],
+    ['using an out-of-range port', 'rist://stream.example:65536'],
+    ['containing a path', 'rist://stream.example:9001/channel'],
+    ['containing user information', 'rist://user:secret@stream.example:9001'],
+    ['containing a fragment', 'rist://stream.example:9001#channel'],
+  ])('rejects RIST URLs %s', (_reason, destination) => {
     expect(() => harness(2, 1024 * 1024, 0, destination)).toThrow();
   });
 

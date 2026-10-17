@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { assertRequiredOutputProtocols } from './media-engine-capabilities.mjs';
 
 const appDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const vendorDirectory = path.join(appDirectory, 'vendor', 'ffmpeg');
@@ -35,6 +36,8 @@ async function run() {
     await access(executable);
     const existing = JSON.parse(marker);
     if (existing.sha256 === bundle.sha256 && existing.license === 'LGPL-3.0-or-later; shared Windows x64 build') {
+      const protocols = execFileSync(executable, ['-hide_banner', '-protocols'], { encoding: 'utf8', windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
+      assertRequiredOutputProtocols(protocols);
       console.log(`Stream media engine ${bundle.version} is already prepared.`);
       return;
     }
@@ -74,6 +77,8 @@ async function run() {
     const licenseVersion = license.match(/Lesser General Public License[\s\S]*?version (\d+) of the License/i)?.[1]
       ?? license.match(/Lesser General Public License[\s\S]*?version (\d+) or later/i)?.[1];
     if (!licenseVersion) throw new Error('The Stream media engine did not report its LGPL version.');
+    const protocols = execFileSync(sourceExecutable, ['-hide_banner', '-protocols'], { encoding: 'utf8', windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
+    assertRequiredOutputProtocols(protocols);
     const encoders = execFileSync(sourceExecutable, ['-hide_banner', '-encoders'], { encoding: 'utf8', windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
     if (!['h264_mf', 'h264_nvenc', 'h264_qsv', 'h264_amf', 'libopenh264', 'aac'].every((name) => new RegExp(`\\b${name}\\b`).test(encoders))) {
       throw new Error('The Stream media engine is missing a required H.264 encoder family or AAC encoder.');

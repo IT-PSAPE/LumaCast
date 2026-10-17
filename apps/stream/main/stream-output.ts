@@ -41,16 +41,16 @@ const DEFAULT_RETRY_OPTIONS: StreamOutputRetryOptions = {
 
 function validateDestination(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value) || value.includes('#')) {
-    throw new Error('Enter a valid RTMP, RTMPS, or SRT server URL.');
+    throw new Error('Enter a valid RTMP, RTMPS, SRT, or RIST server URL.');
   }
   let url: URL;
-  try { url = new URL(value); } catch { throw new Error('Enter a valid RTMP, RTMPS, or SRT server URL.'); }
+  try { url = new URL(value); } catch { throw new Error('Enter a valid RTMP, RTMPS, SRT, or RIST server URL.'); }
   if (url.username || url.password || url.hash) {
     throw new Error('Server URLs cannot contain user information or fragments.');
   }
-  if (url.protocol === 'srt:') {
+  if (url.protocol === 'srt:' || url.protocol === 'rist:') {
     if (!url.hostname || !url.port || (url.pathname && url.pathname !== '/')) {
-      throw new Error('Enter an SRT server URL with a host and port, followed by optional FFmpeg query options.');
+      throw new Error('Enter an SRT or RIST server URL with a host and port, followed by optional FFmpeg query options.');
     }
     return url.toString();
   }
@@ -171,7 +171,8 @@ export class StreamOutput {
   }
 
   private arguments(destination: string, settings: StreamOutputSettings): string[] {
-    const outputFormat = new URL(destination).protocol === 'srt:' ? 'mpegts' : 'flv';
+    const protocol = new URL(destination).protocol;
+    const outputFormat = protocol === 'srt:' || protocol === 'rist:' ? 'mpegts' : 'flv';
     return [
       '-hide_banner', '-nostats', '-loglevel', 'error', '-progress', 'pipe:2',
       '-f', 'webm', '-i', 'pipe:0',
