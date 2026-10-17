@@ -111,7 +111,11 @@ Main writes each stream to its own temporary WebM file, then the pinned FFmpeg
 executable maps the streams into one selected WebM, Matroska, or MP4 file. This
 keeps track routing independent despite Chromium's one-audio-track MediaRecorder
 output. Finalization publishes the requested file only after success; on failure,
-Stream preserves recoverable per-stream WebM files (ADR-0065, ADR-0087).
+Stream preserves recoverable per-stream WebM files (ADR-0065, ADR-0087). Pause
+and resume operate across the video recorder and every selected audio-track
+recorder as one session. Elapsed recording time excludes paused intervals, and
+stopping a paused session stops every paused recorder before normal finalization
+(ADR-0097).
 
 Scene collection editing supports create, rename, duplicate, and delete. A
 duplicate receives a new scene ID and new IDs for each source; live capture

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
   ArrowDownToLine, ArrowUpFromLine, AudioLines, ChevronDown, ChevronUp, Clapperboard, Copy, Eye, EyeOff, ExternalLink, Lock, LockOpen,
-  FileAudio, FileVideo, Globe, Grid2X2, Headphones, Image as ImageIcon, Layers2, Mic, Monitor, MoreHorizontal, Move, Plus, Radio, Settings2,
+  FileAudio, FileVideo, Globe, Grid2X2, Headphones, Image as ImageIcon, Layers2, Mic, Monitor, MoreHorizontal, Move, Pause, Play, Plus, Radio, Settings2,
   Redo2, Square, Type, Undo2, Volume2, VolumeX, Webcam, X,
 } from 'lucide-react';
 import { CanvasComposition, hitTestSource, RuntimeVideoBank } from './canvas-composition';
@@ -16,6 +16,7 @@ import { sceneEditorState, SceneHistory, type SceneEditorState } from './scene-h
 import { duplicateSource } from './source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slideshow';
 import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
+import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from './recording-controls';
 import {
   type DesktopSourceOption,
   type CaptureCursorMode,
@@ -52,6 +53,8 @@ interface ActiveRecording {
   id: string;
   channels: Array<{ track: RecordingTrackId; recorder: MediaRecorder; captureStream: MediaStream }>;
   startedAt: number;
+  pausedAt: number | null;
+  accumulatedPauseMs: number;
   writeQueue: Promise<void>;
   failure: unknown;
   stoppedChannels: number;
@@ -270,6 +273,8 @@ export function App() {
   const [captureCursorMode, setCaptureCursorMode] = useState<CaptureCursorMode>('motion');
   const [working, setWorking] = useState(false);
   const [recordingStartedAt, setRecordingStartedAt] = useState<number | null>(null);
+  const [recordingPausedAt, setRecordingPausedAt] = useState<number | null>(null);
+  const [recordingAccumulatedPauseMs, setRecordingAccumulatedPauseMs] = useState(0);
   const [recordingFinalizing, setRecordingFinalizing] = useState(false);
   const [streamingStartedAt, setStreamingStartedAt] = useState<number | null>(null);
   const [replayBufferStartedAt, setReplayBufferStartedAt] = useState<number | null>(null);
@@ -437,7 +442,7 @@ export function App() {
   useEffect(() => () => {
     for (const stream of runtimes.current.values()) stream.getTracks().forEach((track) => track.stop());
     runtimes.current.clear();
-    recording.current?.channels.forEach(({ recorder }) => { if (recorder.state === 'recording') recorder.stop(); });
+    if (recording.current) stopRecordingChannels(recording.current.channels);
     if (streaming.current?.recorder.state === 'recording') streaming.current.recorder.stop();
     else if (streaming.current) void api.stopStreaming(streaming.current.id).catch(() => undefined);
     replayBuffer.current?.channels.forEach(({ recorder }) => { if (recorder.state === 'recording') recorder.stop(); });
@@ -1523,10 +1528,10 @@ export function App() {
           captureStream: capture,
         });
       }
-      const active: ActiveRecording = { id: file.id, channels, startedAt: Date.now(), writeQueue: Promise.resolve(), failure: null, stoppedChannels: 0 };
+      const active: ActiveRecording = { id: file.id, channels, startedAt: Date.now(), pausedAt: null, accumulatedPauseMs: 0, writeQueue: Promise.resolve(), failure: null, stoppedChannels: 0 };
       activeSession = active;
       recording.current = active;
-      const stopAll = () => channels.forEach(({ recorder: item }) => { if (item.state === 'recording') item.stop(); });
+      const stopAll = () => stopRecordingChannels(channels);
       const finish = () => {
         active.stoppedChannels += 1;
         if (active.stoppedChannels !== channels.length) return;
@@ -1548,6 +1553,8 @@ export function App() {
             active.channels.forEach((channel) => channel.captureStream.getTracks().forEach((track) => track.stop()));
             if (recording.current === active) recording.current = null;
             setRecordingStartedAt(null);
+            setRecordingPausedAt(null);
+            setRecordingAccumulatedPauseMs(0);
             setRecordingFinalizing(false);
           }
         })();
@@ -1574,12 +1581,16 @@ export function App() {
         startedChannels += 1;
       }
       setRecordingStartedAt(active.startedAt);
+      setRecordingPausedAt(null);
+      setRecordingAccumulatedPauseMs(0);
     } catch (error) {
       if (activeSession && startedChannels > 0) {
         activeSession.failure = error;
         activeSession.stoppedChannels += activeSession.channels.length - startedChannels;
         activeSession.channels.slice(0, startedChannels).forEach(({ recorder }) => { if (recorder.state === 'recording') recorder.stop(); });
         setRecordingStartedAt(activeSession.startedAt);
+        setRecordingPausedAt(null);
+        setRecordingAccumulatedPauseMs(0);
         setActionError(`Could not start every recording track: ${friendlyError(error)}`);
         return;
       }
@@ -1592,7 +1603,31 @@ export function App() {
 
   const stopRecording = () => {
     const active = recording.current;
-    active?.channels.forEach(({ recorder }) => { if (recorder.state === 'recording') recorder.stop(); });
+    if (active) stopRecordingChannels(active.channels);
+  };
+
+  const pauseRecording = () => {
+    const active = recording.current;
+    if (!active) return;
+    if (!pauseRecordingChannels(active.channels)) {
+      setActionError('Recording tracks could not be paused together.');
+      return;
+    }
+    active.pausedAt = Date.now();
+    setRecordingPausedAt(active.pausedAt);
+  };
+
+  const resumeRecording = () => {
+    const active = recording.current;
+    if (!active || active.pausedAt === null) return;
+    if (!resumeRecordingChannels(active.channels)) {
+      setActionError('Recording tracks could not be resumed together.');
+      return;
+    }
+    active.accumulatedPauseMs += Math.max(0, Date.now() - active.pausedAt);
+    active.pausedAt = null;
+    setRecordingAccumulatedPauseMs(active.accumulatedPauseMs);
+    setRecordingPausedAt(null);
   };
 
   const startStreaming = async () => {
@@ -1984,7 +2019,7 @@ export function App() {
   const sourceInScene = activeScene.sources.find((source) => source.id === selectedSourceId);
   const previewTransform = sourceInScene?.transform;
   const previewScene = activeScene;
-  const duration = formatElapsed(recordingStartedAt, clockNow);
+  const duration = formatElapsed(recordingStartedAt, recordingElapsedTime(clockNow, recordingPausedAt, recordingAccumulatedPauseMs));
   const streamDuration = formatElapsed(streamingStartedAt, clockNow);
   const totalSourceCount = activeScene.sources.length;
   const canSaveReplay = replayBufferRevision > 0 && Boolean(replayBuffer.current?.channels.some((channel) => channel.track === 0 && channel.header));
@@ -2172,13 +2207,18 @@ export function App() {
           <div className="dock-title"><span>Controls</span><MoreHorizontal size={16} className="title-more" /></div>
           <div className="control-action-grid">
             {streamingStartedAt === null ? <button className="control-action live-action" disabled={working} onClick={() => setStreamDialogOpen(true)}><Radio size={13} />Go Live</button> : <button className="control-action live-action active-action" onClick={stopStreaming}><Square size={11} fill="currentColor" />Stop Live</button>}
-            {recordingFinalizing ? <button className="control-action" disabled><span className="record-button-dot" />Finalizing</button> : recordingStartedAt === null ? <button className="control-action record-action" disabled={working} onClick={() => void startRecording()}><span className="record-button-dot" />Record</button> : <button className="control-action active-action" onClick={stopRecording}><Square size={11} fill="currentColor" />Stop Rec</button>}
+            {recordingFinalizing ? <button className="control-action" disabled><span className="record-button-dot" />Finalizing</button> : recordingStartedAt === null ? <button className="control-action record-action" disabled={working} onClick={() => void startRecording()}><span className="record-button-dot" />Record</button> : <>
+              {recordingPausedAt === null
+                ? <button className="control-action pause-action" onClick={pauseRecording}><Pause size={12} fill="currentColor" />Pause</button>
+                : <button className="control-action pause-action" onClick={resumeRecording}><Play size={12} fill="currentColor" />Resume</button>}
+              <button className="control-action active-action" onClick={stopRecording}><Square size={11} fill="currentColor" />Stop Rec</button>
+            </>}
             {replayBufferStartedAt === null ? <button className="control-action" disabled={working} onClick={() => void startReplayBuffer()}><Radio size={13} />Start Replay Buffer</button> : <button className="control-action active-action" onClick={stopReplayBuffer}><Square size={11} />Stop Replay Buffer</button>}
             <button className="control-action" disabled={!canSaveReplay || working} onClick={() => void saveReplay()}><Copy size={13} />Save Replay</button>
           </div>
           <div className="control-status-lines">
             <span><i className={`control-status-dot ${streamStatus.state === 'live' ? 'live-dot' : ''}`} />{streamStatus.state === 'live' ? `Live · ${streamDuration}` : streamStatus.state === 'connecting' ? 'Connecting…' : streamStatus.state === 'error' ? 'Stream error' : 'Offline'}</span>
-            <span><i className={`control-status-dot ${recordingStartedAt !== null || recordingFinalizing ? 'record-dot' : ''}`} />{recordingFinalizing ? 'Finalizing' : recordingStartedAt === null ? 'Recording stopped' : `Recording · ${duration}`}</span>
+            <span><i className={`control-status-dot ${recordingStartedAt !== null || recordingFinalizing ? 'record-dot' : ''}`} />{recordingFinalizing ? 'Finalizing' : recordingStartedAt === null ? 'Recording stopped' : `${recordingPausedAt === null ? 'Recording' : 'Recording paused'} · ${duration}`}</span>
             {streamStatus.state === 'live' && <span className="control-bitrate">{streamStatus.bitrateKbps ?? 0} kb/s</span>}
           </div>
           <div className="control-bottom"><button className="control-small" onClick={toggleStudioMode}><Clapperboard size={14} />{project.studioMode ? 'Exit Studio Mode' : 'Studio Mode'}</button><button className="control-small" onClick={openSettings}><Settings2 size={14} />Settings</button></div>

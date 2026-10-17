@@ -175,6 +175,7 @@ button.multiview-tile:hover { border-color: #596777; background: #20252c; }
 .control-action.live-action { border-color: #3a786a; color: #97e3d1; background: #203b36; }
 .control-action.live-action.active-action, .control-action.active-action { border-color: #814448; color: #ffb1b3; background: #40272b; }
 .control-action.record-action { border-color: #814448; color: #ffb1b3; background: #40272b; }
+.control-action.pause-action { border-color: #645333; color: #edca80; background: #332d21; }
 .control-action.virtual-camera-action { grid-column: 1 / -1; }
 .control-action .record-button-dot { width: 7px; height: 7px; flex: 0 0 7px; }
 .control-status-lines { display: grid; gap: 4px; padding: 4px 9px 1px; color: #818b97; font-size: 8px; }
