@@ -68,6 +68,13 @@ new user gesture to start capture after the source stops or Stream restarts;
 the current Electron loopback path captures system audio rather than selecting
 an individual output device or application.
 
+Media sources persist their loop, restart-on-activation, and end-frame settings
+with the scene. `RuntimeVideoBank` binds each asset for the source lifetime,
+then separately pauses/resumes it as the source becomes active or inactive;
+this keeps playback position when restart-on-activation is disabled. Canvas
+composition omits the last video frame when the source's end-frame setting is
+enabled.
+
 The main process stores a validated collection index plus one project JSON file
 per collection under Stream app data. Profiles are stored separately in
 `profiles.json` and own output settings and global output hotkeys; the active

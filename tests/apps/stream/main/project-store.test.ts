@@ -80,6 +80,28 @@ function projectWithDesktopAudioSource(): StreamProject {
   return project;
 }
 
+function projectWithMediaSource(): StreamProject {
+  const project = createDefaultProject();
+  const scene = project.scenes[0];
+  if (!scene) throw new Error('Default Stream project has no scene.');
+  scene.sources.push({
+    id: 'media-source',
+    name: 'Clip',
+    kind: 'media',
+    visible: true,
+    muted: false,
+    volume: 1,
+    transform: { x: 0, y: 0, width: project.output.width, height: project.output.height },
+    assetId: '00000000-0000-4000-8000-000000000001',
+    assetExtension: 'mp4',
+    mediaKind: 'video',
+    loop: false,
+    restartPlaybackWhenActive: false,
+    showNothingWhenPlaybackEnds: false,
+  });
+  return project;
+}
+
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
@@ -95,6 +117,55 @@ describe('LumaStream desktop audio persistence', () => {
     expect(source?.kind).toBe('desktop-audio');
     expect(source?.captureId).toBe('screen:1');
     expect(source?.audioTracks).toEqual([1]);
+  });
+});
+
+describe('LumaStream media playback persistence', () => {
+  it('round-trips loop, restart-on-active, and end-frame behavior', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(projectWithMediaSource()), 'utf8');
+
+    const restored = await new ProjectStore(directory).load();
+    const source = restored.project.scenes[0]?.sources.find((item) => item.id === 'media-source');
+    expect(source?.loop).toBe(false);
+    expect(source?.restartPlaybackWhenActive).toBe(false);
+    expect(source?.showNothingWhenPlaybackEnds).toBe(false);
+  });
+
+  it('rejects media playback settings with non-boolean values', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithMediaSource();
+    (project.scenes[0]!.sources[0] as unknown as Record<string, unknown>).restartPlaybackWhenActive = 'yes';
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid media restart setting');
+  });
+
+  it('ignores a legacy loop field on image sources without rejecting the collection', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push({
+      id: 'legacy-image-source',
+      name: 'Still Image',
+      kind: 'image',
+      visible: true,
+      muted: false,
+      volume: 1,
+      transform: { x: 0, y: 0, width: project.output.width, height: project.output.height },
+      assetId: '00000000-0000-4000-8000-000000000002',
+      assetExtension: 'png',
+      mediaKind: 'image',
+      loop: true,
+    });
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    const restored = await new ProjectStore(directory).load();
+    const source = restored.project.scenes[0]?.sources.find((item) => item.id === 'legacy-image-source');
+    expect(source?.kind).toBe('image');
+    expect(source?.loop).toBeUndefined();
   });
 });
 

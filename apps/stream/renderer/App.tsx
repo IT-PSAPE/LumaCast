@@ -303,6 +303,7 @@ export function App() {
   const [hotkeyError, setHotkeyError] = useState('');
   const [hotkeysWorking, setHotkeysWorking] = useState(false);
   const [meterLevels, setMeterLevels] = useState<Record<string, number>>({});
+  const [mediaPlaybackStates, setMediaPlaybackStates] = useState<Record<string, { paused: boolean; ended: boolean }>>({});
   const [runtimeRevision, setRuntimeRevision] = useState(0);
   const [previewSize, setPreviewSize] = useState({ width: 0, height: 0 });
   const [undoAvailable, setUndoAvailable] = useState(false);
@@ -321,6 +322,7 @@ export function App() {
   const runtimes = useRef(new Map<string, MediaStream>());
   const multiviewRuntimeBaseline = useRef<Set<string> | null>(null);
   const videoElements = useRef(new Map<string, HTMLVideoElement>());
+  const mediaElements = useRef(new Map<string, HTMLMediaElement>());
   const imageElements = useRef(new Map<string, HTMLImageElement>());
   const mixer = useRef<AudioMixerEngine | null>(null);
   const recording = useRef<ActiveRecording | null>(null);
@@ -610,6 +612,17 @@ export function App() {
       }
     })();
   }, [clearNoiseSuppressionPreference, ensureMixer, liveScene]);
+
+  const onMediaPlaybackState = useCallback((sourceId: string, element: HTMLMediaElement | null) => {
+    setMediaPlaybackStates((current) => {
+      if (!element) {
+        const next = { ...current };
+        delete next[sourceId];
+        return next;
+      }
+      return { ...current, [sourceId]: { paused: element.paused, ended: element.ended } };
+    });
+  }, []);
 
   const attachRuntime = useCallback(async (source: StreamSource, stream: MediaStream, programActiveOverride?: boolean) => {
     runtimes.current.get(source.id)?.getTracks().forEach((track) => track.stop());
@@ -1099,13 +1112,38 @@ export function App() {
         assetId: asset.id,
         assetExtension: asset.extension,
         mediaKind: asset.kind,
-        loop: true,
+        ...(asset.kind !== 'image' ? {
+          loop: false,
+          restartPlaybackWhenActive: true,
+          showNothingWhenPlaybackEnds: true,
+        } : {}),
         ...(asset.kind === 'audio' ? { transform: defaultTransform('media', project.output, 'audio') } : {}),
       });
       addToActiveScene(source);
     } catch (error) {
       setActionError(`Could not import ${kind}: ${friendlyError(error)}`);
     } finally { setWorking(false); }
+  };
+
+  const toggleMediaPlayback = (sourceId: string) => {
+    const element = mediaElements.current.get(sourceId);
+    if (!element) return;
+    if (element.paused) void element.play().catch((error) => setActionError(`Media could not play: ${friendlyError(error)}`));
+    else element.pause();
+  };
+
+  const restartMediaPlayback = (sourceId: string) => {
+    const element = mediaElements.current.get(sourceId);
+    if (!element) return;
+    element.currentTime = 0;
+    void element.play().catch((error) => setActionError(`Media could not restart: ${friendlyError(error)}`));
+  };
+
+  const stopMediaPlayback = (sourceId: string) => {
+    const element = mediaElements.current.get(sourceId);
+    if (!element) return;
+    element.pause();
+    element.currentTime = 0;
   };
 
   const addSlideshow = async () => {
@@ -2148,7 +2186,7 @@ export function App() {
 
   return (
     <main className="app-shell">
-      <RuntimeVideoBank sources={allSources} runtimes={runtimesSnapshot} elements={videoElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} onMediaElement={connectMediaElement} onBrowserElement={onBrowserElement} />
+      <RuntimeVideoBank sources={allSources} runtimes={runtimesSnapshot} elements={videoElements.current} mediaElements={mediaElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} onMediaElement={connectMediaElement} onMediaPlaybackState={onMediaPlaybackState} onBrowserElement={onBrowserElement} />
       <header className="topbar">
         <button className="icon-button top-icon top-settings-button" type="button" aria-label="Settings" onClick={openSettings}><Settings2 size={16} /></button>
         <span className="topbar-divider" />
@@ -2398,7 +2436,16 @@ export function App() {
             </details>}
             {selectedSource.kind === 'text' && <label className="text-property">Text<input value={selectedSource.text ?? ''} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, text: event.target.value }))} /></label>}
             {(selectedSource.kind === 'text' || selectedSource.kind === 'color') && <label className="color-property">Color<input type="color" value={selectedSource.color ?? '#ffffff'} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, color: event.target.value }))} /></label>}
-            {selectedSource.kind === 'media' && <label className="media-loop-property"><input type="checkbox" checked={selectedSource.loop ?? true} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, loop: event.target.checked }))} /><span>Loop</span></label>}
+            {selectedSource.kind === 'media' && <>
+              <div className="media-playback-controls">
+                <button className="secondary-button" disabled={!mediaElements.current.has(selectedSource.id)} onClick={() => toggleMediaPlayback(selectedSource.id)}>{mediaPlaybackStates[selectedSource.id]?.paused ? <Play size={12} /> : <Pause size={12} />}{mediaPlaybackStates[selectedSource.id]?.paused ? 'Play' : 'Pause'}</button>
+                <button className="secondary-button" disabled={!mediaElements.current.has(selectedSource.id)} onClick={() => restartMediaPlayback(selectedSource.id)}><Play size={12} />Restart</button>
+                <button className="secondary-button" disabled={!mediaElements.current.has(selectedSource.id)} onClick={() => stopMediaPlayback(selectedSource.id)}><Square size={11} />Stop</button>
+              </div>
+              <label className="media-loop-property"><input type="checkbox" checked={selectedSource.loop ?? false} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, loop: event.target.checked }))} /><span>Loop</span></label>
+              <label className="media-loop-property"><input type="checkbox" checked={selectedSource.restartPlaybackWhenActive ?? true} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, restartPlaybackWhenActive: event.target.checked }))} /><span>Restart playback when source becomes active</span></label>
+              <label className="media-loop-property"><input type="checkbox" checked={selectedSource.showNothingWhenPlaybackEnds ?? true} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, showNothingWhenPlaybackEnds: event.target.checked }))} /><span>Show nothing when playback ends</span></label>
+            </>}
             {selectedSource.kind === 'slideshow' && <div className="slideshow-properties">
               <label className="device-property">Slide duration (seconds)<input aria-label="Slide duration in seconds" type="number" min="1" max="600" value={selectedSource.slideshowIntervalSeconds ?? 5} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, slideshowIntervalSeconds: Math.max(1, Math.min(600, Number(event.target.value) || 1)) }))} /></label>
               <label className="media-loop-property"><input type="checkbox" checked={selectedSource.slideshowLoop ?? true} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, slideshowLoop: event.target.checked }))} /><span>Loop</span></label>

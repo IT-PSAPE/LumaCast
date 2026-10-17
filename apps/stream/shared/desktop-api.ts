@@ -166,6 +166,8 @@ export interface StreamSource {
   assetExtension?: string;
   mediaKind?: MediaKind;
   loop?: boolean;
+  restartPlaybackWhenActive?: boolean;
+  showNothingWhenPlaybackEnds?: boolean;
   slideshowImages?: SlideshowImage[];
   slideshowIntervalSeconds?: number;
   slideshowLoop?: boolean;

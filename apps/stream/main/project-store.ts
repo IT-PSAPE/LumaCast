@@ -70,6 +70,12 @@ function decodeSource(value: unknown): StreamSource {
   if (value.assetExtension !== undefined && (typeof value.assetExtension !== 'string' || !/^(png|jpg|jpeg|bmp|gif|webp|mp4|m4v|mov|webm|mkv|avi|mp3|wav|ogg|flac|m4a|aac|opus)$/.test(value.assetExtension))) throw new Error('Project contains an invalid asset extension.');
   if (value.mediaKind !== undefined && (typeof value.mediaKind !== 'string' || !MEDIA_KINDS.has(value.mediaKind))) throw new Error('Project contains an invalid media type.');
   if (value.loop !== undefined && typeof value.loop !== 'boolean') throw new Error('Project contains an invalid media loop setting.');
+  if (value.restartPlaybackWhenActive !== undefined && (value.kind !== 'media' || typeof value.restartPlaybackWhenActive !== 'boolean')) {
+    throw new Error('Project contains an invalid media restart setting.');
+  }
+  if (value.showNothingWhenPlaybackEnds !== undefined && (value.kind !== 'media' || typeof value.showNothingWhenPlaybackEnds !== 'boolean')) {
+    throw new Error('Project contains an invalid media end-frame setting.');
+  }
   let slideshowImages: StreamSource['slideshowImages'];
   if (value.slideshowImages !== undefined) {
     if (value.kind !== 'slideshow' || !Array.isArray(value.slideshowImages) || value.slideshowImages.length < 1 || value.slideshowImages.length > 100
@@ -231,7 +237,9 @@ function decodeSource(value: unknown): StreamSource {
     ...(typeof value.assetId === 'string' ? { assetId: value.assetId } : {}),
     ...(typeof value.assetExtension === 'string' ? { assetExtension: value.assetExtension } : {}),
     ...(typeof value.mediaKind === 'string' ? { mediaKind: value.mediaKind as StreamSource['mediaKind'] } : {}),
-    ...(typeof value.loop === 'boolean' ? { loop: value.loop } : {}),
+    ...(value.kind === 'media' && typeof value.loop === 'boolean' ? { loop: value.loop } : {}),
+    ...(typeof value.restartPlaybackWhenActive === 'boolean' ? { restartPlaybackWhenActive: value.restartPlaybackWhenActive } : {}),
+    ...(typeof value.showNothingWhenPlaybackEnds === 'boolean' ? { showNothingWhenPlaybackEnds: value.showNothingWhenPlaybackEnds } : {}),
     ...(slideshowImages ? { slideshowImages } : {}),
     ...(typeof value.slideshowIntervalSeconds === 'number' ? { slideshowIntervalSeconds: value.slideshowIntervalSeconds } : {}),
     ...(typeof value.slideshowLoop === 'boolean' ? { slideshowLoop: value.slideshowLoop } : {}),

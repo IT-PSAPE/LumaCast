@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useRef } from 'react';
 import { mediaAssetUrl, type SourceCrop, type StreamProject, type StreamScene, type StreamSource } from '../shared/desktop-api';
 import { ChromaKeyProcessor } from './chroma-key';
+import { setMediaPlaybackActive, shouldShowMediaFrame } from './media-playback';
 import { currentSlideshowSlideIndex, forgetSlideshow, slideshowImageElementKey } from './slideshow';
 import type { SceneTransition } from './scene-transition';
 
@@ -82,7 +83,8 @@ function drawScene(
       }
     } else {
       const video = videos.get(source.id);
-      if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
+      if (video && shouldShowMediaFrame(video.ended, source.showNothingWhenPlaybackEnds ?? true)
+        && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
         const crop = clampCrop(source.crop, video.videoWidth, video.videoHeight);
         const cropWidth = video.videoWidth - crop.left - crop.right;
         const cropHeight = video.videoHeight - crop.top - crop.bottom;
@@ -176,13 +178,15 @@ export const CanvasComposition = forwardRef<HTMLCanvasElement, Props>(function C
   return <canvas ref={setCanvas} className="composition-canvas" />;
 });
 
-export function RuntimeVideoBank({ sources, runtimes, elements, images, activeSourceIds, onMediaElement, onBrowserElement }: {
+export function RuntimeVideoBank({ sources, runtimes, elements, mediaElements, images, activeSourceIds, onMediaElement, onMediaPlaybackState, onBrowserElement }: {
   sources: StreamSource[];
   runtimes: Map<string, MediaStream>;
   elements: Map<string, HTMLVideoElement>;
+  mediaElements: Map<string, HTMLMediaElement>;
   images: Map<string, HTMLImageElement>;
   activeSourceIds: Set<string>;
   onMediaElement: (source: StreamSource, element: HTMLMediaElement) => void;
+  onMediaPlaybackState: (sourceId: string, element: HTMLMediaElement | null) => void;
   onBrowserElement: (sourceId: string, element: HTMLImageElement) => void;
 }) {
   return <div className="video-staging" aria-hidden="true">
@@ -190,10 +194,10 @@ export function RuntimeVideoBank({ sources, runtimes, elements, images, activeSo
     {sources.filter((source) => source.kind === 'slideshow').map((source) => <StageSlideshow key={source.id} source={source} elements={images} />)}
     {sources.filter((source) => source.kind === 'browser').map((source) => <StageBrowser key={source.id} source={source} elements={images} onBrowserElement={onBrowserElement} />)}
     {sources.filter((source) => ['display', 'window', 'camera'].includes(source.kind) || (source.kind === 'media' && source.mediaKind === 'video')).map((source) => (
-      <StageVideo key={source.id} source={source} stream={runtimes.get(source.id)} elements={elements} isActive={activeSourceIds.has(source.id)} onMediaElement={onMediaElement} />
+      <StageVideo key={source.id} source={source} stream={runtimes.get(source.id)} elements={elements} mediaElements={mediaElements} isActive={activeSourceIds.has(source.id)} onMediaElement={onMediaElement} onMediaPlaybackState={onMediaPlaybackState} />
     ))}
     {sources.filter((source) => source.kind === 'media' && source.mediaKind === 'audio').map((source) => (
-      <StageAudio key={source.id} source={source} isActive={activeSourceIds.has(source.id)} onMediaElement={onMediaElement} />
+      <StageAudio key={source.id} source={source} mediaElements={mediaElements} isActive={activeSourceIds.has(source.id)} onMediaElement={onMediaElement} onMediaPlaybackState={onMediaPlaybackState} />
     ))}
   </div>;
 }
@@ -236,58 +240,113 @@ function StageSlideshow({ source, elements }: { source: StreamSource; elements: 
   </>;
 }
 
-function StageVideo({ source, stream, elements, isActive, onMediaElement }: {
+function StageVideo({ source, stream, elements, mediaElements, isActive, onMediaElement, onMediaPlaybackState }: {
   source: StreamSource;
   stream?: MediaStream;
   elements: Map<string, HTMLVideoElement>;
+  mediaElements: Map<string, HTMLMediaElement>;
   isActive: boolean;
   onMediaElement: (source: StreamSource, element: HTMLMediaElement) => void;
+  onMediaPlaybackState: (sourceId: string, element: HTMLMediaElement | null) => void;
 }) {
   const elementRef = useRef<HTMLVideoElement | null>(null);
+  const restartPlaybackWhenActive = source.restartPlaybackWhenActive ?? true;
+  const restartPlaybackWhenActiveRef = useRef(restartPlaybackWhenActive);
+  restartPlaybackWhenActiveRef.current = restartPlaybackWhenActive;
   const ref = useCallback((element: HTMLVideoElement | null) => {
     elementRef.current = element;
     if (element) {
       elements.set(source.id, element);
-      if (source.kind === 'media') onMediaElement(source, element);
-    } else elements.delete(source.id);
-  }, [elements, source, onMediaElement]);
+      if (source.kind === 'media') {
+        mediaElements.set(source.id, element);
+        onMediaElement(source, element);
+      }
+    } else {
+      elements.delete(source.id);
+      mediaElements.delete(source.id);
+    }
+  }, [elements, mediaElements, source.id, source.kind, onMediaElement]);
   useEffect(() => {
     const element = elementRef.current;
     if (!element) return;
     if (source.kind === 'media' && source.assetId) {
       element.srcObject = null;
       element.src = mediaAssetUrl(source.assetId, source.assetExtension ?? 'mp4');
-      element.loop = source.loop ?? true;
       element.muted = false;
-      if (isActive) void element.play().catch(() => undefined); else element.pause();
       return () => { element.pause(); element.removeAttribute('src'); element.load(); };
     }
     element.srcObject = stream ?? null;
     element.muted = true;
     if (stream) void element.play().catch(() => undefined);
     return () => { element.pause(); element.srcObject = null; };
-  }, [source.id, source.kind, source.assetId, source.loop, stream, isActive]);
+  }, [source.id, source.kind, source.assetId, source.assetExtension, stream]);
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element || source.kind !== 'media' || !source.assetId) return;
+    element.loop = source.loop ?? false;
+  }, [source.kind, source.assetId, source.loop]);
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element || source.kind !== 'media' || !source.assetId) return;
+    setMediaPlaybackActive(element, isActive, restartPlaybackWhenActiveRef.current);
+  }, [source.id, source.kind, source.assetId, isActive]);
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element || source.kind !== 'media') return;
+    const updateState = () => onMediaPlaybackState(source.id, element);
+    updateState();
+    for (const eventName of ['play', 'pause', 'ended'] as const) element.addEventListener(eventName, updateState);
+    return () => {
+      for (const eventName of ['play', 'pause', 'ended'] as const) element.removeEventListener(eventName, updateState);
+      onMediaPlaybackState(source.id, null);
+    };
+  }, [onMediaPlaybackState, source.id, source.kind]);
   return <video ref={ref} data-stage-source={source.id} muted playsInline />;
 }
 
-function StageAudio({ source, isActive, onMediaElement }: {
+function StageAudio({ source, mediaElements, isActive, onMediaElement, onMediaPlaybackState }: {
   source: StreamSource;
+  mediaElements: Map<string, HTMLMediaElement>;
   isActive: boolean;
   onMediaElement: (source: StreamSource, element: HTMLMediaElement) => void;
+  onMediaPlaybackState: (sourceId: string, element: HTMLMediaElement | null) => void;
 }) {
   const elementRef = useRef<HTMLAudioElement | null>(null);
+  const restartPlaybackWhenActive = source.restartPlaybackWhenActive ?? true;
+  const restartPlaybackWhenActiveRef = useRef(restartPlaybackWhenActive);
+  restartPlaybackWhenActiveRef.current = restartPlaybackWhenActive;
   const ref = useCallback((element: HTMLAudioElement | null) => {
     elementRef.current = element;
-    if (element) onMediaElement(source, element);
-  }, [source, onMediaElement]);
+    if (element) {
+      mediaElements.set(source.id, element);
+      onMediaElement(source, element);
+    } else mediaElements.delete(source.id);
+  }, [mediaElements, source.id, onMediaElement]);
   useEffect(() => {
     const element = elementRef.current;
     if (!element || !source.assetId) return;
     element.src = mediaAssetUrl(source.assetId, source.assetExtension ?? 'mp3');
-    element.loop = source.loop ?? true;
-    if (isActive) void element.play().catch(() => undefined); else element.pause();
     return () => { element.pause(); element.removeAttribute('src'); element.load(); };
-  }, [source.id, source.assetId, source.loop, isActive]);
+  }, [source.id, source.assetId, source.assetExtension]);
+  useEffect(() => {
+    const element = elementRef.current;
+    if (element) element.loop = source.loop ?? false;
+  }, [source.assetId, source.loop]);
+  useEffect(() => {
+    const element = elementRef.current;
+    if (element) setMediaPlaybackActive(element, isActive, restartPlaybackWhenActiveRef.current);
+  }, [source.id, source.assetId, isActive]);
+  useEffect(() => {
+    const element = elementRef.current;
+    if (!element) return;
+    const updateState = () => onMediaPlaybackState(source.id, element);
+    updateState();
+    for (const eventName of ['play', 'pause', 'ended'] as const) element.addEventListener(eventName, updateState);
+    return () => {
+      for (const eventName of ['play', 'pause', 'ended'] as const) element.removeEventListener(eventName, updateState);
+      onMediaPlaybackState(source.id, null);
+    };
+  }, [onMediaPlaybackState, source.id]);
   return <audio ref={ref} data-stage-source={source.id} />;
 }
 

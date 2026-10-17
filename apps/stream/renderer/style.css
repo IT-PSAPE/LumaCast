@@ -222,6 +222,7 @@ button.multiview-tile:hover { border-color: #596777; background: #20252c; }
 .mini-icon.danger:hover { color: #ff979b; background: #46282c; }
 .text-property, .color-property { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; color: #8994a1; font-size: 9px; }
 .media-loop-property { display: flex; align-items: center; gap: 6px; margin-top: 5px; color: #8994a1; font-size: 9px; }.media-loop-property input { accent-color: #58cbb7; }
+.media-playback-controls { display: flex; gap: 4px; margin-top: 5px; }.media-playback-controls button { min-width: 0; height: 24px; flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; padding: 0 4px; font-size: 8px; }
 .text-property input { width: 125px; height: 24px; padding: 0 6px; border: 1px solid #343b45; border-radius: 3px; color: #dde3ea; background: #11151a; font-size: 9px; }
 .color-property input { width: 34px; height: 21px; padding: 1px; border: 1px solid #3a414a; border-radius: 3px; background: #101317; cursor: pointer; }
 .volume-property { display: flex; align-items: center; gap: 6px; margin-top: 5px; color: #8f99a5; font-size: 9px; }
