@@ -236,11 +236,16 @@ and custom 320–16384 by 180–16384 canvas sizes at
 1–240 FPS, including fractional rates. RTMP/RTMPS streaming adds configurable
 video and audio bitrates, rate-control mode, encoder quality, keyframe interval,
 optional hardware encoding, and live bitrate status. MP4 recording has its own
-encoder settings. Replay Buffer retains up to 60 seconds of the program output
-for saving. Per-source color correction, opacity, blur, HTTP(S) browser page
+encoder settings. The main process can remux selected MKV or WebM recordings to
+MP4 by stream-copying compatible codecs into a temporary file beside the chosen
+destination, then publishing it only after FFmpeg succeeds (ADR-0099). Replay
+Buffer retains up to 60 seconds of the program output for saving. Per-source
+color correction, opacity, blur, HTTP(S) browser page
 rendering, configurable global output hotkeys, per-source audio monitoring, and
-chroma key and neural microphone noise suppression are available. Dedicated
-game capture, plugins, and full filter-catalog parity are outside Stream's
+chroma key and neural microphone noise suppression are available. Camera sources
+persist device-default or common resolution and frame-rate requests; the browser
+applies them as ideals and refreshes device lists on hot-plug changes (ADR-0100).
+Dedicated game capture, plugins, and full filter-catalog parity are outside Stream's
 current scope. Virtual camera is deferred; other advanced output controls remain
 unimplemented, and the app is not yet at OBS feature parity. Stream remains
 outside the managed-product catalog (ADR-0090).
