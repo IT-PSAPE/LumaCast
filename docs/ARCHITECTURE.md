@@ -4,9 +4,9 @@ This document describes the actual implemented architecture for theme lifecycle,
 
 ## Dependency Boundaries
 
-The repository is an npm workspace of five self-contained apps under `apps/*`
-— `cast` (LumaCast), `cloud` (LumaCloud), `flux` (LumaFlux), and `chord`
-(LumaChord), plus `soundboard` (LumaSoundboard) — built on the
+The repository is an npm workspace of six self-contained apps under `apps/*`
+— `cast` (LumaCast), `cloud` (LumaCloud), `flux` (LumaFlux), `chord`
+(LumaChord), `soundboard` (LumaSoundboard), and `stream` (LumaStream) — built on the
 headless packages under `packages/*`. An app never imports another app and a
 package never imports an app, in either direction; shared code lives in a
 package. Dependency direction is enforced by
@@ -50,6 +50,216 @@ The renderer reuses `@lumacast/ui` controls and its public shared theme, bundled
 by the app's Tailwind/Vite pipeline. This app has
 its own build and packaging commands; suite catalog, updater feeds, and hosted
 release publishing remain limited to the existing managed products.
+
+### LumaStream
+
+`apps/stream` is a standalone, private, Windows-first live production app
+(ADR-0052). It has its own sandboxed Electron main/preload/renderer boundary and
+does not import OBS or `libobs`. Main owns capture-source authorization,
+named scene-collection persistence, media imports, and recording-file writes.
+The renderer uses a typed `window.streamApi` bridge and renders scene layers
+into a canvas for preview, program output, and recording.
+
+The main process stores a validated collection index plus one project JSON file
+per collection under Stream app data. Profiles are stored separately in
+`profiles.json` and own output settings and global output hotkeys; the active
+profile is applied to whichever scene collection is open. Scene-switch hotkeys
+are stored with their collection because their targets are collection-specific.
+The main-process hotkey manager registers both sets through Electron's global
+shortcut API and dispatches scene IDs to the renderer, which uses the normal
+scene selection path so Studio Mode keeps its Preview/Program behavior. On first
+load, Stream creates Profile 1 from the active collection's saved output
+settings and output hotkeys. Saves
+are serialized and include both collection and profile IDs, so stale renderer
+saves cannot overwrite a newly selected profile. Collection switching flushes
+the current project before changing the active ID. Startup migrates the previous
+single `scene-collection.json` file without deleting it. Switching profiles or
+collections is blocked during stream, recording, or replay output; a collection
+switch also stops capture tracks, clears mixer routes, and releases the previous
+collection's browser sources. Profiles import and export through a versioned
+`.lumaprofile` JSON document; main limits file size and validates the complete
+output and hotkey payload before adding it. Name collisions receive a unique
+imported name. Imported media is shared across collections in the app-owned
+media directory (ADR-0064, ADR-0088, ADR-0089).
+
+Imported images, video, and audio are copied into Stream's separate app-data
+`media/` directory. Sources persist an opaque media ID and extension; the
+`lumastream://media/` protocol serves only those IDs from that managed directory
+and supports byte ranges for seeking. Image Slideshow sources persist an ordered
+list of managed image IDs, a slide duration, and a loop setting. The renderer
+loads those assets into the existing image staging map and selects a frame on
+the composition clock; collection bundles include each referenced slide and
+remap its IDs on import (ADR-0094). Display/window selection is mediated by
+main and granted to the trusted renderer for a short-lived, one-use request.
+Camera and microphone sources enumerate devices after Chromium grants media
+permission, store the selected opaque device ID with the source, and request the
+saved device when that source is visible in preview or program. Display and
+window sources persist cursor capture as Always, Only when moving, or Never;
+older collections default to Only when moving, and live track changes use the
+screen-capture cursor constraint (ADR-0077). The trusted
+renderer obtains the tracks through `getUserMedia`; labels remain presentation
+data. Camera, microphone, and Windows system-loopback tracks feed the renderer
+audio mixer. Each source can route to any of six independent program buses after
+its source fader, processing, and balance controls. The program bus then splits
+to the local monitor; Studio preview sources stay out of every program bus, and
+per-source monitoring can be Off, Monitor Only, or Monitor and Output. Older
+collections default source routing to Track 1 and monitoring to Off to avoid
+feeding microphone audio back to the speakers (ADR-0066, ADR-0087). Recording
+uses one video-only WebM recorder and one audio-only recorder per selected track.
+Main writes each stream to its own temporary WebM file, then the pinned FFmpeg
+executable maps the streams into one selected WebM, Matroska, or MP4 file. This
+keeps track routing independent despite Chromium's one-audio-track MediaRecorder
+output. Finalization publishes the requested file only after success; on failure,
+Stream preserves recoverable per-stream WebM files (ADR-0065, ADR-0087).
+
+Scene collection editing supports create, rename, duplicate, and delete. A
+duplicate receives a new scene ID and new IDs for each source; live capture
+tracks are cloned so the two scenes can be edited independently. Deletion stops
+the removed scene's capture tracks and is disabled for the final scene
+(ADR-0059).
+
+Scene collections can also be imported or exported as `.lumacollection` ZIP
+bundles. Export includes each referenced image, video, or audio asset once.
+Import stages entries under a temporary directory, caps archive, manifest, and
+expanded sizes, rejects paths outside the bundle layout, checks SHA-256 hashes,
+and assigns fresh opaque media IDs before activating the collection. The main
+process owns file dialogs and archive access; imported project data still passes
+through the project decoder (ADR-0091).
+
+The renderer keeps a bounded, session-local undo/redo history for scene edits,
+source settings, transforms, visibility, and scene selection. Rapid edits within
+500 ms coalesce into one step; switching workspace resets the history. Project
+autosave remains the persistence boundary (ADR-0092).
+
+Source copy/paste is session-local. A pasted source receives a new source ID and
+an offset transform while retaining references to media already managed by its
+scene collection. The scene dock also exposes delete and fit, stretch, center,
+and reset transform actions; Ctrl+C/V, Delete, and Ctrl+F/S/D/R mirror these
+operations (ADR-0093).
+
+Audio sources from the live/program scene feed their selected program tracks.
+Sources in the Studio Mode preview stay out of those buses until taken to program
+(ADR-0060). Streaming selects one of the six buses; recordings can mux any
+combination of them into separate audio streams (ADR-0087).
+
+Per-source audio settings include a gain filter, optional microphone neural
+noise suppression, noise gate, downward expander, compressor (threshold and
+ratio), and limiter. Gain is applied in linear amplitude from a persisted
+decibel value before compression (ADR-0083). RNNoise runs in a 48 kHz Web Audio
+worklet before the source fader and can be inserted or removed while capture
+remains live (ADR-0082). The mixer applies a persisted left/right balance with a Web Audio
+stereo panner before splitting each source into program and monitor routes;
+older sources default to center (ADR-0080). The renderer loads an AudioWorklet
+processor for the gate and expander before the compressor, and applies the
+compressor and limiter with Web Audio
+dynamics compressors. Gate settings include open and close thresholds, attack,
+hold, and release. Expander settings include threshold, ratio, attack, and
+release. Older collections default these filters off and gain to 0 dB. Settings
+persist with the source and are validated by main (ADR-0061, ADR-0070, ADR-0071,
+ADR-0082, ADR-0083).
+
+Output profiles hold the canvas dimensions and frame rate, streaming and
+recording encoder/output settings, selected audio tracks, and global hotkeys.
+Scene collections hold scenes and their sources. Main validates track IDs and
+rejects duplicates; profiles seeded from older version-1 projects preserve
+their saved output configuration, and older projects default streaming and
+recording to Track 1 (ADR-0062, ADR-0063, ADR-0065, ADR-0087, ADR-0088).
+
+Browser sources persist an HTTP(S) URL. Main opens each page in a hidden,
+sandboxed offscreen `BrowserWindow` with no Node integration, blocks popups and
+non-HTTP(S) navigation, and sends JPEG frames to the trusted renderer over the
+typed IPC bridge at up to 15 FPS. The canvas compositor draws those frames like
+other visual sources. Browser page audio is muted by default. When Capture Audio
+is enabled, main creates a WebContents capture ID scoped to the trusted renderer
+and grants display-capture permission only during its short validity window; the
+renderer captures an audio-only tab stream and routes it through the source
+mixer. Browser viewports are capped at 1920×1080 before JPEG transfer
+(ADR-0058, ADR-0074).
+
+Replay Buffer uses a video-only `MediaRecorder` on the same program canvas and a
+separate audio-only recorder for each selected recording track. The renderer
+retains each stream's WebM initialization chunk plus the configured rolling
+window (5, 15, 30, or 60 seconds); Save Replay writes those streams through the
+same main recording store and muxes them into the selected recording container.
+The buffers stay in renderer memory and are discarded when stopped or when
+Stream exits (ADR-0054, ADR-0065, ADR-0087).
+
+Global hotkeys for opening stream controls and toggling recording/replay are
+stored with the active output profile. Main registers the configured
+accelerators through Electron `globalShortcut`, rejects duplicate bindings,
+restores the previous set when the OS reports a conflict, and sends the action
+or collection scene ID over the typed IPC bridge (ADR-0063, ADR-0088, ADR-0095).
+
+Each visual source may persist brightness, contrast, saturation, opacity, and
+blur values. The canvas compositor applies these per-source color-correction
+filters while drawing; main validates their ranges as part of scene-collection
+decoding (ADR-0055). Capture, camera, image, browser, and video sources may
+store crop values in source pixels; the compositor crops before scaling the
+remaining frame into the source transform. Those sources may also persist a
+chroma key color, similarity, and smoothness. The renderer passes the cropped
+texture through a WebGL shader before it enters the 2D program compositor; main
+validates the saved values (ADR-0067, ADR-0068).
+
+Live RTMP/RTMPS output captures the program canvas and selected program audio bus as WebM
+chunks in the renderer. Main passes those chunks to a pinned, shared LGPL
+FFmpeg build through stdin; FFmpeg re-encodes H.264/AAC and sends FLV to the
+configured endpoint. The destination is transient, IPC accepts only the
+validated stream session, and status updates omit the endpoint and raw engine
+errors. The runtime is resolved only from Stream's bundled media-engine
+directory, never from `PATH` (ADR-0053). Stream and MP4 recording settings
+persist an H.264 encoder family, rate-control mode, encoder quality, optional
+Media Foundation hardware encoding, and keyframe interval. The encoder argument
+builder translates those settings to Media Foundation, NVIDIA NVENC, Intel Quick
+Sync, AMD AMF, or software OpenH264 options. The selected family is compiled
+into the pinned LGPL FFmpeg build; hardware families still require a compatible
+device and driver. MP4-only controls stay inactive for WebM and Matroska output
+(ADR-0073, ADR-0075).
+
+The renderer currently provides scenes, layer order/visibility, direct canvas
+positioning and resizing, Studio Mode, Cut/Fade/Swipe/Slide/Fade-to-Color transitions, image
+and media playback, per-source crop, six-track source routing, selectable stream
+audio, multitrack recording, audio levels/mute/volume, compressor/limiter controls,
+and custom 320–16384 by 180–16384 canvas sizes at
+1–240 FPS, including fractional rates. RTMP/RTMPS streaming adds configurable
+video and audio bitrates, rate-control mode, encoder quality, keyframe interval,
+optional hardware encoding, and live bitrate status. MP4 recording has its own
+encoder settings. Replay Buffer retains up to 60 seconds of the program output
+for saving. Per-source color correction, opacity, blur, HTTP(S) browser page
+rendering, configurable global output hotkeys, per-source audio monitoring, and
+chroma key and neural microphone noise suppression are available. Dedicated
+game capture, plugins, and full filter-catalog parity are outside Stream's
+current scope. Virtual camera is deferred; other advanced output controls remain
+unimplemented, and the app is not yet at OBS feature parity. Stream remains
+outside the managed-product catalog (ADR-0090).
+
+The production workbench places the program/preview canvas across the top and
+keeps Scenes, Sources, Audio Mixer, and Controls in dock panels along the bottom.
+Scene transition selection and duration sit beside the preview; stream,
+recording, and replay actions stay in Controls (ADR-0076). The preview measures
+its available work area and contains the output canvas at the configured output
+aspect ratio, including in Studio Mode; pointer-based source editing uses that
+fitted canvas rectangle. Source transforms also have numeric position/size
+fields and fit, center, and reset actions; fitting uses the source dimensions
+and preserves its aspect ratio (ADR-0079). Collection, source, scene, and
+settings popovers are rendered outside clipped docks and reposition to the
+available viewport space. Source locks persist per source and prevent pointer,
+keyboard, and transform-panel geometry changes while leaving visibility and
+layer order editable (ADR-0081).
+
+The monitor's multiview mode renders the program plus every scene preview at a
+reduced resolution and enables visible capture sources for all scenes while it
+is open. It enters Studio Mode so selecting a scene changes only the preview.
+Program audio routing and the full-resolution program canvas remain bound to
+the live scene for recording, streaming, and replay capture (ADR-0084).
+
+Recording, streaming, replay, and the program projector share a persistent
+full-resolution output canvas that is independent of monitor layout changes.
+The projector opens a dedicated, sandboxed window and mirrors that canvas as
+video, keeping the configured aspect ratio with letterboxing when its window is
+not the same shape. The window-open policy admits only the inherited-origin
+blank document used by this projector; other renderer popups remain denied.
+This avoids opening a second display, camera, or browser-source capture session
+(ADR-0086).
 
 ### App tree (`apps/<app>`)
 

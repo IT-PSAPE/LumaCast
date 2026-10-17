@@ -1,0 +1,30 @@
+appId: com.lumacast.stream
+productName: LumaStream
+npmRebuild: false
+directories:
+  output: dist
+files:
+  - out/**/*
+extraResources:
+  - from: vendor/ffmpeg/bin
+    to: media-engine
+    filter:
+      - ffmpeg.exe
+      - '*.dll'
+  - from: vendor/ffmpeg/provenance.json
+    to: third-party/ffmpeg/provenance.json
+  - from: third-party/ffmpeg/NOTICE.md
+    to: third-party/ffmpeg/NOTICE.md
+  - from: third-party/ffmpeg/COPYING.LGPLv3
+    to: third-party/ffmpeg/COPYING.LGPLv3
+  - from: third-party/noise-suppression
+    to: third-party/noise-suppression
+    filter:
+      - '*'
+win:
+  target: nsis
+  artifactName: "${productName}-${version}-${arch}-win.${ext}"
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false

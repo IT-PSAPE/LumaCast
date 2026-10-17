@@ -2,13 +2,14 @@
 
 Cross-platform Electron prototype for a ProPresenter-style presentation workflow focused on reusable content, slide rendering, and NDI output.
 
-The repository is a workspace of five apps and their shared packages:
+The repository is a workspace of six apps and their shared packages:
 
 - `apps/cast` — LumaCast, the NDI presentation app
 - `apps/cloud` — LumaCloud, the suite manager: installs, updates, downgrades, and removes the other apps
 - `apps/flux` — Lumaflux, the photo editor
 - `apps/chord` — LumaChord, the lyric-video maker: audio plus timed lyric cues rendered and exported as video
 - `apps/soundboard` — LumaSoundboard, a standalone desktop app with named boards, audio import, and per-sound play, pause, stop, and removal
+- `apps/stream` — LumaStream, a Windows-first live production app with scenes, capture sources, imported media, audio mixing, configurable WebM/MP4/Matroska recording, and RTMP/RTMPS output
 
 Each app is self-contained: it ships its own main process, renderer, and
 `package.json` (which owns its release version), and it shares only the
@@ -68,6 +69,7 @@ npm run dev:cloud
 npm run dev:flux
 npm run dev:chord
 npm run dev:soundboard
+npm run dev:stream
 ```
 
 `npm run dev` is an alias for `npm run dev:cast`.
@@ -83,6 +85,40 @@ the active board only while this app has focus and no field is being edited.
 Supported imports are MP3, WAV, OGG, FLAC, M4A, AAC, and Opus; playback reports files the
 desktop decoder cannot read.
 
+LumaStream stores its scene collection and imported images, video, and audio in
+its own local data directory. It currently supports display/window capture,
+selectable camera and microphone devices, still images and timed image
+slideshows with ordered slides, adjustable duration and looping, scene transitions, source positioning
+and visibility with exact transform and aspect-preserving fit controls, audio
+balance and monitoring/mixing, per-capture cursor behavior, custom canvas sizes
+and fractional frame rates, WebM, MP4, or Matroska recording with
+configurable bitrates, RTMP/RTMPS streaming with configurable audio and video
+bitrates and a selectable audio track, six-track source routing and multitrack
+recording, a 5–60 second replay buffer, HTTP(S) browser sources, and multiple
+  named scene collections that can be created, duplicated, renamed, switched,
+  and deleted, with portable collection bundles that include referenced media,
+  plus independent output profiles for shared video, recording, streaming, and
+  hotkey settings that can be imported and exported.
+Scene editing includes bounded undo/redo, source copy/paste, delete, and the
+common fit, stretch, center, and reset transform shortcuts.
+The app is Windows-first and is built independently from OBS. Per-source crop,
+color correction, opacity, blur, chroma key, audio monitoring, microphone noise
+suppression, gain, noise gate, expander, compressor, and limiter controls are available.
+Global hotkeys can toggle streaming controls, recording, and replay capture.
+Browser sources can route page audio through the per-source mixer.
+Multiview monitors the live program and scene previews while keeping program
+audio and the full-resolution output canvas on the live scene.
+The program canvas remains stable across monitor layouts and can open in a
+separate aspect-contained projector window.
+Streaming and MP4 output can use Media Foundation, NVIDIA NVENC, Intel Quick
+Sync, AMD AMF, or software OpenH264 with supported rate-control settings.
+Dedicated game capture, plugins, and full filter-catalog parity are outside
+Stream's current scope. Virtual camera is deferred; other advanced output controls
+remain outside the current implementation. The bundled
+FFmpeg runtime is LGPL-licensed. Its notice and provenance are packaged; this private checkout
+does not yet include the complete corresponding source package required before
+distributing a binary.
+
 Package a Windows soundboard installer with
 `npm run dist:win --workspace apps/soundboard`. Output is in
 `apps/soundboard/dist/`.
@@ -90,13 +126,17 @@ Package a Windows soundboard installer with
 Build production assets:
 
 ```bash
-npm run build           # all five apps
+npm run build           # all six apps
 npm run build:cast
 npm run build:cloud
 npm run build:flux
 npm run build:chord
 npm run build:soundboard
+npm run build:stream
 ```
+
+Package the Windows Stream installer with `npm run dist:stream:win`. Output is
+in `apps/stream/dist/`.
 
 Preview the built renderer bundle:
 

@@ -1,0 +1,42 @@
+{
+  "name": "@lumacast/stream",
+  "version": "0.1.0",
+  "private": true,
+  "productName": "LumaStream",
+  "description": "A Windows-first live production app for scene composition, capture, audio, and recording.",
+  "license": "UNLICENSED",
+  "author": "IT-PSAPE",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "node script/dev.mjs dev",
+    "build": "electron-vite build",
+    "prepare:media-engine": "node script/prepare-media-engine.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pack": "npm run prepare:media-engine && electron-vite build && electron-builder --dir",
+    "dist:win": "npm run prepare:media-engine && electron-vite build && electron-builder --win"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.8.0",
+    "@lumacast/ui": "file:../../packages/ui",
+    "@sapphi-red/web-noise-suppressor": "^0.4.1",
+    "lucide-react": "^1.7.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "yauzl": "^3.4.0",
+    "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.1",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/yauzl": "^3.4.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "44.3.0",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^3.1.0",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.8.2",
+    "vite": "^5.4.14"
+  }
+}
