@@ -215,7 +215,11 @@ FFmpeg build through stdin; FFmpeg re-encodes H.264/AAC and sends FLV to the
 configured endpoint. The destination is transient, IPC accepts only the
 validated stream session, and status updates omit the endpoint and raw engine
 errors. The runtime is resolved only from Stream's bundled media-engine
-directory, never from `PATH` (ADR-0053). Stream and MP4 recording settings
+directory, never from `PATH` (ADR-0053). If the encoder process exits
+unexpectedly, Stream retries with bounded exponential backoff and replays the
+WebM header plus a bounded in-memory media buffer into the replacement process.
+User stop cancels pending retries; retry exhaustion or a full recovery buffer
+ends the session with a status error (ADR-0098). Stream and MP4 recording settings
 persist an H.264 encoder family, rate-control mode, encoder quality, optional
 Media Foundation hardware encoding, and keyframe interval. The encoder argument
 builder translates those settings to Media Foundation, NVIDIA NVENC, Intel Quick

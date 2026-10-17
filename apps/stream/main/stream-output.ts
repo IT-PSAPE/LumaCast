@@ -6,16 +6,38 @@ import type { StreamOutputSettings, StreamRuntimeStatus } from '../shared/deskto
 import { bundledMediaEnginePath } from './media-engine-path';
 import { buildStreamVideoEncoderArguments } from './output-encoder';
 
+type OutputProcess = ChildProcessByStdio<Writable, null, Readable>;
+
 interface StreamingSession {
   id: string;
-  child: ChildProcessByStdio<Writable, null, Readable>;
+  destination: string;
+  settings: StreamOutputSettings;
+  child: OutputProcess;
   closed: Promise<void>;
   close: () => void;
   stopping: boolean;
   failure: Error | null;
   progressBuffer: string;
   bitrateKbps: number;
+  webmHeader: Buffer | null;
+  recoveryChunks: Buffer[];
+  recoveryBytes: number;
+  retryCount: number;
+  retryTimer: NodeJS.Timeout | null;
+  reconnecting: boolean;
 }
+
+export interface StreamOutputRetryOptions {
+  maxRetries: number;
+  retryDelayMs: number;
+  maxRecoveryBufferBytes: number;
+}
+
+const DEFAULT_RETRY_OPTIONS: StreamOutputRetryOptions = {
+  maxRetries: 5,
+  retryDelayMs: 1000,
+  maxRecoveryBufferBytes: 64 * 1024 * 1024,
+};
 
 function validateDestination(value: unknown): string {
   if (typeof value !== 'string' || value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value)) {
@@ -43,31 +65,116 @@ function validateSettings(value: StreamOutputSettings): StreamOutputSettings {
 
 export class StreamOutput {
   private active: StreamingSession | null = null;
+  private readonly retryOptions: StreamOutputRetryOptions;
 
-  constructor(private readonly getContents: () => WebContents | null) {}
+  constructor(
+    private readonly getContents: () => WebContents | null,
+    private readonly spawnProcess: typeof spawn = spawn,
+    retryOptions: Partial<StreamOutputRetryOptions> = {},
+  ) {
+    this.retryOptions = { ...DEFAULT_RETRY_OPTIONS, ...retryOptions };
+  }
 
   start(destinationValue: unknown, settingsValue: StreamOutputSettings): string {
     if (this.active) throw new Error('A stream is already active.');
     const destination = validateDestination(destinationValue);
     const settings = validateSettings(settingsValue);
-    const child = spawn(bundledMediaEnginePath(), [
+    const child = this.spawnProcess(bundledMediaEnginePath(), this.arguments(destination, settings), {
+      windowsHide: true,
+      stdio: ['pipe', 'ignore', 'pipe'],
+    });
+
+    let close!: () => void;
+    const closed = new Promise<void>((resolve) => { close = resolve; });
+    const session: StreamingSession = {
+      id: randomUUID(), destination, settings, child, closed, close, stopping: false, failure: null, progressBuffer: '', bitrateKbps: 0,
+      webmHeader: null, recoveryChunks: [], recoveryBytes: 0, retryCount: 0, retryTimer: null, reconnecting: false,
+    };
+    this.active = session;
+    this.sendStatus({ state: 'connecting' });
+    this.watchProcess(session, child);
+    return session.id;
+  }
+
+  async write(id: string, value: unknown): Promise<void> {
+    const session = this.requireSession(id);
+    if (session.failure) throw session.failure;
+    if (session.stopping) throw new Error('The stream output is stopping.');
+    let bytes: Buffer;
+    if (value instanceof ArrayBuffer) bytes = Buffer.from(value);
+    else if (ArrayBuffer.isView(value)) bytes = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    else throw new Error('Stream data must be binary.');
+    if (bytes.byteLength > 16 * 1024 * 1024) throw new Error('Stream media chunk is too large.');
+    if (bytes.byteLength === 0) return;
+
+    const isHeader = session.webmHeader === null;
+    if (isHeader) session.webmHeader = Buffer.from(bytes);
+    if (session.reconnecting || !this.isProcessAlive(session.child)) {
+      if (!isHeader) this.bufferForRecovery(session, bytes);
+      if (session.failure) throw session.failure;
+      return;
+    }
+
+    const child = session.child;
+    try {
+      await this.writeTo(child, bytes);
+    } catch {
+      if (session.stopping) return;
+      this.scheduleReconnect(session, child);
+      if (!isHeader) this.bufferForRecovery(session, bytes);
+    }
+    if (session.failure) throw session.failure;
+  }
+
+  async stop(id: string): Promise<void> {
+    const session = this.requireSession(id);
+    if (!session.stopping) {
+      session.stopping = true;
+      session.reconnecting = false;
+      if (session.retryTimer) clearTimeout(session.retryTimer);
+      session.retryTimer = null;
+      if (this.isProcessAlive(session.child)) session.child.stdin.end();
+      else session.close();
+    }
+    let timeout: NodeJS.Timeout | undefined;
+    await Promise.race([
+      session.closed,
+      new Promise<void>((resolve) => { timeout = setTimeout(resolve, 12000); }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    if (this.isProcessAlive(session.child)) session.child.kill();
+    if (this.isProcessAlive(session.child)) {
+      await Promise.race([session.closed, new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
+    }
+    if (this.active === session) this.active = null;
+    if (session.failure) this.sendStatus({ state: 'error', message: session.failure.message });
+    else this.sendStatus({ state: 'stopped' });
+  }
+
+  async stopAll(): Promise<void> {
+    const session = this.active;
+    if (!session) return;
+    await this.stop(session.id).catch(() => {
+      if (session.retryTimer) clearTimeout(session.retryTimer);
+      session.child.kill();
+      if (this.active === session) this.active = null;
+    });
+  }
+
+  private arguments(destination: string, settings: StreamOutputSettings): string[] {
+    return [
       '-hide_banner', '-nostats', '-loglevel', 'error', '-progress', 'pipe:2',
       '-f', 'webm', '-i', 'pipe:0',
       '-map', '0:v:0', '-map', '0:a:0?',
       ...buildStreamVideoEncoderArguments(settings),
       '-c:a', 'aac', '-b:a', String(settings.audioBitrateKbps) + 'k',
       '-ar', '48000', '-ac', '2', '-f', 'flv', destination,
-    ], { windowsHide: true, stdio: ['pipe', 'ignore', 'pipe'] });
+    ];
+  }
 
-    let close!: () => void;
-    const closed = new Promise<void>((resolve) => { close = resolve; });
-    const session: StreamingSession = {
-      id: randomUUID(), child, closed, close, stopping: false, failure: null, progressBuffer: '', bitrateKbps: 0,
-    };
-    this.active = session;
-    this.sendStatus({ state: 'connecting' });
-
+  private watchProcess(session: StreamingSession, child: OutputProcess): void {
     child.stderr.on('data', (chunk: Buffer) => {
+      if (this.active !== session || session.child !== child) return;
       session.progressBuffer += chunk.toString('utf8');
       const lines = session.progressBuffer.split(/\r?\n/);
       session.progressBuffer = lines.pop() ?? '';
@@ -81,68 +188,94 @@ export class StreamOutput {
       }
       if (sawProgress) this.sendStatus({ state: 'live', bitrateKbps: session.bitrateKbps });
     });
-    child.on('error', () => {
-      session.failure = new Error('The bundled media engine could not be started.');
-      this.sendStatus({ state: 'error', message: session.failure.message });
-    });
-    child.on('close', (code) => {
-      close();
-      if (this.active === session && !session.stopping) {
-        const message = code === 0 ? 'The stream ended.' : 'The stream ended unexpectedly. Check the server URL and encoder availability.';
-        if (code === 0) this.sendStatus({ state: 'stopped' });
-        else this.sendStatus({ state: 'error', message });
+    child.on('error', () => this.scheduleReconnect(session, child));
+    child.on('close', () => {
+      if (this.active !== session || session.child !== child) return;
+      if (session.stopping) {
+        session.close();
+        return;
       }
+      this.scheduleReconnect(session, child);
     });
-    return session.id;
   }
 
-  async write(id: string, value: unknown): Promise<void> {
-    const session = this.requireSession(id);
-    if (session.failure) throw session.failure;
-    if (session.child.stdin.destroyed || session.child.stdin.writableEnded) throw new Error('The stream output is no longer accepting media.');
-    let bytes: Buffer;
-    if (value instanceof ArrayBuffer) bytes = Buffer.from(value);
-    else if (ArrayBuffer.isView(value)) bytes = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
-    else throw new Error('Stream data must be binary.');
-    if (bytes.byteLength > 16 * 1024 * 1024) throw new Error('Stream media chunk is too large.');
-    if (bytes.byteLength === 0) return;
-    await new Promise<void>((resolve, reject) => {
+  private scheduleReconnect(session: StreamingSession, failedChild: OutputProcess): void {
+    if (this.active !== session || session.stopping || session.failure || session.child !== failedChild || session.retryTimer) return;
+    session.reconnecting = true;
+    if (session.retryCount >= this.retryOptions.maxRetries) {
+      this.failSession(session, new Error('The stream could not reconnect after several attempts. Check the server URL and your network connection.'));
+      return;
+    }
+
+    session.retryCount += 1;
+    this.sendStatus({ state: 'connecting' });
+    const delay = Math.min(this.retryOptions.retryDelayMs * (2 ** (session.retryCount - 1)), 8000);
+    session.retryTimer = setTimeout(() => {
+      session.retryTimer = null;
+      if (this.active !== session || session.stopping || session.failure) return;
+      let child: OutputProcess;
       try {
-        session.child.stdin.write(bytes, (error) => error ? reject(error) : resolve());
-      } catch (error) { reject(error); }
-    });
-    if (session.failure) throw session.failure;
+        child = this.spawnProcess(bundledMediaEnginePath(), this.arguments(session.destination, session.settings), {
+          windowsHide: true,
+          stdio: ['pipe', 'ignore', 'pipe'],
+        });
+      } catch {
+        this.scheduleReconnect(session, failedChild);
+        return;
+      }
+      session.child = child;
+      session.progressBuffer = '';
+      this.watchProcess(session, child);
+      void this.replayAfterReconnect(session, child);
+    }, delay);
   }
 
-  async stop(id: string): Promise<void> {
-    const session = this.requireSession(id);
-    if (!session.stopping) {
-      session.stopping = true;
-      if (!session.child.stdin.destroyed && !session.child.stdin.writableEnded) session.child.stdin.end();
+  private async replayAfterReconnect(session: StreamingSession, child: OutputProcess): Promise<void> {
+    try {
+      if (session.webmHeader) await this.writeTo(child, session.webmHeader);
+      while (session.recoveryChunks.length > 0 && this.active === session && session.child === child && !session.stopping) {
+        const next = session.recoveryChunks[0]!;
+        await this.writeTo(child, next);
+        if (session.recoveryChunks[0] === next) {
+          session.recoveryChunks.shift();
+          session.recoveryBytes -= next.byteLength;
+        }
+      }
+      if (this.active === session && session.child === child && !session.stopping) session.reconnecting = false;
+    } catch {
+      this.scheduleReconnect(session, child);
     }
-    let timeout: NodeJS.Timeout | undefined;
-    await Promise.race([
-      session.closed,
-      new Promise<void>((resolve) => { timeout = setTimeout(resolve, 12000); }),
-    ]);
-    if (timeout) clearTimeout(timeout);
-    if (session.child.exitCode === null && session.child.signalCode === null) session.child.kill();
-    if (session.child.exitCode === null && session.child.signalCode === null) {
-      await Promise.race([session.closed, new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
-    }
-    if (this.active === session) this.active = null;
-    const failed = Boolean(session.failure) || (session.child.exitCode !== null && session.child.exitCode !== 0);
-    if (failed) this.sendStatus({ state: 'error', message: session.failure?.message ?? 'The stream ended unexpectedly.' });
-    else this.sendStatus({ state: 'stopped' });
   }
 
-  async stopAll(): Promise<void> {
-    const session = this.active;
-    if (!session) return;
-    await this.stop(session.id).catch(() => {
-      session.child.kill();
-      if (this.active === session) this.active = null;
+  private bufferForRecovery(session: StreamingSession, bytes: Buffer): void {
+    if (session.recoveryBytes + bytes.byteLength > this.retryOptions.maxRecoveryBufferBytes) {
+      this.failSession(session, new Error('The stream could not reconnect before its media buffer filled.'));
+      return;
+    }
+    session.recoveryChunks.push(Buffer.from(bytes));
+    session.recoveryBytes += bytes.byteLength;
+  }
+
+  private failSession(session: StreamingSession, error: Error): void {
+    session.failure = error;
+    session.reconnecting = false;
+    if (session.retryTimer) clearTimeout(session.retryTimer);
+    session.retryTimer = null;
+    this.sendStatus({ state: 'error', message: error.message });
+    if (this.isProcessAlive(session.child)) session.child.kill();
+    session.close();
+  }
+
+  private writeTo(child: OutputProcess, bytes: Buffer): Promise<void> {
+    if (child.stdin.destroyed || child.stdin.writableEnded) return Promise.reject(new Error('The stream output is no longer accepting media.'));
+    return new Promise<void>((resolve, reject) => {
+      try { child.stdin.write(bytes, (error) => error ? reject(error) : resolve()); }
+      catch (error) { reject(error); }
     });
+  }
+
+  private isProcessAlive(child: OutputProcess): boolean {
+    return child.exitCode === null && child.signalCode === null && !child.stdin.destroyed;
   }
 
   private requireSession(id: string): StreamingSession {
