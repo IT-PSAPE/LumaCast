@@ -1,6 +1,6 @@
 export type CaptureKind = 'screen' | 'window';
 export type CaptureCursorMode = 'never' | 'motion' | 'always';
-export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color';
+export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color';
 export type MediaKind = 'image' | 'video' | 'audio';
 export type RecordingContainer = 'webm' | 'mkv' | 'mp4';
 export type AudioMonitoring = 'off' | 'monitor-only' | 'monitor-and-output';

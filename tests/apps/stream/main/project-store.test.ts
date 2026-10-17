@@ -63,8 +63,39 @@ function projectWithMicrophoneSource(): StreamProject {
   return project;
 }
 
+function projectWithDesktopAudioSource(): StreamProject {
+  const project = createDefaultProject();
+  const scene = project.scenes[0];
+  if (!scene) throw new Error('Default Stream project has no scene.');
+  scene.sources.push({
+    id: 'desktop-audio-source',
+    name: 'Desktop Audio',
+    kind: 'desktop-audio',
+    visible: true,
+    muted: false,
+    volume: 1,
+    transform: { x: 0, y: 0, width: 1, height: 1 },
+    captureId: 'screen:1',
+  });
+  return project;
+}
+
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
+
+describe('LumaStream desktop audio persistence', () => {
+  it('round-trips the desktop loopback source and its selected display', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(projectWithDesktopAudioSource()), 'utf8');
+
+    const restored = await new ProjectStore(directory).load();
+    const source = restored.project.scenes[0]?.sources.find((item) => item.id === 'desktop-audio-source');
+    expect(source?.kind).toBe('desktop-audio');
+    expect(source?.captureId).toBe('screen:1');
+    expect(source?.audioTracks).toEqual([1]);
+  });
 });
 
 describe('LumaStream encoder family persistence', () => {

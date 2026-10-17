@@ -18,6 +18,8 @@ import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slidesho
 import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
 import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from './recording-controls';
 import { cameraCaptureConstraints } from './camera-capture-settings';
+import { retainDesktopAudioTracks } from './desktop-audio-capture';
+import { listenForMediaStreamEnd } from './media-stream-ended';
 import {
   CAMERA_FRAME_RATE_OPTIONS,
   CAMERA_RESOLUTION_OPTIONS,
@@ -155,7 +157,7 @@ function supportsChromaKey(source: StreamSource): boolean {
 }
 
 function supportsSourceTransform(source: StreamSource): boolean {
-  return source.kind !== 'microphone' && !(source.kind === 'media' && source.mediaKind === 'audio');
+  return source.kind !== 'microphone' && source.kind !== 'desktop-audio' && !(source.kind === 'media' && source.mediaKind === 'audio');
 }
 
 function friendlyError(error: unknown): string {
@@ -177,6 +179,7 @@ function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
   if (kind === 'window') return <Grid2X2 size={15} />;
   if (kind === 'camera') return <Webcam size={15} />;
   if (kind === 'microphone') return <Mic size={15} />;
+  if (kind === 'desktop-audio') return <Headphones size={15} />;
   if (kind === 'image') return <ImageIcon size={15} />;
   if (kind === 'slideshow') return <ImageIcon size={15} />;
   if (kind === 'media') return mediaKind === 'audio' ? <FileAudio size={15} /> : <FileVideo size={15} />;
@@ -188,14 +191,14 @@ function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
 function defaultTransform(kind: SourceKind, output: StreamProject['output'], mediaKind?: MediaKind) {
   if (kind === 'camera') return { x: Math.round(output.width * 0.72), y: Math.round(output.height * 0.68), width: Math.round(output.width * 0.25), height: Math.round(output.height * 0.25) };
   if (kind === 'text') return { x: Math.round(output.width * 0.08), y: Math.round(output.height * 0.08), width: Math.round(output.width * 0.84), height: Math.round(output.height * 0.25) };
-  if (kind === 'microphone' || (kind === 'media' && mediaKind === 'audio')) return { x: 0, y: 0, width: 1, height: 1 };
+  if (kind === 'microphone' || kind === 'desktop-audio' || (kind === 'media' && mediaKind === 'audio')) return { x: 0, y: 0, width: 1, height: 1 };
   return { x: 0, y: 0, width: output.width, height: output.height };
 }
 
 function createSource(kind: SourceKind, output: StreamProject['output'], name?: string, extra: Partial<StreamSource> = {}): StreamSource {
   const labels: Record<SourceKind, string> = {
     display: 'Display Capture', window: 'Window Capture', camera: 'Video Capture Device',
-    microphone: 'Audio Input Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text (GDI+)', color: 'Color Source',
+    microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text (GDI+)', color: 'Color Source',
   };
   return {
     id: crypto.randomUUID(),
@@ -267,7 +270,8 @@ export function App() {
   const [sceneDialog, setSceneDialog] = useState<'rename' | 'delete' | null>(null);
   const [sceneNameDraft, setSceneNameDraft] = useState('');
   const [captureOptions, setCaptureOptions] = useState<DesktopSourceOption[] | null>(null);
-  const [captureKind, setCaptureKind] = useState<'screen' | 'window' | null>(null);
+  const [captureKind, setCaptureKind] = useState<'screen' | 'window' | 'audio' | null>(null);
+  const [captureTargetSourceId, setCaptureTargetSourceId] = useState<string | null>(null);
   const [inputDevicePicker, setInputDevicePicker] = useState<InputCaptureKind | null>(null);
   const [inputDeviceOptions, setInputDeviceOptions] = useState<Record<InputCaptureKind, InputDeviceOption[]>>({ camera: [], microphone: [] });
   const [browserDialogOpen, setBrowserDialogOpen] = useState(false);
@@ -611,6 +615,23 @@ export function App() {
     runtimes.current.get(source.id)?.getTracks().forEach((track) => track.stop());
     runtimes.current.set(source.id, stream);
     setRuntimeRevision((value) => value + 1);
+    const clearEndedRuntime = () => {
+      if (runtimes.current.get(source.id) !== stream || stream.getTracks().some((track) => track.readyState !== 'ended')) return false;
+      runtimes.current.delete(source.id);
+      mixer.current?.remove(source.id);
+      setMeterLevels((current) => { const next = { ...current }; delete next[source.id]; return next; });
+      setRuntimeRevision((value) => value + 1);
+      return true;
+    };
+    const handleEnded = () => {
+      if (clearEndedRuntime()) setActionError(`${source.name} capture ended.`);
+    };
+    const removeEndedListeners = listenForMediaStreamEnd(stream, handleEnded);
+    if (stream.getTracks().length > 0 && stream.getTracks().every((track) => track.readyState === 'ended')) {
+      handleEnded();
+      removeEndedListeners();
+      return;
+    }
     if (stream.getAudioTracks().length > 0) {
       try {
         const audioMixer = ensureMixer();
@@ -618,26 +639,29 @@ export function App() {
         const noiseSuppressionReady = await audioMixer.add(source.id, stream, { ...source, programActive: programActiveOverride ?? isProgramScene });
         audioMixer.setAudioTracks(source.id, allSourcesRef.current.find((item) => item.id === source.id)?.audioTracks ?? source.audioTracks ?? [1]);
         if (!noiseSuppressionReady && source.audioFilters?.noiseSuppression) {
-          setActionError('Neural noise suppression could not be started for this microphone.');
+          setActionError('Neural noise suppression could not be started for this audio source.');
           clearNoiseSuppressionPreference(source.id);
         }
         if ((source.audioFilters?.noiseGate || source.audioFilters?.expander) && audioMixer.setAudioFilters(source.id, source.audioFilters) === false) {
           setActionError('Audio filters are unavailable in this audio runtime.');
         }
         await audioMixer.resume();
+        if (stream.getTracks().length > 0 && stream.getTracks().every((track) => track.readyState === 'ended')) {
+          if (runtimes.current.get(source.id) === stream) handleEnded();
+          audioMixer.remove(source.id);
+          removeEndedListeners();
+          return;
+        }
         setMeterLevels((current) => ({ ...current, [source.id]: 0 }));
       } catch (error) {
         setActionError(`Audio source could not be added: ${friendlyError(error)}`);
       }
     }
-    stream.getTracks().forEach((track) => track.addEventListener('ended', () => {
-      if (runtimes.current.get(source.id) !== stream) return;
-      if (stream.getTracks().some((current) => current.readyState !== 'ended')) return;
-      runtimes.current.delete(source.id);
+    if (stream.getTracks().length > 0 && stream.getTracks().every((track) => track.readyState === 'ended')) {
+      if (runtimes.current.get(source.id) === stream) handleEnded();
       mixer.current?.remove(source.id);
-      setRuntimeRevision((value) => value + 1);
-      setActionError(`${source.name} capture ended.`);
-    }, { once: true }));
+      removeEndedListeners();
+    }
   }, [clearNoiseSuppressionPreference, ensureMixer, project]);
 
   useEffect(() => {
@@ -887,13 +911,14 @@ export function App() {
     return source;
   }, [setProjectValue]);
 
-  const openCapturePicker = async (kind: 'screen' | 'window') => {
+  const openCapturePicker = async (kind: 'screen' | 'window' | 'audio', targetSourceId?: string) => {
     setSourceMenuOpen(false);
     setActionError('');
     setWorking(true);
     try {
-      const sources = await api.listDesktopSources(kind);
+      const sources = await api.listDesktopSources(kind === 'audio' ? 'screen' : kind);
       setCaptureKind(kind);
+      setCaptureTargetSourceId(targetSourceId ?? null);
       setCaptureOptions(sources);
     } catch (error) {
       setActionError(`Could not list capture sources: ${friendlyError(error)}`);
@@ -904,25 +929,47 @@ export function App() {
 
   const addDesktopCapture = async (option: DesktopSourceOption) => {
     if (!project || working) return;
+    const captureMode = captureKind;
+    if (!captureMode) return;
     setWorking(true);
     setActionError('');
     let stream: MediaStream | null = null;
     try {
+      const captureAudio = captureMode === 'audio' || includeSystemAudio;
       // Start the media request in the picker click handler so Chromium keeps
       // the user's gesture while main validates and grants the chosen source.
       const mediaRequest = navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: project.output.frameRate, max: project.output.frameRate }, cursor: captureCursorMode } as MediaTrackConstraints,
-        audio: includeSystemAudio,
+        video: { frameRate: { ideal: captureMode === 'audio' ? 1 : project.output.frameRate, max: captureMode === 'audio' ? 1 : project.output.frameRate }, cursor: captureCursorMode } as MediaTrackConstraints,
+        audio: captureAudio,
       });
       void mediaRequest.catch(() => undefined);
-      await api.prepareDesktopCapture(option.id, includeSystemAudio);
+      await api.prepareDesktopCapture(option.id, captureAudio);
       stream = await mediaRequest;
-      const kind = option.kind === 'screen' ? 'display' : 'window';
-      const source = createSource(kind, project.output, option.name, { captureId: option.id, cursorMode: captureCursorMode });
+      let source: StreamSource;
+      if (captureMode === 'audio') {
+        const audioTracks = retainDesktopAudioTracks(stream);
+        if (audioTracks.length === 0) throw new Error('Windows did not provide a desktop audio track.');
+        stream = new MediaStream(audioTracks);
+        const reconnectSource = captureTargetSourceId
+          ? allSourcesRef.current.find((item) => item.id === captureTargetSourceId && item.kind === 'desktop-audio')
+          : null;
+        if (captureTargetSourceId && !reconnectSource) throw new Error('The desktop audio source is no longer available.');
+        source = reconnectSource
+          ? { ...reconnectSource, captureId: option.id }
+          : createSource('desktop-audio', project.output, 'Desktop Audio', { captureId: option.id });
+      } else {
+        const kind = option.kind === 'screen' ? 'display' : 'window';
+        source = createSource(kind, project.output, option.name, { captureId: option.id, cursorMode: captureCursorMode });
+      }
       await attachRuntime(source, stream);
-      addToActiveScene(source);
+      if (captureTargetSourceId) {
+        updateSource(source.id, (current) => ({ ...current, captureId: option.id }));
+      } else {
+        addToActiveScene(source);
+      }
       setCaptureOptions(null);
       setCaptureKind(null);
+      setCaptureTargetSourceId(null);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       setActionError(`Could not start capture: ${friendlyError(error)}`);
@@ -1514,7 +1561,7 @@ export function App() {
       const stillRendered = getRenderedSourceIds(project.scenes, project.activeSceneId, project.liveSceneId, false);
       for (const sourceId of runtimes.current.keys()) {
         const source = allSourcesRef.current.find((item) => item.id === sourceId);
-        if (baseline?.has(sourceId) || stillRendered.has(sourceId) || (source?.kind !== 'camera' && source?.kind !== 'microphone')) continue;
+        if (baseline?.has(sourceId) || stillRendered.has(sourceId) || (source?.kind !== 'camera' && source?.kind !== 'microphone' && source?.kind !== 'desktop-audio')) continue;
         stopRuntime(sourceId);
       }
       multiviewRuntimeBaseline.current = null;
@@ -2312,6 +2359,7 @@ export function App() {
             <div className="menu-label">Capture</div>
             <button role="menuitem" onClick={() => void openCapturePicker('screen')}><Monitor size={15} />Display Capture</button>
             <button role="menuitem" onClick={() => void openCapturePicker('window')}><Grid2X2 size={15} />Window Capture</button>
+            <button role="menuitem" onClick={() => void openCapturePicker('audio')}><Headphones size={15} />Audio Output Capture</button>
             <button role="menuitem" onClick={() => void addCamera()}><Webcam size={15} />Video Capture Device</button>
             <button role="menuitem" onClick={() => void addMicrophone()}><Mic size={15} />Audio Input Capture</button>
             <div className="menu-label menu-label-separator">Media</div>
@@ -2340,6 +2388,7 @@ export function App() {
                 {CAMERA_FRAME_RATE_OPTIONS.map((rate) => <option key={rate} value={rate}>{rate} FPS</option>)}
               </select></label>
             </>}
+            {selectedSource.kind === 'desktop-audio' && !runtimesSnapshot.has(selectedSource.id) && <button className="secondary-button device-property" disabled={working} onClick={() => void openCapturePicker('audio', selectedSource.id)}>Start Capture</button>}
             {(selectedSource.kind === 'display' || selectedSource.kind === 'window') && <label className="device-property">Capture Cursor<select aria-label="Capture cursor" disabled={working} value={selectedSource.cursorMode ?? 'motion'} onChange={(event) => void updateCaptureCursorMode(selectedSource.id, event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>}
             {supportsSourceTransform(selectedSource) && <details className="filter-details"><summary>Transform</summary>
               <div className="source-transform-grid">
@@ -2510,15 +2559,15 @@ export function App() {
         </section>
       </div>}
 
-      {captureOptions && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setCaptureOptions(null); setCaptureKind(null); } }}>
+      {captureOptions && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setCaptureOptions(null); setCaptureKind(null); setCaptureTargetSourceId(null); } }}>
         <section className="capture-modal" role="dialog" aria-modal="true" aria-labelledby="capture-title">
-          <div className="modal-heading"><div><span className="modal-eyebrow">NEW SOURCE</span><h2 id="capture-title">{captureKind === 'screen' ? 'Select a display' : 'Select a window'}</h2></div><button className="icon-button" aria-label="Close" onClick={() => { setCaptureOptions(null); setCaptureKind(null); }}><X size={17} /></button></div>
-          <div className="capture-grid">{captureOptions.length === 0 ? <div className="capture-empty">No {captureKind === 'screen' ? 'displays' : 'windows'} are available.</div> : captureOptions.map((option) => <button key={option.id} className="capture-option" disabled={working} onClick={() => void addDesktopCapture(option)}>
+          <div className="modal-heading"><div><span className="modal-eyebrow">{captureTargetSourceId ? 'RESTART SOURCE' : 'NEW SOURCE'}</span><h2 id="capture-title">{captureKind === 'audio' ? 'Select a display for audio' : captureKind === 'screen' ? 'Select a display' : 'Select a window'}</h2></div><button className="icon-button" aria-label="Close" onClick={() => { setCaptureOptions(null); setCaptureKind(null); setCaptureTargetSourceId(null); }}><X size={17} /></button></div>
+          <div className="capture-grid">{captureOptions.length === 0 ? <div className="capture-empty">No {captureKind === 'window' ? 'windows' : 'displays'} are available.</div> : captureOptions.map((option) => <button key={option.id} className="capture-option" disabled={working} onClick={() => void addDesktopCapture(option)}>
             <img src={option.thumbnail} alt="" /><span className="capture-option-name">{option.name}</span>
           </button>)}</div>
-          <label className="system-audio-option"><input type="checkbox" checked={includeSystemAudio} onChange={(event) => setIncludeSystemAudio(event.target.checked)} /><span>Capture system audio</span><Headphones size={15} /></label>
-          <label className="capture-cursor-option"><span>Capture Cursor</span><select aria-label="Capture cursor" value={captureCursorMode} onChange={(event) => setCaptureCursorMode(event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>
-          <div className="modal-footer"><button className="secondary-button" onClick={() => { setCaptureOptions(null); setCaptureKind(null); }}>Cancel</button></div>
+          {captureKind !== 'audio' && <label className="system-audio-option"><input type="checkbox" checked={includeSystemAudio} onChange={(event) => setIncludeSystemAudio(event.target.checked)} /><span>Capture system audio</span><Headphones size={15} /></label>}
+          {captureKind !== 'audio' && <label className="capture-cursor-option"><span>Capture Cursor</span><select aria-label="Capture cursor" value={captureCursorMode} onChange={(event) => setCaptureCursorMode(event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>}
+          <div className="modal-footer"><button className="secondary-button" onClick={() => { setCaptureOptions(null); setCaptureKind(null); setCaptureTargetSourceId(null); }}>Cancel</button></div>
         </section>
       </div>}
 

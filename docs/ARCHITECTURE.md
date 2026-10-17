@@ -60,6 +60,14 @@ named scene-collection persistence, media imports, and recording-file writes.
 The renderer uses a typed `window.streamApi` bridge and renders scene layers
 into a canvas for preview, program output, and recording.
 
+On Windows, Desktop Audio Capture reuses the trusted display-media request
+handler for system loopback. The renderer requests a display after a user
+gesture, stops its video track, and routes the remaining audio track through
+the existing mixer. The source persists with its scene, but Windows requires a
+new user gesture to start capture after the source stops or Stream restarts;
+the current Electron loopback path captures system audio rather than selecting
+an individual output device or application.
+
 The main process stores a validated collection index plus one project JSON file
 per collection under Stream app data. Profiles are stored separately in
 `profiles.json` and own output settings and global output hotkeys; the active

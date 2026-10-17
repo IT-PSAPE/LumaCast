@@ -15,7 +15,7 @@ interface Props {
 }
 
 function isAudioOnly(source: StreamSource): boolean {
-  return source.kind === 'microphone' || (source.kind === 'media' && source.mediaKind === 'audio');
+  return source.kind === 'microphone' || source.kind === 'desktop-audio' || (source.kind === 'media' && source.mediaKind === 'audio');
 }
 
 function clampCrop(crop: SourceCrop | undefined, width: number, height: number): SourceCrop {
