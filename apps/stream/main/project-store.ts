@@ -1,6 +1,6 @@
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
+import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, createDefaultTextStyle, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
 
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
@@ -121,6 +121,39 @@ function decodeSource(value: unknown): StreamSource {
   }
   if (value.text !== undefined && (typeof value.text !== 'string' || value.text.length > 10000)) throw new Error('Project contains invalid text.');
   if (value.color !== undefined && (typeof value.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(value.color))) throw new Error('Project contains an invalid color.');
+  let textStyle: StreamTextStyle | undefined;
+  if (value.textStyle !== undefined) {
+    const style = value.textStyle;
+    if (value.kind !== 'text' || !isRecord(style) || typeof style.fontFamily !== 'string'
+      || style.fontFamily.trim().length < 1 || style.fontFamily.length > 120 || /[\u0000-\u001f\u007f]/.test(style.fontFamily)
+      || !finiteNumber(style.fontSize, 1, 512) || typeof style.bold !== 'boolean' || typeof style.italic !== 'boolean'
+      || !['left', 'center', 'right'].includes(String(style.horizontalAlignment))
+      || !['top', 'center', 'bottom'].includes(String(style.verticalAlignment))
+      || !isRecord(style.outline) || typeof style.outline.enabled !== 'boolean'
+      || typeof style.outline.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(style.outline.color)
+      || !finiteNumber(style.outline.width, 0, 32)
+      || !isRecord(style.shadow) || typeof style.shadow.enabled !== 'boolean'
+      || typeof style.shadow.color !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(style.shadow.color)
+      || !finiteNumber(style.shadow.blur, 0, 100) || !finiteNumber(style.shadow.offsetX, -128, 128)
+      || !finiteNumber(style.shadow.offsetY, -128, 128)
+      || !isRecord(style.background) || typeof style.background.color !== 'string'
+      || !/^#[0-9a-fA-F]{6}$/.test(style.background.color) || !finiteNumber(style.background.opacity, 0, 1)) {
+      throw new Error('Project contains invalid text settings.');
+    }
+    textStyle = {
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      bold: style.bold,
+      italic: style.italic,
+      horizontalAlignment: style.horizontalAlignment as StreamTextStyle['horizontalAlignment'],
+      verticalAlignment: style.verticalAlignment as StreamTextStyle['verticalAlignment'],
+      outline: { enabled: style.outline.enabled, color: style.outline.color, width: style.outline.width },
+      shadow: { enabled: style.shadow.enabled, color: style.shadow.color, blur: style.shadow.blur, offsetX: style.shadow.offsetX, offsetY: style.shadow.offsetY },
+      background: { color: style.background.color, opacity: style.background.opacity },
+    };
+  } else if (value.kind === 'text') {
+    textStyle = createDefaultTextStyle();
+  }
   let filters: StreamSource['filters'];
   if (value.filters !== undefined) {
     if (!isRecord(value.filters)) throw new Error('Project contains invalid source filters.');
@@ -255,6 +288,7 @@ function decodeSource(value: unknown): StreamSource {
     ...(typeof value.slideshowLoop === 'boolean' ? { slideshowLoop: value.slideshowLoop } : {}),
     ...(typeof value.browserAudioEnabled === 'boolean' ? { browserAudioEnabled: value.browserAudioEnabled } : {}),
     ...(typeof value.text === 'string' ? { text: value.text } : {}),
+    ...(textStyle ? { textStyle } : {}),
     ...(typeof value.color === 'string' ? { color: value.color } : {}),
   };
 }

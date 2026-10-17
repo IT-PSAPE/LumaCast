@@ -24,6 +24,7 @@ import { listenForMediaStreamEnd } from './media-stream-ended';
 import {
   CAMERA_FRAME_RATE_OPTIONS,
   CAMERA_RESOLUTION_OPTIONS,
+  createDefaultTextStyle,
   type AudioApplicationOption,
   type CameraFrameRatePreset,
   type CameraResolutionPreset,
@@ -51,6 +52,7 @@ import {
   type StreamRuntimeStatus,
   type StreamScene,
   type StreamSource,
+  type StreamTextStyle,
   type StreamWorkspace,
   type RecordingTrackId,
   VIDEO_ENCODER_OPTIONS,
@@ -200,7 +202,7 @@ function defaultTransform(kind: SourceKind, output: StreamProject['output'], med
 function createSource(kind: SourceKind, output: StreamProject['output'], name?: string, extra: Partial<StreamSource> = {}): StreamSource {
   const labels: Record<SourceKind, string> = {
     display: 'Display Capture', window: 'Window Capture', camera: 'Video Capture Device',
-    microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', 'application-audio': 'Application Audio Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text (GDI+)', color: 'Color Source',
+    microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', 'application-audio': 'Application Audio Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text', color: 'Color Source',
   };
   return {
     id: crypto.randomUUID(),
@@ -214,7 +216,7 @@ function createSource(kind: SourceKind, output: StreamProject['output'], name?: 
     audioMonitoring: 'off',
     audioTracks: [1],
     transform: defaultTransform(kind, output, extra.mediaKind),
-    ...(kind === 'text' ? { text: 'Text', color: '#ffffff' } : {}),
+    ...(kind === 'text' ? { text: 'Text', color: '#ffffff', textStyle: createDefaultTextStyle() } : {}),
     ...(kind === 'color' ? { color: '#17191f' } : {}),
     ...(kind === 'browser' ? { browserAudioEnabled: false } : {}),
     ...extra,
@@ -1299,6 +1301,10 @@ export function App() {
     }));
   };
 
+  const updateTextStyle = (sourceId: string, update: (style: StreamTextStyle) => StreamTextStyle) => updateSource(sourceId, (source) => source.kind === 'text'
+    ? { ...source, textStyle: update(source.textStyle ?? createDefaultTextStyle()) }
+    : source);
+
   const toggleSourceLock = (sourceId: string) => {
     updateSource(sourceId, (source) => ({ ...source, locked: !source.locked }));
   };
@@ -2275,6 +2281,7 @@ export function App() {
   const canSaveReplay = replayBufferRevision > 0 && Boolean(replayBuffer.current?.channels.some((channel) => channel.track === 0 && channel.header));
   const collectionOperationBlocked = working || recordingStartedAt !== null || streamingStartedAt !== null || replayBufferStartedAt !== null;
   const selectedFilters = { ...DEFAULT_SOURCE_FILTERS, ...selectedSource?.filters };
+  const selectedTextStyle = selectedSource?.kind === 'text' ? selectedSource.textStyle ?? createDefaultTextStyle() : null;
   const selectedCrop = { ...DEFAULT_SOURCE_CROP, ...selectedSource?.crop };
   const selectedChromaKey = { ...DEFAULT_CHROMA_KEY, ...selectedSource?.chromaKey };
   const selectionHandles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -2551,8 +2558,35 @@ export function App() {
               </div>
               <div className="transform-actions"><button type="button" disabled={selectedSource.locked} onClick={() => fitSource(selectedSource)}>Fit to Canvas</button><button type="button" disabled={selectedSource.locked} onClick={() => centerSource(selectedSource)}>Center</button><button type="button" disabled={selectedSource.locked} onClick={() => updateSource(selectedSource.id, (source) => ({ ...source, transform: defaultTransform(source.kind, project.output, source.mediaKind) }))}>Reset</button></div>
             </details>}
-            {selectedSource.kind === 'text' && <label className="text-property">Text<input value={selectedSource.text ?? ''} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, text: event.target.value }))} /></label>}
-            {(selectedSource.kind === 'text' || selectedSource.kind === 'color') && <label className="color-property">Color<input type="color" value={selectedSource.color ?? '#ffffff'} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, color: event.target.value }))} /></label>}
+            {selectedSource.kind === 'text' && selectedTextStyle && <>
+              <label className="text-property text-property-stack">Text<textarea rows={3} value={selectedSource.text ?? ''} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, text: event.target.value }))} /></label>
+              <label className="device-property">Font<select aria-label="Text font" value={selectedTextStyle.fontFamily} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, fontFamily: event.target.value }))}>{['Segoe UI', 'Arial', 'Arial Black', 'Calibri', 'Consolas', 'Georgia', 'Impact', 'Tahoma', 'Verdana'].map((font) => <option key={font} value={font}>{font}</option>)}</select></label>
+              <label className="device-property">Size<input aria-label="Text font size" type="number" min="1" max="512" value={selectedTextStyle.fontSize} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, fontSize: Math.max(1, Math.min(512, Number(event.target.value) || 1)) }))} /></label>
+              <div className="text-style-toggles">
+                <label><input type="checkbox" checked={selectedTextStyle.bold} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, bold: event.target.checked }))} /><span>Bold</span></label>
+                <label><input type="checkbox" checked={selectedTextStyle.italic} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, italic: event.target.checked }))} /><span>Italic</span></label>
+              </div>
+              <label className="device-property">Align<select aria-label="Text alignment" value={selectedTextStyle.horizontalAlignment} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, horizontalAlignment: event.target.value as StreamTextStyle['horizontalAlignment'] }))}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+              <label className="device-property">Vertical<select aria-label="Text vertical alignment" value={selectedTextStyle.verticalAlignment} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, verticalAlignment: event.target.value as StreamTextStyle['verticalAlignment'] }))}><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select></label>
+              <label className="color-property">Color<input aria-label="Text color" type="color" value={selectedSource.color ?? '#ffffff'} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, color: event.target.value }))} /></label>
+              <details className="filter-details text-style-details"><summary>Outline</summary>
+                <label className="audio-filter-toggle"><input type="checkbox" checked={selectedTextStyle.outline.enabled} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, outline: { ...style.outline, enabled: event.target.checked } }))} /><span>Enabled</span></label>
+                <label className="color-property">Color<input aria-label="Text outline color" type="color" disabled={!selectedTextStyle.outline.enabled} value={selectedTextStyle.outline.color} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, outline: { ...style.outline, color: event.target.value } }))} /></label>
+                <label className="filter-control"><span>Width</span><input aria-label="Text outline width" type="range" min="0" max="32" value={selectedTextStyle.outline.width} disabled={!selectedTextStyle.outline.enabled} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, outline: { ...style.outline, width: Number(event.target.value) } }))} /><b>{selectedTextStyle.outline.width}px</b></label>
+              </details>
+              <details className="filter-details text-style-details"><summary>Drop Shadow</summary>
+                <label className="audio-filter-toggle"><input type="checkbox" checked={selectedTextStyle.shadow.enabled} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, shadow: { ...style.shadow, enabled: event.target.checked } }))} /><span>Enabled</span></label>
+                <label className="color-property">Color<input aria-label="Text shadow color" type="color" disabled={!selectedTextStyle.shadow.enabled} value={selectedTextStyle.shadow.color} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, shadow: { ...style.shadow, color: event.target.value } }))} /></label>
+                <label className="filter-control"><span>Blur</span><input aria-label="Text shadow blur" type="range" min="0" max="100" value={selectedTextStyle.shadow.blur} disabled={!selectedTextStyle.shadow.enabled} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, shadow: { ...style.shadow, blur: Number(event.target.value) } }))} /><b>{selectedTextStyle.shadow.blur}px</b></label>
+                <label className="device-property">Offset X<input aria-label="Text shadow offset X" type="number" min="-128" max="128" disabled={!selectedTextStyle.shadow.enabled} value={selectedTextStyle.shadow.offsetX} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, shadow: { ...style.shadow, offsetX: Math.max(-128, Math.min(128, Number(event.target.value) || 0)) } }))} /></label>
+                <label className="device-property">Offset Y<input aria-label="Text shadow offset Y" type="number" min="-128" max="128" disabled={!selectedTextStyle.shadow.enabled} value={selectedTextStyle.shadow.offsetY} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, shadow: { ...style.shadow, offsetY: Math.max(-128, Math.min(128, Number(event.target.value) || 0)) } }))} /></label>
+              </details>
+              <details className="filter-details text-style-details"><summary>Background</summary>
+                <label className="color-property">Color<input aria-label="Text background color" type="color" value={selectedTextStyle.background.color} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, background: { ...style.background, color: event.target.value } }))} /></label>
+                <label className="filter-control"><span>Opacity</span><input aria-label="Text background opacity" type="range" min="0" max="100" value={Math.round(selectedTextStyle.background.opacity * 100)} onChange={(event) => updateTextStyle(selectedSource.id, (style) => ({ ...style, background: { ...style.background, opacity: Number(event.target.value) / 100 } }))} /><b>{Math.round(selectedTextStyle.background.opacity * 100)}%</b></label>
+              </details>
+            </>}
+            {selectedSource.kind === 'color' && <label className="color-property">Color<input type="color" value={selectedSource.color ?? '#ffffff'} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, color: event.target.value }))} /></label>}
             {selectedSource.kind === 'media' && <>
               <div className="media-playback-controls">
                 <button className="secondary-button" disabled={!mediaElements.current.has(selectedSource.id)} onClick={() => toggleMediaPlayback(selectedSource.id)}>{mediaPlaybackStates[selectedSource.id]?.paused ? <Play size={12} /> : <Pause size={12} />}{mediaPlaybackStates[selectedSource.id]?.paused ? 'Play' : 'Pause'}</button>

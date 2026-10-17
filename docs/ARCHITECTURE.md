@@ -82,6 +82,13 @@ AudioWorklet queue, exposes its output as a MediaStream, and routes it through
 the existing mixer for source processing, monitoring, metering, and track
 routing (ADR-0106).
 
+Text sources persist their content, foreground color, and text styling with the
+scene. The Canvas renderer wraps explicit and width-constrained lines inside
+the source transform, clips all drawing to those bounds, and supports font
+family and size, bold/italic, horizontal/vertical alignment, outline, shadow,
+and a translucent background. Older sources receive the default style during
+project decode; text is rendered using fonts installed on the host (ADR-0107).
+
 The helper is a self-contained Windows x64 executable and rejects capture on
 Windows builds older than 20348; process listing is not itself a guarantee that
 capture is supported. Stream's development and Windows packaging scripts

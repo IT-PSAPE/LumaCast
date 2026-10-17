@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createDefaultProject, type AudioFilters, type AudioTrack, type StreamProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
+import { createDefaultProject, createDefaultTextStyle, type AudioFilters, type AudioTrack, type StreamProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
 import { ProjectStore } from '../../../../apps/stream/main/project-store';
 
 const temporaryDirectories: string[] = [];
@@ -25,6 +25,81 @@ function projectWithDisplaySource(): StreamProject {
   });
   return project;
 }
+
+function projectWithTextSource(): StreamProject {
+  const project = createDefaultProject();
+  const scene = project.scenes[0];
+  if (!scene) throw new Error('Default Stream project has no scene.');
+  scene.sources.push({
+    id: 'text-source', name: 'Title', kind: 'text', visible: true, muted: false, volume: 1,
+    transform: { x: 100, y: 80, width: 800, height: 240 }, text: 'Stream title', color: '#ffffff', textStyle: createDefaultTextStyle(),
+  });
+  return project;
+}
+
+describe('LumaStream text source persistence', () => {
+  it('applies safe text style defaults to legacy sources and round-trips customized styles', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-text-'));
+    temporaryDirectories.push(directory);
+    const legacy = projectWithTextSource();
+    const legacySource = legacy.scenes[0]?.sources.find((source) => source.kind === 'text');
+    if (!legacySource) throw new Error('Text source was not created.');
+    delete legacySource.textStyle;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(legacy), 'utf8');
+
+    const store = new ProjectStore(directory);
+    const loaded = await store.load();
+    expect(loaded.project.scenes[0]?.sources.find((source) => source.id === legacySource.id)?.textStyle).toEqual(createDefaultTextStyle());
+    const style = createDefaultTextStyle();
+    style.fontFamily = 'Georgia';
+    style.fontSize = 68;
+    style.bold = false;
+    style.italic = true;
+    style.horizontalAlignment = 'center';
+    style.verticalAlignment = 'bottom';
+    style.outline = { enabled: true, color: '#123456', width: 5 };
+    style.shadow = { enabled: true, color: '#654321', blur: 18, offsetX: -7, offsetY: 12 };
+    style.background = { color: '#abcdef', opacity: 0.42 };
+    const changed: StreamProject = {
+      ...loaded.project,
+      scenes: loaded.project.scenes.map((scene) => ({
+        ...scene,
+        sources: scene.sources.map((source) => source.id === legacySource.id ? { ...source, textStyle: style } : source),
+      })),
+    };
+    await store.save(loaded.activeCollectionId, loaded.activeProfileId, changed);
+    expect((await store.load()).project.scenes[0]?.sources.find((source) => source.id === legacySource.id)?.textStyle).toEqual(style);
+  });
+
+  it.each([
+    ['font size', (style: Record<string, unknown>) => { style.fontSize = 513; }],
+    ['font family', (style: Record<string, unknown>) => { style.fontFamily = ''; }],
+    ['alignment', (style: Record<string, unknown>) => { style.horizontalAlignment = 'justify'; }],
+    ['outline color', (style: Record<string, unknown>) => { (style.outline as Record<string, unknown>).color = 'red'; }],
+    ['shadow offset', (style: Record<string, unknown>) => { (style.shadow as Record<string, unknown>).offsetX = 129; }],
+    ['background opacity', (style: Record<string, unknown>) => { (style.background as Record<string, unknown>).opacity = 1.1; }],
+  ])('rejects invalid text %s', async (_name, mutate) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-text-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithTextSource();
+    const source = project.scenes[0]?.sources.find((item) => item.kind === 'text');
+    if (!source?.textStyle) throw new Error('Text source settings were not created.');
+    mutate(source.textStyle as unknown as Record<string, unknown>);
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid text settings.');
+  });
+
+  it('rejects text styling on non-text sources', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-text-kind-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithDisplaySource();
+    const source = project.scenes[0]?.sources.find((item) => item.kind === 'display');
+    if (!source) throw new Error('Display source was not created.');
+    (source as unknown as { textStyle: unknown }).textStyle = createDefaultTextStyle();
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid text settings.');
+  });
+});
 
 function projectWithMicrophoneSource(): StreamProject {
   const project = createDefaultProject();

@@ -4,6 +4,7 @@ import { ChromaKeyProcessor } from './chroma-key';
 import { setMediaPlaybackActive, shouldShowMediaFrame } from './media-playback';
 import { currentSlideshowSlideIndex, forgetSlideshow, slideshowImageElementKey } from './slideshow';
 import type { SceneTransition } from './scene-transition';
+import { drawTextSource } from './text-overlay';
 
 interface Props {
   project: StreamProject;
@@ -58,11 +59,7 @@ function drawScene(
       context.fillStyle = source.color ?? '#17191f';
       context.fillRect(x, y, boxWidth, boxHeight);
     } else if (source.kind === 'text') {
-      context.fillStyle = source.color ?? '#ffffff';
-      context.textBaseline = 'top';
-      context.font = `700 ${Math.max(24, Math.round(height * 0.065))}px "Segoe UI", sans-serif`;
-      const lines = (source.text ?? 'Text').split('\n');
-      lines.forEach((line, index) => context.fillText(line, x, y + index * Math.max(34, height * 0.075), boxWidth));
+      drawTextSource(context, source);
     } else if (source.kind === 'image' || source.kind === 'browser' || source.kind === 'slideshow') {
       const slideshowImages = source.kind === 'slideshow' ? source.slideshowImages ?? [] : [];
       const slideIndex = source.kind === 'slideshow'

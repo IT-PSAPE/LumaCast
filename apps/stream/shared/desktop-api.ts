@@ -145,6 +145,31 @@ export interface ChromaKeyFilter {
   smoothness: number;
 }
 
+export type TextHorizontalAlignment = 'left' | 'center' | 'right';
+export type TextVerticalAlignment = 'top' | 'center' | 'bottom';
+
+export interface StreamTextStyle {
+  fontFamily: string;
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+  horizontalAlignment: TextHorizontalAlignment;
+  verticalAlignment: TextVerticalAlignment;
+  outline: { enabled: boolean; color: string; width: number };
+  shadow: { enabled: boolean; color: string; blur: number; offsetX: number; offsetY: number };
+  background: { color: string; opacity: number };
+}
+
+export function createDefaultTextStyle(): StreamTextStyle {
+  return {
+    fontFamily: 'Segoe UI', fontSize: 48, bold: true, italic: false,
+    horizontalAlignment: 'left', verticalAlignment: 'top',
+    outline: { enabled: false, color: '#000000', width: 2 },
+    shadow: { enabled: false, color: '#000000', blur: 4, offsetX: 2, offsetY: 2 },
+    background: { color: '#000000', opacity: 0 },
+  };
+}
+
 export interface StreamSource {
   id: string;
   name: string;
@@ -179,6 +204,7 @@ export interface StreamSource {
   slideshowIntervalSeconds?: number;
   slideshowLoop?: boolean;
   text?: string;
+  textStyle?: StreamTextStyle;
   color?: string;
 }
 
