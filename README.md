@@ -2,12 +2,13 @@
 
 Cross-platform Electron prototype for a ProPresenter-style presentation workflow focused on reusable content, slide rendering, and NDI output.
 
-The repository is a workspace of four apps and their shared packages:
+The repository is a workspace of five apps and their shared packages:
 
 - `apps/cast` — LumaCast, the NDI presentation app
 - `apps/cloud` — LumaCloud, the suite manager: installs, updates, downgrades, and removes the other apps
 - `apps/flux` — Lumaflux, the photo editor
 - `apps/chord` — LumaChord, the lyric-video maker: audio plus timed lyric cues rendered and exported as video
+- `apps/soundboard` — LumaSoundboard, a standalone desktop app with named boards, audio import, and per-sound play, pause, stop, and removal
 
 Each app is self-contained: it ships its own main process, renderer, and
 `package.json` (which owns its release version), and it shares only the
@@ -66,18 +67,35 @@ npm run dev:cast
 npm run dev:cloud
 npm run dev:flux
 npm run dev:chord
+npm run dev:soundboard
 ```
 
 `npm run dev` is an alias for `npm run dev:cast`.
 
+LumaSoundboard saves named boards and imported audio copies in its own local
+user-data directory. Playbacks may overlap within a board. Pause preserves the
+position; Stop returns to the selected start; switching boards stops the previous
+board. Each sound has a seekable playhead, saved start/end timestamps, a loop
+toggle, and an optional shortcut. Timestamp fields accept seconds,
+`mm:ss.sss`, or `hh:mm:ss.sss`; an empty End uses the audio duration. Loop repeats
+the selected range or the full audio by default. Shortcuts toggle playback on
+the active board only while this app has focus and no field is being edited.
+Supported imports are MP3, WAV, OGG, FLAC, M4A, AAC, and Opus; playback reports files the
+desktop decoder cannot read.
+
+Package a Windows soundboard installer with
+`npm run dist:win --workspace apps/soundboard`. Output is in
+`apps/soundboard/dist/`.
+
 Build production assets:
 
 ```bash
-npm run build           # all four apps
+npm run build           # all five apps
 npm run build:cast
 npm run build:cloud
 npm run build:flux
 npm run build:chord
+npm run build:soundboard
 ```
 
 Preview the built renderer bundle:

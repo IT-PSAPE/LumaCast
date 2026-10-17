@@ -4,9 +4,9 @@ This document describes the actual implemented architecture for theme lifecycle,
 
 ## Dependency Boundaries
 
-The repository is an npm workspace of four self-contained apps under `apps/*`
+The repository is an npm workspace of five self-contained apps under `apps/*`
 — `cast` (LumaCast), `cloud` (LumaCloud), `flux` (LumaFlux), and `chord`
-(LumaChord) — built on the
+(LumaChord), plus `soundboard` (LumaSoundboard) — built on the
 headless packages under `packages/*`. An app never imports another app and a
 package never imports an app, in either direction; shared code lives in a
 package. Dependency direction is enforced by
@@ -15,6 +15,41 @@ parses static ES imports/exports (`.ts`, `.tsx`, `.mjs`, `.js`, and `.cjs` are
 all code) and applies a frozen allow-list that can only shrink. The legacy
 root tree `app/` is still checked so an in-flight migration keeps its
 coverage, but every app now lives under `apps/<app>/` (ADR-0043).
+
+### LumaSoundboard
+
+`apps/soundboard` is a standalone Electron app for named soundboards and
+independent audio playback (ADR-0049). Its main process owns the native audio
+picker and a versioned `library.json` in its separate `LumaSoundboard` user-data
+directory. Imports copy supported audio files into that directory's `audio/`
+folder; moving the originals does not affect playback. Mutations are serialized
+and manifests are replaced atomically. Removing a sound commits its board-entry
+removal, then deletes the managed audio copy, never the original file. A failed
+file cleanup is logged and leaves an unreferenced copy; it does not undo the
+committed removal.
+
+The process-neutral `shared/desktop-api.ts` contract is exposed as
+`window.soundboard` by a sandboxed preload. The renderer has no filesystem or
+Electron access. Main validates IPC callers and input, and the
+`lumasoundboard://audio/<sound-id>` protocol resolves only known managed audio,
+with byte-range support. Navigation and new windows are blocked.
+
+The React renderer owns independent audio players: pause preserves position,
+the playhead seeks within selected bounds, stop returns to the selected start,
+and switching boards stops the previous board. Each sound persists start/end
+bounds, loop mode, and an optional physical-key shortcut in the version-2
+manifest. Valid version-1 manifests migrate atomically on load. Main validates
+settings and rejects duplicate shortcuts within a board; renderer validation
+also checks bounds against decoded duration. End-of-range playback stops or
+loops back to start. Playback position remains transient (ADR-0050).
+
+Keyboard shortcuts are handled by a focused renderer window, for the active
+board only. Input editing, shortcut recording, composition, and repeated keydown
+events suppress playback dispatch; no global keyboard hooks are registered.
+The renderer reuses `@lumacast/ui` controls and its public shared theme, bundled
+by the app's Tailwind/Vite pipeline. This app has
+its own build and packaging commands; suite catalog, updater feeds, and hosted
+release publishing remain limited to the existing managed products.
 
 ### App tree (`apps/<app>`)
 
