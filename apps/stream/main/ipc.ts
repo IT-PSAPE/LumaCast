@@ -2,7 +2,8 @@ import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { BrowserWindow, dialog } from 'electron';
 import { open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamGlobalHotkeys, StreamOutputSettings, StreamProject } from '../shared/desktop-api';
+import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject } from '../shared/desktop-api';
+import type { AudioSettingsStore } from './audio-settings-store';
 import { DesktopCaptureController } from './desktop-capture';
 import { BrowserSourceManager } from './browser-sources';
 import { IPC_CHANNELS } from './ipc-channels';
@@ -30,6 +31,7 @@ function profileFileStem(name: string): string {
 
 export function registerStreamIpc(
   projectStore: ProjectStore,
+  audioSettings: AudioSettingsStore,
   capture: DesktopCaptureController,
   mediaAssets: MediaAssetStore,
   collectionBundles: CollectionBundleStore,
@@ -55,6 +57,8 @@ export function registerStreamIpc(
       if (typeof profileId !== 'string' || profileId.length > 128) throw new Error('Invalid profile.');
       return projectStore.save(collectionId, profileId, project);
     }],
+    [IPC_CHANNELS.loadAudioSettings, (event) => { authorize(event); return audioSettings.load(); }],
+    [IPC_CHANNELS.saveAudioSettings, (event, settings: StreamAudioSettings) => { authorize(event); return audioSettings.save(settings); }],
     [IPC_CHANNELS.createCollection, (event, name: string, duplicateCurrent: boolean) => {
       authorize(event);
       if (typeof duplicateCurrent !== 'boolean') throw new Error('Invalid collection operation.');

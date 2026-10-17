@@ -9,6 +9,8 @@ import { createSceneTransition, type SceneTransition, type SceneTransitionType }
 import { AnchoredPopover } from './anchored-popover';
 import { ModalDialog } from './modal-dialog';
 import { AudioMixerEngine } from './audio-mixer';
+import { audioOutputDeviceOptions, type AudioOutputDeviceOption } from './audio-output-devices';
+import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { getRenderedSourceIds } from './scene-render-scope';
 import { canTransformSource, fitSourceToCanvas } from './source-transform';
@@ -25,6 +27,7 @@ import {
   CAMERA_FRAME_RATE_OPTIONS,
   CAMERA_RESOLUTION_OPTIONS,
   createDefaultTextStyle,
+  createDefaultStreamAudioSettings,
   type AudioApplicationOption,
   type CameraFrameRatePreset,
   type CameraResolutionPreset,
@@ -40,6 +43,7 @@ import {
   type SourceFilters,
   type AudioFilters,
   type AudioMonitoring,
+  type StreamAudioSettings,
   type AudioTrack,
   AUDIO_TRACKS,
   type ChromaKeyFilter,
@@ -168,6 +172,12 @@ function friendlyError(error: unknown): string {
   if (error instanceof DOMException && error.name === 'NotAllowedError') return 'Capture permission was denied.';
   if (error instanceof Error && error.message) return error.message;
   return 'Something went wrong. Please try again.';
+}
+
+function monitoringDeviceError(error: unknown): string {
+  if (error instanceof DOMException && error.name === 'NotAllowedError') return 'Audio output permission was denied. Using System Default.';
+  if (error instanceof DOMException && error.name === 'NotFoundError') return 'The selected audio output is unavailable. Using System Default.';
+  return 'Could not change the monitoring device. Using System Default.';
 }
 
 function applyBrowserFrame(image: HTMLImageElement, frame: ArrayBuffer): void {
@@ -303,6 +313,9 @@ export function App() {
   const [transitionMs, setTransitionMs] = useState(350);
   const [multiviewMode, setMultiviewMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [audioSettings, setAudioSettings] = useState<StreamAudioSettings>(createDefaultStreamAudioSettings);
+  const [audioOutputDevices, setAudioOutputDevices] = useState<AudioOutputDeviceOption[]>([]);
+  const [audioSettingsError, setAudioSettingsError] = useState('');
   const [hotkeyDraft, setHotkeyDraft] = useState<StreamGlobalHotkeys | null>(null);
   const [sceneSwitchHotkeyDraft, setSceneSwitchHotkeyDraft] = useState<Record<string, string>>({});
   const [sourceVisibilityHotkeyDraft, setSourceVisibilityHotkeyDraft] = useState<Record<string, string>>({});
@@ -333,6 +346,8 @@ export function App() {
   const mediaElements = useRef(new Map<string, HTMLMediaElement>());
   const imageElements = useRef(new Map<string, HTMLImageElement>());
   const mixer = useRef<AudioMixerEngine | null>(null);
+  const audioSettingsRef = useRef(audioSettings);
+  audioSettingsRef.current = audioSettings;
   const recording = useRef<ActiveRecording | null>(null);
   const streaming = useRef<ActiveStreaming | null>(null);
   const replayBuffer = useRef<ActiveReplayBuffer | null>(null);
@@ -347,9 +362,18 @@ export function App() {
   const sceneHistoryRef = useRef<SceneHistory | null>(null);
   sceneHistoryRef.current ??= new SceneHistory();
 
+  const refreshAudioOutputDevices = useCallback(async () => {
+    try {
+      setAudioOutputDevices(audioOutputDeviceOptions(await navigator.mediaDevices.enumerateDevices()));
+    } catch {
+      setAudioSettingsError('Audio output devices could not be listed.');
+    }
+  }, []);
+
   const openSettings = (event: ReactMouseEvent<HTMLButtonElement>) => {
     settingsOpenerRef.current = event.currentTarget;
     setSettingsOpen(true);
+    void refreshAudioOutputDevices();
   };
   const closeSettings = () => setSettingsOpen(false);
   const sceneHistorySnapshotRef = useRef<SceneEditorState | null>(null);
@@ -394,6 +418,51 @@ export function App() {
     });
     return () => { active = false; };
   }, [api]);
+
+  useEffect(() => {
+    let active = true;
+    void api.loadAudioSettings().then((settings) => {
+      if (!active) return;
+      audioSettingsRef.current = settings;
+      setAudioSettings(settings);
+      if (settings.monitoringDeviceId && mixer.current) {
+        void mixer.current.setMonitoringDevice(settings.monitoringDeviceId).then(() => setAudioSettingsError(''))
+          .catch((error) => setAudioSettingsError(monitoringDeviceError(error)));
+      }
+    }).catch((error) => {
+      if (active) setAudioSettingsError(`Audio settings could not be loaded: ${friendlyError(error)}`);
+    });
+    return () => { active = false; };
+  }, [api]);
+
+  useEffect(() => {
+    let active = true;
+    const refreshDevices = () => {
+      void navigator.mediaDevices.enumerateDevices().then((devices) => {
+        if (!active) return;
+        const options = audioOutputDeviceOptions(devices);
+        setAudioOutputDevices(options);
+        const selectedId = audioSettingsRef.current.monitoringDeviceId;
+        const engine = mixer.current;
+        if (!engine || !selectedId) return;
+        if (options.some((device) => device.deviceId === selectedId)) {
+          void engine.setMonitoringDevice(selectedId).then(() => setAudioSettingsError(''))
+            .catch((error) => setAudioSettingsError(monitoringDeviceError(error)));
+        } else {
+          void engine.setMonitoringDevice('').catch(() => undefined);
+          setAudioSettingsError('Saved monitoring device is unavailable. Using System Default.');
+        }
+      }).catch(() => {
+        if (active) setAudioSettingsError('Audio output devices could not be listed.');
+      });
+    };
+    refreshDevices();
+    navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+    return () => {
+      active = false;
+      navigator.mediaDevices.removeEventListener('devicechange', refreshDevices);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -569,9 +638,34 @@ export function App() {
   }, [setProjectValue]);
 
   const ensureMixer = useCallback(() => {
-    mixer.current ??= new AudioMixerEngine();
+    if (!mixer.current) {
+      mixer.current = new AudioMixerEngine();
+      const selectedDeviceId = audioSettingsRef.current.monitoringDeviceId;
+      if (selectedDeviceId) {
+        void mixer.current.setMonitoringDevice(selectedDeviceId).then(() => setAudioSettingsError(''))
+          .catch((error) => setAudioSettingsError(monitoringDeviceError(error)));
+      }
+    }
     return mixer.current;
   }, []);
+
+  const updateMonitoringDevice = async (monitoringDeviceId: string) => {
+    const nextSettings = { monitoringDeviceId };
+    audioSettingsRef.current = nextSettings;
+    setAudioSettings(nextSettings);
+    setAudioSettingsError('');
+    try {
+      await api.saveAudioSettings(nextSettings);
+    } catch (error) {
+      setAudioSettingsError(`Audio settings could not be saved: ${friendlyError(error)}`);
+    }
+    if (!mixer.current) return;
+    try {
+      await mixer.current.setMonitoringDevice(monitoringDeviceId);
+    } catch (error) {
+      setAudioSettingsError(monitoringDeviceError(error));
+    }
+  };
 
   const onBrowserElement = useCallback((sourceId: string, image: HTMLImageElement) => {
     const frame = pendingBrowserFrames.current.get(sourceId);
@@ -841,6 +935,8 @@ export function App() {
   };
 
   const activeProfile = profiles.find((profile) => profile.id === activeProfileId) ?? null;
+  const monitorDeviceSelectionSupported = typeof AudioContext !== 'undefined'
+    && supportsAudioOutputSelection(AudioContext.prototype);
 
   const activateProfile = async (id: string) => {
     setProfileMenuOpen(false);
@@ -2347,6 +2443,15 @@ export function App() {
       {settingsOpen && <ModalDialog className="settings-modal" backdropClassName="modal-backdrop settings-backdrop" labelledBy="settings-modal-title" openerRef={settingsOpenerRef} onClose={closeSettings}>
         <div className="modal-heading settings-modal-heading"><div><span className="modal-eyebrow">STREAM</span><h2 id="settings-modal-title">Settings</h2></div><button className="icon-button" aria-label="Close settings" onClick={closeSettings}><X size={16} /></button></div>
         <div className="settings-modal-body">
+        <div className="popover-heading"><strong>Audio</strong></div>
+        <label>Monitoring device<select aria-label="Monitoring device" disabled={!monitorDeviceSelectionSupported} value={audioSettings.monitoringDeviceId} onChange={(event) => void updateMonitoringDevice(event.target.value)}>
+          <option value="">System Default</option>
+          {audioSettings.monitoringDeviceId && !audioOutputDevices.some((device) => device.deviceId === audioSettings.monitoringDeviceId)
+            && <option value={audioSettings.monitoringDeviceId}>Saved device unavailable</option>}
+          {audioOutputDevices.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label}</option>)}
+        </select></label>
+        {audioSettingsError && <p className="hotkey-error" role="alert">{audioSettingsError}</p>}
+        {!monitorDeviceSelectionSupported && <p className="hotkey-error" role="status">Audio output device selection is unavailable.</p>}
         <div className="popover-heading"><strong>Output</strong></div>
         <label>Replay buffer<select value={replayBufferDurationSeconds} disabled={replayBufferStartedAt !== null} onChange={(event) => setReplayBufferDurationSeconds(Number(event.target.value))}><option value={5}>5 seconds</option><option value={15}>15 seconds</option><option value={30}>30 seconds</option><option value={60}>60 seconds</option></select></label>
         <div className="popover-heading video-heading"><strong>Video</strong></div>
@@ -2656,7 +2761,7 @@ export function App() {
         </section>
 
         <section className="dock mixer-dock">
-          <div className="dock-title"><span>Audio Mixer</span><span className="meter-scale">−60&nbsp; &nbsp; −20&nbsp; &nbsp; 0 dB</span><button className="mini-icon" aria-label="Audio settings"><Settings2 size={14} /></button></div>
+          <div className="dock-title"><span>Audio Mixer</span><span className="meter-scale">−60&nbsp; &nbsp; −20&nbsp; &nbsp; 0 dB</span><button className="mini-icon" aria-label="Audio settings" onClick={openSettings}><Settings2 size={14} /></button></div>
           {activeScene.sources.filter((source) => meterLevels[source.id] !== undefined).length === 0
             ? <div className="mixer-empty"><AudioLines size={20} /><span>Add a microphone or capture source with system audio.</span></div>
             : <div className="mixer-channels">{activeScene.sources.filter((source) => meterLevels[source.id] !== undefined).map((source) => {

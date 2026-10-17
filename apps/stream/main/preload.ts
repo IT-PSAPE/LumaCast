@@ -5,6 +5,8 @@ import { IPC_CHANNELS } from './ipc-channels';
 const api: StreamAPI = {
   loadProject: () => ipcRenderer.invoke(IPC_CHANNELS.loadProject),
   saveProject: (collectionId, profileId, project) => ipcRenderer.invoke(IPC_CHANNELS.saveProject, collectionId, profileId, project),
+  loadAudioSettings: () => ipcRenderer.invoke(IPC_CHANNELS.loadAudioSettings),
+  saveAudioSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.saveAudioSettings, settings),
   createCollection: (name, duplicateCurrent) => ipcRenderer.invoke(IPC_CHANNELS.createCollection, name, duplicateCurrent),
   activateCollection: (id) => ipcRenderer.invoke(IPC_CHANNELS.activateCollection, id),
   renameCollection: (id, name) => ipcRenderer.invoke(IPC_CHANNELS.renameCollection, id, name),

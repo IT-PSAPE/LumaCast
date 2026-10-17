@@ -4,6 +4,13 @@ export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'deskt
 export type MediaKind = 'image' | 'video' | 'audio';
 export type RecordingContainer = 'webm' | 'mkv' | 'mp4';
 export type AudioMonitoring = 'off' | 'monitor-only' | 'monitor-and-output';
+export interface StreamAudioSettings {
+  monitoringDeviceId: string;
+}
+
+export function createDefaultStreamAudioSettings(): StreamAudioSettings {
+  return { monitoringDeviceId: '' };
+}
 export const CAMERA_RESOLUTION_OPTIONS = [
   { value: 'device-default', label: 'Device Default' },
   { value: '640x360', label: '640 × 360' },
@@ -334,6 +341,8 @@ export interface StreamRuntimeStatus {
 export interface StreamAPI {
   loadProject(): Promise<StreamWorkspace>;
   saveProject(collectionId: string, profileId: string, project: StreamProject): Promise<void>;
+  loadAudioSettings(): Promise<StreamAudioSettings>;
+  saveAudioSettings(settings: StreamAudioSettings): Promise<void>;
   createCollection(name: string, duplicateCurrent: boolean): Promise<StreamWorkspace>;
   activateCollection(id: string): Promise<StreamWorkspace>;
   renameCollection(id: string, name: string): Promise<SceneCollectionSummary[]>;

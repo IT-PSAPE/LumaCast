@@ -7,6 +7,7 @@ import audioFiltersProcessorUrl from './audio-filters-processor.js?url';
 import applicationAudioInputProcessorUrl from './application-audio-input-processor.js?url';
 import { connectAudioInput, gainFromDecibels, replaceAudioInputConnection } from './audio-route';
 import { audioTrackGainValues } from './audio-track-routing';
+import { routeMonitorToDevice } from './monitor-device-routing';
 
 interface AudioRoute {
   input: AudioNode;
@@ -34,6 +35,7 @@ export class AudioMixerEngine {
   readonly context = new AudioContext({ sampleRate: 48_000 });
   readonly destinations: readonly MediaStreamAudioDestinationNode[];
   private readonly routes = new Map<string, AudioRoute>();
+  private monitorDeviceQueue: Promise<void> = Promise.resolve();
   private readonly mediaElementSources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private readonly audioFiltersModuleReady: Promise<boolean>;
   private readonly applicationAudioInputReady: Promise<boolean>;
@@ -272,6 +274,12 @@ export class AudioMixerEngine {
 
   async resume(): Promise<void> {
     if (this.context.state !== 'running') await this.context.resume();
+  }
+
+  setMonitoringDevice(deviceId: string): Promise<void> {
+    const routing = this.monitorDeviceQueue.then(() => routeMonitorToDevice(this.context, deviceId));
+    this.monitorDeviceQueue = routing.catch(() => undefined);
+    return routing;
   }
 
   sourceIds(): string[] {

@@ -1,6 +1,8 @@
 export const IPC_CHANNELS = {
   loadProject: 'stream:load-project',
   saveProject: 'stream:save-project',
+  loadAudioSettings: 'stream:load-audio-settings',
+  saveAudioSettings: 'stream:save-audio-settings',
   createCollection: 'stream:create-collection',
   activateCollection: 'stream:activate-collection',
   renameCollection: 'stream:rename-collection',

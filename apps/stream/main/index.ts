@@ -12,6 +12,8 @@ import { StreamOutput } from './stream-output';
 import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
 import { ApplicationAudioCapture } from './application-audio-capture';
+import { AudioSettingsStore } from './audio-settings-store';
+import { allowsSpeakerSelection } from './audio-output-permissions';
 import { createMainWindow } from './window';
 
 protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: MEDIA_SCHEME_PRIVILEGES }]);
@@ -21,6 +23,7 @@ app.setPath('userData', path.join(dataDirectory, 'user-data'));
 
 let mainWindow: BrowserWindow | null = null;
 const projectStore = new ProjectStore(dataDirectory);
+const audioSettings = new AudioSettingsStore(dataDirectory);
 const capture = new DesktopCaptureController(() => mainWindow);
 const mediaAssets = new MediaAssetStore(dataDirectory, () => mainWindow);
 const recordings = new RecordingStore(() => mainWindow, app.getPath('videos'));
@@ -36,7 +39,7 @@ const collectionBundles = new CollectionBundleStore(projectStore, mediaAssets, (
 const rendererFile = path.join(__dirname, '../renderer/index.html');
 const devServerOrigin = resolveDevServerOrigin(process.env.ELECTRON_RENDERER_URL);
 const isTrustedUrl = (url: string) => isTrustedRendererUrl(url, { packagedRendererFile: rendererFile, devServerOrigin });
-const unregisterIpc = registerStreamIpc(projectStore, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, () => mainWindow?.webContents ?? null, isTrustedUrl);
+const unregisterIpc = registerStreamIpc(projectStore, audioSettings, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, () => mainWindow?.webContents ?? null, isTrustedUrl);
 
 let shutdownComplete = false;
 app.on('before-quit', (event) => {
@@ -60,7 +63,13 @@ if (app.requestSingleInstanceLock()) {
         && (!('mediaTypes' in details) || details.mediaTypes?.every((type) => type === 'audio' || type === 'video') !== false);
       const allowedDisplayCapture = (permission as string) === 'display-capture' && trusted
         && (capture.isCaptureAuthorized(webContents.id) || browserSources.isAudioCaptureAuthorized(webContents.id));
-      const allowed = allowedMedia || allowedDisplayCapture;
+      const allowedSpeakerSelection = allowsSpeakerSelection(
+        permission,
+        trusted,
+        details.isMainFrame,
+        isTrustedUrl(details.requestingUrl),
+      );
+      const allowed = allowedMedia || allowedDisplayCapture || allowedSpeakerSelection;
       callback(allowed);
     });
     session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
@@ -69,7 +78,12 @@ if (app.requestSingleInstanceLock()) {
         && (details.mediaType === undefined || details.mediaType === 'audio' || details.mediaType === 'video');
       const allowedDisplayCapture = (permission as string) === 'display-capture' && trusted
         && (capture.isCaptureAuthorized(webContents.id) || browserSources.isAudioCaptureAuthorized(webContents.id));
-      return allowedMedia || allowedDisplayCapture;
+      return allowedMedia || allowedDisplayCapture || allowsSpeakerSelection(
+        permission,
+        trusted,
+        details.isMainFrame,
+        details.requestingUrl !== undefined && isTrustedUrl(details.requestingUrl),
+      );
     });
     capture.register();
     mainWindow = createMainWindow();

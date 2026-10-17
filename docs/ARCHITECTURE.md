@@ -216,6 +216,14 @@ release. Older collections default these filters off and gain to 0 dB. Settings
 persist with the source and are validated by main (ADR-0061, ADR-0070, ADR-0071,
 ADR-0082, ADR-0083).
 
+Local monitor routes end at the mixer's AudioContext and can select an OS audio
+output device without changing the MediaStream destinations used for program,
+recording, and streaming audio. The selected device ID is persisted as an
+app-local preference outside scene collections and profiles. Electron grants
+speaker-selection only to the trusted main renderer; a disconnected or rejected
+device falls back to System Default until the saved device is available again
+(ADR-0108).
+
 Output profiles hold the canvas dimensions and frame rate, streaming and
 recording encoder/output settings, selected audio tracks, and global hotkeys.
 Scene collections hold scenes and their sources. Main validates track IDs and
