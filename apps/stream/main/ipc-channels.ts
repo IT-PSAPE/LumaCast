@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
   listDesktopSources: 'stream:list-desktop-sources',
   prepareDesktopCapture: 'stream:prepare-desktop-capture',
   importMedia: 'stream:import-media',
+  remuxRecording: 'stream:remux-recording',
   openRecording: 'stream:open-recording',
   writeRecordingChunk: 'stream:write-recording-chunk',
   closeRecording: 'stream:close-recording',

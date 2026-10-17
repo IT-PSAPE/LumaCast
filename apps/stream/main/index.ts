@@ -7,6 +7,7 @@ import { MediaAssetStore, MEDIA_SCHEME, MEDIA_SCHEME_PRIVILEGES } from './media-
 import { isTrustedRendererUrl, resolveDevServerOrigin } from './navigation-policy';
 import { ProjectStore } from './project-store';
 import { RecordingStore } from './recording-store';
+import { RecordingRemuxer } from './recording-remuxer';
 import { StreamOutput } from './stream-output';
 import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
@@ -22,6 +23,7 @@ const projectStore = new ProjectStore(dataDirectory);
 const capture = new DesktopCaptureController(() => mainWindow);
 const mediaAssets = new MediaAssetStore(dataDirectory, () => mainWindow);
 const recordings = new RecordingStore(() => mainWindow, app.getPath('videos'));
+const recordingRemuxer = new RecordingRemuxer(() => mainWindow);
 const streamOutput = new StreamOutput(() => mainWindow?.webContents ?? null);
 const browserSources = new BrowserSourceManager(() => mainWindow?.webContents ?? null);
 const globalHotkeys = new GlobalHotkeyManager(() => mainWindow?.webContents ?? null);
@@ -29,7 +31,7 @@ const collectionBundles = new CollectionBundleStore(projectStore, mediaAssets, (
 const rendererFile = path.join(__dirname, '../renderer/index.html');
 const devServerOrigin = resolveDevServerOrigin(process.env.ELECTRON_RENDERER_URL);
 const isTrustedUrl = (url: string) => isTrustedRendererUrl(url, { packagedRendererFile: rendererFile, devServerOrigin });
-const unregisterIpc = registerStreamIpc(projectStore, capture, mediaAssets, collectionBundles, recordings, streamOutput, browserSources, globalHotkeys, () => mainWindow?.webContents ?? null, isTrustedUrl);
+const unregisterIpc = registerStreamIpc(projectStore, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, () => mainWindow?.webContents ?? null, isTrustedUrl);
 
 let shutdownComplete = false;
 app.on('before-quit', (event) => {

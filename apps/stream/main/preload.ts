@@ -20,6 +20,7 @@ const api: StreamAPI = {
   listDesktopSources: (kind) => ipcRenderer.invoke(IPC_CHANNELS.listDesktopSources, kind),
   prepareDesktopCapture: (sourceId, includeSystemAudio) => ipcRenderer.invoke(IPC_CHANNELS.prepareDesktopCapture, sourceId, includeSystemAudio),
   importMedia: (kind) => ipcRenderer.invoke(IPC_CHANNELS.importMedia, kind),
+  remuxRecording: () => ipcRenderer.invoke(IPC_CHANNELS.remuxRecording),
   openRecording: (settings) => ipcRenderer.invoke(IPC_CHANNELS.openRecording, settings),
   writeRecordingChunk: (id, track, bytes) => ipcRenderer.invoke(IPC_CHANNELS.writeRecordingChunk, id, track, bytes),
   closeRecording: (id) => ipcRenderer.invoke(IPC_CHANNELS.closeRecording, id),

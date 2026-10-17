@@ -314,6 +314,7 @@ export interface StreamAPI {
   listDesktopSources(kind: CaptureKind): Promise<DesktopSourceOption[]>;
   prepareDesktopCapture(sourceId: string, includeSystemAudio: boolean): Promise<void>;
   importMedia(kind: MediaKind): Promise<MediaAsset | null>;
+  remuxRecording(): Promise<string | null>;
   openRecording(settings: RecordingOutputSettings): Promise<{ id: string; name: string } | null>;
   writeRecordingChunk(id: string, track: RecordingTrackId, bytes: ArrayBuffer): Promise<void>;
   closeRecording(id: string): Promise<string>;

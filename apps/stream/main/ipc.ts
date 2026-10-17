@@ -9,6 +9,7 @@ import { IPC_CHANNELS } from './ipc-channels';
 import { MediaAssetStore } from './media-assets';
 import { ProjectStore } from './project-store';
 import { RecordingStore } from './recording-store';
+import { RecordingRemuxer } from './recording-remuxer';
 import { StreamOutput } from './stream-output';
 import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
@@ -32,6 +33,7 @@ export function registerStreamIpc(
   mediaAssets: MediaAssetStore,
   collectionBundles: CollectionBundleStore,
   recordings: RecordingStore,
+  recordingRemuxer: RecordingRemuxer,
   streamOutput: StreamOutput,
   browserSources: BrowserSourceManager,
   globalHotkeys: GlobalHotkeyManager,
@@ -145,6 +147,7 @@ export function registerStreamIpc(
       if (kind !== 'image' && kind !== 'video' && kind !== 'audio') throw new Error('Unsupported media type.');
       return mediaAssets.chooseAndImport(kind);
     }],
+    [IPC_CHANNELS.remuxRecording, (event) => { authorize(event); return recordingRemuxer.remux(); }],
     [IPC_CHANNELS.openRecording, (event, settings: RecordingOutputSettings) => { authorize(event); return recordings.open(settings); }],
     [IPC_CHANNELS.writeRecordingChunk, (event, id: string, track: number, bytes: ArrayBuffer) => {
       authorize(event);

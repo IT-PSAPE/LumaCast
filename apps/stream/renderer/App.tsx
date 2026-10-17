@@ -1648,6 +1648,20 @@ export function App() {
     if (active) stopRecordingChannels(active.channels);
   };
 
+  const remuxRecording = async () => {
+    if (working) return;
+    setActionError('');
+    setWorking(true);
+    try {
+      const name = await api.remuxRecording();
+      if (name) setActionError(`Saved remuxed recording: ${name}`);
+    } catch (error) {
+      setActionError(`Recording could not be remuxed: ${friendlyError(error)}`);
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const pauseRecording = () => {
     const active = recording.current;
     if (!active) return;
@@ -2263,7 +2277,7 @@ export function App() {
             <span><i className={`control-status-dot ${recordingStartedAt !== null || recordingFinalizing ? 'record-dot' : ''}`} />{recordingFinalizing ? 'Finalizing' : recordingStartedAt === null ? 'Recording stopped' : `${recordingPausedAt === null ? 'Recording' : 'Recording paused'} · ${duration}`}</span>
             {streamStatus.state === 'live' && <span className="control-bitrate">{streamStatus.bitrateKbps ?? 0} kb/s</span>}
           </div>
-          <div className="control-bottom"><button className="control-small" onClick={toggleStudioMode}><Clapperboard size={14} />{project.studioMode ? 'Exit Studio Mode' : 'Studio Mode'}</button><button className="control-small" onClick={openSettings}><Settings2 size={14} />Settings</button></div>
+          <div className="control-bottom"><button className="control-small" onClick={toggleStudioMode}><Clapperboard size={14} />{project.studioMode ? 'Exit Studio Mode' : 'Studio Mode'}</button><button className="control-small" aria-label="Remux recording" title="Remux recording" disabled={working} onClick={() => void remuxRecording()}><FileVideo size={14} />Remux</button><button className="control-small" onClick={openSettings}><Settings2 size={14} />Settings</button></div>
         </aside>
 
         <section className="dock sources-dock">
