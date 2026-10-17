@@ -17,7 +17,12 @@ import { duplicateSource } from './source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slideshow';
 import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
 import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from './recording-controls';
+import { cameraCaptureConstraints } from './camera-capture-settings';
 import {
+  CAMERA_FRAME_RATE_OPTIONS,
+  CAMERA_RESOLUTION_OPTIONS,
+  type CameraFrameRatePreset,
+  type CameraResolutionPreset,
   type DesktopSourceOption,
   type CaptureCursorMode,
   type MediaKind,
@@ -102,11 +107,9 @@ interface InputDeviceOption {
   label: string;
 }
 
-function inputCaptureConstraints(kind: InputCaptureKind, deviceId?: string): MediaStreamConstraints {
+function inputCaptureConstraints(kind: InputCaptureKind, deviceId?: string, cameraSettings?: Pick<StreamSource, 'cameraResolution' | 'cameraFrameRate'>): MediaStreamConstraints {
   const selectedDevice = deviceId ? { deviceId: { exact: deviceId } } : {};
-  if (kind === 'camera') {
-    return { audio: false, video: { ...selectedDevice, width: { ideal: 1280 }, height: { ideal: 720 } } };
-  }
+  if (kind === 'camera') return cameraCaptureConstraints(deviceId, cameraSettings?.cameraResolution, cameraSettings?.cameraFrameRate);
   return { video: false, audio: { ...selectedDevice, echoCancellation: false, noiseSuppression: false, autoGainControl: false } };
 }
 
@@ -378,6 +381,22 @@ export function App() {
     return () => { active = false; };
   }, [api]);
 
+  useEffect(() => {
+    let active = true;
+    const refreshDevices = () => {
+      for (const kind of ['camera', 'microphone'] as const) {
+        void listInputDevices(kind).then((devices) => {
+          if (active) setInputDeviceOptions((current) => ({ ...current, [kind]: devices }));
+        }).catch(() => undefined);
+      }
+    };
+    navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+    return () => {
+      active = false;
+      navigator.mediaDevices.removeEventListener('devicechange', refreshDevices);
+    };
+  }, []);
+
   useEffect(() => api.onStreamStatus((status) => {
     streamStatusRef.current = status;
     setStreamStatus(status);
@@ -631,7 +650,7 @@ export function App() {
       const attemptKey = `${source.id}:${source.deviceId ?? 'default'}`;
       if (inputRestoreAttempts.current.has(attemptKey)) continue;
       inputRestoreAttempts.current.add(attemptKey);
-      void navigator.mediaDevices.getUserMedia(inputCaptureConstraints(candidate.kind, candidate.deviceId || undefined)).then(async (stream) => {
+      void navigator.mediaDevices.getUserMedia(inputCaptureConstraints(candidate.kind, candidate.deviceId || undefined, source)).then(async (stream) => {
         if (runtimes.current.has(source.id) || !activeSourceIdsRef.current.has(source.id)) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -958,7 +977,7 @@ export function App() {
     setActionError('');
     let stream: MediaStream | null = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(inputCaptureConstraints(kind, deviceId));
+      stream = await navigator.mediaDevices.getUserMedia(inputCaptureConstraints(kind, deviceId, source));
       const label = stream.getTracks()[0]?.label || source.name;
       const nextSource = { ...source, name: label, deviceId };
       await attachRuntime(nextSource, stream);
@@ -968,6 +987,29 @@ export function App() {
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       setActionError(`Could not switch ${kind === 'camera' ? 'camera' : 'microphone'}: ${friendlyError(error)}`);
+    } finally { setWorking(false); }
+  };
+
+  const updateCameraCaptureSettings = async (
+    source: StreamSource,
+    settings: Pick<StreamSource, 'cameraResolution' | 'cameraFrameRate'>,
+  ) => {
+    if (source.kind !== 'camera' || working) return;
+    const nextSource = { ...source, ...settings };
+    if (!runtimes.current.has(source.id)) {
+      updateSource(source.id, (current) => ({ ...current, ...settings }));
+      return;
+    }
+    setWorking(true);
+    setActionError('');
+    let stream: MediaStream | null = null;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(inputCaptureConstraints('camera', source.deviceId, nextSource));
+      await attachRuntime(nextSource, stream);
+      updateSource(source.id, (current) => ({ ...current, ...settings }));
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      setActionError(`Could not change camera settings: ${friendlyError(error)}`);
     } finally { setWorking(false); }
   };
 
@@ -2275,6 +2317,15 @@ export function App() {
               <option value="">Default Device</option>
               {inputDeviceOptions[selectedSource.kind].map((device) => <option key={device.deviceId || device.label} value={device.deviceId}>{device.label}</option>)}
             </select></label>}
+            {selectedSource.kind === 'camera' && <>
+              <label className="device-property">Resolution<select aria-label="Camera resolution" disabled={working} value={selectedSource.cameraResolution ?? 'device-default'} onChange={(event) => void updateCameraCaptureSettings(selectedSource, { cameraResolution: event.target.value as CameraResolutionPreset })}>
+                {CAMERA_RESOLUTION_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select></label>
+              <label className="device-property">FPS<select aria-label="Camera frame rate" disabled={working} value={selectedSource.cameraFrameRate ?? ''} onChange={(event) => void updateCameraCaptureSettings(selectedSource, { cameraFrameRate: event.target.value ? Number(event.target.value) as CameraFrameRatePreset : undefined })}>
+                <option value="">Device Default</option>
+                {CAMERA_FRAME_RATE_OPTIONS.map((rate) => <option key={rate} value={rate}>{rate} FPS</option>)}
+              </select></label>
+            </>}
             {(selectedSource.kind === 'display' || selectedSource.kind === 'window') && <label className="device-property">Capture Cursor<select aria-label="Capture cursor" disabled={working} value={selectedSource.cursorMode ?? 'motion'} onChange={(event) => void updateCaptureCursorMode(selectedSource.id, event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>}
             {supportsSourceTransform(selectedSource) && <details className="filter-details"><summary>Transform</summary>
               <div className="source-transform-grid">

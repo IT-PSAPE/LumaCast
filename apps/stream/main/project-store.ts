@@ -1,6 +1,6 @@
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { createDefaultProject, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
+import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
 
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
@@ -27,6 +27,8 @@ function isAudioTrackList(value: unknown): value is AudioTrack[] {
 
 const VIDEO_RATE_CONTROLS = new Set<VideoRateControlMode>(['cbr', 'pc_vbr', 'u_vbr', 'quality']);
 const CAPTURE_CURSOR_MODES = new Set<CaptureCursorMode>(['never', 'motion', 'always']);
+const CAMERA_RESOLUTIONS = new Set<string>(CAMERA_RESOLUTION_OPTIONS.map((option) => option.value));
+const CAMERA_FRAME_RATES = new Set<number>(CAMERA_FRAME_RATE_OPTIONS);
 
 function decodeSource(value: unknown): StreamSource {
   if (!isRecord(value) || typeof value.id !== 'string' || value.id.length > 128 || typeof value.name !== 'string' || value.name.length > 120) {
@@ -56,6 +58,11 @@ function decodeSource(value: unknown): StreamSource {
   if (value.cursorMode !== undefined && (!CAPTURE_CURSOR_MODES.has(value.cursorMode as CaptureCursorMode)
     || (value.kind !== 'display' && value.kind !== 'window'))) throw new Error('Project contains invalid cursor capture settings.');
   if (value.deviceId !== undefined && (typeof value.deviceId !== 'string' || value.deviceId.length > 512)) throw new Error('Project contains an invalid media device.');
+  if (value.cameraResolution !== undefined && (value.kind !== 'camera' || typeof value.cameraResolution !== 'string' || !CAMERA_RESOLUTIONS.has(value.cameraResolution))) {
+    throw new Error('Project contains invalid camera resolution settings.');
+  }
+  if (value.cameraFrameRate !== undefined && (value.kind !== 'camera' || !Number.isInteger(value.cameraFrameRate)
+    || !CAMERA_FRAME_RATES.has(value.cameraFrameRate as number))) throw new Error('Project contains invalid camera frame-rate settings.');
   if (value.url !== undefined && (typeof value.url !== 'string' || value.url.length > 2048 || /[\u0000-\u001f\u007f]/.test(value.url))) {
     throw new Error('Project contains an invalid browser source URL.');
   }
@@ -218,6 +225,8 @@ function decodeSource(value: unknown): StreamSource {
     ...(typeof value.captureId === 'string' ? { captureId: value.captureId } : {}),
     ...((value.kind === 'display' || value.kind === 'window') ? { cursorMode: (value.cursorMode as CaptureCursorMode | undefined) ?? 'motion' } : {}),
     ...(typeof value.deviceId === 'string' ? { deviceId: value.deviceId } : {}),
+    ...(typeof value.cameraResolution === 'string' ? { cameraResolution: value.cameraResolution as CameraResolutionPreset } : {}),
+    ...(typeof value.cameraFrameRate === 'number' ? { cameraFrameRate: value.cameraFrameRate as CameraFrameRatePreset } : {}),
     ...(typeof value.url === 'string' ? { url: value.url } : {}),
     ...(typeof value.assetId === 'string' ? { assetId: value.assetId } : {}),
     ...(typeof value.assetExtension === 'string' ? { assetExtension: value.assetExtension } : {}),

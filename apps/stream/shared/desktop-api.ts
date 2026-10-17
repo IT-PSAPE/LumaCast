@@ -4,6 +4,18 @@ export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'image
 export type MediaKind = 'image' | 'video' | 'audio';
 export type RecordingContainer = 'webm' | 'mkv' | 'mp4';
 export type AudioMonitoring = 'off' | 'monitor-only' | 'monitor-and-output';
+export const CAMERA_RESOLUTION_OPTIONS = [
+  { value: 'device-default', label: 'Device Default' },
+  { value: '640x360', label: '640 × 360' },
+  { value: '854x480', label: '854 × 480' },
+  { value: '1280x720', label: '1280 × 720' },
+  { value: '1920x1080', label: '1920 × 1080' },
+  { value: '2560x1440', label: '2560 × 1440' },
+  { value: '3840x2160', label: '3840 × 2160' },
+] as const;
+export type CameraResolutionPreset = typeof CAMERA_RESOLUTION_OPTIONS[number]['value'];
+export const CAMERA_FRAME_RATE_OPTIONS = [15, 24, 25, 30, 50, 60] as const;
+export type CameraFrameRatePreset = typeof CAMERA_FRAME_RATE_OPTIONS[number];
 export type AudioTrack = 1 | 2 | 3 | 4 | 5 | 6;
 export type RecordingTrackId = 0 | AudioTrack;
 export const AUDIO_TRACKS: readonly AudioTrack[] = [1, 2, 3, 4, 5, 6];
@@ -146,6 +158,8 @@ export interface StreamSource {
   captureId?: string;
   cursorMode?: CaptureCursorMode;
   deviceId?: string;
+  cameraResolution?: CameraResolutionPreset;
+  cameraFrameRate?: CameraFrameRatePreset;
   url?: string;
   browserAudioEnabled?: boolean;
   assetId?: string;

@@ -452,6 +452,42 @@ describe('LumaStream source lock persistence', () => {
   });
 });
 
+describe('LumaStream camera capture settings persistence', () => {
+  it('round-trips selected camera resolution and frame rate', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const store = new ProjectStore(directory);
+    const workspace = await store.load();
+    const project = {
+      ...workspace.project,
+      scenes: workspace.project.scenes.map((scene, index) => index === 0 ? {
+        ...scene,
+        sources: [...scene.sources, {
+          id: 'camera-source', name: 'USB Camera', kind: 'camera' as const, visible: true, muted: false, volume: 1,
+          transform: { x: 0, y: 0, width: 640, height: 360 }, deviceId: 'camera-device',
+          cameraResolution: '1920x1080' as const, cameraFrameRate: 60 as const,
+        }],
+      } : scene),
+    };
+    await store.save(workspace.activeCollectionId, workspace.activeProfileId, project);
+
+    const camera = (await store.load()).project.scenes[0]?.sources.find((source) => source.id === 'camera-source');
+    expect(camera).toMatchObject({ deviceId: 'camera-device', cameraResolution: '1920x1080', cameraFrameRate: 60 });
+  });
+
+  it('rejects camera modes outside the supported presets', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push({
+      id: 'camera-source', name: 'USB Camera', kind: 'camera', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 640, height: 360 }, cameraFrameRate: 120 as never,
+    });
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid camera frame-rate settings.');
+  });
+});
+
 describe('LumaStream output profile persistence', () => {
   it('seeds Profile 1 from a legacy project without losing output settings or hotkeys', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-profiles-'));
