@@ -593,6 +593,34 @@ describe('LumaStream video canvas persistence', () => {
     expect(restored.frameRate).toBe(59.94);
   });
 
+  it('keeps the scene canvas separate from scaled output dimensions', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    project.output.baseWidth = 2560;
+    project.output.baseHeight = 1440;
+    project.output.width = 1280;
+    project.output.height = 720;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    const restored = (await new ProjectStore(directory).load()).project.output;
+    expect(restored).toMatchObject({ baseWidth: 2560, baseHeight: 1440, width: 1280, height: 720 });
+  });
+
+  it('uses the old output dimensions as the canvas for projects without base dimensions', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    project.output.width = 1600;
+    project.output.height = 900;
+    delete (project.output as Partial<typeof project.output>).baseWidth;
+    delete (project.output as Partial<typeof project.output>).baseHeight;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    const restored = (await new ProjectStore(directory).load()).project.output;
+    expect(restored).toMatchObject({ baseWidth: 1600, baseHeight: 900, width: 1600, height: 900 });
+  });
+
   it('rejects custom canvas dimensions and frame rates outside engine bounds', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
     temporaryDirectories.push(directory);
@@ -602,6 +630,16 @@ describe('LumaStream video canvas persistence', () => {
     await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid video settings.');
 
     project.output.width = 1920;
+    project.output.baseWidth = 16385;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid video settings.');
+
+    project.output.baseWidth = 1920;
+    project.output.baseHeight = 179;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid video settings.');
+
+    project.output.baseHeight = 1080;
     project.output.frameRate = 240.01;
     await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
     await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid video settings.');
@@ -739,20 +777,20 @@ describe('LumaStream output profile persistence', () => {
     const original = await store.load();
     const configured = {
       ...original.project,
-      output: { ...original.project.output, width: 2560, height: 1440 },
+      output: { ...original.project.output, baseWidth: 2560, baseHeight: 1440, width: 1280, height: 720 },
       hotkeys: { ...original.project.hotkeys, toggleRecording: 'Control+Alt+R' },
     };
     await store.save(original.activeCollectionId, original.activeProfileId, configured);
 
     const secondCollection = await store.create('Second Show', false);
     expect(secondCollection.activeProfileId).toBe(original.activeProfileId);
-    expect(secondCollection.project.output.width).toBe(2560);
+    expect(secondCollection.project.output).toMatchObject({ baseWidth: 2560, baseHeight: 1440, width: 1280, height: 720 });
     expect(secondCollection.project.hotkeys.toggleRecording).toBe('Control+Alt+R');
 
     const alternateProfile = await store.createProfile('Vertical Stream', false);
-    expect(alternateProfile.project.output.width).toBe(1920);
+    expect(alternateProfile.project.output).toMatchObject({ baseWidth: 1920, baseHeight: 1080, width: 1920, height: 1080 });
     const restored = await store.activateProfile(original.activeProfileId);
-    expect(restored.project.output.width).toBe(2560);
+    expect(restored.project.output).toMatchObject({ baseWidth: 2560, baseHeight: 1440, width: 1280, height: 720 });
     expect(restored.project.hotkeys.toggleRecording).toBe('Control+Alt+R');
   });
 
@@ -793,7 +831,7 @@ describe('LumaStream output profile persistence', () => {
     const original = await store.load();
     const configured = {
       ...original.project,
-      output: { ...original.project.output, width: 2560, height: 1440 },
+      output: { ...original.project.output, baseWidth: 2560, baseHeight: 1440, width: 1280, height: 720 },
       hotkeys: { ...original.project.hotkeys, toggleRecording: 'Control+Alt+R' },
     };
     await store.save(original.activeCollectionId, original.activeProfileId, configured);
@@ -801,7 +839,7 @@ describe('LumaStream output profile persistence', () => {
     expect(exported.format).toBe('lumastream-profile');
 
     const imported = await store.importProfile({ ...exported, name: 'Portable Setup' });
-    expect(imported.project.output.width).toBe(2560);
+    expect(imported.project.output).toMatchObject({ baseWidth: 2560, baseHeight: 1440, width: 1280, height: 720 });
     expect(imported.project.hotkeys.toggleRecording).toBe('Control+Alt+R');
     const renamedDuplicate = await store.importProfile({ ...exported, name: 'Portable Setup' });
     expect(renamedDuplicate.profiles.find((profile) => profile.id === renamedDuplicate.activeProfileId)?.name).toBe('Portable Setup (2)');

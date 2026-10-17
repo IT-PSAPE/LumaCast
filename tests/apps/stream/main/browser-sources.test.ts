@@ -52,6 +52,23 @@ describe('LumaStream browser source audio capture', () => {
     expect(manager.isAudioCaptureAuthorized(requester.id + 1)).toBe(false);
   });
 
+  it('accepts large base-canvas sizes while keeping the offscreen viewport at 1080p', async () => {
+    const requester = { id: 7, isDestroyed: vi.fn(() => false) } as unknown as WebContents;
+    const makeWindow = vi.fn(createWindow);
+    const manager = new BrowserSourceManager(() => requester, makeWindow);
+    await manager.create('00000000-0000-0000-0000-000000000002', 'https://example.com', 16000, 9000);
+
+    expect(makeWindow).toHaveBeenCalledWith(expect.objectContaining({ width: 1920, height: 1080 }));
+  });
+
+  it('preserves extreme canvas aspect ratios in the capped offscreen viewport', async () => {
+    const makeWindow = vi.fn(createWindow);
+    const manager = new BrowserSourceManager(() => null, makeWindow);
+    await manager.create('00000000-0000-0000-0000-000000000003', 'https://example.com', 16384, 180);
+
+    expect(makeWindow).toHaveBeenCalledWith(expect.objectContaining({ width: 1920, height: 21 }));
+  });
+
   it('rejects capture ids for missing sources', async () => {
     const requester = { id: 7, isDestroyed: vi.fn(() => false) } as unknown as WebContents;
     const manager = new BrowserSourceManager(() => requester, vi.fn(createWindow));

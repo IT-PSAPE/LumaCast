@@ -224,8 +224,9 @@ speaker-selection only to the trusted main renderer; a disconnected or rejected
 device falls back to System Default until the saved device is available again
 (ADR-0108).
 
-Output profiles hold the canvas dimensions and frame rate, streaming and
-recording encoder/output settings, selected audio tracks, and global hotkeys.
+Output profiles hold independent base-canvas and scaled-output dimensions, frame
+rate, streaming and recording encoder/output settings, selected audio tracks,
+and global hotkeys.
 Scene collections hold scenes and their sources. Main validates track IDs and
 rejects duplicates; profiles seeded from older version-1 projects preserve
 their saved output configuration, and older projects default streaming and
@@ -294,9 +295,14 @@ The renderer currently provides scenes, layer order/visibility, direct canvas
 positioning and resizing, Studio Mode, Cut/Fade/Swipe/Slide/Fade-to-Color transitions, image
 and media playback, per-source crop, six-track source routing, selectable stream
 audio, multitrack recording, audio levels/mute/volume, compressor/limiter controls,
-and custom 320–16384 by 180–16384 canvas sizes at
-1–240 FPS, including fractional rates. Live and MP4 encoding accept this range
-and preserve fractional rates; keyframe intervals map to whole frame counts.
+and independent base-canvas dimensions at 320–16384 by 180–16384 and
+output-scaled dimensions at 320–7680 by 240–4320 (even pixel dimensions), plus
+1–240 FPS including fractional rates. Sources are positioned in
+base-canvas coordinates; rendering contains that canvas within the output
+dimensions without changing its aspect ratio. Recording and live output use the
+scaled dimensions, while legacy projects default their canvas to their former
+output dimensions. Live and MP4 encoding preserve fractional frame rates;
+keyframe intervals map to whole frame counts (ADR-0109).
 RTMP/RTMPS, SRT, and RIST streaming use the bundled FFmpeg output engine; SRT
 URLs select MPEG-TS muxing and accept FFmpeg protocol options in the query
 string. RIST URLs also accept FFmpeg protocol options. All transports add

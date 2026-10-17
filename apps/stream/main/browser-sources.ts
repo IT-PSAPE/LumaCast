@@ -12,8 +12,8 @@ interface BrowserSourceSession {
 
 function validateBrowserSource(id: unknown, rawUrl: unknown, width: unknown, height: unknown): { id: string; url: string; width: number; height: number } {
   if (typeof id !== 'string' || !/^[0-9a-f-]{16,128}$/i.test(id)) throw new Error('Invalid browser source.');
-  if (!Number.isInteger(width) || (width as number) < 320 || (width as number) > 3840
-    || !Number.isInteger(height) || (height as number) < 180 || (height as number) > 2160) {
+  if (!Number.isInteger(width) || (width as number) < 320 || (width as number) > 16384
+    || !Number.isInteger(height) || (height as number) < 180 || (height as number) > 16384) {
     throw new Error('Browser source dimensions are outside the supported range.');
   }
   if (typeof rawUrl !== 'string' || rawUrl.length > 2048 || /[\u0000-\u001f\u007f]/.test(rawUrl)) throw new Error('Enter a valid browser source URL.');
@@ -44,8 +44,8 @@ export class BrowserSourceManager {
     this.close(config.id);
 
     const scale = Math.min(1, 1920 / config.width, 1080 / config.height);
-    const viewportWidth = Math.max(320, Math.round(config.width * scale));
-    const viewportHeight = Math.max(180, Math.round(config.height * scale));
+    const viewportWidth = Math.max(1, Math.round(config.width * scale));
+    const viewportHeight = Math.max(1, Math.round(config.height * scale));
     const window = this.createWindow({
       show: false,
       width: viewportWidth,

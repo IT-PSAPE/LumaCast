@@ -238,6 +238,8 @@ export const DEFAULT_STREAM_GLOBAL_HOTKEYS: StreamGlobalHotkeys = {
 };
 
 export interface StreamOutputConfiguration {
+  baseWidth: number;
+  baseHeight: number;
   width: number;
   height: number;
   frameRate: number;
@@ -388,6 +390,8 @@ export function createDefaultProject(): StreamProject {
   return {
     version: 1,
     output: {
+      baseWidth: 1920,
+      baseHeight: 1080,
       width: 1920,
       height: 1080,
       frameRate: 30,

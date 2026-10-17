@@ -295,7 +295,10 @@ function decodeSource(value: unknown): StreamSource {
 
 function decodeProject(value: unknown): StreamProject {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.output)) throw new Error('This Stream project is not supported.');
-  if (!finiteNumber(value.output.width, 320, 16384) || !finiteNumber(value.output.height, 180, 16384)
+  const baseWidth = value.output.baseWidth === undefined ? value.output.width : value.output.baseWidth;
+  const baseHeight = value.output.baseHeight === undefined ? value.output.height : value.output.baseHeight;
+  if (!finiteNumber(baseWidth, 320, 16384) || !finiteNumber(baseHeight, 180, 16384)
+    || !finiteNumber(value.output.width, 320, 16384) || !finiteNumber(value.output.height, 180, 16384)
     || !finiteNumber(value.output.frameRate, 1, 240)
     || (value.output.streamVideoBitrateKbps !== undefined && (!Number.isInteger(value.output.streamVideoBitrateKbps) || !finiteNumber(value.output.streamVideoBitrateKbps, 250, 50000)))
     || (value.output.streamAudioBitrateKbps !== undefined && (!Number.isInteger(value.output.streamAudioBitrateKbps) || !finiteNumber(value.output.streamAudioBitrateKbps, 32, 320)))
@@ -373,6 +376,8 @@ function decodeProject(value: unknown): StreamProject {
   return {
     version: 1,
     output: {
+      baseWidth,
+      baseHeight,
       width: value.output.width,
       height: value.output.height,
       frameRate: value.output.frameRate,

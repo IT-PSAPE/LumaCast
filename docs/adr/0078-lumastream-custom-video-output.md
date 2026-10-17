@@ -1,6 +1,6 @@
 # ADR-0078: LumaStream custom video output dimensions
 
-- Status: Accepted
+- Status: Superseded by ADR-0109
 - Date: 2026-10-17
 
 ## Context

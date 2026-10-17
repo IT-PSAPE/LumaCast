@@ -5,6 +5,7 @@ import { setMediaPlaybackActive, shouldShowMediaFrame } from './media-playback';
 import { currentSlideshowSlideIndex, forgetSlideshow, slideshowImageElementKey } from './slideshow';
 import type { SceneTransition } from './scene-transition';
 import { drawTextSource } from './text-overlay';
+import { fitCanvasToOutput } from './output-scaling';
 
 interface Props {
   project: StreamProject;
@@ -31,8 +32,8 @@ function clampCrop(crop: SourceCrop | undefined, width: number, height: number):
 function drawScene(
   context: CanvasRenderingContext2D,
   scene: StreamScene,
-  outputWidth: number,
-  height: number,
+  canvasWidth: number,
+  canvasHeight: number,
   videos: Map<string, HTMLVideoElement>,
   images: Map<string, HTMLImageElement>,
   keyProcessor: ChromaKeyProcessor | null,
@@ -75,7 +76,7 @@ function drawScene(
           if (source.chromaKey?.enabled && keyProcessor) {
             try { keyed = keyProcessor.render(image, source.transform, source.chromaKey, crop, image.naturalWidth, image.naturalHeight); } catch { /* Keep drawing the original if a frame cannot be keyed. */ }
           }
-          try { if (keyed) context.drawImage(keyed, 0, 0, outputWidth, height); else context.drawImage(image, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight); } catch { /* The image may become unavailable while it decodes. */ }
+          try { if (keyed) context.drawImage(keyed, 0, 0, canvasWidth, canvasHeight); else context.drawImage(image, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight); } catch { /* The image may become unavailable while it decodes. */ }
         }
       }
     } else {
@@ -90,7 +91,7 @@ function drawScene(
           if (source.chromaKey?.enabled && keyProcessor) {
             try { keyed = keyProcessor.render(video, source.transform, source.chromaKey, crop, video.videoWidth, video.videoHeight); } catch { /* Keep drawing the original if a frame cannot be keyed. */ }
           }
-          try { if (keyed) context.drawImage(keyed, 0, 0, outputWidth, height); else context.drawImage(video, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight); } catch { /* A frame may become unavailable while capture ends. */ }
+          try { if (keyed) context.drawImage(keyed, 0, 0, canvasWidth, canvasHeight); else context.drawImage(video, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight); } catch { /* A frame may become unavailable while capture ends. */ }
         }
       }
     }
@@ -114,50 +115,62 @@ export const CanvasComposition = forwardRef<HTMLCanvasElement, Props>(function C
     const context = canvas?.getContext('2d', { alpha: false });
     if (!canvas || !context) return;
     const scale = Math.max(0.1, Math.min(1, renderScale));
-    canvas.width = Math.max(1, Math.round(project.output.width * scale));
-    canvas.height = Math.max(1, Math.round(project.output.height * scale));
+    const { baseWidth, baseHeight, width: outputWidth, height: outputHeight } = project.output;
+    const canvasViewport = fitCanvasToOutput(
+      { width: baseWidth, height: baseHeight },
+      { width: outputWidth, height: outputHeight },
+    );
+    canvas.width = Math.max(1, Math.round(outputWidth * scale));
+    canvas.height = Math.max(1, Math.round(outputHeight * scale));
     let frame = 0;
     let finishedTransition = false;
     let keyProcessor: ChromaKeyProcessor | null = null;
-    try { keyProcessor = new ChromaKeyProcessor(project.output.width, project.output.height, scale); } catch { /* Chroma key is unavailable when WebGL cannot initialize. */ }
+    const keyRenderScale = scale * Math.min(1, canvasViewport.scale);
+    try { keyProcessor = new ChromaKeyProcessor(baseWidth, baseHeight, keyRenderScale); } catch { /* Chroma key is unavailable when WebGL cannot initialize. */ }
     const draw = () => {
-      const height = project.output.height;
       context.fillStyle = '#000000';
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.save();
-      context.scale(canvas.width / project.output.width, canvas.height / project.output.height);
+      context.scale(canvas.width / outputWidth, canvas.height / outputHeight);
+      const drawToOutput = (targetScene: StreamScene, alpha: number, offsetX = 0) => {
+        context.save();
+        context.translate(canvasViewport.x, canvasViewport.y);
+        context.scale(canvasViewport.scale, canvasViewport.scale);
+        drawScene(context, targetScene, baseWidth, baseHeight, videoElements, imageElements, keyProcessor, alpha, offsetX);
+        context.restore();
+      };
       const fromScene = transition ? project.scenes.find((item) => item.id === transition.fromSceneId) : null;
       const progress = transition ? Math.min(1, Math.max(0, (performance.now() - transition.startedAt) / transition.durationMs)) : 1;
       if (transition && fromScene && progress < 1) {
         if (transition.type === 'Fade') {
-          drawScene(context, fromScene, project.output.width, height, videoElements, imageElements, keyProcessor, 1 - progress);
-          drawScene(context, scene, project.output.width, height, videoElements, imageElements, keyProcessor, progress);
+          drawToOutput(fromScene, 1 - progress);
+          drawToOutput(scene, progress);
         } else if (transition.type === 'FadeToColor') {
           if (progress < 0.5) {
-            drawScene(context, fromScene, project.output.width, height, videoElements, imageElements, keyProcessor, 1);
+            drawToOutput(fromScene, 1);
             context.save();
             context.globalAlpha = progress * 2;
             context.fillStyle = transition.color ?? '#000000';
-            context.fillRect(0, 0, project.output.width, project.output.height);
+            context.fillRect(0, 0, outputWidth, outputHeight);
             context.restore();
           } else {
             context.fillStyle = transition.color ?? '#000000';
-            context.fillRect(0, 0, project.output.width, project.output.height);
-            drawScene(context, scene, project.output.width, height, videoElements, imageElements, keyProcessor, (progress - 0.5) * 2);
+            context.fillRect(0, 0, outputWidth, outputHeight);
+            drawToOutput(scene, (progress - 0.5) * 2);
           }
         } else if (transition.type === 'Swipe') {
-          drawScene(context, fromScene, project.output.width, height, videoElements, imageElements, keyProcessor, 1);
+          drawToOutput(fromScene, 1);
           context.save();
           context.beginPath();
-          context.rect(0, 0, project.output.width * progress, project.output.height);
+          context.rect(canvasViewport.x, canvasViewport.y, canvasViewport.width * progress, canvasViewport.height);
           context.clip();
-          drawScene(context, scene, project.output.width, height, videoElements, imageElements, keyProcessor, 1);
+          drawToOutput(scene, 1);
           context.restore();
         } else {
-          drawScene(context, fromScene, project.output.width, height, videoElements, imageElements, keyProcessor, 1, -project.output.width * progress);
-          drawScene(context, scene, project.output.width, height, videoElements, imageElements, keyProcessor, 1, project.output.width * (1 - progress));
+          drawToOutput(fromScene, 1, -baseWidth * progress);
+          drawToOutput(scene, 1, baseWidth * (1 - progress));
         }
-      } else drawScene(context, scene, project.output.width, height, videoElements, imageElements, keyProcessor, 1);
+      } else drawToOutput(scene, 1);
       context.restore();
       if (transition && progress >= 1 && !finishedTransition) {
         finishedTransition = true;
@@ -170,7 +183,7 @@ export const CanvasComposition = forwardRef<HTMLCanvasElement, Props>(function C
       cancelAnimationFrame(frame);
       keyProcessor?.dispose();
     };
-  }, [project.output.width, project.output.height, project.scenes, scene, videoElements, imageElements, renderScale, transition, onTransitionEnd]);
+  }, [project.output.baseWidth, project.output.baseHeight, project.output.width, project.output.height, project.scenes, scene, videoElements, imageElements, renderScale, transition, onTransitionEnd]);
 
   return <canvas ref={setCanvas} className="composition-canvas" />;
 });

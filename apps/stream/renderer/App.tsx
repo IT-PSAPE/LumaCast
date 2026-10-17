@@ -10,6 +10,7 @@ import { AnchoredPopover } from './anchored-popover';
 import { ModalDialog } from './modal-dialog';
 import { AudioMixerEngine } from './audio-mixer';
 import { audioOutputDeviceOptions, type AudioOutputDeviceOption } from './audio-output-devices';
+import { canvasPointFromOutputPoint, clampScaledOutputSize, outputRectFromCanvasRect, SCALED_OUTPUT_LIMITS } from './output-scaling';
 import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { getRenderedSourceIds } from './scene-render-scope';
@@ -203,10 +204,10 @@ function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
 }
 
 function defaultTransform(kind: SourceKind, output: StreamProject['output'], mediaKind?: MediaKind) {
-  if (kind === 'camera') return { x: Math.round(output.width * 0.72), y: Math.round(output.height * 0.68), width: Math.round(output.width * 0.25), height: Math.round(output.height * 0.25) };
-  if (kind === 'text') return { x: Math.round(output.width * 0.08), y: Math.round(output.height * 0.08), width: Math.round(output.width * 0.84), height: Math.round(output.height * 0.25) };
+  if (kind === 'camera') return { x: Math.round(output.baseWidth * 0.72), y: Math.round(output.baseHeight * 0.68), width: Math.round(output.baseWidth * 0.25), height: Math.round(output.baseHeight * 0.25) };
+  if (kind === 'text') return { x: Math.round(output.baseWidth * 0.08), y: Math.round(output.baseHeight * 0.08), width: Math.round(output.baseWidth * 0.84), height: Math.round(output.baseHeight * 0.25) };
   if (kind === 'microphone' || kind === 'desktop-audio' || kind === 'application-audio' || (kind === 'media' && mediaKind === 'audio')) return { x: 0, y: 0, width: 1, height: 1 };
-  return { x: 0, y: 0, width: output.width, height: output.height };
+  return { x: 0, y: 0, width: output.baseWidth, height: output.baseHeight };
 }
 
 function createSource(kind: SourceKind, output: StreamProject['output'], name?: string, extra: Partial<StreamSource> = {}): StreamSource {
@@ -563,7 +564,7 @@ export function App() {
   const projectRef = useRef<StreamProject | null>(null);
   projectRef.current = project;
   const browserSourceSignature = JSON.stringify([...new Map(allSources.filter((source) => source.kind === 'browser' && source.url)
-    .map((source) => [source.id, { id: source.id, url: source.url!, width: project?.output.width ?? 1920, height: project?.output.height ?? 1080 }] as const)).values()]);
+    .map((source) => [source.id, { id: source.id, url: source.url!, width: project?.output.baseWidth ?? 1920, height: project?.output.baseHeight ?? 1080 }] as const)).values()]);
   const browserAudioSignature = JSON.stringify(allSources.filter((source) => source.kind === 'browser')
     .map((source) => ({ id: source.id, enabled: source.browserAudioEnabled === true, url: source.url ?? '' })));
   const runtimesSnapshot = useMemo(() => new Map(runtimes.current), [runtimeRevision]);
@@ -1429,7 +1430,7 @@ export function App() {
       width: video?.videoWidth || image?.naturalWidth || source.transform.width,
       height: video?.videoHeight || image?.naturalHeight || source.transform.height,
     };
-    const transform = fitSourceToCanvas(sourceSize, { width: project.output.width, height: project.output.height });
+    const transform = fitSourceToCanvas(sourceSize, { width: project.output.baseWidth, height: project.output.baseHeight });
     updateSource(source.id, (current) => ({ ...current, transform }));
   };
 
@@ -1439,8 +1440,8 @@ export function App() {
       ...current,
       transform: {
         ...current.transform,
-        x: Math.round((project.output.width - current.transform.width) / 2),
-        y: Math.round((project.output.height - current.transform.height) / 2),
+        x: Math.round((project.output.baseWidth - current.transform.width) / 2),
+        y: Math.round((project.output.baseHeight - current.transform.height) / 2),
       },
     }));
   };
@@ -1569,7 +1570,7 @@ export function App() {
 
   const stretchSource = (source: StreamSource) => {
     if (!project) return;
-    updateSource(source.id, (current) => ({ ...current, transform: { x: 0, y: 0, width: project.output.width, height: project.output.height } }));
+    updateSource(source.id, (current) => ({ ...current, transform: { x: 0, y: 0, width: project.output.baseWidth, height: project.output.baseHeight } }));
   };
 
   const moveSource = (sourceId: string, direction: -1 | 1) => {
@@ -2262,12 +2263,18 @@ export function App() {
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>, scene: StreamScene) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * (project?.output.width ?? 1920);
-    const y = ((event.clientY - rect.top) / rect.height) * (project?.output.height ?? 1080);
+    const output = { width: project?.output.width ?? 1920, height: project?.output.height ?? 1080 };
+    const canvas = { width: project?.output.baseWidth ?? 1920, height: project?.output.baseHeight ?? 1080 };
+    const point = canvasPointFromOutputPoint({
+      x: ((event.clientX - rect.left) / rect.width) * output.width,
+      y: ((event.clientY - rect.top) / rect.height) * output.height,
+    }, canvas, output);
+    const { x, y } = point;
     const target = event.target instanceof HTMLElement ? event.target : null;
     const resizeHandle = target?.closest('[data-resize-handle]')?.getAttribute('data-resize-handle') ?? null;
     const selected = resizeHandle && selectedSourceId ? scene.sources.find((source) => source.id === selectedSourceId) : null;
-    const source = selected ?? hitTestSource(scene, x, y);
+    const withinCanvas = x >= 0 && y >= 0 && x <= canvas.width && y <= canvas.height;
+    const source = selected ?? (withinCanvas ? hitTestSource(scene, x, y) : null);
     setSelectedSourceId(source?.id ?? null);
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
     if (!source || !canTransformSource(source.locked)) {
@@ -2286,8 +2293,12 @@ export function App() {
     const activeDrag = dragging.current;
     if (!activeDrag || activeDrag.pointerId !== event.pointerId) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * (project?.output.width ?? 1920);
-    const y = ((event.clientY - rect.top) / rect.height) * (project?.output.height ?? 1080);
+    const output = { width: project?.output.width ?? 1920, height: project?.output.height ?? 1080 };
+    const canvas = { width: project?.output.baseWidth ?? 1920, height: project?.output.baseHeight ?? 1080 };
+    const { x, y } = canvasPointFromOutputPoint({
+      x: ((event.clientX - rect.left) / rect.width) * output.width,
+      y: ((event.clientY - rect.top) / rect.height) * output.height,
+    }, canvas, output);
     const dx = x - activeDrag.startX;
     const dy = y - activeDrag.startY;
     if (!activeDrag.resizeHandle) {
@@ -2370,6 +2381,11 @@ export function App() {
 
   const sourceInScene = activeScene.sources.find((source) => source.id === selectedSourceId);
   const previewTransform = sourceInScene?.transform;
+  const previewOutputRect = previewTransform ? outputRectFromCanvasRect(
+    previewTransform,
+    { width: project.output.baseWidth, height: project.output.baseHeight },
+    { width: project.output.width, height: project.output.height },
+  ) : null;
   const previewScene = activeScene;
   const duration = formatElapsed(recordingStartedAt, recordingElapsedTime(clockNow, recordingPausedAt, recordingAccumulatedPauseMs));
   const streamDuration = formatElapsed(streamingStartedAt, clockNow);
@@ -2456,16 +2472,28 @@ export function App() {
         <label>Replay buffer<select value={replayBufferDurationSeconds} disabled={replayBufferStartedAt !== null} onChange={(event) => setReplayBufferDurationSeconds(Number(event.target.value))}><option value={5}>5 seconds</option><option value={15}>15 seconds</option><option value={30}>30 seconds</option><option value={60}>60 seconds</option></select></label>
         <div className="popover-heading video-heading"><strong>Video</strong></div>
         <div className="settings-number-grid">
-          <label>Canvas width<input aria-label="Canvas width" type="number" min="320" max="16384" step="1" key={`canvas-width-${project.output.width}`} defaultValue={project.output.width} onBlur={(event) => {
+          <label>Base (Canvas) width<input aria-label="Base canvas width" type="number" min="320" max="16384" step="1" key={`base-width-${project.output.baseWidth}`} defaultValue={project.output.baseWidth} onBlur={(event) => {
             const entered = Number(event.currentTarget.value);
             if (!Number.isFinite(entered) || event.currentTarget.value.trim() === '') return;
             const width = Math.max(320, Math.min(16384, Math.round(entered)));
-            setProjectValue((current) => ({ ...current, output: { ...current.output, width } }));
+            setProjectValue((current) => ({ ...current, output: { ...current.output, baseWidth: width } }));
           }} /></label>
-          <label>Canvas height<input aria-label="Canvas height" type="number" min="180" max="16384" step="1" key={`canvas-height-${project.output.height}`} defaultValue={project.output.height} onBlur={(event) => {
+          <label>Base (Canvas) height<input aria-label="Base canvas height" type="number" min="180" max="16384" step="1" key={`base-height-${project.output.baseHeight}`} defaultValue={project.output.baseHeight} onBlur={(event) => {
             const entered = Number(event.currentTarget.value);
             if (!Number.isFinite(entered) || event.currentTarget.value.trim() === '') return;
             const height = Math.max(180, Math.min(16384, Math.round(entered)));
+            setProjectValue((current) => ({ ...current, output: { ...current.output, baseHeight: height } }));
+          }} /></label>
+          <label>Output (Scaled) width<input aria-label="Output scaled width" type="number" min={SCALED_OUTPUT_LIMITS.minWidth} max={SCALED_OUTPUT_LIMITS.maxWidth} step="2" key={`output-width-${project.output.width}`} defaultValue={project.output.width} onBlur={(event) => {
+            const entered = Number(event.currentTarget.value);
+            if (!Number.isFinite(entered) || event.currentTarget.value.trim() === '') return;
+            const width = clampScaledOutputSize({ width: entered, height: project.output.height }).width;
+            setProjectValue((current) => ({ ...current, output: { ...current.output, width } }));
+          }} /></label>
+          <label>Output (Scaled) height<input aria-label="Output scaled height" type="number" min={SCALED_OUTPUT_LIMITS.minHeight} max={SCALED_OUTPUT_LIMITS.maxHeight} step="2" key={`output-height-${project.output.height}`} defaultValue={project.output.height} onBlur={(event) => {
+            const entered = Number(event.currentTarget.value);
+            if (!Number.isFinite(entered) || event.currentTarget.value.trim() === '') return;
+            const height = clampScaledOutputSize({ width: project.output.width, height: entered }).height;
             setProjectValue((current) => ({ ...current, output: { ...current.output, height } }));
           }} /></label>
         </div>
@@ -2532,14 +2560,14 @@ export function App() {
               <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b></div>
               <div className="stage-surface" style={previewSize} onPointerDown={(event) => handleStagePointerDown(event, previewScene)} onPointerMove={handleStagePointerMove} onPointerUp={handleStagePointerUp} onPointerCancel={handleStagePointerUp}>
                 <CanvasComposition project={project} scene={previewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
-                {previewTransform && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewTransform.x / project.output.width) * 100}%`, top: `${(previewTransform.y / project.output.height) * 100}%`, width: `${(previewTransform.width / project.output.width) * 100}%`, height: `${(previewTransform.height / project.output.height) * 100}%` }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
+                {previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%` }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
             </div>}
             <div key="program-panel" className={`stage-panel program-panel ${multiviewMode ? 'multiview-tile program-tile' : ''}`}>
               <div className={`stage-label ${multiviewMode ? 'program-stage-label-hidden' : ''}`}><span><i className="program-dot" />PROGRAM</span><b>{liveScene.name}</b></div>
               <div className={`stage-surface ${multiviewMode ? 'multiview-canvas' : ''}`} style={multiviewMode ? { aspectRatio: `${project.output.width} / ${project.output.height}` } : previewSize} onPointerDown={!project.studioMode && !multiviewMode ? (event) => handleStagePointerDown(event, liveScene) : undefined} onPointerMove={!project.studioMode && !multiviewMode ? handleStagePointerMove : undefined} onPointerUp={!project.studioMode && !multiviewMode ? handleStagePointerUp : undefined} onPointerCancel={!project.studioMode && !multiviewMode ? handleStagePointerUp : undefined}>
                 <CanvasComposition ref={programCanvasRef} project={project} scene={liveScene} videoElements={videoElements.current} imageElements={imageElements.current} transition={transition} onTransitionEnd={finishTransition} />
-                {!project.studioMode && !multiviewMode && previewTransform && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewTransform.x / project.output.width) * 100}%`, top: `${(previewTransform.y / project.output.height) * 100}%`, width: `${(previewTransform.width / project.output.width) * 100}%`, height: `${(previewTransform.height / project.output.height) * 100}%` }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
+                {!project.studioMode && !multiviewMode && previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%` }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
               {multiviewMode && <div className="multiview-caption"><span><i className="program-dot" />PROGRAM</span><b>{liveScene.name}</b></div>}
             </div>
@@ -2778,7 +2806,7 @@ export function App() {
 
       </section>
 
-      <footer className="statusbar"><div className="status-left"><span className="status-indicator" /><span>Ready</span>{working && <span className="status-busy">Working…</span>}</div><div className="status-center">{actionError && <span className={actionError.startsWith('Saved ') ? 'notice' : 'error'}>{actionError}</span>}</div><div className="status-right"><span>Canvas {project.output.width} × {project.output.height}</span><span className="status-divider" /><span>{project.output.frameRate} FPS</span></div></footer>
+      <footer className="statusbar"><div className="status-left"><span className="status-indicator" /><span>Ready</span>{working && <span className="status-busy">Working…</span>}</div><div className="status-center">{actionError && <span className={actionError.startsWith('Saved ') ? 'notice' : 'error'}>{actionError}</span>}</div><div className="status-right"><span>Canvas {project.output.baseWidth} × {project.output.baseHeight}</span><span className="status-divider" /><span>Output {project.output.width} × {project.output.height}</span><span className="status-divider" /><span>{project.output.frameRate} FPS</span></div></footer>
 
       {sceneDialog && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSceneDialog(null); }}>
         <section className="capture-modal scene-modal" role="dialog" aria-modal="true" aria-labelledby="scene-dialog-title">
