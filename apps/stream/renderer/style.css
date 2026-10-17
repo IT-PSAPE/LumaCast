@@ -192,6 +192,9 @@ button.multiview-tile:hover { border-color: #596777; background: #20252c; }
 .source-row.selected { border-color: #345e58; color: #e2f8f2; background: #1b302e; }
 .source-row.source-locked .source-label { color: #8e99a5; }
 .selection-frame.locked { border-style: dashed; border-color: #9ca6af; cursor: default; }
+.group-expand-button, .group-expand-spacer { width: 13px; height: 18px; display: grid; flex: 0 0 13px; place-items: center; padding: 0; color: #74808d; background: transparent; }
+.group-expand-button { cursor: pointer; }.group-expand-button:hover { color: #dce3e9; }
+.source-type-icon.group { color: #8eabd3; }
 .visibility-toggle { width: 20px; height: 22px; display: grid; flex: 0 0 20px; place-items: center; padding: 0; border-radius: 3px; color: #7d8794; background: transparent; cursor: pointer; }
 .visibility-toggle:hover { color: #dce3e9; background: #30353d; }
 .source-type-icon { width: 18px; display: grid; flex: 0 0 18px; place-items: center; color: #76a8ed; }

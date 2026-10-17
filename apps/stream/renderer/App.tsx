@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import {
-  ArrowDownToLine, ArrowUpFromLine, AudioLines, ChevronDown, ChevronUp, Clapperboard, Copy, Eye, EyeOff, ExternalLink, Lock, LockOpen,
+  ArrowDownToLine, ArrowUpFromLine, AudioLines, ChevronDown, ChevronRight, ChevronUp, Clapperboard, Copy, Eye, EyeOff, ExternalLink, Lock, LockOpen,
   FileAudio, FileVideo, Globe, Grid2X2, Headphones, Image as ImageIcon, Layers2, Mic, Monitor, MoreHorizontal, Move, Pause, Play, Plus, Radio, Settings2,
   Redo2, Square, Type, Undo2, Volume2, VolumeX, Webcam, X,
 } from 'lucide-react';
@@ -14,12 +14,13 @@ import { canvasPointFromOutputPoint, clampScaledOutputSize, outputRectFromCanvas
 import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { closeProjectorWindow, createProjectorWindowSession, openCanvasProjector } from './projector-window';
-import { getRenderedSourceIds } from './scene-render-scope';
+import { getRenderedSourceIds, getVisibleSourceIds } from './scene-render-scope';
 import { canTransformSource, fitSourceToCanvas } from './source-transform';
 import { sceneEditorState, SceneHistory, type SceneEditorState } from './scene-history';
 import { duplicateSource } from './source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slideshow';
 import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
+import { computeGroupBoundingTransform, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, moveSourceTreeNode, removeSourceTreeById, ungroupSourceNode } from '../shared/source-tree';
 import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from './recording-controls';
 import { cameraCaptureConstraints } from './camera-capture-settings';
 import { retainDesktopAudioTracks } from './desktop-audio-capture';
@@ -218,6 +219,7 @@ function createSource(kind: SourceKind, output: StreamProject['output'], name?: 
   const labels: Record<SourceKind, string> = {
     display: 'Display Capture', window: 'Window Capture', camera: 'Video Capture Device',
     microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', 'application-audio': 'Application Audio Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text', color: 'Color Source',
+    group: 'Group',
   };
   return {
     id: crypto.randomUUID(),
@@ -235,6 +237,21 @@ function createSource(kind: SourceKind, output: StreamProject['output'], name?: 
     ...(kind === 'color' ? { color: '#17191f' } : {}),
     ...(kind === 'browser' ? { browserAudioEnabled: false } : {}),
     ...extra,
+  };
+}
+
+function cloneSceneSource(source: StreamSource): StreamSource {
+  return {
+    ...source,
+    id: crypto.randomUUID(),
+    transform: { ...source.transform },
+    ...(source.crop ? { crop: { ...source.crop } } : {}),
+    ...(source.filters ? { filters: { ...source.filters } } : {}),
+    ...(source.chromaKey ? { chromaKey: { ...source.chromaKey } } : {}),
+    ...(source.audioFilters ? { audioFilters: { ...source.audioFilters } } : {}),
+    ...(source.slideshowImages ? { slideshowImages: source.slideshowImages.map((image) => ({ ...image })) } : {}),
+    ...(source.children ? { children: source.children.map(cloneSceneSource) } : {}),
+    audioTracks: [...(source.audioTracks ?? [1])],
   };
 }
 
@@ -282,6 +299,8 @@ export function App() {
   const [loadingError, setLoadingError] = useState('');
   const [actionError, setActionError] = useState('');
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const [collapsedGroupIds, setCollapsedGroupIds] = useState<string[]>([]);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [sourceActionsMenuOpen, setSourceActionsMenuOpen] = useState(false);
   const [sourceClipboardAvailable, setSourceClipboardAvailable] = useState(false);
@@ -582,7 +601,7 @@ export function App() {
     void mixer.current?.close();
   }, []);
 
-  const allSources = useMemo(() => project?.scenes.flatMap((scene) => scene.sources) ?? [], [project]);
+  const allSources = useMemo(() => project?.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)) ?? [], [project]);
   const allSourcesRef = useRef<StreamSource[]>([]);
   allSourcesRef.current = allSources;
   const projectRef = useRef<StreamProject | null>(null);
@@ -595,7 +614,7 @@ export function App() {
   const activeScene = project?.scenes.find((scene) => scene.id === project.activeSceneId) ?? null;
   const liveScene = project?.scenes.find((scene) => scene.id === project.liveSceneId) ?? null;
   const activeCollection = collections.find((collection) => collection.id === activeCollectionId) ?? null;
-  const selectedSource = activeScene?.sources.find((source) => source.id === selectedSourceId) ?? null;
+  const selectedSource = activeScene ? flattenSourceNodes(activeScene.sources).find((source) => source.id === selectedSourceId) ?? null : null;
   const activeSourceIds = useMemo(
     () => getRenderedSourceIds(project?.scenes ?? [], project?.activeSceneId ?? null, project?.liveSceneId ?? null, multiviewMode),
     [project?.scenes, project?.activeSceneId, project?.liveSceneId, multiviewMode],
@@ -607,7 +626,7 @@ export function App() {
     .map((source) => ({ id: source.id, kind: source.kind as InputCaptureKind, deviceId: source.deviceId ?? '', name: source.name })));
 
   useEffect(() => {
-    const programSourceIds = new Set((liveScene?.sources ?? []).filter((source) => source.visible).map((source) => source.id));
+    const programSourceIds = getVisibleSourceIds(liveScene?.sources ?? []);
     for (const source of allSources) {
       mixer.current?.setSettings(source.id, { volume: source.volume, muted: source.muted });
       mixer.current?.setBalance(source.id, source.balance ?? 0);
@@ -621,6 +640,31 @@ export function App() {
   const setProjectValue = useCallback((update: (current: StreamProject) => StreamProject) => {
     setProject((current) => current ? update(current) : current);
   }, []);
+
+  const selectSource = (sourceId: string | null) => {
+    setSelectedSourceId(sourceId);
+    setSelectedSourceIds(sourceId ? [sourceId] : []);
+  };
+
+  const selectSourceRow = (event: ReactMouseEvent<HTMLDivElement>, sourceId: string) => {
+    if (!event.ctrlKey && !event.metaKey) {
+      selectSource(sourceId);
+      return;
+    }
+    const next = selectedSourceIds.includes(sourceId)
+      ? selectedSourceIds.filter((id) => id !== sourceId)
+      : [...selectedSourceIds, sourceId];
+    setSelectedSourceIds(next);
+    setSelectedSourceId(next.at(-1) ?? null);
+  };
+
+  const selectedRootIndices = activeScene
+    ? selectedSourceIds.map((id) => activeScene.sources.findIndex((source) => source.id === id)).sort((left, right) => left - right)
+    : [];
+  const selectedRootSources = activeScene ? selectedSourceIds.map((id) => activeScene.sources.find((source) => source.id === id)).filter((source): source is StreamSource => Boolean(source)) : [];
+  const canGroupSelectedSources = selectedRootIndices.length >= 2 && selectedRootIndices[0] !== -1
+    && selectedRootSources.length === selectedRootIndices.length && selectedRootSources.every((source) => source.kind !== 'group')
+    && selectedRootIndices.every((index, position) => position === 0 || index === selectedRootIndices[position - 1]! + 1);
 
   const resetSceneHistory = () => {
     sceneHistoryRef.current?.clear();
@@ -655,7 +699,7 @@ export function App() {
       ...current,
       scenes: current.scenes.map((scene) => ({
         ...scene,
-        sources: scene.sources.map((source) => source.id === sourceId
+        sources: mapSourceTreeById(scene.sources, sourceId, (source) => source.id === sourceId
           ? { ...source, audioFilters: { ...DEFAULT_AUDIO_FILTERS, ...source.audioFilters, noiseSuppression: false } }
           : source),
       })),
@@ -945,7 +989,8 @@ export function App() {
       for (const sourceId of mixer.current?.sourceIds() ?? []) mixer.current?.remove(sourceId);
       setRuntimeRevision((value) => value + 1);
       setMeterLevels({});
-      setSelectedSourceId(null);
+      selectSource(null);
+      setCollapsedGroupIds([]);
       setTransition(null);
       setCaptureOptions(null);
       setCaptureKind(null);
@@ -1107,7 +1152,7 @@ export function App() {
       ...current,
       scenes: current.scenes.map((scene) => scene.id === current.activeSceneId ? { ...scene, sources: [...scene.sources, source] } : scene),
     }));
-    setSelectedSourceId(source.id);
+    selectSource(source.id);
     setSourceMenuOpen(false);
     setActionError('');
     return source;
@@ -1453,7 +1498,7 @@ export function App() {
   const updateSource = (sourceId: string, update: (source: StreamSource) => StreamSource) => {
     setProjectValue((current) => ({
       ...current,
-      scenes: current.scenes.map((scene) => ({ ...scene, sources: scene.sources.map((source) => source.id === sourceId ? update(source) : source) })),
+      scenes: current.scenes.map((scene) => ({ ...scene, sources: mapSourceTreeById(scene.sources, sourceId, update) })),
     }));
   };
 
@@ -1576,7 +1621,7 @@ export function App() {
       void (async () => {
         const ready = await mixer.current?.setNoiseSuppression(sourceId, enabled);
         if (ready === true || !enabled) return;
-        const current = projectRef.current?.scenes.flatMap((scene) => scene.sources).find((item) => item.id === sourceId);
+        const current = projectRef.current?.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)).find((item) => item.id === sourceId);
         if (current?.audioFilters?.noiseSuppression !== true) return;
         setActionError('Neural noise suppression could not be started for this microphone.');
         clearNoiseSuppressionPreference(sourceId);
@@ -1586,13 +1631,14 @@ export function App() {
 
   const removeSelectedSource = () => {
     if (!selectedSource || !activeScene) return;
-    stopRuntime(selectedSource.id);
+    const removedIds = flattenSourceNodes([selectedSource]).map((source) => source.id);
+    for (const source of flattenSourceLeaves([selectedSource])) stopRuntime(source.id);
     setProjectValue((current) => ({
       ...current,
-      scenes: current.scenes.map((scene) => scene.id === activeScene.id ? { ...scene, sources: scene.sources.filter((source) => source.id !== selectedSource.id) } : scene),
-      sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [selectedSource.id]),
+      scenes: current.scenes.map((scene) => scene.id === activeScene.id ? { ...scene, sources: removeSourceTreeById(scene.sources, selectedSource.id) } : scene),
+      sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, removedIds),
     }));
-    setSelectedSourceId(null);
+    selectSource(null);
   };
 
   const copySelectedSource = () => {
@@ -1605,26 +1651,31 @@ export function App() {
   const pasteSource = async () => {
     if (!activeScene || !project || !sourceClipboardRef.current) return;
     const source = duplicateSource(sourceClipboardRef.current);
-    const runtime = runtimes.current.get(sourceClipboardRef.current.id);
     setSourceActionsMenuOpen(false);
-    if (runtime && source.kind !== 'browser') {
-      try {
-        if (source.kind === 'application-audio') {
-          const session = applicationAudioSessions.current.get(sourceClipboardRef.current.id);
+    try {
+      const originalLeaves = flattenSourceLeaves([sourceClipboardRef.current]);
+      const duplicatedLeaves = flattenSourceLeaves([source]);
+      for (let index = 0; index < originalLeaves.length; index += 1) {
+        const original = originalLeaves[index]!;
+        const duplicate = duplicatedLeaves[index]!;
+        const runtime = runtimes.current.get(original.id);
+        if (!runtime || duplicate.kind === 'browser') continue;
+        if (duplicate.kind === 'application-audio') {
+          const session = applicationAudioSessions.current.get(original.id);
           if (!session) throw new Error('The application-audio capture is no longer active.');
-          await startApplicationAudioRuntime(source, { ...session, name: source.name });
-        } else await attachRuntime(source, runtime.clone());
-      } catch (error) {
-        stopRuntime(source.id);
-        setActionError(`Could not duplicate source: ${friendlyError(error)}`);
-        return;
+          await startApplicationAudioRuntime(duplicate, { ...session, name: duplicate.name });
+        } else await attachRuntime(duplicate, runtime.clone());
       }
+    } catch (error) {
+      for (const duplicate of flattenSourceLeaves([source])) stopRuntime(duplicate.id);
+      setActionError(`Could not duplicate source: ${friendlyError(error)}`);
+      return;
     }
     setProjectValue((current) => ({
       ...current,
       scenes: current.scenes.map((scene) => scene.id === current.activeSceneId ? { ...scene, sources: [...scene.sources, source] } : scene),
     }));
-    setSelectedSourceId(source.id);
+    selectSource(source.id);
   };
 
   const stretchSource = (source: StreamSource) => {
@@ -1636,16 +1687,50 @@ export function App() {
     if (!activeScene) return;
     setProjectValue((current) => ({
       ...current,
+      scenes: current.scenes.map((scene) => scene.id === activeScene.id
+        ? { ...scene, sources: moveSourceTreeNode(scene.sources, sourceId, direction) }
+        : scene),
+    }));
+  };
+
+  const groupSelectedSources = () => {
+    if (!canGroupSelectedSources || !activeScene || !project) return;
+    const selected = new Set(selectedSourceIds);
+    const selectedSources = activeScene.sources.filter((source) => selected.has(source.id));
+    const bounds = computeGroupBoundingTransform(selectedSources) ?? { x: 0, y: 0, width: 1, height: 1 };
+    const existingGroupNames = new Set(flattenSourceNodes(activeScene.sources).map((source) => source.name));
+    let groupName = 'Group';
+    let suffix = 2;
+    while (existingGroupNames.has(groupName)) groupName = `Group ${suffix++}`;
+    const group = createSource('group', project.output, groupName, { children: selectedSources, transform: bounds });
+    setProjectValue((current) => ({
+      ...current,
       scenes: current.scenes.map((scene) => {
-        if (scene.id !== activeScene.id) return scene;
-        const index = scene.sources.findIndex((source) => source.id === sourceId);
-        const nextIndex = index + direction;
-        if (index < 0 || nextIndex < 0 || nextIndex >= scene.sources.length) return scene;
-        const sources = [...scene.sources];
-        [sources[index], sources[nextIndex]] = [sources[nextIndex]!, sources[index]!];
-        return { ...scene, sources };
+        if (scene.id !== current.activeSceneId) return scene;
+        const sources = groupSourceSiblings(scene.sources, selectedSourceIds, group);
+        return sources ? { ...scene, sources } : scene;
       }),
     }));
+    selectSource(group.id);
+    setSourceActionsMenuOpen(false);
+  };
+
+  const ungroupSelectedSource = () => {
+    if (!selectedSource || selectedSource.kind !== 'group' || !activeScene) return;
+    const children = selectedSource.children ?? [];
+    setProjectValue((current) => ({
+      ...current,
+      scenes: current.scenes.map((scene) => {
+        if (scene.id !== current.activeSceneId) return scene;
+        const sources = ungroupSourceNode(scene.sources, selectedSource.id);
+        return sources ? { ...scene, sources } : scene;
+      }),
+      sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [selectedSource.id]),
+    }));
+    selectSource(null);
+    setSelectedSourceIds(children.map((source) => source.id));
+    setSelectedSourceId(children.at(-1)?.id ?? null);
+    setSourceActionsMenuOpen(false);
   };
 
   const addScene = () => {
@@ -1657,7 +1742,7 @@ export function App() {
       liveSceneId: current.studioMode ? current.liveSceneId : scene.id,
       scenes: [...current.scenes, scene],
     }));
-    setSelectedSourceId(null);
+    selectSource(null);
   };
 
   const renameActiveScene = () => {
@@ -1682,18 +1767,20 @@ export function App() {
       ...original,
       id: crypto.randomUUID(),
       name: (original.name + ' Copy').slice(0, 120),
-      sources: original.sources.map((source) => ({ ...source, id: crypto.randomUUID(), transform: { ...source.transform }, crop: source.crop ? { ...source.crop } : undefined, filters: source.filters ? { ...source.filters } : undefined, chromaKey: source.chromaKey ? { ...source.chromaKey } : undefined, audioFilters: source.audioFilters ? { ...source.audioFilters } : undefined, slideshowImages: source.slideshowImages?.map((image) => ({ ...image })), audioTracks: [...(source.audioTracks ?? [1])] })),
+      sources: original.sources.map(cloneSceneSource),
     } satisfies StreamScene;
     try {
-      for (let index = 0; index < original.sources.length; index += 1) {
-        const originalSource = original.sources[index]!;
+      const originalLeaves = flattenSourceLeaves(original.sources);
+      const duplicateLeaves = flattenSourceLeaves(clone.sources);
+      for (let index = 0; index < originalLeaves.length; index += 1) {
+        const originalSource = originalLeaves[index]!;
         const runtime = runtimes.current.get(originalSource.id);
         if (!runtime) continue;
         if (originalSource.kind === 'application-audio') {
           const session = applicationAudioSessions.current.get(originalSource.id);
           if (!session) throw new Error(`The application-audio capture for ${originalSource.name} is no longer active.`);
-          await startApplicationAudioRuntime(clone.sources[index]!, { ...session, name: originalSource.name });
-        } else await attachRuntime(clone.sources[index]!, runtime.clone());
+          await startApplicationAudioRuntime(duplicateLeaves[index]!, { ...session, name: originalSource.name });
+        } else await attachRuntime(duplicateLeaves[index]!, runtime.clone());
       }
       setProjectValue((current) => ({
         ...current,
@@ -1701,10 +1788,10 @@ export function App() {
         liveSceneId: current.studioMode ? current.liveSceneId : clone.id,
         scenes: [...current.scenes, clone],
       }));
-      setSelectedSourceId(null);
+      selectSource(null);
       setSceneMenuOpen(false);
     } catch (error) {
-      for (const source of clone.sources) stopRuntime(source.id);
+      for (const source of flattenSourceLeaves(clone.sources)) stopRuntime(source.id);
       setActionError(`Could not duplicate scene: ${friendlyError(error)}`);
     } finally { setWorking(false); }
   };
@@ -1713,7 +1800,8 @@ export function App() {
     if (!project || project.scenes.length <= 1) return;
     const removed = project.scenes.find((scene) => scene.id === project.activeSceneId);
     if (!removed) return;
-    for (const source of removed.sources) stopRuntime(source.id);
+    const removedNodes = flattenSourceNodes(removed.sources);
+    for (const source of flattenSourceLeaves(removed.sources)) stopRuntime(source.id);
     setProjectValue((current) => {
       const scenes = current.scenes.filter((scene) => scene.id !== current.activeSceneId);
       const replacement = scenes[0]!;
@@ -1723,11 +1811,11 @@ export function App() {
         activeSceneId: replacement.id,
         liveSceneId: current.liveSceneId === removed.id ? replacement.id : current.liveSceneId,
         sceneSwitchHotkeys: Object.fromEntries(Object.entries(current.sceneSwitchHotkeys).filter(([sceneId]) => sceneId !== removed.id)),
-        sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, removed.sources.map((source) => source.id)),
+        sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, removedNodes.map((source) => source.id)),
       };
     });
     setTransition(null);
-    setSelectedSourceId(null);
+    selectSource(null);
     setSceneDialog(null);
     setSceneMenuOpen(false);
   };
@@ -1736,14 +1824,14 @@ export function App() {
     if (!project) return;
     if (project.studioMode) {
       setProjectValue((current) => ({ ...current, activeSceneId: sceneId }));
-      setSelectedSourceId(null);
+      selectSource(null);
       return;
     }
     if (sceneId === project.liveSceneId) return;
     const nextTransition = createSceneTransition(transitionType, project.liveSceneId, performance.now(), transitionMs, transitionColor);
     setTransition(nextTransition);
     setProjectValue((current) => ({ ...current, activeSceneId: sceneId, liveSceneId: sceneId }));
-    setSelectedSourceId(null);
+    selectSource(null);
   };
 
   const takeScene = () => {
@@ -2244,10 +2332,15 @@ export function App() {
     const { x, y } = point;
     const target = event.target instanceof HTMLElement ? event.target : null;
     const resizeHandle = target?.closest('[data-resize-handle]')?.getAttribute('data-resize-handle') ?? null;
-    const selected = resizeHandle && selectedSourceId ? scene.sources.find((source) => source.id === selectedSourceId) : null;
+    const flatSources = flattenSourceNodes(scene.sources);
+    const selected = selectedSourceId ? flatSources.find((source) => source.id === selectedSourceId) ?? null : null;
     const withinCanvas = x >= 0 && y >= 0 && x <= canvas.width && y <= canvas.height;
-    const source = selected ?? (withinCanvas ? hitTestSource(scene, x, y) : null);
-    setSelectedSourceId(source?.id ?? null);
+    const selectedIsGroupedChild = selected && scene.sources.some((source) => source.kind === 'group' && source.children?.some((child) => child.id === selected.id));
+    const selectedBounds = selected?.transform;
+    const pointInsideSelected = selectedBounds && x >= selectedBounds.x && x <= selectedBounds.x + selectedBounds.width
+      && y >= selectedBounds.y && y <= selectedBounds.y + selectedBounds.height;
+    const source = resizeHandle ? selected : selectedIsGroupedChild && pointInsideSelected ? selected : withinCanvas ? hitTestSource(scene, x, y) : null;
+    selectSource(source?.id ?? null);
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
     if (!source || !canTransformSource(source.locked)) {
       dragging.current = null;
@@ -2351,7 +2444,7 @@ export function App() {
   if (loadingError) return <main className="fatal"><div className="fatal-mark"><Radio size={24} /></div><h1>Stream could not start</h1><p>{loadingError}</p></main>;
   if (!project || !activeScene || !liveScene) return <main className="loading"><div className="brand-pulse"><Radio size={22} /></div><span>Starting Stream</span></main>;
 
-  const sourceInScene = activeScene.sources.find((source) => source.id === selectedSourceId);
+  const sourceInScene = flattenSourceNodes(activeScene.sources).find((source) => source.id === selectedSourceId);
   const previewTransform = sourceInScene?.transform;
   const previewOutputRect = previewTransform ? outputRectFromCanvasRect(
     previewTransform,
@@ -2361,9 +2454,31 @@ export function App() {
   const previewScene = activeScene;
   const duration = formatElapsed(recordingStartedAt, recordingElapsedTime(clockNow, recordingPausedAt, recordingAccumulatedPauseMs));
   const streamDuration = formatElapsed(streamingStartedAt, clockNow);
-  const totalSourceCount = activeScene.sources.length;
+  const totalSourceCount = flattenSourceNodes(activeScene.sources).length;
+  const activeSceneLeafSources = flattenSourceLeaves(activeScene.sources);
   const canSaveReplay = replayBufferRevision > 0 && Boolean(replayBuffer.current?.channels.some((channel) => channel.track === 0 && channel.header));
   const collectionOperationBlocked = working || recordingStartedAt !== null || streamingStartedAt !== null || replayBufferStartedAt !== null;
+  const renderSourceRows = (sources: StreamSource[], depth = 0): JSX.Element[] => [...sources].reverse().map((source, displayIndex) => {
+    const realIndex = sources.length - 1 - displayIndex;
+    const isGroup = source.kind === 'group';
+    const collapsed = collapsedGroupIds.includes(source.id);
+    return <div className="source-tree-node" key={source.id}>
+      <div className={`source-row ${selectedSourceIds.includes(source.id) ? 'selected' : ''} ${source.locked ? 'source-locked' : ''} ${isGroup ? 'source-group-row' : ''}`} style={{ paddingLeft: `${6 + depth * 14}px` }} onClick={(event) => selectSourceRow(event, source.id)}>
+        {isGroup ? <button className="group-expand-button" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${source.name}`} aria-expanded={!collapsed} onClick={(event) => {
+          event.stopPropagation();
+          setCollapsedGroupIds((current) => collapsed ? current.filter((id) => id !== source.id) : [...current, source.id]);
+        }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</button> : <span className="group-expand-spacer" />}
+        <button className="visibility-toggle" title={source.visible ? 'Hide source' : 'Show source'} onClick={(event) => { event.stopPropagation(); updateSource(source.id, (current) => ({ ...current, visible: !current.visible })); }}>
+          {source.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+        </button>
+        <span className={`source-type-icon ${source.kind}`}>{sourceIcon(source.kind, source.mediaKind)}</span>
+        <span className="source-label">{source.name}</span>
+        {meterLevels[source.id] !== undefined && <span className="source-level-mini"><i style={{ width: `${Math.round((meterLevels[source.id] ?? 0) * 100)}%` }} /></span>}
+        <span className="source-actions"><button aria-label={source.locked ? 'Unlock source' : 'Lock source'} title={source.locked ? 'Unlock source' : 'Lock source'} onClick={(event) => { event.stopPropagation(); toggleSourceLock(source.id); }}>{source.locked ? <Lock size={12} /> : <LockOpen size={12} />}</button><button aria-label="Move source up" title="Move source up" disabled={realIndex === sources.length - 1} onClick={(event) => { event.stopPropagation(); moveSource(source.id, 1); }}><ChevronUp size={13} /></button><button aria-label="Move source down" title="Move source down" disabled={realIndex === 0} onClick={(event) => { event.stopPropagation(); moveSource(source.id, -1); }}><ChevronDown size={13} /></button></span>
+      </div>
+      {isGroup && !collapsed && <div className="source-children">{renderSourceRows(source.children ?? [], depth + 1)}</div>}
+    </div>;
+  });
   const selectedFilters = { ...DEFAULT_SOURCE_FILTERS, ...selectedSource?.filters };
   const selectedTextStyle = selectedSource?.kind === 'text' ? selectedSource.textStyle ?? createDefaultTextStyle() : null;
   const selectedCrop = { ...DEFAULT_SOURCE_CROP, ...selectedSource?.crop };
@@ -2517,7 +2632,7 @@ export function App() {
         <div className="popover-heading video-heading"><strong>Scene Switches</strong></div>
         {project.scenes.map((scene) => <label key={scene.id}>{scene.name}<input aria-label={`Switch to ${scene.name} shortcut`} readOnly value={sceneSwitchHotkeyDraft[scene.id] ?? ''} onKeyDown={(event) => captureSceneSwitchHotkey(scene.id, event)} /></label>)}
         <div className="popover-heading video-heading"><strong>Source Visibility</strong></div>
-        {project.scenes.flatMap((scene) => scene.sources.map((source) => (
+        {project.scenes.flatMap((scene) => flattenSourceNodes(scene.sources).map((source) => (
           <label key={source.id}>{scene.name} · {source.name}<input aria-label={`Toggle visibility for ${source.name} in ${scene.name} shortcut`} readOnly value={sourceVisibilityHotkeyDraft[source.id] ?? ''} onKeyDown={(event) => captureSourceVisibilityHotkey(source.id, event)} /></label>
         )))}
         {hotkeyError && <p className="hotkey-error" role="alert">{hotkeyError}</p>}
@@ -2607,6 +2722,10 @@ export function App() {
             <button role="menuitem" disabled={!selectedSource} onClick={copySelectedSource}><Copy size={14} />Copy Source</button>
             <button role="menuitem" disabled={!sourceClipboardAvailable || working} onClick={() => void pasteSource()}><Plus size={14} />Paste Source</button>
             <div className="source-menu-separator" />
+            {selectedSource?.kind === 'group'
+              ? <button role="menuitem" onClick={ungroupSelectedSource}><Layers2 size={14} />Ungroup</button>
+              : <button role="menuitem" disabled={!canGroupSelectedSources} onClick={groupSelectedSources}><Layers2 size={14} />Group Sources</button>}
+            <div className="source-menu-separator" />
             <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && fitSource(selectedSource)}><Move size={14} />Fit to Canvas</button>
             <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && centerSource(selectedSource)}><Move size={14} />Center</button>
             <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && stretchSource(selectedSource)}><Move size={14} />Stretch to Canvas</button>
@@ -2616,18 +2735,7 @@ export function App() {
           </AnchoredPopover>
           <div className="source-list">
             {activeScene.sources.length === 0 && <div className="source-empty"><span className="empty-stack"><Layers2 size={18} /></span><b>No sources yet</b><span>Add a source to this scene.</span></div>}
-            {[...activeScene.sources].reverse().map((source, displayIndex) => {
-              const realIndex = activeScene.sources.length - 1 - displayIndex;
-              return <div key={source.id} className={`source-row ${selectedSourceId === source.id ? 'selected' : ''} ${source.locked ? 'source-locked' : ''}`} onClick={() => setSelectedSourceId(source.id)}>
-                <button className="visibility-toggle" title={source.visible ? 'Hide source' : 'Show source'} onClick={(event) => { event.stopPropagation(); updateSource(source.id, (current) => ({ ...current, visible: !current.visible })); }}>
-                  {source.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                </button>
-                <span className={`source-type-icon ${source.kind}`}>{sourceIcon(source.kind, source.mediaKind)}</span>
-                <span className="source-label">{source.name}</span>
-                {meterLevels[source.id] !== undefined && <span className="source-level-mini"><i style={{ width: `${Math.round((meterLevels[source.id] ?? 0) * 100)}%` }} /></span>}
-                <span className="source-actions"><button aria-label={source.locked ? 'Unlock source' : 'Lock source'} title={source.locked ? 'Unlock source' : 'Lock source'} onClick={(event) => { event.stopPropagation(); toggleSourceLock(source.id); }}>{source.locked ? <Lock size={12} /> : <LockOpen size={12} />}</button><button aria-label="Move source up" title="Move source up" disabled={realIndex === activeScene.sources.length - 1} onClick={(event) => { event.stopPropagation(); moveSource(source.id, 1); }}><ChevronUp size={13} /></button><button aria-label="Move source down" title="Move source down" disabled={realIndex === 0} onClick={(event) => { event.stopPropagation(); moveSource(source.id, -1); }}><ChevronDown size={13} /></button></span>
-              </div>;
-            })}
+            {renderSourceRows(activeScene.sources)}
           </div>
           <AnchoredPopover open={sourceMenuOpen} anchor={sourceMenuTriggerRef.current} className="source-menu" alignment="end" role="menu" onClose={() => setSourceMenuOpen(false)}>
             <div className="menu-label">Capture</div>
@@ -2649,6 +2757,7 @@ export function App() {
           </AnchoredPopover>
           {selectedSource && <div className="source-properties">
             <div className="property-heading"><span>{sourceIcon(selectedSource.kind, selectedSource.mediaKind)}{selectedSource.name}</span><button className="mini-icon danger" aria-label="Remove source" onClick={removeSelectedSource}><X size={14} /></button></div>
+            {selectedSource.kind === 'group' && <label className="text-property">Group name<input aria-label="Group name" maxLength={120} value={selectedSource.name} onChange={(event) => updateSource(selectedSource.id, (source) => ({ ...source, name: event.target.value }))} /></label>}
             {(selectedSource.kind === 'camera' || selectedSource.kind === 'microphone') && <label className="device-property">Device<select aria-label="Capture device" disabled={working} value={selectedSource.deviceId ?? ''} onChange={(event) => void switchInputDevice(selectedSource, event.target.value || undefined)}>
               {selectedSource.deviceId && !inputDeviceOptions[selectedSource.kind].some((device) => device.deviceId === selectedSource.deviceId) && <option value={selectedSource.deviceId}>{selectedSource.name} (Unavailable)</option>}
               <option value="">Default Device</option>
@@ -2753,13 +2862,13 @@ export function App() {
               <label className="filter-control"><span>Ratio</span><input type="range" min="1" max="20" step="1" value={selectedSource.audioFilters?.compressorRatio ?? 4} disabled={!selectedSource.audioFilters?.compressor} onChange={(event) => updateSourceAudioFilters(selectedSource.id, { compressorRatio: Number(event.target.value) })} /><b>{selectedSource.audioFilters?.compressorRatio ?? 4}:1</b></label>
               <label className="audio-filter-toggle"><input type="checkbox" checked={selectedSource.audioFilters?.limiter ?? false} onChange={(event) => updateSourceAudioFilters(selectedSource.id, { limiter: event.target.checked })} /><span>Limiter</span></label>
             </details>}
-            <details className="filter-details"><summary>Color Correction</summary>
+            {selectedSource.kind !== 'group' && <details className="filter-details"><summary>Color Correction</summary>
               <label className="filter-control"><span>Brightness</span><input type="range" min="0" max="200" value={selectedFilters.brightness} onChange={(event) => updateSourceFilters(selectedSource.id, { brightness: Number(event.target.value) })} /><b>{selectedFilters.brightness}%</b></label>
               <label className="filter-control"><span>Contrast</span><input type="range" min="0" max="200" value={selectedFilters.contrast} onChange={(event) => updateSourceFilters(selectedSource.id, { contrast: Number(event.target.value) })} /><b>{selectedFilters.contrast}%</b></label>
               <label className="filter-control"><span>Saturation</span><input type="range" min="0" max="200" value={selectedFilters.saturation} onChange={(event) => updateSourceFilters(selectedSource.id, { saturation: Number(event.target.value) })} /><b>{selectedFilters.saturation}%</b></label>
               <label className="filter-control"><span>Opacity</span><input type="range" min="0" max="100" value={selectedFilters.opacity} onChange={(event) => updateSourceFilters(selectedSource.id, { opacity: Number(event.target.value) })} /><b>{selectedFilters.opacity}%</b></label>
               <label className="filter-control"><span>Blur</span><input type="range" min="0" max="20" value={selectedFilters.blur} onChange={(event) => updateSourceFilters(selectedSource.id, { blur: Number(event.target.value) })} /><b>{selectedFilters.blur}px</b></label>
-            </details>
+            </details>}
             {supportsChromaKey(selectedSource) && <details className="filter-details"><summary>Crop</summary>
               <label className="crop-control"><span>Top</span><input type="number" min="0" max="16384" step="1" value={selectedCrop.top} onChange={(event) => updateSourceCrop(selectedSource.id, { top: Math.max(0, Math.min(16384, Math.trunc(Number(event.target.value) || 0))) })} /><b>px</b></label>
               <label className="crop-control"><span>Right</span><input type="number" min="0" max="16384" step="1" value={selectedCrop.right} onChange={(event) => updateSourceCrop(selectedSource.id, { right: Math.max(0, Math.min(16384, Math.trunc(Number(event.target.value) || 0))) })} /><b>px</b></label>
@@ -2777,9 +2886,9 @@ export function App() {
 
         <section className="dock mixer-dock">
           <div className="dock-title"><span>Audio Mixer</span><span className="meter-scale">−60&nbsp; &nbsp; −20&nbsp; &nbsp; 0 dB</span><button className="mini-icon" aria-label="Audio settings" onClick={openSettings}><Settings2 size={14} /></button></div>
-          {activeScene.sources.filter((source) => meterLevels[source.id] !== undefined).length === 0
+          {activeSceneLeafSources.filter((source) => meterLevels[source.id] !== undefined).length === 0
             ? <div className="mixer-empty"><AudioLines size={20} /><span>Add a microphone or capture source with system audio.</span></div>
-            : <div className="mixer-channels">{activeScene.sources.filter((source) => meterLevels[source.id] !== undefined).map((source) => {
+            : <div className="mixer-channels">{activeSceneLeafSources.filter((source) => meterLevels[source.id] !== undefined).map((source) => {
               const level = meterLevels[source.id] ?? 0;
               const width = Math.max(0, Math.min(100, level * 100));
               return <div className="mixer-channel" key={source.id}>

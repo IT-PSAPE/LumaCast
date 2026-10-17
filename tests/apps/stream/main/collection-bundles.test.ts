@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 describe('LumaStream scene collection bundles', () => {
-  it('exports referenced media and imports it with a fresh asset ID', async () => {
+  it('exports media nested in a group and imports it with a fresh asset ID', async () => {
     const sourceData = await temporaryDirectory('lumastream-bundle-source-');
     const sourceStore = new ProjectStore(sourceData);
     const sourceWorkspace = await sourceStore.load();
@@ -45,9 +45,13 @@ describe('LumaStream scene collection bundles', () => {
     await writeFile(path.join(mediaDirectory, `${sourceAssetId}.png`), mediaBytes);
     const project = createDefaultProject();
     project.scenes[0]!.sources.push({
-      id: 'portable-image', name: 'Backdrop', kind: 'image', visible: true, muted: false, volume: 1,
+      id: 'portable-group', name: 'Backdrop Group', kind: 'group', visible: true, muted: false, volume: 1,
       transform: { x: 0, y: 0, width: project.output.width, height: project.output.height },
-      assetId: sourceAssetId, assetExtension: 'png', mediaKind: 'image',
+      children: [{
+        id: 'portable-image', name: 'Backdrop', kind: 'image', visible: true, muted: false, volume: 1,
+        transform: { x: 0, y: 0, width: project.output.width, height: project.output.height },
+        assetId: sourceAssetId, assetExtension: 'png', mediaKind: 'image',
+      }],
     });
     await sourceStore.save(sourceWorkspace.activeCollectionId, sourceWorkspace.activeProfileId, project);
 
@@ -60,7 +64,7 @@ describe('LumaStream scene collection bundles', () => {
     const destinationStore = new ProjectStore(destinationData);
     const destinationMedia = new MediaAssetStore(destinationData, () => null);
     const imported = await bundleStore(destinationStore, destinationMedia).importFromPath(archivePath);
-    const importedSource = imported.project.scenes[0]?.sources.find((source) => source.id === 'portable-image');
+    const importedSource = imported.project.scenes[0]?.sources.find((source) => source.id === 'portable-group')?.children?.[0];
 
     expect(importedSource?.assetId).toBeDefined();
     expect(importedSource?.assetId).not.toBe(sourceAssetId);

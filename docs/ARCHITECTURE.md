@@ -297,10 +297,11 @@ into the pinned LGPL FFmpeg build; hardware families still require a compatible
 device and driver. MP4-only controls stay inactive for WebM and Matroska output
 (ADR-0073, ADR-0075).
 
-The renderer currently provides scenes, layer order/visibility, direct canvas
-positioning and resizing, Studio Mode, Cut/Fade/Swipe/Slide/Fade-to-Color transitions, image
-and media playback, per-source crop, six-track source routing, selectable stream
-audio, multitrack recording, audio levels/mute/volume, compressor/limiter controls,
+The renderer currently provides scenes, layer order/visibility, first-level
+source groups, direct canvas positioning and resizing, Studio Mode,
+Cut/Fade/Swipe/Slide/Fade-to-Color transitions, image and media playback,
+per-source crop, six-track source routing, selectable stream audio, multitrack
+recording, audio levels/mute/volume, compressor/limiter controls,
 and independent base-canvas dimensions at 320–16384 by 180–16384 and
 output-scaled dimensions at 320–7680 by 240–4320 (even pixel dimensions), plus
 1–240 FPS including fractional rates. Sources are positioned in
@@ -341,7 +342,11 @@ and preserves its aspect ratio (ADR-0079). Collection, source, scene, and
 settings popovers are rendered outside clipped docks and reposition to the
 available viewport space. Source locks persist per source and prevent pointer,
 keyboard, and transform-panel geometry changes while leaving visibility and
-layer order editable (ADR-0081).
+layer order editable (ADR-0081). Groups preserve child stacking and source IDs
+inside the project tree, inherit visibility, and move or scale their visual
+children as a unit. Group contents remain in scene canvas coordinates; grouped
+audio keeps its existing per-source routes. Nested groups are not yet accepted
+by the project format (ADR-0112).
 
 The monitor's multiview mode renders the program plus every scene preview at a
 reduced resolution and enables visible capture sources for all scenes while it

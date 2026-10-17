@@ -8,7 +8,8 @@ import { pipeline } from 'node:stream/promises';
 import { dialog, type BrowserWindow } from 'electron';
 import { open as openZip, type Entry, type ZipFile } from 'yauzl';
 import { ZipFile as ZipWriter } from 'yazl';
-import type { MediaKind, StreamProject, StreamWorkspace } from '../shared/desktop-api';
+import type { MediaKind, StreamProject, StreamSource, StreamWorkspace } from '../shared/desktop-api';
+import { flattenSourceLeaves } from '../shared/source-tree';
 import { MediaAssetStore } from './media-assets';
 import { ProjectStore } from './project-store';
 
@@ -60,10 +61,19 @@ function safeFileStem(name: string): string {
   return name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').slice(0, 100) || 'Scene Collection';
 }
 
+function remapSourceAssets(source: StreamSource, assetMap: Map<string, string>): StreamSource {
+  return {
+    ...source,
+    ...(source.assetId && assetMap.has(source.assetId) ? { assetId: assetMap.get(source.assetId)! } : {}),
+    ...(source.kind === 'slideshow' ? { slideshowImages: source.slideshowImages?.map((image) => ({ ...image, assetId: assetMap.get(image.assetId) ?? image.assetId })) } : {}),
+    ...(source.kind === 'group' ? { children: (source.children ?? []).map((child) => remapSourceAssets(child, assetMap)) } : {}),
+  };
+}
+
 function collectionAssets(project: StreamProject): Map<string, ExpectedAsset> {
   const assets = new Map<string, ExpectedAsset>();
   for (const scene of project.scenes) {
-    for (const source of scene.sources) {
+    for (const source of flattenSourceLeaves(scene.sources)) {
       const sourceAssets = source.kind === 'image' || source.kind === 'media'
         ? [{ id: source.assetId, extension: source.assetExtension, kind: source.kind === 'image' ? 'image' : source.mediaKind, name: source.name }]
         : source.kind === 'slideshow'
@@ -259,11 +269,7 @@ export class CollectionBundleStore {
         ...project,
         scenes: project.scenes.map((scene) => ({
           ...scene,
-          sources: scene.sources.map((source) => ({
-            ...source,
-            ...(source.assetId && assetMap.has(source.assetId) ? { assetId: assetMap.get(source.assetId)! } : {}),
-            ...(source.kind === 'slideshow' ? { slideshowImages: source.slideshowImages?.map((image) => ({ ...image, assetId: assetMap.get(image.assetId) ?? image.assetId })) } : {}),
-          })),
+          sources: scene.sources.map((source) => remapSourceAssets(source, assetMap)),
         })),
       };
       return await this.projects.importCollection(manifest.name, remapped);

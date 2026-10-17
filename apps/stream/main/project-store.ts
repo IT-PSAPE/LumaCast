@@ -1,11 +1,12 @@
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, createDefaultTextStyle, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
+import { flattenSourceNodes } from '../shared/source-tree';
 
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
 const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color']);
+const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color', 'group']);
 const MEDIA_KINDS = new Set(['image', 'video', 'audio']);
 const MEDIA_EXTENSIONS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'],
@@ -34,11 +35,12 @@ const CAPTURE_CURSOR_MODES = new Set<CaptureCursorMode>(['never', 'motion', 'alw
 const CAMERA_RESOLUTIONS = new Set<string>(CAMERA_RESOLUTION_OPTIONS.map((option) => option.value));
 const CAMERA_FRAME_RATES = new Set<number>(CAMERA_FRAME_RATE_OPTIONS);
 
-function decodeSource(value: unknown): StreamSource {
+function decodeSource(value: unknown, nestedInGroup = false): StreamSource {
   if (!isRecord(value) || typeof value.id !== 'string' || value.id.length > 128 || typeof value.name !== 'string' || value.name.length > 120) {
     throw new Error('Project contains an invalid source.');
   }
   if (typeof value.kind !== 'string' || !SOURCE_KINDS.has(value.kind)) throw new Error('Project contains an unsupported source type.');
+  if (nestedInGroup && value.kind === 'group') throw new Error('Groups cannot contain other groups.');
   if (typeof value.visible !== 'boolean' || typeof value.muted !== 'boolean' || !finiteNumber(value.volume, 0, 2)) {
     throw new Error('Project contains invalid source audio or visibility settings.');
   }
@@ -248,6 +250,11 @@ function decodeSource(value: unknown): StreamSource {
     throw new Error('Project contains invalid audio monitoring settings.');
   }
   if (value.audioTracks !== undefined && !isAudioTrackList(value.audioTracks)) throw new Error('Project contains invalid audio track routing.');
+  let children: StreamSource[] | undefined;
+  if (value.kind === 'group') {
+    if (!Array.isArray(value.children) || value.children.length > 10000) throw new Error('Project contains an invalid source group.');
+    children = value.children.map((child) => decodeSource(child, true));
+  } else if (value.children !== undefined) throw new Error('Project contains invalid nested sources.');
 
   return {
     id: value.id,
@@ -290,6 +297,7 @@ function decodeSource(value: unknown): StreamSource {
     ...(typeof value.text === 'string' ? { text: value.text } : {}),
     ...(textStyle ? { textStyle } : {}),
     ...(typeof value.color === 'string' ? { color: value.color } : {}),
+    ...(children ? { children } : {}),
   };
 }
 
@@ -334,10 +342,10 @@ function decodeProject(value: unknown): StreamProject {
     if (!isRecord(sceneValue) || typeof sceneValue.id !== 'string' || sceneValue.id.length > 128
       || typeof sceneValue.name !== 'string' || sceneValue.name.length > 120 || !Array.isArray(sceneValue.sources)
       || sceneValue.sources.length > 10000) throw new Error('Project contains an invalid scene.');
-    return { id: sceneValue.id, name: sceneValue.name, sources: sceneValue.sources.map(decodeSource) };
+    return { id: sceneValue.id, name: sceneValue.name, sources: sceneValue.sources.map((source) => decodeSource(source)) };
   });
   const sceneIds = new Set(scenes.map((scene) => scene.id));
-  const sourceIds = scenes.flatMap((scene) => scene.sources.map((source) => source.id));
+  const sourceIds = scenes.flatMap((scene) => flattenSourceNodes(scene.sources).map((source) => source.id));
   const sourceIdSet = new Set(sourceIds);
   if (sceneIds.size !== scenes.length || !sceneIds.has(value.activeSceneId) || !sceneIds.has(value.liveSceneId)) {
     throw new Error('Project refers to a scene that does not exist.');
@@ -504,20 +512,22 @@ async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> 
 
 function duplicateProject(project: StreamProject): StreamProject {
   const sceneIds = new Map(project.scenes.map((scene) => [scene.id, crypto.randomUUID()]));
+  const cloneSource = (source: StreamSource): StreamSource => ({
+    ...source,
+    id: crypto.randomUUID(),
+    transform: { ...source.transform },
+    ...(source.crop ? { crop: { ...source.crop } } : {}),
+    ...(source.filters ? { filters: { ...source.filters } } : {}),
+    ...(source.chromaKey ? { chromaKey: { ...source.chromaKey } } : {}),
+    ...(source.audioFilters ? { audioFilters: { ...source.audioFilters } } : {}),
+    ...(source.slideshowImages ? { slideshowImages: source.slideshowImages.map((image) => ({ ...image })) } : {}),
+    ...(source.children ? { children: source.children.map(cloneSource) } : {}),
+    audioTracks: [...(source.audioTracks ?? [1])],
+  });
   const scenes = project.scenes.map((scene) => ({
     ...scene,
     id: sceneIds.get(scene.id)!,
-    sources: scene.sources.map((source) => ({
-      ...source,
-      id: crypto.randomUUID(),
-      transform: { ...source.transform },
-      ...(source.crop ? { crop: { ...source.crop } } : {}),
-      ...(source.filters ? { filters: { ...source.filters } } : {}),
-      ...(source.chromaKey ? { chromaKey: { ...source.chromaKey } } : {}),
-      ...(source.audioFilters ? { audioFilters: { ...source.audioFilters } } : {}),
-      ...(source.slideshowImages ? { slideshowImages: source.slideshowImages.map((image) => ({ ...image })) } : {}),
-      audioTracks: [...(source.audioTracks ?? [1])],
-    })),
+    sources: scene.sources.map(cloneSource),
   }));
   return {
     ...project,

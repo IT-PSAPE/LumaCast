@@ -718,6 +718,63 @@ describe('LumaStream source lock persistence', () => {
   });
 });
 
+describe('LumaStream source group persistence', () => {
+  it('round-trips group children and regenerates every source ID when a collection is duplicated', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-source-groups-'));
+    temporaryDirectories.push(directory);
+    const store = new ProjectStore(directory);
+    const initial = await store.load();
+    const project = structuredClone(initial.project);
+    project.scenes[0]!.sources.push({
+      id: 'group-root', name: 'Overlay', kind: 'group', visible: true, muted: false, volume: 1,
+      transform: { x: 100, y: 100, width: 800, height: 500 },
+      children: [{
+        id: 'group-child', name: 'Title', kind: 'text', visible: true, muted: false, volume: 1,
+        transform: { x: 100, y: 100, width: 800, height: 500 }, text: 'Title', color: '#ffffff',
+      }],
+    });
+
+    const imported = await store.importCollection('Grouped Collection', project);
+    const group = imported.project.scenes[0]?.sources.find((source) => source.kind === 'group');
+    expect(group?.children?.[0]?.name).toBe('Title');
+
+    const duplicate = await store.create('Grouped Copy', true);
+    const duplicateGroup = duplicate.project.scenes[0]?.sources.find((source) => source.kind === 'group');
+    expect(duplicateGroup?.id).not.toBe(group?.id);
+    expect(duplicateGroup?.children?.[0]?.id).not.toBe(group?.children?.[0]?.id);
+  });
+
+  it('rejects nested groups and duplicate IDs inside a group', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-invalid-groups-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push({
+      id: 'group-root', name: 'Group', kind: 'group', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1, height: 1 },
+      children: [{
+        id: 'group-child', name: 'Nested', kind: 'group', visible: true, muted: false, volume: 1,
+        transform: { x: 0, y: 0, width: 1, height: 1 }, children: [],
+      }],
+    });
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Groups cannot contain other groups.');
+
+    const duplicateDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-duplicate-group-ids-'));
+    temporaryDirectories.push(duplicateDirectory);
+    const duplicateProject = createDefaultProject();
+    duplicateProject.scenes[0]!.sources.push({
+      id: 'shared-id', name: 'Group', kind: 'group', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 1, height: 1 },
+      children: [{
+        id: 'shared-id', name: 'Child', kind: 'text', visible: true, muted: false, volume: 1,
+        transform: { x: 0, y: 0, width: 1, height: 1 }, text: 'Child', color: '#ffffff',
+      }],
+    });
+    await writeFile(path.join(duplicateDirectory, 'scene-collection.json'), JSON.stringify(duplicateProject), 'utf8');
+    await expect(new ProjectStore(duplicateDirectory).load()).rejects.toThrow('Project contains duplicate source IDs.');
+  });
+});
+
 describe('LumaStream camera capture settings persistence', () => {
   it('round-trips selected camera resolution and frame rate', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));

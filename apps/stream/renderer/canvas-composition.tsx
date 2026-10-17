@@ -6,6 +6,7 @@ import { currentSlideshowSlideIndex, forgetSlideshow, slideshowImageElementKey }
 import type { SceneTransition } from './scene-transition';
 import { drawTextSource } from './text-overlay';
 import { fitCanvasToOutput } from './output-scaling';
+import { getRenderableSources } from './source-render-list';
 
 interface Props {
   project: StreamProject;
@@ -17,10 +18,6 @@ interface Props {
   onTransitionEnd?: () => void;
 }
 
-function isAudioOnly(source: StreamSource): boolean {
-  return source.kind === 'microphone' || source.kind === 'desktop-audio' || source.kind === 'application-audio' || (source.kind === 'media' && source.mediaKind === 'audio');
-}
-
 function clampCrop(crop: SourceCrop | undefined, width: number, height: number): SourceCrop {
   const left = Math.min(crop?.left ?? 0, width);
   const right = Math.min(crop?.right ?? 0, width - left);
@@ -29,22 +26,16 @@ function clampCrop(crop: SourceCrop | undefined, width: number, height: number):
   return { left, right, top, bottom };
 }
 
-function drawScene(
+function drawSources(
   context: CanvasRenderingContext2D,
-  scene: StreamScene,
+  sources: readonly StreamSource[],
   canvasWidth: number,
   canvasHeight: number,
   videos: Map<string, HTMLVideoElement>,
   images: Map<string, HTMLImageElement>,
   keyProcessor: ChromaKeyProcessor | null,
-  alpha: number,
-  offsetX = 0,
 ): void {
-  context.save();
-  context.globalAlpha = alpha;
-  if (offsetX !== 0) context.translate(offsetX, 0);
-  for (const source of scene.sources) {
-    if (!source.visible || isAudioOnly(source)) continue;
+  for (const source of getRenderableSources(sources)) {
     context.save();
     const filters = source.filters;
     const filterOperations = [
@@ -97,6 +88,23 @@ function drawScene(
     }
     context.restore();
   }
+}
+
+function drawScene(
+  context: CanvasRenderingContext2D,
+  scene: StreamScene,
+  canvasWidth: number,
+  canvasHeight: number,
+  videos: Map<string, HTMLVideoElement>,
+  images: Map<string, HTMLImageElement>,
+  keyProcessor: ChromaKeyProcessor | null,
+  alpha: number,
+  offsetX = 0,
+): void {
+  context.save();
+  context.globalAlpha = alpha;
+  if (offsetX !== 0) context.translate(offsetX, 0);
+  drawSources(context, scene.sources, canvasWidth, canvasHeight, videos, images, keyProcessor);
   context.restore();
 }
 
@@ -362,7 +370,8 @@ function StageAudio({ source, mediaElements, isActive, onMediaElement, onMediaPl
 
 export function hitTestSource(scene: StreamScene, x: number, y: number): StreamSource | null {
   for (const source of [...scene.sources].reverse()) {
-    if (!source.visible || isAudioOnly(source)) continue;
+    if (!source.visible || source.kind === 'microphone' || source.kind === 'desktop-audio' || source.kind === 'application-audio'
+      || (source.kind === 'media' && source.mediaKind === 'audio')) continue;
     const { x: left, y: top, width, height } = source.transform;
     if (x >= left && x <= left + width && y >= top && y <= top + height) return source;
   }

@@ -32,4 +32,16 @@ describe('getRenderedSourceIds', () => {
   it('handles missing scene IDs without activating unrelated sources', () => {
     expect(getRenderedSourceIds(scenes, 'missing', null, false)).toEqual(new Set());
   });
+
+  it('includes visible group members and excludes members of hidden groups', () => {
+    const groupScene: StreamScene = {
+      id: 'group-scene',
+      name: 'Group scene',
+      sources: [
+        { ...scene('one', [{ id: 'visible-group' }]).sources[0]!, kind: 'group', children: [scene('nested-visible', [{ id: 'nested-visible' }]).sources[0]!] },
+        { ...scene('one', [{ id: 'hidden-group', visible: false }]).sources[0]!, kind: 'group', children: [scene('nested-hidden', [{ id: 'inherited-hidden' }]).sources[0]!] },
+      ],
+    };
+    expect(getRenderedSourceIds([groupScene], groupScene.id, groupScene.id, false)).toEqual(new Set(['visible-group', 'nested-visible']));
+  });
 });

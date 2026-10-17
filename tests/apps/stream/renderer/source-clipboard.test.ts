@@ -28,4 +28,20 @@ describe('LumaStream source clipboard', () => {
     };
     expect(duplicateSource(source, 'text-copy').name).toHaveLength(120);
   });
+
+  it('duplicates group children with fresh IDs and moves the group contents with its bounds', () => {
+    const source: StreamSource = {
+      id: 'group', name: 'Overlay', kind: 'group', visible: true, muted: false, volume: 1,
+      transform: { x: 10, y: 20, width: 80, height: 60 },
+      children: [{
+        id: 'child', name: 'Logo', kind: 'image', visible: true, muted: false, volume: 1,
+        transform: { x: 10, y: 20, width: 80, height: 60 }, assetId: 'f53a46ac-0bd4-4cab-8ab1-3d7c5a66f0af', assetExtension: 'png',
+      }],
+    };
+
+    const copy = duplicateSource(source, 'group-copy');
+    expect(copy.children?.[0]?.id).not.toBe('child');
+    expect(copy.transform).toEqual({ x: 50, y: 60, width: 80, height: 60 });
+    expect(copy.children?.[0]?.transform).toEqual(copy.transform);
+  });
 });
