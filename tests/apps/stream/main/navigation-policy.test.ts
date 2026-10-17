@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { isProgramProjectorPopupUrl } from '../../../../apps/stream/main/navigation-policy';
+import { isProjectorPopupUrl } from '../../../../apps/stream/main/navigation-policy';
 
-describe('program projector navigation policy', () => {
-  it('allows only the inherited-origin blank document used by the program projector', () => {
-    expect(isProgramProjectorPopupUrl('about:blank')).toBe(true);
+describe('projector navigation policy', () => {
+  it('allows only the inherited-origin blank document used by projector windows', () => {
+    expect(isProjectorPopupUrl('about:blank')).toBe(true);
   });
 
   it('rejects every other popup destination', () => {
@@ -15,7 +15,7 @@ describe('program projector navigation policy', () => {
       'file:///C:/Program%20Files/LumaStream/index.html',
       'javascript:alert(1)',
     ]) {
-      expect(isProgramProjectorPopupUrl(url)).toBe(false);
+      expect(isProjectorPopupUrl(url)).toBe(false);
     }
   });
 });

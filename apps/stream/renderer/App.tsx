@@ -13,6 +13,7 @@ import { audioOutputDeviceOptions, type AudioOutputDeviceOption } from './audio-
 import { canvasPointFromOutputPoint, clampScaledOutputSize, outputRectFromCanvasRect, SCALED_OUTPUT_LIMITS } from './output-scaling';
 import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
+import { closeProjectorWindow, createProjectorWindowSession, openCanvasProjector } from './projector-window';
 import { getRenderedSourceIds } from './scene-render-scope';
 import { canTransformSource, fitSourceToCanvas } from './source-transform';
 import { sceneEditorState, SceneHistory, type SceneEditorState } from './scene-history';
@@ -341,9 +342,10 @@ export function App() {
   const sourceMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const sourceActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const programCanvasRef = useRef<HTMLCanvasElement>(null);
-  const programProjectorRef = useRef<Window | null>(null);
-  const programProjectorStreamRef = useRef<MediaStream | null>(null);
-  const programProjectorWatcherRef = useRef<number | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const projectorSessionsRef = useRef<{ preview: ReturnType<typeof createProjectorWindowSession>; program: ReturnType<typeof createProjectorWindowSession> } | null>(null);
+  projectorSessionsRef.current ??= { preview: createProjectorWindowSession(), program: createProjectorWindowSession() };
+  const projectorSessions = projectorSessionsRef.current;
   const runtimes = useRef(new Map<string, MediaStream>());
   const applicationAudioInputs = useRef(new Map<string, Awaited<ReturnType<AudioMixerEngine['createApplicationAudioInput']>>>());
   const applicationAudioSessions = useRef(new Map<string, { pid: number; path: string }>());
@@ -406,10 +408,14 @@ export function App() {
   }, [project?.studioMode, project?.output.width, project?.output.height]);
 
   useEffect(() => () => {
-    if (programProjectorWatcherRef.current !== null) window.clearInterval(programProjectorWatcherRef.current);
-    for (const track of programProjectorStreamRef.current?.getTracks() ?? []) track.stop();
-    if (programProjectorRef.current && !programProjectorRef.current.closed) programProjectorRef.current.close();
+    closeProjectorWindow(projectorSessions.preview);
+    closeProjectorWindow(projectorSessions.program);
   }, []);
+
+  useEffect(() => {
+    if (project?.studioMode && !multiviewMode) return;
+    closeProjectorWindow(projectorSessions.preview);
+  }, [project?.studioMode, multiviewMode]);
 
   useEffect(() => {
     let active = true;
@@ -1749,101 +1755,14 @@ export function App() {
 
   const finishTransition = useCallback(() => setTransition(null), []);
 
-  const openProgramProjector = () => {
-    const canvas = programCanvasRef.current;
-    if (!canvas || !project) {
-      setActionError('The program output is not ready.');
+  const openProjector = (kind: 'preview' | 'program') => {
+    const canvas = kind === 'preview' ? previewCanvasRef.current : programCanvasRef.current;
+    if (!canvas || !project || (kind === 'preview' && (!project.studioMode || multiviewMode))) {
+      setActionError(`The ${kind} output is not ready.`);
       return;
     }
-    const projector = window.open('about:blank', 'lumastream-program-projector', 'popup,width=1280,height=720');
-    if (!projector) {
-      setActionError('The program projector could not be opened.');
-      return;
-    }
-
-    if (programProjectorWatcherRef.current !== null) window.clearInterval(programProjectorWatcherRef.current);
-    programProjectorWatcherRef.current = null;
-    for (const track of programProjectorStreamRef.current?.getTracks() ?? []) track.stop();
-    programProjectorStreamRef.current = null;
-    programProjectorRef.current = null;
-
-    let projectorDocument: Document;
-    try {
-      projectorDocument = projector.document;
-      projectorDocument.title = 'LumaStream Program';
-      projectorDocument.documentElement.style.cssText = 'width:100%;height:100%;overflow:hidden;background:#000';
-      projectorDocument.body.style.cssText = 'width:100%;height:100%;margin:0;overflow:hidden;background:#000';
-      const projectorVideo = projectorDocument.createElement('video');
-      projectorVideo.dataset.projectorFeed = 'program';
-      projectorVideo.autoplay = true;
-      projectorVideo.muted = true;
-      projectorVideo.playsInline = true;
-      projectorVideo.style.cssText = 'display:block;width:100%;height:100%;background:#000;object-fit:contain';
-      projectorVideo.addEventListener('dblclick', () => {
-        if (projectorDocument.fullscreenElement) void projectorDocument.exitFullscreen().catch(() => undefined);
-        else void projectorDocument.documentElement.requestFullscreen().catch(() => undefined);
-      });
-      projectorDocument.body.replaceChildren(projectorVideo);
-    } catch {
-      setActionError('The program projector could not be initialized.');
-      projector.close();
-      return;
-    }
-
-    let output: MediaStream;
-    try { output = canvas.captureStream(project.output.frameRate); }
-    catch {
-      programProjectorStreamRef.current = null;
-      programProjectorRef.current = null;
-      setActionError('The program output could not be shared with the projector.');
-      projector.close();
-      return;
-    }
-
     setActionError('');
-    projector.focus();
-    programProjectorRef.current = projector;
-    programProjectorStreamRef.current = output;
-    const deadline = Date.now() + 8000;
-    const attachOutput = () => {
-      if (projector.closed) {
-        for (const track of output.getTracks()) track.stop();
-        if (programProjectorRef.current === projector) programProjectorRef.current = null;
-        if (programProjectorStreamRef.current === output) programProjectorStreamRef.current = null;
-        return;
-      }
-      let attached = false;
-      try {
-        const video = projector.document.querySelector<HTMLVideoElement>('[data-projector-feed="program"]');
-        if (video) {
-          video.srcObject = output;
-          void video.play().catch(() => undefined);
-          attached = true;
-        }
-      } catch {
-        setActionError('The program projector could not connect to the output.');
-        for (const track of output.getTracks()) track.stop();
-        projector.close();
-        return;
-      }
-      if (attached) return;
-      if (Date.now() >= deadline) {
-        setActionError('The program projector did not become ready.');
-        for (const track of output.getTracks()) track.stop();
-        projector.close();
-        return;
-      }
-      window.requestAnimationFrame(attachOutput);
-    };
-    window.requestAnimationFrame(attachOutput);
-    programProjectorWatcherRef.current = window.setInterval(() => {
-      if (!projector.closed) return;
-      if (programProjectorWatcherRef.current !== null) window.clearInterval(programProjectorWatcherRef.current);
-      programProjectorWatcherRef.current = null;
-      for (const track of output.getTracks()) track.stop();
-      if (programProjectorRef.current === projector) programProjectorRef.current = null;
-      if (programProjectorStreamRef.current === output) programProjectorStreamRef.current = null;
-    }, 500);
+    openCanvasProjector(kind, canvas, project.output.frameRate, projectorSessions[kind], setActionError);
   };
 
   const toggleStudioMode = () => {
@@ -2625,9 +2544,9 @@ export function App() {
         <section className="monitor-dock">
           <div ref={monitorStageRef} className={`monitor-stage ${project.studioMode ? 'studio' : ''} ${multiviewMode ? 'multiview' : ''}`}>
             {project.studioMode && !multiviewMode && <div key="preview-panel" className="stage-panel">
-              <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b></div>
+              <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b><button type="button" className="mini-icon stage-projector-button" aria-label="Open preview projector" title="Open preview projector" onClick={() => openProjector('preview')}><ExternalLink size={12} /></button></div>
               <div className="stage-surface" style={previewSize} onPointerDown={(event) => handleStagePointerDown(event, previewScene)} onPointerMove={handleStagePointerMove} onPointerUp={handleStagePointerUp} onPointerCancel={handleStagePointerUp}>
-                <CanvasComposition project={project} scene={previewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
+                <CanvasComposition ref={previewCanvasRef} project={project} scene={previewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
                 {previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%` }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
             </div>}
@@ -2655,7 +2574,7 @@ export function App() {
               {project.studioMode && <button className="take-button toolbar-take" disabled={project.activeSceneId === project.liveSceneId} onClick={takeScene}>Take <Clapperboard size={13} /></button>}
               <button className={`studio-toggle ${multiviewMode ? 'enabled' : ''}`} aria-pressed={multiviewMode} onClick={toggleMultiviewMode}><Grid2X2 size={13} />Multiview</button>
               <button className={`studio-toggle ${project.studioMode ? 'enabled' : ''}`} aria-pressed={project.studioMode} onClick={toggleStudioMode}><Clapperboard size={14} />Studio Mode</button>
-              <button className="icon-button projector-button" aria-label="Open program projector" title="Open program projector" onClick={openProgramProjector}><ExternalLink size={14} /></button>
+              <button className="icon-button projector-button" aria-label="Open program projector" title="Open program projector" onClick={() => openProjector('program')}><ExternalLink size={14} /></button>
             </div>
             <span className="monitor-zoom">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
           </div>

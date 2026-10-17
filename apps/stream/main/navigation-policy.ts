@@ -19,6 +19,6 @@ export function isTrustedRendererUrl(value: string, options: { packagedRendererF
   } catch { return false; }
 }
 
-export function isProgramProjectorPopupUrl(value: string): boolean {
+export function isProjectorPopupUrl(value: string): boolean {
   return value === 'about:blank';
 }

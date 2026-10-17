@@ -1,6 +1,7 @@
 import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron';
 import path from 'node:path';
-import { isProgramProjectorPopupUrl, isTrustedRendererUrl, resolveDevServerOrigin } from './navigation-policy';
+import { projectorTitleForFrameName } from '../shared/projector';
+import { isProjectorPopupUrl, isTrustedRendererUrl, resolveDevServerOrigin } from './navigation-policy';
 
 export function createMainWindow(): BrowserWindow {
   const preload = path.join(__dirname, '../preload/preload.js');
@@ -29,12 +30,12 @@ export function createMainWindow(): BrowserWindow {
   const trusted = (url: string) => isTrustedRendererUrl(url, navigationOptions);
   window.once('ready-to-show', () => window.show());
   window.webContents.on('will-navigate', (event, url) => { if (!trusted(url)) event.preventDefault(); });
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    if (!isProgramProjectorPopupUrl(url)) return { action: 'deny' };
+  window.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    if (!isProjectorPopupUrl(url)) return { action: 'deny' };
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
-        title: 'LumaStream Program',
+        title: projectorTitleForFrameName(frameName),
         width: 1280,
         height: 720,
         minWidth: 480,

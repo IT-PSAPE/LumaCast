@@ -126,6 +126,7 @@ button.multiview-tile:hover { border-color: #596777; background: #20252c; }
 .stage-label { min-height: 14px; display: flex; align-items: center; gap: 7px; color: #8c96a2; font: 700 8px 'Segoe UI', sans-serif; letter-spacing: .1em; }
 .stage-label > span { display: flex; align-items: center; gap: 5px; }
 .stage-label b { margin-left: auto; overflow: hidden; color: #a7b0bb; font-size: 9px; font-weight: 500; letter-spacing: 0; text-overflow: ellipsis; white-space: nowrap; }
+.stage-projector-button { flex: 0 0 auto; width: 14px; height: 14px; margin-left: 2px; }
 .stage-panel:first-child .stage-label > span { color: #78adfb; }
 .program-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px #f0646770; }
 .stage-surface { position: relative; align-self: center; flex: 0 0 auto; overflow: hidden; aspect-ratio: auto; background: #050607; box-shadow: 0 9px 24px #0007; touch-action: none; }

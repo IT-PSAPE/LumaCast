@@ -351,12 +351,14 @@ the live scene for recording, streaming, and replay capture (ADR-0084).
 
 Recording, streaming, replay, and the program projector share a persistent
 full-resolution output canvas that is independent of monitor layout changes.
-The projector opens a dedicated, sandboxed window and mirrors that canvas as
-video, keeping the configured aspect ratio with letterboxing when its window is
-not the same shape. The window-open policy admits only the inherited-origin
-blank document used by this projector; other renderer popups remain denied.
-This avoids opening a second display, camera, or browser-source capture session
-(ADR-0086).
+In Studio Mode, the preview projector mirrors the already-rendered Preview
+canvas in its own dedicated, sandboxed window. It closes when Studio Mode ends
+or Multiview replaces the Preview canvas. Both projectors keep the configured
+aspect ratio with letterboxing when their window shape differs. The window-open
+policy admits only inherited-origin blank documents; other renderer popups
+remain denied. Projectors reuse existing canvas and capture sources rather
+than opening another display, camera, or browser-source session (ADR-0086,
+ADR-0111).
 
 ### App tree (`apps/<app>`)
 
