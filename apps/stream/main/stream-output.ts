@@ -64,7 +64,7 @@ function validateDestination(value: unknown): string {
 function validateSettings(value: StreamOutputSettings): StreamOutputSettings {
   if (!value || !Number.isInteger(value.width) || value.width < 320 || value.width > 7680 || value.width % 2 !== 0
     || !Number.isInteger(value.height) || value.height < 240 || value.height > 4320 || value.height % 2 !== 0
-    || !Number.isInteger(value.frameRate) || value.frameRate < 15 || value.frameRate > 60
+    || !Number.isFinite(value.frameRate) || value.frameRate < 1 || value.frameRate > 240
     || !Number.isInteger(value.videoBitrateKbps) || value.videoBitrateKbps < 250 || value.videoBitrateKbps > 50000
     || !Number.isInteger(value.audioBitrateKbps) || value.audioBitrateKbps < 32 || value.audioBitrateKbps > 320) {
     throw new Error('The streaming output settings are outside the supported range.');

@@ -33,7 +33,7 @@ function decodeRecordingSettings(value: unknown): RecordingOutputSettings {
   const audioTracks = settings.audioTracks;
   if (!Array.isArray(audioTracks) || audioTracks.length > 6 || !audioTracks.every(isAudioTrack) || new Set(audioTracks).size !== audioTracks.length
     || (settings.container !== 'webm' && settings.container !== 'mkv' && settings.container !== 'mp4')
-    || !Number.isInteger(settings.frameRate) || settings.frameRate! < 15 || settings.frameRate! > 60
+    || !Number.isFinite(settings.frameRate) || settings.frameRate! < 1 || settings.frameRate! > 240
     || !Number.isInteger(settings.videoBitrateKbps) || settings.videoBitrateKbps! < 500 || settings.videoBitrateKbps! > 50000
     || !Number.isInteger(settings.audioBitrateKbps) || settings.audioBitrateKbps! < 32 || settings.audioBitrateKbps! > 320
     || !['cbr', 'pc_vbr', 'u_vbr', 'quality'].includes(String(settings.rateControl))

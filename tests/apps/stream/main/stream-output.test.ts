@@ -52,7 +52,7 @@ class FakeOutputProcess extends EventEmitter {
   }
 }
 
-function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDelayMs = 0, destination = 'rtmps://example.com/live/key') {
+function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDelayMs = 0, destination = 'rtmps://example.com/live/key', outputSettings = settings) {
   const children: FakeOutputProcess[] = [];
   const argumentsList: string[][] = [];
   const statuses: StreamRuntimeStatus[] = [];
@@ -68,7 +68,7 @@ function harness(maxRetries = 2, maxRecoveryBufferBytes = 1024 * 1024, retryDela
     spawnProcess as unknown as typeof import('node:child_process').spawn,
     { maxRetries, retryDelayMs, maxRecoveryBufferBytes },
   );
-  const id = output.start(destination, settings);
+  const id = output.start(destination, outputSettings);
   return { output, id, children, statuses, spawnProcess, argumentsList };
 }
 
@@ -85,6 +85,15 @@ function chunk(value: string): ArrayBuffer {
 }
 
 describe('Stream output destination and reconnect', () => {
+  it.each([1, 59.94, 240])('accepts %s FPS and passes the configured frame rate to FFmpeg', (frameRate) => {
+    const { argumentsList } = harness(2, 1024 * 1024, 0, 'rtmps://example.com/live/key', { ...settings, frameRate });
+    expect(argumentsList[0]?.slice(argumentsList[0]!.indexOf('-r'), argumentsList[0]!.indexOf('-r') + 2)).toEqual(['-r', String(frameRate)]);
+  });
+
+  it.each([0, 0.99, 240.01, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid stream frame rates (%s)', (frameRate) => {
+    expect(() => harness(2, 1024 * 1024, 0, 'rtmps://example.com/live/key', { ...settings, frameRate })).toThrow(/outside the supported range/);
+  });
+
   it('keeps RTMP output on FLV', () => {
     const { argumentsList } = harness();
 

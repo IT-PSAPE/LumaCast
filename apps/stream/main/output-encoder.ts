@@ -14,7 +14,7 @@ interface EncoderArguments {
 }
 
 function validateEncoderArguments(settings: EncoderArguments): void {
-  if (!Number.isInteger(settings.frameRate) || settings.frameRate < 15 || settings.frameRate > 60
+  if (!Number.isFinite(settings.frameRate) || settings.frameRate < 1 || settings.frameRate > 240
     || !Number.isInteger(settings.videoBitrateKbps) || settings.videoBitrateKbps < 250 || settings.videoBitrateKbps > 50000
     || !isVideoEncoderFamily(settings.encoder)
     || !supportsVideoRateControl(settings.encoder, settings.rateControl)
@@ -109,7 +109,8 @@ function buildVideoEncoderArguments(settings: EncoderArguments): string[] {
           : openH264Arguments(settings);
   if (settings.width !== undefined && settings.height !== undefined) args.push('-s:v', `${settings.width}x${settings.height}`);
   const pixelFormat = settings.encoder === 'h264_qsv' ? 'nv12' : 'yuv420p';
-  args.push('-pix_fmt', pixelFormat, '-r', String(settings.frameRate), '-g', String(settings.frameRate * settings.keyframeIntervalSeconds));
+  const gopFrames = Math.round(settings.frameRate * settings.keyframeIntervalSeconds);
+  args.push('-pix_fmt', pixelFormat, '-r', String(settings.frameRate), '-g', String(gopFrames));
   return args;
 }
 

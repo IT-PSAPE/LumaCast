@@ -287,15 +287,17 @@ positioning and resizing, Studio Mode, Cut/Fade/Swipe/Slide/Fade-to-Color transi
 and media playback, per-source crop, six-track source routing, selectable stream
 audio, multitrack recording, audio levels/mute/volume, compressor/limiter controls,
 and custom 320–16384 by 180–16384 canvas sizes at
-1–240 FPS, including fractional rates. RTMP/RTMPS, SRT, and RIST streaming use the
-bundled FFmpeg output engine; SRT URLs select MPEG-TS muxing and accept FFmpeg
-protocol options in the query string. RIST URLs also accept FFmpeg protocol
-options. All transports add configurable
-video and audio bitrates, rate-control mode, encoder quality, keyframe interval,
-optional hardware encoding, and live bitrate status. MP4 recording has its own
-encoder settings. The main process can remux selected MKV or WebM recordings to
-MP4 by stream-copying compatible codecs into a temporary file beside the chosen
-destination, then publishing it only after FFmpeg succeeds (ADR-0099). Replay
+1–240 FPS, including fractional rates. Live and MP4 encoding accept this range
+and preserve fractional rates; keyframe intervals map to whole frame counts.
+RTMP/RTMPS, SRT, and RIST streaming use the bundled FFmpeg output engine; SRT
+URLs select MPEG-TS muxing and accept FFmpeg protocol options in the query
+string. RIST URLs also accept FFmpeg protocol options. All transports add
+configurable video and audio bitrates, rate-control mode, encoder quality,
+keyframe interval, optional hardware encoding, and live bitrate status. MP4
+recording has its own encoder settings. The main process can remux selected MKV
+or WebM recordings to MP4 by stream-copying compatible codecs into a temporary
+file beside the chosen destination, then publishing it only after FFmpeg
+succeeds (ADR-0099). Replay
 Buffer retains up to 60 seconds of the program output for saving. Per-source
 color correction, opacity, blur, HTTP(S) browser page
 rendering, configurable global output hotkeys, per-source audio monitoring, and

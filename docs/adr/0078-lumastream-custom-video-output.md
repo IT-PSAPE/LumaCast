@@ -18,5 +18,6 @@ rate 1–240 FPS. Preserve fractional frame rates to two decimal places.
 ## Consequences
 
 Operators can match less common output formats and fractional broadcast rates.
-The existing compositor, capture cadence, encoders, and persistence continue to
-consume the same validated output settings.
+The compositor and capture cadence preserve the selected rate. Live and MP4
+encoder boundaries accept the same 1–240 FPS range, pass fractional rates to
+FFmpeg, and convert keyframe intervals to whole frame counts.

@@ -63,6 +63,20 @@ describe('LumaStream Media Foundation encoder arguments', () => {
     expect(() => buildStreamVideoEncoderArguments({ ...streamSettings, encoderQuality: 101 })).toThrow(/outside the supported range/);
   });
 
+  it('preserves fractional frame rates for FFmpeg and rounds the GOP to a whole frame count', () => {
+    const args = buildStreamVideoEncoderArguments({ ...streamSettings, frameRate: 59.94, keyframeIntervalSeconds: 2 });
+    expect(args.slice(args.indexOf('-r'), args.indexOf('-r') + 2)).toEqual(['-r', '59.94']);
+    expect(args.slice(args.indexOf('-g'), args.indexOf('-g') + 2)).toEqual(['-g', '120']);
+  });
+
+  it.each([1, 240])('accepts the frame-rate boundary %s FPS', (frameRate) => {
+    expect(buildStreamVideoEncoderArguments({ ...streamSettings, frameRate })).toContain(String(frameRate));
+  });
+
+  it.each([0.99, 240.01, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid frame rates (%s)', (frameRate) => {
+    expect(() => buildStreamVideoEncoderArguments({ ...streamSettings, frameRate })).toThrow(/outside the supported range/);
+  });
+
   it('builds NVIDIA NVENC CBR and quality-mode arguments', () => {
     const cbr = buildStreamVideoEncoderArguments({ ...streamSettings, encoder: 'h264_nvenc' });
     expect(cbr).toEqual(expect.arrayContaining(['-c:v', 'h264_nvenc', '-rc', 'cbr', '-preset', 'p5', '-b:v', '6000k', '-maxrate', '6000k', '-g', '60']));
