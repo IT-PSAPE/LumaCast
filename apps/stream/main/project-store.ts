@@ -273,9 +273,12 @@ function decodeProject(value: unknown): StreamProject {
     return { id: sceneValue.id, name: sceneValue.name, sources: sceneValue.sources.map(decodeSource) };
   });
   const sceneIds = new Set(scenes.map((scene) => scene.id));
+  const sourceIds = scenes.flatMap((scene) => scene.sources.map((source) => source.id));
+  const sourceIdSet = new Set(sourceIds);
   if (sceneIds.size !== scenes.length || !sceneIds.has(value.activeSceneId) || !sceneIds.has(value.liveSceneId)) {
     throw new Error('Project refers to a scene that does not exist.');
   }
+  if (sourceIdSet.size !== sourceIds.length) throw new Error('Project contains duplicate source IDs.');
   const hotkeysValue = value.hotkeys;
   if (hotkeysValue !== undefined && (!isRecord(hotkeysValue)
     || ['toggleStreaming', 'toggleRecording', 'toggleReplayBuffer', 'saveReplay'].some((key) => {
@@ -296,6 +299,15 @@ function decodeProject(value: unknown): StreamProject {
   }
   const sceneSwitchHotkeys = isRecord(sceneSwitchHotkeysValue)
     ? Object.fromEntries(Object.entries(sceneSwitchHotkeysValue) as Array<[string, string]>)
+    : {};
+  const sourceVisibilityHotkeysValue = value.sourceVisibilityHotkeys;
+  if (sourceVisibilityHotkeysValue !== undefined && (!isRecord(sourceVisibilityHotkeysValue)
+    || Object.entries(sourceVisibilityHotkeysValue).some(([sourceId, accelerator]) => !sourceIdSet.has(sourceId)
+      || typeof accelerator !== 'string' || accelerator.length > 64 || /[\u0000-\u001f\u007f]/.test(accelerator)))) {
+    throw new Error('Project contains invalid source visibility hotkeys.');
+  }
+  const sourceVisibilityHotkeys = isRecord(sourceVisibilityHotkeysValue)
+    ? Object.fromEntries(Object.entries(sourceVisibilityHotkeysValue) as Array<[string, string]>)
     : {};
   return {
     version: 1,
@@ -326,6 +338,7 @@ function decodeProject(value: unknown): StreamProject {
     liveSceneId: value.liveSceneId,
     hotkeys,
     sceneSwitchHotkeys,
+    sourceVisibilityHotkeys,
     scenes,
   };
 }

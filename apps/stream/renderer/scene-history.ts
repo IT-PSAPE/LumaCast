@@ -5,14 +5,21 @@ export interface SceneEditorState {
   activeSceneId: string;
   liveSceneId: string;
   sceneSwitchHotkeys: Record<string, string>;
+  sourceVisibilityHotkeys: Record<string, string>;
 }
 
 function copyState(state: SceneEditorState): SceneEditorState {
   return structuredClone(state);
 }
 
-export function sceneEditorState(project: Pick<StreamProject, 'scenes' | 'activeSceneId' | 'liveSceneId' | 'sceneSwitchHotkeys'>): SceneEditorState {
-  return { scenes: project.scenes, activeSceneId: project.activeSceneId, liveSceneId: project.liveSceneId, sceneSwitchHotkeys: project.sceneSwitchHotkeys };
+export function sceneEditorState(project: Pick<StreamProject, 'scenes' | 'activeSceneId' | 'liveSceneId' | 'sceneSwitchHotkeys' | 'sourceVisibilityHotkeys'>): SceneEditorState {
+  return {
+    scenes: project.scenes,
+    activeSceneId: project.activeSceneId,
+    liveSceneId: project.liveSceneId,
+    sceneSwitchHotkeys: project.sceneSwitchHotkeys,
+    sourceVisibilityHotkeys: project.sourceVisibilityHotkeys,
+  };
 }
 
 export class SceneHistory {

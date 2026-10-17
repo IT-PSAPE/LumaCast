@@ -65,9 +65,10 @@ per collection under Stream app data. Profiles are stored separately in
 `profiles.json` and own output settings and global output hotkeys; the active
 profile is applied to whichever scene collection is open. Scene-switch hotkeys
 are stored with their collection because their targets are collection-specific.
-The main-process hotkey manager registers both sets through Electron's global
-shortcut API and dispatches scene IDs to the renderer, which uses the normal
-scene selection path so Studio Mode keeps its Preview/Program behavior. On first
+The main-process hotkey manager registers profile output shortcuts and
+collection scene/source shortcuts through Electron's global shortcut API.
+Scene IDs are dispatched to the renderer through the normal scene selection
+path so Studio Mode keeps its Preview/Program behavior. On first
 load, Stream creates Profile 1 from the active collection's saved output
 settings and output hotkeys. Saves
 are serialized and include both collection and profile IDs, so stale renderer
@@ -185,10 +186,14 @@ The buffers stay in renderer memory and are discarded when stopped or when
 Stream exits (ADR-0054, ADR-0065, ADR-0087).
 
 Global hotkeys for opening stream controls and toggling recording/replay are
-stored with the active output profile. Main registers the configured
-accelerators through Electron `globalShortcut`, rejects duplicate bindings,
-restores the previous set when the OS reports a conflict, and sends the action
-or collection scene ID over the typed IPC bridge (ADR-0063, ADR-0088, ADR-0095).
+stored with the active output profile. Collection-specific scene-switch and
+source-visibility hotkeys are stored by scene or source ID with the collection.
+Main registers all configured accelerators through Electron `globalShortcut`,
+rejects conflicts across all three groups, and restores the previous set when
+the OS reports a conflict. Scene-switch events use normal scene selection;
+source-visibility events toggle the matching source through the renderer's
+source update path. Deleting a scene or source removes its binding, and scene
+edit undo/redo includes these bindings (ADR-0063, ADR-0088, ADR-0095, ADR-0096).
 
 Each visual source may persist brightness, contrast, saturation, opacity, and
 blur values. The canvas compositor applies these per-source color-correction

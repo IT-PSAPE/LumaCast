@@ -61,10 +61,14 @@ describe('LumaStream scene editing history', () => {
     const before = createDefaultProject();
     const sceneId = before.scenes[0]!.id;
     before.sceneSwitchHotkeys[sceneId] = 'Control+Shift+1';
+    before.sourceVisibilityHotkeys.source = 'Control+Shift+2';
     const after = structuredClone(before);
     after.sceneSwitchHotkeys = {};
+    after.sourceVisibilityHotkeys = {};
     history.record(sceneEditorState(before), 0);
 
-    expect(history.undo(sceneEditorState(after))?.sceneSwitchHotkeys).toEqual({ [sceneId]: 'Control+Shift+1' });
+    const undone = history.undo(sceneEditorState(after));
+    expect(undone?.sceneSwitchHotkeys).toEqual({ [sceneId]: 'Control+Shift+1' });
+    expect(undone?.sourceVisibilityHotkeys).toEqual({ source: 'Control+Shift+2' });
   });
 });

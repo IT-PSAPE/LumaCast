@@ -15,6 +15,7 @@ import { canTransformSource, fitSourceToCanvas } from './source-transform';
 import { sceneEditorState, SceneHistory, type SceneEditorState } from './scene-history';
 import { duplicateSource } from './source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slideshow';
+import { removeSourceVisibilityHotkeys } from './scene-hotkeys';
 import {
   type DesktopSourceOption,
   type CaptureCursorMode,
@@ -286,6 +287,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hotkeyDraft, setHotkeyDraft] = useState<StreamGlobalHotkeys | null>(null);
   const [sceneSwitchHotkeyDraft, setSceneSwitchHotkeyDraft] = useState<Record<string, string>>({});
+  const [sourceVisibilityHotkeyDraft, setSourceVisibilityHotkeyDraft] = useState<Record<string, string>>({});
   const [hotkeyError, setHotkeyError] = useState('');
   const [hotkeysWorking, setHotkeysWorking] = useState(false);
   const [meterLevels, setMeterLevels] = useState<Record<string, number>>({});
@@ -387,8 +389,9 @@ export function App() {
     if (!project) return;
     setHotkeyDraft({ ...project.hotkeys });
     setSceneSwitchHotkeyDraft({ ...project.sceneSwitchHotkeys });
-    void api.setGlobalHotkeys(project.hotkeys, project.sceneSwitchHotkeys).catch((error) => setActionError(`Global shortcuts could not be registered: ${friendlyError(error)}`));
-  }, [api, project?.hotkeys, project?.sceneSwitchHotkeys]);
+    setSourceVisibilityHotkeyDraft({ ...project.sourceVisibilityHotkeys });
+    void api.setGlobalHotkeys(project.hotkeys, project.sceneSwitchHotkeys, project.sourceVisibilityHotkeys).catch((error) => setActionError(`Global shortcuts could not be registered: ${friendlyError(error)}`));
+  }, [api, project?.hotkeys, project?.sceneSwitchHotkeys, project?.sourceVisibilityHotkeys]);
 
   useEffect(() => api.onBrowserSourceFrame((sourceId, frame) => {
     const image = imageElements.current.get(sourceId);
@@ -410,12 +413,12 @@ export function App() {
     const previous = sceneHistorySnapshotRef.current;
     sceneHistorySnapshotRef.current = snapshot;
     if (sceneHistoryResetPendingRef.current) sceneHistoryResetPendingRef.current = false;
-    else if (previous && (previous.scenes !== snapshot.scenes || previous.activeSceneId !== snapshot.activeSceneId || previous.liveSceneId !== snapshot.liveSceneId || previous.sceneSwitchHotkeys !== snapshot.sceneSwitchHotkeys)) {
+    else if (previous && (previous.scenes !== snapshot.scenes || previous.activeSceneId !== snapshot.activeSceneId || previous.liveSceneId !== snapshot.liveSceneId || previous.sceneSwitchHotkeys !== snapshot.sceneSwitchHotkeys || previous.sourceVisibilityHotkeys !== snapshot.sourceVisibilityHotkeys)) {
       sceneHistoryRef.current?.record(previous, performance.now());
     }
     setUndoAvailable(sceneHistoryRef.current?.canUndo ?? false);
     setRedoAvailable(sceneHistoryRef.current?.canRedo ?? false);
-  }, [project?.scenes, project?.activeSceneId, project?.liveSceneId, project?.sceneSwitchHotkeys]);
+  }, [project?.scenes, project?.activeSceneId, project?.liveSceneId, project?.sceneSwitchHotkeys, project?.sourceVisibilityHotkeys]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 500);
@@ -1194,6 +1197,7 @@ export function App() {
     setProjectValue((current) => ({
       ...current,
       scenes: current.scenes.map((scene) => scene.id === activeScene.id ? { ...scene, sources: scene.sources.filter((source) => source.id !== selectedSource.id) } : scene),
+      sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [selectedSource.id]),
     }));
     setSelectedSourceId(null);
   };
@@ -1316,6 +1320,7 @@ export function App() {
         activeSceneId: replacement.id,
         liveSceneId: current.liveSceneId === removed.id ? replacement.id : current.liveSceneId,
         sceneSwitchHotkeys: Object.fromEntries(Object.entries(current.sceneSwitchHotkeys).filter(([sceneId]) => sceneId !== removed.id)),
+        sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, removed.sources.map((source) => source.id)),
       };
     });
     setTransition(null);
@@ -1788,7 +1793,10 @@ export function App() {
   };
 
   hotkeyDispatch.current = (action) => {
-    if (action.startsWith('switchScene:')) {
+    if (action.startsWith('toggleSourceVisibility:')) {
+      const sourceId = action.slice('toggleSourceVisibility:'.length);
+      updateSource(sourceId, (source) => ({ ...source, visible: !source.visible }));
+    } else if (action.startsWith('switchScene:')) {
       chooseScene(action.slice('switchScene:'.length));
     } else if (action === 'toggleStreaming') {
       if (streaming.current) stopStreaming();
@@ -1809,8 +1817,8 @@ export function App() {
     setHotkeysWorking(true);
     setHotkeyError('');
     try {
-      await api.setGlobalHotkeys(hotkeyDraft, sceneSwitchHotkeyDraft);
-      setProjectValue((current) => ({ ...current, hotkeys: hotkeyDraft, sceneSwitchHotkeys: sceneSwitchHotkeyDraft }));
+      await api.setGlobalHotkeys(hotkeyDraft, sceneSwitchHotkeyDraft, sourceVisibilityHotkeyDraft);
+      setProjectValue((current) => ({ ...current, hotkeys: hotkeyDraft, sceneSwitchHotkeys: sceneSwitchHotkeyDraft, sourceVisibilityHotkeys: sourceVisibilityHotkeyDraft }));
     } catch (error) {
       setHotkeyError(friendlyError(error));
     } finally { setHotkeysWorking(false); }
@@ -1845,6 +1853,24 @@ export function App() {
     }
     setHotkeyError('');
     setSceneSwitchHotkeyDraft((current) => ({ ...current, [sceneId]: accelerator }));
+  };
+
+  const captureSourceVisibilityHotkey = (sourceId: string, event: ReactKeyboardEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat) return;
+    if (event.key === 'Escape') {
+      setHotkeyError('');
+      setSourceVisibilityHotkeyDraft((current) => ({ ...current, [sourceId]: '' }));
+      return;
+    }
+    const accelerator = acceleratorFromKeyEvent(event);
+    if (!accelerator) {
+      if (!['Control', 'Alt', 'Shift', 'Meta'].includes(event.key)) setHotkeyError('Use a modifier key and one shortcut key.');
+      return;
+    }
+    setHotkeyError('');
+    setSourceVisibilityHotkeyDraft((current) => ({ ...current, [sourceId]: accelerator }));
   };
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>, scene: StreamScene) => {
@@ -2078,6 +2104,10 @@ export function App() {
         <label>Save replay<input aria-label="Save replay shortcut" readOnly value={hotkeyDraft?.saveReplay ?? project.hotkeys.saveReplay} onKeyDown={(event) => captureHotkey('saveReplay', event)} /></label>
         <div className="popover-heading video-heading"><strong>Scene Switches</strong></div>
         {project.scenes.map((scene) => <label key={scene.id}>{scene.name}<input aria-label={`Switch to ${scene.name} shortcut`} readOnly value={sceneSwitchHotkeyDraft[scene.id] ?? ''} onKeyDown={(event) => captureSceneSwitchHotkey(scene.id, event)} /></label>)}
+        <div className="popover-heading video-heading"><strong>Source Visibility</strong></div>
+        {project.scenes.flatMap((scene) => scene.sources.map((source) => (
+          <label key={source.id}>{scene.name} · {source.name}<input aria-label={`Toggle visibility for ${source.name} in ${scene.name} shortcut`} readOnly value={sourceVisibilityHotkeyDraft[source.id] ?? ''} onKeyDown={(event) => captureSourceVisibilityHotkey(source.id, event)} /></label>
+        )))}
         {hotkeyError && <p className="hotkey-error" role="alert">{hotkeyError}</p>}
         <button className="apply-hotkeys" type="button" disabled={hotkeysWorking || !hotkeyDraft} onClick={() => void applyHotkeys()}>{hotkeysWorking ? 'Applying…' : 'Apply Hotkeys'}</button>
         </div>

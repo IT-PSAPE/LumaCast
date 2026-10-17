@@ -27,7 +27,7 @@ const api: StreamAPI = {
   startStreaming: (destination, settings) => ipcRenderer.invoke(IPC_CHANNELS.startStreaming, destination, settings),
   writeStreamingChunk: (id, bytes) => ipcRenderer.invoke(IPC_CHANNELS.writeStreamingChunk, id, bytes),
   stopStreaming: (id) => ipcRenderer.invoke(IPC_CHANNELS.stopStreaming, id),
-  setGlobalHotkeys: (hotkeys, sceneSwitchHotkeys) => ipcRenderer.invoke(IPC_CHANNELS.setGlobalHotkeys, hotkeys, sceneSwitchHotkeys),
+  setGlobalHotkeys: (hotkeys, sceneSwitchHotkeys, sourceVisibilityHotkeys) => ipcRenderer.invoke(IPC_CHANNELS.setGlobalHotkeys, hotkeys, sceneSwitchHotkeys, sourceVisibilityHotkeys),
   onGlobalHotkey(listener) {
     const handler = (_event: Electron.IpcRendererEvent, action: Parameters<typeof listener>[0]) => listener(action);
     ipcRenderer.on(IPC_CHANNELS.globalHotkey, handler);

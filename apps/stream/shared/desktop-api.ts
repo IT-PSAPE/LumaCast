@@ -172,7 +172,7 @@ export interface StreamGlobalHotkeys {
   saveReplay: string;
 }
 
-export type StreamHotkeyAction = keyof StreamGlobalHotkeys | `switchScene:${string}`;
+export type StreamHotkeyAction = keyof StreamGlobalHotkeys | `switchScene:${string}` | `toggleSourceVisibility:${string}`;
 
 export const DEFAULT_STREAM_GLOBAL_HOTKEYS: StreamGlobalHotkeys = {
   toggleStreaming: 'Control+Alt+F9',
@@ -212,6 +212,7 @@ export interface StreamProject {
   liveSceneId: string;
   hotkeys: StreamGlobalHotkeys;
   sceneSwitchHotkeys: Record<string, string>;
+  sourceVisibilityHotkeys: Record<string, string>;
   scenes: StreamScene[];
 }
 
@@ -306,7 +307,7 @@ export interface StreamAPI {
   startStreaming(destination: string, settings: StreamOutputSettings): Promise<string>;
   writeStreamingChunk(id: string, bytes: ArrayBuffer): Promise<void>;
   stopStreaming(id: string): Promise<void>;
-  setGlobalHotkeys(hotkeys: StreamGlobalHotkeys, sceneSwitchHotkeys: Record<string, string>): Promise<void>;
+  setGlobalHotkeys(hotkeys: StreamGlobalHotkeys, sceneSwitchHotkeys: Record<string, string>, sourceVisibilityHotkeys: Record<string, string>): Promise<void>;
   onGlobalHotkey(listener: (action: StreamHotkeyAction) => void): () => void;
   onStreamStatus(listener: (status: StreamRuntimeStatus) => void): () => void;
   createBrowserSource(id: string, url: string, width: number, height: number): Promise<void>;
@@ -350,6 +351,7 @@ export function createDefaultProject(): StreamProject {
     liveSceneId: sceneId,
     hotkeys: { ...DEFAULT_STREAM_GLOBAL_HOTKEYS },
     sceneSwitchHotkeys: {},
+    sourceVisibilityHotkeys: {},
     scenes: [{ id: sceneId, name: 'Scene 1', sources: [] }],
   };
 }

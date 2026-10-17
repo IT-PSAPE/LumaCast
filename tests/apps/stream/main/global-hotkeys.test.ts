@@ -42,4 +42,15 @@ describe('Stream global scene-switch hotkeys', () => {
     expect(unregister).toHaveBeenCalledWith('Control+Shift+1');
     expect(register).toHaveBeenCalledTimes(9);
   });
+
+  it('dispatches source visibility bindings and checks conflicts with scene switches', () => {
+    const { manager, callbacks, send, register } = setup();
+    manager.set(DEFAULT_STREAM_GLOBAL_HOTKEYS, { 'scene-live': 'Control+Shift+1' }, { 'camera-1': 'Control+Shift+2' });
+    callbacks.get('Control+Shift+2')?.();
+    expect(send).toHaveBeenCalledWith('stream:global-hotkey', 'toggleSourceVisibility:camera-1');
+
+    expect(() => manager.set(DEFAULT_STREAM_GLOBAL_HOTKEYS, { 'scene-live': 'Control+Shift+1' }, { 'camera-1': 'Control+Shift+1' }))
+      .toThrow('Each global shortcut must be unique.');
+    expect(register).toHaveBeenCalledTimes(6);
+  });
 });

@@ -175,9 +175,9 @@ export function registerStreamIpc(
       if (typeof id !== 'string' || id.length > 128) throw new Error('Invalid streaming session.');
       return streamOutput.stop(id);
     }],
-    [IPC_CHANNELS.setGlobalHotkeys, (event, hotkeys: StreamGlobalHotkeys, sceneSwitchHotkeys: Record<string, string>) => {
+    [IPC_CHANNELS.setGlobalHotkeys, (event, hotkeys: StreamGlobalHotkeys, sceneSwitchHotkeys: Record<string, string>, sourceVisibilityHotkeys: Record<string, string>) => {
       authorize(event);
-      globalHotkeys.set(hotkeys, sceneSwitchHotkeys);
+      globalHotkeys.set(hotkeys, sceneSwitchHotkeys, sourceVisibilityHotkeys);
     }],
     [IPC_CHANNELS.createBrowserSource, (event, id: string, url: string, width: number, height: number) => {
       authorize(event);

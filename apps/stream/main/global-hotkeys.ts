@@ -64,9 +64,14 @@ export class GlobalHotkeyManager {
     private readonly shortcuts: ShortcutRegistry = globalShortcut,
   ) {}
 
-  set(settings: StreamGlobalHotkeys, sceneSwitchHotkeys: Record<string, string> = {}): void {
+  set(
+    settings: StreamGlobalHotkeys,
+    sceneSwitchHotkeys: Record<string, string> = {},
+    sourceVisibilityHotkeys: Record<string, string> = {},
+  ): void {
     if (!settings || typeof settings !== 'object') throw new Error('Invalid global shortcut settings.');
     if (!sceneSwitchHotkeys || typeof sceneSwitchHotkeys !== 'object' || Array.isArray(sceneSwitchHotkeys)) throw new Error('Invalid scene shortcut settings.');
+    if (!sourceVisibilityHotkeys || typeof sourceVisibilityHotkeys !== 'object' || Array.isArray(sourceVisibilityHotkeys)) throw new Error('Invalid source shortcut settings.');
     const next: Record<string, string> = {};
     const owners = new Map<string, string>();
     for (const action of ACTIONS) {
@@ -80,6 +85,12 @@ export class GlobalHotkeyManager {
         throw new Error('Invalid scene shortcut settings.');
       }
       next[`switchScene:${sceneId}`] = normalizeAccelerator(value);
+    }
+    for (const [sourceId, value] of Object.entries(sourceVisibilityHotkeys)) {
+      if (!sourceId || sourceId.length > 128 || /[\u0000-\u001f\u007f]/.test(sourceId) || typeof value !== 'string') {
+        throw new Error('Invalid source shortcut settings.');
+      }
+      next[`toggleSourceVisibility:${sourceId}`] = normalizeAccelerator(value);
     }
     for (const [action, accelerator] of Object.entries(next)) {
       if (!accelerator) continue;

@@ -148,6 +148,33 @@ describe('LumaStream scene switch hotkey persistence', () => {
   });
 });
 
+describe('LumaStream source visibility hotkey persistence', () => {
+  it('round-trips source bindings with the collection', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-source-hotkeys-'));
+    temporaryDirectories.push(directory);
+    const store = new ProjectStore(directory);
+    const workspace = await store.load();
+    const project = structuredClone(workspace.project);
+    const source = projectWithDisplaySource().scenes[0]!.sources[0]!;
+    const sourceId = source.id;
+    project.scenes[0]!.sources.push(source);
+    project.sourceVisibilityHotkeys = { [sourceId]: 'Control+Shift+2' };
+    await store.save(workspace.activeCollectionId, workspace.activeProfileId, project);
+
+    const restored = await store.load();
+    expect(restored.project.sourceVisibilityHotkeys).toEqual({ [sourceId]: 'Control+Shift+2' });
+  });
+
+  it('rejects bindings for source IDs that are absent from the collection', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-source-hotkeys-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = { ...createDefaultProject(), sourceVisibilityHotkeys: { missing: 'Control+Shift+2' } };
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid source visibility hotkeys.');
+  });
+});
+
 describe('LumaStream image slideshow persistence', () => {
   it('round-trips slideshow images and playback settings', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-slideshow-'));
