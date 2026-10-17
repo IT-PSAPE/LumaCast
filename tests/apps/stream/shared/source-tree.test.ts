@@ -44,6 +44,59 @@ describe('Stream source tree helpers', () => {
     expect(computeGroupBoundingTransform([children[2]!])).toBeNull();
   });
 
+  it('uses axis-aligned bounds for rotated visual leaves', () => {
+    const rotated = makeSource('rotated', 'image', { x: 10, y: 20, width: 40, height: 20, rotation: 90 });
+    expect(computeGroupBoundingTransform([rotated])).toEqual({ x: 20, y: 10, width: 20, height: 40 });
+  });
+
+  it('rotates a group and its visual children around the group center', () => {
+    const group = makeSource('group', 'group', { x: 0, y: 0, width: 100, height: 10 }, [
+      makeSource('left', 'image', { x: 0, y: 0, width: 20, height: 10 }),
+      makeSource('right', 'image', { x: 80, y: 0, width: 20, height: 10 }),
+    ]);
+    const rotated = mapSourceTreeById([group], 'group', (source) => ({
+      ...source,
+      transform: { ...source.transform, rotation: 90 },
+    }))[0]!;
+
+    expect(rotated.transform).toMatchObject({ x: 45, y: -45, width: 10, height: 100, rotation: 90 });
+    expect(rotated.children?.map(({ transform }) => transform)).toEqual([
+      { x: 40, y: -40, width: 20, height: 10, rotation: 90 },
+      { x: 40, y: 40, width: 20, height: 10, rotation: 90 },
+    ]);
+  });
+
+  it('rotates nested visual descendants once and keeps nested group bounds aligned', () => {
+    const nested = makeSource('nested', 'group', { x: 0, y: 0, width: 20, height: 10 }, [
+      makeSource('nested-leaf', 'image', { x: 0, y: 0, width: 20, height: 10 }),
+    ]);
+    const outer = makeSource('outer', 'group', { x: 0, y: 0, width: 100, height: 10 }, [
+      nested,
+      makeSource('outer-leaf', 'image', { x: 80, y: 0, width: 20, height: 10 }),
+    ]);
+    const rotated = mapSourceTreeById([outer], 'outer', (source) => ({
+      ...source,
+      transform: { ...source.transform, rotation: 90 },
+    }))[0]!;
+    const nestedResult = rotated.children?.[0]!;
+
+    expect(nestedResult.transform).toMatchObject({ x: 45, y: -45, width: 10, height: 20, rotation: 90 });
+    expect(nestedResult.children?.[0]?.transform).toMatchObject({ x: 40, y: -40, width: 20, height: 10, rotation: 90 });
+  });
+
+  it('leaves audio children unchanged while rotating a group', () => {
+    const audio = makeSource('audio', 'microphone', { x: 3, y: 4, width: 5, height: 6 });
+    const group = makeSource('group', 'group', { x: 0, y: 0, width: 20, height: 10 }, [
+      makeSource('visual', 'image', { x: 0, y: 0, width: 20, height: 10 }), audio,
+    ]);
+    const rotated = mapSourceTreeById([group], 'group', (source) => ({
+      ...source,
+      transform: { ...source.transform, rotation: 45 },
+    }))[0]!;
+
+    expect(rotated.children?.[1]).toBe(audio);
+  });
+
   it('moves and scales grouped visual children with their bounds while preserving audio transforms', () => {
     const children = [
       makeSource('visual', 'image', { x: 10, y: 20, width: 50, height: 40 }),
@@ -65,6 +118,22 @@ describe('Stream source tree helpers', () => {
     expect(result[0]?.transform).toEqual({ x: 120, y: 140, width: 60, height: 80 });
     expect(result[0]?.children?.[0]?.transform).toEqual({ x: 120, y: 140, width: 60, height: 80 });
     expect(result[0]?.children?.[1]?.transform).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+  });
+
+  it('preserves leaf rotations while moving and resizing a rotated group', () => {
+    const group = makeSource('group', 'group', { x: 0, y: 0, width: 100, height: 20, rotation: 30 }, [
+      makeSource('rotated', 'image', { x: 10, y: 5, width: 20, height: 10, rotation: 15 }),
+      makeSource('plain', 'image', { x: 70, y: 5, width: 20, height: 10 }),
+    ]);
+    const moved = mapSourceTreeById([group], 'group', (source) => ({
+      ...source,
+      transform: { x: 100, y: 40, width: 200, height: 40, rotation: 30 },
+    }))[0]!;
+
+    expect(moved.transform.rotation).toBe(30);
+    expect(moved.children?.[0]?.transform.rotation).toBe(15);
+    expect(moved.children?.[1]?.transform.rotation).toBeUndefined();
+    expect(moved.children?.[0]?.transform).toMatchObject({ x: 120, y: 50, width: 40, height: 20 });
   });
 
   it('recomputes group bounds after a child moves', () => {
@@ -143,6 +212,15 @@ describe('Stream source tree helpers', () => {
     expect(ungroupSourceNode(sources, 'group')?.map(({ id }) => id)).toEqual(['back', 'child-back', 'child-front', 'front']);
     expect(moveSourceTreeNode(sources, 'group', 1).map(({ id }) => id)).toEqual(['back', 'front', 'group']);
     expect(removeSourceTreeById(sources, 'group').map(({ id }) => id)).toEqual(['back', 'front']);
+  });
+
+  it('preserves rotated child transforms when ungrouping', () => {
+    const child = makeSource('rotated-child', 'image', { x: 10, y: 20, width: 30, height: 15, rotation: 37 });
+    const group = makeSource('group', 'group', { x: 0, y: 0, width: 50, height: 50, rotation: 12 }, [child]);
+    const ungrouped = ungroupSourceNode([group], 'group');
+
+    expect(ungrouped?.[0]).toBe(child);
+    expect(ungrouped?.[0]?.transform.rotation).toBe(37);
   });
 
   it('removes references to a deleted scene, including from group children', () => {

@@ -9,6 +9,17 @@ import { fitCanvasToOutput } from './output-scaling';
 import { getRenderableSources } from './source-render-list';
 import { MAX_SCENE_REFERENCE_DEPTH } from '../shared/scene-reference-graph';
 import { sceneSourceBufferSize } from './scene-source-buffer';
+import { sourceContainsPoint } from './source-transform';
+
+function rotateSourceContext(context: CanvasRenderingContext2D, source: StreamSource): void {
+  const rotation = source.transform.rotation ?? 0;
+  if (rotation === 0) return;
+  const centerX = source.transform.x + source.transform.width / 2;
+  const centerY = source.transform.y + source.transform.height / 2;
+  context.translate(centerX, centerY);
+  context.rotate(rotation * Math.PI / 180);
+  context.translate(-centerX, -centerY);
+}
 
 interface Props {
   project: StreamProject;
@@ -56,6 +67,7 @@ function drawSources(
     context.globalAlpha *= (filters?.opacity ?? 100) / 100;
     const { x, y, width: boxWidth, height: boxHeight } = source.transform;
     if (source.kind === 'scene') {
+      rotateSourceContext(context, source);
       const referencedSceneId = source.referencedSceneId;
       const referencedScene = referencedSceneId ? scenesById.get(referencedSceneId) : undefined;
       if (referencedScene && referenceDepth < MAX_SCENE_REFERENCE_DEPTH && !scenePath.has(referencedScene.id)) {
@@ -83,9 +95,11 @@ function drawSources(
         }
       }
     } else if (source.kind === 'color') {
+      rotateSourceContext(context, source);
       context.fillStyle = source.color ?? '#17191f';
       context.fillRect(x, y, boxWidth, boxHeight);
     } else if (source.kind === 'text') {
+      rotateSourceContext(context, source);
       drawTextSource(context, source);
     } else if (source.kind === 'image' || source.kind === 'browser' || source.kind === 'slideshow') {
       const slideshowImages = source.kind === 'slideshow' ? source.slideshowImages ?? [] : [];
@@ -102,7 +116,13 @@ function drawSources(
           if (source.chromaKey?.enabled && keyProcessor) {
             try { keyed = keyProcessor.render(image, source.transform, source.chromaKey, crop, image.naturalWidth, image.naturalHeight); } catch { /* Keep drawing the original if a frame cannot be keyed. */ }
           }
-          try { if (keyed) context.drawImage(keyed, 0, 0, canvasWidth, canvasHeight); else context.drawImage(image, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight); } catch { /* The image may become unavailable while it decodes. */ }
+          try {
+            if (keyed) context.drawImage(keyed, 0, 0, canvasWidth, canvasHeight);
+            else {
+              rotateSourceContext(context, source);
+              context.drawImage(image, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight);
+            }
+          } catch { /* The image may become unavailable while it decodes. */ }
         }
       }
     } else {
@@ -117,7 +137,13 @@ function drawSources(
           if (source.chromaKey?.enabled && keyProcessor) {
             try { keyed = keyProcessor.render(video, source.transform, source.chromaKey, crop, video.videoWidth, video.videoHeight); } catch { /* Keep drawing the original if a frame cannot be keyed. */ }
           }
-          try { if (keyed) context.drawImage(keyed, 0, 0, canvasWidth, canvasHeight); else context.drawImage(video, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight); } catch { /* A frame may become unavailable while capture ends. */ }
+          try {
+            if (keyed) context.drawImage(keyed, 0, 0, canvasWidth, canvasHeight);
+            else {
+              rotateSourceContext(context, source);
+              context.drawImage(video, crop.left, crop.top, cropWidth, cropHeight, x, y, boxWidth, boxHeight);
+            }
+          } catch { /* A frame may become unavailable while capture ends. */ }
         }
       }
     }
@@ -418,10 +444,10 @@ function StageAudio({ source, mediaElements, isActive, onMediaElement, onMediaPl
 export function hitTestSource(scene: StreamScene, x: number, y: number): StreamSource | null {
   const isAudioOnly = (source: StreamSource) => source.kind === 'microphone' || source.kind === 'desktop-audio' || source.kind === 'application-audio'
     || (source.kind === 'media' && source.mediaKind === 'audio');
-  const containsPoint = (source: StreamSource) => {
-    const { x: left, y: top, width, height } = source.transform;
-    return x >= left && x <= left + width && y >= top && y <= top + height;
-  };
+  const containsPoint = (source: StreamSource) => source.kind === 'group'
+    ? x >= source.transform.x && x <= source.transform.x + source.transform.width
+      && y >= source.transform.y && y <= source.transform.y + source.transform.height
+    : sourceContainsPoint(source.transform, x, y);
   const hitTestSiblings = (sources: readonly StreamSource[]): StreamSource | null => {
     for (const source of [...sources].reverse()) {
       if (!source.visible || isAudioOnly(source) || !containsPoint(source)) continue;

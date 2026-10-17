@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, createDefaultTextStyle, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
 import { flattenSourceNodes, MAX_SOURCE_GROUP_DEPTH } from '../shared/source-tree';
 import { getSceneReferenceValidationError } from '../shared/scene-reference-graph';
+import { normalizeSourceRotation } from '../shared/source-geometry';
 
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
@@ -48,7 +49,9 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
   if (value.locked !== undefined && typeof value.locked !== 'boolean') throw new Error('Project contains invalid source lock settings.');
   if (value.balance !== undefined && !finiteNumber(value.balance, -1, 1)) throw new Error('Project contains invalid source audio balance.');
   if (!isRecord(value.transform) || !finiteNumber(value.transform.x, -32768, 32768) || !finiteNumber(value.transform.y, -32768, 32768)
-    || !finiteNumber(value.transform.width, 1, 32768) || !finiteNumber(value.transform.height, 1, 32768)) {
+    || !finiteNumber(value.transform.width, 1, 32768) || !finiteNumber(value.transform.height, 1, 32768)
+    || (value.transform.rotation !== undefined
+      && (!finiteNumber(value.transform.rotation, -180, 180) || value.transform.rotation === 180))) {
     throw new Error('Project contains an invalid source transform.');
   }
   let crop: SourceCrop | undefined;
@@ -276,6 +279,7 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
       y: value.transform.y,
       width: value.transform.width,
       height: value.transform.height,
+      rotation: normalizeSourceRotation(value.transform.rotation as number | undefined),
     },
     ...(crop ? { crop } : {}),
     ...(filters ? { filters } : {}),

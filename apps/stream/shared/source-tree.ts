@@ -1,4 +1,5 @@
 import type { SourceTransform, StreamSource } from './desktop-api';
+import { normalizeSourceRotation } from './source-geometry';
 
 export const MAX_SOURCE_GROUP_DEPTH = 32;
 
@@ -32,12 +33,13 @@ export function mapSourceTreeById(
     if (original.id === sourceId) {
       const updated = update(original);
       if (original.kind !== 'group' || updated.kind !== 'group' || sameTransform(original.transform, updated.transform)) return updated;
-      return { ...updated, children: transformGroupChildren(original.children ?? [], original.transform, updated.transform) };
+      const children = transformGroupChildren(original.children ?? [], original.transform, updated.transform);
+      return { ...updated, children, transform: recomputeGroupTransform(updated.transform, children) };
     }
     if (original.kind !== 'group') return original;
     const children = mapSourceTreeById(original.children ?? [], sourceId, update);
     if (children.every((child, index) => child === original.children?.[index])) return original;
-    return { ...original, children, transform: computeGroupBoundingTransform(children) ?? original.transform };
+    return { ...original, children, transform: recomputeGroupTransform(original.transform, children) };
   });
 }
 
@@ -47,7 +49,7 @@ export function removeSourceTreeById(sources: readonly StreamSource[], sourceId:
     if (source.kind !== 'group') return source;
     const children = removeSourceTreeById(source.children ?? [], sourceId);
     if (children.length === (source.children ?? []).length) return source;
-    return { ...source, children, transform: computeGroupBoundingTransform(children) ?? source.transform };
+    return { ...source, children, transform: recomputeGroupTransform(source.transform, children) };
   });
   return next;
 }
@@ -130,7 +132,7 @@ export function groupSourceSiblings(sources: readonly StreamSource[], sourceIds:
       const children = replaceAtLevel(source.children ?? []);
       if (!children) continue;
       const next = [...siblings];
-      next[index] = { ...source, children, transform: computeGroupBoundingTransform(children) ?? source.transform };
+      next[index] = { ...source, children, transform: recomputeGroupTransform(source.transform, children) };
       return next;
     }
     return null;
@@ -152,7 +154,7 @@ export function ungroupSourceNode(sources: readonly StreamSource[], sourceId: st
       const children = replaceAtLevel(source.children ?? []);
       if (!children) continue;
       const next = [...siblings];
-      next[siblingIndex] = { ...source, children, transform: computeGroupBoundingTransform(children) ?? source.transform };
+      next[siblingIndex] = { ...source, children, transform: recomputeGroupTransform(source.transform, children) };
       return next;
     }
     return null;
@@ -161,7 +163,13 @@ export function ungroupSourceNode(sources: readonly StreamSource[], sourceId: st
 }
 
 function sameTransform(left: SourceTransform, right: SourceTransform): boolean {
-  return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height;
+  return left.x === right.x && left.y === right.y && left.width === right.width && left.height === right.height
+    && normalizeSourceRotation(left.rotation) === normalizeSourceRotation(right.rotation);
+}
+
+function recomputeGroupTransform(previous: SourceTransform, children: readonly StreamSource[]): SourceTransform {
+  const bounds = computeGroupBoundingTransform(children);
+  return bounds ? { ...bounds, ...(previous.rotation === undefined ? {} : { rotation: normalizeSourceRotation(previous.rotation) }) } : previous;
 }
 
 /** Scales and moves a group's leaf sources from one scene-space bound to another. */
@@ -177,21 +185,46 @@ export function transformGroupChildren(
     y: Math.max(-32768, Math.min(32768, Math.round(to.y + (transform.y - from.y) * scaleY))),
     width: Math.max(1, Math.min(32768, Math.round(transform.width * scaleX))),
     height: Math.max(1, Math.min(32768, Math.round(transform.height * scaleY))),
+    ...(transform.rotation === undefined ? {} : { rotation: transform.rotation }),
   });
-  return children.map((child) => {
+  const rotationDelta = normalizeSourceRotation((to.rotation ?? 0) - (from.rotation ?? 0));
+  const rotateTransform = (transform: SourceTransform): SourceTransform => {
+    if (rotationDelta === 0) return transform;
+    const radians = rotationDelta * Math.PI / 180;
+    const cos = Math.cos(radians);
+    const sin = Math.sin(radians);
+    const centerX = transform.x + transform.width / 2;
+    const centerY = transform.y + transform.height / 2;
+    const originX = from.x + from.width / 2;
+    const originY = from.y + from.height / 2;
+    const dx = centerX - originX;
+    const dy = centerY - originY;
+    const rotatedCenterX = originX + dx * cos - dy * sin;
+    const rotatedCenterY = originY + dx * sin + dy * cos;
+    return {
+      ...transform,
+      x: rotatedCenterX - transform.width / 2,
+      y: rotatedCenterY - transform.height / 2,
+      rotation: normalizeSourceRotation((transform.rotation ?? 0) + rotationDelta),
+    };
+  };
+  const transformNodes = (nodes: readonly StreamSource[]): StreamSource[] => nodes.map((child) => {
     if (child.kind === 'group') {
       if (!computeGroupBoundingTransform(child.children ?? [])) return child;
-      const transform = transformChild(child.transform);
-      return { ...child, transform, children: transformGroupChildren(child.children ?? [], child.transform, transform) };
+      const children = transformNodes(child.children ?? []);
+      const transformed = rotateTransform(transformChild(child.transform));
+      const bounds = computeGroupBoundingTransform(children);
+      return {
+        ...child,
+        transform: bounds ? { ...bounds, ...(transformed.rotation === undefined ? {} : { rotation: normalizeSourceRotation(transformed.rotation) }) } : transformed,
+        children,
+      };
     }
     const audioOnly = child.kind === 'microphone' || child.kind === 'desktop-audio' || child.kind === 'application-audio'
       || (child.kind === 'media' && child.mediaKind === 'audio');
-    if (audioOnly) return child;
-    return {
-      ...child,
-      transform: transformChild(child.transform),
-    };
+    return audioOnly ? child : { ...child, transform: rotateTransform(transformChild(child.transform)) };
   });
+  return transformNodes(children);
 }
 
 /** Bounds non-group children in their shared scene coordinate space; empty groups have no bounds. */
@@ -203,7 +236,7 @@ export function computeGroupBoundingTransform(children: readonly StreamSource[])
     }
     const audioOnly = source.kind === 'microphone' || source.kind === 'desktop-audio' || source.kind === 'application-audio'
       || (source.kind === 'media' && source.mediaKind === 'audio');
-    return audioOnly ? [] : [source.transform];
+    return audioOnly ? [] : [rotatedBounds(source.transform)];
   });
   if (bounds.length === 0) return null;
 
@@ -223,4 +256,22 @@ export function computeGroupBoundingTransform(children: readonly StreamSource[])
   }
 
   return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/** Axis-aligned bounds for a leaf rectangle rotated clockwise around its center. */
+function rotatedBounds(transform: SourceTransform): SourceTransform {
+  const rotation = normalizeSourceRotation(transform.rotation);
+  if (rotation % 360 === 0) return transform;
+  const radians = rotation * Math.PI / 180;
+  const sin = Math.abs(Math.sin(radians));
+  const cos = Math.abs(Math.cos(radians));
+  const width = transform.width * cos + transform.height * sin;
+  const height = transform.width * sin + transform.height * cos;
+  return {
+    ...transform,
+    x: transform.x + (transform.width - width) / 2,
+    y: transform.y + (transform.height - height) / 2,
+    width,
+    height,
+  };
 }

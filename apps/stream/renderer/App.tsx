@@ -15,7 +15,7 @@ import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { closeProjectorWindow, createProjectorWindowSession, openCanvasProjector } from './projector-window';
 import { getRenderedSourceIds } from './scene-render-scope';
-import { canTransformSource, fitSourceToCanvas } from './source-transform';
+import { canTransformSource, fitSourceToCanvas, resizeSourceFromPointer, sourceContainsPoint } from './source-transform';
 import { sceneEditorState, SceneHistory, type SceneEditorState } from './scene-history';
 import { duplicateSource } from './source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from './slideshow';
@@ -70,6 +70,7 @@ import {
   type VideoEncoderFamily,
 } from '../shared/desktop-api';
 import { validateRecordingFilenameFormat } from '../shared/recording-filename';
+import { normalizeSourceRotation } from '../shared/source-geometry';
 
 interface ActiveRecording {
   id: string;
@@ -385,7 +386,7 @@ export function App() {
   const browserAudioInFlight = useRef(new Set<string>());
   const pendingBrowserFrames = useRef(new Map<string, ArrayBuffer>());
   const streamStatusRef = useRef<StreamRuntimeStatus>({ state: 'stopped' });
-  const dragging = useRef<{ pointerId: number; sourceId: string; startX: number; startY: number; originX: number; originY: number; originWidth: number; originHeight: number; resizeHandle: string | null } | null>(null);
+  const dragging = useRef<{ pointerId: number; sourceId: string; startX: number; startY: number; originX: number; originY: number; originWidth: number; originHeight: number; originRotation: number; originIsGroup: boolean; resizeHandle: string | null } | null>(null);
   const hotkeyDispatch = useRef<((action: StreamHotkeyAction) => void) | null>(null);
   const inputRestoreAttempts = useRef(new Set<string>());
   const sourceClipboardRef = useRef<StreamSource | null>(null);
@@ -1517,9 +1518,11 @@ export function App() {
   const updateSourceTransform = (sourceId: string, key: keyof StreamSource['transform'], rawValue: string) => {
     const entered = Number(rawValue);
     if (!Number.isFinite(entered) || rawValue.trim() === '') return;
-    const value = key === 'x' || key === 'y'
-      ? Math.max(-32768, Math.min(32768, Math.round(entered)))
-      : Math.max(1, Math.min(32768, Math.round(entered)));
+    const value = key === 'rotation'
+      ? normalizeSourceRotation(entered)
+      : key === 'x' || key === 'y'
+        ? Math.max(-32768, Math.min(32768, Math.round(entered)))
+        : Math.max(1, Math.min(32768, Math.round(entered)));
     updateSource(sourceId, (source) => ({ ...source, transform: { ...source.transform, [key]: value } }));
   };
 
@@ -1539,7 +1542,7 @@ export function App() {
       height: video?.videoHeight || image?.naturalHeight || source.transform.height,
     };
     const transform = fitSourceToCanvas(sourceSize, { width: project.output.baseWidth, height: project.output.baseHeight });
-    updateSource(source.id, (current) => ({ ...current, transform }));
+    updateSource(source.id, (current) => ({ ...current, transform: { ...transform, rotation: current.transform.rotation ?? 0 } }));
   };
 
   const centerSource = (source: StreamSource) => {
@@ -1684,7 +1687,7 @@ export function App() {
 
   const stretchSource = (source: StreamSource) => {
     if (!project) return;
-    updateSource(source.id, (current) => ({ ...current, transform: { x: 0, y: 0, width: project.output.baseWidth, height: project.output.baseHeight } }));
+    updateSource(source.id, (current) => ({ ...current, transform: { ...current.transform, x: 0, y: 0, width: project.output.baseWidth, height: project.output.baseHeight } }));
   };
 
   const moveSource = (sourceId: string, direction: -1 | 1) => {
@@ -2347,8 +2350,10 @@ export function App() {
     const selectedIsGroupedChild = selected && flatSources.some((source) => source.kind === 'group'
       && flattenSourceNodes(source.children ?? []).some((child) => child.id === selected.id));
     const selectedBounds = selected?.transform;
-    const pointInsideSelected = selectedBounds && x >= selectedBounds.x && x <= selectedBounds.x + selectedBounds.width
-      && y >= selectedBounds.y && y <= selectedBounds.y + selectedBounds.height;
+    const pointInsideSelected = selectedBounds && (selected?.kind === 'group'
+      ? x >= selectedBounds.x && x <= selectedBounds.x + selectedBounds.width
+        && y >= selectedBounds.y && y <= selectedBounds.y + selectedBounds.height
+      : sourceContainsPoint(selectedBounds, x, y));
     const source = resizeHandle ? selected : selectedIsGroupedChild && pointInsideSelected ? selected : withinCanvas ? hitTestSource(scene, x, y) : null;
     selectSource(source?.id ?? null);
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
@@ -2360,6 +2365,8 @@ export function App() {
       pointerId: event.pointerId, sourceId: source.id, startX: x, startY: y,
       originX: source.transform.x, originY: source.transform.y,
       originWidth: source.transform.width, originHeight: source.transform.height,
+      originRotation: source.transform.rotation ?? 0,
+      originIsGroup: source.kind === 'group',
       resizeHandle: source.id === selectedSourceId ? resizeHandle : null,
     };
   };
@@ -2383,14 +2390,15 @@ export function App() {
       }));
       return;
     }
-    const handle = activeDrag.resizeHandle;
-    let width = activeDrag.originWidth + (handle.includes('e') ? dx : handle.includes('w') ? -dx : 0);
-    let height = activeDrag.originHeight + (handle.includes('s') ? dy : handle.includes('n') ? -dy : 0);
-    width = Math.max(16, width);
-    height = Math.max(16, height);
-    const left = activeDrag.originX + (handle.includes('w') ? activeDrag.originWidth - width : 0);
-    const top = activeDrag.originY + (handle.includes('n') ? activeDrag.originHeight - height : 0);
-    updateSource(activeDrag.sourceId, (source) => ({ ...source, transform: { ...source.transform, x: Math.round(left), y: Math.round(top), width: Math.round(width), height: Math.round(height) } }));
+    const resized = resizeSourceFromPointer({
+      x: activeDrag.originX,
+      y: activeDrag.originY,
+      width: activeDrag.originWidth,
+      height: activeDrag.originHeight,
+      rotation: activeDrag.originIsGroup ? 0 : activeDrag.originRotation,
+    }, activeDrag.resizeHandle, dx, dy);
+    resized.rotation = activeDrag.originRotation;
+    updateSource(activeDrag.sourceId, (source) => ({ ...source, transform: resized }));
   };
 
   const handleStagePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -2674,14 +2682,14 @@ export function App() {
               <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b><button type="button" className="mini-icon stage-projector-button" aria-label="Open preview projector" title="Open preview projector" onClick={() => openProjector('preview')}><ExternalLink size={12} /></button></div>
               <div className="stage-surface" style={previewSize} onPointerDown={(event) => handleStagePointerDown(event, previewScene)} onPointerMove={handleStagePointerMove} onPointerUp={handleStagePointerUp} onPointerCancel={handleStagePointerUp}>
                 <CanvasComposition ref={previewCanvasRef} project={project} scene={previewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
-                {previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%` }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
+                {previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
             </div>}
             <div key="program-panel" className={`stage-panel program-panel ${multiviewMode ? 'multiview-tile program-tile' : ''}`}>
               <div className={`stage-label ${multiviewMode ? 'program-stage-label-hidden' : ''}`}><span><i className="program-dot" />PROGRAM</span><b>{liveScene.name}</b></div>
               <div className={`stage-surface ${multiviewMode ? 'multiview-canvas' : ''}`} style={multiviewMode ? { aspectRatio: `${project.output.width} / ${project.output.height}` } : previewSize} onPointerDown={!project.studioMode && !multiviewMode ? (event) => handleStagePointerDown(event, liveScene) : undefined} onPointerMove={!project.studioMode && !multiviewMode ? handleStagePointerMove : undefined} onPointerUp={!project.studioMode && !multiviewMode ? handleStagePointerUp : undefined} onPointerCancel={!project.studioMode && !multiviewMode ? handleStagePointerUp : undefined}>
                 <CanvasComposition ref={programCanvasRef} project={project} scene={liveScene} videoElements={videoElements.current} imageElements={imageElements.current} transition={transition} onTransitionEnd={finishTransition} />
-                {!project.studioMode && !multiviewMode && previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%` }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
+                {!project.studioMode && !multiviewMode && previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
               {multiviewMode && <div className="multiview-caption"><span><i className="program-dot" />PROGRAM</span><b>{liveScene.name}</b></div>}
             </div>
@@ -2807,6 +2815,7 @@ export function App() {
             {supportsSourceTransform(selectedSource) && <details className="filter-details"><summary>Transform</summary>
               <div className="source-transform-grid">
                 {(['x', 'y', 'width', 'height'] as const).map((key) => <label key={key}>{key === 'x' ? 'Position X' : key === 'y' ? 'Position Y' : key === 'width' ? 'Width' : 'Height'}<input aria-label={`Source ${key}`} disabled={selectedSource.locked} type="number" min={key === 'x' || key === 'y' ? -32768 : 1} max="32768" step="1" key={`${selectedSource.id}-${key}-${selectedSource.transform[key]}`} defaultValue={selectedSource.transform[key]} onBlur={(event) => updateSourceTransform(selectedSource.id, key, event.currentTarget.value)} /></label>)}
+                <label>Rotation<input aria-label="Source rotation" disabled={selectedSource.locked} type="number" min="-180" max="180" step="1" key={`${selectedSource.id}-rotation-${selectedSource.transform.rotation ?? 0}`} defaultValue={selectedSource.transform.rotation ?? 0} onBlur={(event) => updateSourceTransform(selectedSource.id, 'rotation', event.currentTarget.value)} /></label>
               </div>
               <div className="transform-actions"><button type="button" disabled={selectedSource.locked} onClick={() => fitSource(selectedSource)}>Fit to Canvas</button><button type="button" disabled={selectedSource.locked} onClick={() => centerSource(selectedSource)}>Center</button><button type="button" disabled={selectedSource.locked} onClick={() => updateSource(selectedSource.id, (source) => ({ ...source, transform: defaultTransform(source.kind, project.output, source.mediaKind) }))}>Reset</button></div>
             </details>}
