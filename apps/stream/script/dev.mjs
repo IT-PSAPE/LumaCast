@@ -10,6 +10,9 @@ if (!['dev', 'preview'].includes(mode)) throw new Error('Usage: node script/dev.
 const mediaEngine = spawnSync(process.execPath, [path.join(appDir, 'script', 'prepare-media-engine.mjs')], { cwd: appDir, stdio: 'inherit', windowsHide: true });
 if (mediaEngine.error) throw mediaEngine.error;
 if (mediaEngine.status !== 0) process.exit(mediaEngine.status ?? 1);
+const applicationAudio = spawnSync(process.execPath, [path.join(appDir, 'script', 'prepare-application-audio.mjs')], { cwd: appDir, stdio: 'inherit', windowsHide: true });
+if (applicationAudio.error) throw applicationAudio.error;
+if (applicationAudio.status !== 0) process.exit(applicationAudio.status ?? 1);
 const packagePath = require.resolve('electron-vite/package.json');
 const environment = { ...process.env, ELECTRON_EXEC_PATH: require('electron') };
 delete environment.ELECTRON_RUN_AS_NODE;

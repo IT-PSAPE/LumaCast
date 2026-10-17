@@ -21,6 +21,8 @@ extraResources:
     to: third-party/noise-suppression
     filter:
       - '*'
+  - from: native/audio-loopback/publish/AudioLoopback.exe
+    to: application-audio/AudioLoopback.exe
 win:
   target: nsis
   artifactName: "${productName}-${version}-${arch}-win.${ext}"

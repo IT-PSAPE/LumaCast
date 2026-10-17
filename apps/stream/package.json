@@ -11,9 +11,10 @@
     "dev": "node script/dev.mjs dev",
     "build": "electron-vite build",
     "prepare:media-engine": "node script/prepare-media-engine.mjs",
+    "prepare:application-audio": "node script/prepare-application-audio.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pack": "npm run prepare:media-engine && electron-vite build && electron-builder --dir",
-    "dist:win": "npm run prepare:media-engine && electron-vite build && electron-builder --win"
+    "pack": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --dir",
+    "dist:win": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --win"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
