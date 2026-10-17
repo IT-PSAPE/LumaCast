@@ -5,7 +5,7 @@ import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProj
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
 const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color']);
+const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color']);
 const MEDIA_KINDS = new Set(['image', 'video', 'audio']);
 const MEDIA_EXTENSIONS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'],
@@ -15,6 +15,10 @@ const MEDIA_EXTENSIONS: Record<string, string[]> = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isAbsoluteApplicationPath(value: string): boolean {
+  return path.win32.isAbsolute(value) || path.posix.isAbsolute(value);
 }
 
 function finiteNumber(value: unknown, minimum: number, maximum: number): value is number {
@@ -55,6 +59,11 @@ function decodeSource(value: unknown): StreamSource {
     crop = { top: cropValue.top as number, right: cropValue.right as number, bottom: cropValue.bottom as number, left: cropValue.left as number };
   }
   if (value.captureId !== undefined && (typeof value.captureId !== 'string' || value.captureId.length > 512)) throw new Error('Project contains an invalid capture source.');
+  if (value.applicationPath !== undefined && (value.kind !== 'application-audio' || typeof value.applicationPath !== 'string'
+    || value.applicationPath.length > 32768 || !isAbsoluteApplicationPath(value.applicationPath))) throw new Error('Project contains an invalid application audio source.');
+  if (value.kind === 'application-audio' && (typeof value.applicationPath !== 'string' || value.applicationPath.length === 0)) {
+    throw new Error('Project contains an incomplete application audio source.');
+  }
   if (value.cursorMode !== undefined && (!CAPTURE_CURSOR_MODES.has(value.cursorMode as CaptureCursorMode)
     || (value.kind !== 'display' && value.kind !== 'window'))) throw new Error('Project contains invalid cursor capture settings.');
   if (value.deviceId !== undefined && (typeof value.deviceId !== 'string' || value.deviceId.length > 512)) throw new Error('Project contains an invalid media device.');
@@ -229,6 +238,7 @@ function decodeSource(value: unknown): StreamSource {
     audioMonitoring: (value.audioMonitoring as AudioMonitoring | undefined) ?? 'off',
     audioTracks: value.audioTracks === undefined ? [1] : normalizeAudioTracks(value.audioTracks),
     ...(typeof value.captureId === 'string' ? { captureId: value.captureId } : {}),
+    ...(value.kind === 'application-audio' && typeof value.applicationPath === 'string' ? { applicationPath: value.applicationPath } : {}),
     ...((value.kind === 'display' || value.kind === 'window') ? { cursorMode: (value.cursorMode as CaptureCursorMode | undefined) ?? 'motion' } : {}),
     ...(typeof value.deviceId === 'string' ? { deviceId: value.deviceId } : {}),
     ...(typeof value.cameraResolution === 'string' ? { cameraResolution: value.cameraResolution as CameraResolutionPreset } : {}),

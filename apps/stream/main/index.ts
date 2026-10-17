@@ -11,6 +11,7 @@ import { RecordingRemuxer } from './recording-remuxer';
 import { StreamOutput } from './stream-output';
 import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
+import { ApplicationAudioCapture } from './application-audio-capture';
 import { createMainWindow } from './window';
 
 protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: MEDIA_SCHEME_PRIVILEGES }]);
@@ -27,17 +28,22 @@ const recordingRemuxer = new RecordingRemuxer(() => mainWindow);
 const streamOutput = new StreamOutput(() => mainWindow?.webContents ?? null);
 const browserSources = new BrowserSourceManager(() => mainWindow?.webContents ?? null);
 const globalHotkeys = new GlobalHotkeyManager(() => mainWindow?.webContents ?? null);
+const applicationAudioHelperPath = app.isPackaged
+  ? path.join(process.resourcesPath, 'application-audio', 'AudioLoopback.exe')
+  : path.join(app.getAppPath(), 'native', 'audio-loopback', 'publish', 'AudioLoopback.exe');
+const applicationAudio = new ApplicationAudioCapture(applicationAudioHelperPath);
 const collectionBundles = new CollectionBundleStore(projectStore, mediaAssets, () => mainWindow);
 const rendererFile = path.join(__dirname, '../renderer/index.html');
 const devServerOrigin = resolveDevServerOrigin(process.env.ELECTRON_RENDERER_URL);
 const isTrustedUrl = (url: string) => isTrustedRendererUrl(url, { packagedRendererFile: rendererFile, devServerOrigin });
-const unregisterIpc = registerStreamIpc(projectStore, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, () => mainWindow?.webContents ?? null, isTrustedUrl);
+const unregisterIpc = registerStreamIpc(projectStore, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, () => mainWindow?.webContents ?? null, isTrustedUrl);
 
 let shutdownComplete = false;
 app.on('before-quit', (event) => {
   if (shutdownComplete) return;
   event.preventDefault();
   browserSources.closeAll();
+  applicationAudio.stopAll();
   void Promise.all([streamOutput.stopAll(), recordings.closeAll()]).finally(() => {
     shutdownComplete = true;
     app.quit();
@@ -81,5 +87,6 @@ if (app.requestSingleInstanceLock()) {
 app.on('will-quit', () => {
   unregisterIpc();
   browserSources.closeAll();
+  applicationAudio.stopAll();
   globalHotkeys.unregisterAll();
 });

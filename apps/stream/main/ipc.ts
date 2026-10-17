@@ -13,6 +13,7 @@ import { RecordingRemuxer } from './recording-remuxer';
 import { StreamOutput } from './stream-output';
 import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
+import { ApplicationAudioCapture } from './application-audio-capture';
 
 function isTrustedInvocation(
   event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
@@ -37,6 +38,7 @@ export function registerStreamIpc(
   streamOutput: StreamOutput,
   browserSources: BrowserSourceManager,
   globalHotkeys: GlobalHotkeyManager,
+  applicationAudio: ApplicationAudioCapture,
   getContents: () => WebContents | null,
   isTrustedUrl: (url: string) => boolean,
 ): () => void {
@@ -141,6 +143,20 @@ export function registerStreamIpc(
     [IPC_CHANNELS.prepareDesktopCapture, (event, sourceId: string, includeSystemAudio: boolean) => {
       const contents = authorize(event);
       return capture.prepare(contents.id, sourceId, includeSystemAudio);
+    }],
+    [IPC_CHANNELS.listAudioApplications, (event) => { authorize(event); return applicationAudio.list(); }],
+    [IPC_CHANNELS.startApplicationAudioCapture, (event, sourceId: string, pid: number, executablePath: string) => {
+      const contents = authorize(event);
+      if (typeof sourceId !== 'string' || sourceId.length > 256 || !Number.isSafeInteger(pid) || pid < 1
+        || typeof executablePath !== 'string' || executablePath.length < 1 || executablePath.length > 32768) {
+        throw new Error('Invalid application-audio capture request.');
+      }
+      return applicationAudio.start(sourceId, contents, pid, executablePath);
+    }],
+    [IPC_CHANNELS.stopApplicationAudioCapture, (event, sourceId: string) => {
+      authorize(event);
+      if (typeof sourceId !== 'string' || sourceId.length > 256) throw new Error('Invalid application-audio source ID.');
+      applicationAudio.stop(sourceId);
     }],
     [IPC_CHANNELS.importMedia, (event, kind: MediaKind) => {
       authorize(event);

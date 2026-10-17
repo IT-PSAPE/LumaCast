@@ -19,6 +19,38 @@ const api: StreamAPI = {
   exportProfile: (id) => ipcRenderer.invoke(IPC_CHANNELS.exportProfile, id),
   listDesktopSources: (kind) => ipcRenderer.invoke(IPC_CHANNELS.listDesktopSources, kind),
   prepareDesktopCapture: (sourceId, includeSystemAudio) => ipcRenderer.invoke(IPC_CHANNELS.prepareDesktopCapture, sourceId, includeSystemAudio),
+  listAudioApplications: () => ipcRenderer.invoke(IPC_CHANNELS.listAudioApplications),
+  startApplicationAudioCapture: (sourceId, pid, applicationPath) => ipcRenderer.invoke(IPC_CHANNELS.startApplicationAudioCapture, sourceId, pid, applicationPath),
+  stopApplicationAudioCapture: (sourceId) => ipcRenderer.invoke(IPC_CHANNELS.stopApplicationAudioCapture, sourceId),
+  onApplicationAudioFrame(listener) {
+    const ports = new Set<MessagePort>();
+    const handler = (event: Electron.IpcRendererEvent, sourceId: string) => {
+      const port = event.ports[0];
+      if (!port) return;
+      ports.add(port);
+      port.onmessage = ({ data }) => {
+        if (data instanceof ArrayBuffer) listener(sourceId, data);
+        else if (data && typeof data === 'object' && typeof data.error === 'string') {
+          listener(sourceId, { error: data.error });
+          ports.delete(port);
+          port.close();
+        }
+      };
+      port.onmessageerror = () => {
+        ports.delete(port);
+        listener(sourceId, { error: 'Application audio capture could not transfer audio.' });
+        port.close();
+      };
+      port.addEventListener('close', () => ports.delete(port), { once: true });
+      port.start();
+    };
+    ipcRenderer.on(IPC_CHANNELS.applicationAudioFrame, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.applicationAudioFrame, handler);
+      for (const port of ports) port.close();
+      ports.clear();
+    };
+  },
   importMedia: (kind) => ipcRenderer.invoke(IPC_CHANNELS.importMedia, kind),
   remuxRecording: () => ipcRenderer.invoke(IPC_CHANNELS.remuxRecording),
   openRecording: (settings) => ipcRenderer.invoke(IPC_CHANNELS.openRecording, settings),

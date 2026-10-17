@@ -24,6 +24,7 @@ import { listenForMediaStreamEnd } from './media-stream-ended';
 import {
   CAMERA_FRAME_RATE_OPTIONS,
   CAMERA_RESOLUTION_OPTIONS,
+  type AudioApplicationOption,
   type CameraFrameRatePreset,
   type CameraResolutionPreset,
   type DesktopSourceOption,
@@ -158,7 +159,7 @@ function supportsChromaKey(source: StreamSource): boolean {
 }
 
 function supportsSourceTransform(source: StreamSource): boolean {
-  return source.kind !== 'microphone' && source.kind !== 'desktop-audio' && !(source.kind === 'media' && source.mediaKind === 'audio');
+  return source.kind !== 'microphone' && source.kind !== 'desktop-audio' && source.kind !== 'application-audio' && !(source.kind === 'media' && source.mediaKind === 'audio');
 }
 
 function friendlyError(error: unknown): string {
@@ -180,7 +181,7 @@ function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
   if (kind === 'window') return <Grid2X2 size={15} />;
   if (kind === 'camera') return <Webcam size={15} />;
   if (kind === 'microphone') return <Mic size={15} />;
-  if (kind === 'desktop-audio') return <Headphones size={15} />;
+  if (kind === 'desktop-audio' || kind === 'application-audio') return <Headphones size={15} />;
   if (kind === 'image') return <ImageIcon size={15} />;
   if (kind === 'slideshow') return <ImageIcon size={15} />;
   if (kind === 'media') return mediaKind === 'audio' ? <FileAudio size={15} /> : <FileVideo size={15} />;
@@ -192,14 +193,14 @@ function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
 function defaultTransform(kind: SourceKind, output: StreamProject['output'], mediaKind?: MediaKind) {
   if (kind === 'camera') return { x: Math.round(output.width * 0.72), y: Math.round(output.height * 0.68), width: Math.round(output.width * 0.25), height: Math.round(output.height * 0.25) };
   if (kind === 'text') return { x: Math.round(output.width * 0.08), y: Math.round(output.height * 0.08), width: Math.round(output.width * 0.84), height: Math.round(output.height * 0.25) };
-  if (kind === 'microphone' || kind === 'desktop-audio' || (kind === 'media' && mediaKind === 'audio')) return { x: 0, y: 0, width: 1, height: 1 };
+  if (kind === 'microphone' || kind === 'desktop-audio' || kind === 'application-audio' || (kind === 'media' && mediaKind === 'audio')) return { x: 0, y: 0, width: 1, height: 1 };
   return { x: 0, y: 0, width: output.width, height: output.height };
 }
 
 function createSource(kind: SourceKind, output: StreamProject['output'], name?: string, extra: Partial<StreamSource> = {}): StreamSource {
   const labels: Record<SourceKind, string> = {
     display: 'Display Capture', window: 'Window Capture', camera: 'Video Capture Device',
-    microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text (GDI+)', color: 'Color Source',
+    microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', 'application-audio': 'Application Audio Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text (GDI+)', color: 'Color Source',
   };
   return {
     id: crypto.randomUUID(),
@@ -273,6 +274,8 @@ export function App() {
   const [captureOptions, setCaptureOptions] = useState<DesktopSourceOption[] | null>(null);
   const [captureKind, setCaptureKind] = useState<'screen' | 'window' | 'audio' | null>(null);
   const [captureTargetSourceId, setCaptureTargetSourceId] = useState<string | null>(null);
+  const [applicationAudioOptions, setApplicationAudioOptions] = useState<AudioApplicationOption[] | null>(null);
+  const [applicationAudioTargetSourceId, setApplicationAudioTargetSourceId] = useState<string | null>(null);
   const [inputDevicePicker, setInputDevicePicker] = useState<InputCaptureKind | null>(null);
   const [inputDeviceOptions, setInputDeviceOptions] = useState<Record<InputCaptureKind, InputDeviceOption[]>>({ camera: [], microphone: [] });
   const [browserDialogOpen, setBrowserDialogOpen] = useState(false);
@@ -321,6 +324,8 @@ export function App() {
   const programProjectorStreamRef = useRef<MediaStream | null>(null);
   const programProjectorWatcherRef = useRef<number | null>(null);
   const runtimes = useRef(new Map<string, MediaStream>());
+  const applicationAudioInputs = useRef(new Map<string, Awaited<ReturnType<AudioMixerEngine['createApplicationAudioInput']>>>());
+  const applicationAudioSessions = useRef(new Map<string, { pid: number; path: string }>());
   const multiviewRuntimeBaseline = useRef<Set<string> | null>(null);
   const videoElements = useRef(new Map<string, HTMLVideoElement>());
   const mediaElements = useRef(new Map<string, HTMLMediaElement>());
@@ -468,6 +473,12 @@ export function App() {
   useEffect(() => () => {
     for (const stream of runtimes.current.values()) stream.getTracks().forEach((track) => track.stop());
     runtimes.current.clear();
+    for (const [sourceId, input] of applicationAudioInputs.current) {
+      void api.stopApplicationAudioCapture(sourceId).catch(() => undefined);
+      input.close();
+    }
+    applicationAudioInputs.current.clear();
+    applicationAudioSessions.current.clear();
     if (recording.current) stopRecordingChannels(recording.current.channels);
     if (streaming.current?.recorder.state === 'recording') streaming.current.recorder.stop();
     else if (streaming.current) void api.stopStreaming(streaming.current.id).catch(() => undefined);
@@ -708,10 +719,28 @@ export function App() {
   const stopRuntime = useCallback((sourceId: string) => {
     runtimes.current.get(sourceId)?.getTracks().forEach((track) => track.stop());
     runtimes.current.delete(sourceId);
+    const applicationAudioInput = applicationAudioInputs.current.get(sourceId);
+    if (applicationAudioInput) {
+      applicationAudioInputs.current.delete(sourceId);
+      applicationAudioSessions.current.delete(sourceId);
+      applicationAudioInput.close();
+      void api.stopApplicationAudioCapture(sourceId).catch(() => undefined);
+    }
     mixer.current?.remove(sourceId);
     setMeterLevels((current) => { const next = { ...current }; delete next[sourceId]; return next; });
     setRuntimeRevision((value) => value + 1);
-  }, []);
+  }, [api]);
+
+  useEffect(() => api.onApplicationAudioFrame((sourceId, frame) => {
+    const input = applicationAudioInputs.current.get(sourceId);
+    if (!input) return;
+    if (frame instanceof ArrayBuffer) {
+      input.node.port.postMessage(frame, [frame]);
+      return;
+    }
+    stopRuntime(sourceId);
+    setActionError(`Application audio capture ended: ${frame.error}`);
+  }), [api, stopRuntime]);
 
   useEffect(() => {
     const enabledBrowserSources = JSON.parse(browserAudioSignature) as Array<{ id: string; enabled: boolean }>;
@@ -756,6 +785,7 @@ export function App() {
     if (workspace.activeCollectionId !== activeCollectionId) {
       for (const stream of runtimes.current.values()) stream.getTracks().forEach((track) => track.stop());
       runtimes.current.clear();
+      for (const sourceId of applicationAudioInputs.current.keys()) stopRuntime(sourceId);
       for (const sourceId of mixer.current?.sourceIds() ?? []) mixer.current?.remove(sourceId);
       setRuntimeRevision((value) => value + 1);
       setMeterLevels({});
@@ -943,6 +973,66 @@ export function App() {
     } finally {
       setWorking(false);
     }
+  };
+
+  const openApplicationAudioPicker = async (targetSourceId?: string) => {
+    if (working) return;
+    setSourceMenuOpen(false);
+    setActionError('');
+    setWorking(true);
+    try {
+      setApplicationAudioOptions(await api.listAudioApplications());
+      setApplicationAudioTargetSourceId(targetSourceId ?? null);
+    } catch (error) {
+      setActionError(`Could not list running applications: ${friendlyError(error)}`);
+    } finally { setWorking(false); }
+  };
+
+  const startApplicationAudioRuntime = useCallback(async (source: StreamSource, application: AudioApplicationOption) => {
+    if (source.kind !== 'application-audio') throw new Error('Invalid application-audio source.');
+    if (applicationAudioInputs.current.has(source.id)) stopRuntime(source.id);
+    const input = await ensureMixer().createApplicationAudioInput();
+    applicationAudioInputs.current.set(source.id, input);
+    applicationAudioSessions.current.set(source.id, { pid: application.pid, path: application.path });
+    try {
+      await api.startApplicationAudioCapture(source.id, application.pid, application.path);
+      await attachRuntime(source, input.stream);
+    } catch (error) {
+      if (applicationAudioInputs.current.get(source.id) === input) {
+        applicationAudioInputs.current.delete(source.id);
+        applicationAudioSessions.current.delete(source.id);
+      }
+      input.close();
+      void api.stopApplicationAudioCapture(source.id).catch(() => undefined);
+      throw error;
+    }
+  }, [api, attachRuntime, ensureMixer, stopRuntime]);
+
+  const chooseAudioApplication = async (application: AudioApplicationOption) => {
+    if (!project || working) return;
+    const target = applicationAudioTargetSourceId
+      ? allSourcesRef.current.find((source) => source.id === applicationAudioTargetSourceId && source.kind === 'application-audio')
+      : null;
+    if (applicationAudioTargetSourceId && !target) {
+      setActionError('The application-audio source is no longer available.');
+      setApplicationAudioOptions(null);
+      setApplicationAudioTargetSourceId(null);
+      return;
+    }
+    const source = target
+      ? { ...target, name: application.name, applicationPath: application.path }
+      : createSource('application-audio', project.output, application.name, { applicationPath: application.path });
+    setWorking(true);
+    setActionError('');
+    try {
+      await startApplicationAudioRuntime(source, application);
+      if (target) updateSource(source.id, (current) => ({ ...current, name: application.name, applicationPath: application.path }));
+      else addToActiveScene(source);
+      setApplicationAudioOptions(null);
+      setApplicationAudioTargetSourceId(null);
+    } catch (error) {
+      setActionError(`Could not capture ${application.name}: ${friendlyError(error)}`);
+    } finally { setWorking(false); }
   };
 
   const addDesktopCapture = async (option: DesktopSourceOption) => {
@@ -1357,7 +1447,11 @@ export function App() {
     setSourceActionsMenuOpen(false);
     if (runtime && source.kind !== 'browser') {
       try {
-        await attachRuntime(source, runtime.clone());
+        if (source.kind === 'application-audio') {
+          const session = applicationAudioSessions.current.get(sourceClipboardRef.current.id);
+          if (!session) throw new Error('The application-audio capture is no longer active.');
+          await startApplicationAudioRuntime(source, { ...session, name: source.name });
+        } else await attachRuntime(source, runtime.clone());
       } catch (error) {
         stopRuntime(source.id);
         setActionError(`Could not duplicate source: ${friendlyError(error)}`);
@@ -1430,8 +1524,14 @@ export function App() {
     } satisfies StreamScene;
     try {
       for (let index = 0; index < original.sources.length; index += 1) {
-        const runtime = runtimes.current.get(original.sources[index]!.id);
-        if (runtime) await attachRuntime(clone.sources[index]!, runtime.clone());
+        const originalSource = original.sources[index]!;
+        const runtime = runtimes.current.get(originalSource.id);
+        if (!runtime) continue;
+        if (originalSource.kind === 'application-audio') {
+          const session = applicationAudioSessions.current.get(originalSource.id);
+          if (!session) throw new Error(`The application-audio capture for ${originalSource.name} is no longer active.`);
+          await startApplicationAudioRuntime(clone.sources[index]!, { ...session, name: originalSource.name });
+        } else await attachRuntime(clone.sources[index]!, runtime.clone());
       }
       setProjectValue((current) => ({
         ...current,
@@ -1608,7 +1708,7 @@ export function App() {
       const stillRendered = getRenderedSourceIds(project.scenes, project.activeSceneId, project.liveSceneId, false);
       for (const sourceId of runtimes.current.keys()) {
         const source = allSourcesRef.current.find((item) => item.id === sourceId);
-        if (baseline?.has(sourceId) || stillRendered.has(sourceId) || (source?.kind !== 'camera' && source?.kind !== 'microphone' && source?.kind !== 'desktop-audio')) continue;
+        if (baseline?.has(sourceId) || stillRendered.has(sourceId) || (source?.kind !== 'camera' && source?.kind !== 'microphone' && source?.kind !== 'desktop-audio' && source?.kind !== 'application-audio')) continue;
         stopRuntime(sourceId);
       }
       multiviewRuntimeBaseline.current = null;
@@ -2407,6 +2507,7 @@ export function App() {
             <button role="menuitem" onClick={() => void openCapturePicker('screen')}><Monitor size={15} />Display Capture</button>
             <button role="menuitem" onClick={() => void openCapturePicker('window')}><Grid2X2 size={15} />Window Capture</button>
             <button role="menuitem" onClick={() => void openCapturePicker('audio')}><Headphones size={15} />Audio Output Capture</button>
+            <button role="menuitem" onClick={() => void openApplicationAudioPicker()}><Headphones size={15} />Application Audio Capture</button>
             <button role="menuitem" onClick={() => void addCamera()}><Webcam size={15} />Video Capture Device</button>
             <button role="menuitem" onClick={() => void addMicrophone()}><Mic size={15} />Audio Input Capture</button>
             <div className="menu-label menu-label-separator">Media</div>
@@ -2436,6 +2537,10 @@ export function App() {
               </select></label>
             </>}
             {selectedSource.kind === 'desktop-audio' && !runtimesSnapshot.has(selectedSource.id) && <button className="secondary-button device-property" disabled={working} onClick={() => void openCapturePicker('audio', selectedSource.id)}>Start Capture</button>}
+            {selectedSource.kind === 'application-audio' && <>
+              <button className="secondary-button device-property" disabled={working} onClick={() => void openApplicationAudioPicker(selectedSource.id)}>{runtimesSnapshot.has(selectedSource.id) ? 'Change Application' : 'Reconnect Application'}</button>
+              <label className="device-property">Application path<input value={selectedSource.applicationPath ?? ''} readOnly title={selectedSource.applicationPath} /></label>
+            </>}
             {(selectedSource.kind === 'display' || selectedSource.kind === 'window') && <>
               <button className="secondary-button device-property" disabled={working} onClick={() => void openCapturePicker(selectedSource.kind === 'display' ? 'screen' : 'window', selectedSource.id)}>{runtimesSnapshot.has(selectedSource.id) ? 'Change Capture' : 'Reconnect Capture'}</button>
               <label className="device-property">Capture Cursor<select aria-label="Capture cursor" disabled={working} value={selectedSource.cursorMode ?? 'motion'} onChange={(event) => void updateCaptureCursorMode(selectedSource.id, event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>
@@ -2637,6 +2742,16 @@ export function App() {
             ? <div className="capture-empty">No devices are available.</div>
             : inputDeviceOptions[inputDevicePicker].map((device) => <button key={device.deviceId || device.label} disabled={working} onClick={() => void chooseInputDevice(device)}><span>{device.label}</span><ChevronDown size={14} /></button>)}</div>
           <div className="modal-footer"><button className="secondary-button" disabled={working} onClick={() => setInputDevicePicker(null)}>Cancel</button></div>
+        </section>
+      </div>}
+
+      {applicationAudioOptions && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) { setApplicationAudioOptions(null); setApplicationAudioTargetSourceId(null); } }}>
+        <section className="capture-modal device-modal" role="dialog" aria-modal="true" aria-labelledby="application-audio-title">
+          <div className="modal-heading"><div><span className="modal-eyebrow">{applicationAudioTargetSourceId ? (runtimesSnapshot.has(applicationAudioTargetSourceId) ? 'CHANGE APPLICATION' : 'RECONNECT APPLICATION') : 'NEW SOURCE'}</span><h2 id="application-audio-title">Select an application</h2></div><button className="icon-button" aria-label="Close" disabled={working} onClick={() => { setApplicationAudioOptions(null); setApplicationAudioTargetSourceId(null); }}><X size={17} /></button></div>
+          <div className="device-picker-list">{applicationAudioOptions.length === 0
+            ? <div className="capture-empty">No applications are available.</div>
+            : applicationAudioOptions.map((application) => <button key={`${application.pid}:${application.path}`} disabled={working} onClick={() => void chooseAudioApplication(application)}><span title={`${application.path} · PID ${application.pid}`}>{application.name} · PID {application.pid}</span><ChevronDown size={14} /></button>)}</div>
+          <div className="modal-footer"><button className="secondary-button" disabled={working} onClick={() => { setApplicationAudioOptions(null); setApplicationAudioTargetSourceId(null); }}>Cancel</button></div>
         </section>
       </div>}
     </main>

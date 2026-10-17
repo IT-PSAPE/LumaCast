@@ -1,6 +1,6 @@
 export type CaptureKind = 'screen' | 'window';
 export type CaptureCursorMode = 'never' | 'motion' | 'always';
-export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color';
+export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color';
 export type MediaKind = 'image' | 'video' | 'audio';
 export type RecordingContainer = 'webm' | 'mkv' | 'mp4';
 export type AudioMonitoring = 'off' | 'monitor-only' | 'monitor-and-output';
@@ -84,6 +84,12 @@ export interface DesktopSourceOption {
   thumbnail: string;
 }
 
+export interface AudioApplicationOption {
+  pid: number;
+  name: string;
+  path: string;
+}
+
 export interface SourceTransform {
   x: number;
   y: number;
@@ -156,6 +162,7 @@ export interface StreamSource {
   audioMonitoring?: AudioMonitoring;
   audioTracks?: AudioTrack[];
   captureId?: string;
+  applicationPath?: string;
   cursorMode?: CaptureCursorMode;
   deviceId?: string;
   cameraResolution?: CameraResolutionPreset;
@@ -315,6 +322,10 @@ export interface StreamAPI {
   exportProfile(id: string): Promise<boolean>;
   listDesktopSources(kind: CaptureKind): Promise<DesktopSourceOption[]>;
   prepareDesktopCapture(sourceId: string, includeSystemAudio: boolean): Promise<void>;
+  listAudioApplications(): Promise<AudioApplicationOption[]>;
+  startApplicationAudioCapture(sourceId: string, pid: number, applicationPath: string): Promise<void>;
+  stopApplicationAudioCapture(sourceId: string): Promise<void>;
+  onApplicationAudioFrame(listener: (sourceId: string, frame: ArrayBuffer | { error: string }) => void): () => void;
   importMedia(kind: MediaKind): Promise<MediaAsset | null>;
   remuxRecording(): Promise<string | null>;
   openRecording(settings: RecordingOutputSettings): Promise<{ id: string; name: string } | null>;

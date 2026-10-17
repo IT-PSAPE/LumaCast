@@ -4,6 +4,7 @@ import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.j
 import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?inline';
 import rnnoiseSimdWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?inline';
 import audioFiltersProcessorUrl from './audio-filters-processor.js?url';
+import applicationAudioInputProcessorUrl from './application-audio-input-processor.js?url';
 import { connectAudioInput, gainFromDecibels, replaceAudioInputConnection } from './audio-route';
 import { audioTrackGainValues } from './audio-track-routing';
 
@@ -35,6 +36,7 @@ export class AudioMixerEngine {
   private readonly routes = new Map<string, AudioRoute>();
   private readonly mediaElementSources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private readonly audioFiltersModuleReady: Promise<boolean>;
+  private readonly applicationAudioInputReady: Promise<boolean>;
   private rnnoiseWorkletReady: Promise<void> | null = null;
   private rnnoiseWasmReady: Promise<ArrayBuffer> | null = null;
 
@@ -43,11 +45,37 @@ export class AudioMixerEngine {
     this.audioFiltersModuleReady = this.context.audioWorklet
       ? this.context.audioWorklet.addModule(audioFiltersProcessorUrl).then(() => true).catch(() => false)
       : Promise.resolve(false);
+    this.applicationAudioInputReady = this.context.audioWorklet
+      ? this.context.audioWorklet.addModule(applicationAudioInputProcessorUrl).then(() => true).catch(() => false)
+      : Promise.resolve(false);
   }
 
   get destination(): MediaStreamAudioDestinationNode { return this.destinations[0]!; }
 
   destinationFor(track: AudioTrack): MediaStreamAudioDestinationNode { return this.destinations[track - 1]!; }
+
+  async createApplicationAudioInput(): Promise<{ stream: MediaStream; node: AudioWorkletNode; close: () => void }> {
+    if (!await this.applicationAudioInputReady) throw new Error('Application audio capture is unavailable in this audio runtime.');
+    const node = new AudioWorkletNode(this.context, 'stream-application-audio-input', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: 'explicit',
+    });
+    const destination = this.context.createMediaStreamDestination();
+    node.connect(destination);
+    return {
+      stream: destination.stream,
+      node,
+      close: () => {
+        node.port.postMessage({ type: 'stop' });
+        node.disconnect();
+        destination.stream.getTracks().forEach((track) => track.stop());
+        destination.disconnect();
+      },
+    };
+  }
 
   async add(sourceId: string, stream: MediaStream, settings: AudioRouteSettings): Promise<boolean> {
     this.remove(sourceId);

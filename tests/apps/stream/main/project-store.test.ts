@@ -80,6 +80,23 @@ function projectWithDesktopAudioSource(): StreamProject {
   return project;
 }
 
+function projectWithApplicationAudioSource(): StreamProject {
+  const project = createDefaultProject();
+  const scene = project.scenes[0];
+  if (!scene) throw new Error('Default Stream project has no scene.');
+  scene.sources.push({
+    id: 'application-audio-source',
+    name: 'Music Player',
+    kind: 'application-audio',
+    visible: true,
+    muted: false,
+    volume: 1,
+    transform: { x: 0, y: 0, width: 1, height: 1 },
+    applicationPath: 'C:\\Program Files\\Music Player\\player.exe',
+  });
+  return project;
+}
+
 function projectWithMediaSource(): StreamProject {
   const project = createDefaultProject();
   const scene = project.scenes[0];
@@ -117,6 +134,40 @@ describe('LumaStream desktop audio persistence', () => {
     expect(source?.kind).toBe('desktop-audio');
     expect(source?.captureId).toBe('screen:1');
     expect(source?.audioTracks).toEqual([1]);
+  });
+});
+
+describe('LumaStream application audio persistence', () => {
+  it('round-trips the selected executable path without persisting a process ID', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(projectWithApplicationAudioSource()), 'utf8');
+
+    const restored = await new ProjectStore(directory).load();
+    const source = restored.project.scenes[0]?.sources.find((item) => item.id === 'application-audio-source');
+    expect(source?.kind).toBe('application-audio');
+    expect(source?.applicationPath).toBe('C:\\Program Files\\Music Player\\player.exe');
+    expect(source).not.toHaveProperty('pid');
+  });
+
+  it('rejects a relative executable path', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithApplicationAudioSource();
+    project.scenes[0]!.sources[0]!.applicationPath = 'player.exe';
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid application audio source');
+  });
+
+  it('rejects an application audio source without an executable path', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithApplicationAudioSource();
+    delete project.scenes[0]!.sources[0]!.applicationPath;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('incomplete application audio source');
   });
 });
 

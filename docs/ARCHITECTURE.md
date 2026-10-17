@@ -68,6 +68,28 @@ new user gesture to start capture after the source stops or Stream restarts;
 the current Electron loopback path captures system audio rather than selecting
 an individual output device or application.
 
+Application Audio Capture adds a separate Windows process-loopback path. A
+Stream-owned .NET 8 helper uses WASAPI process loopback, lists visible
+interactive processes, and captures the selected process tree as 48 kHz stereo
+float PCM. Main owns the helper executable, validates its process-list output,
+and refreshes the list before starting capture; the selected PID must still
+match the persisted executable path. The scene stores the executable path, not
+the PID, so process identity is transient and capture must be started again
+after Stream restarts. Main owns one capture child and transferred MessagePort
+per source, and stops the child when the source is stopped or its renderer
+connection closes. The trusted renderer feeds PCM frames into a bounded
+AudioWorklet queue, exposes its output as a MediaStream, and routes it through
+the existing mixer for source processing, monitoring, metering, and track
+routing (ADR-0106).
+
+The helper is a self-contained Windows x64 executable and rejects capture on
+Windows builds older than 20348; process listing is not itself a guarantee that
+capture is supported. Stream's development and Windows packaging scripts
+publish the helper, and the Windows installer includes it as an application
+resource. Live PCM capture still requires runtime verification on a supported
+Windows host. This path captures a selected process tree, not an output-device
+endpoint or all system audio.
+
 Display and Window Capture sources also persist their selected capture ID, but
 their live media tracks are session-only. The selected-source properties expose
 Reconnect Capture when the track is absent and Change Capture while it is live.
