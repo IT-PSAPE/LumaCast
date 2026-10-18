@@ -1,12 +1,14 @@
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
-import { BrowserWindow, dialog } from 'electron';
-import { open, writeFile } from 'node:fs/promises';
+import { app, BrowserWindow, dialog, shell } from 'electron';
+import { mkdir, open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject } from '../shared/desktop-api';
+import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject, StreamServiceSettings } from '../shared/desktop-api';
 import type { AudioSettingsStore } from './audio-settings-store';
 import type { RecordingPreferencesStore } from './recording-preferences-store';
+import type { StreamSettingsStore } from './stream-settings-store';
 import { DesktopCaptureController } from './desktop-capture';
 import { BrowserSourceManager } from './browser-sources';
+import { applyApplicationMenu, validateSerializedMenu } from './application-menu';
 import { IPC_CHANNELS } from './ipc-channels';
 import { MediaAssetStore } from './media-assets';
 import { ProjectStore } from './project-store';
@@ -16,6 +18,25 @@ import { StreamOutput } from './stream-output';
 import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
 import { ApplicationAudioCapture } from './application-audio-capture';
+
+// Mirrors the contract's allow-list for `stream:open-external`: only an https
+// URL whose hostname is (or is a subdomain of) one of these destinations may
+// be handed to the OS shell, so a compromised or buggy renderer cannot use
+// this channel to open arbitrary links.
+const EXTERNAL_URL_ALLOWED_HOSTS = ['youtube.com', 'studio.youtube.com', 'twitch.tv', 'dashboard.twitch.tv', 'kick.com', 'facebook.com'];
+
+function isAllowedExternalStreamUrl(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  const hostname = url.hostname.toLowerCase();
+  return EXTERNAL_URL_ALLOWED_HOSTS.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+}
 
 function isTrustedInvocation(
   event: Pick<IpcMainInvokeEvent, 'sender' | 'senderFrame'>,
@@ -43,6 +64,7 @@ export function registerStreamIpc(
   browserSources: BrowserSourceManager,
   globalHotkeys: GlobalHotkeyManager,
   applicationAudio: ApplicationAudioCapture,
+  streamSettings: StreamSettingsStore,
   getContents: () => WebContents | null,
   isTrustedUrl: (url: string) => boolean,
 ): () => void {
@@ -80,6 +102,14 @@ export function registerStreamIpc(
     [IPC_CHANNELS.useDefaultRecordingDirectory, (event) => {
       authorize(event);
       return recordingPreferences.update({ directory: '' });
+    }],
+    [IPC_CHANNELS.showRecordingsFolder, async (event) => {
+      authorize(event);
+      const preferences = await recordingPreferences.load();
+      const directory = path.resolve(preferences.directory || app.getPath('videos'));
+      await mkdir(directory, { recursive: true }).catch(() => undefined);
+      const error = await shell.openPath(directory);
+      if (error) throw new Error(error);
     }],
     [IPC_CHANNELS.createCollection, (event, name: string, duplicateCurrent: boolean) => {
       authorize(event);
@@ -179,6 +209,11 @@ export function registerStreamIpc(
       }
       return applicationAudio.start(sourceId, contents, pid, executablePath);
     }],
+    [IPC_CHANNELS.startSystemAudioCapture, (event, sourceId: string) => {
+      const contents = authorize(event);
+      if (typeof sourceId !== 'string' || sourceId.length > 256) throw new Error('Invalid system-audio capture request.');
+      return applicationAudio.startSystem(sourceId, contents);
+    }],
     [IPC_CHANNELS.stopApplicationAudioCapture, (event, sourceId: string) => {
       authorize(event);
       if (typeof sourceId !== 'string' || sourceId.length > 256) throw new Error('Invalid application-audio source ID.');
@@ -236,6 +271,31 @@ export function registerStreamIpc(
       authorize(event);
       if (typeof id !== 'string' || id.length > 128) throw new Error('Invalid browser source.');
       browserSources.close(id);
+    }],
+    [IPC_CHANNELS.loadStreamServiceSettings, (event) => { authorize(event); return streamSettings.load(); }],
+    [IPC_CHANNELS.saveStreamServiceSettings, (event, settings: StreamServiceSettings) => { authorize(event); return streamSettings.save(settings); }],
+    [IPC_CHANNELS.openExternal, (event, url: string) => {
+      authorize(event);
+      if (!isAllowedExternalStreamUrl(url)) throw new Error('This link cannot be opened.');
+      return shell.openExternal(url);
+    }],
+    [IPC_CHANNELS.runtimeStats, (event) => {
+      authorize(event);
+      const mainCpu = process.getCPUUsage().percentCPUUsage;
+      const metrics = app.getAppMetrics();
+      // `process.getCPUUsage()` covers the main process; add the renderer ("Tab")
+      // and GPU processes from `getAppMetrics()` to get the app's full footprint.
+      const otherCpu = metrics
+        .filter((metric) => metric.type === 'Tab' || metric.type === 'GPU')
+        .reduce((sum, metric) => sum + metric.cpu.percentCPUUsage, 0);
+      const memoryMb = metrics.reduce((sum, metric) => sum + metric.memory.workingSetSize, 0) / 1024;
+      return { cpuPercent: Math.round((mainCpu + otherCpu) * 10) / 10, memoryMb: Math.round(memoryMb) };
+    }],
+    [IPC_CHANNELS.setApplicationMenu, (event, template: unknown) => {
+      const contents = authorize(event);
+      applyApplicationMenu(validateSerializedMenu(template), (id) => {
+        if (!contents.isDestroyed()) contents.send(IPC_CHANNELS.menuAction, id);
+      });
     }],
   ];
   for (const [channel, handler] of handlers) ipcMain.handle(channel, handler);

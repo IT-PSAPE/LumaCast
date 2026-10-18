@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { StreamAPI } from '../shared/desktop-api';
 import { IPC_CHANNELS } from './ipc-channels';
+import { toStreamPlatform } from '../shared/platform-capabilities';
 
 const api: StreamAPI = {
+  platform: toStreamPlatform(process.platform),
   loadProject: () => ipcRenderer.invoke(IPC_CHANNELS.loadProject),
   saveProject: (collectionId, profileId, project) => ipcRenderer.invoke(IPC_CHANNELS.saveProject, collectionId, profileId, project),
   loadAudioSettings: () => ipcRenderer.invoke(IPC_CHANNELS.loadAudioSettings),
@@ -11,6 +13,7 @@ const api: StreamAPI = {
   saveRecordingFilenameFormat: (filenameFormat) => ipcRenderer.invoke(IPC_CHANNELS.saveRecordingFilenameFormat, filenameFormat),
   chooseRecordingDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseRecordingDirectory),
   useDefaultRecordingDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.useDefaultRecordingDirectory),
+  showRecordingsFolder: () => ipcRenderer.invoke(IPC_CHANNELS.showRecordingsFolder),
   createCollection: (name, duplicateCurrent) => ipcRenderer.invoke(IPC_CHANNELS.createCollection, name, duplicateCurrent),
   activateCollection: (id) => ipcRenderer.invoke(IPC_CHANNELS.activateCollection, id),
   renameCollection: (id, name) => ipcRenderer.invoke(IPC_CHANNELS.renameCollection, id, name),
@@ -27,6 +30,7 @@ const api: StreamAPI = {
   prepareDesktopCapture: (sourceId, includeSystemAudio) => ipcRenderer.invoke(IPC_CHANNELS.prepareDesktopCapture, sourceId, includeSystemAudio),
   listAudioApplications: () => ipcRenderer.invoke(IPC_CHANNELS.listAudioApplications),
   startApplicationAudioCapture: (sourceId, pid, applicationPath) => ipcRenderer.invoke(IPC_CHANNELS.startApplicationAudioCapture, sourceId, pid, applicationPath),
+  startSystemAudioCapture: (sourceId) => ipcRenderer.invoke(IPC_CHANNELS.startSystemAudioCapture, sourceId),
   stopApplicationAudioCapture: (sourceId) => ipcRenderer.invoke(IPC_CHANNELS.stopApplicationAudioCapture, sourceId),
   onApplicationAudioFrame(listener) {
     const ports = new Set<MessagePort>();
@@ -84,6 +88,16 @@ const api: StreamAPI = {
     const handler = (_event: Electron.IpcRendererEvent, id: string, frame: ArrayBuffer) => listener(id, frame);
     ipcRenderer.on(IPC_CHANNELS.browserSourceFrame, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.browserSourceFrame, handler);
+  },
+  loadStreamServiceSettings: () => ipcRenderer.invoke(IPC_CHANNELS.loadStreamServiceSettings),
+  saveStreamServiceSettings: (settings) => ipcRenderer.invoke(IPC_CHANNELS.saveStreamServiceSettings, settings),
+  openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
+  getRuntimeStats: () => ipcRenderer.invoke(IPC_CHANNELS.runtimeStats),
+  setApplicationMenu: (template) => ipcRenderer.invoke(IPC_CHANNELS.setApplicationMenu, template),
+  onMenuAction(listener) {
+    const handler = (_event: Electron.IpcRendererEvent, id: string) => listener(id);
+    ipcRenderer.on(IPC_CHANNELS.menuAction, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.menuAction, handler);
   },
 };
 

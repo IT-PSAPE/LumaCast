@@ -9,6 +9,22 @@ interface ModalDialogProps {
   openerRef: { current: HTMLElement | null };
 }
 
+/** Closes a hand-rolled dialog on Escape while it is mounted; `working` suspends it during async submits. */
+export function useEscapeKey(onClose: () => void, working = false): void {
+  const closeHandlerRef = useRef(onClose);
+  closeHandlerRef.current = onClose;
+  useEffect(() => {
+    if (working) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      closeHandlerRef.current();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [working]);
+}
+
 export function ModalDialog({ backdropClassName, children, className, labelledBy, onClose, openerRef }: ModalDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeHandlerRef = useRef(onClose);

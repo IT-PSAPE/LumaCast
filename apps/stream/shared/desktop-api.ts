@@ -1,3 +1,10 @@
+import { defaultTextFontFamilyForPlatform, defaultVideoEncoderForPlatform, type StreamPlatform } from './platform-capabilities';
+import type { StreamServiceId } from './stream-services';
+// Type-only: `SerializedMenuItem` is the renderer's own menu-template shape
+// (produced by `chrome/app-menu.ts`'s `serializeAppMenus`); referencing it
+// here only shapes the `StreamAPI` contract below and is erased at build time,
+// so it adds no runtime dependency from `shared` on the renderer.
+import type { SerializedMenuItem } from './application-menu';
 export type CaptureKind = 'screen' | 'window';
 export type CaptureCursorMode = 'never' | 'motion' | 'always';
 export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color' | 'group' | 'scene';
@@ -35,7 +42,7 @@ export type CameraFrameRatePreset = typeof CAMERA_FRAME_RATE_OPTIONS[number];
 export type AudioTrack = 1 | 2 | 3 | 4 | 5 | 6;
 export type RecordingTrackId = 0 | AudioTrack;
 export const AUDIO_TRACKS: readonly AudioTrack[] = [1, 2, 3, 4, 5, 6];
-export type VideoEncoderFamily = 'h264_mf' | 'h264_nvenc' | 'h264_qsv' | 'h264_amf' | 'libopenh264';
+export type VideoEncoderFamily = 'h264_mf' | 'h264_nvenc' | 'h264_qsv' | 'h264_amf' | 'h264_videotoolbox' | 'libopenh264';
 export type VideoRateControlMode = 'cbr' | 'pc_vbr' | 'u_vbr' | 'quality';
 
 export const VIDEO_ENCODER_OPTIONS: ReadonlyArray<{ value: VideoEncoderFamily; label: string }> = [
@@ -43,6 +50,7 @@ export const VIDEO_ENCODER_OPTIONS: ReadonlyArray<{ value: VideoEncoderFamily; l
   { value: 'h264_nvenc', label: 'NVIDIA NVENC' },
   { value: 'h264_qsv', label: 'Intel Quick Sync' },
   { value: 'h264_amf', label: 'AMD AMF' },
+  { value: 'h264_videotoolbox', label: 'Apple VideoToolbox' },
   { value: 'libopenh264', label: 'OpenH264 Software' },
 ];
 
@@ -58,6 +66,7 @@ const VIDEO_ENCODER_RATE_CONTROLS: Record<VideoEncoderFamily, readonly VideoRate
   h264_nvenc: ['cbr', 'pc_vbr', 'u_vbr', 'quality'],
   h264_qsv: ['cbr', 'pc_vbr', 'u_vbr'],
   h264_amf: ['cbr', 'pc_vbr', 'u_vbr', 'quality'],
+  h264_videotoolbox: ['cbr', 'pc_vbr', 'u_vbr', 'quality'],
   libopenh264: ['cbr'],
 };
 
@@ -176,9 +185,9 @@ export interface StreamTextStyle {
   background: { color: string; opacity: number };
 }
 
-export function createDefaultTextStyle(): StreamTextStyle {
+export function createDefaultTextStyle(platform: StreamPlatform = 'win32'): StreamTextStyle {
   return {
-    fontFamily: 'Segoe UI', fontSize: 48, bold: true, italic: false,
+    fontFamily: defaultTextFontFamilyForPlatform(platform), fontSize: 48, bold: true, italic: false,
     horizontalAlignment: 'left', verticalAlignment: 'top',
     outline: { enabled: false, color: '#000000', width: 2 },
     shadow: { enabled: false, color: '#000000', blur: 4, offsetX: 2, offsetY: 2 },
@@ -353,7 +362,15 @@ export interface StreamRuntimeStatus {
   message?: string;
 }
 
+/** CPU/memory footprint across the app's processes (main + renderer + GPU), sampled on each call. */
+export interface StreamRuntimeStats {
+  cpuPercent: number;
+  memoryMb: number;
+}
+
 export interface StreamAPI {
+  /** Host operating system, so the renderer can offer only the capture and encoder paths that exist there. */
+  readonly platform: StreamPlatform;
   loadProject(): Promise<StreamWorkspace>;
   saveProject(collectionId: string, profileId: string, project: StreamProject): Promise<void>;
   loadAudioSettings(): Promise<StreamAudioSettings>;
@@ -362,6 +379,8 @@ export interface StreamAPI {
   saveRecordingFilenameFormat(filenameFormat: string): Promise<StreamRecordingPreferences>;
   chooseRecordingDirectory(): Promise<StreamRecordingPreferences | null>;
   useDefaultRecordingDirectory(): Promise<StreamRecordingPreferences>;
+  /** Reveals the configured (or default) recordings folder in the OS file manager. */
+  showRecordingsFolder(): Promise<void>;
   createCollection(name: string, duplicateCurrent: boolean): Promise<StreamWorkspace>;
   activateCollection(id: string): Promise<StreamWorkspace>;
   renameCollection(id: string, name: string): Promise<SceneCollectionSummary[]>;
@@ -378,6 +397,8 @@ export interface StreamAPI {
   prepareDesktopCapture(sourceId: string, includeSystemAudio: boolean): Promise<void>;
   listAudioApplications(): Promise<AudioApplicationOption[]>;
   startApplicationAudioCapture(sourceId: string, pid: number, applicationPath: string): Promise<void>;
+  /** macOS only: capture the whole system mix through the audio helper; frames arrive on the application-audio port. */
+  startSystemAudioCapture(sourceId: string): Promise<void>;
   stopApplicationAudioCapture(sourceId: string): Promise<void>;
   onApplicationAudioFrame(listener: (sourceId: string, frame: ArrayBuffer | { error: string }) => void): () => void;
   importMedia(kind: MediaKind): Promise<MediaAsset | null>;
@@ -396,14 +417,25 @@ export interface StreamAPI {
   getBrowserSourceAudioCaptureId(id: string): Promise<string>;
   closeBrowserSource(id: string): Promise<void>;
   onBrowserSourceFrame(listener: (id: string, frame: ArrayBuffer) => void): () => void;
+  loadStreamServiceSettings(): Promise<StreamServiceSettings>;
+  saveStreamServiceSettings(settings: StreamServiceSettings): Promise<StreamServiceSettings>;
+  /** Opens an https URL on youtube.com, studio.youtube.com, twitch.tv, dashboard.twitch.tv, kick.com, or facebook.com in the system browser; the main process rejects every other URL. */
+  openExternal(url: string): Promise<void>;
+  /** CPU and memory usage across the app's processes, for the status bar; polled at 1Hz while the window is visible. */
+  getRuntimeStats(): Promise<StreamRuntimeStats>;
+  /** macOS only: installs the real application menu (`Menu.setApplicationMenu`) from the renderer's current menu model; a no-op on other platforms. */
+  setApplicationMenu(template: SerializedMenuItem[]): Promise<void>;
+  /** Fires with an item's id when a native application-menu item (or, on macOS, the Settings…/About items this app adds to the App menu) is clicked. */
+  onMenuAction(listener: (id: string) => void): () => void;
 }
 
 export function mediaAssetUrl(id: string, extension: string): string {
   return `lumastream://media/${encodeURIComponent(id)}.${encodeURIComponent(extension)}`;
 }
 
-export function createDefaultProject(): StreamProject {
+export function createDefaultProject(platform: StreamPlatform = 'win32'): StreamProject {
   const sceneId = crypto.randomUUID();
+  const videoEncoder = defaultVideoEncoderForPlatform(platform);
   return {
     version: 1,
     output: {
@@ -416,7 +448,7 @@ export function createDefaultProject(): StreamProject {
       streamAudioBitrateKbps: 160,
       streamAudioTrack: 1,
       streamRateControl: 'cbr',
-      streamVideoEncoder: 'h264_mf',
+      streamVideoEncoder: videoEncoder,
       streamEncoderQuality: 60,
       streamHardwareEncoding: false,
       streamKeyframeIntervalSeconds: 2,
@@ -425,7 +457,7 @@ export function createDefaultProject(): StreamProject {
       recordingAudioTracks: [1],
       recordingContainer: 'webm',
       recordingRateControl: 'cbr',
-      recordingVideoEncoder: 'h264_mf',
+      recordingVideoEncoder: videoEncoder,
       recordingEncoderQuality: 60,
       recordingHardwareEncoding: false,
       recordingKeyframeIntervalSeconds: 2,
@@ -437,5 +469,31 @@ export function createDefaultProject(): StreamProject {
     sceneSwitchHotkeys: {},
     sourceVisibilityHotkeys: {},
     scenes: [{ id: sceneId, name: 'Scene 1', sources: [] }],
+  };
+}
+
+export type YouTubePrivacy = 'public' | 'unlisted' | 'private';
+
+export interface YouTubeBroadcastDraft {
+  title: string;
+  description: string;
+  privacy: YouTubePrivacy;
+}
+
+export interface StreamServiceSettings {
+  service: StreamServiceId;
+  serverId: string;
+  customServer: string;
+  streamKey: string;
+  youtube: YouTubeBroadcastDraft;
+}
+
+export function createDefaultStreamServiceSettings(): StreamServiceSettings {
+  return {
+    service: 'youtube',
+    serverId: 'primary',
+    customServer: '',
+    streamKey: '',
+    youtube: { title: '', description: '', privacy: 'unlisted' },
   };
 }

@@ -1,0 +1,60 @@
+/* LumaStream runs denser than the shared @lumacast/ui defaults (9–11px UI).
+ * Scale the package's text tokens and the few literal sizes down to match,
+ * so title-bar menus, context menus, buttons and selects sit with the docks. */
+
+:root {
+  --text-label-xs: 10px;
+  --text-label-xs--line-height: 1.2;
+  --text-label-sm: 11px;
+  --text-label-sm--line-height: 1.2;
+}
+
+/* The theme's label utilities are not emitted into this app's bundle (Cloud
+ * carries the same local copy), so define them here at Stream's scale. */
+.label-sm,
+.label-xs {
+  font-family: var(--font-label, inherit);
+  font-style: normal;
+}
+
+.label-sm {
+  font-size: var(--text-label-sm);
+  font-weight: var(--text-label-sm--font-weight, 500);
+  line-height: var(--text-label-sm--line-height);
+}
+
+.label-xs {
+  font-size: var(--text-label-xs);
+  font-weight: var(--text-label-xs--font-weight, 500);
+  line-height: var(--text-label-xs--line-height);
+}
+
+/* Title bar menus: triggers and their dropdowns. */
+.title-bar [role='menubar'] button {
+  padding-inline: 8px;
+  font-size: 11px;
+}
+
+[role='menu'] [role='menuitem'],
+[role='menu'] [role='menuitemcheckbox'] {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+[role='menu'] [role='menuitem'] > span:last-child,
+[role='menu'] [role='menuitemcheckbox'] > span:last-child {
+  font-size: 10px;
+}
+
+/* Shared buttons (ReacstButton) keep their look but at dock density. Select
+ * triggers also carry the label class; they are combobox-roled and keep their
+ * own compact padding. */
+button.label-xs:not([role='combobox']) {
+  gap: 5px;
+  padding: 5px 10px;
+}
+
+button.label-xs:not([role='combobox']) svg {
+  width: 12px;
+  height: 12px;
+}
