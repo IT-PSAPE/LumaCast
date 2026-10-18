@@ -12,10 +12,11 @@
     "build": "electron-vite build",
     "prepare:media-engine": "node script/prepare-media-engine.mjs",
     "prepare:application-audio": "node script/prepare-application-audio.mjs",
+    "prepare:zoom-native": "node script/prepare-zoom-native.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pack": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --dir",
-    "dist:win": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --win",
-    "dist:mac": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --mac"
+    "pack": "npm run prepare:media-engine && npm run prepare:application-audio && npm run prepare:zoom-native && electron-vite build && electron-builder --dir",
+    "dist:win": "npm run prepare:media-engine && npm run prepare:application-audio && npm run prepare:zoom-native && electron-vite build && electron-builder --win",
+    "dist:mac": "npm run prepare:media-engine && npm run prepare:application-audio && npm run prepare:zoom-native && electron-vite build && electron-builder --mac"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -37,6 +38,8 @@
     "electron": "44.3.0",
     "electron-builder": "^26.0.12",
     "electron-vite": "^3.1.0",
+    "node-addon-api": "^8.9.2",
+    "node-gyp": "^12.4.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.8.2",
     "vite": "^5.4.14"

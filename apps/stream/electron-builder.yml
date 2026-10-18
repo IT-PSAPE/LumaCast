@@ -29,6 +29,10 @@ win:
         - '*.dll'
     - from: native/audio-loopback/publish/AudioLoopback.exe
       to: application-audio/AudioLoopback.exe
+    - from: native/zoom/stage/windows
+      to: zoom-sdk
+    - from: native/zoom/stage/third-party
+      to: third-party/zoom
 nsis:
   oneClick: true
   perMachine: false
@@ -53,6 +57,9 @@ mac:
   binaries:
     - Contents/Resources/media-engine/ffmpeg
     - Contents/Resources/application-audio/lumastream-audio-tap
+    - Contents/Resources/zoom-sdk/lumastream-zoom-sdk.node
+    - Contents/Resources/zoom-sdk/ZoomSDK.framework/Versions/A/ZoomSDK
+    - Contents/Resources/zoom-sdk/protobuf.framework/Versions/A/protobuf
   extraResources:
     - from: vendor/ffmpeg/bin
       to: media-engine
@@ -60,5 +67,9 @@ mac:
         - ffmpeg
     - from: native/audio-tap/build/lumastream-audio-tap
       to: application-audio/lumastream-audio-tap
+    - from: native/zoom/stage/macos
+      to: zoom-sdk
+    - from: native/zoom/stage/third-party
+      to: third-party/zoom
 dmg:
   artifactName: "${productName}-${version}-${arch}-mac.${ext}"

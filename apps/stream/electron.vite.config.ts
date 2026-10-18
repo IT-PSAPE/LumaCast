@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { loadEnv } from 'vite';
 
 function inlineWasmDataUris() {
   return {
@@ -17,9 +18,15 @@ function inlineWasmDataUris() {
   };
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const appEnvironment = loadEnv(mode, path.resolve(__dirname, '../..'), '');
+  return {
   main: {
     plugins: [externalizeDepsPlugin()],
+    define: {
+      'process.env.LUMASTREAM_GOOGLE_CLIENT_ID': JSON.stringify(appEnvironment.LUMASTREAM_GOOGLE_CLIENT_ID ?? process.env.LUMASTREAM_GOOGLE_CLIENT_ID ?? ''),
+      'process.env.LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID': JSON.stringify(appEnvironment.LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID ?? process.env.LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID ?? ''),
+    },
     build: { outDir: 'out/main', lib: { entry: path.resolve(__dirname, 'main/index.ts') } },
   },
   preload: {
@@ -38,4 +45,5 @@ export default defineConfig({
     },
     build: { assetsInlineLimit: 0, outDir: path.resolve(__dirname, 'out/renderer'), rollupOptions: { input: path.resolve(__dirname, 'renderer/index.html') } },
   },
+  };
 });

@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,8 +15,23 @@ const applicationAudio = spawnSync(process.execPath, [path.join(appDir, 'script'
 if (applicationAudio.error) throw applicationAudio.error;
 if (applicationAudio.status !== 0) process.exit(applicationAudio.status ?? 1);
 const packagePath = require.resolve('electron-vite/package.json');
-const environment = { ...process.env, ELECTRON_EXEC_PATH: require('electron') };
+const appEnvironment = require('vite').loadEnv('development', path.resolve(appDir, '../..'), '');
+const environment = {
+  ...process.env,
+  ...(appEnvironment.ZOOM_MEETING_SDK_ROOT ? { ZOOM_MEETING_SDK_ROOT: appEnvironment.ZOOM_MEETING_SDK_ROOT } : {}),
+  ...(appEnvironment.LUMASTREAM_ZOOM_CLIENT_ID ? { LUMASTREAM_ZOOM_CLIENT_ID: appEnvironment.LUMASTREAM_ZOOM_CLIENT_ID } : {}),
+  ...(appEnvironment.LUMASTREAM_ZOOM_CLIENT_SECRET ? { LUMASTREAM_ZOOM_CLIENT_SECRET: appEnvironment.LUMASTREAM_ZOOM_CLIENT_SECRET } : {}),
+  ELECTRON_EXEC_PATH: require('electron'),
+};
 delete environment.ELECTRON_RUN_AS_NODE;
+if (environment.ZOOM_MEETING_SDK_ROOT && !existsSync(path.join(appDir, 'native', 'zoom', 'build', 'Release', 'lumastream-zoom-sdk.node'))) {
+  const buildEnvironment = { ...environment };
+  delete buildEnvironment.LUMASTREAM_ZOOM_CLIENT_ID;
+  delete buildEnvironment.LUMASTREAM_ZOOM_CLIENT_SECRET;
+  const zoomNative = spawnSync(process.execPath, [path.join(appDir, 'script', 'prepare-zoom-native.mjs')], { cwd: appDir, stdio: 'inherit', windowsHide: true, env: buildEnvironment });
+  if (zoomNative.error) throw zoomNative.error;
+  if (zoomNative.status !== 0) process.exit(zoomNative.status ?? 1);
+}
 const child = spawn(process.execPath, [path.join(path.dirname(packagePath), 'bin/electron-vite.js'), mode], {
   cwd: appDir,
   stdio: 'inherit',

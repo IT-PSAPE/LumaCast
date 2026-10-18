@@ -10,7 +10,11 @@ tests/packages/ndi-native/fixtures/mock_report.json
 tests/packages/ndi-native/fixtures/mock_audio_report.jsonl
 .electron-dev-dist
 .npm-cache
+.env.local
+.env.*.local
 .local
+apps/stream/native/zoom/build/
+apps/stream/native/zoom/stage/
 logs
 
 bun.lock
