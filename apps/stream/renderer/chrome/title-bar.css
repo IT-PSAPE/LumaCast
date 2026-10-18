@@ -1,0 +1,119 @@
+/* LumaStream's custom title bar. Colors match the existing `.topbar` this
+ * chrome replaces (apps/stream/renderer/style.css), not style.css's own
+ * tokens — intentionally not edited here per the parity-spec rules. */
+
+.title-bar {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  background: #191c22;
+  border-bottom: 1px solid #2b3039;
+  box-shadow: 0 3px 14px #0002;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* Left inset clears the macOS traffic lights (see mainWindowChromeOptions'
+ * trafficLightPosition); right inset clears the Windows/Linux titleBarOverlay
+ * caption buttons. */
+.title-bar[data-platform='darwin'] {
+  padding-left: 78px;
+}
+
+.title-bar[data-platform='win32'],
+.title-bar[data-platform='linux'] {
+  padding-left: 8px;
+  padding-right: 140px;
+}
+
+.title-bar .no-drag {
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-end {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+}
+
+.title-bar-hamburger {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #b7bfca;
+  cursor: pointer;
+}
+
+.title-bar-hamburger:hover,
+.title-bar-hamburger[aria-expanded='true'] {
+  background: #262b34;
+  color: #eef1f5;
+}
+
+.title-bar-hamburger:focus-visible {
+  outline: 2px solid #4c8dff;
+  outline-offset: 1px;
+}
+
+.title-bar-title {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 12px;
+  color: #8891a0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.title-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+/* LIVE/REC status chips, shown while streaming/recording (see App.tsx). */
+.title-bar-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: #2a1f22;
+  color: #f3b4b4;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.title-bar-chip-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #f06467;
+  box-shadow: 0 0 6px #f0646770;
+}
