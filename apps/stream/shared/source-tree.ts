@@ -60,6 +60,34 @@ export function removeSceneReferenceSources(sources: readonly StreamSource[], re
   return referenceIds.reduce((current, sourceId) => removeSourceTreeById(current, sourceId), [...sources]);
 }
 
+/**
+ * Reorders a sibling group's direct children (or the scene root, when
+ * `parentId` is null) to match `orderedIds`, preserving every other node in
+ * the tree untouched. Used by the Sources dock's pointer-drag reorder, which
+ * computes a full new sibling order up front rather than single-step moves.
+ * Ids in `orderedIds` that aren't found among the target siblings are
+ * ignored; siblings missing from `orderedIds` keep their relative order,
+ * appended after the reordered ones.
+ */
+export function reorderSourceTreeSiblings(
+  sources: readonly StreamSource[],
+  parentId: string | null,
+  orderedIds: readonly string[],
+): StreamSource[] {
+  const reorderSiblings = (siblings: readonly StreamSource[]): StreamSource[] => {
+    const byId = new Map(siblings.map((source) => [source.id, source]));
+    const reordered = orderedIds.map((id) => byId.get(id)).filter((source): source is StreamSource => source !== undefined);
+    const remaining = siblings.filter((source) => !orderedIds.includes(source.id));
+    return [...reordered, ...remaining];
+  };
+  if (parentId === null) return reorderSiblings(sources);
+  return sources.map((source) => {
+    if (source.kind !== 'group') return source;
+    if (source.id === parentId) return { ...source, children: reorderSiblings(source.children ?? []) };
+    return { ...source, children: reorderSourceTreeSiblings(source.children ?? [], parentId, orderedIds) };
+  });
+}
+
 /** Reorders a source among siblings, including within a group. */
 export function moveSourceTreeNode(sources: readonly StreamSource[], sourceId: string, direction: -1 | 1): StreamSource[] {
   const index = sources.findIndex((source) => source.id === sourceId);

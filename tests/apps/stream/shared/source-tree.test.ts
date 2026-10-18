@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SourceKind, SourceTransform, StreamSource } from '../../../../apps/stream/shared/desktop-api';
-import { canGroupSourceSiblings, computeGroupBoundingTransform, findSourceSiblingSelection, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, MAX_SOURCE_GROUP_DEPTH, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, transformGroupChildren, ungroupSourceNode } from '../../../../apps/stream/shared/source-tree';
+import { canGroupSourceSiblings, computeGroupBoundingTransform, findSourceSiblingSelection, flattenSourceLeaves, flattenSourceNodes, groupSourceSiblings, mapSourceTreeById, MAX_SOURCE_GROUP_DEPTH, moveSourceTreeNode, removeSceneReferenceSources, removeSourceTreeById, reorderSourceTreeSiblings, transformGroupChildren, ungroupSourceNode } from '../../../../apps/stream/shared/source-tree';
 
 function makeSource(id: string, kind: SourceKind = 'image', transform: SourceTransform = { x: 0, y: 0, width: 100, height: 100 }, children?: StreamSource[]): StreamSource {
   return { id, name: id, kind, visible: true, muted: false, volume: 1, transform, ...(children ? { children } : {}) };
@@ -65,6 +65,28 @@ describe('Stream source tree helpers', () => {
     expect(result[0]?.transform).toEqual({ x: 120, y: 140, width: 60, height: 80 });
     expect(result[0]?.children?.[0]?.transform).toEqual({ x: 120, y: 140, width: 60, height: 80 });
     expect(result[0]?.children?.[1]?.transform).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+  });
+
+  it('reorders scene-root siblings to match the given id order', () => {
+    const sources = [makeSource('a'), makeSource('b'), makeSource('c')];
+    const reordered = reorderSourceTreeSiblings(sources, null, ['c', 'a', 'b']);
+    expect(reordered.map(({ id }) => id)).toEqual(['c', 'a', 'b']);
+    expect(reordered[0]).toBe(sources[2]);
+  });
+
+  it('reorders a group\'s children at any depth, leaving other nodes untouched', () => {
+    const sources = [
+      makeSource('top'),
+      makeSource('group', 'group', undefined, [makeSource('child-a'), makeSource('child-b'), makeSource('child-c')]),
+    ];
+    const reordered = reorderSourceTreeSiblings(sources, 'group', ['child-c', 'child-a', 'child-b']);
+    expect(reordered[0]).toBe(sources[0]);
+    expect(reordered[1]?.children?.map(({ id }) => id)).toEqual(['child-c', 'child-a', 'child-b']);
+  });
+
+  it('ignores unknown ids and appends siblings missing from the order', () => {
+    const sources = [makeSource('a'), makeSource('b'), makeSource('c')];
+    expect(reorderSourceTreeSiblings(sources, null, ['c', 'unknown']).map(({ id }) => id)).toEqual(['c', 'a', 'b']);
   });
 
   it('recomputes group bounds after a child moves', () => {

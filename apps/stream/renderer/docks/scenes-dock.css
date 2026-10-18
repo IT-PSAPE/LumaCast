@@ -1,0 +1,36 @@
+/* Scene rows are draggable anywhere on the row body: `.scene-row` already
+   reserves a 1px transparent border (style.css), so the drop-indicator line
+   just recolors that border rather than adding layout-shifting space. */
+.scenes-dock .scene-row {
+  cursor: grab;
+  user-select: none;
+}
+
+.scenes-dock .scene-row.dragging {
+  cursor: grabbing;
+  opacity: .45;
+}
+
+.scenes-dock .scene-row.drag-over-before {
+  border-top-color: var(--teal);
+}
+
+.scenes-dock .scene-row.drag-over-after {
+  border-bottom-color: var(--teal);
+}
+
+.scene-rename-input {
+  min-width: 0;
+  flex: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--teal);
+  border-radius: 3px;
+  color: var(--text);
+  background: var(--panel-low);
+  font: inherit;
+  font-size: 11px;
+}
+
+.scene-rename-input:focus-visible {
+  outline: none;
+}

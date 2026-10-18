@@ -1,0 +1,55 @@
+.source-row:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+}
+
+/* Rows are draggable anywhere on the row body: `.source-row` already reserves
+   a 1px transparent border (style.css), so the drop-indicator line just
+   recolors that border rather than adding layout-shifting space (matches
+   scenes-dock.css). */
+.sources-dock .source-row {
+  cursor: grab;
+  user-select: none;
+}
+
+.sources-dock .source-row.source-dragging {
+  cursor: grabbing;
+  opacity: .45;
+}
+
+.sources-dock .source-row.drag-over-before {
+  border-top-color: var(--teal);
+}
+
+.sources-dock .source-row.drag-over-after {
+  border-bottom-color: var(--teal);
+}
+
+/* A thin bar above the properties panel, holding only its close button — kept
+   as a sibling of `.source-properties` rather than a wrapper around it so the
+   panel's own `max-height: 62%` (style.css) still resolves against the dock's
+   height unchanged. */
+.source-properties-bar {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  padding: 3px 6px 0;
+  border-top: 1px solid #292e36;
+  background: #191d23;
+}
+
+.source-rename-input {
+  min-width: 0;
+  flex: 1;
+  padding: 1px 5px;
+  border: 1px solid var(--teal);
+  border-radius: 3px;
+  color: var(--text);
+  background: var(--panel-low);
+  font: inherit;
+  font-size: 10px;
+}
+
+.source-rename-input:focus-visible {
+  outline: none;
+}
