@@ -1,0 +1,148 @@
+/* OBS-style segmented audio meter. Component-local: only selectors under
+ * `.audio-meter` live here, so this can be dropped into the mixer dock (and
+ * later a vertical mixer layout) without touching any other stylesheet.
+ * Colours fall back to literal hex (matching apps/stream/renderer/style.css
+ * :root's --teal/--amber/--red) so the component also renders correctly if
+ * ever previewed outside the app shell. */
+
+.audio-meter {
+  position: relative;
+  display: flex;
+  gap: 3px;
+}
+
+.audio-meter--horizontal {
+  width: 100%;
+  height: 10px;
+  flex-direction: column;
+}
+
+.audio-meter--vertical {
+  width: 10px;
+  height: 100%;
+  flex-direction: row-reverse;
+}
+
+.audio-meter-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  border: 1px solid #313a41;
+  border-radius: 2px;
+  background: #1a2024;
+}
+
+.audio-meter--horizontal .audio-meter-track {
+  flex-direction: row;
+}
+
+.audio-meter--vertical .audio-meter-track {
+  flex-direction: column-reverse;
+}
+
+.audio-meter-zone {
+  position: relative;
+  flex-grow: 0;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.audio-meter-zone + .audio-meter-zone {
+  border-color: #0e1215;
+}
+
+.audio-meter--horizontal .audio-meter-zone + .audio-meter-zone {
+  border-left: 1px solid #0e1215;
+}
+
+.audio-meter--vertical .audio-meter-zone + .audio-meter-zone {
+  border-bottom: 1px solid #0e1215;
+}
+
+.audio-meter-zone-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  height: 0;
+  transition: width 0.08s linear, height 0.08s linear;
+}
+
+.audio-meter--vertical .audio-meter-zone-fill {
+  inset: auto 0 0 0;
+}
+
+.audio-meter-zone--ok .audio-meter-zone-fill { background: var(--teal, #49d5bd); }
+.audio-meter-zone--warn .audio-meter-zone-fill { background: var(--amber, #e9b465); }
+.audio-meter-zone--hot .audio-meter-zone-fill { background: var(--red, #f06467); }
+
+.audio-meter-peak {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: #eef3f7;
+  transition: left 0.08s linear, bottom 0.08s linear;
+}
+
+.audio-meter--horizontal .audio-meter-peak {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  left: 0;
+}
+
+.audio-meter--vertical .audio-meter-peak {
+  left: 0;
+  right: 0;
+  height: 2px;
+  bottom: 0;
+}
+
+.audio-meter-ticks {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.audio-meter--horizontal .audio-meter-ticks {
+  height: 9px;
+}
+
+.audio-meter--vertical .audio-meter-ticks {
+  width: 18px;
+}
+
+.audio-meter-tick {
+  position: absolute;
+  color: #68727f;
+  font: 8px 'Segoe UI', sans-serif;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.audio-meter--horizontal .audio-meter-tick {
+  top: 0;
+  transform: translateX(-50%);
+}
+
+.audio-meter--horizontal .audio-meter-tick:first-child {
+  transform: translateX(0);
+}
+
+.audio-meter--horizontal .audio-meter-tick:last-child {
+  transform: translateX(-100%);
+}
+
+.audio-meter--vertical .audio-meter-tick {
+  left: 0;
+  transform: translateY(50%);
+}
+
+.audio-meter--vertical .audio-meter-tick:first-child {
+  transform: translateY(0);
+}
+
+.audio-meter--vertical .audio-meter-tick:last-child {
+  transform: translateY(100%);
+}

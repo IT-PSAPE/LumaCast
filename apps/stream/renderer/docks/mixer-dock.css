@@ -1,0 +1,114 @@
+/* Audio Mixer dock: channel strips plus the title-row options menu and
+ * per-channel gear menu (rendered by mixer-dock.tsx via packages/ui's
+ * PointContextMenu, styled there). Component-local — only selectors under
+ * `.mixer-strip*` live here — using the shared tokens declared on :root in
+ * apps/stream/renderer/style.css. `.mixer-dock` and `.mixer-empty` are
+ * already styled there and left alone. */
+
+.mixer-strips {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 7px;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.mixer-strip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: linear-gradient(180deg, var(--panel-raised), var(--panel-low));
+}
+
+.mixer-strip--horizontal {
+  width: 152px;
+  min-width: 125px;
+}
+
+.mixer-strip--vertical {
+  width: 64px;
+  min-width: 56px;
+  align-items: center;
+}
+
+.mixer-strip-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mixer-strip-icon { display: grid; color: #d39a74; }
+
+.mixer-strip-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--muted-2);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer-strip--vertical .mixer-strip-name { flex: none; width: 100%; text-align: center; }
+
+.mixer-mute, .mixer-gear {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.mixer-mute:hover, .mixer-gear:hover { color: var(--text); background: var(--line-soft); }
+
+.mixer-strip-controls { display: flex; gap: 4px; }
+
+input.mixer-fader {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--teal);
+}
+
+.mixer-strip-visual {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  height: 150px;
+}
+
+/* Rotates a standard horizontal range into a vertical fader. `direction: rtl`
+ * keeps the minimum at the bottom and the maximum at the top, matching a
+ * physical fader's "up = louder" convention. */
+input.mixer-fader--vertical {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 20px;
+  height: 100%;
+}
+
+.mixer-strip-db { color: var(--muted); font: 9px 'Segoe UI', sans-serif; }
+
+.mixer-strip-readout {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font: 8px 'Segoe UI', sans-serif;
+}
+
+@media (max-width: 1100px) {
+  .mixer-strips { gap: 5px; }
+  .mixer-strip--horizontal { min-width: 112px; padding: 7px; }
+}
