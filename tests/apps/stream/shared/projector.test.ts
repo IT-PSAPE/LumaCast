@@ -8,6 +8,12 @@ describe('Stream projector window identity', () => {
     expect(projectorTitleForFrameName(PROJECTOR_WINDOW_NAMES.program)).toBe('LumaStream Program');
   });
 
+  it('uses a distinct name and title for Multiview', () => {
+    expect(PROJECTOR_WINDOW_NAMES.multiview).not.toBe(PROJECTOR_WINDOW_NAMES.preview);
+    expect(PROJECTOR_WINDOW_NAMES.multiview).not.toBe(PROJECTOR_WINDOW_NAMES.program);
+    expect(projectorTitleForFrameName(PROJECTOR_WINDOW_NAMES.multiview)).toBe('Multiview');
+  });
+
   it('uses a generic title for other about:blank windows', () => {
     expect(projectorTitleForFrameName('unrecognized-window')).toBe('LumaStream Projector');
   });
