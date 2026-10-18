@@ -162,31 +162,54 @@ export class ApplicationAudioCapture {
       if (!match) throw new Error('The selected application is no longer running with the expected executable.');
       if (webContents.isDestroyed()) throw new Error('The Stream window is no longer available.');
 
-      const channel = this.createMessageChannel();
-      let child: CaptureChild;
-      try {
-        child = this.spawnProcess(this.executablePath, ['capture', '--pid', String(pid), '--path', expectedExecutablePath], {
-          windowsHide: true,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        }) as CaptureChild;
-      } catch (error) {
-        try { channel.port1.close(); } catch { /* The channel may already be closed. */ }
-        try { channel.port2.close(); } catch { /* The channel may already be closed. */ }
-        throw error;
-      }
-      const session = new CaptureSession(webContents, child, channel.port1);
-      this.sessions.set(sourceId, session);
-      try {
-        session.start(() => this.remove(sourceId, session));
-        webContents.postMessage(IPC_CHANNELS.applicationAudioFrame, sourceId, [channel.port2]);
-        this.throwIfStartCancelled(sourceId, reservation);
-      } catch (error) {
-        try { channel.port2.close(); } catch { /* The port may already have been transferred. */ }
-        this.remove(sourceId, session);
-        throw error;
-      }
+      this.launch(sourceId, reservation, webContents, ['capture', '--pid', String(pid), '--path', expectedExecutablePath]);
     } finally {
       if (this.starts.get(sourceId) === reservation) this.starts.delete(sourceId);
+    }
+  }
+
+  /**
+   * Captures the whole system output mix. Only the macOS helper implements `capture --system`
+   * (a Core Audio process tap); on Windows the renderer uses Electron's display loopback instead.
+   */
+  async startSystem(sourceId: string, webContents: WebContents): Promise<void> {
+    if (typeof sourceId !== 'string' || sourceId.length < 1 || sourceId.length > 256 || /[\u0000-\u001f\u007f]/.test(sourceId)) {
+      throw new Error('Invalid system-audio source ID.');
+    }
+    if (this.sessions.has(sourceId) || this.starts.has(sourceId)) throw new Error('System audio is already active or starting for this source.');
+    if (webContents.isDestroyed()) throw new Error('The Stream window is no longer available.');
+    const reservation: StartReservation = { cancelled: false };
+    this.starts.set(sourceId, reservation);
+    try {
+      this.launch(sourceId, reservation, webContents, ['capture', '--system']);
+    } finally {
+      if (this.starts.get(sourceId) === reservation) this.starts.delete(sourceId);
+    }
+  }
+
+  private launch(sourceId: string, reservation: StartReservation, webContents: WebContents, args: string[]): void {
+    const channel = this.createMessageChannel();
+    let child: CaptureChild;
+    try {
+      child = this.spawnProcess(this.executablePath, args, {
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }) as CaptureChild;
+    } catch (error) {
+      try { channel.port1.close(); } catch { /* The channel may already be closed. */ }
+      try { channel.port2.close(); } catch { /* The channel may already be closed. */ }
+      throw error;
+    }
+    const session = new CaptureSession(webContents, child, channel.port1);
+    this.sessions.set(sourceId, session);
+    try {
+      session.start(() => this.remove(sourceId, session));
+      webContents.postMessage(IPC_CHANNELS.applicationAudioFrame, sourceId, [channel.port2]);
+      this.throwIfStartCancelled(sourceId, reservation);
+    } catch (error) {
+      try { channel.port2.close(); } catch { /* The port may already have been transferred. */ }
+      this.remove(sourceId, session);
+      throw error;
     }
   }
 

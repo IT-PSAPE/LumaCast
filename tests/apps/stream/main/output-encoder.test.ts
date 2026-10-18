@@ -102,4 +102,26 @@ describe('LumaStream Media Foundation encoder arguments', () => {
     expect(() => buildStreamVideoEncoderArguments({ ...streamSettings, encoder: 'libopenh264', rateControl: 'quality' })).toThrow(/outside the supported range/);
     expect(() => buildStreamVideoEncoderArguments({ ...streamSettings, encoder: 'h264_qsv', rateControl: 'quality' })).toThrow(/outside the supported range/);
   });
+
+  it('marks Apple VideoToolbox streaming as realtime with a CBR target', () => {
+    const args = buildStreamVideoEncoderArguments({ ...streamSettings, encoder: 'h264_videotoolbox' });
+    expect(args).toEqual(expect.arrayContaining([
+      '-c:v', 'h264_videotoolbox', '-realtime', '1', '-allow_sw', '1',
+      '-b:v', '6000k', '-maxrate', '6000k', '-bufsize', '12000k', '-pix_fmt', 'yuv420p',
+    ]));
+  });
+
+  it('disallows the VideoToolbox software fallback for archive recording when hardware encoding is required', () => {
+    const args = buildRecordingVideoEncoderArguments({
+      container: 'mp4', frameRate: 30, videoBitrateKbps: 8000, audioBitrateKbps: 160, audioTracks: [1],
+      rateControl: 'cbr', encoder: 'h264_videotoolbox', encoderQuality: 60, hardwareEncoding: true, keyframeIntervalSeconds: 2,
+    });
+    expect(args).toEqual(expect.arrayContaining(['-c:v', 'h264_videotoolbox', '-realtime', '0', '-allow_sw', '0']));
+  });
+
+  it('clamps VideoToolbox quality mode to a minimum of 1 and omits the bitrate target', () => {
+    const args = buildStreamVideoEncoderArguments({ ...streamSettings, encoder: 'h264_videotoolbox', rateControl: 'quality', encoderQuality: 0 });
+    expect(args).toEqual(expect.arrayContaining(['-q:v', '1']));
+    expect(args).not.toContain('-b:v');
+  });
 });

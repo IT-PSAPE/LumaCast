@@ -204,6 +204,91 @@ describe('application audio process validation', () => {
   });
 });
 
+describe('system audio capture', () => {
+  it('spawns the helper with capture --system directly, with no process list lookup first', async () => {
+    const children: FakeHelperChild[] = [];
+    const spawnProcess = vi.fn((_executable: string, _args: string[], _options?: unknown) => {
+      const child = new FakeHelperChild();
+      children.push(child);
+      return child as unknown as ChildProcessByStdio<null, PassThrough, PassThrough>;
+    });
+    const port1 = new FakeMessagePort();
+    const port2 = new FakeMessagePort();
+    const postMessage = vi.fn();
+    const webContents = Object.assign(new EventEmitter(), { isDestroyed: () => false, postMessage }) as unknown as WebContents;
+    const capture = new ApplicationAudioCapture('/usr/local/bin/lumastream-audio-tap', {
+      spawnProcess: spawnProcess as unknown as typeof import('node:child_process').spawn,
+      createMessageChannel: () => ({ port1: port1 as unknown as MessagePortMain, port2: port2 as unknown as MessagePortMain }),
+    });
+
+    await capture.startSystem('system-source', webContents);
+
+    expect(spawnProcess).toHaveBeenCalledTimes(1);
+    expect(spawnProcess.mock.calls[0]?.[1]).toEqual(['capture', '--system']);
+    expect(postMessage).toHaveBeenCalledWith(IPC_CHANNELS.applicationAudioFrame, 'system-source', [port2]);
+
+    const pcm = Buffer.from([1, 2, 3, 4, 5, 6, 7, 8]);
+    children[0]?.stdout.emit('data', pcm);
+    const forwarded = port1.postMessage.mock.calls[0]?.[0];
+    expect(forwarded).toBeInstanceOf(ArrayBuffer);
+    expect([...new Uint8Array(forwarded as ArrayBuffer)]).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+
+    capture.stop('system-source');
+    children[0]?.emit('exit', 0, null);
+  });
+
+  it('rejects starting system audio twice for the same source', async () => {
+    const children: FakeHelperChild[] = [];
+    const spawnProcess = vi.fn((_executable: string, _args: string[], _options?: unknown) => {
+      const child = new FakeHelperChild();
+      children.push(child);
+      return child as unknown as ChildProcessByStdio<null, PassThrough, PassThrough>;
+    });
+    const webContents = Object.assign(new EventEmitter(), { isDestroyed: () => false, postMessage: vi.fn() }) as unknown as WebContents;
+    const capture = new ApplicationAudioCapture('/usr/local/bin/lumastream-audio-tap', {
+      spawnProcess: spawnProcess as unknown as typeof import('node:child_process').spawn,
+      createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
+    });
+
+    await capture.startSystem('system-source', webContents);
+    await expect(capture.startSystem('system-source', webContents)).rejects.toThrow('System audio is already active or starting for this source.');
+
+    capture.stop('system-source');
+    children[0]?.emit('exit', 0, null);
+  });
+
+  it('rejects an empty or oversized source ID', async () => {
+    const webContents = Object.assign(new EventEmitter(), { isDestroyed: () => false, postMessage: vi.fn() }) as unknown as WebContents;
+    const capture = new ApplicationAudioCapture('/usr/local/bin/lumastream-audio-tap', {
+      spawnProcess: vi.fn() as unknown as typeof import('node:child_process').spawn,
+      createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
+    });
+
+    await expect(capture.startSystem('', webContents)).rejects.toThrow('Invalid system-audio source ID.');
+    await expect(capture.startSystem('x'.repeat(257), webContents)).rejects.toThrow('Invalid system-audio source ID.');
+  });
+
+  it('ends the helper stdin when system audio capture is stopped', async () => {
+    const children: FakeHelperChild[] = [];
+    const spawnProcess = vi.fn((_executable: string, _args: string[], _options?: unknown) => {
+      const child = new FakeHelperChild();
+      children.push(child);
+      return child as unknown as ChildProcessByStdio<null, PassThrough, PassThrough>;
+    });
+    const webContents = Object.assign(new EventEmitter(), { isDestroyed: () => false, postMessage: vi.fn() }) as unknown as WebContents;
+    const capture = new ApplicationAudioCapture('/usr/local/bin/lumastream-audio-tap', {
+      spawnProcess: spawnProcess as unknown as typeof import('node:child_process').spawn,
+      createMessageChannel: () => ({ port1: new FakeMessagePort() as unknown as MessagePortMain, port2: new FakeMessagePort() as unknown as MessagePortMain }),
+    });
+
+    await capture.startSystem('system-source', webContents);
+    capture.stop('system-source');
+
+    expect(children[0]?.stdin.writableEnded).toBe(true);
+    children[0]?.emit('exit', 0, null);
+  });
+});
+
 class FakeHelperChild extends EventEmitter {
   readonly stdin = new PassThrough();
   readonly stdout = new PassThrough();

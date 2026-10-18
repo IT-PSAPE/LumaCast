@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
-import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, createDefaultTextStyle, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, type StreamWorkspace, type VideoRateControlMode } from '../shared/desktop-api';
+import { defaultVideoEncoderForPlatform, isVideoEncoderAvailableOnPlatform, type StreamPlatform } from '../shared/platform-capabilities';
+import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProject, createDefaultTextStyle, DEFAULT_STREAM_GLOBAL_HOTKEYS, isAudioTrack, isVideoEncoderFamily, MAX_STREAM_PROFILES, MAX_STREAM_SCENE_COLLECTIONS, normalizeAudioTracks, supportsVideoRateControl, type AudioMonitoring, type AudioTrack, type CameraFrameRatePreset, type CameraResolutionPreset, type CaptureCursorMode, type ChromaKeyFilter, type RecordingContainer, type SceneCollectionSummary, type SourceCrop, type StreamProfile, type StreamProfileDocument, type StreamProfileSummary, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, type StreamWorkspace, type VideoEncoderFamily, type VideoRateControlMode } from '../shared/desktop-api';
 import { flattenSourceNodes, MAX_SOURCE_GROUP_DEPTH } from '../shared/source-tree';
 import { getSceneReferenceValidationError } from '../shared/scene-reference-graph';
 
@@ -308,8 +309,18 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
   };
 }
 
-function decodeProject(value: unknown): StreamProject {
+function resolvePlatformEncoding(platform: StreamPlatform, encoderValue: unknown, rateControlValue: unknown): { encoder: VideoEncoderFamily; rateControl: VideoRateControlMode } {
+  const requestedRateControl = VIDEO_RATE_CONTROLS.has(rateControlValue as VideoRateControlMode) ? rateControlValue as VideoRateControlMode : 'cbr';
+  if (isVideoEncoderFamily(encoderValue) && isVideoEncoderAvailableOnPlatform(platform, encoderValue)) {
+    return { encoder: encoderValue, rateControl: requestedRateControl };
+  }
+  const encoder = defaultVideoEncoderForPlatform(platform);
+  return { encoder, rateControl: supportsVideoRateControl(encoder, requestedRateControl) ? requestedRateControl : 'cbr' };
+}
+
+function decodeProject(value: unknown, platform: StreamPlatform): StreamProject {
   if (!isRecord(value) || value.version !== 1 || !isRecord(value.output)) throw new Error('This Stream project is not supported.');
+  const defaultEncoder = defaultVideoEncoderForPlatform(platform);
   const baseWidth = value.output.baseWidth === undefined ? value.output.width : value.output.baseWidth;
   const baseHeight = value.output.baseHeight === undefined ? value.output.height : value.output.baseHeight;
   if (!finiteNumber(baseWidth, 320, 16384) || !finiteNumber(baseHeight, 180, 16384)
@@ -322,7 +333,7 @@ function decodeProject(value: unknown): StreamProject {
     || (value.output.streamRateControl !== undefined && !VIDEO_RATE_CONTROLS.has(value.output.streamRateControl as VideoRateControlMode))
     || (value.output.streamVideoEncoder !== undefined && !isVideoEncoderFamily(value.output.streamVideoEncoder))
     || !supportsVideoRateControl(
-      isVideoEncoderFamily(value.output.streamVideoEncoder) ? value.output.streamVideoEncoder : 'h264_mf',
+      isVideoEncoderFamily(value.output.streamVideoEncoder) ? value.output.streamVideoEncoder : defaultEncoder,
       VIDEO_RATE_CONTROLS.has(value.output.streamRateControl as VideoRateControlMode) ? value.output.streamRateControl as VideoRateControlMode : 'cbr',
     )
     || (value.output.streamEncoderQuality !== undefined && (!Number.isInteger(value.output.streamEncoderQuality) || !finiteNumber(value.output.streamEncoderQuality, 0, 100)))
@@ -334,7 +345,7 @@ function decodeProject(value: unknown): StreamProject {
     || (value.output.recordingRateControl !== undefined && !VIDEO_RATE_CONTROLS.has(value.output.recordingRateControl as VideoRateControlMode))
     || (value.output.recordingVideoEncoder !== undefined && !isVideoEncoderFamily(value.output.recordingVideoEncoder))
     || !supportsVideoRateControl(
-      isVideoEncoderFamily(value.output.recordingVideoEncoder) ? value.output.recordingVideoEncoder : 'h264_mf',
+      isVideoEncoderFamily(value.output.recordingVideoEncoder) ? value.output.recordingVideoEncoder : defaultEncoder,
       VIDEO_RATE_CONTROLS.has(value.output.recordingRateControl as VideoRateControlMode) ? value.output.recordingRateControl as VideoRateControlMode : 'cbr',
     )
     || (value.output.recordingEncoderQuality !== undefined && (!Number.isInteger(value.output.recordingEncoderQuality) || !finiteNumber(value.output.recordingEncoderQuality, 0, 100)))
@@ -390,6 +401,11 @@ function decodeProject(value: unknown): StreamProject {
   const sourceVisibilityHotkeys = isRecord(sourceVisibilityHotkeysValue)
     ? Object.fromEntries(Object.entries(sourceVisibilityHotkeysValue) as Array<[string, string]>)
     : {};
+  // A project saved on another platform may name an encoder family that does not exist here
+  // (Media Foundation on macOS, VideoToolbox on Windows). Fall back to this platform's default
+  // and keep the rate control only when the replacement supports it.
+  const streamEncoding = resolvePlatformEncoding(platform, value.output.streamVideoEncoder, value.output.streamRateControl);
+  const recordingEncoding = resolvePlatformEncoding(platform, value.output.recordingVideoEncoder, value.output.recordingRateControl);
   return {
     version: 1,
     output: {
@@ -401,8 +417,8 @@ function decodeProject(value: unknown): StreamProject {
       streamVideoBitrateKbps: typeof value.output.streamVideoBitrateKbps === 'number' ? value.output.streamVideoBitrateKbps : 6000,
       streamAudioBitrateKbps: typeof value.output.streamAudioBitrateKbps === 'number' ? value.output.streamAudioBitrateKbps : 160,
       streamAudioTrack: isAudioTrack(value.output.streamAudioTrack) ? value.output.streamAudioTrack : 1,
-      streamRateControl: (VIDEO_RATE_CONTROLS.has(value.output.streamRateControl as VideoRateControlMode) ? value.output.streamRateControl : 'cbr') as VideoRateControlMode,
-      streamVideoEncoder: isVideoEncoderFamily(value.output.streamVideoEncoder) ? value.output.streamVideoEncoder : 'h264_mf',
+      streamRateControl: streamEncoding.rateControl,
+      streamVideoEncoder: streamEncoding.encoder,
       streamEncoderQuality: typeof value.output.streamEncoderQuality === 'number' ? value.output.streamEncoderQuality : 60,
       streamHardwareEncoding: value.output.streamHardwareEncoding === true,
       streamKeyframeIntervalSeconds: typeof value.output.streamKeyframeIntervalSeconds === 'number' ? value.output.streamKeyframeIntervalSeconds : 2,
@@ -410,8 +426,8 @@ function decodeProject(value: unknown): StreamProject {
       recordingAudioBitrateKbps: typeof value.output.recordingAudioBitrateKbps === 'number' ? value.output.recordingAudioBitrateKbps : 160,
       recordingAudioTracks: value.output.recordingAudioTracks === undefined ? [1] : normalizeAudioTracks(value.output.recordingAudioTracks),
       recordingContainer: (value.output.recordingContainer === 'mkv' || value.output.recordingContainer === 'mp4' ? value.output.recordingContainer : 'webm') as RecordingContainer,
-      recordingRateControl: (VIDEO_RATE_CONTROLS.has(value.output.recordingRateControl as VideoRateControlMode) ? value.output.recordingRateControl : 'cbr') as VideoRateControlMode,
-      recordingVideoEncoder: isVideoEncoderFamily(value.output.recordingVideoEncoder) ? value.output.recordingVideoEncoder : 'h264_mf',
+      recordingRateControl: recordingEncoding.rateControl,
+      recordingVideoEncoder: recordingEncoding.encoder,
       recordingEncoderQuality: typeof value.output.recordingEncoderQuality === 'number' ? value.output.recordingEncoderQuality : 60,
       recordingHardwareEncoding: value.output.recordingHardwareEncoding === true,
       recordingKeyframeIntervalSeconds: typeof value.output.recordingKeyframeIntervalSeconds === 'number' ? value.output.recordingKeyframeIntervalSeconds : 2,
@@ -471,7 +487,7 @@ function validateProfileName(value: unknown): string {
   return name;
 }
 
-function decodeProfileIndex(value: unknown): ProfileIndex {
+function decodeProfileIndex(value: unknown, platform: StreamPlatform): ProfileIndex {
   if (!isRecord(value) || value.version !== 1 || typeof value.activeProfileId !== 'string'
     || !Array.isArray(value.profiles) || value.profiles.length === 0 || value.profiles.length > MAX_STREAM_PROFILES) {
     throw new Error('Stream contains an invalid profile index.');
@@ -481,7 +497,7 @@ function decodeProfileIndex(value: unknown): ProfileIndex {
       throw new Error('Stream contains an invalid profile.');
     }
     const name = validateProfileName(entry.name);
-    const decoded = decodeProject({ ...createDefaultProject(), output: entry.output, hotkeys: entry.hotkeys });
+    const decoded = decodeProject({ ...createDefaultProject(platform), output: entry.output, hotkeys: entry.hotkeys }, platform);
     return { id: entry.id, name, output: decoded.output, hotkeys: decoded.hotkeys };
   });
   const ids = new Set(profiles.map((profile) => profile.id));
@@ -492,12 +508,12 @@ function decodeProfileIndex(value: unknown): ProfileIndex {
   return { version: 1, activeProfileId: value.activeProfileId, profiles };
 }
 
-function decodeProfileDocument(value: unknown): StreamProfileDocument {
+function decodeProfileDocument(value: unknown, platform: StreamPlatform): StreamProfileDocument {
   if (!isRecord(value) || value.format !== 'lumastream-profile' || value.version !== 1) {
     throw new Error('This file is not a supported LumaStream profile.');
   }
   const name = validateProfileName(value.name);
-  const decoded = decodeProject({ ...createDefaultProject(), output: value.output, hotkeys: value.hotkeys });
+  const decoded = decodeProject({ ...createDefaultProject(platform), output: value.output, hotkeys: value.hotkeys }, platform);
   return { format: 'lumastream-profile', version: 1, name, output: decoded.output, hotkeys: decoded.hotkeys };
 }
 
@@ -560,8 +576,10 @@ export class ProjectStore {
   private collectionIndex: CollectionIndex | null = null;
   private profileIndex: ProfileIndex | null = null;
   private operationQueue: Promise<void> = Promise.resolve();
+  private readonly platform: StreamPlatform;
 
-  constructor(dataDirectory: string) {
+  constructor(dataDirectory: string, options: { platform?: StreamPlatform } = {}) {
+    this.platform = options.platform ?? 'win32';
     this.collectionsDirectory = path.join(dataDirectory, 'scene-collections');
     this.indexPath = path.join(this.collectionsDirectory, 'index.json');
     this.profilesPath = path.join(this.collectionsDirectory, 'profiles.json');
@@ -576,7 +594,7 @@ export class ProjectStore {
   }
 
   save(collectionId: string, profileId: string, value: unknown): Promise<void> {
-    const project = decodeProject(value);
+    const project = decodeProject(value, this.platform);
     return this.serialize(async () => {
       const index = await this.ensureIndex();
       const profiles = await this.ensureProfiles(index);
@@ -599,7 +617,7 @@ export class ProjectStore {
   }
 
   validateImportedProject(value: unknown): StreamProject {
-    return decodeProject(value);
+    return decodeProject(value, this.platform);
   }
 
   exportCollection(id: string): Promise<{ name: string; project: StreamProject }> {
@@ -612,7 +630,7 @@ export class ProjectStore {
   }
 
   importCollection(nameValue: unknown, projectValue: unknown): Promise<StreamWorkspace> {
-    const project = decodeProject(projectValue);
+    const project = decodeProject(projectValue, this.platform);
     const requestedName = validateCollectionName(nameValue);
     return this.serialize(async () => {
       const index = await this.ensureIndex();
@@ -642,7 +660,7 @@ export class ProjectStore {
       this.assertUniqueName(index, name);
       if (index.collections.length >= MAX_COLLECTIONS) throw new Error(`Stream supports up to ${MAX_COLLECTIONS} scene collections.`);
       const sourceProject = duplicateCurrent ? await this.readProject(index.activeCollectionId) : null;
-      const project = this.withProfile(sourceProject ? duplicateProject(sourceProject) : createDefaultProject(), this.activeProfile(profiles));
+      const project = this.withProfile(sourceProject ? duplicateProject(sourceProject) : createDefaultProject(this.platform), this.activeProfile(profiles));
       const collection = { id: crypto.randomUUID(), name };
       await writeJsonAtomic(this.projectPath(collection.id), project);
       const next: CollectionIndex = { ...index, activeCollectionId: collection.id, collections: [...index.collections, collection] };
@@ -708,7 +726,7 @@ export class ProjectStore {
       this.assertUniqueProfileName(profileIndex, name);
       if (profileIndex.profiles.length >= MAX_STREAM_PROFILES) throw new Error(`Stream supports up to ${MAX_STREAM_PROFILES} profiles.`);
       const current = this.activeProfile(profileIndex);
-      const defaults = createDefaultProject();
+      const defaults = createDefaultProject(this.platform);
       const profile: StreamProfile = {
         id: crypto.randomUUID(),
         name,
@@ -785,7 +803,7 @@ export class ProjectStore {
 
   importProfile(value: unknown): Promise<StreamWorkspace> {
     return this.serialize(async () => {
-      const document = decodeProfileDocument(value);
+      const document = decodeProfileDocument(value, this.platform);
       const index = await this.ensureIndex();
       const profileIndex = await this.ensureProfiles(index);
       if (profileIndex.profiles.length >= MAX_STREAM_PROFILES) throw new Error(`Stream supports up to ${MAX_STREAM_PROFILES} profiles.`);
@@ -822,11 +840,11 @@ export class ProjectStore {
       if (!isRecord(error) || error.code !== 'ENOENT') throw error;
     }
 
-    let initial = createDefaultProject();
+    let initial = createDefaultProject(this.platform);
     try {
       const bytes = await readFile(this.legacyPath);
       if (bytes.byteLength > MAX_PROJECT_BYTES) throw new Error('Stream project is too large to open.');
-      initial = decodeProject(JSON.parse(bytes.toString('utf8')));
+      initial = decodeProject(JSON.parse(bytes.toString('utf8')), this.platform);
     } catch (error) {
       if (!isRecord(error) || error.code !== 'ENOENT') throw error;
     }
@@ -843,7 +861,7 @@ export class ProjectStore {
     try {
       const bytes = await readFile(this.profilesPath);
       if (bytes.byteLength > 4 * 1024 * 1024) throw new Error('The profile index is too large to open.');
-      this.profileIndex = decodeProfileIndex(JSON.parse(bytes.toString('utf8')));
+      this.profileIndex = decodeProfileIndex(JSON.parse(bytes.toString('utf8')), this.platform);
       return this.profileIndex;
     } catch (error) {
       if (!isRecord(error) || error.code !== 'ENOENT') throw error;
@@ -888,7 +906,7 @@ export class ProjectStore {
   private async readProject(id: string): Promise<StreamProject> {
     const bytes = await readFile(this.projectPath(id));
     if (bytes.byteLength > MAX_PROJECT_BYTES) throw new Error('Stream project is too large to open.');
-    return decodeProject(JSON.parse(bytes.toString('utf8')));
+    return decodeProject(JSON.parse(bytes.toString('utf8')), this.platform);
   }
 
   private projectPath(id: string): string {

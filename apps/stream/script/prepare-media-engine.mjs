@@ -1,21 +1,25 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { access, copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { assertRequiredOutputProtocols } from './media-engine-capabilities.mjs';
+import {
+  assertRequiredEncoders, assertRequiredOutputProtocols, assertSelfContainedMachO, inspectBuildConfiguration,
+  mediaEngineExecutableName, resolveMediaEngineSource,
+} from './media-engine-platform.mjs';
 
 const appDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const vendorDirectory = path.join(appDirectory, 'vendor', 'ffmpeg');
-const bundle = {
-  version: '9.0.2-28-g669f5ab083',
-  url: 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-16-13-04/ffmpeg-n9.0.2-28-g669f5ab083-win64-lgpl-shared-9.0.zip',
-  sha256: '337bccf4f9ed8594255572907d0c3c19e673894713d63d92664d846c4ad183c8',
-};
+const markerPath = path.join(vendorDirectory, 'provenance.json');
+const development = process.argv.includes('--development');
+const platform = process.platform;
+const executableName = mediaEngineExecutableName(platform);
+const executablePath = path.join(vendorDirectory, 'bin', executableName);
+const execOptions = { encoding: 'utf8', windowsHide: true, maxBuffer: 8 * 1024 * 1024 };
 
 function assertAppTarget(target) {
   const relative = path.relative(appDirectory, target);
@@ -24,24 +28,47 @@ function assertAppTarget(target) {
   }
 }
 
-async function run() {
-  if (process.platform !== 'win32' || process.arch !== 'x64') {
-    throw new Error('The bundled media engine currently supports Windows x64 only.');
-  }
-  assertAppTarget(vendorDirectory);
-  const executable = path.join(vendorDirectory, 'bin', 'ffmpeg.exe');
-  const markerPath = path.join(vendorDirectory, 'provenance.json');
+function probe(executable, flag) {
+  return execFileSync(executable, ['-hide_banner', flag], execOptions);
+}
+
+/** Feature checks shared by every source: transports, encoders, and (unless development) LGPL licensing. */
+function verifyEngine(executable, { allowGpl }) {
+  const version = probe(executable, '-version');
+  const configuration = inspectBuildConfiguration(version);
+  if (configuration.gpl && !allowGpl) throw new Error('The Stream media engine was built with GPL or nonfree components and cannot be redistributed with LumaStream.');
+  const license = probe(executable, '-L');
+  if (!configuration.gpl && !/Lesser General Public License|LGPL/i.test(license)) throw new Error('The Stream media engine did not identify itself as an LGPL build.');
+  const licenseVersion = license.match(/Lesser General Public License[\s\S]*?version (\d+) of the License/i)?.[1]
+    ?? license.match(/Lesser General Public License[\s\S]*?version (\d+) or later/i)?.[1];
+  assertRequiredOutputProtocols(probe(executable, '-protocols'));
+  assertRequiredEncoders(probe(executable, '-encoders'), platform);
+  return { configuration, licenseVersion, version: version.match(/^ffmpeg version (\S+)/)?.[1] ?? 'unknown' };
+}
+
+async function readMarker() {
   try {
-    const marker = await readFile(markerPath, 'utf8');
-    await access(executable);
-    const existing = JSON.parse(marker);
-    if (existing.sha256 === bundle.sha256 && existing.license === 'LGPL-3.0-or-later; shared Windows x64 build') {
-      const protocols = execFileSync(executable, ['-hide_banner', '-protocols'], { encoding: 'utf8', windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
-      assertRequiredOutputProtocols(protocols);
-      console.log(`Stream media engine ${bundle.version} is already prepared.`);
-      return;
-    }
-  } catch { /* Download or repair the pinned bundle. */ }
+    await access(executablePath);
+    return JSON.parse(await readFile(markerPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+async function replaceVendorDirectory(stagingDirectory) {
+  assertAppTarget(vendorDirectory);
+  await rm(vendorDirectory, { recursive: true, force: true });
+  await mkdir(path.dirname(vendorDirectory), { recursive: true });
+  await rename(stagingDirectory, vendorDirectory);
+}
+
+async function prepareWindowsDownload(bundle) {
+  const existing = await readMarker();
+  if (existing?.sha256 === bundle.sha256 && existing.source === 'download') {
+    assertRequiredOutputProtocols(probe(executablePath, '-protocols'));
+    console.log(`Stream media engine ${bundle.version} is already prepared.`);
+    return;
+  }
 
   const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-ffmpeg-'));
   const archivePath = path.join(temporaryDirectory, 'ffmpeg.zip');
@@ -54,8 +81,7 @@ async function run() {
     const hash = createHash('sha256');
     const hashingStream = new Transform({ transform(chunk, _encoding, callback) { hash.update(chunk); callback(null, chunk); } });
     await pipeline(Readable.fromWeb(response.body), hashingStream, createWriteStream(archivePath));
-    const actualHash = hash.digest('hex');
-    if (actualHash !== bundle.sha256) throw new Error('The Stream media engine archive checksum did not match.');
+    if (hash.digest('hex') !== bundle.sha256) throw new Error('The Stream media engine archive checksum did not match.');
 
     const archiveLiteral = archivePath.replaceAll("'", "''");
     const extractLiteral = extractDirectory.replaceAll("'", "''");
@@ -67,42 +93,119 @@ async function run() {
     const archiveRoot = (await readdir(extractDirectory, { withFileTypes: true })).find((entry) => entry.isDirectory());
     if (!archiveRoot) throw new Error('The Stream media engine archive has no root directory.');
     const sourceBin = path.join(extractDirectory, archiveRoot.name, 'bin');
-    const sourceExecutable = path.join(sourceBin, 'ffmpeg.exe');
+    const sourceExecutable = path.join(sourceBin, executableName);
     await access(sourceExecutable);
-    const version = execFileSync(sourceExecutable, ['-hide_banner', '-version'], { encoding: 'utf8', windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
-    if (/--enable-gpl|--enable-nonfree/.test(version)) throw new Error('The pinned Stream media engine was built with GPL or nonfree components.');
-    if (!/--enable-shared/.test(version) || !/--disable-static/.test(version)) throw new Error('The pinned Stream media engine is not a shared-library build.');
-    const license = execFileSync(sourceExecutable, ['-hide_banner', '-L'], { encoding: 'utf8', windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
-    if (!/Lesser General Public License|LGPL/i.test(license)) throw new Error('The Stream media engine did not identify itself as an LGPL build.');
-    const licenseVersion = license.match(/Lesser General Public License[\s\S]*?version (\d+) of the License/i)?.[1]
-      ?? license.match(/Lesser General Public License[\s\S]*?version (\d+) or later/i)?.[1];
-    if (!licenseVersion) throw new Error('The Stream media engine did not report its LGPL version.');
-    const protocols = execFileSync(sourceExecutable, ['-hide_banner', '-protocols'], { encoding: 'utf8', windowsHide: true, maxBuffer: 2 * 1024 * 1024 });
-    assertRequiredOutputProtocols(protocols);
-    const encoders = execFileSync(sourceExecutable, ['-hide_banner', '-encoders'], { encoding: 'utf8', windowsHide: true, maxBuffer: 8 * 1024 * 1024 });
-    if (!['h264_mf', 'h264_nvenc', 'h264_qsv', 'h264_amf', 'libopenh264', 'aac'].every((name) => new RegExp(`\\b${name}\\b`).test(encoders))) {
-      throw new Error('The Stream media engine is missing a required H.264 encoder family or AAC encoder.');
-    }
+    const verified = verifyEngine(sourceExecutable, { allowGpl: false });
+    if (!verified.configuration.shared) throw new Error('The pinned Stream media engine is not a shared-library build.');
+    if (!verified.licenseVersion) throw new Error('The Stream media engine did not report its LGPL version.');
 
     const destinationBin = path.join(replacementDirectory, 'bin');
     await mkdir(destinationBin, { recursive: true });
-    const binaries = (await readdir(sourceBin, { withFileTypes: true })).filter((entry) => entry.isFile() && (entry.name === 'ffmpeg.exe' || entry.name.toLowerCase().endsWith('.dll')));
+    const binaries = (await readdir(sourceBin, { withFileTypes: true })).filter((entry) => entry.isFile() && (entry.name === executableName || entry.name.toLowerCase().endsWith('.dll')));
     await Promise.all(binaries.map((entry) => copyFile(path.join(sourceBin, entry.name), path.join(destinationBin, entry.name))));
     await writeFile(path.join(replacementDirectory, 'provenance.json'), JSON.stringify({
       ...bundle,
-      license: 'LGPL-' + licenseVersion + '.0-or-later; shared Windows x64 build',
-      buildRepository: 'https://github.com/BtbN/FFmpeg-Builds',
+      source: 'download',
+      platform: 'win32-x64',
+      license: `LGPL-${verified.licenseVersion}.0-or-later; shared Windows x64 build`,
       sourceRepository: 'https://github.com/FFmpeg/FFmpeg',
-      buildTag: 'autobuild-2026-10-16-13-04',
     }, null, 2), 'utf8');
-
-    await rm(vendorDirectory, { recursive: true, force: true });
-    await mkdir(path.dirname(vendorDirectory), { recursive: true });
-    await (await import('node:fs/promises')).rename(replacementDirectory, vendorDirectory);
+    await replaceVendorDirectory(replacementDirectory);
     console.log(`Prepared Stream media engine ${bundle.version} (${binaries.length} files).`);
   } finally {
     await rm(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+/** Copies an operator-supplied static LGPL FFmpeg into the vendor tree after verifying it can ship. */
+async function prepareExplicitEngine(sourceExecutable) {
+  const resolved = path.resolve(sourceExecutable);
+  await access(resolved);
+  const verified = verifyEngine(resolved, { allowGpl: false });
+  if (platform === 'darwin') {
+    try {
+      assertSelfContainedMachO(execFileSync('otool', ['-L', resolved], execOptions));
+    } catch (error) {
+      if (error?.code === 'ENOENT') throw new Error('otool is required to verify the macOS media engine; install the Xcode Command Line Tools.');
+      throw error;
+    }
+  }
+  const sha256 = createHash('sha256').update(await readFile(resolved)).digest('hex');
+  const existing = await readMarker();
+  if (existing?.source === 'explicit' && existing.sha256 === sha256) {
+    console.log(`Stream media engine ${verified.version} is already prepared.`);
+    return;
+  }
+  const stagingDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-ffmpeg-'));
+  try {
+    await mkdir(path.join(stagingDirectory, 'bin'), { recursive: true });
+    await copyFile(resolved, path.join(stagingDirectory, 'bin', executableName));
+    await chmod(path.join(stagingDirectory, 'bin', executableName), 0o755);
+    await writeFile(path.join(stagingDirectory, 'provenance.json'), JSON.stringify({
+      source: 'explicit',
+      platform: `${platform}-${process.arch}`,
+      version: verified.version,
+      sha256,
+      origin: resolved,
+      license: `LGPL-${verified.licenseVersion ?? '2'}.0-or-later; static ${platform} ${process.arch} build`,
+      sourceRepository: 'https://github.com/FFmpeg/FFmpeg',
+    }, null, 2), 'utf8');
+    await replaceVendorDirectory(stagingDirectory);
+  } catch (error) {
+    await rm(stagingDirectory, { recursive: true, force: true });
+    throw error;
+  }
+  console.log(`Prepared Stream media engine ${verified.version} from ${resolved}.`);
+}
+
+/** Development only: link the ffmpeg on PATH so `npm run dev` works without a redistributable bundle. */
+async function prepareDevelopmentEngine(command) {
+  let located;
+  try {
+    located = execFileSync('/bin/sh', ['-lc', `command -v ${command}`], execOptions).trim();
+  } catch {
+    located = '';
+  }
+  if (!located) throw new Error(`No ${command} was found on PATH. Install one (for example \`brew install ffmpeg\`) or set LUMASTREAM_MEDIA_ENGINE.`);
+  const resolved = await realpath(located);
+  const verified = verifyEngine(resolved, { allowGpl: true });
+  if (verified.configuration.gpl) {
+    console.warn(`Using the development media engine at ${resolved}. It is a GPL build and is never packaged; set LUMASTREAM_MEDIA_ENGINE to a static LGPL FFmpeg before running dist:mac.`);
+  }
+  const existing = await readMarker();
+  let linkTarget = null;
+  try { linkTarget = (await lstat(executablePath)).isSymbolicLink() ? await realpath(executablePath) : null; } catch { /* Not linked yet. */ }
+  if (existing?.source === 'development' && linkTarget === resolved) {
+    console.log(`Stream development media engine ${verified.version} is already linked.`);
+    return;
+  }
+  const stagingDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-ffmpeg-'));
+  try {
+    await mkdir(path.join(stagingDirectory, 'bin'), { recursive: true });
+    await symlink(resolved, path.join(stagingDirectory, 'bin', executableName));
+    await writeFile(path.join(stagingDirectory, 'provenance.json'), JSON.stringify({
+      source: 'development',
+      platform: `${platform}-${process.arch}`,
+      version: verified.version,
+      origin: resolved,
+      license: verified.configuration.gpl ? 'GPL development build; not redistributable' : 'LGPL development build',
+      redistributable: false,
+    }, null, 2), 'utf8');
+    await replaceVendorDirectory(stagingDirectory);
+  } catch (error) {
+    await rm(stagingDirectory, { recursive: true, force: true });
+    throw error;
+  }
+  console.log(`Linked Stream development media engine ${verified.version} from ${resolved}.`);
+}
+
+async function run() {
+  assertAppTarget(vendorDirectory);
+  const source = resolveMediaEngineSource({ platform, arch: process.arch, env: process.env, development });
+  if (source.kind === 'download') await prepareWindowsDownload(source.bundle);
+  else if (source.kind === 'explicit') await prepareExplicitEngine(source.executable);
+  else if (source.kind === 'path') await prepareDevelopmentEngine(source.command);
+  else throw new Error(source.reason);
 }
 
 run().catch((error) => {

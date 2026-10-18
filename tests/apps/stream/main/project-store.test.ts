@@ -305,7 +305,7 @@ describe('LumaStream encoder family persistence', () => {
     delete (legacyProject.output as Partial<typeof legacyProject.output>).recordingVideoEncoder;
     await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(legacyProject), 'utf8');
 
-    const store = new ProjectStore(directory);
+    const store = new ProjectStore(directory, { platform: 'win32' });
     const workspace = await store.load();
     expect(workspace.project.output.streamVideoEncoder).toBe('h264_mf');
     expect(workspace.project.output.recordingVideoEncoder).toBe('h264_mf');
@@ -328,7 +328,52 @@ describe('LumaStream encoder family persistence', () => {
     project.output.streamRateControl = 'quality';
     await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
 
-    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid video settings.');
+    await expect(new ProjectStore(directory, { platform: 'win32' }).load()).rejects.toThrow('Project contains invalid video settings.');
+  });
+
+  it('coerces encoder families from another platform to the host default', async () => {
+    const win32Directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(win32Directory);
+    const win32Project = createDefaultProject('win32');
+    win32Project.output.streamVideoEncoder = 'h264_nvenc';
+    win32Project.output.streamRateControl = 'cbr';
+    win32Project.output.recordingVideoEncoder = 'h264_mf';
+    win32Project.output.recordingRateControl = 'cbr';
+    await writeFile(path.join(win32Directory, 'scene-collection.json'), JSON.stringify(win32Project), 'utf8');
+
+    const onDarwin = await new ProjectStore(win32Directory, { platform: 'darwin' }).load();
+    expect(onDarwin.project.output.streamVideoEncoder).toBe('h264_videotoolbox');
+    expect(onDarwin.project.output.streamRateControl).toBe('cbr');
+    expect(onDarwin.project.output.recordingVideoEncoder).toBe('h264_videotoolbox');
+
+    const darwinDirectory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(darwinDirectory);
+    const darwinProject = createDefaultProject('darwin');
+    darwinProject.output.streamVideoEncoder = 'h264_videotoolbox';
+    darwinProject.output.streamRateControl = 'cbr';
+    await writeFile(path.join(darwinDirectory, 'scene-collection.json'), JSON.stringify(darwinProject), 'utf8');
+
+    const onWin32 = await new ProjectStore(darwinDirectory, { platform: 'win32' }).load();
+    expect(onWin32.project.output.streamVideoEncoder).toBe('h264_mf');
+
+    const openH264Directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(openH264Directory);
+    const openH264Project = createDefaultProject('linux');
+    openH264Project.output.streamVideoEncoder = 'libopenh264';
+    openH264Project.output.streamRateControl = 'cbr';
+    await writeFile(path.join(openH264Directory, 'scene-collection.json'), JSON.stringify(openH264Project), 'utf8');
+
+    const openH264OnDarwin = await new ProjectStore(openH264Directory, { platform: 'darwin' }).load();
+    expect(openH264OnDarwin.project.output.streamVideoEncoder).toBe('h264_videotoolbox');
+    expect(openH264OnDarwin.project.output.streamRateControl).toBe('cbr');
+  });
+
+  it('creates default collections with the host platform encoder', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+    temporaryDirectories.push(directory);
+    const workspace = await new ProjectStore(directory, { platform: 'darwin' }).load();
+    expect(workspace.project.output.streamVideoEncoder).toBe('h264_videotoolbox');
+    expect(workspace.project.output.recordingVideoEncoder).toBe('h264_videotoolbox');
   });
 });
 

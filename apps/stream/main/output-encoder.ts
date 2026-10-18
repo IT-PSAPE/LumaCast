@@ -94,6 +94,18 @@ function amdArguments(settings: EncoderArguments): string[] {
   return args;
 }
 
+function videoToolboxArguments(settings: EncoderArguments): string[] {
+  const args = [
+    '-c:v', 'h264_videotoolbox',
+    '-realtime', settings.scenario === 'live_streaming' ? '1' : '0',
+    // VideoToolbox provides its own software fallback; the toggle decides whether that fallback is permitted.
+    '-allow_sw', settings.hardwareEncoding ? '0' : '1',
+  ];
+  if (settings.rateControl === 'quality') args.push('-q:v', String(Math.max(1, settings.encoderQuality)));
+  else appendBitrateArguments(args, settings);
+  return args;
+}
+
 function openH264Arguments(settings: EncoderArguments): string[] {
   const args = ['-c:v', 'libopenh264', '-rc_mode', 'bitrate'];
   appendBitrateArguments(args, settings);
@@ -106,7 +118,8 @@ function buildVideoEncoderArguments(settings: EncoderArguments): string[] {
     : settings.encoder === 'h264_nvenc' ? nvencArguments(settings)
       : settings.encoder === 'h264_qsv' ? quickSyncArguments(settings)
         : settings.encoder === 'h264_amf' ? amdArguments(settings)
-          : openH264Arguments(settings);
+          : settings.encoder === 'h264_videotoolbox' ? videoToolboxArguments(settings)
+            : openH264Arguments(settings);
   if (settings.width !== undefined && settings.height !== undefined) args.push('-s:v', `${settings.width}x${settings.height}`);
   const pixelFormat = settings.encoder === 'h264_qsv' ? 'nv12' : 'yuv420p';
   const gopFrames = Math.round(settings.frameRate * settings.keyframeIntervalSeconds);

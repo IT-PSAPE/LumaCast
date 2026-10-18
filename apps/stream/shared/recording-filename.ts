@@ -1,9 +1,11 @@
-const INVALID_WINDOWS_FILENAME_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f\u007f]/;
+// Windows' character and device-name rules are the strictest of the supported platforms, so
+// one portable rule set keeps recordings copyable between macOS and Windows machines.
+const INVALID_FILENAME_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f\u007f]/;
 const SUPPORTED_TOKENS = ['%CCYY', '%MM', '%DD', '%hh', '%mm', '%ss'] as const;
 
 export function validateRecordingFilenameFormat(value: unknown): value is string {
   if (typeof value !== 'string' || value.length < 1 || value.length > 120 || value.trim().length === 0
-    || INVALID_WINDOWS_FILENAME_CHARACTERS.test(value) || /[. ]$/.test(value)) return false;
+    || INVALID_FILENAME_CHARACTERS.test(value) || /[. ]$/.test(value)) return false;
   const remainder = SUPPORTED_TOKENS.reduce((format, token) => format.replaceAll(token, ''), value);
   if (remainder.includes('%')) return false;
   const stem = value.split('.')[0]?.toUpperCase() ?? '';
@@ -21,7 +23,7 @@ export function formatRecordingFilenameBase(format: string, at: Date): string {
     '%ss': String(at.getSeconds()).padStart(2, '0'),
   };
   const result = SUPPORTED_TOKENS.reduce((name, token) => name.replaceAll(token, values[token]), format);
-  if (result.trim().length === 0 || INVALID_WINDOWS_FILENAME_CHARACTERS.test(result) || /[. ]$/.test(result)) {
+  if (result.trim().length === 0 || INVALID_FILENAME_CHARACTERS.test(result) || /[. ]$/.test(result)) {
     throw new Error('Recording filename format produced an invalid filename.');
   }
   const stem = result.split('.')[0]?.toUpperCase() ?? '';

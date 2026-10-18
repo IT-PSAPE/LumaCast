@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "productName": "LumaStream",
-  "description": "A Windows-first live production app for scene composition, capture, audio, and recording.",
+  "description": "A live production app for Windows and macOS: scene composition, capture, audio, streaming, and recording.",
   "license": "UNLICENSED",
   "author": "IT-PSAPE",
   "main": "out/main/index.js",
@@ -14,7 +14,8 @@
     "prepare:application-audio": "node script/prepare-application-audio.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "pack": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --dir",
-    "dist:win": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --win"
+    "dist:win": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --win",
+    "dist:mac": "npm run prepare:media-engine && npm run prepare:application-audio && electron-vite build && electron-builder --mac"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",

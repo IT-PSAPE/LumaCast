@@ -36,7 +36,7 @@ function decodeRecordingSettings(value: unknown): RecordingOutputSettings {
     || !Number.isInteger(settings.audioBitrateKbps) || settings.audioBitrateKbps! < 32 || settings.audioBitrateKbps! > 320
     || !['cbr', 'pc_vbr', 'u_vbr', 'quality'].includes(String(settings.rateControl))
     || !isVideoEncoderFamily(settings.encoder)
-    || !supportsVideoRateControl(isVideoEncoderFamily(settings.encoder) ? settings.encoder : 'h264_mf', settings.rateControl as VideoRateControlMode)
+    || !supportsVideoRateControl(settings.encoder, settings.rateControl as VideoRateControlMode)
     || !Number.isInteger(settings.encoderQuality) || settings.encoderQuality! < 0 || settings.encoderQuality! > 100
     || typeof settings.hardwareEncoding !== 'boolean'
     || !Number.isInteger(settings.keyframeIntervalSeconds) || settings.keyframeIntervalSeconds! < 1 || settings.keyframeIntervalSeconds! > 10) {

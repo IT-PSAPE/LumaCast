@@ -16,7 +16,7 @@ describe('desktop audio capture tracks', () => {
     expect(audioTrack.stop).not.toHaveBeenCalled();
   });
 
-  it('stops video even when Windows provides no loopback track', () => {
+  it('stops video even when the platform provides no loopback track', () => {
     const videoTrack = { kind: 'video', stop: vi.fn() } as unknown as MediaStreamTrack;
     const stream = { getAudioTracks: () => [], getTracks: () => [videoTrack] };
 
