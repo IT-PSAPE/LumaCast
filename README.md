@@ -106,6 +106,51 @@ color correction, opacity, blur, chroma key, audio monitoring, microphone noise
 suppression, gain, noise gate, expander, compressor, and limiter controls are available.
 Global hotkeys can toggle streaming controls, recording, and replay capture.
 Browser sources can route page audio through the per-source mixer.
+YouTube account connection uses a Google OAuth Desktop app client ID supplied
+as `LUMASTREAM_GOOGLE_CLIENT_ID` when building LumaStream. Connected accounts
+can select or create upcoming broadcasts and stream to YouTube over RTMPS; OAuth
+tokens are stored with the operating system's secure credential storage.
+The Zoom Meeting SDK uses a Public Client ID supplied as
+`LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID` when building LumaStream. Connected Zoom
+accounts can select or create scheduled meetings; OAuth tokens are stored with
+the operating system's secure credential storage. The native Meeting SDK sender
+joins with the connected user's ZAK and sends raw I420 video and PCM audio from
+the program canvas and mixer through Production Studio. It runs alongside
+YouTube RTMPS and local recording. The SDK app key, OAuth access token, and
+user's ZAK serve separate purposes. Production Studio can send only when the
+signed-in user is the meeting host or co-host. Zoom requires app review before
+joining meetings outside the SDK app owner's account.
+Zoom's PKCE guide lists Meeting SDK 7.0.2 as preferred. Use the exact native
+Windows/macOS packages and version supplied through the Zoom Marketplace, then
+check their platform changelog and minimum-version policy before packaging.
+Windows builds require Visual Studio 2019 or later; macOS 7.x builds require
+Xcode 26 or later. Zoom's macOS SDK does not support the App Sandbox.
+Set `ZOOM_MEETING_SDK_ROOT` to the extracted platform package's `x64` directory
+on Windows or its `ZoomSDK` directory on macOS. `npm run prepare:zoom-native
+--workspace apps/stream` builds the Electron Node-API addon and stages the vendor
+runtime for packaging; the pack and distribution commands run it automatically.
+The SDK archive and generated runtime remain outside source control, and the
+Zoom license notices are copied into the app's third-party notices.
+Configure the Zoom OAuth app with public PKCE enabled, the loopback redirect
+`http://127.0.0.1/oauth2callback`, and the `meeting:read:list_meetings`,
+`meeting:write:meeting`, `user:read:user`, and `user:read:zak` scopes. Zoom's
+OAuth guide documents refresh-token requests with Basic client authentication
+using the client ID and secret, but does not document a secretless refresh flow
+for public clients. For local development, set `LUMASTREAM_ZOOM_CLIENT_ID` and
+`LUMASTREAM_ZOOM_CLIENT_SECRET` in ignored `.env.local`; the development launcher
+uses the confidential client for token exchange and refresh. These credentials
+are never inserted into application bundles. Packaged builds use the public
+client flow and will ask users to reconnect after the access token expires
+(normally after one hour). A production rollout that preserves one-time
+connection needs a hosted refresh service. Disconnecting removes this device's
+encrypted credentials.
+See [Zoom's public-client PKCE guidance](https://developers.zoom.us/blog/public-pkce/),
+[Meeting SDK authorization](https://developers.zoom.us/docs/meeting-sdk/auth/),
+the [Windows SDK requirements](https://developers.zoom.us/docs/meeting-sdk/windows/start-join-mtg-webinar/pkce/)
+and [macOS SDK requirements](https://developers.zoom.us/docs/meeting-sdk/macos/get-started/),
+and the [Windows](https://developers.zoom.us/docs/meeting-sdk/windows/default-ui/advanced-features/production-studio-mode/)
+and [macOS](https://developers.zoom.us/docs/meeting-sdk/macos/custom-ui/advanced-features/production-studio-mode/)
+Production Studio guides.
 Multiview monitors the live program and scene previews while keeping program
 audio and the full-resolution output canvas on the live scene.
 The program canvas remains stable across monitor layouts and can open in a
