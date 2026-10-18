@@ -6,9 +6,15 @@ attribute vec2 a_uv;
 uniform vec4 u_rect;
 uniform vec4 u_uvRect;
 uniform vec2 u_outputSize;
+uniform float u_rotation;
 varying vec2 v_uv;
 void main() {
+  vec2 center = u_rect.xy + u_rect.zw * 0.5;
   vec2 pixel = u_rect.xy + a_position * u_rect.zw;
+  vec2 offset = pixel - center;
+  float cosine = cos(u_rotation);
+  float sine = sin(u_rotation);
+  pixel = center + vec2(offset.x * cosine - offset.y * sine, offset.x * sine + offset.y * cosine);
   vec2 clip = vec2(pixel.x / u_outputSize.x * 2.0 - 1.0, 1.0 - pixel.y / u_outputSize.y * 2.0);
   gl_Position = vec4(clip, 0.0, 1.0);
   v_uv = u_uvRect.xy + a_uv * u_uvRect.zw;
@@ -53,6 +59,7 @@ export class ChromaKeyProcessor {
   private readonly rectLocation: WebGLUniformLocation;
   private readonly uvRectLocation: WebGLUniformLocation;
   private readonly outputSizeLocation: WebGLUniformLocation;
+  private readonly rotationLocation: WebGLUniformLocation;
   private readonly keyColorLocation: WebGLUniformLocation;
   private readonly similarityLocation: WebGLUniformLocation;
   private readonly smoothnessLocation: WebGLUniformLocation;
@@ -94,16 +101,18 @@ export class ChromaKeyProcessor {
     const rectLocation = gl.getUniformLocation(program, 'u_rect');
     const uvRectLocation = gl.getUniformLocation(program, 'u_uvRect');
     const outputSizeLocation = gl.getUniformLocation(program, 'u_outputSize');
+    const rotationLocation = gl.getUniformLocation(program, 'u_rotation');
     const textureLocation = gl.getUniformLocation(program, 'u_texture');
     const keyColorLocation = gl.getUniformLocation(program, 'u_keyColor');
     const similarityLocation = gl.getUniformLocation(program, 'u_similarity');
     const smoothnessLocation = gl.getUniformLocation(program, 'u_smoothness');
-    if (this.positionLocation < 0 || this.uvLocation < 0 || !rectLocation || !uvRectLocation || !outputSizeLocation || !textureLocation || !keyColorLocation || !similarityLocation || !smoothnessLocation) {
+    if (this.positionLocation < 0 || this.uvLocation < 0 || !rectLocation || !uvRectLocation || !outputSizeLocation || !rotationLocation || !textureLocation || !keyColorLocation || !similarityLocation || !smoothnessLocation) {
       throw new Error('Chroma key shader is missing a required input.');
     }
     this.rectLocation = rectLocation;
     this.uvRectLocation = uvRectLocation;
     this.outputSizeLocation = outputSizeLocation;
+    this.rotationLocation = rotationLocation;
     this.textureLocation = textureLocation;
     this.keyColorLocation = keyColorLocation;
     this.similarityLocation = similarityLocation;
@@ -142,6 +151,7 @@ export class ChromaKeyProcessor {
     gl.uniform4f(this.rectLocation, transform.x, transform.y, transform.width, transform.height);
     gl.uniform4f(this.uvRectLocation, crop.left / sourceWidth, crop.top / sourceHeight, (sourceWidth - crop.left - crop.right) / sourceWidth, (sourceHeight - crop.top - crop.bottom) / sourceHeight);
     gl.uniform2f(this.outputSizeLocation, this.outputWidth, this.outputHeight);
+    gl.uniform1f(this.rotationLocation, (transform.rotation ?? 0) * Math.PI / 180);
     gl.uniform3f(this.keyColorLocation, color[0] ?? 0, color[1] ?? 1, color[2] ?? 0);
     gl.uniform1f(this.similarityLocation, filter.similarity / 100 * 0.9);
     gl.uniform1f(this.smoothnessLocation, Math.max(0.002, filter.smoothness / 100 * 0.5));

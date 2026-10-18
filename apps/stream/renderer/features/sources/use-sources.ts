@@ -1,7 +1,7 @@
 import { useRef, useState, type Dispatch, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
 import { hitTestSource } from '../../canvas-composition';
 import { canvasPointFromOutputPoint } from '../../output-scaling';
-import { canTransformSource, fitSourceToCanvas } from '../../source-transform';
+import { canTransformSource, fitSourceToCanvas, resizeSourceFromPointer, sourceContainsPoint } from '../../source-transform';
 import { duplicateSource } from '../../source-clipboard';
 import { currentSlideshowSlideIndex, slideshowImageElementKey } from '../../slideshow';
 import { removeSourceVisibilityHotkeys } from '../../scene-hotkeys';
@@ -11,6 +11,7 @@ import {
   reorderSourceTreeSiblings, ungroupSourceNode,
 } from '../../../shared/source-tree';
 import { canReferenceScene } from '../../../shared/scene-reference-graph';
+import { normalizeSourceRotation } from '../../../shared/source-geometry';
 import { AUDIO_TRACKS, type AudioFilters, type AudioMonitoring, type AudioTrack, type ChromaKeyFilter, type MediaKind, type SourceCrop, type SourceFilters, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, createDefaultTextStyle } from '../../../shared/desktop-api';
 import type { StreamAPI } from '../../../shared/desktop-api';
 import { friendlyError } from '../shared/friendly-error';
@@ -145,7 +146,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   const sourceMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const sourceActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const sourceClipboardRef = useRef<StreamSource | null>(null);
-  const dragging = useRef<{ pointerId: number; sourceId: string; startX: number; startY: number; originX: number; originY: number; originWidth: number; originHeight: number; resizeHandle: string | null } | null>(null);
+  const dragging = useRef<{ pointerId: number; sourceId: string; startX: number; startY: number; originX: number; originY: number; originWidth: number; originHeight: number; originRotation: number; originIsGroup: boolean; resizeHandle: string | null } | null>(null);
 
   const selectSource = (sourceId: string | null) => {
     setSelectedSourceId(sourceId);
@@ -297,9 +298,11 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   const updateSourceTransform = (sourceId: string, key: keyof StreamSource['transform'], rawValue: string) => {
     const entered = Number(rawValue);
     if (!Number.isFinite(entered) || rawValue.trim() === '') return;
-    const value = key === 'x' || key === 'y'
-      ? Math.max(-32768, Math.min(32768, Math.round(entered)))
-      : Math.max(1, Math.min(32768, Math.round(entered)));
+    const value = key === 'rotation'
+      ? normalizeSourceRotation(entered)
+      : key === 'x' || key === 'y'
+        ? Math.max(-32768, Math.min(32768, Math.round(entered)))
+        : Math.max(1, Math.min(32768, Math.round(entered)));
     updateSource(sourceId, (source) => ({ ...source, transform: { ...source.transform, [key]: value } }));
   };
 
@@ -319,7 +322,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       height: video?.videoHeight || image?.naturalHeight || source.transform.height,
     };
     const transform = fitSourceToCanvas(sourceSize, { width: project.output.baseWidth, height: project.output.baseHeight });
-    updateSource(source.id, (current) => ({ ...current, transform }));
+    updateSource(source.id, (current) => ({ ...current, transform: { ...transform, rotation: current.transform.rotation ?? 0 } }));
   };
 
   const centerSource = (source: StreamSource) => {
@@ -341,7 +344,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
 
   const stretchSource = (source: StreamSource) => {
     if (!project) return;
-    updateSource(source.id, (current) => ({ ...current, transform: { x: 0, y: 0, width: project.output.baseWidth, height: project.output.baseHeight } }));
+    updateSource(source.id, (current) => ({ ...current, transform: { ...current.transform, x: 0, y: 0, width: project.output.baseWidth, height: project.output.baseHeight } }));
   };
 
   const updateCaptureCursorMode = async (sourceId: string, cursorMode: StreamSource['cursorMode']) => {
@@ -618,8 +621,10 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     const selectedIsGroupedChild = selected && flatSources.some((source) => source.kind === 'group'
       && flattenSourceNodes(source.children ?? []).some((child) => child.id === selected.id));
     const selectedBounds = selected?.transform;
-    const pointInsideSelected = selectedBounds && x >= selectedBounds.x && x <= selectedBounds.x + selectedBounds.width
-      && y >= selectedBounds.y && y <= selectedBounds.y + selectedBounds.height;
+    const pointInsideSelected = selectedBounds && (selected?.kind === 'group'
+      ? x >= selectedBounds.x && x <= selectedBounds.x + selectedBounds.width
+        && y >= selectedBounds.y && y <= selectedBounds.y + selectedBounds.height
+      : sourceContainsPoint(selectedBounds, x, y));
     const source = resizeHandle ? selected : selectedIsGroupedChild && pointInsideSelected ? selected : withinCanvas ? hitTestSource(scene, x, y) : null;
     selectSource(source?.id ?? null);
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
@@ -631,6 +636,8 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       pointerId: event.pointerId, sourceId: source.id, startX: x, startY: y,
       originX: source.transform.x, originY: source.transform.y,
       originWidth: source.transform.width, originHeight: source.transform.height,
+      originRotation: source.transform.rotation ?? 0,
+      originIsGroup: source.kind === 'group',
       resizeHandle: source.id === selectedSourceId ? resizeHandle : null,
     };
   };
@@ -654,14 +661,15 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       }));
       return;
     }
-    const handle = activeDrag.resizeHandle;
-    let width = activeDrag.originWidth + (handle.includes('e') ? dx : handle.includes('w') ? -dx : 0);
-    let height = activeDrag.originHeight + (handle.includes('s') ? dy : handle.includes('n') ? -dy : 0);
-    width = Math.max(16, width);
-    height = Math.max(16, height);
-    const left = activeDrag.originX + (handle.includes('w') ? activeDrag.originWidth - width : 0);
-    const top = activeDrag.originY + (handle.includes('n') ? activeDrag.originHeight - height : 0);
-    updateSource(activeDrag.sourceId, (source) => ({ ...source, transform: { ...source.transform, x: Math.round(left), y: Math.round(top), width: Math.round(width), height: Math.round(height) } }));
+    const resized = resizeSourceFromPointer({
+      x: activeDrag.originX,
+      y: activeDrag.originY,
+      width: activeDrag.originWidth,
+      height: activeDrag.originHeight,
+      rotation: activeDrag.originIsGroup ? 0 : activeDrag.originRotation,
+    }, activeDrag.resizeHandle, dx, dy);
+    resized.rotation = activeDrag.originRotation;
+    updateSource(activeDrag.sourceId, (source) => ({ ...source, transform: resized }));
   };
 
   const handleStagePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {

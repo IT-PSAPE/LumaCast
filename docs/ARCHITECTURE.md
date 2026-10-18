@@ -298,8 +298,8 @@ device and driver. MP4-only controls stay inactive for WebM and Matroska output
 (ADR-0073, ADR-0075).
 
 The renderer currently provides scenes, reusable Scene sources, layer
-order/visibility, nested source groups, direct canvas positioning and
-resizing, Studio Mode,
+order/visibility, nested source groups, direct canvas positioning, resizing, and
+rotation around each source center, Studio Mode,
 Cut/Fade/Swipe/Slide/Fade-to-Color transitions, image and media playback,
 per-source crop, six-track source routing, selectable stream audio, multitrack
 recording, audio levels/mute/volume, compressor/limiter controls,
@@ -337,17 +337,18 @@ Scene transition selection and duration sit beside the preview; stream,
 recording, and replay actions stay in Controls (ADR-0076). The preview measures
 its available work area and contains the output canvas at the configured output
 aspect ratio, including in Studio Mode; pointer-based source editing uses that
-fitted canvas rectangle. Source transforms also have numeric position/size
-fields and fit, center, and reset actions; fitting uses the source dimensions
-and preserves its aspect ratio (ADR-0079). Collection, source, scene, and
+fitted canvas rectangle. Source transforms also have numeric position, size, and
+rotation fields and fit, center, and reset actions; fitting uses the source
+dimensions and preserves its aspect ratio (ADR-0079, ADR-0115). Collection, source, scene, and
 settings popovers are rendered outside clipped docks and reposition to the
 available viewport space. Source locks persist per source and prevent pointer,
 keyboard, and transform-panel geometry changes while leaving visibility and
 layer order editable (ADR-0081). Groups preserve child stacking and source IDs
-inside the project tree, inherit visibility, and move or scale their visual
-children as a unit. Group contents remain in scene canvas coordinates; grouped
-audio keeps its existing per-source routes. Groups may nest to 32 levels, and
-moving or resizing an outer group preserves nested child geometry (ADR-0114).
+inside the project tree, inherit visibility, and move, scale, or rotate their
+visual children as a unit. Group contents remain in scene canvas coordinates;
+grouped audio keeps its existing per-source routes. Groups may nest to 32
+levels. Rotated leaf bounds account for the axis-aligned envelope, and legacy
+source transforms default to zero rotation (ADR-0114, ADR-0115).
 Scene sources point to another scene and composite its canvas inside the source
 transform, so captures, media elements, and audio routes retain their original
 source IDs. Referenced-scene surfaces are

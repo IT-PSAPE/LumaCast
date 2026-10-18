@@ -844,6 +844,45 @@ describe('LumaStream source group persistence', () => {
   });
 });
 
+describe('LumaStream source rotation persistence', () => {
+  it('defaults legacy transforms to zero rotation and round-trips configured rotation', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-rotation-'));
+    temporaryDirectories.push(directory);
+    const legacy = projectWithDisplaySource();
+    const legacySource = legacy.scenes[0]?.sources.find((source) => source.id === 'display-source');
+    if (!legacySource) throw new Error('Display source was not created.');
+    delete legacySource.transform.rotation;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(legacy), 'utf8');
+
+    const store = new ProjectStore(directory);
+    const loaded = await store.load();
+    expect(loaded.project.scenes[0]?.sources.find((source) => source.id === legacySource.id)?.transform.rotation).toBe(0);
+    const rotated: StreamProject = {
+      ...loaded.project,
+      scenes: loaded.project.scenes.map((scene) => ({
+        ...scene,
+        sources: scene.sources.map((source) => source.id === legacySource.id
+          ? { ...source, transform: { ...source.transform, rotation: -37.5 } }
+          : source),
+      })),
+    };
+    await store.save(loaded.activeCollectionId, loaded.activeProfileId, rotated);
+    expect((await store.load()).project.scenes[0]?.sources.find((source) => source.id === legacySource.id)?.transform.rotation).toBe(-37.5);
+  });
+
+  it('rejects source rotation outside the canonical range', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-rotation-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithDisplaySource();
+    const captureSource = project.scenes[0]?.sources.find((source) => source.id === 'display-source');
+    if (!captureSource) throw new Error('Display source was not created.');
+    captureSource.transform.rotation = 181;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains an invalid source transform.');
+  });
+});
+
 describe('LumaStream Scene source persistence', () => {
   it('round-trips Scene source references and remaps scene, source, and hotkey IDs when duplicating a collection', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-scene-source-'));

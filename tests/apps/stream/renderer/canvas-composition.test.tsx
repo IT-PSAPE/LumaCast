@@ -10,6 +10,7 @@ interface FakeContext extends Partial<CanvasRenderingContext2D> {
   save: ReturnType<typeof vi.fn>;
   restore: ReturnType<typeof vi.fn>;
   scale: ReturnType<typeof vi.fn>;
+  rotate: ReturnType<typeof vi.fn>;
   translate: ReturnType<typeof vi.fn>;
   setTransform: ReturnType<typeof vi.fn>;
 }
@@ -22,6 +23,7 @@ function createContext(): FakeContext {
     save: vi.fn(),
     restore: vi.fn(),
     scale: vi.fn(),
+    rotate: vi.fn(),
     translate: vi.fn(),
     setTransform: vi.fn(),
   };
@@ -153,5 +155,23 @@ describe('CanvasComposition Scene sources', () => {
   it('treats Scene sources as a selectable source on the owner canvas', () => {
     const sceneSource = source('scene-ref', 'scene', { x: 10, y: 20, width: 100, height: 50 }, { referencedSceneId: 'target' });
     expect(hitTestSource({ sources: [sceneSource] } as StreamScene, 20, 30)?.id).toBe('scene-ref');
+  });
+
+  it('draws a rotated visual source around its center and hit-tests its rotated bounds', () => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    const rotated = source('rotated-color', 'color', { x: 10, y: 20, width: 100, height: 50 }, {
+      transform: { x: 10, y: 20, width: 100, height: 50, rotation: 45 },
+    });
+    const scene = project.scenes[0]!;
+    scene.sources.push(rotated);
+
+    render(<CanvasComposition project={project} scene={scene} videoElements={new Map()} imageElements={new Map()} />);
+    act(() => frames.shift()?.(0));
+
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    expect(contexts.get(canvas)?.rotate).toHaveBeenCalledWith(Math.PI / 4);
+    expect(hitTestSource(scene, 55, 5)?.id).toBe('rotated-color');
+    expect(hitTestSource(scene, 12, 2)).toBeNull();
   });
 });

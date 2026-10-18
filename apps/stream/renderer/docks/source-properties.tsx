@@ -155,6 +155,7 @@ export function SourceProperties({
       {supportsSourceTransform(selectedSource) && <details className="filter-details"><summary>Transform</summary>
         <div className="source-transform-grid">
           {(['x', 'y', 'width', 'height'] as const).map((key) => <label key={key}>{key === 'x' ? 'Position X' : key === 'y' ? 'Position Y' : key === 'width' ? 'Width' : 'Height'}<input aria-label={`Source ${key}`} disabled={selectedSource.locked} type="number" min={key === 'x' || key === 'y' ? -32768 : 1} max="32768" step="1" key={`${selectedSource.id}-${key}-${selectedSource.transform[key]}`} defaultValue={selectedSource.transform[key]} onBlur={(event) => onUpdateSourceTransform(selectedSource.id, key, event.currentTarget.value)} /></label>)}
+          <label>Rotation<input aria-label="Source rotation" disabled={selectedSource.locked} type="number" min="-180" max="180" step="1" key={`${selectedSource.id}-rotation-${selectedSource.transform.rotation ?? 0}`} defaultValue={selectedSource.transform.rotation ?? 0} onBlur={(event) => onUpdateSourceTransform(selectedSource.id, 'rotation', event.currentTarget.value)} /></label>
         </div>
         <div className="transform-actions"><button type="button" disabled={selectedSource.locked} onClick={() => fitSource(selectedSource)}>Fit to Canvas</button><button type="button" disabled={selectedSource.locked} onClick={() => centerSource(selectedSource)}>Center</button><button type="button" disabled={selectedSource.locked} onClick={() => onResetTransform(selectedSource)}>Reset</button></div>
       </details>}

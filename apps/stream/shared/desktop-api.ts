@@ -120,6 +120,8 @@ export interface SourceTransform {
   y: number;
   width: number;
   height: number;
+  /** Clockwise rotation in degrees around the source center. */
+  rotation?: number;
 }
 
 export interface SlideshowImage {
