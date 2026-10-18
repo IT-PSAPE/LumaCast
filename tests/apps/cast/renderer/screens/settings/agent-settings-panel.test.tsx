@@ -4,10 +4,11 @@ import { ConfirmProvider } from '@renderer/components/overlays/confirm-dialog';
 import { createDefaultAgentConfig, matrixForTier } from '@lumacast/protocol';
 import type { AgentConfig, AgentConfigUpdate, AgentCredentialStatus, AgentMcpClient, AgentMcpStatus, AgentModelInfo } from '@lumacast/protocol';
 import { AgentSettingsPanel, buildMcpSetupInstructions } from '../../../../../../apps/cast/renderer/screens/settings/agent-settings-panel';
-import { overlayRoot, overlayStackStore } from '../../components/overlays/workbench-overlay-stack';
+import { overlayRoot, overlayStackStore, WithOverlayStack } from '../../components/overlays/workbench-overlay-stack';
 
-// FieldSelect and the confirm dialog both read the workbench overlay stack;
-// this stands in for the real provider the same way confirm-dialog.test.tsx does.
+// FieldSelect still reads the overlay stack through `useWorkbench()`; the
+// confirm dialog now reads `@lumacast/ui`'s `OverlayStackContext` directly
+// (see confirm-dialog.test.tsx) — `WithOverlayStack` below covers that half.
 vi.mock('@renderer/contexts/workbench-context', () => import('../../components/overlays/workbench-overlay-stack'));
 
 function baseConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
@@ -75,9 +76,11 @@ function stubCastApi(options: {
 
 function renderPanel() {
   return render(
-    <ConfirmProvider>
-      <AgentSettingsPanel />
-    </ConfirmProvider>,
+    <WithOverlayStack>
+      <ConfirmProvider>
+        <AgentSettingsPanel />
+      </ConfirmProvider>
+    </WithOverlayStack>,
   );
 }
 

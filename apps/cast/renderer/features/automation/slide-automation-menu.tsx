@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Check } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { CueKind, CuePayload, TriggerType } from '@lumacast/automation';
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useAutomation } from './automation-context';
 

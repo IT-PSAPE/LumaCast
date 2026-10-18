@@ -1,33 +1,33 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Dialog } from '@renderer/components/overlays/dialog';
-import { overlayRoot, overlayStackStore } from './workbench-overlay-stack';
-
-vi.mock('@renderer/contexts/workbench-context', () => import('./workbench-overlay-stack'));
+import { overlayRoot, overlayStackStore, WithOverlayStack } from './workbench-overlay-stack';
 
 function Fixture({ closeOnEscape = true }: { closeOnEscape?: boolean }) {
   return (
-    <Dialog.Root closeOnEscape={closeOnEscape}>
-      <Dialog.Trigger>Open</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content>
-            <Dialog.Header>
-              <Dialog.Title>Rename slide</Dialog.Title>
-              <Dialog.CloseButton />
-            </Dialog.Header>
-            <Dialog.Body>
-              <Dialog.Description>Pick a new name.</Dialog.Description>
-              <input aria-label="Name" />
-            </Dialog.Body>
-            <Dialog.Footer>
-              <button type="button">Save</button>
-            </Dialog.Footer>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <WithOverlayStack>
+      <Dialog.Root closeOnEscape={closeOnEscape}>
+        <Dialog.Trigger>Open</Dialog.Trigger>
+        <Dialog.Portal>
+          <Dialog.Backdrop />
+          <Dialog.Positioner>
+            <Dialog.Content>
+              <Dialog.Header>
+                <Dialog.Title>Rename slide</Dialog.Title>
+                <Dialog.CloseButton />
+              </Dialog.Header>
+              <Dialog.Body>
+                <Dialog.Description>Pick a new name.</Dialog.Description>
+                <input aria-label="Name" />
+              </Dialog.Body>
+              <Dialog.Footer>
+                <button type="button">Save</button>
+              </Dialog.Footer>
+            </Dialog.Content>
+          </Dialog.Positioner>
+        </Dialog.Portal>
+      </Dialog.Root>
+    </WithOverlayStack>
   );
 }
 

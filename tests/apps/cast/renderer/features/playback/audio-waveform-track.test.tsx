@@ -3,7 +3,13 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { AudioWaveformTrack } from '../../../../../../apps/cast/renderer/features/playback/audio-waveform-track';
 import type { AudioSyncController } from '../../../../../../apps/cast/renderer/features/playback/audio-sync-editor';
 vi.mock('../../../../../../apps/cast/renderer/features/playback/use-audio-waveform', () => ({ useAudioWaveform: () => ({ peaks: [.25, 1, .5], status: 'ready' }) }));
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/popover', () => ({ Popover: ({ open, children }: { open: boolean; children: React.ReactNode }) => open ? <div>{children}</div> : null }));
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return {
+    ...actual,
+    Popover: ({ open, children }: { open: boolean; children: React.ReactNode }) => open ? <div>{children}</div> : null,
+  };
+});
 afterEach(cleanup);
 it('shows markers on the waveform and opens only the selected marker editor', () => {
   const controller: AudioSyncController = {

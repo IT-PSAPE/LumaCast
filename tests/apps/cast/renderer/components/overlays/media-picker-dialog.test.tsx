@@ -2,9 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { MediaAsset } from '@lumacast/composition';
 import { MediaPickerDialog } from '@renderer/components/overlays/media-picker-dialog';
-import { overlayStackStore } from './workbench-overlay-stack';
+import { overlayStackStore, WithOverlayStack } from './workbench-overlay-stack';
 
-vi.mock('@renderer/contexts/workbench-context', () => import('./workbench-overlay-stack'));
 vi.mock('@renderer/components/overlays/media-thumbnail', () => ({ MediaThumbnail: () => null }));
 
 function asset(id: string, name: string, type: MediaAsset['type'] = 'image'): MediaAsset {
@@ -21,7 +20,7 @@ afterEach(() => {
 describe('MediaPickerDialog', () => {
   it('offers the matching assets as pressable tiles and confirms the selection', async () => {
     const onConfirm = vi.fn();
-    render(<MediaPickerDialog assets={assets} kind="image" onConfirm={onConfirm} onClose={() => {}} onImportAssets={async () => {}} />);
+    render(<WithOverlayStack><MediaPickerDialog assets={assets} kind="image" onConfirm={onConfirm} onClose={() => {}} onImportAssets={async () => {}} /></WithOverlayStack>);
 
     await screen.findByRole('dialog');
     expect(screen.queryByRole('button', { name: /Clip/ })).toBeNull();
@@ -38,7 +37,7 @@ describe('MediaPickerDialog', () => {
 
   it('nests the upload dialog inside the picker, so Escape dismisses only the top one', async () => {
     const onClose = vi.fn();
-    render(<MediaPickerDialog assets={assets} kind="image" onConfirm={() => {}} onClose={onClose} onImportAssets={async () => {}} />);
+    render(<WithOverlayStack><MediaPickerDialog assets={assets} kind="image" onConfirm={() => {}} onClose={onClose} onImportAssets={async () => {}} /></WithOverlayStack>);
     await screen.findByRole('heading', { name: 'Add Image Element' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Upload' }));

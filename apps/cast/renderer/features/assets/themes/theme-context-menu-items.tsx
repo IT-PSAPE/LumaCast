@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { ItemType, Lyric, Presentation, ThemeOwnerType } from '@lumacast/composition';
 import type { EditorThemeSource } from '@lumacast/canvas';
-import { ContextMenu } from '../../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { type RenameFieldHandle } from '../../../components/form/rename-field';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useCast } from '../../../contexts/app-context';

@@ -1,5 +1,5 @@
 import type { PlaylistItemEntry } from '@lumacast/composition';
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useSortableItem } from '../../components/layout/sortable-list';
 import { PlaylistItemRowBody } from './playlist-item-row-body';
 import type { RowDragProps } from './row-drag-props';

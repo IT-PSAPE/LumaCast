@@ -1,4 +1,4 @@
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import type { ItemLike, ItemProps } from './item-bin-types';
 import { ItemBinTileBody } from './item-bin-tile-body';
 

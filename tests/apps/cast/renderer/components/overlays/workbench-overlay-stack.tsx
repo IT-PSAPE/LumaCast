@@ -1,6 +1,7 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, type ReactNode } from 'react';
+import { OverlayStackContext } from '@lumacast/ui';
 
-// Stands in for `@renderer/contexts/workbench-context` in the overlay tests.
+// A real, React-observable overlay stack for the confirm-dialog/dialog tests.
 // The stack has to be real React-observable state, not a plain array: overlays
 // register from an effect and only re-read `isTopmost` once that registration
 // re-renders them.
@@ -65,6 +66,22 @@ export function overlayRoot(): HTMLElement {
   return created;
 }
 
+/** Wraps `children` in a real `OverlayStackContext.Provider` (@lumacast/ui) backed by the module-level reactive stack above. For a component rendered under a `ContextMenu`/`Popover`/`Dialog` that reads `@lumacast/ui`'s overlay-stack hooks directly. */
+export function WithOverlayStack({ children }: { children: ReactNode }) {
+  const currentStack = useSyncExternalStore(subscribe, () => stack);
+  return (
+    <OverlayStackContext.Provider value={{ rootElement: overlayRoot(), stack: currentStack, baseZIndex: 9000, register, unregister }}>
+      {children}
+    </OverlayStackContext.Provider>
+  );
+}
+
+/**
+ * Stands in for `@renderer/contexts/workbench-context`'s `useWorkbench` via
+ * `vi.mock('@renderer/contexts/workbench-context', () => import('./workbench-overlay-stack'))`
+ * — for a component (e.g. `FieldSelect`) that still reads the overlay stack
+ * through `useWorkbench()` rather than `@lumacast/ui` directly.
+ */
 export function useWorkbench() {
   return {
     state: {},

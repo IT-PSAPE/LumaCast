@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBinScrollRoot } from '@renderer/components/layout/bin-shell';
 import { useMediaDerivative } from '../../../hooks/use-media-derivative';
 import { useElements } from '../../../contexts/canvas/canvas-context';
-import { useContextMenuTrigger, ContextMenu } from '../../../components/overlays/context-menu';
+import { useContextMenuTrigger, ContextMenu } from '@lumacast/ui';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
 import { MediaAssetIcon } from '../../../components/display/entity-icon';
 import { SelectableRow } from '../../../components/display/selectable-row';

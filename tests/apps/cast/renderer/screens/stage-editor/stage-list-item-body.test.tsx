@@ -55,20 +55,24 @@ vi.mock('@renderer/components/layout/scroll-area', () => ({
   useScrollAreaActiveItem: () => ({ current: null }),
 }));
 
-vi.mock('@renderer/components/overlays/context-menu', () => ({
-  useContextMenuTrigger: () => ({
-    ref: mocks.triggerRef,
-    onContextMenu: vi.fn(),
-  }),
-  ContextMenu: {
-    Portal: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    Menu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-    Item: ({ children, onSelect }: { children: React.ReactNode; onSelect?: () => void }) => (
-      <button type="button" onClick={onSelect}>{children}</button>
-    ),
-    Separator: () => <hr />,
-  },
-}));
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return {
+    ...actual,
+    useContextMenuTrigger: () => ({
+      ref: mocks.triggerRef,
+      onContextMenu: vi.fn(),
+    }),
+    ContextMenu: {
+      Portal: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+      Menu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+      Item: ({ children, onSelect }: { children: React.ReactNode; onSelect?: () => void }) => (
+        <button type="button" onClick={onSelect}>{children}</button>
+      ),
+      Separator: () => <hr />,
+    },
+  };
+});
 
 vi.mock('@renderer/components/overlays/confirm-dialog', () => ({
   useConfirm: () => mocks.confirm,

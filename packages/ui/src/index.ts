@@ -21,3 +21,25 @@ export { Select, type SelectProps, type SelectOption } from './select';
 export { Checkbox, type CheckboxProps } from './checkbox';
 export { Switch, type SwitchProps } from './switch';
 export { PanelResize, PANEL_RESIZE_MIN, PANEL_RESIZE_MAX, PANEL_RESIZE_KEYBOARD_STEP, type PanelResizeProps } from './panel-resize';
+export {
+  OverlayStackContext,
+  OverlayStackProvider,
+  useOverlayStack,
+  useOverlayContainer,
+  useOverlayStackEntry,
+  type OverlayStackValue,
+} from './overlay';
+export { ContextMenu, useContextMenu, useContextMenuTrigger, SURFACE_CLASSES as CONTEXT_MENU_SURFACE_CLASSES, type ContextMenuPoint } from './context-menu';
+export { Popover, type PopoverPlacement } from './popover';
+export {
+  MenuEntries,
+  PointContextMenu,
+  usePointContextMenu,
+  type MenuItem,
+  type MenuEntry,
+  type MenuEntriesProps,
+  type PointContextMenuProps,
+  type PointContextMenuTrigger,
+  type UsePointContextMenuResult,
+} from './menu-entries';
+export { Menubar, type MenubarMenu, type MenubarProps } from './menubar';

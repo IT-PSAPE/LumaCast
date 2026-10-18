@@ -1,7 +1,7 @@
 import { Workflow } from 'lucide-react';
 import { Thumbnail } from '@renderer/components/display/thumbnail';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
-import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import type { Macro } from '@lumacast/automation';
 

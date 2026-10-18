@@ -7,17 +7,21 @@ const mocks = vi.hoisted(() => ({
   createBinding: vi.fn(),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/context-menu', () => ({
-  ContextMenu: {
-    Submenu: ({ label, children, disabled }: { label: string; children: React.ReactNode; disabled?: boolean }) => (
-      <section aria-label={label} data-disabled={disabled ? 'true' : undefined}>{children}</section>
-    ),
-    Item: ({ children, onSelect, disabled }: { children: React.ReactNode; onSelect?: () => void; disabled?: boolean }) => (
-      <button type="button" disabled={disabled} onClick={onSelect}>{children}</button>
-    ),
-    Separator: () => <hr />,
-  },
-}));
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return {
+    ...actual,
+    ContextMenu: {
+      Submenu: ({ label, children, disabled }: { label: string; children: React.ReactNode; disabled?: boolean }) => (
+        <section aria-label={label} data-disabled={disabled ? 'true' : undefined}>{children}</section>
+      ),
+      Item: ({ children, onSelect, disabled }: { children: React.ReactNode; onSelect?: () => void; disabled?: boolean }) => (
+        <button type="button" disabled={disabled} onClick={onSelect}>{children}</button>
+      ),
+      Separator: () => <hr />,
+    },
+  };
+});
 
 vi.mock('../../../../../../apps/cast/renderer/contexts/use-project-content', () => ({
   useProjectContent: () => ({

@@ -1,4 +1,4 @@
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useStageEditorScreen } from './screen-context';
 import { StageListItemBody } from './stage-list-item-body';
 

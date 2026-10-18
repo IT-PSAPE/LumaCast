@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ItemIcon } from '../../components/display/entity-icon';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
-import { useContextMenuTrigger } from '../../components/overlays/context-menu';
+import { useContextMenuTrigger } from '@lumacast/ui';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
 import { writeItemDragData } from '../../utils/item-drag';

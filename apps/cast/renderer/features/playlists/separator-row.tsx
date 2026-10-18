@@ -1,5 +1,5 @@
 import type { PlaylistSeparator } from '@lumacast/composition';
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useSortableItem } from '../../components/layout/sortable-list';
 import { SeparatorRowBody } from './separator-row-body';
 import type { RowDragProps } from './row-drag-props';

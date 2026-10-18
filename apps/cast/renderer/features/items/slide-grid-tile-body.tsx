@@ -1,7 +1,7 @@
 import type { CSSProperties, HTMLAttributes, Ref } from 'react';
 import { Play } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
-import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '@renderer/components/display/scene-frame';
 import { Thumbnail } from '@renderer/components/display/thumbnail';

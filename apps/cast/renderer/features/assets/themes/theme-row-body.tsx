@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { SelectableRow } from '../../../components/display/selectable-row';
 import { RenameField, type RenameFieldHandle } from '../../../components/form/rename-field';
-import { useContextMenuTrigger } from '../../../components/overlays/context-menu';
+import { useContextMenuTrigger } from '@lumacast/ui';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import type { ThemeItemProps } from './theme-bin-types';
 import { ThemeContextMenuItems } from './theme-context-menu-items';

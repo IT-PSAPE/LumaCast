@@ -8,20 +8,24 @@ const mocks = vi.hoisted(() => ({
   setCurrentMacroId: vi.fn(),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/context-menu', () => ({
-  ContextMenu: {
-    Submenu: ({ label, children, disabled }: { label: React.ReactNode; children: React.ReactNode; disabled?: boolean }) => (
-      <section data-disabled={disabled ? 'true' : undefined}>
-        <div data-testid="submenu-label">{label}</div>
-        {children}
-      </section>
-    ),
-    Item: ({ children, onSelect, disabled }: { children: React.ReactNode; onSelect?: () => void; disabled?: boolean }) => (
-      <button type="button" disabled={disabled} onClick={onSelect}>{children}</button>
-    ),
-    Separator: () => <hr />,
-  },
-}));
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return {
+    ...actual,
+    ContextMenu: {
+      Submenu: ({ label, children, disabled }: { label: React.ReactNode; children: React.ReactNode; disabled?: boolean }) => (
+        <section data-disabled={disabled ? 'true' : undefined}>
+          <div data-testid="submenu-label">{label}</div>
+          {children}
+        </section>
+      ),
+      Item: ({ children, onSelect, disabled }: { children: React.ReactNode; onSelect?: () => void; disabled?: boolean }) => (
+        <button type="button" disabled={disabled} onClick={onSelect}>{children}</button>
+      ),
+      Separator: () => <hr />,
+    },
+  };
+});
 
 vi.mock('../../../../../../apps/cast/renderer/contexts/asset-editor/asset-editor-context', () => ({
   useOverlayEditor: () => ({ setCurrentOverlayId: vi.fn() }),

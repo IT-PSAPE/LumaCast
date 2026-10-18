@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { SlideOutlineRowBody, type SlideOutlineRowProps } from './slide-list-row-body';
 
 function SlideOutlineRowImpl(props: SlideOutlineRowProps) {

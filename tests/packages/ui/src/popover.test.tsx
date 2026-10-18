@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useRef, useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { Popover } from '@renderer/components/overlays/popover';
-import { overlayRoot, overlayStackStore } from './workbench-overlay-stack';
-
-vi.mock('@renderer/contexts/workbench-context', () => import('./workbench-overlay-stack'));
+import { Popover } from '@lumacast/ui';
+import { overlayRoot, overlayStackStore, WithOverlayStack } from './test-overlay-stack';
 
 function Fixture({ onClose, placement }: { onClose: () => void; placement?: 'bottom' | 'top-start' }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -12,15 +10,17 @@ function Fixture({ onClose, placement }: { onClose: () => void; placement?: 'bot
   // `triggerRef.current` and only have it once the trigger has mounted.
   const [, forceAnchor] = useState(0);
   return (
-    <div>
-      <button type="button" ref={(node) => { triggerRef.current = node; forceAnchor(1); }}>Trigger</button>
-      <button type="button">Elsewhere</button>
-      {/* Stands in for a nested menu surface portalled by another overlay. */}
-      <div data-context-menu-owned="true"><button type="button">Submenu item</button></div>
-      <Popover anchor={triggerRef.current} open onClose={onClose} placement={placement} className="w-56">
-        <button type="button">Inside</button>
-      </Popover>
-    </div>
+    <WithOverlayStack>
+      <div>
+        <button type="button" ref={(node) => { triggerRef.current = node; forceAnchor(1); }}>Trigger</button>
+        <button type="button">Elsewhere</button>
+        {/* Stands in for a nested menu surface portalled by another overlay. */}
+        <div data-context-menu-owned="true"><button type="button">Submenu item</button></div>
+        <Popover anchor={triggerRef.current} open onClose={onClose} placement={placement} className="w-56">
+          <button type="button">Inside</button>
+        </Popover>
+      </div>
+    </WithOverlayStack>
   );
 }
 

@@ -1,4 +1,4 @@
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import type { ThemeOwnerType } from '@lumacast/composition';
 import { useThemeEditorScreen } from './screen-context';
 import { ThemeListItemBody } from './theme-list-item-body';

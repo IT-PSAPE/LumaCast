@@ -1,6 +1,6 @@
 import type { Id } from '@lumacast/kernel';
 import type { SlideTagColorKey } from '@lumacast/composition';
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useCast } from '@renderer/contexts/app-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { LABEL_COLOR_OPTIONS } from '@renderer/utils/label-colors';

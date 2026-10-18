@@ -3,7 +3,7 @@ import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '../../../components/display/scene-frame';
 import { Thumbnail } from '../../../components/display/thumbnail';
 import { RenameField, type RenameFieldHandle } from '../../../components/form/rename-field';
-import { useContextMenuTrigger } from '../../../components/overlays/context-menu';
+import { useContextMenuTrigger } from '@lumacast/ui';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import type { ThemeItemProps } from './theme-bin-types';

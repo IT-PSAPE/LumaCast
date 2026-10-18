@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { Check, Play, Workflow } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { Macro } from '@lumacast/automation';
-import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
 import { Thumbnail } from '../../components/display/thumbnail';

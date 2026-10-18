@@ -5,7 +5,7 @@ import { getPlaylistEntryItemRef } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useProjectContent } from '../../contexts/use-project-content';
-import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
 import { ItemIcon } from '../../components/display/entity-icon';

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { ItemIcon } from '../../components/display/entity-icon';
 import { SelectableRow } from '../../components/display/selectable-row';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
-import { useContextMenuTrigger } from '../../components/overlays/context-menu';
+import { useContextMenuTrigger } from '@lumacast/ui';
 import { writeItemDragData } from '../../utils/item-drag';
 import type { ItemLike, ItemProps } from './item-bin-types';
 import { ItemContextMenuItems } from './item-context-menu-items';

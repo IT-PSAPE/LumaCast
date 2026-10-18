@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import { Popover as BasePopover } from '@base-ui/react/popover';
-import { cn } from '@lumacast/ui';
-import { useOverlayContainer, useOverlayStackEntry } from './overlay-primitives';
+import { cn } from './cn';
+import { useOverlayContainer, useOverlayStackEntry } from './overlay';
 
 type PopoverSide = 'top' | 'bottom' | 'left' | 'right';
 type PopoverAlign = 'start' | 'center' | 'end';

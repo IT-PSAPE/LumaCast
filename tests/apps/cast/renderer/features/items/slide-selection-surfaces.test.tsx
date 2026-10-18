@@ -21,13 +21,17 @@ vi.mock('../../../../../../apps/cast/renderer/components/display/scene-frame', (
   SceneFrame: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/context-menu', () => ({
-  ContextMenu: {
-    Portal: () => null,
-    Menu: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  },
-  useContextMenuTrigger: () => ({ ref: () => undefined, onContextMenu: vi.fn() }),
-}));
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return {
+    ...actual,
+    ContextMenu: {
+      Portal: () => null,
+      Menu: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+    },
+    useContextMenuTrigger: () => ({ ref: () => undefined, onContextMenu: vi.fn() }),
+  };
+});
 
 vi.mock('../../../../../../apps/cast/renderer/features/automation/slide-bindings-badge', () => ({
   SlideBindingsBadge: () => null,

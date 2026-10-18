@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { OverlayStackContext } from '@lumacast/ui';
 import { Dropdown } from '../../../../../../apps/cast/renderer/components/form/dropdown';
 
+// Not annotated as `OverlayStackValue` (still structurally assignable to it
+// below): that would widen `register`/`unregister` to plain functions and
+// lose the `vi.fn()` mock methods the assertions call.
 const overlayStack = {
   rootElement: null as HTMLElement | null,
   stack: [] as string[],
@@ -10,9 +15,9 @@ const overlayStack = {
   unregister: vi.fn(),
 };
 
-vi.mock('@renderer/contexts/workbench-context', () => ({
-  useWorkbench: () => ({ state: {}, actions: {}, overlayStack }),
-}));
+function withOverlayStack(children: ReactNode) {
+  return <OverlayStackContext.Provider value={overlayStack}>{children}</OverlayStackContext.Provider>;
+}
 
 // Base UI moves focus on an animation frame, so keyboard assertions have to let
 // the frame (and any queued microtasks) run first.
@@ -25,7 +30,7 @@ function pressKey(key: string) {
 }
 
 function Harness({ onPick = () => undefined }: { onPick?: (label: string) => void }) {
-  return (
+  return withOverlayStack(
     <Dropdown className="w-full">
       <Dropdown.Trigger aria-label="Sort by">Newest</Dropdown.Trigger>
       <Dropdown.Panel placement="bottom-end" className="min-w-64">
@@ -34,7 +39,7 @@ function Harness({ onPick = () => undefined }: { onPick?: (label: string) => voi
         <Dropdown.Separator />
         <Dropdown.Item disabled onClick={() => onPick('Name')}>Name</Dropdown.Item>
       </Dropdown.Panel>
-    </Dropdown>
+    </Dropdown>,
   );
 }
 
@@ -57,7 +62,7 @@ describe('Dropdown', () => {
   });
 
   it('does not open a disabled trigger', async () => {
-    render(<Dropdown><Dropdown.Trigger disabled aria-label="Model">Selected</Dropdown.Trigger><Dropdown.Panel><Dropdown.Item>Other</Dropdown.Item></Dropdown.Panel></Dropdown>);
+    render(withOverlayStack(<Dropdown><Dropdown.Trigger disabled aria-label="Model">Selected</Dropdown.Trigger><Dropdown.Panel><Dropdown.Item>Other</Dropdown.Item></Dropdown.Panel></Dropdown>));
     const trigger = screen.getByRole('button', { name: 'Model' });
     expect(trigger).toBeDisabled();
     fireEvent.click(trigger);

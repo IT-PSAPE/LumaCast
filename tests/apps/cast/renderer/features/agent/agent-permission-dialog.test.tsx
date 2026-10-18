@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ActionRiskClass } from '@lumacast/commands';
-import { overlayRoot, overlayStackStore } from '../../components/overlays/workbench-overlay-stack';
+import { overlayRoot, overlayStackStore, WithOverlayStack } from '../../components/overlays/workbench-overlay-stack';
 import {
   AgentPermissionDialog,
   denyAllAgentPermissionPrompts,
@@ -10,9 +10,11 @@ import {
   type AgentPermissionPrompt,
 } from '@renderer/features/agent/agent-permission-dialog';
 
-vi.mock('@renderer/contexts/workbench-context', () => import('../../components/overlays/workbench-overlay-stack'));
-
 const answers: AgentPermissionAnswer[] = [];
+
+function renderDialog() {
+  return render(<WithOverlayStack><AgentPermissionDialog /></WithOverlayStack>);
+}
 
 function makePrompt(overrides: Partial<AgentPermissionPrompt> = {}): AgentPermissionPrompt {
   return {
@@ -27,7 +29,7 @@ function makePrompt(overrides: Partial<AgentPermissionPrompt> = {}): AgentPermis
 }
 
 async function ask(overrides: Partial<AgentPermissionPrompt> = {}) {
-  render(<AgentPermissionDialog />);
+  renderDialog();
   await act(async () => {
     void requestAgentPermission(makePrompt(overrides)).then((answer) => answers.push(answer));
   });
@@ -45,7 +47,7 @@ afterEach(async () => {
 
 describe('AgentPermissionDialog', () => {
   it('renders nothing until a prompt is queued', () => {
-    render(<AgentPermissionDialog />);
+    renderDialog();
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
@@ -160,7 +162,7 @@ describe('AgentPermissionDialog', () => {
   });
 
   it('denies everything still queued when the dispatcher goes away', async () => {
-    render(<AgentPermissionDialog />);
+    renderDialog();
     await act(async () => {
       void requestAgentPermission(makePrompt()).then((answer) => answers.push(answer));
       void requestAgentPermission(makePrompt()).then((answer) => answers.push(answer));

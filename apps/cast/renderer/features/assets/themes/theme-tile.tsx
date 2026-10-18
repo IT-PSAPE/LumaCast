@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ContextMenu } from '../../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { type ThemeItemProps } from './theme-bin-types';
 import { ThemeTileBody } from './theme-tile-body';
 

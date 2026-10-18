@@ -61,18 +61,22 @@ vi.mock('@renderer/contexts/workbench-context', () => ({
 // required behavior coverage — stubbed the same way sibling row tests do
 // (see stage-list-item-body.test.tsx) so rendering a row doesn't need the
 // real Base UI Menu/portal machinery.
-vi.mock('@renderer/components/overlays/context-menu', () => ({
-  useContextMenuTrigger: () => ({ ref: vi.fn(), onContextMenu: vi.fn() }),
-  ContextMenu: {
-    Root: ({ children }: { children: ReactNode }) => <>{children}</>,
-    Portal: ({ children }: { children: ReactNode }) => <>{children}</>,
-    Menu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-    Item: ({ children, onSelect }: { children: ReactNode; onSelect?: () => void }) => (
-      <button type="button" onClick={onSelect}>{children}</button>
-    ),
-    Separator: () => <hr />,
-  },
-}));
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return {
+    ...actual,
+    useContextMenuTrigger: () => ({ ref: vi.fn(), onContextMenu: vi.fn() }),
+    ContextMenu: {
+      Root: ({ children }: { children: ReactNode }) => <>{children}</>,
+      Portal: ({ children }: { children: ReactNode }) => <>{children}</>,
+      Menu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+      Item: ({ children, onSelect }: { children: ReactNode; onSelect?: () => void }) => (
+        <button type="button" onClick={onSelect}>{children}</button>
+      ),
+      Separator: () => <hr />,
+    },
+  };
+});
 
 // FieldSelect's real popup needs the workbench overlay stack and floating-ui
 // positioning; stubbed to a native <select> so kind/format changes are plain

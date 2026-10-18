@@ -3,13 +3,12 @@ import { ChevronRight, Copy, Ellipsis, Pause, Play, Plus, RotateCcw, Trash2 } fr
 import { createId, type Id } from '@lumacast/kernel';
 import type { Timer, TimerFormat, TimerKind, TimerReading, TimerRunState, TimerThreshold } from '@lumacast/composition';
 import { Accordion, useAccordionItem } from '@renderer/components/display/accordion';
-import { EmptyState, ReacstButton, cn } from '@lumacast/ui';
+import { EmptyState, ReacstButton, cn, ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 import { BinShell } from '@renderer/components/layout/bin-shell';
 import { Dropdown } from '@renderer/components/form/dropdown';
 import { FieldCheckbox, FieldColor, FieldInput, FieldSelect } from '@renderer/components/form/field';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
-import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
 import { useConfirmDelete } from '@renderer/components/overlays/confirm-dialog';
 import { useTimers } from '@renderer/contexts/timers/timers-context';
 import { filterByText } from '../../utils/filter-by-text';

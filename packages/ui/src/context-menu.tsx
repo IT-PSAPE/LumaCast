@@ -18,9 +18,13 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Menu } from '@base-ui/react/menu';
-import { ChevronRight } from 'lucide-react';
-import { cn } from '@lumacast/ui';
-import { useOverlayContainer, useOverlayStackEntry } from './overlay-primitives';
+import { cn } from './cn';
+import { useOverlayContainer, useOverlayStackEntry } from './overlay';
+
+// Domain-agnostic menu primitives: a point-anchored context menu (opened from
+// a pointer event or a keyboard trigger, not a Base UI `Menu.Trigger`) plus the
+// styled surface/item/separator/submenu parts every menu in the app shares.
+// Promoted from LumaCast so Stream, Cloud and Flux can reuse it unchanged.
 
 // Hide the native scrollbar while keeping wheel/trackpad scrolling. Used on
 // the menu flyouts where we want overflow scrolling without a visible thumb.
@@ -29,12 +33,39 @@ const HIDE_NATIVE_SCROLLBAR = '[scrollbar-width:none] [&::-webkit-scrollbar]:hid
 const DEFAULT_LONG_PRESS_DELAY = 500;
 const DEFAULT_VIEWPORT_PADDING = 8;
 
-const SURFACE_CLASSES = cn(
-  'pointer-events-auto min-w-30 max-w-48 max-h-80 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg outline-hidden',
+// A submenu rendered with no `ContextMenu.Root` ancestor (e.g. inside a
+// Menubar's own `Menu.Root`) has no registered stack entry to inherit a
+// z-index from; this keeps it above ordinary page content in that case.
+const STANDALONE_PORTAL_Z_INDEX = 50;
+
+export const SURFACE_CLASSES = cn(
+  'pointer-events-auto min-w-30 max-w-64 max-h-80 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg outline-hidden',
   HIDE_NATIVE_SCROLLBAR,
 );
 
 const ITEM_CLASSES = 'flex w-full min-w-0 select-none items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm outline-hidden';
+
+// Matches lucide's `ChevronRight` at 24x24 / stroke-width 2: @lumacast/ui may
+// depend only on `@lumacast/kernel`, so the glyph is inlined rather than
+// pulled from an icon package.
+function ChevronRightIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
 
 export interface ContextMenuPoint {
   x: number;
@@ -91,7 +122,7 @@ export function useContextMenu() {
 
 // Base UI's own ContextMenu.Root only opens from its own Trigger and is always
 // modal (it aria-hides the whole app). This app opens menus from a point it
-// already has — Konva canvas events, row bodies that spread
+// already has — canvas events, row bodies that spread
 // `useContextMenuTrigger()` — so the popup is a non-modal Menu anchored to a
 // zero-size virtual rect at that point. Everything else (roles, roving focus,
 // typeahead, dismissal, focus return, submenus) is Base UI's.
@@ -326,16 +357,19 @@ function Trigger({
 // The overlay root is `pointer-events: none` so the app stays clickable around
 // a menu; the popup opts back in. Exported as `ContextMenu.Portal`, and reused
 // by every submenu so they share the stacking context the overlay stack gave
-// this root.
+// this root. Usable with no `ContextMenu.Root` ancestor too (a Menubar's own
+// dropdown): it then falls back to a fixed z-index instead of a registered
+// stack position, since there is no point-anchored root to inherit one from.
 function Portal({ children }: { children: ReactNode }) {
-  const { meta } = useContextMenu();
+  const context = useContext(ContextMenuContext);
   const container = useOverlayContainer();
+  const zIndex = context?.meta.zIndex ?? STANDALONE_PORTAL_Z_INDEX;
 
   return (
     <Menu.Portal
       container={container}
       className="pointer-events-none fixed inset-0"
-      style={{ zIndex: meta.zIndex }}
+      style={{ zIndex }}
     >
       {children}
     </Menu.Portal>
@@ -383,7 +417,7 @@ function Positioner({
         {...(props as ComponentPropsWithoutRef<'div'>)}
         data-context-menu-owned="true"
         // Falls back to whatever had focus before opening when the trigger is a
-        // Konva canvas or another element the hook never attached to.
+        // canvas or another element the hook never attached to.
         finalFocus={meta.triggerRef}
         className={cn('pointer-events-auto', className)}
         onContextMenu={handleContextMenu}
@@ -494,7 +528,7 @@ function Submenu({ label, children, disabled = false, className }: SubmenuProps)
         className={cn(itemVariantClasses('default', disabled), className)}
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronRight className="size-3.5 shrink-0 text-tertiary" />
+        <ChevronRightIcon className="size-3.5 shrink-0 text-tertiary" />
       </Menu.SubmenuTrigger>
       <Portal>
         <Menu.Positioner className="outline-hidden" sideOffset={6}>
@@ -514,8 +548,8 @@ interface UseContextMenuTriggerOptions {
   longPressDelay?: number;
   // When provided, the trigger becomes focusable and pressing Delete/Backspace
   // while it (not a child input) holds focus invokes this — the keyboard twin of
-  // the context menu's destructive item. stopPropagation keeps the global
-  // slide/element delete shortcut from also firing for the same keystroke.
+  // the context menu's destructive item. stopPropagation keeps the app's global
+  // delete shortcut from also firing for the same keystroke.
   onDelete?: () => void;
 }
 

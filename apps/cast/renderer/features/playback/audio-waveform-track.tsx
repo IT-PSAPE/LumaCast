@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Slider } from '@base-ui/react/slider';
-import { Popover } from '@renderer/components/overlays/popover';
+import { Popover } from '@lumacast/ui';
 import { MarkerRow, type AudioSyncController } from './audio-sync-editor';
 import { useAudioWaveform } from './use-audio-waveform';
 import { formatPlaybackTime } from './format-playback-time';

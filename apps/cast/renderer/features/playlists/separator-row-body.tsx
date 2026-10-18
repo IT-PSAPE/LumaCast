@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import type { PlaylistSeparator } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
-import { ContextMenu, useContextMenuTrigger } from '../../components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useConfirm } from '../../components/overlays/confirm-dialog';
 import { getSeparatorColors, SEPARATOR_COLOR_OPTIONS } from './separator-color';
 import type { RowDragProps } from './row-drag-props';

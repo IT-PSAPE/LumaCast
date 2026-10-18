@@ -7,9 +7,13 @@ vi.mock('../../../../../../../apps/cast/renderer/features/assets/media/use-media
   useMediaContextActions: () => ({ handleReplaceSource: vi.fn(async () => undefined), handleDelete: vi.fn(async () => undefined) }),
 }));
 
-vi.mock('../../../../../../../apps/cast/renderer/components/overlays/context-menu', () => ({
-  useContextMenuTrigger: () => ({ ref: () => undefined, onContextMenu: vi.fn() }),
-}));
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return {
+    ...actual,
+    useContextMenuTrigger: () => ({ ref: () => undefined, onContextMenu: vi.fn() }),
+  };
+});
 
 vi.mock('../../../../../../../apps/cast/renderer/contexts/workbench-context', () => ({
   useWorkbench: () => ({

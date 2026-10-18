@@ -1,8 +1,7 @@
 import { X } from 'lucide-react';
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState, type ComponentProps, type HTMLAttributes, type ReactNode } from 'react';
-import { ReacstButton, cn } from '@lumacast/ui';
-import { useOverlayContainer, useOverlayStackEntry } from './overlay-primitives';
+import { ReacstButton, cn, useOverlayContainer, useOverlayStackEntry } from '@lumacast/ui';
 
 interface DialogContextValue {
   state: { isOpen: boolean; isTopmost: boolean; zIndex: number };

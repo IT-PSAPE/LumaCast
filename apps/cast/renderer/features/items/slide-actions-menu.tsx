@@ -1,5 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useSlides } from '@renderer/contexts/slide-context';
 import { useNavigation } from '@renderer/contexts/navigation-context';

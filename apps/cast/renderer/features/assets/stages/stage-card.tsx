@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ContextMenu } from '../../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import type { StageCardProps } from './stage-card-body';
 import { StageCardBody } from './stage-card-body';
 

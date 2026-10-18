@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
 import type { ItemRef } from '@lumacast/composition';
 import { ItemIcon } from '../../components/display/entity-icon';
-import { Popover } from '../../components/overlays/popover';
+import { Popover } from '@lumacast/ui';
 import { useItemEditorScreen } from './screen-context';
 import { ItemPickerOption } from './item-picker-option';
 

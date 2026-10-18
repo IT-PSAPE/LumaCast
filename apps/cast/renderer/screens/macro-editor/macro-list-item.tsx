@@ -1,4 +1,4 @@
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import type { Macro } from '@lumacast/automation';
 import { MacroListItemBody } from './macro-list-item-body';
 

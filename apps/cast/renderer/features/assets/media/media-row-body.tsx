@@ -1,6 +1,6 @@
 import type { MediaItemProps } from './media-bin-types';
 import { useMediaContextActions } from './use-media-context-actions';
-import { useContextMenuTrigger } from '../../../components/overlays/context-menu';
+import { useContextMenuTrigger } from '@lumacast/ui';
 import { SelectableRow } from '../../../components/display/selectable-row';
 import { MediaThumbnail } from './media-thumbnail';
 import { MediaContextMenuItems } from './media-context-menu-items';

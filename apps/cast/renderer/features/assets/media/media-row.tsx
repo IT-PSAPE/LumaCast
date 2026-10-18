@@ -1,4 +1,4 @@
-import { ContextMenu } from '../../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import type { MediaItemProps } from './media-bin-types';
 import { MediaRowBody } from './media-row-body';
 

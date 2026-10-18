@@ -11,7 +11,7 @@ import {
   useSceneStageViewport,
   type SceneViewportTransform,
 } from '@lumacast/canvas';
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { hasClipboardContent } from '../../contexts/element/use-element-history';
 import { setCaptureSurface } from '../../rendering/capture-surface-registry';

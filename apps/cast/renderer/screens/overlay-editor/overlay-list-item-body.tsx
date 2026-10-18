@@ -5,7 +5,7 @@ import { SceneFrame } from '../../components/display/scene-frame';
 import { LazySceneStage } from '../../components/display/lazy-scene-stage';
 import { buildRenderScene } from '../../features/canvas/build-render-scene';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
-import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { useOverlayEditor } from '@renderer/contexts/asset-editor/asset-editor-context';

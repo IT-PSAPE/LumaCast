@@ -3,7 +3,7 @@ import type { Id } from '@lumacast/kernel';
 import type { LyricBlankSlideMode } from '@lumacast/composition';
 import { Dropdown } from '../../components/form/dropdown';
 import { FieldSelect } from '../../components/form/field';
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useCast } from '../../contexts/app-context';
 
 const BLANK_SLIDE_OPTIONS: Array<{ value: LyricBlankSlideMode; label: string }> = [

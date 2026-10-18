@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { WorkbenchProvider } from '../../../../../../apps/cast/renderer/contexts/workbench-context';
-import { ContextMenu } from '../../../../../../apps/cast/renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { ItemContextMenuItems } from '../../../../../../apps/cast/renderer/features/items/item-context-menu-items';
 
 const mocks = vi.hoisted(() => ({

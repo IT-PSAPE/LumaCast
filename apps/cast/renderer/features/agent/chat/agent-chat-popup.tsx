@@ -40,11 +40,10 @@ import type {
   AgentToolCallStatus,
 } from '@lumacast/protocol';
 import { AGENT_PROVIDERS, agentProviderBaseUrl, inferModelVendor, prettifyModelId } from '@lumacast/protocol';
-import { ReacstButton, EmptyState, cn } from '@lumacast/ui';
+import { ReacstButton, EmptyState, cn, useOverlayContainer, useOverlayStackEntry } from '@lumacast/ui';
 import { Dropdown, useDropdown } from '@renderer/components/form/dropdown';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
-import { useOverlayContainer, useOverlayStackEntry } from '@renderer/components/overlays/overlay-primitives';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { ModelVendorLogo } from '@renderer/features/agent/model-vendor-logo';
 import { useAgentChat, type AgentChatView } from './agent-chat-context';

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { hexAlpha, hexToHsb, hsbToHex, withAlpha, type Hsb } from '../../../utils/color';
-import { Popover } from '../../overlays/popover';
+import { Popover } from '@lumacast/ui';
 import { SaturationBrightnessArea } from './saturation-brightness-area';
 import { HueSlider } from './hue-slider';
 import { AlphaSlider } from './alpha-slider';

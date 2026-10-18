@@ -1,4 +1,4 @@
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { SlideTileBody, type SlideTileProps } from './slide-tile-body';
 

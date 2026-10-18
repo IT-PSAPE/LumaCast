@@ -161,12 +161,14 @@ vi.mock('../../../../../../apps/cast/renderer/features/canvas/inline-text-editor
   InlineTextEditor: () => null,
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/context-menu', () => {
+vi.mock('@lumacast/ui', async () => {
   // A minimal stand-in that renders every menu item as plain DOM so tests can
   // query by text and inspect `disabled`, without the real Base UI popup
   // positioning/portal machinery. The real component gates the whole tree
   // behind `menuPosition ? <ContextMenu.Root> : null` in scene-stage.tsx, so
-  // `Root` here always renders its children once mounted.
+  // `Root` here always renders its children once mounted. Everything else
+  // `@lumacast/ui` exports (cn, ReacstButton, …) passes through unmocked.
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
   const Root = ({ children }: { children?: React.ReactNode }) => h('div', { 'data-testid': 'context-menu' }, children);
   const Portal = ({ children }: { children?: React.ReactNode }) => h(React.Fragment, null, children);
   const MenuSurface = ({ children }: { children?: React.ReactNode }) => h('div', { role: 'menu' }, children);
@@ -178,7 +180,7 @@ vi.mock('../../../../../../apps/cast/renderer/components/overlays/context-menu',
     h('div', { 'data-submenu': String(label), 'data-disabled': String(Boolean(disabled)) }, children)
   );
   const ContextMenuMock = Object.assign(Root, { Root, Portal, Menu: MenuSurface, Item, Separator, Submenu });
-  return { ContextMenu: ContextMenuMock };
+  return { ...actual, ContextMenu: ContextMenuMock };
 });
 
 vi.mock('../../../../../../apps/cast/renderer/rendering/capture-surface-registry', () => ({

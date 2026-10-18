@@ -5,7 +5,7 @@ import { useNavigation } from '@renderer/contexts/navigation-context';
 import { usePlaylistPanelManagement } from './use-playlist-panel-management';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
-import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 

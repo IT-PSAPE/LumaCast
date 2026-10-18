@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import type { MacroCardProps } from './macro-card-body';
 import { MacroCardBody } from './macro-card-body';
 

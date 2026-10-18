@@ -1,9 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ConfirmProvider, useConfirm, useConfirmDelete } from '@renderer/components/overlays/confirm-dialog';
-import { overlayRoot, overlayStackStore } from './workbench-overlay-stack';
-
-vi.mock('@renderer/contexts/workbench-context', () => import('./workbench-overlay-stack'));
+import { overlayRoot, overlayStackStore, WithOverlayStack } from './workbench-overlay-stack';
 
 const answers: boolean[] = [];
 
@@ -23,7 +21,7 @@ function Fixture() {
 }
 
 function renderFixture() {
-  return render(<ConfirmProvider><Fixture /></ConfirmProvider>);
+  return render(<WithOverlayStack><ConfirmProvider><Fixture /></ConfirmProvider></WithOverlayStack>);
 }
 
 afterEach(() => {

@@ -1,6 +1,6 @@
 import type { ItemRef } from '@lumacast/composition';
 import type { RenameFieldHandle } from '@renderer/components/form/rename-field';
-import { ContextMenu } from '../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { LyricItemBlankSlidesMenu } from './lyric-blank-slides-menu';
 
 export function ItemContextMenuItems({ itemRef, renameRef, isFirst, isLast, onMove, onDelete, onDuplicate }: {

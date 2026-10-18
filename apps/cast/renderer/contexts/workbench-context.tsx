@@ -1,31 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { OverlayAnimation } from '@lumacast/composition';
+import { OverlayStackContext, useOverlayStack, type OverlayStackValue } from '@lumacast/ui';
 import type { DrawerTab, DrawerViewModeMap, InspectorTab, ProgramGridDensity, ProgramMode, ProgramSurfaceKind, ResourceDrawerViewMode, SettingsTabId, SlideBrowserMode, WorkbenchMode } from '../types/ui';
 import { useGridSize } from '../hooks/use-grid-size';
 import { useLocalStorage } from '../hooks/use-local-storage';
-
-// ─── Overlay stack (modal/dialog portal) ────────────────────────────
-
-const OVERLAY_ROOT_ID = 'overlay-root';
-const OVERLAY_BASE_Z_INDEX = 1;
-
-interface OverlayStackValue {
-  rootElement: HTMLElement | null;
-  stack: string[];
-  baseZIndex: number;
-  register: (id: string) => void;
-  unregister: (id: string) => void;
-}
-
-function ensureOverlayRoot(): HTMLElement | null {
-  if (typeof document === 'undefined') return null;
-  const existing = document.getElementById(OVERLAY_ROOT_ID);
-  if (existing) return existing;
-  const root = document.createElement('div');
-  root.id = OVERLAY_ROOT_ID;
-  document.body.append(root);
-  return root;
-}
 
 // ─── Slide browser preference ───────────────────────────────────────
 
@@ -70,7 +48,6 @@ type WorkbenchContextValue = {
 
 const WorkbenchStateContext = createContext<WorkbenchContextValue['state'] | null>(null);
 const WorkbenchActionsContext = createContext<WorkbenchContextValue['actions'] | null>(null);
-const WorkbenchOverlayStackContext = createContext<WorkbenchContextValue['overlayStack'] | null>(null);
 const WORKBENCH_MODE_STORAGE_KEY = 'lumacast.workbench-mode.v1';
 const SLIDE_BROWSER_MODE_STORAGE_KEY = 'lumacast.slide-browser-mode.v1';
 const LEGACY_DECK_BROWSER_STORAGE_KEY = 'lumacast.deck-browser-preferences.v1';
@@ -133,30 +110,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     step: deckBrowserGridSizeStep,
   } = useGridSize('lumacast.grid-size.slide-browser', 6, 4, 8);
 
-  // Overlay stack (modal/dialog portal)
-  const [overlayRootElement] = useState<HTMLElement | null>(ensureOverlayRoot);
-  const [overlayStackEntries, setOverlayStackEntries] = useState<string[]>([]);
-
-  const registerOverlay = useCallback((id: string) => {
-    setOverlayStackEntries((prev) => prev.includes(id) ? prev : [...prev, id]);
-  }, []);
-
-  const unregisterOverlay = useCallback((id: string) => {
-    setOverlayStackEntries((prev) => {
-      const next = prev.filter((entryId) => entryId !== id);
-      return next.length === prev.length ? prev : next;
-    });
-  }, []);
-
-  useEffect(() => {
-    const previousOverflow = document.body.style.overflow;
-    if (overlayStackEntries.length > 0) {
-      document.body.style.overflow = 'hidden';
-    }
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [overlayStackEntries.length]);
+  // Overlay stack (modal/dialog portal) — shared implementation, see @lumacast/ui.
+  const overlayStack = useOverlayStack();
 
   const setDrawerViewMode = useCallback((tab: DrawerTab, mode: ResourceDrawerViewMode) => {
     setDrawerViewModesRaw({ ...drawerViewModes, [tab]: mode });
@@ -235,20 +190,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setWorkbenchMode,
   ]);
 
-  const overlayStack = useMemo<OverlayStackValue>(() => ({
-    rootElement: overlayRootElement,
-    stack: overlayStackEntries,
-    baseZIndex: OVERLAY_BASE_Z_INDEX,
-    register: registerOverlay,
-    unregister: unregisterOverlay,
-  }), [overlayRootElement, overlayStackEntries, registerOverlay, unregisterOverlay]);
-
   return (
     <WorkbenchStateContext.Provider value={state}>
       <WorkbenchActionsContext.Provider value={actions}>
-        <WorkbenchOverlayStackContext.Provider value={overlayStack}>
+        <OverlayStackContext.Provider value={overlayStack}>
           {children}
-        </WorkbenchOverlayStackContext.Provider>
+        </OverlayStackContext.Provider>
       </WorkbenchActionsContext.Provider>
     </WorkbenchStateContext.Provider>
   );
@@ -257,7 +204,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 export function useWorkbench(): WorkbenchContextValue {
   const state = useContext(WorkbenchStateContext);
   const actions = useContext(WorkbenchActionsContext);
-  const overlayStack = useContext(WorkbenchOverlayStackContext);
+  const overlayStack = useContext(OverlayStackContext);
   if (!state || !actions || !overlayStack) throw new Error('useWorkbench must be used within WorkbenchProvider');
   return { state, actions, overlayStack };
 }

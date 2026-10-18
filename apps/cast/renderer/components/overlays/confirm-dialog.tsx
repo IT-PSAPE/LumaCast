@@ -1,8 +1,7 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { AlertDialog } from '@base-ui/react/alert-dialog';
-import { ReacstButton, cn } from '@lumacast/ui';
+import { ReacstButton, cn, useOverlayContainer, useOverlayStackEntry } from '@lumacast/ui';
 import { X } from 'lucide-react';
-import { useOverlayContainer, useOverlayStackEntry } from './overlay-primitives';
 
 export interface ConfirmOptions {
   title: string;

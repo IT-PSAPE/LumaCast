@@ -1,7 +1,6 @@
 import type { MediaItemProps } from './media-bin-types';
 import { useMediaContextActions } from './use-media-context-actions';
-import { useContextMenuTrigger } from '../../../components/overlays/context-menu';
-import { cn, Paragraph } from '@lumacast/ui';
+import { useContextMenuTrigger, cn, Paragraph } from '@lumacast/ui';
 import { Thumbnail } from '../../../components/display/thumbnail';
 import { MediaAssetIcon } from '../../../components/display/entity-icon';
 import { MediaThumbnail } from './media-thumbnail';

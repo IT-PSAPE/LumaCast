@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { SlideGridTileBody, type SlideGridTileProps } from './slide-grid-tile-body';
 
 function SlideGridTileImpl(props: SlideGridTileProps) {

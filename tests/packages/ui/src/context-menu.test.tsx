@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { ContextMenu, useContextMenu, useContextMenuTrigger } from '../../../../../../apps/cast/renderer/components/overlays/context-menu';
+import type { ReactNode } from 'react';
+import { ContextMenu, OverlayStackContext, useContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 
+// Not annotated as `OverlayStackValue` (still structurally assignable to it
+// below): that would widen `register`/`unregister` to plain functions and
+// lose the `vi.fn()` mock methods the assertions call.
 const overlayStack = {
   rootElement: null as HTMLElement | null,
   stack: [] as string[],
@@ -10,9 +14,9 @@ const overlayStack = {
   unregister: vi.fn(),
 };
 
-vi.mock('@renderer/contexts/workbench-context', () => ({
-  useWorkbench: () => ({ state: {}, actions: {}, overlayStack }),
-}));
+function withOverlayStack(children: ReactNode) {
+  return <OverlayStackContext.Provider value={overlayStack}>{children}</OverlayStackContext.Provider>;
+}
 
 function TriggerRow({ disabled = false }: { disabled?: boolean }) {
   const { ref, ...handlers } = useContextMenuTrigger({ disabled });
@@ -34,7 +38,7 @@ function pressKey(key: string, init: Record<string, unknown> = {}) {
 }
 
 function Menu({ onPick = () => undefined }: { onPick?: (label: string) => void }) {
-  return (
+  return withOverlayStack(
     <ContextMenu.Root>
       <TriggerRow />
       <ContextMenu.Portal>
@@ -48,7 +52,7 @@ function Menu({ onPick = () => undefined }: { onPick?: (label: string) => void }
           <ContextMenu.Item variant="destructive" onSelect={() => onPick('Delete')}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
-    </ContextMenu.Root>
+    </ContextMenu.Root>,
   );
 }
 
@@ -72,7 +76,7 @@ describe('useContextMenuTrigger', () => {
   });
 
   it('opens at the pointer inside a ContextMenu.Root', () => {
-    render(<ContextMenu.Root><TriggerRow /></ContextMenu.Root>);
+    render(withOverlayStack(<ContextMenu.Root><TriggerRow /></ContextMenu.Root>));
     const row = screen.getByTestId('row');
 
     expect(fireEvent.contextMenu(row, { clientX: 24, clientY: 36 })).toBe(false);
@@ -80,7 +84,7 @@ describe('useContextMenuTrigger', () => {
   });
 
   it('stays closed when the caller disables it', () => {
-    render(<ContextMenu.Root><TriggerRow disabled /></ContextMenu.Root>);
+    render(withOverlayStack(<ContextMenu.Root><TriggerRow disabled /></ContextMenu.Root>));
     const row = screen.getByTestId('row');
 
     expect(fireEvent.contextMenu(row)).toBe(true);
@@ -121,7 +125,7 @@ describe('menu surface', () => {
   it('adds no DOM siblings among the rows a caller wraps', async () => {
     render(
       <div data-testid="list">
-        <ContextMenu.Root><TriggerRow /></ContextMenu.Root>
+        {withOverlayStack(<ContextMenu.Root><TriggerRow /></ContextMenu.Root>)}
       </div>,
     );
     const list = screen.getByTestId('list');

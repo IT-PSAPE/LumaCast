@@ -1,4 +1,4 @@
-import { ContextMenu } from '../../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import type { AudioRowProps } from './audio-bin-types';
 import { AudioRowBody } from './audio-row-body';
 

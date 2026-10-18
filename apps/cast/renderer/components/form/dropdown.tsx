@@ -1,9 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type HTMLAttributes, type ReactNode } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { ChevronRight } from 'lucide-react';
-import { cn } from '@lumacast/ui';
-import { useOverlayContainer, useOverlayStackEntry } from '../overlays/overlay-primitives';
-import type { PopoverPlacement } from '../overlays/popover';
+import { cn, useOverlayContainer, useOverlayStackEntry, type PopoverPlacement } from '@lumacast/ui';
 
 // Every consumer uses this as an action menu — items fire a callback, nothing
 // is bound to a value — so it is built on Base UI's Menu rather than Select.

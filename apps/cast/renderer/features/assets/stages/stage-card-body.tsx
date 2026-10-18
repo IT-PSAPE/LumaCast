@@ -2,7 +2,7 @@ import { useMemo, useRef } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { Stage } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
-import { ContextMenu, useContextMenuTrigger } from '../../../components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useConfirm } from '../../../components/overlays/confirm-dialog';
 import { RenameField, type RenameFieldHandle } from '../../../components/form/rename-field';
 import { Thumbnail } from '../../../components/display/thumbnail';

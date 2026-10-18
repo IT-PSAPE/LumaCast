@@ -2,7 +2,7 @@ import type { Id } from '@lumacast/kernel';
 import type { MediaAsset, Overlay, Stage } from '@lumacast/composition';
 import type { Cue, Macro, TriggerBinding } from '@lumacast/automation';
 import { describeCue } from '@lumacast/automation';
-import { ContextMenu } from '@renderer/components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 import { useOverlayEditor, useStageEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useWorkbench } from '@renderer/contexts/workbench-context';

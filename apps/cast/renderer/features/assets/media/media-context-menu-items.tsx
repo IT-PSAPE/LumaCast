@@ -1,4 +1,4 @@
-import { ContextMenu } from '../../../components/overlays/context-menu';
+import { ContextMenu } from '@lumacast/ui';
 
 export function MediaContextMenuItems({
   onReplaceSource,

@@ -5,7 +5,7 @@ import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { buildRenderScene } from '../../features/canvas/build-render-scene';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
-import { ContextMenu, useContextMenuTrigger } from '@renderer/components/overlays/context-menu';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useThemeEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
