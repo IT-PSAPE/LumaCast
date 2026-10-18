@@ -1,0 +1,93 @@
+.youtube-dock { overflow: visible; }
+
+.youtube-dock-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 11px 6px;
+  overflow-y: auto;
+}
+
+.youtube-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.youtube-field input[type='text'],
+.youtube-field input[type='password'],
+.youtube-field textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  background: var(--panel-low);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 400;
+  resize: none;
+}
+
+.youtube-field input[type='text']:focus-visible,
+.youtube-field input[type='password']:focus-visible,
+.youtube-field textarea:focus-visible {
+  outline: 2px solid #66cfc0;
+  outline-offset: 1px;
+}
+
+.youtube-key-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.youtube-key-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.youtube-field-error {
+  color: var(--red);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.youtube-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 11px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.youtube-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #58616c;
+}
+
+.youtube-status-dot.live { background: var(--teal); box-shadow: 0 0 7px #49d5bd70; }
+.youtube-status-dot.connecting { background: var(--amber); box-shadow: 0 0 7px #e9b46570; }
+.youtube-status-dot.error { background: var(--red); box-shadow: 0 0 7px #f0646770; }
+
+.youtube-status-text { color: var(--muted-2); }
+.youtube-elapsed { color: var(--muted-2); font-variant-numeric: tabular-nums; }
+.youtube-bitrate { margin-left: auto; color: var(--teal); font-weight: 600; }
+
+.youtube-dock-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 11px 10px;
+}
