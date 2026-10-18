@@ -4,21 +4,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('electron', () => ({
-  safeStorage: {
-    isEncryptionAvailable: vi.fn(() => true),
-    encryptString: vi.fn((value: string) => Buffer.from(`enc:${value}`, 'utf8')),
-    decryptString: vi.fn((buffer: Buffer) => {
-      const text = buffer.toString('utf8');
-      if (!text.startsWith('enc:')) throw new Error('Unable to decrypt.');
-      return text.slice('enc:'.length);
-    }),
-  },
-}));
-
-import { safeStorage } from 'electron';
 import { StreamSettingsStore } from '../../../../apps/stream/main/stream-settings-store';
 import { createDefaultStreamServiceSettings } from '../../../../apps/stream/shared/desktop-api';
+
+const safeStorage = {
+  isEncryptionAvailable: vi.fn(() => true),
+  encryptString: vi.fn((value: string) => Buffer.from(`enc:${value}`, 'utf8')),
+  decryptString: vi.fn((buffer: Buffer) => {
+    const text = buffer.toString('utf8');
+    if (!text.startsWith('enc:')) throw new Error('Unable to decrypt.');
+    return text.slice('enc:'.length);
+  }),
+};
 
 const temporaryDirectories: string[] = [];
 
@@ -31,7 +28,7 @@ afterEach(async () => {
 async function createStore() {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-stream-settings-'));
   temporaryDirectories.push(directory);
-  return { directory, store: new StreamSettingsStore(directory) };
+  return { directory, store: new StreamSettingsStore(directory, safeStorage) };
 }
 
 describe('Stream service settings store', () => {
@@ -45,7 +42,7 @@ describe('Stream service settings store', () => {
     const settings = {
       ...createDefaultStreamServiceSettings(),
       streamKey: 'super-secret-key',
-      youtube: { title: 'My stream', description: 'Details', privacy: 'public' as const },
+      youtube: { ...createDefaultStreamServiceSettings().youtube, title: 'My stream', description: 'Details', privacy: 'public' as const },
     };
     await store.save(settings);
 

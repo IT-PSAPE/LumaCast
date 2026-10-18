@@ -20,7 +20,9 @@
 
 .youtube-field input[type='text'],
 .youtube-field input[type='password'],
-.youtube-field textarea {
+.youtube-field input[type='datetime-local'],
+.youtube-field textarea,
+.youtube-field select {
   width: 100%;
   padding: 6px 8px;
   border: 1px solid var(--line);
@@ -35,7 +37,9 @@
 
 .youtube-field input[type='text']:focus-visible,
 .youtube-field input[type='password']:focus-visible,
-.youtube-field textarea:focus-visible {
+.youtube-field input[type='datetime-local']:focus-visible,
+.youtube-field textarea:focus-visible,
+.youtube-field select:focus-visible {
   outline: 2px solid #66cfc0;
   outline-offset: 1px;
 }
@@ -50,6 +54,21 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+
+.youtube-account-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.youtube-account-copy { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; gap: 2px; }
+.youtube-account-label { color: var(--muted); font-size: 9px; }
+.youtube-account-name { overflow: hidden; color: var(--text); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.youtube-empty { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.youtube-create-heading { margin-top: 2px; color: var(--text); font-size: 10px; font-weight: 650; }
+.youtube-create-button { align-self: flex-start; }
 
 .youtube-field-error {
   color: var(--red);
@@ -82,6 +101,26 @@
 .youtube-status-text { color: var(--muted-2); }
 .youtube-elapsed { color: var(--muted-2); font-variant-numeric: tabular-nums; }
 .youtube-bitrate { margin-left: auto; color: var(--teal); font-weight: 600; }
+
+.youtube-active-outputs {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 6px 11px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.youtube-active-output {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-2);
+  font-size: 10px;
+}
+
+.youtube-active-output-name { color: var(--text); text-transform: capitalize; }
+.youtube-active-output-status { margin-left: auto; color: var(--muted); }
+.youtube-active-output .secondary-button { padding: 3px 7px; font-size: 9px; }
 
 .youtube-dock-footer {
   display: flex;

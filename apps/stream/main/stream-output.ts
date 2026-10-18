@@ -7,18 +7,23 @@ import { bundledMediaEnginePath } from './media-engine-path';
 import { buildStreamVideoEncoderArguments } from './output-encoder';
 
 type OutputProcess = ChildProcessByStdio<Writable, null, Readable>;
+export type StreamOutputStatusMode = 'transport' | 'external';
 
 interface StreamingSession {
   id: string;
+  outputId: string;
+  statusMode: StreamOutputStatusMode;
   destination: string;
   settings: StreamOutputSettings;
   child: OutputProcess;
   closed: Promise<void>;
   close: () => void;
   stopping: boolean;
+  stopTask: Promise<void> | null;
   failure: Error | null;
   progressBuffer: string;
   bitrateKbps: number;
+  externallyLive: boolean;
   webmHeader: Buffer | null;
   recoveryChunks: Buffer[];
   recoveryBytes: number;
@@ -73,7 +78,7 @@ function validateSettings(value: StreamOutputSettings): StreamOutputSettings {
 }
 
 export class StreamOutput {
-  private active: StreamingSession | null = null;
+  private readonly active = new Map<string, StreamingSession>();
   private readonly retryOptions: StreamOutputRetryOptions;
 
   constructor(
@@ -84,8 +89,13 @@ export class StreamOutput {
     this.retryOptions = { ...DEFAULT_RETRY_OPTIONS, ...retryOptions };
   }
 
-  start(destinationValue: unknown, settingsValue: StreamOutputSettings): string {
-    if (this.active) throw new Error('A stream is already active.');
+  start(destinationValue: unknown, settingsValue: StreamOutputSettings, outputIdValue: unknown = 'primary', statusModeValue: unknown = 'transport'): string {
+    const outputId = this.validateOutputId(outputIdValue);
+    const statusMode = statusModeValue === 'transport' || statusModeValue === 'external' ? statusModeValue : null;
+    if (!statusMode) throw new Error('The stream output status mode is invalid.');
+    if ([...this.active.values()].some((session) => session.outputId === outputId)) {
+      throw new Error('This stream output is already active.');
+    }
     const destination = validateDestination(destinationValue);
     const settings = validateSettings(settingsValue);
     const child = this.spawnProcess(bundledMediaEnginePath(), this.arguments(destination, settings), {
@@ -96,11 +106,12 @@ export class StreamOutput {
     let close!: () => void;
     const closed = new Promise<void>((resolve) => { close = resolve; });
     const session: StreamingSession = {
-      id: randomUUID(), destination, settings, child, closed, close, stopping: false, failure: null, progressBuffer: '', bitrateKbps: 0,
+      id: randomUUID(), outputId, statusMode, destination, settings, child, closed, close, stopping: false, stopTask: null, failure: null, progressBuffer: '', bitrateKbps: 0,
+      externallyLive: false,
       webmHeader: null, recoveryChunks: [], recoveryBytes: 0, retryCount: 0, retryTimer: null, reconnecting: false,
     };
-    this.active = session;
-    this.sendStatus({ state: 'connecting' });
+    this.active.set(session.id, session);
+    this.sendStatus({ state: 'connecting' }, session.outputId);
     this.watchProcess(session, child);
     return session.id;
   }
@@ -135,8 +146,15 @@ export class StreamOutput {
     if (session.failure) throw session.failure;
   }
 
-  async stop(id: string): Promise<void> {
-    const session = this.requireSession(id);
+  stop(id: string): Promise<void> {
+    const session = this.active.get(id);
+    if (!session) return Promise.resolve();
+    if (session.stopTask) return session.stopTask;
+    session.stopTask = this.finishStopping(session);
+    return session.stopTask;
+  }
+
+  private async finishStopping(session: StreamingSession): Promise<void> {
     if (!session.stopping) {
       session.stopping = true;
       session.reconnecting = false;
@@ -155,19 +173,25 @@ export class StreamOutput {
     if (this.isProcessAlive(session.child)) {
       await Promise.race([session.closed, new Promise<void>((resolve) => setTimeout(resolve, 2000))]);
     }
-    if (this.active === session) this.active = null;
-    if (session.failure) this.sendStatus({ state: 'error', message: session.failure.message });
-    else this.sendStatus({ state: 'stopped' });
+    this.active.delete(session.id);
+    if (session.failure) this.sendStatus({ state: 'error', message: session.failure.message }, session.outputId);
+    else this.sendStatus({ state: 'stopped' }, session.outputId);
+  }
+
+  reportStatus(id: string, status: StreamRuntimeStatus): void {
+    const session = this.requireSession(id);
+    if (status.state === 'error') session.failure = new Error(status.message ?? 'The streaming service reported an error.');
+    if (status.state === 'live') session.externallyLive = true;
+    const withBitrate = status.state === 'live' ? { ...status, bitrateKbps: session.bitrateKbps } : status;
+    this.sendStatus(withBitrate, session.outputId);
   }
 
   async stopAll(): Promise<void> {
-    const session = this.active;
-    if (!session) return;
-    await this.stop(session.id).catch(() => {
+    await Promise.all([...this.active.values()].map((session) => this.stop(session.id).catch(() => {
       if (session.retryTimer) clearTimeout(session.retryTimer);
       session.child.kill();
-      if (this.active === session) this.active = null;
-    });
+      this.active.delete(session.id);
+    })));
   }
 
   private arguments(destination: string, settings: StreamOutputSettings): string[] {
@@ -185,7 +209,7 @@ export class StreamOutput {
 
   private watchProcess(session: StreamingSession, child: OutputProcess): void {
     child.stderr.on('data', (chunk: Buffer) => {
-      if (this.active !== session || session.child !== child) return;
+      if (!this.isActive(session) || session.child !== child) return;
       session.progressBuffer += chunk.toString('utf8');
       const lines = session.progressBuffer.split(/\r?\n/);
       session.progressBuffer = lines.pop() ?? '';
@@ -197,11 +221,11 @@ export class StreamOutput {
         }
         if (line.startsWith('progress=') && line !== 'progress=end') sawProgress = true;
       }
-      if (sawProgress) this.sendStatus({ state: 'live', bitrateKbps: session.bitrateKbps });
+      if (sawProgress && (session.statusMode === 'transport' || session.externallyLive)) this.sendStatus({ state: 'live', bitrateKbps: session.bitrateKbps }, session.outputId);
     });
     child.on('error', () => this.scheduleReconnect(session, child));
     child.on('close', () => {
-      if (this.active !== session || session.child !== child) return;
+      if (!this.isActive(session) || session.child !== child) return;
       if (session.stopping) {
         session.close();
         return;
@@ -211,7 +235,7 @@ export class StreamOutput {
   }
 
   private scheduleReconnect(session: StreamingSession, failedChild: OutputProcess): void {
-    if (this.active !== session || session.stopping || session.failure || session.child !== failedChild || session.retryTimer) return;
+    if (!this.isActive(session) || session.stopping || session.failure || session.child !== failedChild || session.retryTimer) return;
     session.reconnecting = true;
     if (session.retryCount >= this.retryOptions.maxRetries) {
       this.failSession(session, new Error('The stream could not reconnect after several attempts. Check the server URL and your network connection.'));
@@ -219,11 +243,11 @@ export class StreamOutput {
     }
 
     session.retryCount += 1;
-    this.sendStatus({ state: 'connecting' });
+    this.sendStatus({ state: 'connecting' }, session.outputId);
     const delay = Math.min(this.retryOptions.retryDelayMs * (2 ** (session.retryCount - 1)), 8000);
     session.retryTimer = setTimeout(() => {
       session.retryTimer = null;
-      if (this.active !== session || session.stopping || session.failure) return;
+      if (!this.isActive(session) || session.stopping || session.failure) return;
       let child: OutputProcess;
       try {
         child = this.spawnProcess(bundledMediaEnginePath(), this.arguments(session.destination, session.settings), {
@@ -244,7 +268,7 @@ export class StreamOutput {
   private async replayAfterReconnect(session: StreamingSession, child: OutputProcess): Promise<void> {
     try {
       if (session.webmHeader) await this.writeTo(child, session.webmHeader);
-      while (session.recoveryChunks.length > 0 && this.active === session && session.child === child && !session.stopping) {
+      while (session.recoveryChunks.length > 0 && this.isActive(session) && session.child === child && !session.stopping) {
         const next = session.recoveryChunks[0]!;
         await this.writeTo(child, next);
         if (session.recoveryChunks[0] === next) {
@@ -252,7 +276,7 @@ export class StreamOutput {
           session.recoveryBytes -= next.byteLength;
         }
       }
-      if (this.active === session && session.child === child && !session.stopping) session.reconnecting = false;
+      if (this.isActive(session) && session.child === child && !session.stopping) session.reconnecting = false;
     } catch {
       this.scheduleReconnect(session, child);
     }
@@ -272,7 +296,7 @@ export class StreamOutput {
     session.reconnecting = false;
     if (session.retryTimer) clearTimeout(session.retryTimer);
     session.retryTimer = null;
-    this.sendStatus({ state: 'error', message: error.message });
+    this.sendStatus({ state: 'error', message: error.message }, session.outputId);
     if (this.isProcessAlive(session.child)) session.child.kill();
     session.close();
   }
@@ -290,12 +314,24 @@ export class StreamOutput {
   }
 
   private requireSession(id: string): StreamingSession {
-    if (!this.active || this.active.id !== id) throw new Error('The stream session was not found.');
-    return this.active;
+    const session = this.active.get(id);
+    if (!session) throw new Error('The stream session was not found.');
+    return session;
   }
 
-  private sendStatus(status: StreamRuntimeStatus): void {
+  private validateOutputId(value: unknown): string {
+    if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(value)) {
+      throw new Error('The stream output identifier is invalid.');
+    }
+    return value;
+  }
+
+  private isActive(session: StreamingSession): boolean {
+    return this.active.get(session.id) === session;
+  }
+
+  private sendStatus(status: StreamRuntimeStatus, outputId: string): void {
     const contents = this.getContents();
-    if (contents && !contents.isDestroyed()) contents.send('stream:output-status', status);
+    if (contents && !contents.isDestroyed()) contents.send('stream:output-status', { ...status, outputId });
   }
 }

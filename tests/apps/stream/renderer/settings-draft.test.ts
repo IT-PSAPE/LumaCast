@@ -136,6 +136,13 @@ describe('applySettingsDraft', () => {
     expect(isSettingsDraftDirty(draft, baseline)).toBe(true);
   });
 
+  it('detects a Zoom meeting selection change inside streamServiceSettings', () => {
+    const baseline = makeDraft();
+    const nextSettings = { ...baseline.streamServiceSettings!, zoom: { ...baseline.streamServiceSettings!.zoom, selectedMeetingId: 'meeting-123' } };
+    const draft = makeDraft({ streamServiceSettings: nextSettings });
+    expect(applySettingsDraft(draft, baseline)).toEqual({ streamServiceSettings: nextSettings });
+  });
+
   it('is not fooled into reporting a change by youtube being cloned into a new object reference', () => {
     // `createSettingsDraft`/`cloneStreamServiceSettings` always give `youtube` a
     // fresh object reference, even when every field is identical — the diff

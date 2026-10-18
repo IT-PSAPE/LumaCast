@@ -359,6 +359,8 @@ export interface RecordingOutputSettings {
 }
 
 export interface StreamRuntimeStatus {
+  /** Stable destination identifier for independent output monitoring. */
+  outputId?: string;
   state: 'connecting' | 'live' | 'stopped' | 'error';
   bitrateKbps?: number;
   message?: string;
@@ -409,7 +411,20 @@ export interface StreamAPI {
   writeRecordingChunk(id: string, track: RecordingTrackId, bytes: ArrayBuffer): Promise<void>;
   closeRecording(id: string): Promise<string>;
   abortRecording(id: string): Promise<void>;
-  startStreaming(destination: string, settings: StreamOutputSettings): Promise<string>;
+  startStreaming(destination: string, settings: StreamOutputSettings, outputId?: string): Promise<string>;
+  getYouTubeAccount(): Promise<YouTubeAccount | null>;
+  connectYouTubeAccount(): Promise<YouTubeAccount>;
+  disconnectYouTubeAccount(): Promise<void>;
+  listYouTubeBroadcasts(): Promise<YouTubeBroadcast[]>;
+  createYouTubeBroadcast(draft: YouTubeBroadcastDraft): Promise<YouTubeBroadcast>;
+  startYouTubeStreaming(broadcastId: string, settings: StreamOutputSettings): Promise<string>;
+  getZoomAccount(): Promise<ZoomAccount | null>;
+  connectZoomAccount(): Promise<ZoomAccount>;
+  disconnectZoomAccount(): Promise<void>;
+  listZoomMeetings(): Promise<ZoomMeeting[]>;
+  createZoomMeeting(draft: ZoomMeetingDraft): Promise<ZoomMeeting>;
+  startZoomStreaming(meetingId: string, settings: StreamOutputSettings): Promise<string>;
+  stopZoomStreaming(id: string): Promise<void>;
   writeStreamingChunk(id: string, bytes: ArrayBuffer): Promise<void>;
   stopStreaming(id: string): Promise<void>;
   setGlobalHotkeys(hotkeys: StreamGlobalHotkeys, sceneSwitchHotkeys: Record<string, string>, sourceVisibilityHotkeys: Record<string, string>): Promise<void>;
@@ -476,10 +491,48 @@ export function createDefaultProject(platform: StreamPlatform = 'win32'): Stream
 
 export type YouTubePrivacy = 'public' | 'unlisted' | 'private';
 
+export interface YouTubeAccount {
+  channelId: string;
+  channelTitle: string;
+}
+
+export interface YouTubeBroadcast {
+  id: string;
+  title: string;
+  description: string;
+  scheduledStartTime: string;
+  status: string;
+  privacy: YouTubePrivacy;
+  thumbnailUrl: string;
+}
+
 export interface YouTubeBroadcastDraft {
   title: string;
   description: string;
   privacy: YouTubePrivacy;
+  broadcastId: string;
+  scheduledStartTime: string;
+}
+
+export interface ZoomAccount {
+  userId: string;
+  displayName: string;
+  email: string;
+}
+
+export interface ZoomMeeting {
+  id: string;
+  topic: string;
+  startTime: string;
+  durationMinutes: number;
+  status: string;
+}
+
+export interface ZoomMeetingDraft {
+  selectedMeetingId: string;
+  topic: string;
+  startTime: string;
+  durationMinutes: number;
 }
 
 export interface StreamServiceSettings {
@@ -488,6 +541,7 @@ export interface StreamServiceSettings {
   customServer: string;
   streamKey: string;
   youtube: YouTubeBroadcastDraft;
+  zoom: ZoomMeetingDraft;
 }
 
 export function createDefaultStreamServiceSettings(): StreamServiceSettings {
@@ -496,6 +550,7 @@ export function createDefaultStreamServiceSettings(): StreamServiceSettings {
     serverId: 'primary',
     customServer: '',
     streamKey: '',
-    youtube: { title: '', description: '', privacy: 'unlisted' },
+    youtube: { title: '', description: '', privacy: 'unlisted', broadcastId: '', scheduledStartTime: '' },
+    zoom: { selectedMeetingId: '', topic: '', startTime: '', durationMinutes: 60 },
   };
 }

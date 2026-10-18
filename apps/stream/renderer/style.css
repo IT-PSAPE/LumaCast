@@ -72,6 +72,7 @@ button:disabled { cursor: default; opacity: .43; }
 .sources-dock { grid-row: 2; border-bottom: 0; }
 .mixer-dock { grid-row: 2; border-bottom: 0; }
 .youtube-dock { grid-row: 2; border-bottom: 0; }
+.zoom-dock { grid-row: 2; border-bottom: 0; }
 
 .scene-list { flex: 1; overflow-y: auto; padding: 7px 6px; }
 .scene-row { min-height: 34px; width: 100%; display: flex; align-items: center; gap: 8px; margin: 2px 0; padding: 0 8px; border: 1px solid transparent; border-radius: 5px; color: #aeb5c0; background: transparent; text-align: left; cursor: pointer; }

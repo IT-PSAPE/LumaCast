@@ -1,0 +1,20 @@
+.zoom-dock { overflow: visible; }
+.zoom-dock-body { display: flex; flex-direction: column; gap: 9px; padding: 10px 11px 6px; overflow-y: auto; }
+.zoom-account-row { display: flex; align-items: center; gap: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
+.zoom-account-copy { display: flex; flex: 1 1 auto; min-width: 0; flex-direction: column; gap: 2px; }
+.zoom-account-label { color: var(--muted); font-size: 9px; }
+.zoom-account-name { overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.zoom-field { display: flex; flex-direction: column; gap: 4px; color: var(--muted-2); font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+.zoom-field input, .zoom-field select { width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; color: var(--text); background: var(--panel-low); font: inherit; font-size: 11px; font-weight: 400; }
+.zoom-field input:focus-visible, .zoom-field select:focus-visible { outline: 2px solid #66cfc0; outline-offset: 1px; }
+.zoom-empty, .zoom-meeting-meta { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.zoom-create-heading { margin-top: 2px; color: var(--text); font-size: 10px; font-weight: 650; }
+.zoom-create-button { align-self: flex-start; }
+.zoom-error { margin: 0; color: var(--red); font-size: 10px; }
+.zoom-status-row { display: flex; align-items: center; gap: 6px; padding: 7px 11px; border-top: 1px solid var(--line-soft); color: var(--muted-2); font-size: 10px; }
+.zoom-status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: #58616c; }
+.zoom-status-dot.live { background: var(--teal); box-shadow: 0 0 7px #49d5bd70; }
+.zoom-status-dot.connecting { background: var(--amber); box-shadow: 0 0 7px #e9b46570; }
+.zoom-status-dot.error { background: var(--red); box-shadow: 0 0 7px #f0646770; }
+.zoom-live-controls { display: grid; gap: 7px; padding: 4px 11px 10px; }
+.zoom-live-controls > span { color: var(--muted); font-size: 9px; line-height: 1.4; }

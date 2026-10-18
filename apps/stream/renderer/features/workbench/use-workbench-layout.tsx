@@ -11,6 +11,7 @@ const DOCK_SELECTORS: Record<DockId, string> = {
   sources: '.sources-dock',
   mixer: '.mixer-dock',
   youtube: '.youtube-dock',
+  zoom: '.zoom-dock',
   controls: '.controls-dock',
 };
 

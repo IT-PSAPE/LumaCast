@@ -24,7 +24,7 @@ export interface SettingsDraft {
 }
 
 export function cloneStreamServiceSettings(settings: StreamServiceSettings): StreamServiceSettings {
-  return { ...settings, youtube: { ...settings.youtube } };
+  return { ...settings, youtube: { ...settings.youtube }, zoom: { ...settings.zoom } };
 }
 
 export function createSettingsDraft(
@@ -98,9 +98,11 @@ export function applySettingsDraft(draft: SettingsDraft, baseline: SettingsDraft
  */
 function streamServiceSettingsDiffer(next: StreamServiceSettings, previous: StreamServiceSettings | null): boolean {
   if (!previous) return true;
-  const { youtube: nextYoutube, ...nextRest } = next;
-  const { youtube: previousYoutube, ...previousRest } = previous;
-  return diffKeys(nextRest, previousRest) !== undefined || diffKeys(nextYoutube, previousYoutube) !== undefined;
+  const { youtube: nextYoutube, zoom: nextZoom, ...nextRest } = next;
+  const { youtube: previousYoutube, zoom: previousZoom, ...previousRest } = previous;
+  return diffKeys(nextRest, previousRest) !== undefined
+    || diffKeys(nextYoutube, previousYoutube) !== undefined
+    || diffKeys(nextZoom, previousZoom) !== undefined;
 }
 
 export function isSettingsDraftDirty(draft: SettingsDraft, baseline: SettingsDraft): boolean {

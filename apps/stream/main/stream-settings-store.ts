@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { safeStorage } from 'electron';
 import { createDefaultStreamServiceSettings, type StreamServiceSettings, type YouTubePrivacy } from '../shared/desktop-api';
 import { STREAM_SERVICES, getStreamService, type StreamServiceId } from '../shared/stream-services';
+import { electronSecureStorage, type SecureStorage } from './secure-storage';
 
 type StreamKeyEncoding = 'safe-storage' | 'plain';
 
@@ -14,7 +14,8 @@ interface PersistedStreamServiceSettings {
   customServer: string;
   streamKeyEncoding: StreamKeyEncoding;
   streamKey: string;
-  youtube: { title: string; description: string; privacy: YouTubePrivacy };
+  youtube: { title: string; description: string; privacy: YouTubePrivacy; broadcastId: string; scheduledStartTime: string };
+  zoom?: { selectedMeetingId?: string; topic?: string; startTime?: string; durationMinutes?: number };
 }
 
 function clampString(value: unknown, maxLength: number): string {
@@ -50,6 +51,7 @@ function decodeStreamServiceSettings(value: unknown): StreamServiceSettings {
   const customServer = clampString(raw.customServer, 2048);
   const streamKey = clampString(raw.streamKey, 512);
   const youtubeRaw = raw.youtube && typeof raw.youtube === 'object' && !Array.isArray(raw.youtube) ? (raw.youtube as Record<string, unknown>) : {};
+  const zoomRaw = raw.zoom && typeof raw.zoom === 'object' && !Array.isArray(raw.zoom) ? (raw.zoom as Record<string, unknown>) : {};
   return {
     service,
     serverId,
@@ -59,24 +61,34 @@ function decodeStreamServiceSettings(value: unknown): StreamServiceSettings {
       title: clampString(youtubeRaw.title, 100),
       description: clampString(youtubeRaw.description, 5000),
       privacy: normalizePrivacy(youtubeRaw.privacy),
+      broadcastId: clampString(youtubeRaw.broadcastId, 128),
+      scheduledStartTime: clampString(youtubeRaw.scheduledStartTime, 64),
+    },
+    zoom: {
+      selectedMeetingId: clampString(zoomRaw.selectedMeetingId, 32),
+      topic: clampString(zoomRaw.topic, 200),
+      startTime: clampString(zoomRaw.startTime, 64),
+      durationMinutes: typeof zoomRaw.durationMinutes === 'number' && Number.isInteger(zoomRaw.durationMinutes)
+        ? Math.max(1, Math.min(1440, zoomRaw.durationMinutes))
+        : 60,
     },
   };
 }
 
-function encodeStreamKey(streamKey: string): { encoding: StreamKeyEncoding; value: string } {
-  if (streamKey.length > 0 && safeStorage.isEncryptionAvailable()) {
-    return { encoding: 'safe-storage', value: safeStorage.encryptString(streamKey).toString('base64') };
+function encodeStreamKey(streamKey: string, secureStorage: SecureStorage): { encoding: StreamKeyEncoding; value: string } {
+  if (streamKey.length > 0 && secureStorage.isEncryptionAvailable()) {
+    return { encoding: 'safe-storage', value: secureStorage.encryptString(streamKey).toString('base64') };
   }
   return { encoding: 'plain', value: streamKey };
 }
 
-function decodeStreamKey(encoding: unknown, value: unknown): string {
+function decodeStreamKey(encoding: unknown, value: unknown, secureStorage: SecureStorage): string {
   const raw = typeof value === 'string' ? value : '';
   if (raw === '') return '';
   if (encoding === 'safe-storage') {
-    if (!safeStorage.isEncryptionAvailable()) return '';
+    if (!secureStorage.isEncryptionAvailable()) return '';
     try {
-      return safeStorage.decryptString(Buffer.from(raw, 'base64'));
+      return secureStorage.decryptString(Buffer.from(raw, 'base64'));
     } catch {
       return '';
     }
@@ -100,7 +112,7 @@ export class StreamSettingsStore {
   private readonly filePath: string;
   private saveQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly dataDirectory: string) {
+  constructor(private readonly dataDirectory: string, private readonly secureStorage: SecureStorage = electronSecureStorage) {
     this.filePath = path.join(dataDirectory, 'stream-settings.json');
   }
 
@@ -113,7 +125,7 @@ export class StreamSettingsStore {
         return createDefaultStreamServiceSettings();
       }
       const record = parsed as Record<string, unknown>;
-      const streamKey = decodeStreamKey(record.streamKeyEncoding, record.streamKey);
+      const streamKey = decodeStreamKey(record.streamKeyEncoding, record.streamKey, this.secureStorage);
       return decodeStreamServiceSettings({ ...record, streamKey });
     } catch {
       return createDefaultStreamServiceSettings();
@@ -130,7 +142,7 @@ export class StreamSettingsStore {
 
   private async persist(settings: StreamServiceSettings): Promise<void> {
     await mkdir(this.dataDirectory, { recursive: true });
-    const encryptedKey = encodeStreamKey(settings.streamKey);
+    const encryptedKey = encodeStreamKey(settings.streamKey, this.secureStorage);
     const payload: PersistedStreamServiceSettings = {
       version: 1,
       service: settings.service,
@@ -139,6 +151,7 @@ export class StreamSettingsStore {
       streamKeyEncoding: encryptedKey.encoding,
       streamKey: encryptedKey.value,
       youtube: settings.youtube,
+      zoom: settings.zoom,
     };
     const temporaryPath = `${this.filePath}.${randomUUID()}.tmp`;
     try {

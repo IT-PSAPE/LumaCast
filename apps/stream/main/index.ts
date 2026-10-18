@@ -1,4 +1,4 @@
-import { app, protocol, session, type BrowserWindow } from 'electron';
+import { app, protocol, session, shell, type BrowserWindow } from 'electron';
 import path from 'node:path';
 import { DesktopCaptureController } from './desktop-capture';
 import { BrowserSourceManager } from './browser-sources';
@@ -16,6 +16,9 @@ import { ApplicationAudioCapture } from './application-audio-capture';
 import { AudioSettingsStore } from './audio-settings-store';
 import { RecordingPreferencesStore } from './recording-preferences-store';
 import { StreamSettingsStore } from './stream-settings-store';
+import { YouTubeLiveService } from './youtube-live';
+import { ZoomLiveService } from './zoom-live';
+import { ZoomSdkStreaming } from './zoom-sdk-streaming';
 import { allowsSpeakerSelection } from './audio-output-permissions';
 import { applyApplicationMenu } from './application-menu';
 import { createMainWindow } from './window';
@@ -37,6 +40,17 @@ const mediaAssets = new MediaAssetStore(dataDirectory, () => mainWindow);
 const recordings = new RecordingStore(() => mainWindow, app.getPath('videos'), recordingPreferences);
 const recordingRemuxer = new RecordingRemuxer(() => mainWindow);
 const streamOutput = new StreamOutput(() => mainWindow?.webContents ?? null);
+const youtubeLive = new YouTubeLiveService(dataDirectory, streamOutput, process.env.LUMASTREAM_GOOGLE_CLIENT_ID ?? '', (url) => shell.openExternal(url));
+const zoomLive = new ZoomLiveService(
+  dataDirectory,
+  process.env.LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID ?? '',
+  (url) => shell.openExternal(url),
+  undefined,
+  undefined,
+  process.env.LUMASTREAM_ZOOM_CLIENT_ID ?? '',
+  process.env.LUMASTREAM_ZOOM_CLIENT_SECRET ?? '',
+);
+const zoomStreaming = new ZoomSdkStreaming(zoomLive, () => mainWindow?.webContents ?? null);
 const browserSources = new BrowserSourceManager(() => mainWindow?.webContents ?? null);
 const globalHotkeys = new GlobalHotkeyManager(() => mainWindow?.webContents ?? null);
 // Windows ships the .NET WASAPI process-loopback helper; macOS ships the Objective-C Core Audio tap helper.
@@ -50,7 +64,7 @@ const collectionBundles = new CollectionBundleStore(projectStore, mediaAssets, (
 const rendererFile = path.join(__dirname, '../renderer/index.html');
 const devServerOrigin = resolveDevServerOrigin(process.env.ELECTRON_RENDERER_URL);
 const isTrustedUrl = (url: string) => isTrustedRendererUrl(url, { packagedRendererFile: rendererFile, devServerOrigin });
-const unregisterIpc = registerStreamIpc(projectStore, audioSettings, recordingPreferences, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, streamSettings, () => mainWindow?.webContents ?? null, isTrustedUrl);
+const unregisterIpc = registerStreamIpc(projectStore, audioSettings, recordingPreferences, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, streamSettings, youtubeLive, zoomLive, zoomStreaming, () => mainWindow?.webContents ?? null, isTrustedUrl);
 
 let shutdownComplete = false;
 app.on('before-quit', (event) => {
@@ -58,7 +72,8 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   browserSources.closeAll();
   applicationAudio.stopAll();
-  void Promise.all([streamOutput.stopAll(), recordings.closeAll()]).finally(() => {
+  void Promise.all([youtubeLive.stopAll(), streamOutput.stopAll(), recordings.closeAll()]).finally(() => {
+    zoomStreaming.stopAll();
     shutdownComplete = true;
     app.quit();
   });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { createDefaultStreamServiceSettings, type StreamRuntimeStatus, type StreamServiceSettings } from '../../../../apps/stream/shared/desktop-api';
+import { createDefaultStreamServiceSettings, type StreamAPI, type StreamRuntimeStatus, type StreamServiceSettings } from '../../../../apps/stream/shared/desktop-api';
 import { YouTubeDock } from '../../../../apps/stream/renderer/docks/youtube-dock';
 
 afterEach(cleanup);
@@ -10,6 +10,7 @@ const OFFLINE_STATUS: StreamRuntimeStatus = { state: 'stopped' };
 function renderDock(overrides: {
   settings?: Partial<StreamServiceSettings>;
   status?: StreamRuntimeStatus;
+  activeOutputs?: Array<{ id: string; status: StreamRuntimeStatus }>;
   streamingStartedAt?: number | null;
   now?: number;
   working?: boolean;
@@ -24,11 +25,20 @@ function renderDock(overrides: {
   const onStopStreaming = overrides.onStopStreaming ?? vi.fn();
   const onOpenDashboard = overrides.onOpenDashboard ?? vi.fn();
   const onHide = overrides.onHide ?? vi.fn();
+  const api = {
+    getYouTubeAccount: vi.fn().mockResolvedValue(null),
+    connectYouTubeAccount: vi.fn(),
+    disconnectYouTubeAccount: vi.fn(),
+    listYouTubeBroadcasts: vi.fn().mockResolvedValue([]),
+    createYouTubeBroadcast: vi.fn(),
+  } as unknown as StreamAPI;
   render(
     <YouTubeDock
+      api={api}
       settings={settings}
       onChange={onChange}
       status={overrides.status ?? OFFLINE_STATUS}
+      activeOutputs={overrides.activeOutputs ?? (overrides.streamingStartedAt === undefined || overrides.streamingStartedAt === null ? [] : [{ id: settings.service, status: overrides.status ?? OFFLINE_STATUS }])}
       streamingStartedAt={overrides.streamingStartedAt ?? null}
       now={overrides.now ?? Date.now()}
       working={overrides.working ?? false}
@@ -78,6 +88,16 @@ describe('YouTubeDock', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: /end stream/i }));
     expect(onStopStreaming).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows independent controls for a second active output', () => {
+    const { onStopStreaming } = renderDock({
+      settings: { streamKey: 'abcd-1234' },
+      activeOutputs: [{ id: 'youtube', status: { state: 'live', outputId: 'youtube' } }, { id: 'twitch', status: { state: 'live', outputId: 'twitch' } }],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'End twitch output' }));
+    expect(onStopStreaming).toHaveBeenCalledWith('twitch');
+    expect(screen.getByRole('button', { name: /end stream/i })).toBeEnabled();
   });
 
   it('calls onOpenDashboard from the Open YouTube Studio action', () => {

@@ -1,21 +1,22 @@
 /**
  * Resizable workbench geometry: the bottom docks (Scenes, Sources, Audio
- * Mixer, YouTube Live Control Panel, Controls) and the height of the bottom
+ * Mixer, YouTube Live Control Panel, Controls, Zoom Meeting Control Panel) and the height of the bottom
  * panel that holds them. Widths are kept as grid weights so the docks still
  * share any spare width when the window changes size; the panel height is a
  * fixed pixel value. Docks can be individually hidden; hidden docks keep
  * their stored weight so re-showing one restores its previous width.
  */
 
-export type DockId = 'scenes' | 'sources' | 'mixer' | 'youtube' | 'controls';
+export type DockId = 'scenes' | 'sources' | 'mixer' | 'youtube' | 'zoom' | 'controls';
 
-export const DOCK_ORDER: readonly DockId[] = ['scenes', 'sources', 'mixer', 'youtube', 'controls'];
+export const DOCK_ORDER: readonly DockId[] = ['scenes', 'sources', 'mixer', 'youtube', 'controls', 'zoom'];
 
 export const DOCK_LABELS: Record<DockId, string> = {
   scenes: 'Scenes',
   sources: 'Sources',
   mixer: 'Audio Mixer',
   youtube: 'YouTube Live Control Panel',
+  zoom: 'Zoom Meeting Control Panel',
   controls: 'Controls',
 };
 
@@ -24,6 +25,7 @@ export const DOCK_MIN_WIDTHS: Record<DockId, number> = {
   sources: 185,
   mixer: 225,
   youtube: 240,
+  zoom: 240,
   controls: 180,
 };
 
@@ -32,11 +34,12 @@ export const DEFAULT_DOCK_WEIGHTS: Record<DockId, number> = {
   sources: 1,
   mixer: 1.2,
   youtube: 1,
+  zoom: 1,
   controls: 0.95,
 };
 
-/** Docks hidden out of the box; the YouTube dock is opt-in until a user configures it. */
-export const DEFAULT_HIDDEN_DOCKS: readonly DockId[] = ['youtube'];
+/** Provider docks are opt-in until a user configures them. */
+export const DEFAULT_HIDDEN_DOCKS: readonly DockId[] = ['youtube', 'zoom'];
 
 /** The dock set visible by default, in column order — this is the exact set the stylesheet's static grid is built for. */
 const DEFAULT_VISIBLE_DOCKS: readonly DockId[] = DOCK_ORDER.filter((id) => !DEFAULT_HIDDEN_DOCKS.includes(id));
@@ -233,7 +236,7 @@ function isFiniteWeight(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= DOCK_ORDER.length;
 }
 
-/** Legacy persisted order, from before docks had ids: Scenes, Sources, Mixer, Controls (no YouTube dock existed yet). */
+/** Legacy persisted order, from before provider docks had ids. */
 const LEGACY_DOCK_ORDER: readonly DockId[] = ['scenes', 'sources', 'mixer', 'controls'];
 
 function isLegacyWeightList(value: unknown): value is number[] {

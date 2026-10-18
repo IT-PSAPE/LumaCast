@@ -21,14 +21,14 @@ describe('dock registry', () => {
 });
 
 describe('dock visibility', () => {
-  it('defaults to hiding only the YouTube dock', () => {
-    expect(DEFAULT_HIDDEN_DOCKS).toEqual(['youtube']);
-    expect(DEFAULT_WORKBENCH_LAYOUT).toEqual({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube'], dockOrder: [...DOCK_ORDER] });
+  it('defaults to hiding provider docks until configured', () => {
+    expect(DEFAULT_HIDDEN_DOCKS).toEqual(['youtube', 'zoom']);
+    expect(DEFAULT_WORKBENCH_LAYOUT).toEqual({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] });
   });
 
   it('lists visible docks in column order, excluding hidden ones', () => {
     expect(visibleDocks(defaultLayout())).toEqual(['scenes', 'sources', 'mixer', 'controls']);
-    expect(visibleDocks({ ...defaultLayout(), hiddenDocks: ['mixer', 'scenes'] })).toEqual(['sources', 'youtube', 'controls']);
+    expect(visibleDocks({ ...defaultLayout(), hiddenDocks: ['mixer', 'scenes'] })).toEqual(['sources', 'youtube', 'controls', 'zoom']);
     expect(visibleDocks({ ...defaultLayout(), hiddenDocks: [] })).toEqual([...DOCK_ORDER]);
     expect(visibleDocks({ ...defaultLayout(), hiddenDocks: [...DOCK_ORDER] })).toEqual([]);
     expect(visibleDocks({ ...defaultLayout(), dockOrder: ['controls', 'mixer', 'sources', 'scenes', 'youtube'], hiddenDocks: ['youtube'] }))
@@ -37,13 +37,13 @@ describe('dock visibility', () => {
 
   it('toggles a dock hidden and back, keeping hiddenDocks in column order', () => {
     const hideControls = toggleDockVisibility(defaultLayout(), 'controls');
-    expect(hideControls.hiddenDocks).toEqual(['youtube', 'controls']);
+    expect(hideControls.hiddenDocks).toEqual(['youtube', 'controls', 'zoom']);
 
     const alsoHideScenes = toggleDockVisibility(hideControls, 'scenes');
-    expect(alsoHideScenes.hiddenDocks).toEqual(['scenes', 'youtube', 'controls']);
+    expect(alsoHideScenes.hiddenDocks).toEqual(['scenes', 'youtube', 'controls', 'zoom']);
 
     const showYoutube = toggleDockVisibility(alsoHideScenes, 'youtube');
-    expect(showYoutube.hiddenDocks).toEqual(['scenes', 'controls']);
+    expect(showYoutube.hiddenDocks).toEqual(['scenes', 'controls', 'zoom']);
   });
 
   it('does not mutate the layout passed in', () => {
@@ -64,7 +64,7 @@ describe('dock visibility', () => {
 
   it('identifies the stock layout, independent of hiddenDocks element order', () => {
     expect(isDefaultWorkbenchLayout(defaultLayout())).toBe(true);
-    expect(isDefaultWorkbenchLayout({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube'], dockOrder: [...DOCK_ORDER] })).toBe(true);
+    expect(isDefaultWorkbenchLayout({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] })).toBe(true);
   });
 
   it('is not the stock layout once dockWeights, bottomPanelHeight, hiddenDocks, or dockOrder differ from default', () => {
@@ -79,7 +79,7 @@ describe('dock visibility', () => {
   });
 
   it('numbers grid columns among only the visible docks', () => {
-    const layout: WorkbenchLayout = { ...defaultLayout(), hiddenDocks: ['sources', 'youtube'] };
+    const layout: WorkbenchLayout = { ...defaultLayout(), hiddenDocks: ['sources', 'youtube', 'zoom'] };
     expect(dockGridColumn(layout, 'scenes')).toBe(1);
     expect(dockGridColumn(layout, 'sources')).toBeNull();
     expect(dockGridColumn(layout, 'mixer')).toBe(2);
@@ -96,15 +96,15 @@ describe('dock order', () => {
   describe('moveDock', () => {
     it('moves a dock to a new index within the full order', () => {
       const layout = defaultLayout();
-      expect(moveDock(layout, 'controls', 0).dockOrder).toEqual(['controls', 'scenes', 'sources', 'mixer', 'youtube']);
-      expect(moveDock(layout, 'scenes', 4).dockOrder).toEqual(['sources', 'mixer', 'youtube', 'controls', 'scenes']);
-      expect(moveDock(layout, 'mixer', 1).dockOrder).toEqual(['scenes', 'mixer', 'sources', 'youtube', 'controls']);
+      expect(moveDock(layout, 'controls', 0).dockOrder).toEqual(['controls', 'scenes', 'sources', 'mixer', 'youtube', 'zoom']);
+      expect(moveDock(layout, 'scenes', 4).dockOrder).toEqual(['sources', 'mixer', 'youtube', 'controls', 'scenes', 'zoom']);
+      expect(moveDock(layout, 'mixer', 1).dockOrder).toEqual(['scenes', 'mixer', 'sources', 'youtube', 'controls', 'zoom']);
     });
 
     it('clamps an out-of-range target index', () => {
       const layout = defaultLayout();
-      expect(moveDock(layout, 'scenes', 99).dockOrder).toEqual(['sources', 'mixer', 'youtube', 'controls', 'scenes']);
-      expect(moveDock(layout, 'controls', -5).dockOrder).toEqual(['controls', 'scenes', 'sources', 'mixer', 'youtube']);
+      expect(moveDock(layout, 'scenes', 99).dockOrder).toEqual(['sources', 'mixer', 'youtube', 'controls', 'zoom', 'scenes']);
+      expect(moveDock(layout, 'controls', -5).dockOrder).toEqual(['controls', 'scenes', 'sources', 'mixer', 'youtube', 'zoom']);
     });
 
     it('is a no-op when the target index matches the current position', () => {
@@ -123,13 +123,13 @@ describe('dock order', () => {
   describe('reorderDockOnDrop', () => {
     it('drops a dock before another, independent of drag direction', () => {
       const layout = defaultLayout();
-      expect(reorderDockOnDrop(layout, 'controls', 'scenes').dockOrder).toEqual(['controls', 'scenes', 'sources', 'mixer', 'youtube']);
-      expect(reorderDockOnDrop(layout, 'scenes', 'controls').dockOrder).toEqual(['sources', 'mixer', 'youtube', 'scenes', 'controls']);
+      expect(reorderDockOnDrop(layout, 'controls', 'scenes').dockOrder).toEqual(['controls', 'scenes', 'sources', 'mixer', 'youtube', 'zoom']);
+      expect(reorderDockOnDrop(layout, 'scenes', 'controls').dockOrder).toEqual(['sources', 'mixer', 'youtube', 'scenes', 'controls', 'zoom']);
     });
 
     it('drops at the end when beforeId is null', () => {
       const layout = defaultLayout();
-      expect(reorderDockOnDrop(layout, 'scenes', null).dockOrder).toEqual(['sources', 'mixer', 'youtube', 'controls', 'scenes']);
+      expect(reorderDockOnDrop(layout, 'scenes', null).dockOrder).toEqual(['sources', 'mixer', 'youtube', 'controls', 'zoom', 'scenes']);
     });
 
     it('keeps a hidden dock in its relative position when a visible dock is reordered around it', () => {
@@ -161,7 +161,7 @@ describe('dock order', () => {
   });
 
   it('dockGridColumn and dockColumnsTemplate follow a custom dock order', () => {
-    const layout: WorkbenchLayout = { dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube'], dockOrder: ['controls', 'mixer', 'sources', 'scenes', 'youtube'] };
+    const layout: WorkbenchLayout = { dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: ['controls', 'mixer', 'sources', 'scenes', 'youtube', 'zoom'] };
     expect(visibleDocks(layout)).toEqual(['controls', 'mixer', 'sources', 'scenes']);
     expect(dockGridColumn(layout, 'controls')).toBe(1);
     expect(dockGridColumn(layout, 'scenes')).toBe(4);
@@ -175,16 +175,16 @@ describe('dock column templates', () => {
   });
 
   it('renders an explicit template for a non-default 3-dock visible set', () => {
-    const layout: WorkbenchLayout = { dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['mixer', 'youtube'], dockOrder: [...DOCK_ORDER] };
+    const layout: WorkbenchLayout = { dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['mixer', 'youtube', 'zoom'], dockOrder: [...DOCK_ORDER] };
     expect(visibleDocks(layout)).toEqual(['scenes', 'sources', 'controls']);
     expect(dockColumnsTemplate(layout)).toBe('minmax(160px, 0.9fr) minmax(185px, 1fr) minmax(180px, 0.95fr)');
   });
 
-  it('renders an explicit template for all 5 docks visible', () => {
+  it('renders an explicit template for all 6 docks visible', () => {
     const layout: WorkbenchLayout = { dockWeights: null, bottomPanelHeight: null, hiddenDocks: [], dockOrder: [...DOCK_ORDER] };
     expect(visibleDocks(layout)).toEqual([...DOCK_ORDER]);
     expect(dockColumnsTemplate(layout)).toBe(
-      'minmax(160px, 0.9fr) minmax(185px, 1fr) minmax(225px, 1.2fr) minmax(240px, 1fr) minmax(180px, 0.95fr)',
+      'minmax(160px, 0.9fr) minmax(185px, 1fr) minmax(225px, 1.2fr) minmax(240px, 1fr) minmax(180px, 0.95fr) minmax(240px, 1fr)',
     );
   });
 
@@ -194,12 +194,12 @@ describe('dock column templates', () => {
   });
 
   it('renders custom weights for the default visible set instead of null', () => {
-    const layout: WorkbenchLayout = { dockWeights: { scenes: 0.8, sources: 0.8, mixer: 1.6, controls: 0.8 }, bottomPanelHeight: null, hiddenDocks: ['youtube'], dockOrder: [...DOCK_ORDER] };
+    const layout: WorkbenchLayout = { dockWeights: { scenes: 0.8, sources: 0.8, mixer: 1.6, controls: 0.8 }, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] };
     expect(dockColumnsTemplate(layout)).toBe('minmax(160px, 0.8fr) minmax(185px, 0.8fr) minmax(225px, 1.6fr) minmax(180px, 0.8fr)');
   });
 
   it('falls back to the default weight for a visible dock missing from a custom record', () => {
-    const layout: WorkbenchLayout = { dockWeights: { mixer: 1.5 }, bottomPanelHeight: null, hiddenDocks: ['youtube'], dockOrder: [...DOCK_ORDER] };
+    const layout: WorkbenchLayout = { dockWeights: { mixer: 1.5 }, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] };
     expect(dockColumnsTemplate(layout)).toBe('minmax(160px, 0.9fr) minmax(185px, 1fr) minmax(225px, 1.5fr) minmax(180px, 0.95fr)');
   });
 });
@@ -305,8 +305,8 @@ describe('workbench layout persistence', () => {
     const layout: WorkbenchLayout = {
       dockWeights: { scenes: 0.8, sources: 0.8, mixer: 1.6, controls: 0.8 },
       bottomPanelHeight: 260,
-      hiddenDocks: ['youtube'],
-      dockOrder: ['mixer', 'scenes', 'controls', 'sources', 'youtube'],
+      hiddenDocks: ['youtube', 'zoom'],
+      dockOrder: ['mixer', 'scenes', 'controls', 'sources', 'youtube', 'zoom'],
     };
     expect(parseWorkbenchLayout(serializeWorkbenchLayout(layout))).toEqual(layout);
   });
@@ -316,7 +316,7 @@ describe('workbench layout persistence', () => {
     expect(parseWorkbenchLayout(legacy)).toEqual({
       dockWeights: { scenes: 0.8, sources: 0.8, mixer: 1.6, controls: 0.8 },
       bottomPanelHeight: 260,
-      hiddenDocks: ['youtube'],
+      hiddenDocks: ['youtube', 'zoom'],
       dockOrder: [...DOCK_ORDER],
     });
   });
@@ -335,8 +335,8 @@ describe('workbench layout persistence', () => {
     expect(parseWorkbenchLayout('{"dockWeights":{"bogus":1,"scenes":-1,"mixer":0}}').dockWeights).toBeNull();
   });
 
-  it('defaults hiddenDocks to ["youtube"] when absent', () => {
-    expect(parseWorkbenchLayout('{}')).toEqual({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube'], dockOrder: [...DOCK_ORDER] });
+  it('defaults provider docks to hidden when hiddenDocks is absent', () => {
+    expect(parseWorkbenchLayout('{}')).toEqual({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] });
   });
 
   it('respects an explicitly empty hiddenDocks list', () => {
@@ -344,18 +344,18 @@ describe('workbench layout persistence', () => {
   });
 
   it('falls back to the default hidden set when hiddenDocks is malformed', () => {
-    expect(parseWorkbenchLayout('{"hiddenDocks":"youtube"}').hiddenDocks).toEqual(['youtube']);
+    expect(parseWorkbenchLayout('{"hiddenDocks":"youtube"}').hiddenDocks).toEqual(['youtube', 'zoom']);
   });
 
   it.each([null, '', 'not json', '[]'])('falls back to defaults for malformed storage: %s', (raw) => {
-    expect(parseWorkbenchLayout(raw)).toEqual({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube'], dockOrder: [...DOCK_ORDER] });
+    expect(parseWorkbenchLayout(raw)).toEqual({ dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] });
   });
 
   it('falls back to defaults for a malformed legacy-shaped layout', () => {
     expect(parseWorkbenchLayout('{"dockWeights":[1,2],"bottomPanelHeight":"tall"}')).toEqual({
       dockWeights: null,
       bottomPanelHeight: null,
-      hiddenDocks: ['youtube'],
+      hiddenDocks: ['youtube', 'zoom'],
       dockOrder: [...DOCK_ORDER],
     });
   });
@@ -364,14 +364,14 @@ describe('workbench layout persistence', () => {
     expect(parseWorkbenchLayout('{"dockWeights":[1,1,1,1],"bottomPanelHeight":99999}')).toEqual({
       dockWeights: { scenes: 1, sources: 1, mixer: 1, controls: 1 },
       bottomPanelHeight: null,
-      hiddenDocks: ['youtube'],
+      hiddenDocks: ['youtube', 'zoom'],
       dockOrder: [...DOCK_ORDER],
     });
   });
 
   it('parses a persisted dock order, dropping unknown and duplicate ids', () => {
     const raw = '{"dockOrder":["mixer","bogus","scenes","mixer","controls"]}';
-    expect(parseWorkbenchLayout(raw).dockOrder).toEqual(['mixer', 'scenes', 'controls', 'sources', 'youtube']);
+    expect(parseWorkbenchLayout(raw).dockOrder).toEqual(['mixer', 'scenes', 'controls', 'sources', 'youtube', 'zoom']);
   });
 
   it('falls back to the default dock order when it is absent or malformed', () => {

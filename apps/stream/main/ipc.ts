@@ -2,7 +2,7 @@ import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { app, BrowserWindow, dialog, shell } from 'electron';
 import { mkdir, open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject, StreamServiceSettings } from '../shared/desktop-api';
+import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject, StreamServiceSettings, YouTubeBroadcastDraft, ZoomMeetingDraft } from '../shared/desktop-api';
 import type { AudioSettingsStore } from './audio-settings-store';
 import type { RecordingPreferencesStore } from './recording-preferences-store';
 import type { StreamSettingsStore } from './stream-settings-store';
@@ -18,6 +18,9 @@ import { StreamOutput } from './stream-output';
 import { GlobalHotkeyManager } from './global-hotkeys';
 import { CollectionBundleStore } from './collection-bundles';
 import { ApplicationAudioCapture } from './application-audio-capture';
+import { YouTubeLiveService } from './youtube-live';
+import { ZoomLiveService } from './zoom-live';
+import { ZoomSdkStreaming } from './zoom-sdk-streaming';
 
 // Mirrors the contract's allow-list for `stream:open-external`: only an https
 // URL whose hostname is (or is a subdomain of) one of these destinations may
@@ -65,6 +68,9 @@ export function registerStreamIpc(
   globalHotkeys: GlobalHotkeyManager,
   applicationAudio: ApplicationAudioCapture,
   streamSettings: StreamSettingsStore,
+  youtubeLive: YouTubeLiveService,
+  zoomLive: ZoomLiveService,
+  zoomStreaming: ZoomSdkStreaming,
   getContents: () => WebContents | null,
   isTrustedUrl: (url: string) => boolean,
 ): () => void {
@@ -241,9 +247,30 @@ export function registerStreamIpc(
       if (typeof id !== 'string' || id.length > 128) throw new Error('Invalid recording session.');
       return recordings.abort(id);
     }],
-    [IPC_CHANNELS.startStreaming, (event, destination: string, settings: StreamOutputSettings) => {
+    [IPC_CHANNELS.startStreaming, (event, destination: string, settings: StreamOutputSettings, outputId?: string) => {
       authorize(event);
-      return streamOutput.start(destination, settings);
+      return streamOutput.start(destination, settings, outputId);
+    }],
+    [IPC_CHANNELS.getYouTubeAccount, (event) => { authorize(event); return youtubeLive.getAccount(); }],
+    [IPC_CHANNELS.connectYouTubeAccount, (event) => { authorize(event); return youtubeLive.connect(); }],
+    [IPC_CHANNELS.disconnectYouTubeAccount, (event) => { authorize(event); return youtubeLive.disconnect(); }],
+    [IPC_CHANNELS.listYouTubeBroadcasts, (event) => { authorize(event); return youtubeLive.listBroadcasts(); }],
+    [IPC_CHANNELS.createYouTubeBroadcast, (event, draft: YouTubeBroadcastDraft) => { authorize(event); return youtubeLive.createBroadcast(draft); }],
+    [IPC_CHANNELS.startYouTubeStreaming, (event, broadcastId: string, settings: StreamOutputSettings) => { authorize(event); return youtubeLive.startBroadcast(broadcastId, settings); }],
+    [IPC_CHANNELS.getZoomAccount, (event) => { authorize(event); return zoomLive.getAccount(); }],
+    [IPC_CHANNELS.connectZoomAccount, (event) => { authorize(event); return zoomLive.connect(); }],
+    [IPC_CHANNELS.disconnectZoomAccount, (event) => { authorize(event); return zoomLive.disconnect(); }],
+    [IPC_CHANNELS.listZoomMeetings, (event) => { authorize(event); return zoomLive.listMeetings(); }],
+    [IPC_CHANNELS.createZoomMeeting, (event, draft: ZoomMeetingDraft) => { authorize(event); return zoomLive.createMeeting(draft); }],
+    [IPC_CHANNELS.startZoomStreaming, (event, meetingId: string, settings: StreamOutputSettings) => {
+      authorize(event);
+      if (typeof meetingId !== 'string' || meetingId.length > 16) throw new Error('Invalid Zoom meeting.');
+      return zoomStreaming.start(meetingId, settings);
+    }],
+    [IPC_CHANNELS.stopZoomStreaming, (event, id: string) => {
+      authorize(event);
+      if (typeof id !== 'string' || id.length > 128) throw new Error('Invalid Zoom streaming session.');
+      zoomStreaming.stop(id);
     }],
     [IPC_CHANNELS.writeStreamingChunk, (event, id: string, bytes: ArrayBuffer) => {
       authorize(event);
@@ -253,7 +280,7 @@ export function registerStreamIpc(
     [IPC_CHANNELS.stopStreaming, (event, id: string) => {
       authorize(event);
       if (typeof id !== 'string' || id.length > 128) throw new Error('Invalid streaming session.');
-      return streamOutput.stop(id);
+      return youtubeLive.stopStreaming(id);
     }],
     [IPC_CHANNELS.setGlobalHotkeys, (event, hotkeys: StreamGlobalHotkeys, sceneSwitchHotkeys: Record<string, string>, sourceVisibilityHotkeys: Record<string, string>) => {
       authorize(event);

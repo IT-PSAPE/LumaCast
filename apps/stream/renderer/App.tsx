@@ -16,6 +16,7 @@ import { ControlsDock } from './docks/controls-dock';
 import { MixerDock } from './docks/mixer-dock';
 import { SourcesDock } from './docks/sources-dock';
 import { YouTubeDock } from './docks/youtube-dock';
+import { ZoomDock } from './docks/zoom-dock';
 import { getStreamService } from '../shared/stream-services';
 import { outputRectFromCanvasRect } from './output-scaling';
 import { supportsAudioOutputSelection } from './monitor-device-routing';
@@ -175,7 +176,7 @@ export function App() {
     : [], [project?.scenes, activeScene?.id]);
 
   const recording = useRecording({ api, project, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
-  const streaming = useStreaming({ api, project, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
+  const streaming = useStreaming({ api, project, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError });
   const replayBuffer = useReplayBuffer({ api, project, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
 
   const workbench = useWorkbenchLayout();
@@ -559,21 +560,34 @@ export function App() {
         />}
 
         {visibleDockIds.includes('youtube') && <YouTubeDock
+          api={api}
           style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'youtube') ?? undefined, opacity: workbench.dockDragOpacity('youtube') }}
           resizer={workbench.resizerForDock('youtube')}
           onHide={() => workbench.toggleDock('youtube')}
           settings={streaming.streamServiceSettings}
           onChange={streaming.setStreamServiceSettings}
-          status={streaming.streamStatus}
-          streamingStartedAt={streaming.streamingStartedAt}
+          status={streaming.outputStatuses.youtube ?? { state: 'stopped' }}
+          activeOutputs={streaming.activeOutputIds.map((id) => ({ id, status: streaming.outputStatuses[id] ?? { state: 'connecting' } }))}
+          streamingStartedAt={streaming.outputStartedAt.youtube ?? null}
           now={clockNow}
-          working={working}
-          onGoLive={streaming.goLive}
+          onGoLive={() => streaming.goLiveForService('youtube')}
           onStopStreaming={streaming.stopStreaming}
           onOpenDashboard={() => {
             const dashboardUrl = getStreamService('youtube').dashboardUrl;
             if (dashboardUrl) void api.openExternal(dashboardUrl).catch((error) => setActionError(`Could not open YouTube Studio: ${friendlyError(error)}`));
           }}
+        />}
+
+        {visibleDockIds.includes('zoom') && <ZoomDock
+          api={api}
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'zoom') ?? undefined, opacity: workbench.dockDragOpacity('zoom') }}
+          resizer={workbench.resizerForDock('zoom')}
+          onHide={() => workbench.toggleDock('zoom')}
+          settings={streaming.streamServiceSettings}
+          onChange={streaming.setStreamServiceSettings}
+          status={streaming.outputStatuses.zoom ?? { state: 'stopped' }}
+          onGoLive={() => streaming.goLiveForService('zoom')}
+          onStopStreaming={() => streaming.stopStreaming('zoom')}
         />}
 
         {visibleDockIds.includes('controls') && <ControlsDock

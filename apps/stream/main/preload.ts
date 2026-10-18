@@ -67,7 +67,20 @@ const api: StreamAPI = {
   writeRecordingChunk: (id, track, bytes) => ipcRenderer.invoke(IPC_CHANNELS.writeRecordingChunk, id, track, bytes),
   closeRecording: (id) => ipcRenderer.invoke(IPC_CHANNELS.closeRecording, id),
   abortRecording: (id) => ipcRenderer.invoke(IPC_CHANNELS.abortRecording, id),
-  startStreaming: (destination, settings) => ipcRenderer.invoke(IPC_CHANNELS.startStreaming, destination, settings),
+  startStreaming: (destination, settings, outputId) => ipcRenderer.invoke(IPC_CHANNELS.startStreaming, destination, settings, outputId),
+  getYouTubeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.getYouTubeAccount),
+  connectYouTubeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.connectYouTubeAccount),
+  disconnectYouTubeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.disconnectYouTubeAccount),
+  listYouTubeBroadcasts: () => ipcRenderer.invoke(IPC_CHANNELS.listYouTubeBroadcasts),
+  createYouTubeBroadcast: (draft) => ipcRenderer.invoke(IPC_CHANNELS.createYouTubeBroadcast, draft),
+  startYouTubeStreaming: (broadcastId, settings) => ipcRenderer.invoke(IPC_CHANNELS.startYouTubeStreaming, broadcastId, settings),
+  getZoomAccount: () => ipcRenderer.invoke(IPC_CHANNELS.getZoomAccount),
+  connectZoomAccount: () => ipcRenderer.invoke(IPC_CHANNELS.connectZoomAccount),
+  disconnectZoomAccount: () => ipcRenderer.invoke(IPC_CHANNELS.disconnectZoomAccount),
+  listZoomMeetings: () => ipcRenderer.invoke(IPC_CHANNELS.listZoomMeetings),
+  createZoomMeeting: (draft) => ipcRenderer.invoke(IPC_CHANNELS.createZoomMeeting, draft),
+  startZoomStreaming: (meetingId, settings) => ipcRenderer.invoke(IPC_CHANNELS.startZoomStreaming, meetingId, settings),
+  stopZoomStreaming: (id) => ipcRenderer.invoke(IPC_CHANNELS.stopZoomStreaming, id),
   writeStreamingChunk: (id, bytes) => ipcRenderer.invoke(IPC_CHANNELS.writeStreamingChunk, id, bytes),
   stopStreaming: (id) => ipcRenderer.invoke(IPC_CHANNELS.stopStreaming, id),
   setGlobalHotkeys: (hotkeys, sceneSwitchHotkeys, sourceVisibilityHotkeys) => ipcRenderer.invoke(IPC_CHANNELS.setGlobalHotkeys, hotkeys, sceneSwitchHotkeys, sourceVisibilityHotkeys),
@@ -100,5 +113,11 @@ const api: StreamAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.menuAction, handler);
   },
 };
+
+ipcRenderer.on(IPC_CHANNELS.zoomMediaPort, (event, sessionId: string) => {
+  const port = event.ports[0];
+  if (!port || typeof sessionId !== 'string') return;
+  window.postMessage({ source: 'lumastream-main', type: 'zoom-media-port', sessionId }, '*', [port]);
+});
 
 contextBridge.exposeInMainWorld('streamApi', api);

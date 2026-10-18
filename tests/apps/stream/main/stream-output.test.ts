@@ -182,6 +182,60 @@ describe('Stream output destination and reconnect', () => {
     expect(children).toHaveLength(1);
   });
 
+  it('keeps destination sessions independent and includes their output IDs in status', async () => {
+    const { output, id: youtubeId, children, statuses } = harness();
+    const zoomId = output.start('rtmps://example.com/zoom/key', settings, 'zoom');
+
+    expect(children).toHaveLength(2);
+    expect(statuses[0]).toMatchObject({ outputId: 'primary', state: 'connecting' });
+    expect(statuses[1]).toMatchObject({ outputId: 'zoom', state: 'connecting' });
+    await output.write(youtubeId, chunk('youtube-header'));
+    await output.write(zoomId, chunk('zoom-header'));
+
+    await output.stop(youtubeId);
+    await output.write(zoomId, chunk('zoom-still-live'));
+    expect(children[0]!.writtenChunks.map((part) => part.toString())).toEqual(['youtube-header']);
+    expect(children[1]!.writtenChunks.map((part) => part.toString())).toEqual(['zoom-header', 'zoom-still-live']);
+    expect(statuses.at(-1)).toMatchObject({ outputId: 'primary', state: 'stopped' });
+
+    await output.stopAll();
+    expect(statuses.at(-1)).toMatchObject({ outputId: 'zoom', state: 'stopped' });
+  });
+
+  it('rejects duplicate active output identifiers and malformed output identifiers', () => {
+    const { output } = harness();
+    expect(() => output.start('rtmps://example.com/another/key', settings, 'primary')).toThrow(/already active/);
+    expect(() => output.start('rtmps://example.com/another/key', settings, '../zoom')).toThrow(/identifier is invalid/);
+  });
+
+  it('retains a provider-reported error when its output is stopped', async () => {
+    const { output, statuses } = harness();
+    const id = output.start('rtmps://example.com/provider/key', settings, 'youtube', 'external');
+
+    output.reportStatus(id, { state: 'error', message: 'YouTube did not detect an incoming video stream.' });
+    await output.stop(id);
+
+    expect(statuses.at(-2)).toMatchObject({ outputId: 'youtube', state: 'error' });
+    expect(statuses.at(-1)).toMatchObject({ outputId: 'youtube', state: 'error', message: 'YouTube did not detect an incoming video stream.' });
+  });
+
+  it('waits for provider confirmation before first live status, then restores live after reconnect', async () => {
+    const { output, children, statuses } = harness(2, 1024 * 1024, 0);
+    const id = output.start('rtmps://example.com/provider/key', settings, 'youtube', 'external');
+    await output.write(id, chunk('webm-header'));
+    children[1]!.stderr.write('bitrate=1000kbits/s\nprogress=continue\n');
+    expect(statuses.filter((status) => status.outputId === 'youtube' && status.state === 'live')).toHaveLength(0);
+
+    output.reportStatus(id, { state: 'live' });
+    children[1]!.fail();
+    await output.write(id, chunk('media-during-reconnect'));
+    await waitFor(() => children.length === 3 && children[2]!.writtenChunks.length === 2);
+    children[2]!.stderr.write('bitrate=1000kbits/s\nprogress=continue\n');
+
+    expect(statuses.filter((status) => status.outputId === 'youtube' && status.state === 'live')).toHaveLength(2);
+    await output.stop(id);
+  });
+
   it('terminates the encoder when the bounded recovery buffer fills', async () => {
     const { output, id, children, statuses } = harness(2, 4, 10_000);
     await output.write(id, chunk('h'));
