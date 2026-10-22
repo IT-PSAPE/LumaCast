@@ -298,6 +298,9 @@ export function App() {
   const selectedChromaKey = { ...DEFAULT_CHROMA_KEY, ...selectedSource?.chromaKey };
   const selectionHandles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
   const visibleDockIds = workbench.visibleDockIds;
+  // Docks render in a fixed DOM order but are placed by grid column, so the
+  // visually last dock is the one that drops its right border.
+  const lastDockId = visibleDockIds[visibleDockIds.length - 1];
   const streamServiceLabel = streaming.streamServiceLabel;
 
 
@@ -377,7 +380,7 @@ export function App() {
         onPointerCancel={workbench.endDockDrag}
       >
         {visibleDockIds.includes('scenes') && <ScenesDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'scenes') ?? undefined, opacity: workbench.dockDragOpacity('scenes') }}
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'scenes') ?? undefined, opacity: workbench.dockDragOpacity('scenes'), borderRight: lastDockId === 'scenes' ? 0 : undefined }}
           resizer={workbench.resizerForDock('scenes')}
           onHide={() => workbench.toggleDock('scenes')}
           platform={platform}
@@ -445,7 +448,7 @@ export function App() {
         </section>
 
         {visibleDockIds.includes('sources') && <SourcesDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'sources') ?? undefined, opacity: workbench.dockDragOpacity('sources') }}
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'sources') ?? undefined, opacity: workbench.dockDragOpacity('sources'), borderRight: lastDockId === 'sources' ? 0 : undefined }}
           resizer={workbench.resizerForDock('sources')}
           onHide={() => workbench.toggleDock('sources')}
           sources={activeScene.sources}
@@ -547,7 +550,7 @@ export function App() {
         />}
 
         {visibleDockIds.includes('mixer') && <MixerDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'mixer') ?? undefined, opacity: workbench.dockDragOpacity('mixer') }}
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'mixer') ?? undefined, opacity: workbench.dockDragOpacity('mixer'), borderRight: lastDockId === 'mixer' ? 0 : undefined }}
           resizer={workbench.resizerForDock('mixer')}
           onHide={() => workbench.toggleDock('mixer')}
           onOpenSettings={openSettings}
@@ -561,7 +564,7 @@ export function App() {
 
         {visibleDockIds.includes('youtube') && <YouTubeDock
           api={api}
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'youtube') ?? undefined, opacity: workbench.dockDragOpacity('youtube') }}
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'youtube') ?? undefined, opacity: workbench.dockDragOpacity('youtube'), borderRight: lastDockId === 'youtube' ? 0 : undefined }}
           resizer={workbench.resizerForDock('youtube')}
           onHide={() => workbench.toggleDock('youtube')}
           settings={streaming.streamServiceSettings}
@@ -580,7 +583,7 @@ export function App() {
 
         {visibleDockIds.includes('zoom') && <ZoomDock
           api={api}
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'zoom') ?? undefined, opacity: workbench.dockDragOpacity('zoom') }}
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'zoom') ?? undefined, opacity: workbench.dockDragOpacity('zoom'), borderRight: lastDockId === 'zoom' ? 0 : undefined }}
           resizer={workbench.resizerForDock('zoom')}
           onHide={() => workbench.toggleDock('zoom')}
           settings={streaming.streamServiceSettings}
@@ -591,7 +594,7 @@ export function App() {
         />}
 
         {visibleDockIds.includes('controls') && <ControlsDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'controls') ?? undefined, opacity: workbench.dockDragOpacity('controls') }}
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'controls') ?? undefined, opacity: workbench.dockDragOpacity('controls'), borderRight: lastDockId === 'controls' ? 0 : undefined }}
           resizer={workbench.resizerForDock('controls')}
           onHide={() => workbench.toggleDock('controls')}
           working={working}
