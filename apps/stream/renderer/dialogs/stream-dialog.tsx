@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Eye, EyeOff, X } from 'lucide-react';
+import { useId, useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+import { Modal } from '@lumacast/ui';
 import { hardwareEncodingLabelForPlatform, type StreamPlatform } from '../../shared/platform-capabilities';
 import { getStreamService, STREAM_SERVICES, validateStreamServiceSettings, type StreamServiceId } from '../../shared/stream-services';
 import {
@@ -28,6 +29,7 @@ export interface StreamDialogProps {
 
 export function StreamDialog({ project, setProjectValue, platform, working, settings, onChangeSettings, videoEncoderOptions, systemVideoEncoder, onSubmit, onClose }: StreamDialogProps) {
   const [keyVisible, setKeyVisible] = useState(false);
+  const formId = useId();
   const preset = getStreamService(settings.service);
   const validationMessage = validateStreamServiceSettings(settings);
 
@@ -41,10 +43,19 @@ export function StreamDialog({ project, setProjectValue, platform, working, sett
   }
 
   return (
-    <div className="stream-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !working) onClose(); }}>
-      <section className="capture-modal stream-modal" role="dialog" aria-modal="true" aria-labelledby="stream-title">
-        <div className="modal-heading"><h2 id="stream-title">Stream settings</h2><button className="icon-button" aria-label="Close" disabled={working} onClick={onClose}><X size={17} /></button></div>
-        <form onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+    <Modal
+      open
+      title="Stream settings"
+      className="stream-modal"
+      onClose={onClose}
+      closeDisabled={working}
+      footer={<>
+        <span className="stream-footer-note">{project.output.width} × {project.output.height} · {project.output.frameRate} FPS</span>
+        <button className="secondary-button" type="button" disabled={working} onClick={onClose}>Cancel</button>
+        <button className="primary-button" type="submit" form={formId} disabled={working || validationMessage !== null}>{working ? 'Connecting…' : 'Start Streaming'}</button>
+      </>}
+    >
+        <form id={formId} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <div className="stream-form-fields">
             <label>Service<select value={settings.service} onChange={(event) => updateService(event.target.value as StreamServiceId)}>{STREAM_SERVICES.map((service) => <option key={service.id} value={service.id}>{service.label}</option>)}</select></label>
             {preset.servers.length > 0 && <label>Server<select value={settings.serverId} onChange={(event) => update({ serverId: event.target.value })}>{preset.servers.map((server) => <option key={server.id} value={server.id}>{server.label}</option>)}</select></label>}
@@ -82,9 +93,7 @@ export function StreamDialog({ project, setProjectValue, platform, working, sett
             <label>Keyframe interval (seconds)<input type="number" min="1" max="10" step="1" value={project.output.streamKeyframeIntervalSeconds} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamKeyframeIntervalSeconds: Math.max(1, Math.min(10, Math.round(Number(event.target.value) || 1))) } }))} /></label>
             <label className="encoder-toggle"><input type="checkbox" checked={project.output.streamHardwareEncoding} disabled={project.output.streamVideoEncoder !== systemVideoEncoder} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamHardwareEncoding: event.target.checked } }))} /><span>{hardwareEncodingLabelForPlatform(platform)}</span></label>
           </div>
-          <div className="modal-footer"><span>{project.output.width} × {project.output.height} · {project.output.frameRate} FPS</span><button className="secondary-button" type="button" disabled={working} onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={working || validationMessage !== null}>{working ? 'Connecting…' : 'Start Streaming'}</button></div>
         </form>
-      </section>
-    </div>
+    </Modal>
   );
 }

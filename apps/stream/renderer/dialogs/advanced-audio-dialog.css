@@ -2,8 +2,8 @@
  *
  * Built on `@lumacast/ui`'s `Modal` (see packages/ui/src/modal.tsx). The
  * `.modal`/`.modal-backdrop`/`.btn` chrome it hard-codes is styled once in
- * ../ui-modal.css; this file only adds the dialog's own table content. The
- * default `.modal` sizing from ui-modal.css already matches this dialog's
+ * packages/ui/src/theme.css; this file only adds the dialog's own table content. The
+ * default `.modal` sizing from packages/ui/src/theme.css already matches this dialog's
  * needs, so nothing is overridden here. */
 
 .advanced-audio-table-wrap {

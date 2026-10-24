@@ -1,7 +1,7 @@
 /* OBS-style two-pane Settings dialog.
  *
  * Built on `@lumacast/ui`'s `Modal`, whose `.modal-backdrop`/`.modal`/
- * `.modal-heading`/`.btn` chrome is styled once in ../ui-modal.css (see
+ * `.modal-heading`/`.btn` chrome is styled once in packages/ui/src/theme.css (see
  * packages/ui/src/modal.tsx). This dialog needs a different size than the
  * shared `.modal` default, so the override below is scoped with `:has()` to
  * this dialog's own root instead of touching the shared rule (not owned by

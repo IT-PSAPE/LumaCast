@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Clapperboard, ExternalLink, Radio, X } from 'lucide-react';
+import { Modal } from '@lumacast/ui';
+import { Clapperboard, ExternalLink, Radio } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
 import type { SceneTransitionType } from './scene-transition';
 import { TitleBar } from './chrome/title-bar';
 import { buildAppMenus } from './chrome/app-menu';
-import { ModalDialog } from './modal-dialog';
-import './ui-modal.css';
 import { StreamDialog } from './dialogs/stream-dialog';
-import { BrowserSourceDialog, CollectionDialog, ProfileDialog, SceneDialog } from './dialogs/workspace-dialogs';
+import { BrowserSourceDialog } from './dialogs/workspace-dialogs';
+import { NameDialog } from './dialogs/name-dialog';
 import { ApplicationAudioPicker, CapturePicker, InputDevicePicker } from './dialogs/pickers';
 import { SettingsDialog } from './dialogs/settings-dialog';
 import { ScenesDock } from './docks/scenes-dock';
@@ -74,8 +74,6 @@ export function App() {
 
   const monitorStageRef = useRef<HTMLDivElement>(null);
   const settingsOpenerRef = useRef<HTMLButtonElement | null>(null);
-  const shortcutsOpenerRef = useRef<HTMLElement | null>(null);
-  const aboutOpenerRef = useRef<HTMLElement | null>(null);
   const programCanvasRef = useRef<HTMLCanvasElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
   const videoElements = useRef(new Map<string, HTMLVideoElement>());
@@ -652,36 +650,41 @@ export function App() {
         </div>
       </footer>
 
-      {scenes.sceneDialog && <SceneDialog
+      {scenes.sceneDialog && <NameDialog
+        noun="Scene"
         mode={scenes.sceneDialog}
-        sceneName={activeScene.name}
-        nameDraft={scenes.sceneNameDraft}
-        setNameDraft={scenes.setSceneNameDraft}
-        onRename={scenes.renameActiveScene}
-        onDelete={scenes.deleteActiveScene}
+        name={scenes.sceneNameDraft}
+        setName={scenes.setSceneNameDraft}
+        nameMaxLength={120}
+        deleteCopy={`Delete “${activeScene.name}” and remove its sources from this scene collection?`}
+        onSubmit={scenes.sceneDialog === 'rename' ? scenes.renameActiveScene : scenes.deleteActiveScene}
         onClose={() => scenes.setSceneDialog(null)}
       />}
 
-      {workspace.collectionDialog && <CollectionDialog
+      {workspace.collectionDialog && <NameDialog
+        noun="Collection"
         mode={workspace.collectionDialog}
-        activeName={workspace.activeCollection?.name}
-        nameDraft={workspace.collectionNameDraft}
-        setNameDraft={workspace.setCollectionNameDraft}
+        name={workspace.collectionNameDraft}
+        setName={workspace.setCollectionNameDraft}
+        nameMaxLength={80}
+        deleteCopy={`Delete “${workspace.activeCollection?.name}”? Its scene collection will be removed. Imported media remains available to other collections.`}
         error={workspace.collectionError}
         working={working}
-        itemCount={workspace.collections.length}
+        deleteDisabled={workspace.collections.length <= 1}
         onSubmit={() => void workspace.submitCollectionDialog()}
         onClose={() => workspace.setCollectionDialog(null)}
       />}
 
-      {workspace.profileDialog && <ProfileDialog
+      {workspace.profileDialog && <NameDialog
+        noun="Profile"
         mode={workspace.profileDialog}
-        activeName={workspace.activeProfile?.name}
-        nameDraft={workspace.profileNameDraft}
-        setNameDraft={workspace.setProfileNameDraft}
+        name={workspace.profileNameDraft}
+        setName={workspace.setProfileNameDraft}
+        nameMaxLength={80}
+        deleteCopy={`Delete “${workspace.activeProfile?.name}”? Output settings and hotkeys saved in this profile will be removed.`}
         error={workspace.profileError}
         working={working}
-        itemCount={workspace.profiles.length}
+        deleteDisabled={workspace.profiles.length <= 1}
         onSubmit={() => void workspace.submitProfileDialog()}
         onClose={() => workspace.setProfileDialog(null)}
       />}
@@ -738,14 +741,7 @@ export function App() {
         onClose={() => { capture.setApplicationAudioOptions(null); capture.setApplicationAudioTargetSourceId(null); }}
       />}
 
-      {shortcutsDialogOpen && <ModalDialog
-        backdropClassName="stream-modal-backdrop"
-        className="capture-modal scene-modal"
-        labelledBy="shortcuts-dialog-title"
-        openerRef={shortcutsOpenerRef}
-        onClose={() => setShortcutsDialogOpen(false)}
-      >
-        <div className="modal-heading"><div><h2 id="shortcuts-dialog-title">Keyboard Shortcuts</h2></div><button className="icon-button" aria-label="Close" onClick={() => setShortcutsDialogOpen(false)}><X size={17} /></button></div>
+      {shortcutsDialogOpen && <Modal open title="Keyboard Shortcuts" className="scene-modal" onClose={() => setShortcutsDialogOpen(false)}>
         <dl className="settings-token-legend" style={{ padding: '18px', maxHeight: '60vh', overflowY: 'auto' }}>
           <div className="settings-token-row"><dt>Settings</dt><dd>{primaryShortcutLabel(platform, ',')}</dd></div>
           <div className="settings-token-row"><dt>Undo</dt><dd>{primaryShortcutLabel(platform, 'Z')}</dd></div>
@@ -763,18 +759,11 @@ export function App() {
           <div className="settings-token-row"><dt>Remove Scene</dt><dd>Delete</dd></div>
           <div className="settings-token-row"><dt>Reorder Scene</dt><dd>{primaryShortcutLabel(platform, '↑ / ↓')}</dd></div>
         </dl>
-      </ModalDialog>}
+      </Modal>}
 
-      {aboutDialogOpen && <ModalDialog
-        backdropClassName="stream-modal-backdrop"
-        className="capture-modal scene-modal"
-        labelledBy="about-dialog-title"
-        openerRef={aboutOpenerRef}
-        onClose={() => setAboutDialogOpen(false)}
-      >
-        <div className="modal-heading"><div><h2 id="about-dialog-title">About LumaStream</h2></div><button className="icon-button" aria-label="Close" onClick={() => setAboutDialogOpen(false)}><X size={17} /></button></div>
+      {aboutDialogOpen && <Modal open title="About LumaStream" className="scene-modal" onClose={() => setAboutDialogOpen(false)}>
         <div className="scene-delete-copy">LumaStream{appVersion ? ` ${appVersion}` : ''}</div>
-      </ModalDialog>}
+      </Modal>}
     </main>
   );
 }
