@@ -107,6 +107,22 @@ describe('useContextMenu', () => {
 });
 
 describe('menu surface', () => {
+  it('preserves an explicit label reference instead of the hidden trigger', async () => {
+    render(withOverlayStack(
+      <ContextMenu.Root open position={{ x: 24, y: 36 }}>
+        <span id="menu-label">Source actions</span>
+        <ContextMenu.Portal>
+          <ContextMenu.Menu aria-label="Fallback" aria-labelledby="menu-label">
+            <ContextMenu.Item>Rename</ContextMenu.Item>
+          </ContextMenu.Menu>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>,
+    ));
+    await settle();
+
+    expect(screen.getByRole('menu', { name: 'Source actions' })).toBeInTheDocument();
+  });
+
   it('exposes menu/menuitem roles and keeps the app conventions on the popup', async () => {
     render(<Menu />);
     openMenu();

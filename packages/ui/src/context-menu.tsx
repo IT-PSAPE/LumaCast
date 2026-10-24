@@ -415,6 +415,9 @@ function Positioner({
     >
       <Menu.Popup
         {...(props as ComponentPropsWithoutRef<'div'>)}
+        // The hidden registration trigger has no label. Only use a caller's
+        // explicit label reference so it cannot override the popup's aria-label.
+        aria-labelledby={props['aria-labelledby']}
         data-context-menu-owned="true"
         // Falls back to whatever had focus before opening when the trigger is a
         // canvas or another element the hook never attached to.

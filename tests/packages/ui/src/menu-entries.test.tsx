@@ -79,7 +79,7 @@ describe('PointContextMenu / MenuEntries', () => {
     expect(grid.querySelector('svg')).toBeNull();
 
     // A plain item stays a plain `menuitem`, never `menuitemcheckbox`.
-    expect(screen.queryByRole('menuitem', { name: 'Fit to Screen' })).not.toBeNull();
+    expect(screen.getByRole('menuitem', { name: /^Fit to Screen\s*⌘F$/ })).toBeInTheDocument();
 
     fireEvent.click(stretch);
     await settle();
