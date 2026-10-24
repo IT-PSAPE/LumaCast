@@ -1,6 +1,9 @@
 import { Select as BaseSelect } from '@base-ui/react/select';
+import { useState } from 'react';
 import { cn } from './cn';
 import { cv } from './cv';
+import { Field, useFieldIds, type FieldLabelPlacement } from './field';
+import { useOverlayContainer, useOverlayStackEntry } from './overlay';
 
 // The chevron and check glyphs are inlined rather than pulled from an icon
 // package: @lumacast/ui may depend only on `@lumacast/kernel`. The paths and
@@ -47,67 +50,122 @@ function CheckIcon() {
 }
 
 const triggerVariants = cv({
-  base: 'inline-flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-sm bg-tertiary text-primary label-xs transition-colors hover:bg-brand/10 focus:outline-none focus:ring-1 focus:ring-brand data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
+  base: 'inline-flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-sm bg-tertiary text-primary label-xs transition-colors focus:outline-none data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
   variants: {
     size: {
       sm: 'px-2 py-1',
       md: 'px-3 py-1.5',
     },
+    // Matches TextField: a persistent 1px `error` ring that replaces the brand
+    // focus ring.
+    invalid: {
+      true: 'ring-1 ring-error',
+      false: 'hover:bg-brand/10 focus:ring-1 focus:ring-brand',
+    },
   },
-  defaultVariants: { size: 'md' },
+  defaultVariants: { size: 'md', invalid: false },
 });
 
-const itemStyles = 'flex cursor-pointer select-none items-center justify-between gap-2 rounded label-xs px-2 py-1.5 text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary data-[selected]:text-brand';
+const itemStyles = 'flex cursor-pointer select-none items-center justify-between gap-2 rounded label-xs px-2 py-1.5 text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary data-[selected]:text-brand data-disabled:cursor-not-allowed data-disabled:opacity-50';
 
-export interface SelectOption<T extends string> {
+export interface SelectOption<T = string> {
   value: T;
   label: string;
   disabled?: boolean;
 }
 
-export interface SelectProps<T extends string> {
+export interface SelectGroup<T = string> {
+  label: string;
+  options: ReadonlyArray<SelectOption<T>>;
+}
+
+export interface SelectProps<T = string> {
   value: T;
   onValueChange: (value: T) => void;
-  options: ReadonlyArray<SelectOption<T>>;
+  /** Flat options, or labelled groups (heading rows are not selectable). */
+  options: ReadonlyArray<SelectOption<T>> | ReadonlyArray<SelectGroup<T>>;
   placeholder?: string;
   disabled?: boolean;
   className?: string;
   size?: 'sm' | 'md';
-  /** Accessible name for the trigger (there is no visible field label). */
+  /** Field label; with `labelPlacement="hidden"` it is only the accessible name. Without a label it is the trigger's aria-label. */
   label?: string;
+  labelPlacement?: FieldLabelPlacement;
+  error?: string;
+  hint?: string;
+  id?: string;
 }
 
-export function Select<T extends string>({ value, onValueChange, options, placeholder, disabled, className, size = 'md', label }: SelectProps<T>) {
-  const selected = options.find((option) => option.value === value);
+function isGroupList<T>(options: ReadonlyArray<SelectOption<T>> | ReadonlyArray<SelectGroup<T>>): options is ReadonlyArray<SelectGroup<T>> {
+  const first = options[0];
+  return first !== undefined && 'options' in first && Array.isArray(first.options);
+}
+
+export function Select<T = string>({ value, onValueChange, options, placeholder, disabled, className, size = 'md', label, labelPlacement, error, hint, id }: SelectProps<T>) {
+  const ids = useFieldIds(id, { error, hint });
+  const [open, setOpen] = useState(false);
+  const { zIndex } = useOverlayStackEntry(open);
+  const container = useOverlayContainer();
+
+  // Base UI keys items by string, so any T is mapped through its flat index.
+  const groups: ReadonlyArray<{ label?: string; options: ReadonlyArray<SelectOption<T>> }> = isGroupList(options) ? options : [{ options }];
+  const flat = groups.flatMap((group) => group.options);
+  const selectedIndex = flat.findIndex((option) => Object.is(option.value, value));
+  const selected = flat[selectedIndex];
+  const display = selected?.label ?? placeholder ?? (typeof value === 'string' ? value : '');
+  let cursor = 0;
 
   return (
-    <BaseSelect.Root
-      value={value}
-      disabled={disabled}
-      onValueChange={(next) => {
-        if (typeof next === 'string') onValueChange(next as T);
-      }}
-    >
-      <BaseSelect.Trigger aria-label={label} className={cn(triggerVariants({ size }), className)}>
-        <BaseSelect.Value className="flex-1 truncate text-left">{selected?.label ?? placeholder ?? value}</BaseSelect.Value>
-        <BaseSelect.Icon className="shrink-0 text-tertiary">
-          <ChevronDownIcon />
-        </BaseSelect.Icon>
-      </BaseSelect.Trigger>
-      <BaseSelect.Portal>
-        <BaseSelect.Positioner sideOffset={4} className="z-[60] outline-none">
-          <BaseSelect.Popup className="max-h-80 min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg">
-            {options.map((option) => (
-              <BaseSelect.Item key={option.value} value={option.value} disabled={option.disabled} className={itemStyles}>
-                <BaseSelect.ItemText className="flex-1 truncate">{option.label}</BaseSelect.ItemText>
-                <BaseSelect.ItemIndicator className="shrink-0">
-                  <CheckIcon />
-                </BaseSelect.ItemIndicator>
-              </BaseSelect.Item>
-            ))}
-          </BaseSelect.Popup>
-        </BaseSelect.Positioner>
-      </BaseSelect.Portal>
-    </BaseSelect.Root>
+    <Field label={label} labelPlacement={labelPlacement} htmlFor={ids.id} error={error} hint={hint} disabled={disabled} className={className}>
+      <BaseSelect.Root
+        value={selectedIndex >= 0 ? String(selectedIndex) : null}
+        disabled={disabled}
+        open={open}
+        onOpenChange={setOpen}
+        onValueChange={(next) => {
+          const option = typeof next === 'string' ? flat[Number(next)] : undefined;
+          if (option) onValueChange(option.value);
+        }}
+      >
+        <BaseSelect.Trigger
+          id={ids.id}
+          aria-label={label && labelPlacement !== 'hidden' ? undefined : label}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={ids.describedBy}
+          className={cn(triggerVariants({ size, invalid: Boolean(error) }), 'w-full')}
+        >
+          <BaseSelect.Value className="flex-1 truncate text-left">{display}</BaseSelect.Value>
+          <BaseSelect.Icon className="shrink-0 text-tertiary">
+            <ChevronDownIcon />
+          </BaseSelect.Icon>
+        </BaseSelect.Trigger>
+        <BaseSelect.Portal container={container}>
+          <BaseSelect.Positioner sideOffset={4} className="outline-none" style={{ zIndex }}>
+            <BaseSelect.Popup className="max-h-80 min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg">
+              {groups.map((group, groupIndex) => {
+                const items = group.options.map((option) => {
+                  const index = cursor++;
+                  return (
+                    <BaseSelect.Item key={index} value={String(index)} disabled={option.disabled} className={itemStyles}>
+                      <BaseSelect.ItemText className="flex-1 truncate">{option.label}</BaseSelect.ItemText>
+                      <BaseSelect.ItemIndicator className="shrink-0">
+                        <CheckIcon />
+                      </BaseSelect.ItemIndicator>
+                    </BaseSelect.Item>
+                  );
+                });
+                if (group.label === undefined) return items;
+                return (
+                  <BaseSelect.Group key={groupIndex}>
+                    <BaseSelect.GroupLabel className="px-2 py-1 label-xs text-tertiary">{group.label}</BaseSelect.GroupLabel>
+                    {items}
+                  </BaseSelect.Group>
+                );
+              })}
+            </BaseSelect.Popup>
+          </BaseSelect.Positioner>
+        </BaseSelect.Portal>
+      </BaseSelect.Root>
+    </Field>
   );
 }

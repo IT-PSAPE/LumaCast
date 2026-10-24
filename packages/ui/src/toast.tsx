@@ -1,8 +1,8 @@
-import { useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from './cn';
 import { cv } from './cv';
-import { OverlayStackContext, useOverlayContainer } from './overlay';
+import { useOverlayContainer, useToastZIndex } from './overlay';
 
 export type ToastTone = 'info' | 'success' | 'warning' | 'error';
 
@@ -296,7 +296,6 @@ const positionClass: Record<NonNullable<ToasterProps['position']>, string> = {
 export function Toaster({ position = 'bottom-right', max = 4, className }: ToasterProps): ReactElement {
   const list = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const container = useOverlayContainer();
-  const overlay = useContext(OverlayStackContext);
 
   useEffect(() => {
     mountedToasters += 1;
@@ -310,8 +309,8 @@ export function Toaster({ position = 'bottom-right', max = 4, className }: Toast
     commit(capEntries(entries));
   }, [max]);
 
-  // Above every open overlay: one step past the topmost overlay's z-index.
-  const zIndex = (overlay?.baseZIndex ?? 1) + ((overlay?.stack.length ?? 0) + 1) * 10;
+  // Above every open overlay (scale owned by overlay.tsx).
+  const zIndex = useToastZIndex();
 
   const region = (
     <section

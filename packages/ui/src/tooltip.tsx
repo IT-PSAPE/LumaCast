@@ -50,7 +50,7 @@ export function Tooltip({ content, side = 'top', align = 'center', delay, disabl
   const providerDelay = useContext(TooltipDelayContext);
   const container = useOverlayContainer();
   // Layers above whatever is open beneath it (a tooltip on a dialog button).
-  const { zIndex } = useOverlayStackEntry(open);
+  const { zIndex } = useOverlayStackEntry(open, 'tooltip');
 
   if (disabled || isEmptyContent(content)) return children;
 

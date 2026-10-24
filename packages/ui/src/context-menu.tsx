@@ -19,7 +19,7 @@ import {
 import { createPortal } from 'react-dom';
 import { Menu } from '@base-ui/react/menu';
 import { cn } from './cn';
-import { useOverlayContainer, useOverlayStackEntry } from './overlay';
+import { STATIC_OVERLAY_Z_INDEX, useOverlayContainer, useOverlayStackEntry } from './overlay';
 
 // Domain-agnostic menu primitives: a point-anchored context menu (opened from
 // a pointer event or a keyboard trigger, not a Base UI `Menu.Trigger`) plus the
@@ -36,7 +36,7 @@ const DEFAULT_VIEWPORT_PADDING = 8;
 // A submenu rendered with no `ContextMenu.Root` ancestor (e.g. inside a
 // Menubar's own `Menu.Root`) has no registered stack entry to inherit a
 // z-index from; this keeps it above ordinary page content in that case.
-const STANDALONE_PORTAL_Z_INDEX = 50;
+const STANDALONE_PORTAL_Z_INDEX = STATIC_OVERLAY_Z_INDEX.popup;
 
 export const SURFACE_CLASSES = cn(
   'pointer-events-auto min-w-30 max-w-64 max-h-80 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg outline-hidden',

@@ -8,7 +8,24 @@ import { createContext, useCallback, useContext, useEffect, useId, useMemo, useS
 // every surface (Cast, Stream, Cloud, Flux) can share one implementation.
 
 const DEFAULT_OVERLAY_ROOT_ID = 'overlay-root';
-const DEFAULT_BASE_Z_INDEX = 1;
+// The one z-index scale for every overlay in the package (JS owns it; no
+// component or stylesheet hardcodes its own). Each open overlay occupies a
+// slot of OVERLAY_SLOT_STEP: a modal backdrop sits at the slot base and its
+// popup at base + 1, so a later overlay's backdrop covers an earlier popup.
+// With a provider, slots follow open order (base + index * step), so whatever
+// opens later is above. Without one, a static ladder by layer applies.
+const DEFAULT_BASE_Z_INDEX = 50;
+const OVERLAY_SLOT_STEP = 10;
+export type OverlayLayer = 'modal' | 'popup' | 'tooltip';
+const STATIC_LAYER_SLOT: Record<OverlayLayer, number> = { modal: 0, popup: 1, tooltip: 2 };
+const STATIC_TOAST_SLOT = 3;
+
+/** Popup-level z-index of an overlay layer when no provider orders it (modal 51, popup 61, tooltip 71). */
+export const STATIC_OVERLAY_Z_INDEX: Record<OverlayLayer, number> = {
+  modal: DEFAULT_BASE_Z_INDEX + STATIC_LAYER_SLOT.modal * OVERLAY_SLOT_STEP + 1,
+  popup: DEFAULT_BASE_Z_INDEX + STATIC_LAYER_SLOT.popup * OVERLAY_SLOT_STEP + 1,
+  tooltip: DEFAULT_BASE_Z_INDEX + STATIC_LAYER_SLOT.tooltip * OVERLAY_SLOT_STEP + 1,
+};
 
 export interface OverlayStackValue {
   rootElement: HTMLElement | null;
@@ -96,10 +113,13 @@ export function useOverlayContainer(): HTMLElement | undefined {
  * `isTopmost` gates Escape, because separate Base UI roots (a picker and the
  * upload dialog it spawns) are siblings that only the stack can order. Without
  * a provider every overlay is its own stack of one: always topmost, always at
- * the default base z-index — correct for an app that never layers independent
+ * the static layer ladder — correct for an app that never layers independent
  * overlay roots over one another.
  */
-export function useOverlayStackEntry(isOpen: boolean): { isTopmost: boolean; zIndex: number } {
+export function useOverlayStackEntry(
+  isOpen: boolean,
+  layer: OverlayLayer = 'popup',
+): { isTopmost: boolean; zIndex: number; backdropZIndex: number } {
   const context = useContext(OverlayStackContext);
   const overlayId = useId();
   const register = context?.register;
@@ -112,12 +132,25 @@ export function useOverlayStackEntry(isOpen: boolean): { isTopmost: boolean; zIn
   }, [isOpen, overlayId, register, unregister]);
 
   if (!context) {
-    return { isTopmost: true, zIndex: DEFAULT_BASE_Z_INDEX };
+    const zIndex = STATIC_OVERLAY_Z_INDEX[layer];
+    return { isTopmost: true, zIndex, backdropZIndex: zIndex - 1 };
   }
 
   const index = context.stack.indexOf(overlayId);
+  // Before the registering effect has run, an open overlay is about to be
+  // appended, so slot it at the end rather than at the bottom.
+  const slot = index >= 0 ? index : isOpen ? context.stack.length : 0;
+  const zIndex = context.baseZIndex + slot * OVERLAY_SLOT_STEP + 1;
   return {
     isTopmost: index >= 0 && index === context.stack.length - 1,
-    zIndex: context.baseZIndex + Math.max(index, 0) * 10,
+    zIndex,
+    backdropZIndex: zIndex - 1,
   };
+}
+
+/** Z-index for the toast region: above every open overlay, and above the static ladder without a provider. */
+export function useToastZIndex(): number {
+  const context = useContext(OverlayStackContext);
+  if (!context) return DEFAULT_BASE_Z_INDEX + STATIC_TOAST_SLOT * OVERLAY_SLOT_STEP + 1;
+  return context.baseZIndex + context.stack.length * OVERLAY_SLOT_STEP + 1;
 }
