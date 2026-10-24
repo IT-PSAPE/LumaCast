@@ -13,7 +13,8 @@ export interface AudioMeterProps {
   label?: string;
 }
 
-const TICK_VALUES_DB = [-60, -40, -20, -9, 0] as const;
+const HORIZONTAL_TICK_VALUES_DB = [-60, -55, -50, -45, -40, -35, -30, -25, -20, -15, -10, -5, 0] as const;
+const VERTICAL_TICK_VALUES_DB = [-60, -54, -48, -42, -36, -30, -24, -18, -12, -6, 0] as const;
 
 function formatTickLabel(value: number): string {
   return value === 0 ? '0' : `−${Math.abs(value)}`;
@@ -36,6 +37,7 @@ export function AudioMeter({ levelDb, peakDb, orientation = 'horizontal', ticks 
   const peakPercent = dbToFraction(clampedPeak) * 100;
   const sizeProperty: 'width' | 'height' = orientation === 'horizontal' ? 'width' : 'height';
   const positionProperty: 'left' | 'bottom' = orientation === 'horizontal' ? 'left' : 'bottom';
+  const tickValues = orientation === 'horizontal' ? HORIZONTAL_TICK_VALUES_DB : VERTICAL_TICK_VALUES_DB;
 
   return (
     <div className={`audio-meter audio-meter--${orientation}`}>
@@ -64,7 +66,7 @@ export function AudioMeter({ levelDb, peakDb, orientation = 'horizontal', ticks 
       </div>
       {ticks && (
         <div className="audio-meter-ticks" aria-hidden="true">
-          {TICK_VALUES_DB.map((value) => (
+          {tickValues.map((value) => (
             <span
               key={value}
               className="audio-meter-tick"

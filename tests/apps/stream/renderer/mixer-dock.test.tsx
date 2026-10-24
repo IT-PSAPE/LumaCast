@@ -152,7 +152,7 @@ describe('MixerDock', () => {
 
     fireEvent.click(screen.getByText('Monitoring'));
     await settle();
-    const monitorOnly = screen.getByText('Monitor Only').closest('[role="menuitem"]') as HTMLElement;
+    const monitorOnly = screen.getByRole('menuitemcheckbox', { name: 'Monitor Only', checked: true });
     expect(monitorOnly.querySelector('svg')).not.toBeNull();
   });
 

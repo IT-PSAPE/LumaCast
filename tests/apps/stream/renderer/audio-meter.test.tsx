@@ -72,6 +72,13 @@ describe('AudioMeter', () => {
 
     rerender(<AudioMeter levelDb={-20} peakDb={-20} ticks />);
     const ticks = container.querySelectorAll('.audio-meter-tick');
-    expect(Array.from(ticks).map((tick) => tick.textContent)).toEqual(['−60', '−40', '−20', '−9', '0']);
+    expect(Array.from(ticks).map((tick) => tick.textContent)).toEqual([
+      '−60', '−55', '−50', '−45', '−40', '−35', '−30', '−25', '−20', '−15', '−10', '−5', '0',
+    ]);
+
+    rerender(<AudioMeter levelDb={-20} peakDb={-20} orientation="vertical" ticks />);
+    expect(Array.from(container.querySelectorAll('.audio-meter-tick')).map((tick) => tick.textContent)).toEqual([
+      '−60', '−54', '−48', '−42', '−36', '−30', '−24', '−18', '−12', '−6', '0',
+    ]);
   });
 });

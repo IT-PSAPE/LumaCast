@@ -16,6 +16,13 @@
   overflow-y: hidden;
 }
 
+.mixer-strips--horizontal {
+  flex-direction: column;
+  align-items: stretch;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .mixer-strip {
   flex: 0 0 auto;
   display: flex;
@@ -28,13 +35,16 @@
 }
 
 .mixer-strip--horizontal {
-  width: 152px;
-  min-width: 125px;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 8px 10px;
 }
 
 .mixer-strip--vertical {
-  width: 64px;
-  min-width: 56px;
+  width: 86px;
+  min-width: 78px;
   align-items: center;
 }
 
@@ -57,7 +67,11 @@
   white-space: nowrap;
 }
 
-.mixer-strip--vertical .mixer-strip-name { flex: none; width: 100%; text-align: center; }
+.mixer-strip--horizontal .mixer-strip-head { width: 100%; }
+.mixer-strip--horizontal .mixer-strip-db { flex: 0 0 auto; margin-left: auto; color: var(--muted-2); }
+.mixer-strip--vertical .mixer-strip-head { width: 100%; gap: 4px; }
+.mixer-strip--vertical .mixer-strip-name { font-size: 8px; }
+.mixer-strip--vertical .mixer-strip-db { align-self: flex-start; }
 
 .mixer-mute, .mixer-gear {
   flex: 0 0 auto;
@@ -75,6 +89,10 @@
 
 .mixer-strip-controls { display: flex; gap: 4px; }
 
+.mixer-strip-fader-row { width: 100%; min-width: 0; display: flex; align-items: center; gap: 5px; }
+.mixer-strip-fader-row .mixer-fader { width: auto; min-width: 0; flex: 1; }
+.mixer-strip-volume { flex: 0 0 auto; color: var(--muted); font: 8px 'Segoe UI', sans-serif; text-align: right; }
+
 input.mixer-fader {
   width: 100%;
   margin: 0;
@@ -86,7 +104,7 @@ input.mixer-fader {
   align-items: stretch;
   justify-content: center;
   gap: 6px;
-  height: 150px;
+  height: 110px;
 }
 
 /* Rotates a standard horizontal range into a vertical fader. `direction: rtl`
@@ -101,14 +119,7 @@ input.mixer-fader--vertical {
 
 .mixer-strip-db { color: var(--muted); font: 9px 'Segoe UI', sans-serif; }
 
-.mixer-strip-readout {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font: 8px 'Segoe UI', sans-serif;
-}
-
 @media (max-width: 1100px) {
   .mixer-strips { gap: 5px; }
-  .mixer-strip--horizontal { min-width: 112px; padding: 7px; }
+  .mixer-strip--horizontal { gap: 5px; padding: 7px; }
 }

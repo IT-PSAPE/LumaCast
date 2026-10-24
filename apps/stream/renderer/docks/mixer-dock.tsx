@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { AudioLines, Settings2, Volume2, VolumeX, X } from 'lucide-react';
+import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX, X } from 'lucide-react';
 import { PointContextMenu, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { sourceIcon } from '../source-ui';
 import { AudioMeter } from '../audio-meter';
@@ -176,7 +176,7 @@ export function MixerDock({
         <span>Audio Mixer</span>
         <div className="dock-actions">
           <button ref={titleMenuButtonRef} className="mini-icon" aria-label="Audio Mixer options" onClick={openTitleMenu}>
-            <Settings2 size={14} />
+            <MoreHorizontal size={16} />
           </button>
           <button className="mini-icon" aria-label="Hide Audio Mixer" onClick={onHide}><X size={14} /></button>
         </div>
@@ -210,6 +210,11 @@ export function MixerDock({
           if (layout === 'vertical') {
             return (
               <div className="mixer-strip mixer-strip--vertical" key={source.id}>
+                <div className="mixer-strip-head">
+                  <span className="mixer-strip-icon">{sourceIcon(source.kind, source.mediaKind)}</span>
+                  <span className="mixer-strip-name" title={source.name}>{source.name}</span>
+                </div>
+                <span className="mixer-strip-db">{dbLabel}</span>
                 <div className="mixer-strip-visual">
                   <AudioMeter orientation="vertical" levelDb={levelDb} peakDb={peak.peakDb} ticks label={`${source.name} level`} />
                   <input
@@ -222,8 +227,6 @@ export function MixerDock({
                     onChange={onVolumeChange}
                   />
                 </div>
-                <span className="mixer-strip-db">{dbLabel}</span>
-                <span className="mixer-strip-name" title={source.name}>{source.name}</span>
                 <div className="mixer-strip-controls">{muteButton}{gearButton}</div>
               </div>
             );
@@ -234,20 +237,23 @@ export function MixerDock({
               <div className="mixer-strip-head">
                 <span className="mixer-strip-icon">{sourceIcon(source.kind, source.mediaKind)}</span>
                 <span className="mixer-strip-name" title={source.name}>{source.name}</span>
+                <span className="mixer-strip-db">{dbLabel}</span>
+              </div>
+              <AudioMeter orientation="horizontal" levelDb={levelDb} peakDb={peak.peakDb} ticks label={`${source.name} level`} />
+              <div className="mixer-strip-fader-row">
+                <input
+                  className="mixer-fader"
+                  aria-label={`${source.name} volume`}
+                  type="range"
+                  min="0"
+                  max="200"
+                  value={displayedVolume}
+                  onChange={onVolumeChange}
+                />
+                <span className="mixer-strip-volume">{displayedVolume}%</span>
                 {muteButton}
                 {gearButton}
               </div>
-              <AudioMeter orientation="horizontal" levelDb={levelDb} peakDb={peak.peakDb} ticks label={`${source.name} level`} />
-              <input
-                className="mixer-fader"
-                aria-label={`${source.name} volume`}
-                type="range"
-                min="0"
-                max="200"
-                value={displayedVolume}
-                onChange={onVolumeChange}
-              />
-              <div className="mixer-strip-readout"><span>{dbLabel}</span><span>{displayedVolume}%</span></div>
             </div>
           );
         })}</div>}
