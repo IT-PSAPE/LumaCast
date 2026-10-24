@@ -13,7 +13,7 @@ import {
 import type { Photo, Recipe } from "@lumacast/photo-model";
 import { neutralRecipe } from "@lumacast/photo-model";
 import { LatestPreview } from "./latest-preview";
-import { Btn } from "./ui";
+import { ReacstButton } from "@lumacast/ui";
 import {
   histogram,
   clippingPixels,
@@ -311,69 +311,76 @@ export function Viewer({
     <div className="viewer">
       <div className="viewer-tools">
         <div className="toolbar-group" aria-label="Edit history">
-          <Btn
+          <ReacstButton.Icon
+            size="sm"
             title="Undo (⌘Z)"
             aria-label="Undo"
             disabled={!photo.history.length || busy}
             onClick={() => onAction("undo")}
           >
             <Undo2 size={14} />
-          </Btn>
-          <Btn
+          </ReacstButton.Icon>
+          <ReacstButton.Icon
+            size="sm"
             title="Redo (⇧⌘Z)"
             aria-label="Redo"
             disabled={!photo.future.length || busy}
             onClick={() => onAction("redo")}
           >
             <Redo2 size={14} />
-          </Btn>
-          <Btn
+          </ReacstButton.Icon>
+          <ReacstButton.Icon
+            size="sm"
             title="Reset edits"
             aria-label="Reset edits"
             disabled={busy}
             onClick={() => onAction("reset_edits")}
           >
             <RefreshCcw size={14} />
-          </Btn>
+          </ReacstButton.Icon>
         </div>
-        <Btn
+        <ReacstButton.Icon
+          size="sm"
           aria-label="Previous photo"
           disabled={!canPrevious}
           onClick={previous}
         >
           <ChevronLeft size={14} />
-        </Btn>
-        <Btn aria-label="Next photo" disabled={!canNext} onClick={next}>
+        </ReacstButton.Icon>
+        <ReacstButton.Icon size="sm" aria-label="Next photo" disabled={!canNext} onClick={next}>
           <ChevronRight size={14} />
-        </Btn>
+        </ReacstButton.Icon>
         <span className="spacer" />
-        <Btn
-          aria-pressed={compare}
-          className={compare ? "active" : ""}
+        <ReacstButton
+          size="sm"
+          pressed={compare}
           onClick={() => {
             setCompare(!compare);
             fit();
           }}
         >
-          <Columns2 size={14} />
+          <Columns2 size={13} />
           Compare
-        </Btn>
-        <Btn
+        </ReacstButton>
+        <ReacstButton.Icon
+          size="sm"
           aria-label="Zoom out"
           disabled={composition || compare}
           onClick={() => setZoom((z) => Math.max(0.25, z / 1.25))}
         >
           <ZoomOut size={14} />
-        </Btn>
+        </ReacstButton.Icon>
         <span className="zoom-label">{Math.round(zoom * 100)}%</span>
-        <Btn
+        <ReacstButton.Icon
+          size="sm"
           aria-label="Zoom in"
           disabled={composition || compare}
           onClick={() => setZoom((z) => Math.min(8, z * 1.25))}
         >
           <ZoomIn size={14} />
-        </Btn>
-        <Btn
+        </ReacstButton.Icon>
+        <ReacstButton
+          size="sm"
           disabled={composition || compare}
           onClick={() => {
             pixelFit.current = true;
@@ -388,11 +395,11 @@ export function Viewer({
           }}
         >
           1:1
-        </Btn>
-        <Btn onClick={fit}>
-          <Maximize size={14} />
+        </ReacstButton>
+        <ReacstButton size="sm" onClick={fit}>
+          <Maximize size={13} />
           Fit
-        </Btn>
+        </ReacstButton>
       </div>
       <div
         className={`canvas ${composition && !compare ? "cropping" : ""} ${compare ? "comparing" : ""}`}

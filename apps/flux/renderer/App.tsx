@@ -11,9 +11,6 @@ import {
   SlidersHorizontal,
   Bot,
   Star,
-  ChevronLeft,
-  ChevronRight,
-  X,
   Check,
   Link,
   ArrowDownToLine,
@@ -21,10 +18,18 @@ import {
 import type { AppState, Photo, Recipe } from "@lumacast/photo-model";
 import type { DesktopAPI } from "../shared/desktop-api";
 import { adjustmentControls } from "@lumacast/photo-model";
-import { Btn } from "./ui";
+import {
+  Banner,
+  EmptyState,
+  PanelResize,
+  ReacstButton,
+  SegmentedControl,
+  Select,
+  Slider,
+  TextField,
+} from "@lumacast/ui";
 import type { HistogramData, PixelReadout } from "./histogram-data";
 import { Adjustments } from "./Adjustments";
-import { PanelResize } from "./PanelResize";
 import { FolderBrowser } from "./FolderBrowser";
 import { Viewer } from "./Viewer";
 import { AgentDialog, ExportDialog } from "./Dialogs";
@@ -337,40 +342,45 @@ export function App() {
           <strong>Lumaflux</strong>
           <span>Photo studio</span>
         </div>
-        <div className="view-switch">
-          <Btn
-            className={view === "gallery" ? "active" : ""}
-            onClick={() => setView("gallery")}
-          >
-            <Grid2X2 size={15} />
-            Library
-          </Btn>
-          <Btn
-            className={view === "editor" ? "active" : ""}
-            disabled={!photo}
-            onClick={() => {
+        <SegmentedControl
+          label="View"
+          value={view}
+          onValueChange={(next) => {
+            if (next === "gallery") setView("gallery");
+            else if (next === "editor") {
               setView("editor");
               if (section === "jobs") setSection("all");
-            }}
+            }
+          }}
+        >
+          <SegmentedControl.Label value="gallery" className="gap-1.5">
+            <Grid2X2 size={13} />
+            Library
+          </SegmentedControl.Label>
+          <SegmentedControl.Label
+            value="editor"
+            className="gap-1.5"
+            disabled={!photo}
           >
-            <ImageIcon size={15} />
+            <ImageIcon size={13} />
             Edit
-          </Btn>
-        </div>
+          </SegmentedControl.Label>
+        </SegmentedControl>
         <div className="header-actions">
-          <Btn onClick={() => setAgentOpen(true)}>
-            <Bot size={16} />
+          <ReacstButton size="sm" onClick={() => setAgentOpen(true)}>
+            <Bot size={13} />
             Agents
-          </Btn>
-          <Btn
-            className="primary"
+          </ReacstButton>
+          <ReacstButton
+            size="sm"
+            variant="primary"
             disabled={!state.selection.length}
             onClick={() => setExportOpen(true)}
           >
-            <Download size={15} />
+            <Download size={13} />
             Export
             {state.selection.length > 0 ? ` (${state.selection.length})` : ""}
-          </Btn>
+          </ReacstButton>
         </div>
       </header>
       <div className="workspace">
@@ -378,55 +388,75 @@ export function App() {
           <>
             <aside className="navigation panel" style={{ width: leftWidth }}>
               <h2>Library</h2>
-              <button
-                className={`nav-item ${section === "all" ? "selected" : ""}`}
+              <ReacstButton
+                variant="ghost"
+                align="start"
+                fullWidth
+                active={section === "all"}
+                aria-current={section === "all" ? "page" : undefined}
+                className="[&>svg]:shrink-0"
                 onClick={() => {
                   setSection("all");
                   setView("gallery");
                 }}
               >
-                <Images size={16} />
-                All photos<span>{state.photos.length}</span>
-              </button>
-              <button
-                className={`nav-item ${section === "favorites" ? "selected" : ""}`}
+                <Images size={13} />
+                All photos<span className="ml-auto text-tertiary">{state.photos.length}</span>
+              </ReacstButton>
+              <ReacstButton
+                variant="ghost"
+                align="start"
+                fullWidth
+                active={section === "favorites"}
+                aria-current={section === "favorites" ? "page" : undefined}
+                className="[&>svg]:shrink-0"
                 onClick={() => {
                   setSection("favorites");
                   setView("gallery");
                 }}
               >
-                <Heart size={16} />
+                <Heart size={13} />
                 Favorites
-                <span>{state.photos.filter((p) => p.favorite).length}</span>
-              </button>
-              <button
-                className={`nav-item ${section === "jobs" ? "selected" : ""}`}
+                <span className="ml-auto text-tertiary">{state.photos.filter((p) => p.favorite).length}</span>
+              </ReacstButton>
+              <ReacstButton
+                variant="ghost"
+                align="start"
+                fullWidth
+                active={section === "jobs"}
+                aria-current={section === "jobs" ? "page" : undefined}
+                className="[&>svg]:shrink-0"
                 onClick={() => {
                   setSection("jobs");
                   setView("gallery");
                 }}
               >
-                <ArrowDownToLine size={16} />
-                Exports<span>{state.jobs.length}</span>
-              </button>
+                <ArrowDownToLine size={13} />
+                Exports<span className="ml-auto text-tertiary">{state.jobs.length}</span>
+              </ReacstButton>
               <h2>Folders</h2>
               <div className="folder-list">
                 {folders.length ? (
                   folders.map((folder) => (
-                    <button
+                    <ReacstButton
                       title={folder}
-                      className={`nav-item ${section === folder ? "selected" : ""}`}
+                      variant="ghost"
+                      align="start"
+                      fullWidth
+                      active={section === folder}
+                      aria-current={section === folder ? "page" : undefined}
+                      className="min-w-0"
                       key={folder}
                       onClick={() => {
                         setSection(folder);
                         setView("gallery");
                       }}
                     >
-                      <FolderOpen size={15} />
-                      <span className="folder-name">
+                      <FolderOpen size={13} className="shrink-0" />
+                      <span className="truncate">
                         {folder.split(/[\\/]/).pop()}
                       </span>
-                    </button>
+                    </ReacstButton>
                   ))
                 ) : (
                   <p className="muted small">Imported folders appear here.</p>
@@ -434,26 +464,28 @@ export function App() {
               </div>
               <FolderBrowser onImport={importPaths} onError={setNotice} />
               <div className="import-actions">
-                <Btn
-                  className="wide"
+                <ReacstButton
+                  size="sm"
+                  fullWidth
                   disabled={busy}
                   onClick={() =>
                     safe(async () => importPaths(await api.chooseImport()))
                   }
                 >
-                  <Plus size={16} />
+                  <Plus size={13} />
                   Import photos
-                </Btn>
-                <Btn
-                  className="wide quiet"
+                </ReacstButton>
+                <ReacstButton
+                  size="sm"
+                  fullWidth variant="ghost"
                   disabled={busy}
                   onClick={() =>
                     safe(async () => importPaths(await api.chooseImport(true)))
                   }
                 >
-                  <FolderOpen size={15} />
+                  <FolderOpen size={13} />
                   Import folder
-                </Btn>
+                </ReacstButton>
               </div>
             </aside>
             <PanelResize
@@ -486,13 +518,14 @@ export function App() {
                     </span>
                     <span className="spacer" />
                     {["queued", "running"].includes(job.status) && (
-                      <Btn
+                      <ReacstButton
+                        size="sm"
                         onClick={() =>
                           safe(() => run("cancel_export_job", { id: job.id }))
                         }
                       >
                         Cancel
-                      </Btn>
+                      </ReacstButton>
                     )}
                   </div>
                   <progress max={job.total} value={job.done} />
@@ -533,57 +566,45 @@ export function App() {
                     </span>
                   </div>
                   <span className="spacer" />
-                  {view === "gallery" ? (
-                    <>
-                      <div className="search">
-                        <Search size={15} />
-                        <input
-                          aria-label="Search photos"
-                          placeholder="Search photos"
-                          value={query}
-                          onChange={(e) => setQuery(e.target.value)}
-                        />
-                      </div>
-                      <select
-                        aria-label="Sort photos"
-                        value={sort}
-                        onChange={(e) => setSort(e.target.value)}
-                      >
-                        <option value="name">Name</option>
-                        <option value="date">Newest</option>
-                        <option value="rating">Rating</option>
-                      </select>
-                      <select
-                        aria-label="Minimum rating"
-                        value={minRating}
-                        onChange={(e) => setMinRating(Number(e.target.value))}
-                      >
-                        <option value={0}>All ratings</option>
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <option key={n} value={n}>
-                            {n}+ stars
-                          </option>
-                        ))}
-                      </select>
-                    </>
-                  ) : (
-                    <>
-                      <Btn
-                        aria-label="Previous photo"
-                        disabled={activeIndex <= 0}
-                        onClick={() => navigate(-1)}
-                      >
-                        <ChevronLeft size={16} />
-                      </Btn>
-                      <Btn
-                        aria-label="Next photo"
-                        disabled={activeIndex >= photos.length - 1}
-                        onClick={() => navigate(1)}
-                      >
-                        <ChevronRight size={16} />
-                      </Btn>
-                    </>
-                  )}
+                  <TextField
+                    className="w-40 max-[1200px]:w-28"
+                    size="sm"
+                    type="search"
+                    icon={<Search size={13} />}
+                    label="Search photos"
+                    labelPlacement="hidden"
+                    placeholder="Search photos"
+                    value={query}
+                    onValueChange={setQuery}
+                  />
+                  <Select
+                    className="w-28 max-[1200px]:w-24"
+                    size="sm"
+                    label="Sort photos"
+                    labelPlacement="hidden"
+                    value={sort}
+                    onValueChange={setSort}
+                    options={[
+                      { value: "name", label: "Name" },
+                      { value: "date", label: "Newest" },
+                      { value: "rating", label: "Rating" },
+                    ]}
+                  />
+                  <Select
+                    className="w-28 max-[1200px]:w-24"
+                    size="sm"
+                    label="Minimum rating"
+                    labelPlacement="hidden"
+                    value={minRating}
+                    onValueChange={setMinRating}
+                    options={[
+                      { value: 0, label: "All ratings" },
+                      ...[1, 2, 3, 4, 5].map((n) => ({
+                        value: n,
+                        label: `${n}+ stars`,
+                      })),
+                    ]}
+                  />
                 </div>
               )}
               {view === "editor" && photo && recipe ? (
@@ -612,7 +633,8 @@ export function App() {
                     onError={setNotice}
                   />
                   {photo.missing && (
-                    <Btn
+                    <ReacstButton
+                      size="sm"
                       onClick={() =>
                         safe(async () => {
                           const p = await api.chooseRelink();
@@ -620,9 +642,9 @@ export function App() {
                         })
                       }
                     >
-                      <Link size={15} />
+                      <Link size={13} />
                       Relink original
-                    </Btn>
+                    </ReacstButton>
                   )}
                   <div className="filmstrip">
                     {photos.map((p) => (
@@ -729,8 +751,9 @@ export function App() {
                     ))}
                   </div>
                   <div className="gallery-footer">
-                    <Btn
-                      className="quiet"
+                    <ReacstButton
+                      size="sm"
+                      variant="ghost"
                       onClick={() =>
                         safe(() =>
                           run("set_selection", {
@@ -740,57 +763,66 @@ export function App() {
                       }
                     >
                       Select all
-                    </Btn>
-                    <Btn
-                      className="quiet"
+                    </ReacstButton>
+                    <ReacstButton
+                      size="sm"
+                      variant="ghost"
                       disabled={!state.selection.length}
                       onClick={() =>
                         safe(() => run("set_selection", { ids: [] }))
                       }
                     >
                       Clear selection
-                    </Btn>
+                    </ReacstButton>
                     <span className="spacer" />
-                    <label>
-                      Thumbnail size
-                      <input
-                        aria-label="Thumbnail size"
-                        type="range"
-                        min={140}
-                        max={280}
-                        value={thumbSize}
-                        onChange={(e) => setThumbSize(Number(e.target.value))}
-                      />
-                    </label>
+                    <Slider
+                      className="w-40"
+                      size="sm"
+                      label="Thumbnail size"
+                      labelPlacement="inline"
+                      min={140}
+                      max={280}
+                      value={thumbSize}
+                      onValueChange={setThumbSize}
+                    />
                   </div>
                 </>
               ) : (
-                <div className="empty-state">
-                  <Images size={42} strokeWidth={1} />
-                  <h2>
+                <EmptyState.Root className="p-9">
+                  <EmptyState.Icon>
+                    <Images size={42} strokeWidth={1} />
+                  </EmptyState.Icon>
+                  <EmptyState.Title className="max-w-none text-sm text-primary">
                     {state.photos.length
                       ? "No matching photos"
                       : "A little room for your photos."}
-                  </h2>
-                  <p>
+                  </EmptyState.Title>
+                  <EmptyState.Description className="max-w-none">
                     {state.photos.length
                       ? "Try another search or folder."
                       : "Import photos or drop a folder here to start editing."}
-                  </p>
+                  </EmptyState.Description>
                   {!state.photos.length && (
-                    <Btn
-                      className="primary"
-                      disabled={busy}
-                      onClick={() =>
-                        safe(async () => importPaths(await api.chooseImport()))
-                      }
-                    >
-                      <Plus size={16} />
-                      Import photos
-                    </Btn>
+                    <EmptyState.Action className="my-2">
+                      <ReacstButton
+                        size="sm"
+                        variant="primary"
+                        disabled={busy}
+                        onClick={() =>
+                          safe(async () =>
+                            importPaths(await api.chooseImport()),
+                          )
+                        }
+                      >
+                        <Plus size={13} />
+                        Import photos
+                      </ReacstButton>
+                    </EmptyState.Action>
                   )}
-                  <span>JPEG · PNG · WebP · TIFF · RAW</span>
-                </div>
+                  <span className="muted small">
+                    JPEG · PNG · WebP · TIFF · RAW
+                  </span>
+                </EmptyState.Root>
               )}
             </>
           )}
@@ -848,11 +880,12 @@ export function App() {
         </span>
       </footer>
       {notice && (
-        <div className="notice" role="status">
-          <p>{notice}</p>
-          <Btn aria-label="Dismiss notification" onClick={() => setNotice("")}>
-            <X size={16} />
-          </Btn>
+        <div className="pointer-events-none fixed bottom-10 left-[230px] z-20 w-[min(650px,60vw)] [&_button]:pointer-events-auto">
+          <Banner onDismiss={() => setNotice("")}>
+            <p className="max-h-44 overflow-auto whitespace-pre-wrap">
+              {notice}
+            </p>
+          </Banner>
         </div>
       )}
       <ExportDialog

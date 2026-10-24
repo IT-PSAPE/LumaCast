@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 import { FolderOpen, Plus, Trash2, Copy, Check } from "lucide-react";
 import type { AgentSettings, ExportOptions } from "@lumacast/photo-model";
 import type { DesktopAPI } from "../shared/desktop-api";
-import { Btn, Modal } from "./ui";
+import {
+  Checkbox,
+  Modal,
+  NumberField,
+  ReacstButton,
+  Select,
+  TextField,
+} from "@lumacast/ui";
 export function ExportDialog({
   open,
   onClose,
@@ -29,83 +36,100 @@ export function ExportDialog({
       open={open}
       onClose={onClose}
       title={`Export ${count} photo${count === 1 ? "" : "s"}`}
+      className="w-[min(520px,95vw)]"
+      footer={
+        <>
+          <ReacstButton size="sm" onClick={onClose}>
+            Cancel
+          </ReacstButton>
+          <ReacstButton
+            size="sm"
+            variant="primary"
+            disabled={!directory || !count || busy}
+            onClick={async () => {
+              setBusy(true);
+              setError("");
+              try {
+                await onExport({
+                  directory,
+                  format,
+                  quality,
+                  maxDimension: resize ? size : undefined,
+                  suffix,
+                });
+                onClose();
+              } catch (e) {
+                setError((e as Error).message);
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy ? "Starting…" : "Export photos"}
+          </ReacstButton>
+        </>
+      }
     >
-      <p className="muted">
-        Create edited copies. Your originals stay untouched.
-      </p>
-      <div className="form">
-        <label>
-          Destination
-          <div className="inline">
-            <input
-              aria-label="Export destination"
-              value={directory}
-              onChange={(e) => setDirectory(e.target.value)}
-              placeholder="Choose a folder"
-            />
-            <Btn
-              aria-label="Choose export folder"
-              onClick={async () => {
-                const p = await api.chooseDirectory();
-                if (p) setDirectory(p);
-              }}
-            >
-              <FolderOpen size={16} />
-            </Btn>
-          </div>
-        </label>
-        <div className="form-columns">
-          <label>
-            Format
-            <select
-              value={format}
-              onChange={(e) => setFormat(e.target.value as typeof format)}
-            >
-              <option value="jpeg">JPEG</option>
-              <option value="png">PNG</option>
-              <option value="webp">WebP</option>
-            </select>
-          </label>
-          <label>
-            Quality
-            <input
-              aria-label="Export quality"
-              type="number"
-              min={1}
-              max={100}
-              disabled={format === "png"}
-              value={quality}
-              onChange={(e) => setQuality(Number(e.target.value))}
-            />
-          </label>
+      <div className="flex min-h-0 flex-col gap-4 overflow-auto p-4">
+        <p className="muted">
+          Create edited copies. Your originals stay untouched.
+        </p>
+        <div className="flex items-end gap-2">
+          <TextField
+            className="flex-1"
+            label="Destination"
+            placeholder="Choose a folder"
+            value={directory}
+            onValueChange={setDirectory}
+          />
+          <ReacstButton.Icon
+            aria-label="Choose export folder"
+            onClick={async () => {
+              const p = await api.chooseDirectory();
+              if (p) setDirectory(p);
+            }}
+          >
+            <FolderOpen size={16} />
+          </ReacstButton.Icon>
         </div>
-        <label>
-          Filename suffix
-          <input
-            aria-label="Filename suffix"
-            value={suffix}
-            onChange={(e) => setSuffix(e.target.value)}
+        <div className="grid grid-cols-2 gap-4">
+          <Select
+            label="Format"
+            value={format}
+            onValueChange={setFormat}
+            options={[
+              { value: "jpeg", label: "JPEG" },
+              { value: "png", label: "PNG" },
+              { value: "webp", label: "WebP" },
+            ]}
           />
-        </label>
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={resize}
-            onChange={(e) => setResize(e.target.checked)}
+          <NumberField
+            label="Quality"
+            min={1}
+            max={100}
+            disabled={format === "png"}
+            value={quality}
+            onValueChange={setQuality}
           />
-          Resize to maximum dimension
-        </label>
+        </div>
+        <TextField
+          label="Filename suffix"
+          value={suffix}
+          onValueChange={setSuffix}
+        />
+        <Checkbox
+          label="Resize to maximum dimension"
+          checked={resize}
+          onCheckedChange={setResize}
+        />
         {resize && (
-          <label>
-            Longest edge (pixels)
-            <input
-              type="number"
-              min={16}
-              max={20000}
-              value={size}
-              onChange={(e) => setSize(Number(e.target.value))}
-            />
-          </label>
+          <NumberField
+            label="Longest edge (pixels)"
+            min={16}
+            max={20000}
+            value={size}
+            onValueChange={setSize}
+          />
         )}
         <p className="muted small">
           sRGB output · Location metadata removed · Existing filenames get a
@@ -116,33 +140,6 @@ export function ExportDialog({
             {error}
           </p>
         )}
-      </div>
-      <div className="modal-actions">
-        <Btn onClick={onClose}>Cancel</Btn>
-        <Btn
-          className="primary"
-          disabled={!directory || !count || busy}
-          onClick={async () => {
-            setBusy(true);
-            setError("");
-            try {
-              await onExport({
-                directory,
-                format,
-                quality,
-                maxDimension: resize ? size : undefined,
-                suffix,
-              });
-              onClose();
-            } catch (e) {
-              setError((e as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          {busy ? "Starting…" : "Export photos"}
-        </Btn>
       </div>
     </Modal>
   );
@@ -182,7 +179,13 @@ export function AgentDialog({
     }
   };
   return (
-    <Modal open={open} onClose={onClose} title="Local agent access">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Local agent access"
+      className="w-[min(520px,95vw)]"
+    >
+      <div className="min-h-0 overflow-auto p-4">
       <p className="muted">
         Connect MCP-compatible agents to your library. Edits appear here, with
         the same undo history as manual changes.
@@ -207,17 +210,19 @@ export function AgentDialog({
             {settings.roots.map((root) => (
               <div key={root}>
                 <span>{root}</span>
-                <Btn
+                <ReacstButton.Icon
+                  size="sm"
                   aria-label={`Remove ${root}`}
                   disabled={busy}
                   onClick={() => save(settings.roots.filter((r) => r !== root))}
                 >
                   <Trash2 size={14} />
-                </Btn>
+                </ReacstButton.Icon>
               </div>
             ))}
           </div>
-          <Btn
+          <ReacstButton
+            size="sm"
             disabled={busy}
             onClick={async () => {
               const p = await api.chooseDirectory();
@@ -225,16 +230,17 @@ export function AgentDialog({
                 await save([...settings.roots, p]);
             }}
           >
-            <Plus size={14} />
+            <Plus size={13} />
             Add folder
-          </Btn>
+          </ReacstButton>
           <h3>Client configuration</h3>
           <p className="muted small">
             Requires Node.js. Keep Lumaflux running. Add this to your agent’s
             MCP configuration.
           </p>
           <pre className="config">{settings.clientConfig}</pre>
-          <Btn
+          <ReacstButton
+            size="sm"
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(settings.clientConfig);
@@ -246,9 +252,9 @@ export function AgentDialog({
               }
             }}
           >
-            {copied ? <Check size={14} /> : <Copy size={14} />}Copy
+            {copied ? <Check size={13} /> : <Copy size={13} />}Copy
             configuration
-          </Btn>
+          </ReacstButton>
           {settings.endpoint && (
             <p className="muted small">
               Connected endpoint: {settings.endpoint}
@@ -261,6 +267,7 @@ export function AgentDialog({
           {error}
         </p>
       )}
+      </div>
     </Modal>
   );
 }

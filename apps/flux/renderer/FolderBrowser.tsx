@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FolderOpen, ChevronUp, FileImage } from "lucide-react";
-import { Btn } from "./ui";
+import { ReacstButton } from "@lumacast/ui";
 type Listing = {
   path: string;
   parent: string;
@@ -32,60 +32,68 @@ export function FolderBrowser({
   }
   return (
     <div className="folder-explorer">
-      <Btn disabled={loading} onClick={() => void browse()}>
-        <FolderOpen size={14} />
+      <ReacstButton size="sm" disabled={loading} onClick={() => void browse()}>
+        <FolderOpen size={13} />
         Explore folders
-      </Btn>
+      </ReacstButton>
       {listing && (
         <>
           <div className="folder-path" title={listing.path}>
-            <Btn
+            <ReacstButton.Icon
+              size="sm"
               aria-label="Parent folder"
               disabled={listing.parent === listing.path || loading}
               onClick={() => void browse(listing.parent)}
             >
               <ChevronUp size={14} />
-            </Btn>
+            </ReacstButton.Icon>
             <span>{listing.path}</span>
           </div>
           <div className="directory-entries">
             {listing.folders.map((f) => (
-              <button
-                className="nav-item"
+              <ReacstButton
+                variant="ghost"
+                align="start"
+                fullWidth
+                className="min-w-0"
                 key={f.path}
                 disabled={loading}
                 onClick={() => void browse(f.path)}
               >
-                <FolderOpen size={13} />
-                {f.name}
-              </button>
+                <FolderOpen size={13} className="shrink-0" />
+                <span className="truncate">{f.name}</span>
+              </ReacstButton>
             ))}
             {listing.files.map((f) => (
-              <button
-                className="nav-item"
+              <ReacstButton
+                variant="ghost"
+                align="start"
+                fullWidth
+                className="min-w-0"
                 key={f.path}
                 title={`Import ${f.name}`}
                 onClick={() =>
                   void onImport([f.path]).catch((e) => onError(String(e)))
                 }
               >
-                <FileImage size={13} />
-                {f.name}
-              </button>
+                <FileImage size={13} className="shrink-0" />
+                <span className="truncate">{f.name}</span>
+              </ReacstButton>
             ))}
             {!listing.files.length && !listing.folders.length && (
               <p className="muted">No supported photos or folders.</p>
             )}
           </div>
-          <Btn
-            className="wide"
+          <ReacstButton
+            size="sm"
+            fullWidth
             disabled={loading}
             onClick={() =>
               void onImport([listing.path]).catch((e) => onError(String(e)))
             }
           >
             Import this folder
-          </Btn>
+          </ReacstButton>
         </>
       )}
     </div>

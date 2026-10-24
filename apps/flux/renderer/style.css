@@ -29,6 +29,7 @@ body,
   font-size: var(--text-paragraph-xs);
   line-height: var(--text-paragraph-xs--line-height);
 }
+/* Flux is dark-only, and its base is the shared compact type. */
 :root {
   color-scheme: dark;
   font-synthesis: none;
@@ -39,40 +40,25 @@ body,
 body {
   margin: 0;
 }
-button,
-input,
-select {
-  font: inherit;
-}
-button {
+/* Raw buttons (photo tiles, stars, filmstrip, histogram zones) still need the
+ * pointer; @lumacast/ui buttons carry their own cursor and disabled styling. */
+button:not([data-disabled]) {
   cursor: pointer;
 }
-button:disabled {
+button:disabled:not([data-disabled]) {
   cursor: default;
   opacity: 0.4;
 }
-button,
-input,
-select,
-summary {
+button {
   outline-offset: 3px;
 }
-button:focus-visible,
-input:focus-visible,
-select:focus-visible,
-summary:focus-visible,
-[role="slider"]:focus-visible {
+button:focus-visible {
   outline: 2px solid var(--color-brand);
 }
 ::selection {
   background: color-mix(in oklab, var(--color-brand) 45%, transparent);
   color: var(--text-color-primary);
 }
-input {
-  caret-color: var(--color-brand);
-}
-/* Scrollbar geometry and thumb colour are the shared theme's, on the same
- * tokens as every other surface. */
 h1,
 h2,
 h3,
@@ -93,34 +79,6 @@ h3 {
   margin: 24px 0 8px;
   font-weight: 550;
 }
-input,
-select {
-  border: 1px solid var(--border-color-primary);
-  background: var(--background-color-tertiary);
-  border-radius: 5px;
-  padding: 4px 7px;
-  min-width: 0;
-  color: var(--text-color-primary);
-}
-input::placeholder {
-  color: var(--text-color-tertiary);
-}
-input[type="checkbox"],
-input[type="range"] {
-  accent-color: var(--color-brand);
-}
-input[type="number"] {
-  font-variant-numeric: tabular-nums;
-}
-select {
-  max-width: 160px;
-}
-fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0;
-  min-width: 0;
-}
 .muted {
   color: var(--text-color-tertiary);
 }
@@ -135,67 +93,6 @@ fieldset {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-.inline input {
-  flex: 1;
-}
-.wide {
-  width: 100%;
-}
-.btn {
-  @apply inline-flex items-center justify-center whitespace-nowrap;
-  gap: 7px;
-  min-height: 24px;
-  padding: 4px 7px;
-  border: 1px solid var(--border-color-primary);
-  border-radius: 3px;
-  color: var(--text-color-primary);
-  background: var(--background-color-tertiary);
-  font-size: 11px;
-  line-height: 1.2;
-  font-weight: 450;
-}
-.btn:hover:not(:disabled) {
-  background: color-mix(
-    in oklab,
-    var(--background-color-tertiary) 88%,
-    var(--text-color-primary)
-  );
-  border-color: color-mix(
-    in oklab,
-    var(--border-color-primary) 60%,
-    var(--text-color-secondary)
-  );
-}
-/* Ink on the brand fill, not a tinted literal: brand is suite blue, so the
- * legible pairing is the black display token. */
-.btn.primary {
-  background: var(--color-brand);
-  color: var(--color-black);
-  border-color: var(--color-brand);
-  font-weight: 600;
-}
-.btn.primary:hover:not(:disabled) {
-  background: color-mix(
-    in oklab,
-    var(--color-brand) 85%,
-    var(--text-color-primary)
-  );
-}
-.btn.quiet {
-  background: var(--color-transparent);
-  border-color: var(--color-transparent);
-  color: var(--text-color-tertiary);
-}
-/* The tint carries the accent, so the label stays on the primary foreground
- * token rather than a fixed light brand step. */
-.btn.active {
-  background: color-mix(in oklab, var(--color-brand) 18%, transparent);
-  border-color: color-mix(in oklab, var(--color-brand) 55%, transparent);
-  color: var(--text-color-primary);
-}
-.btn.icon {
-  padding: 6px;
 }
 .app {
   height: 100vh;
@@ -224,6 +121,8 @@ fieldset {
 }
 .brand > svg {
   color: var(--color-brand);
+  width: 16px;
+  height: 16px;
 }
 .brand strong {
   font-size: 13px;
@@ -236,34 +135,14 @@ fieldset {
   padding-left: 9px;
   border-left: 1px solid var(--border-color-primary);
 }
-.view-switch {
-  display: flex;
-  gap: 3px;
-  background: var(--background-color-primary);
-  padding: 3px;
-  border-radius: 6px;
-}
-.view-switch .btn {
-  border-color: var(--color-transparent);
-  background: var(--color-transparent);
-}
-.view-switch .active {
-  background: color-mix(
-    in oklab,
-    var(--background-color-tertiary) 88%,
-    var(--text-color-primary)
-  );
-  color: var(--text-color-primary);
-}
 .header-actions {
   display: flex;
-  gap: 10px;
+  gap: 6px;
   justify-content: flex-end;
   width: 300px;
 }
 .workspace {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) 248px;
+  display: flex;
   flex: 1;
   min-height: 0;
 }
@@ -273,15 +152,19 @@ fieldset {
 .navigation {
   display: flex;
   flex-direction: column;
+  flex: none;
   border-right: 1px solid var(--border-color-primary);
   padding: 10px 7px 0;
+  min-width: 0;
   min-height: 0;
 }
 .import-actions {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  margin-top: auto;
   margin-bottom: 12px;
+  flex: none;
 }
 .navigation h2 {
   font-size: 11px;
@@ -292,40 +175,6 @@ fieldset {
 .navigation h2:not(:first-child) {
   margin-top: 15px;
 }
-.nav-item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  text-align: left;
-  gap: 9px;
-  border: 0;
-  background: var(--color-transparent);
-  padding: 6px 8px;
-  color: var(--text-color-secondary);
-  border-radius: 5px;
-  font-size: 11px;
-}
-.nav-item:hover {
-  background: var(--background-color-tertiary);
-  color: var(--text-color-primary);
-}
-.nav-item.selected {
-  background: color-mix(in oklab, var(--color-brand) 18%, transparent);
-  color: var(--text-color-primary);
-}
-.nav-item > span:last-child:not(.folder-name) {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--text-color-tertiary);
-}
-.nav-item svg {
-  flex-shrink: 0;
-}
-.folder-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .folder-list {
   overflow: auto;
   flex: 1;
@@ -334,27 +183,8 @@ fieldset {
 .folder-list p {
   padding: 4px 10px;
 }
-.nav-bottom {
-  border-top: 1px solid var(--border-color-primary);
-  padding: 10px 5px;
-  color: var(--text-color-secondary);
-  font-size: 11px;
-  margin-top: 24px;
-}
-.nav-bottom p {
-  font-size: 10px;
-  color: var(--text-color-tertiary);
-  padding-top: 6px;
-}
-.local-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  background: var(--color-success);
-  border-radius: 50%;
-  margin-right: 7px;
-}
 .main-area {
+  flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -376,22 +206,6 @@ fieldset {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--border-color-primary);
-  border-radius: 5px;
-  padding-left: 9px;
-  background: var(--background-color-tertiary);
-  color: var(--text-color-tertiary);
-}
-.search input {
-  border: 0;
-  max-width: 155px;
-  background: var(--color-transparent);
-  font-size: 12px;
 }
 .gallery {
   flex: 1;
@@ -493,111 +307,18 @@ fieldset {
   border-top: 1px solid var(--border-color-primary);
   flex-shrink: 0;
 }
-.gallery-footer label {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  color: var(--text-color-tertiary);
-  font-size: 11px;
-}
-.gallery-footer input {
-  width: 90px;
-  padding: 0;
-}
-.empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 15px;
-  text-align: center;
-  padding: 35px;
-}
-.empty-state > svg {
-  color: var(--text-color-secondary);
-  margin-bottom: 8px;
-}
-.empty-state h2 {
-  font-size: 18px;
-  font-weight: 450;
-  letter-spacing: -0.02em;
-}
-.empty-state p {
-  font-size: 13px;
-  color: var(--text-color-tertiary);
-}
-.empty-state > .btn {
-  margin: 8px 0;
-}
-.empty-state > span {
-  font-size: 11px;
-  color: var(--text-color-tertiary);
-}
 .adjustments {
   border-left: 1px solid var(--border-color-primary);
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
-.panel-title {
-  height: 37px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-}
-.panel-title span {
-  font-size: 10px;
-}
-.tool-row {
-  display: flex;
-  gap: 6px;
-  padding: 0 12px 8px;
-}
-.tool-row .btn {
-  padding: 4px 7px;
-}
-.adjustments-scroll {
-  flex: 1;
-  overflow: auto;
-}
-/* Panel prose normally sits inside a disclosure that already owns the 12px
- * gutters and the closing gap, so the nested help text adds only its own. The
- * empty-state line is a direct child of the scroll area, which has no padding
- * of its own, so it carries the gutter itself. */
+/* Help prose sits inside an accordion panel that already owns the gutters, so
+ * it adds only the closing gap. */
 .panel-help {
   padding: 0 0 8px;
   font-size: 11px;
   line-height: 1.5;
-}
-.adjustments-scroll > .panel-help {
-  padding: 12px;
-}
-.adjustments details {
-  border-top: 1px solid var(--border-color-primary);
-  padding: 0 12px 9px;
-}
-.adjustments summary {
-  font-size: 12px;
-  font-weight: 550;
-  padding: 10px 0;
-  cursor: pointer;
-  list-style: none;
-}
-.adjustments summary::after {
-  content: "−";
-  float: right;
-  color: var(--text-color-tertiary);
-}
-.adjustments details:not([open]) summary::after {
-  content: "+";
-}
-.adjustments details:not([open]) {
-  padding-bottom: 0;
-}
-.adjustments details .tool-row {
-  padding: 0 0 10px;
 }
 .adjustment {
   margin: 3px 0 5px;
@@ -606,7 +327,7 @@ fieldset {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-color-secondary);
 }
 .value-reset {
@@ -619,52 +340,6 @@ fieldset {
   text-align: right;
   padding: 0;
   cursor: pointer;
-}
-.slider-control {
-  height: 16px;
-  display: flex;
-  align-items: center;
-  touch-action: none;
-  user-select: none;
-}
-.slider-track {
-  height: 3px;
-  background: color-mix(
-    in oklab,
-    var(--border-color-primary) 80%,
-    var(--text-color-tertiary)
-  );
-  border-radius: 3px;
-  width: 100%;
-  position: relative;
-}
-.slider-indicator {
-  background: color-mix(in oklab, var(--color-brand) 70%, transparent);
-  border-radius: 3px;
-}
-.slider-thumb {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-color-primary);
-  border: 1px solid var(--background-color-primary);
-  box-shadow: 0 1px 3px color-mix(in oklab, var(--color-black) 47%, transparent);
-}
-.slider-thumb:hover {
-  background: var(--color-brand);
-}
-.number-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  font-size: 11px;
-  color: var(--text-color-secondary);
-  margin-bottom: 10px;
-}
-.number-row input {
-  margin-left: auto;
-  width: 65px;
-  padding: 4px 6px;
 }
 /* Lens profile facts: label column, value column, no paragraph. */
 .lens-meta {
@@ -688,27 +363,12 @@ fieldset {
   margin: 0 0 8px;
   font-size: 10px;
 }
-/* A block-level flex box, so `margin-left: auto` right-aligns it: an inline-flex
- * button is inline-level and would ignore the auto margin. The 8px floor keeps
- * it off the first slider in the group. */
-.lens-remove {
-  display: flex;
-  width: fit-content;
-  margin-left: auto;
-  margin-bottom: 8px;
-  font-size: 10px;
-  min-height: 24px;
-  padding: 0 6px;
-}
 .adjustments-footer {
-  padding: 8px 10px;
+  padding: 8px;
   display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 4px;
   border-top: 1px solid var(--border-color-primary);
-}
-.adjustments-footer > .btn:not(.wide) {
-  flex: 1;
 }
 /* Definition lists align their label column, including the grouped rows the
  * Info tab wraps in a div, so `display: contents` keeps them in the grid. */
@@ -751,13 +411,11 @@ fieldset {
 .viewer-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  flex-shrink: 0;
-}
-.viewer-tools select {
-  font-size: 11px;
-  padding: 6px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 8px;
+  gap: 4px;
+  flex: none;
 }
 .zoom-label {
   min-width: 35px;
@@ -784,7 +442,7 @@ fieldset {
   cursor: grabbing;
 }
 .canvas.cropping {
-  cursor: crosshair;
+  cursor: default;
 }
 .image-wrap {
   position: relative;
@@ -804,10 +462,13 @@ fieldset {
 }
 .crop-rectangle {
   position: absolute;
+  z-index: 2;
   border: 1px solid var(--color-white);
   box-shadow: 0 0 0 2000px
     color-mix(in oklab, var(--color-black) 53%, transparent);
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: move;
+  touch-action: none;
 }
 .crop-rectangle i {
   position: absolute;
@@ -815,6 +476,7 @@ fieldset {
   height: 100%;
   border-left: 1px solid
     color-mix(in oklab, var(--color-white) 40%, transparent);
+  pointer-events: none;
 }
 .crop-rectangle i + i {
   left: 66.666%;
@@ -831,10 +493,10 @@ fieldset {
 .crop-rectangle:after {
   top: 66.666%;
 }
-.canvas-status,
-.original-label,
-.canvas-hint {
+.canvas-status {
   position: absolute;
+  bottom: 14px;
+  right: 14px;
   padding: 5px 9px;
   background: color-mix(
     in oklab,
@@ -844,30 +506,7 @@ fieldset {
   border-radius: 4px;
   font-size: 10px;
   pointer-events: none;
-}
-.canvas-status {
-  bottom: 14px;
-  right: 14px;
   color: var(--text-color-secondary);
-}
-.original-label {
-  top: 14px;
-  left: 14px;
-}
-.canvas-hint {
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-.viewer-caption {
-  height: 23px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 18px;
-  font-size: 10px;
-  color: var(--text-color-tertiary);
 }
 .filmstrip {
   display: flex;
@@ -896,110 +535,6 @@ fieldset {
   width: 100%;
   height: 100%;
   object-fit: contain;
-}
-.notice {
-  position: fixed;
-  bottom: 40px;
-  left: 230px;
-  max-width: min(650px, 60vw);
-  display: flex;
-  gap: 20px;
-  align-items: flex-start;
-  padding: 13px 15px;
-  background: var(--background-color-tertiary);
-  /* A floating callout reads as an edge, and the plain border token is too
-   * close to this surface to separate it, so it is lifted toward the ink. */
-  border: 1px solid
-    color-mix(
-      in oklab,
-      var(--border-color-primary) 60%,
-      var(--text-color-secondary)
-    );
-  border-radius: 7px;
-  box-shadow: 0 8px 28px
-    color-mix(in oklab, var(--color-black) 40%, transparent);
-  z-index: 20;
-}
-.notice p {
-  white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.5;
-  max-height: 180px;
-  overflow: auto;
-}
-.notice > .btn {
-  padding: 3px;
-  min-height: 20px;
-  border: 0;
-  background: var(--color-transparent);
-}
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in oklab, var(--color-black) 60%, transparent);
-  z-index: 50;
-}
-.modal {
-  position: fixed;
-  z-index: 51;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 520px;
-  max-height: 85vh;
-  overflow: auto;
-  border: 1px solid var(--border-color-primary);
-  border-radius: 10px;
-  background: var(--background-color-tertiary);
-  padding: 24px;
-  box-shadow: 0 20px 80px
-    color-mix(in oklab, var(--color-black) 53%, transparent);
-}
-.modal-heading {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
-}
-.modal-heading h2 {
-  font-size: 16px;
-}
-.modal > p {
-  font-size: 12px;
-  line-height: 1.6;
-}
-.modal .form {
-  margin: 22px 0;
-  display: flex;
-  flex-direction: column;
-  gap: 17px;
-}
-.form label {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 12px;
-  color: var(--text-color-secondary);
-}
-.form-columns {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.form select {
-  max-width: none;
-}
-.form .checkbox {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-}
-.modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 9px;
-  border-top: 1px solid var(--border-color-primary);
-  padding-top: 18px;
 }
 .error {
   color: color-mix(in oklab, var(--color-error) 70%, var(--text-color-primary));
@@ -1084,103 +619,6 @@ fieldset {
   font-size: 10px;
   color: var(--text-color-primary);
 }
-@media (max-width: 1200px) {
-  .workspace {
-    grid-template-columns: 160px minmax(0, 1fr) 232px;
-  }
-  .app-header {
-    padding: 0 14px;
-  }
-  .brand span {
-    display: none;
-  }
-  .brand,
-  .header-actions {
-    width: 240px;
-  }
-  .library-toolbar {
-    padding: 7px 10px;
-    gap: 6px;
-  }
-  .search input {
-    max-width: 105px;
-  }
-  .library-toolbar select {
-    max-width: 100px;
-    font-size: 11px;
-  }
-  .gallery {
-    padding: 12px;
-    gap: 10px;
-  }
-  .gallery-footer {
-    padding: 0 8px;
-  }
-  .viewer-tools {
-    padding: 8px;
-  }
-  .btn {
-    font-size: 11px;
-    padding: 4px 6px;
-  }
-}
-
-.btn svg,
-.nav-item svg {
-  width: 13px;
-  height: 13px;
-}
-.brand > svg {
-  width: 16px;
-  height: 16px;
-}
-.panel-title h2 {
-  font-size: 11px;
-}
-.adjustments summary {
-  font-size: 11px;
-}
-.adjustments-scroll .slider-label {
-  font-size: 10px;
-}
-.number-row {
-  font-size: 10px;
-}
-.app-header .view-switch {
-  padding: 2px;
-  border-radius: 4px;
-}
-.app-header .header-actions {
-  gap: 6px;
-}
-.library-toolbar > .search input {
-  font-size: 11px;
-}
-.modal input,
-.modal select {
-  min-height: 25px;
-}
-.canvas-status {
-  font-size: 10px;
-}
-/* Status messages never intercept filmstrip or canvas interaction. */
-.notice {
-  pointer-events: none;
-}
-.notice > .btn {
-  pointer-events: auto;
-}
-/* Dense workspace with optional, independently resizable panels. */
-.workspace {
-  display: flex;
-}
-.main-area {
-  flex: 1;
-}
-.navigation {
-  flex: none;
-  min-width: 0;
-}
 .inspector-shell {
   flex: none;
   min-width: 0;
@@ -1189,86 +627,6 @@ fieldset {
 .inspector-shell .adjustments {
   width: 100%;
   min-width: 0;
-}
-.panel-resizer {
-  flex: 0 0 4px;
-  cursor: col-resize;
-  background: var(--border-color-primary);
-  touch-action: none;
-}
-.panel-resizer:hover,
-.panel-resizer:focus-visible {
-  background: var(--color-brand);
-  outline: none;
-}
-.inspector-tabs {
-  display: flex;
-  border-bottom: 1px solid var(--border-color-primary);
-  height: 36px;
-  flex: none;
-}
-.inspector-tabs button {
-  flex: 1;
-  font-size: 11px;
-  padding: 0 6px;
-  border: 0;
-  background: none;
-  color: var(--text-color-tertiary);
-  border-bottom: 2px solid var(--color-transparent);
-}
-.inspector-tabs button[aria-selected="true"] {
-  color: var(--color-brand);
-  border-bottom-color: var(--color-brand);
-}
-.adjustments-footer {
-  flex-wrap: nowrap;
-  gap: 4px;
-  padding: 8px;
-}
-.adjustments-footer .wide {
-  width: auto;
-  flex: 1;
-  white-space: nowrap;
-}
-.adjustments-footer .btn {
-  padding: 0 6px;
-  font-size: 10px;
-}
-.viewer-tools {
-  height: 36px;
-  min-height: 36px;
-  padding: 0 8px;
-  gap: 4px;
-  flex: none;
-}
-.viewer-file {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  font-size: 11px;
-}
-.viewer-file strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 220px;
-  font-weight: 500;
-}
-.viewer-file span {
-  font-size: 10px;
-  white-space: nowrap;
-}
-.canvas {
-  padding: 24px;
-}
-.crop-rectangle {
-  pointer-events: auto;
-  cursor: move;
-  touch-action: none;
-}
-.crop-rectangle i {
-  pointer-events: none;
 }
 .crop-handle {
   position: absolute;
@@ -1333,6 +691,7 @@ fieldset {
   align-items: stretch;
 }
 .compare-pane {
+  position: relative;
   flex: 1;
   min-width: 0;
   margin: 0;
@@ -1353,16 +712,6 @@ fieldset {
 .compare-label {
   font-size: 11px;
   color: var(--text-color-secondary);
-}
-.library-bottom {
-  display: flex;
-  gap: 8px;
-  padding: 6px 10px;
-  border-top: 1px solid var(--border-color-primary);
-}
-.navigation .import-actions {
-  margin-top: auto;
-  flex: none;
 }
 .folder-explorer {
   padding: 8px;
@@ -1385,37 +734,6 @@ fieldset {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 10px;
-}
-.directory-entries .nav-item {
-  font-size: 11px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-@media (max-width: 1150px) {
-  .viewer-file span {
-    display: none;
-  }
-  .viewer-file strong {
-    max-width: 130px;
-  }
-}
-.adjustments-footer > .btn:not(.wide) {
-  flex: 0 0 26px;
-}
-.canvas.cropping {
-  cursor: default;
-}
-.crop-lock {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 10px 0;
-  font-size: 11px;
-}
-.crop-lock input {
-  margin: 0;
-  accent-color: var(--color-brand);
 }
 .toolbar-group {
   display: flex;
@@ -1520,40 +838,26 @@ fieldset {
 .clipping-overlay[data-active="false"] {
   visibility: hidden;
 }
-.compare-pane {
-  position: relative;
-}
-.crop-rectangle {
-  z-index: 2;
-}
-
-/* Quiet, neutral affordance: it sits in a disclosure header and should read as
- * a control, not as the section's own brand-coloured action. */
-.section-auto {
-  float: right;
-  border: 1px solid var(--border-color-primary);
-  background: var(--color-transparent);
-  color: var(--text-color-secondary);
-  border-radius: 3px;
-  font-size: 10px;
-  line-height: 16px;
-  padding: 0 7px;
-  margin-top: -1px;
-  cursor: pointer;
-}
-.section-auto:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.section-auto:hover:not(:disabled) {
-  color: var(--text-color-primary);
-  border-color: color-mix(
-    in oklab,
-    var(--border-color-primary) 60%,
-    var(--text-color-secondary)
-  );
-}
-.section-auto:focus-visible {
-  outline: 1px solid var(--color-brand);
-  outline-offset: 2px;
+@media (max-width: 1200px) {
+  .app-header {
+    padding: 0 14px;
+  }
+  .brand span {
+    display: none;
+  }
+  .brand,
+  .header-actions {
+    width: 240px;
+  }
+  .library-toolbar {
+    padding: 7px 10px;
+    gap: 6px;
+  }
+  .gallery {
+    padding: 12px;
+    gap: 10px;
+  }
+  .gallery-footer {
+    padding: 0 8px;
+  }
 }

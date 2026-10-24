@@ -122,7 +122,7 @@ try {
       (img) => img.complete && img.naturalWidth > 0,
     ),
   );
-  await page.getByRole("button", { name: "Dismiss notification" }).click();
+  await page.getByRole("button", { name: "Dismiss" }).click();
   assert.equal(await page.locator(".adjustments").count(), 0);
   assert.equal(await page.locator(".navigation").count(), 1);
   await app.evaluate(({ dialog }, folder) => {
@@ -175,7 +175,7 @@ try {
   assert.equal(await page.locator(".viewer-file").count(), 0);
   await page.locator('.histogram-plot path[data-channel="red"]').waitFor();
   const histBox = await page.locator(".histogram-panel").boundingBox();
-  const tabsBox = await page.locator(".inspector-tabs").boundingBox();
+  const tabsBox = await page.getByRole("tablist").boundingBox();
   assert.ok(histBox.y + histBox.height <= tabsBox.y + 1);
   const graphBefore = await page
     .locator('.histogram-plot path[data-channel="red"]')
@@ -277,7 +277,7 @@ try {
   const track = await page
     .locator(".adjustment")
     .first()
-    .locator(".slider-track")
+    .locator(".touch-none")
     .boundingBox();
   await page.mouse.move(
     track.x + track.width * 0.51,
@@ -301,10 +301,7 @@ try {
   const id = state.photos.find((p) => p.name === "color-study.png").id;
   assert.equal(await page.locator(".navigation").count(), 0);
   assert.equal(await page.locator(".library-toolbar").count(), 0);
-  await page
-    .locator("summary")
-    .filter({ hasText: /^Details$/ })
-    .click();
+  await page.getByRole("button", { name: "Details", exact: true }).click();
   await page
     .getByRole("slider", { name: "Luminance noise", exact: true })
     .focus();
@@ -561,7 +558,7 @@ try {
   );
   await page.getByRole("button", { name: "Export (2)", exact: true }).click();
   await page
-    .getByRole("textbox", { name: "Export destination" })
+    .getByRole("textbox", { name: "Destination" })
     .fill(path.join(temp, "exports"));
   await page
     .getByRole("button", { name: "Export photos", exact: true })
