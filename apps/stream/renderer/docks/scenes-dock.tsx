@@ -347,7 +347,7 @@ export function ScenesDock({
   return (
     <aside className="dock scenes-dock" style={style}>
       {resizer}
-      <div className="dock-title"><span>Scenes</span><span className="dock-count">{scenes.length}</span><div className="dock-actions"><button className="mini-icon" aria-label="Undo" title={`Undo (${primaryShortcutLabel(platform, 'Z')})`} disabled={!undoAvailable} onClick={onUndo}><Undo2 size={14} /></button><button className="mini-icon" aria-label="Redo" title={`Redo (${primaryShortcutLabel(platform, 'Z', true)})`} disabled={!redoAvailable} onClick={onRedo}><Redo2 size={14} /></button><button className="mini-icon" aria-label="Add scene" onClick={onAddScene}><Plus size={15} /></button><button className="mini-icon" aria-label="Hide Scenes" onClick={onHide}><X size={14} /></button></div></div>
+      <div className="dock-title"><span>Scenes</span><div className="dock-actions"><button className="mini-icon" aria-label="Undo" title={`Undo (${primaryShortcutLabel(platform, 'Z')})`} disabled={!undoAvailable} onClick={onUndo}><Undo2 size={14} /></button><button className="mini-icon" aria-label="Redo" title={`Redo (${primaryShortcutLabel(platform, 'Z', true)})`} disabled={!redoAvailable} onClick={onRedo}><Redo2 size={14} /></button><button className="mini-icon" aria-label="Add scene" onClick={onAddScene}><Plus size={15} /></button><button className="mini-icon" aria-label="Hide Scenes" onClick={onHide}><X size={14} /></button></div></div>
       <div className="scene-list">
         {scenes.map((scene, index) => {
           const isActive = scene.id === activeSceneId;

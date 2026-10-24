@@ -91,7 +91,6 @@ export interface SourcesDockProps {
   resizer?: ReactNode;
   onHide: () => void;
   sources: StreamSource[];
-  totalSourceCount: number;
   selectedSource: StreamSource | null;
   selectedSourceIds: string[];
   collapsedGroupIds: string[];
@@ -168,7 +167,6 @@ export function SourcesDock({
   resizer,
   onHide,
   sources,
-  totalSourceCount,
   selectedSource,
   selectedSourceIds,
   collapsedGroupIds,
@@ -504,7 +502,7 @@ export function SourcesDock({
           {isGroup ? <button className="group-expand-button" aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${source.name}`} aria-expanded={!collapsed} onClick={(event) => {
             event.stopPropagation();
             setCollapsedGroupIds((current) => collapsed ? current.filter((id) => id !== source.id) : [...current, source.id]);
-          }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</button> : <span className="group-expand-spacer" />}
+          }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</button> : null}
           <button className="visibility-toggle" title={source.visible ? 'Hide source' : 'Show source'} onClick={(event) => { event.stopPropagation(); onUpdateSource(source.id, (current) => ({ ...current, visible: !current.visible })); }}>
             {source.visible ? <Eye size={14} /> : <EyeOff size={14} />}
           </button>
@@ -538,7 +536,7 @@ export function SourcesDock({
   return (
     <section className="dock sources-dock" style={style}>
       {resizer}
-      <div className="dock-title"><span>Sources</span><span className="dock-count">{totalSourceCount}</span><div className="dock-actions"><button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={15} /></button><button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => { setSourceActionsMenuOpen((open) => !open); if (selectedSource) showSourceProperties(selectedSource.id); }}><MoreHorizontal size={16} /></button><button className="mini-icon" aria-label="Hide Sources" onClick={onHide}><X size={14} /></button></div></div>
+      <div className="dock-title"><span>Sources</span><div className="dock-actions"><button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={15} /></button><button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => { setSourceActionsMenuOpen((open) => !open); if (selectedSource) showSourceProperties(selectedSource.id); }}><MoreHorizontal size={16} /></button><button className="mini-icon" aria-label="Hide Sources" onClick={onHide}><X size={14} /></button></div></div>
       <AnchoredPopover open={sourceActionsMenuOpen} anchor={sourceActionsTriggerRef.current} className="source-menu" side="top" alignment="end" role="menu" label="Source actions" onClose={() => setSourceActionsMenuOpen(false)}>
         <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onCopySource}><Copy size={14} />Copy Source</button>
         <button role="menuitem" disabled={!sourceActions.sourceClipboardAvailable || sourceActions.working} onClick={sourceActions.onPasteSource}><Plus size={14} />Paste Source</button>

@@ -273,7 +273,6 @@ export function App() {
   const previewScene = activeScene;
   const duration = formatElapsed(recording.recordingStartedAt === null ? 0 : recordingElapsedTime(clockNow, recording.recordingPausedAt, recording.recordingAccumulatedPauseMs) - recording.recordingStartedAt, 'full');
   const streamDuration = formatElapsed(streaming.streamingStartedAt === null ? 0 : clockNow - streaming.streamingStartedAt, 'full');
-  const totalSourceCount = flattenSourceNodes(activeScene.sources).length;
   const activeSceneVisibleSourceIds = getVisibleSourceIdsForScenes(project.scenes, [activeScene.id]);
   const activeSceneLeafSources = allSources.filter((source) => activeSceneVisibleSourceIds.has(source.id)
     && source.kind !== 'group' && source.kind !== 'scene');
@@ -434,14 +433,17 @@ export function App() {
             </div>
           </div>
           <div className="monitor-status">
-            <span className="status-online"><i />Preview active</span>
             <div className="monitor-status-actions">
-              <label className="transition-inline"><span>Transition</span><select aria-label="Scene transition" value={scenes.transitionType} onChange={(event) => scenes.setTransitionType(event.target.value as SceneTransitionType)}><option value="Fade">Fade</option><option value="Cut">Cut</option><option value="Swipe">Swipe</option><option value="Slide">Slide</option><option value="FadeToColor">Fade to Color</option></select></label>
-              {scenes.transitionType === 'FadeToColor' && <label className="transition-color-inline"><span>Color</span><input aria-label="Transition color" type="color" value={scenes.transitionColor} onChange={(event) => scenes.setTransitionColor(event.target.value)} /></label>}
-              <label className="transition-duration-inline"><input aria-label="Transition duration in milliseconds" type="number" min="50" max="5000" step="50" value={scenes.transitionMs} onChange={(event) => scenes.setTransitionMs(Math.max(50, Math.min(5000, Number(event.target.value) || 50)))} /><span>ms</span></label>
-              {project.studioMode && <button className="take-button toolbar-take" disabled={project.activeSceneId === project.liveSceneId} onClick={scenes.takeScene}>Take <Clapperboard size={13} /></button>}
-              <button className={`studio-toggle ${project.studioMode ? 'enabled' : ''}`} aria-pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</button>
-              <button className="icon-button projector-button" aria-label="Open program projector" title="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink size={14} /></button>
+              <div className="monitor-transition-controls">
+                <label className="transition-inline"><span>Transition</span><select aria-label="Scene transition" value={scenes.transitionType} onChange={(event) => scenes.setTransitionType(event.target.value as SceneTransitionType)}><option value="Fade">Fade</option><option value="Cut">Cut</option><option value="Swipe">Swipe</option><option value="Slide">Slide</option><option value="FadeToColor">Fade to Color</option></select></label>
+                {scenes.transitionType === 'FadeToColor' && <label className="transition-color-inline"><span>Color</span><input aria-label="Transition color" type="color" value={scenes.transitionColor} onChange={(event) => scenes.setTransitionColor(event.target.value)} /></label>}
+                <label className="transition-duration-inline"><input aria-label="Transition duration in milliseconds" type="number" min="50" max="5000" step="50" value={scenes.transitionMs} onChange={(event) => scenes.setTransitionMs(Math.max(50, Math.min(5000, Number(event.target.value) || 50)))} /><span>ms</span></label>
+                {project.studioMode && <button className="take-button toolbar-take" disabled={project.activeSceneId === project.liveSceneId} onClick={scenes.takeScene}>Take <Clapperboard size={13} /></button>}
+              </div>
+              <div className="monitor-status-tools">
+                <button className={`studio-toggle ${project.studioMode ? 'enabled' : ''}`} aria-pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</button>
+                <button className="icon-button projector-button" aria-label="Open program projector" title="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink size={14} /></button>
+              </div>
             </div>
             <span className="monitor-zoom">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
           </div>
@@ -452,7 +454,6 @@ export function App() {
           resizer={workbench.resizerForDock('sources')}
           onHide={() => workbench.toggleDock('sources')}
           sources={activeScene.sources}
-          totalSourceCount={totalSourceCount}
           selectedSource={sources.selectedSource}
           selectedSourceIds={sources.selectedSourceIds}
           collapsedGroupIds={sources.collapsedGroupIds}
@@ -598,7 +599,6 @@ export function App() {
           resizer={workbench.resizerForDock('controls')}
           onHide={() => workbench.toggleDock('controls')}
           working={working}
-          studioMode={project.studioMode}
           streamingStartedAt={streaming.streamingStartedAt}
           streamServiceLabel={streamServiceLabel}
           onGoLive={streaming.openStreamDialog}
@@ -618,7 +618,6 @@ export function App() {
           streamStatus={streaming.streamStatus}
           streamDuration={streamDuration}
           recordingDuration={duration}
-          onToggleStudioMode={scenes.toggleStudioMode}
           onRemuxRecording={() => void recording.remuxRecording()}
           onOpenSettings={openSettings}
         />}

@@ -74,7 +74,6 @@ function renderDock(overrides: Partial<SourcesDockProps> = {}) {
   const props: SourcesDockProps = {
     onHide: vi.fn(),
     sources,
-    totalSourceCount: sources.length,
     selectedSource: null,
     selectedSourceIds: [],
     collapsedGroupIds: [],

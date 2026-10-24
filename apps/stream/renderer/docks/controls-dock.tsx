@@ -1,5 +1,7 @@
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from 'react';
-import { Clapperboard, Copy, FileVideo, MoreHorizontal, Pause, Play, Radio, Settings2, Square, X } from 'lucide-react';
+import { useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { Menu } from '@base-ui/react/menu';
+import { Copy, FileVideo, MoreHorizontal, Pause, Play, Radio, Settings2, Square, X } from 'lucide-react';
+import { CONTEXT_MENU_SURFACE_CLASSES, MenuEntries, useOverlayContainer, type MenuEntry } from '@lumacast/ui';
 import type { StreamRuntimeStatus } from '../../shared/desktop-api';
 
 export interface ControlsDockProps {
@@ -7,7 +9,6 @@ export interface ControlsDockProps {
   resizer?: ReactNode;
   onHide: () => void;
   working: boolean;
-  studioMode: boolean;
   streamingStartedAt: number | null;
   streamServiceLabel: string;
   onGoLive: () => void;
@@ -27,7 +28,6 @@ export interface ControlsDockProps {
   streamStatus: StreamRuntimeStatus;
   streamDuration: string;
   recordingDuration: string;
-  onToggleStudioMode: () => void;
   onRemuxRecording: () => void;
   onOpenSettings: (event: ReactMouseEvent<HTMLButtonElement>) => void;
 }
@@ -37,7 +37,6 @@ export function ControlsDock({
   resizer,
   onHide,
   working,
-  studioMode,
   streamingStartedAt,
   streamServiceLabel,
   onGoLive,
@@ -57,14 +56,36 @@ export function ControlsDock({
   streamStatus,
   streamDuration,
   recordingDuration,
-  onToggleStudioMode,
   onRemuxRecording,
   onOpenSettings,
 }: ControlsDockProps) {
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const overlayContainer = useOverlayContainer();
+  const options: MenuEntry[] = [
+    { id: 'controls.hide', label: 'Hide Controls', onSelect: onHide },
+  ];
+
   return (
     <aside className="dock controls-dock" style={style}>
       {resizer}
-      <div className="dock-title"><span>Controls</span><MoreHorizontal size={16} className="title-more" /><button className="mini-icon" aria-label="Hide Controls" onClick={onHide}><X size={14} /></button></div>
+      <div className="dock-title">
+        <span>Controls</span>
+        <div className="dock-actions">
+          <Menu.Root open={optionsOpen} onOpenChange={setOptionsOpen} modal={false}>
+            <Menu.Trigger type="button" className="mini-icon" aria-label="Controls options" title="Controls options">
+              <MoreHorizontal size={16} />
+            </Menu.Trigger>
+            <Menu.Portal container={overlayContainer}>
+              <Menu.Positioner className="outline-hidden" sideOffset={2} align="end">
+                <Menu.Popup className={CONTEXT_MENU_SURFACE_CLASSES} aria-label="Controls options">
+                  <MenuEntries entries={options} onClose={() => setOptionsOpen(false)} />
+                </Menu.Popup>
+              </Menu.Positioner>
+            </Menu.Portal>
+          </Menu.Root>
+          <button className="mini-icon" aria-label="Hide Controls" onClick={onHide}><X size={14} /></button>
+        </div>
+      </div>
       <div className="control-action-grid">
         {streamingStartedAt === null ? <button className="control-action live-action" disabled={working} onClick={onGoLive}><Radio size={13} />Go Live</button> : <button className="control-action live-action active-action" onClick={onStopStreaming}><Square size={11} fill="currentColor" />Stop Live</button>}
         {recordingFinalizing ? <button className="control-action" disabled><span className="record-button-dot" />Finalizing</button> : recordingStartedAt === null ? <button className="control-action record-action" disabled={working} onClick={onStartRecording}><span className="record-button-dot" />Record</button> : <>
@@ -81,7 +102,7 @@ export function ControlsDock({
         <span><i className={`control-status-dot ${recordingStartedAt !== null || recordingFinalizing ? 'record-dot' : ''}`} />{recordingFinalizing ? 'Finalizing' : recordingStartedAt === null ? 'Recording stopped' : `${recordingPausedAt === null ? 'Recording' : 'Recording paused'} · ${recordingDuration}`}</span>
         {streamStatus.state === 'live' && <span className="control-bitrate">{streamStatus.bitrateKbps ?? 0} kb/s</span>}
       </div>
-      <div className="control-bottom"><button className="control-small" onClick={onToggleStudioMode}><Clapperboard size={14} />{studioMode ? 'Exit Studio Mode' : 'Studio Mode'}</button><button className="control-small" aria-label="Remux recording" title="Remux recording" disabled={working} onClick={onRemuxRecording}><FileVideo size={14} />Remux</button><button className="control-small" onClick={onOpenSettings}><Settings2 size={14} />Settings</button></div>
+      <div className="control-bottom"><button className="control-small" aria-label="Remux recording" title="Remux recording" disabled={working} onClick={onRemuxRecording}><FileVideo size={14} />Remux</button><button className="control-small" onClick={onOpenSettings}><Settings2 size={14} />Settings</button></div>
     </aside>
   );
 }
