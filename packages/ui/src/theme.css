@@ -443,6 +443,117 @@ body,
     letter-spacing: var(--text-paragraph-xs--letter-spacing);
     line-height: var(--text-paragraph-xs--line-height);
   }
+
+  /* MODAL (modal.tsx)
+     Base UI mounts the backdrop and popup as siblings in one portal, so each is
+     positioned fixed. Reconciled from the app back-fills: Stream's chrome wins
+     (860px shell, 9px radius, blurred 60% backdrop, bordered heading, no body
+     padding) over Cloud/Chord's 32rem, padded, 50% backdrop, borderless heading.
+     Apps narrow or pad a dialog by layering their own rule on `.modal`. */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: color-mix(in srgb, var(--color-black) 60%, transparent);
+    backdrop-filter: blur(5px);
+  }
+
+  .modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 51;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    width: min(860px, 95vw);
+    max-height: min(620px, 88vh);
+    overflow: hidden;
+    border: 1px solid var(--border-color-primary);
+    border-radius: 9px;
+    background: var(--background-color-primary);
+    color: var(--text-color-primary);
+    box-shadow: 0 22px 70px color-mix(in srgb, var(--color-black) 60%, transparent);
+    outline: none;
+  }
+
+  .modal > .modal-heading {
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color-primary);
+  }
+
+  .modal > .modal-heading h2 {
+    margin: 0;
+    color: var(--text-color-primary);
+    font-size: var(--text-lg);
+    font-weight: 600;
+  }
+
+  /* BUTTON (plain-button.tsx, and the Modal close button)
+     Cloud and Chord agree on the bordered label button and the borderless
+     `.icon` variant, so those are the base. Stream's 29px square icon button
+     differs only in size; it is not carried over. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-color-primary);
+    border-radius: 4px;
+    background: var(--background-color-tertiary);
+    color: var(--text-color-secondary);
+    font-size: var(--text-label-xs);
+    font-weight: var(--text-label-xs--font-weight);
+    letter-spacing: var(--text-label-xs--letter-spacing);
+    line-height: var(--text-label-xs--line-height);
+    cursor: pointer;
+    transition: color 150ms, background-color 150ms, border-color 150ms;
+  }
+
+  .btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--color-brand) 10%, transparent);
+    color: var(--text-color-primary);
+  }
+
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  .btn.icon {
+    padding: 6px;
+    border: 0;
+    background: transparent;
+    color: var(--text-color-tertiary);
+  }
+
+  .btn.icon:hover:not(:disabled) {
+    background: var(--background-color-tertiary);
+    color: var(--text-color-primary);
+  }
+
+  /* PANEL RESIZER (panel-resize.tsx)
+     Flux's treatment is the default: a permanent 4px rule that turns brand on
+     hover/focus. Stream instead hides a 2px bar inside a 6px hit area until
+     hover; offer that later as a variant if wanted. */
+  .panel-resizer {
+    flex: 0 0 4px;
+    background: var(--border-color-primary);
+    cursor: col-resize;
+    touch-action: none;
+  }
+
+  .panel-resizer:hover,
+  .panel-resizer:focus-visible {
+    background: var(--color-brand);
+    outline: none;
+  }
 }
 
 .all-unset {
