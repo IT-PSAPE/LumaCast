@@ -43,6 +43,7 @@ export {
   type UsePointContextMenuResult,
 } from './menu-entries';
 export { Menubar, type MenubarMenu, type MenubarProps } from './menubar';
+export { DropdownMenu, type DropdownMenuProps } from './dropdown-menu';
 export { Field, useFieldIds, type FieldProps, type FieldIds, type FieldLabelPlacement } from './field';
 export { TextField, type TextFieldProps } from './text-field';
 export { Textarea, type TextareaProps } from './textarea';
