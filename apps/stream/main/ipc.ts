@@ -255,6 +255,7 @@ export function registerStreamIpc(
     [IPC_CHANNELS.connectYouTubeAccount, (event) => { authorize(event); return youtubeLive.connect(); }],
     [IPC_CHANNELS.disconnectYouTubeAccount, (event) => { authorize(event); return youtubeLive.disconnect(); }],
     [IPC_CHANNELS.listYouTubeBroadcasts, (event) => { authorize(event); return youtubeLive.listBroadcasts(); }],
+    [IPC_CHANNELS.getYouTubeLiveDetails, (event, broadcastIdValue: unknown) => { authorize(event); return youtubeLive.getLiveDetails(broadcastIdValue); }],
     [IPC_CHANNELS.createYouTubeBroadcast, (event, draft: YouTubeBroadcastDraft) => { authorize(event); return youtubeLive.createBroadcast(draft); }],
     [IPC_CHANNELS.startYouTubeStreaming, (event, broadcastId: string, settings: StreamOutputSettings) => { authorize(event); return youtubeLive.startBroadcast(broadcastId, settings); }],
     [IPC_CHANNELS.getZoomAccount, (event) => { authorize(event); return zoomLive.getAccount(); }],

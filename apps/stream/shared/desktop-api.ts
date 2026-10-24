@@ -416,6 +416,7 @@ export interface StreamAPI {
   connectYouTubeAccount(): Promise<YouTubeAccount>;
   disconnectYouTubeAccount(): Promise<void>;
   listYouTubeBroadcasts(): Promise<YouTubeBroadcast[]>;
+  getYouTubeLiveDetails(broadcastId: string): Promise<YouTubeLiveDetails>;
   createYouTubeBroadcast(draft: YouTubeBroadcastDraft): Promise<YouTubeBroadcast>;
   startYouTubeStreaming(broadcastId: string, settings: StreamOutputSettings): Promise<string>;
   getZoomAccount(): Promise<ZoomAccount | null>;
@@ -504,6 +505,24 @@ export interface YouTubeBroadcast {
   status: string;
   privacy: YouTubePrivacy;
   thumbnailUrl: string;
+}
+
+export type YouTubeLiveHealth = 'waiting' | 'excellent' | 'warning' | 'error';
+
+export interface YouTubeLiveNotice {
+  severity: 'warning' | 'error' | 'info';
+  title: string;
+  description: string;
+  type: string;
+}
+
+/** Read-only YouTube details for one broadcast, limited to fields exposed by the Data API. */
+export interface YouTubeLiveDetails {
+  title: string | null;
+  currentViewers: number | null;
+  viewCount: number | null;
+  health: YouTubeLiveHealth;
+  notices: YouTubeLiveNotice[];
 }
 
 export interface YouTubeBroadcastDraft {

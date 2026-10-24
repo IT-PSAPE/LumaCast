@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { StreamOutputSettings, YouTubeAccount, YouTubeBroadcast, YouTubeBroadcastDraft } from '../shared/desktop-api';
+import type { StreamOutputSettings, YouTubeAccount, YouTubeBroadcast, YouTubeBroadcastDraft, YouTubeLiveDetails, YouTubeLiveNotice } from '../shared/desktop-api';
 import { StreamOutput } from './stream-output';
 import { electronSecureStorage, type SecureStorage } from './secure-storage';
 
@@ -50,8 +50,91 @@ interface YouTubeBroadcastResource {
 
 interface YouTubeStreamResource {
   id?: string;
-  status?: { streamStatus?: string };
+  status?: {
+    streamStatus?: string;
+    healthStatus?: {
+      status?: string;
+      configurationIssues?: Array<{
+        type?: string;
+        reason?: string;
+        severity?: string;
+        description?: string;
+      }>;
+    };
+  };
   cdn?: { ingestionInfo?: { rtmpsIngestionAddress?: string; streamName?: string } };
+}
+
+interface YouTubeVideoResource {
+  id?: string;
+  snippet?: { title?: string };
+  statistics?: { viewCount?: string | number };
+  liveStreamingDetails?: { concurrentViewers?: string | number };
+  status?: { uploadStatus?: string; failureReason?: string; rejectionReason?: string };
+}
+
+function optionalText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+function apiCount(value: unknown): number | null {
+  if (typeof value !== 'number' && (typeof value !== 'string' || !/^\d+$/.test(value))) return null;
+  const count = typeof value === 'number' ? value : Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : null;
+}
+
+function liveHealth(value: unknown): YouTubeLiveDetails['health'] {
+  if (value === 'good') return 'excellent';
+  if (value === 'ok') return 'warning';
+  if (value === 'bad') return 'error';
+  return 'waiting';
+}
+
+function displayIssueType(value: string): string {
+  return value.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').replace(/^\w/, (letter) => letter.toUpperCase());
+}
+
+function streamHealthNotices(stream: YouTubeStreamResource | undefined): YouTubeLiveNotice[] {
+  const issues = stream?.status?.healthStatus?.configurationIssues ?? [];
+  const notices: YouTubeLiveNotice[] = [];
+  for (const issue of issues) {
+    if (issue.severity !== 'info' && issue.severity !== 'warning' && issue.severity !== 'error') continue;
+    const type = optionalText(issue.type, 100);
+    const description = optionalText(issue.description, 1000) ?? optionalText(issue.reason, 180);
+    if (!type || !description) continue;
+    notices.push({ severity: issue.severity, title: optionalText(issue.reason, 180) ?? displayIssueType(type), description, type });
+  }
+  return notices;
+}
+
+function videoStatusNotice(video: YouTubeVideoResource | undefined): YouTubeLiveNotice | null {
+  const status = video?.status;
+  if (!status) return null;
+  if (status.uploadStatus === 'rejected') {
+    const reason = optionalText(status.rejectionReason, 100);
+    return {
+      severity: 'error',
+      title: 'Video rejected',
+      description: reason ? `YouTube rejected this video for ${displayIssueType(reason).toLowerCase()}.` : 'YouTube rejected this video.',
+      type: `rejected${reason ? `:${reason}` : ''}`,
+    };
+  }
+  if (status.uploadStatus === 'failed') {
+    const reason = optionalText(status.failureReason, 100);
+    return {
+      severity: 'error',
+      title: 'Video upload failed',
+      description: reason ? `YouTube reported a video upload failure: ${displayIssueType(reason).toLowerCase()}.` : 'YouTube reported a video upload failure.',
+      type: `failed${reason ? `:${reason}` : ''}`,
+    };
+  }
+  return null;
+}
+
+function emptyLiveDetails(): YouTubeLiveDetails {
+  return { title: null, currentViewers: null, viewCount: null, health: 'waiting', notices: [] };
 }
 
 function base64Url(value: Buffer): string {
@@ -86,11 +169,11 @@ function parseApiError(body: unknown, status: number): Error {
 
 function broadcastSummary(resource: YouTubeBroadcastResource): YouTubeBroadcast {
   const id = resource.id;
-  if (!id) throw new Error('YouTube returned a broadcast without an ID.');
+  if (!id) throw new Error('YouTube returned a stream without an ID.');
   const thumbnails = resource.snippet?.thumbnails;
   return {
     id,
-    title: resource.snippet?.title ?? 'Untitled broadcast',
+    title: resource.snippet?.title ?? 'Untitled stream',
     description: resource.snippet?.description ?? '',
     scheduledStartTime: resource.snippet?.scheduledStartTime ?? '',
     status: resource.status?.lifeCycleStatus ?? 'created',
@@ -103,10 +186,10 @@ function createBroadcastBody(draft: YouTubeBroadcastDraft): Record<string, unkno
   const title = draft.title.trim();
   const description = draft.description.trim();
   const start = Date.parse(draft.scheduledStartTime);
-  if (!title || title.length > 100) throw new Error('Enter a broadcast title between 1 and 100 characters.');
-  if (description.length > 5000) throw new Error('The broadcast description is too long.');
-  if (!Number.isFinite(start) || start < Date.now() - 60_000) throw new Error('Choose a valid broadcast start time in the future.');
-  if (draft.privacy !== 'public' && draft.privacy !== 'unlisted' && draft.privacy !== 'private') throw new Error('Choose a valid broadcast privacy setting.');
+  if (!title || title.length > 100) throw new Error('Enter a stream title between 1 and 100 characters.');
+  if (description.length > 5000) throw new Error('The stream description is too long.');
+  if (!Number.isFinite(start) || start < Date.now() - 60_000) throw new Error('Choose a valid stream start time in the future.');
+  if (draft.privacy !== 'public' && draft.privacy !== 'unlisted' && draft.privacy !== 'private') throw new Error('Choose a valid stream privacy setting.');
   return {
     snippet: { title, description, scheduledStartTime: new Date(start).toISOString() },
     status: { privacyStatus: draft.privacy },
@@ -190,11 +273,42 @@ export class YouTubeLiveService {
       broadcasts.push(...(result.items ?? []).map(broadcastSummary));
       const nextPageToken = result.nextPageToken ?? '';
       if (!nextPageToken) break;
-      if (seenPageTokens.has(nextPageToken)) throw new Error('YouTube returned a repeated broadcast page token.');
+      if (seenPageTokens.has(nextPageToken)) throw new Error('YouTube returned a repeated stream page token.');
       seenPageTokens.add(nextPageToken);
       pageToken = nextPageToken;
     }
     return broadcasts;
+  }
+
+  async getLiveDetails(broadcastIdValue: unknown): Promise<YouTubeLiveDetails> {
+    if (typeof broadcastIdValue !== 'string' || !/^[A-Za-z0-9_-]{6,128}$/.test(broadcastIdValue)) throw new Error('Select a valid YouTube stream.');
+    const broadcastId = broadcastIdValue;
+    const broadcastParams = new URLSearchParams({ id: broadcastId, part: 'id,snippet,contentDetails' });
+    const broadcastResponse = await this.apiRequest<{ items?: YouTubeBroadcastResource[] }>(`liveBroadcasts?${broadcastParams}`);
+    const broadcast = broadcastResponse.items?.find((item) => item.id === broadcastId);
+    if (!broadcast) return emptyLiveDetails();
+
+    const videoParams = new URLSearchParams({ id: broadcastId, part: 'id,snippet,statistics,liveStreamingDetails,status' });
+    const streamId = broadcast.contentDetails?.boundStreamId;
+    const [videoResponse, streamResponse] = await Promise.all([
+      this.apiRequest<{ items?: YouTubeVideoResource[] }>(`videos?${videoParams}`),
+      streamId
+        ? this.apiRequest<{ items?: YouTubeStreamResource[] }>(`liveStreams?${new URLSearchParams({ id: streamId, part: 'id,status' })}`)
+        : Promise.resolve(undefined),
+    ]);
+    const video = videoResponse.items?.find((item) => item.id === broadcastId);
+    const stream = streamId ? streamResponse?.items?.find((item) => item.id === streamId) : undefined;
+    const notices = streamHealthNotices(stream);
+    const statusNotice = videoStatusNotice(video);
+    if (statusNotice) notices.push(statusNotice);
+
+    return {
+      title: optionalText(video?.snippet?.title, 300) ?? optionalText(broadcast.snippet?.title, 300),
+      currentViewers: apiCount(video?.liveStreamingDetails?.concurrentViewers),
+      viewCount: apiCount(video?.statistics?.viewCount),
+      health: liveHealth(stream?.status?.healthStatus?.status),
+      notices,
+    };
   }
 
   async createBroadcast(draft: YouTubeBroadcastDraft): Promise<YouTubeBroadcast> {
@@ -206,12 +320,12 @@ export class YouTubeLiveService {
   }
 
   async startBroadcast(broadcastIdValue: unknown, settings: StreamOutputSettings): Promise<string> {
-    if (typeof broadcastIdValue !== 'string' || !/^[A-Za-z0-9_-]{6,128}$/.test(broadcastIdValue)) throw new Error('Select a valid YouTube broadcast.');
+    if (typeof broadcastIdValue !== 'string' || !/^[A-Za-z0-9_-]{6,128}$/.test(broadcastIdValue)) throw new Error('Select a valid YouTube stream.');
     const broadcastId = broadcastIdValue;
     const broadcastResponse = await this.apiRequest<{ items?: YouTubeBroadcastResource[] }>(`liveBroadcasts?${new URLSearchParams({ id: broadcastId, part: 'id,snippet,status,contentDetails' })}`);
     const broadcast = broadcastResponse.items?.[0];
-    if (!broadcast || !broadcast.id) throw new Error('The selected YouTube broadcast could not be found. Refresh the broadcast list.');
-    if (broadcast.status?.lifeCycleStatus === 'complete' || broadcast.status?.lifeCycleStatus === 'revoked') throw new Error('This YouTube broadcast has already ended.');
+    if (!broadcast || !broadcast.id) throw new Error('The selected YouTube stream could not be found. Refresh the stream list.');
+    if (broadcast.status?.lifeCycleStatus === 'complete' || broadcast.status?.lifeCycleStatus === 'revoked') throw new Error('This YouTube stream has already ended.');
 
     let streamId = broadcast.contentDetails?.boundStreamId;
     if (!streamId) {
@@ -234,7 +348,7 @@ export class YouTubeLiveService {
 
     const streamResponse = await this.apiRequest<{ items?: YouTubeStreamResource[] }>(`liveStreams?${new URLSearchParams({ id: streamId, part: 'id,cdn,status' })}`);
     const stream = streamResponse.items?.[0];
-    if (!stream) throw new Error('The selected YouTube broadcast ingest stream could not be loaded.');
+    if (!stream) throw new Error('The selected YouTube stream ingest details could not be loaded.');
     const destination = this.ingestDestination(stream);
     const outputId = this.output.start(destination, this.youtubeSettings(settings), 'youtube', 'external');
     this.broadcastsByOutput.set(outputId, broadcastId);
@@ -403,7 +517,7 @@ export class YouTubeLiveService {
 
   private ingestDestination(stream: YouTubeStreamResource): string {
     const info = stream.cdn?.ingestionInfo;
-    if (!info?.rtmpsIngestionAddress || !info.streamName) throw new Error('YouTube did not return RTMPS ingest details for this broadcast.');
+    if (!info?.rtmpsIngestionAddress || !info.streamName) throw new Error('YouTube did not return RTMPS ingest details for this stream.');
     return buildIngestDestination(info.rtmpsIngestionAddress, info.streamName);
   }
 
@@ -450,7 +564,7 @@ export class YouTubeLiveService {
           await this.apiRequest(`liveBroadcasts/transition?${params}`, { method: 'POST' });
         };
         let state = await readState();
-        if (state === 'complete' || state === 'revoked') throw new Error('YouTube ended or revoked this broadcast before it went live.');
+        if (state === 'complete' || state === 'revoked') throw new Error('YouTube ended or revoked this stream before it went live.');
         if (state !== 'live' && state !== 'liveStarting') {
           if (monitorStreamEnabled && state !== 'testing' && state !== 'testStarting') {
             await transition('testing');
@@ -462,9 +576,9 @@ export class YouTubeLiveService {
               await wait(1500, controller.signal);
               if (controller.signal.aborted) return;
               state = await readState();
-              if (state === 'complete' || state === 'revoked') throw new Error('YouTube ended or revoked this broadcast before it went live.');
+              if (state === 'complete' || state === 'revoked') throw new Error('YouTube ended or revoked this stream before it went live.');
             }
-            if (state === 'testStarting') throw new Error('YouTube did not finish preparing the broadcast preview. Check YouTube Studio and try again.');
+            if (state === 'testStarting') throw new Error('YouTube did not finish preparing the stream preview. Check YouTube Studio and try again.');
           }
           if (state !== 'live' && state !== 'liveStarting') await transition('live');
         }
@@ -473,13 +587,13 @@ export class YouTubeLiveService {
           await wait(1500, controller.signal);
           if (controller.signal.aborted) return;
           state = await readState();
-          if (state === 'complete' || state === 'revoked') throw new Error('YouTube ended or revoked this broadcast before it went live.');
+          if (state === 'complete' || state === 'revoked') throw new Error('YouTube ended or revoked this stream before it went live.');
         }
-        if (state !== 'live') throw new Error('YouTube did not finish starting the broadcast. Check YouTube Studio and try again.');
+        if (state !== 'live') throw new Error('YouTube did not finish starting the stream. Check YouTube Studio and try again.');
         this.output.reportStatus(outputId, { state: 'live' });
       } catch (error) {
         if (controller.signal.aborted) return;
-        const message = error instanceof Error ? error.message : 'YouTube could not start the selected broadcast.';
+        const message = error instanceof Error ? error.message : 'YouTube could not start the selected stream.';
         this.output.reportStatus(outputId, { state: 'error', message });
         await this.output.stop(outputId).catch(() => undefined);
         this.broadcastsByOutput.delete(outputId);

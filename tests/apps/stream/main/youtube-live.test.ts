@@ -70,6 +70,10 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
+function requestUrl(input: RequestInfo | URL): URL {
+  return new URL(String(input));
+}
+
 describe('YouTube Live integration', () => {
   it('creates an S256 PKCE challenge from a high-entropy verifier', () => {
     const { verifier, challenge } = createYouTubePkce();
@@ -135,8 +139,166 @@ describe('YouTube Live integration', () => {
     expect(calls[1]?.init?.method).toBe('POST');
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ snippet: { title: 'Launch stream', description: 'Product launch' }, status: { privacyStatus: 'private' }, contentDetails: { enableAutoStop: true } });
     expect(created).toMatchObject({ id: 'broadcast-2', title: 'Launch stream' });
-    await expect(service.createBroadcast({ title: '', description: '', privacy: 'unlisted', broadcastId: '', scheduledStartTime: '' })).rejects.toThrow('broadcast title');
+    await expect(service.createBroadcast({ title: '', description: '', privacy: 'unlisted', broadcastId: '', scheduledStartTime: '' })).rejects.toThrow('stream title');
     expect(calls).toHaveLength(2);
+  });
+
+  it('reads live title, viewer count, view count, and health without changing the broadcast', async () => {
+    const requests: Array<{ url: URL; init?: RequestInit }> = [];
+    const fetcher: typeof fetch = vi.fn(async (input, init) => {
+      const url = requestUrl(input);
+      requests.push({ url, init });
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ items: [{ id: 'broadcast-123', snippet: { title: 'Scheduled title' }, contentDetails: { boundStreamId: 'stream-123' } }] });
+      if (url.pathname.endsWith('/videos')) return jsonResponse({ items: [{ id: 'broadcast-123', snippet: { title: 'Live title' }, statistics: { viewCount: '1234' }, liveStreamingDetails: { concurrentViewers: '57' } }] });
+      if (url.pathname.endsWith('/liveStreams')) return jsonResponse({ items: [{ id: 'stream-123', status: { healthStatus: { status: 'good', configurationIssues: [] } } }] });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    await expect(service.getLiveDetails('broadcast-123')).resolves.toEqual({
+      title: 'Live title',
+      currentViewers: 57,
+      viewCount: 1234,
+      health: 'excellent',
+      notices: [],
+    });
+
+    expect(requests).toHaveLength(3);
+    expect(requests.map(({ url }) => [url.pathname.split('/').pop(), url.searchParams.get('part'), url.searchParams.get('id')])).toEqual(expect.arrayContaining([
+      ['liveBroadcasts', 'id,snippet,contentDetails', 'broadcast-123'],
+      ['videos', 'id,snippet,statistics,liveStreamingDetails,status', 'broadcast-123'],
+      ['liveStreams', 'id,status', 'stream-123'],
+    ]));
+    expect(requests.every(({ init }) => init?.method === undefined || init.method === 'GET')).toBe(true);
+    expect(requests.every(({ init }) => new Headers(init?.headers).get('authorization') === 'Bearer access-token')).toBe(true);
+  });
+
+  it('keeps private or unavailable video metrics null', async () => {
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ items: [{ id: 'broadcast-123', snippet: { title: 'Private stream' }, contentDetails: { boundStreamId: 'stream-123' } }] });
+      if (url.pathname.endsWith('/videos')) return jsonResponse({ items: [{ id: 'broadcast-123', snippet: { title: 'Private stream' }, status: { privacyStatus: 'private' } }] });
+      if (url.pathname.endsWith('/liveStreams')) return jsonResponse({ items: [{ id: 'stream-123', status: { healthStatus: { status: 'good' } } }] });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    await expect(service.getLiveDetails('broadcast-123')).resolves.toMatchObject({
+      title: 'Private stream',
+      currentViewers: null,
+      viewCount: null,
+      health: 'excellent',
+    });
+  });
+
+  it('returns waiting health when the broadcast is not bound to an ingest stream', async () => {
+    const requests: URL[] = [];
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      requests.push(url);
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ items: [{ id: 'broadcast-123', snippet: { title: 'Unbound stream' } }] });
+      if (url.pathname.endsWith('/videos')) return jsonResponse({ items: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    await expect(service.getLiveDetails('broadcast-123')).resolves.toEqual({
+      title: 'Unbound stream',
+      currentViewers: null,
+      viewCount: null,
+      health: 'waiting',
+      notices: [],
+    });
+    expect(requests.some((url) => url.pathname.endsWith('/liveStreams'))).toBe(false);
+  });
+
+  it('maps real stream configuration warnings and errors to notices', async () => {
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ items: [{ id: 'broadcast-123', contentDetails: { boundStreamId: 'stream-123' } }] });
+      if (url.pathname.endsWith('/videos')) return jsonResponse({ items: [] });
+      if (url.pathname.endsWith('/liveStreams')) return jsonResponse({ items: [{ id: 'stream-123', status: { healthStatus: {
+        status: 'bad',
+        configurationIssues: [
+          { type: 'videoBitrateHigh', severity: 'warning', description: 'The video bitrate is above the recommended range.' },
+          { type: 'audioCodec', severity: 'error', description: 'The audio codec is unsupported.' },
+        ],
+      } } }] });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    const details = await service.getLiveDetails('broadcast-123');
+
+    expect(details.health).toBe('error');
+    expect(details.notices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'warning', type: 'videoBitrateHigh', description: 'The video bitrate is above the recommended range.' }),
+      expect.objectContaining({ severity: 'error', type: 'audioCodec', description: 'The audio codec is unsupported.' }),
+    ]));
+    expect(details.notices.every((notice) => notice.title.length > 0)).toBe(true);
+    expect(details.notices.some((notice) => notice.type.toLowerCase().includes('copyright'))).toBe(false);
+  });
+
+  it('does not turn malformed API counts into viewer or view metrics', async () => {
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ items: [{ id: 'broadcast-123', contentDetails: { boundStreamId: 'stream-123' } }] });
+      if (url.pathname.endsWith('/videos')) return jsonResponse({ items: [{ id: 'broadcast-123', statistics: { viewCount: 'many' }, liveStreamingDetails: { concurrentViewers: '-5' } }] });
+      if (url.pathname.endsWith('/liveStreams')) return jsonResponse({ items: [{ id: 'stream-123', status: { healthStatus: { status: 'ok' } } }] });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    await expect(service.getLiveDetails('broadcast-123')).resolves.toMatchObject({
+      currentViewers: null,
+      viewCount: null,
+      health: 'warning',
+    });
+  });
+
+  it('rejects invalid broadcast ids before making any API request', async () => {
+    const fetcher: typeof fetch = vi.fn() as typeof fetch;
+    const { service } = await createService(fetcher);
+
+    for (const broadcastId of [null, 'short', 'bad/id']) {
+      await expect(service.getLiveDetails(broadcastId)).rejects.toThrow('Select a valid YouTube stream.');
+    }
+
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a copyright rejection only when YouTube returns that status signal', async () => {
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ items: [{ id: 'broadcast-123', snippet: { title: 'Rejected stream' } }] });
+      if (url.pathname.endsWith('/videos')) return jsonResponse({ items: [{ id: 'broadcast-123', status: { uploadStatus: 'rejected', rejectionReason: 'copyright' } }] });
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    const details = await service.getLiveDetails('broadcast-123');
+
+    expect(details.notices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: 'error', type: 'rejected:copyright' }),
+    ]));
+  });
+
+  it('surfaces YouTube authorization failures instead of returning empty details', async () => {
+    const fetcher: typeof fetch = vi.fn(async (input) => {
+      const url = requestUrl(input);
+      if (url.pathname.endsWith('/liveBroadcasts')) return jsonResponse({ error: { message: 'Forbidden' } }, 403);
+      throw new Error(`Unexpected request: ${url}`);
+    }) as typeof fetch;
+    const { directory, service } = await createService(fetcher);
+    await storeAuth(directory);
+
+    await expect(service.getLiveDetails('broadcast-123')).rejects.toThrow('YouTube denied access.');
   });
 
   it('refreshes an expired access token before making the YouTube request', async () => {
@@ -190,7 +352,7 @@ describe('YouTube Live integration', () => {
         if (broadcastState === 'liveStarting') broadcastState = 'live';
         return jsonResponse({ items: [{ id: 'broadcast-1', status: { lifeCycleStatus: broadcastState } }] });
       }
-      if (url.includes('/liveBroadcasts?')) return jsonResponse({ items: [{ id: 'broadcast-1', snippet: { title: 'Town Hall', scheduledStartTime: new Date(Date.now() - 1000).toISOString() }, status: { lifeCycleStatus: 'ready' } }] });
+      if (url.includes('/liveBroadcasts?')) return jsonResponse({ items: [{ id: 'broadcast-1', snippet: { title: 'Town Hall', scheduledStartTime: new Date(Date.now() - 1000).toISOString() }, status: { lifeCycleStatus: 'ready' }, contentDetails: { monitorStream: { enableMonitorStream: false } } }] });
       if (url.includes('/liveStreams?') && init?.method === 'POST') return jsonResponse({ id: 'stream-1', cdn: { ingestionInfo: { rtmpsIngestionAddress: 'rtmps://a.rtmps.youtube.com:443/live2', streamName: 'secret-stream-key' } } });
       if (url.includes('/liveBroadcasts/bind?')) return jsonResponse({ id: 'broadcast-1' });
       if (url.includes('/liveStreams?') && url.includes('part=id%2Ccdn%2Cstatus')) return jsonResponse({ items: [{ id: 'stream-1', status: { streamStatus: 'inactive' }, cdn: { ingestionInfo: { rtmpsIngestionAddress: 'rtmps://a.rtmps.youtube.com:443/live2', streamName: 'secret-stream-key' } } }] });

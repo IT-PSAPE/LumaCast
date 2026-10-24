@@ -38,6 +38,7 @@ export const IPC_CHANNELS = {
   connectYouTubeAccount: 'stream:connect-youtube-account',
   disconnectYouTubeAccount: 'stream:disconnect-youtube-account',
   listYouTubeBroadcasts: 'stream:list-youtube-broadcasts',
+  getYouTubeLiveDetails: 'stream:get-youtube-live-details',
   createYouTubeBroadcast: 'stream:create-youtube-broadcast',
   startYouTubeStreaming: 'stream:start-youtube-output',
   getZoomAccount: 'stream:get-zoom-account',

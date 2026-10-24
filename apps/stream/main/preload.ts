@@ -72,6 +72,7 @@ const api: StreamAPI = {
   connectYouTubeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.connectYouTubeAccount),
   disconnectYouTubeAccount: () => ipcRenderer.invoke(IPC_CHANNELS.disconnectYouTubeAccount),
   listYouTubeBroadcasts: () => ipcRenderer.invoke(IPC_CHANNELS.listYouTubeBroadcasts),
+  getYouTubeLiveDetails: (broadcastId) => ipcRenderer.invoke(IPC_CHANNELS.getYouTubeLiveDetails, broadcastId),
   createYouTubeBroadcast: (draft) => ipcRenderer.invoke(IPC_CHANNELS.createYouTubeBroadcast, draft),
   startYouTubeStreaming: (broadcastId, settings) => ipcRenderer.invoke(IPC_CHANNELS.startYouTubeStreaming, broadcastId, settings),
   getZoomAccount: () => ipcRenderer.invoke(IPC_CHANNELS.getZoomAccount),
