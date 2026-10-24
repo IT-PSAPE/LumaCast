@@ -199,13 +199,6 @@ function buildSceneCollectionMenu(context: AppMenuContext): MenubarMenu {
   const { actions } = context;
   const hasActive = context.activeCollectionId !== null;
   const entries: MenuEntry[] = [
-    ...context.collections.map((collection): MenuEntry => ({
-      id: `sceneCollection.${collection.id}`,
-      label: collection.name,
-      checked: collection.id === context.activeCollectionId,
-      onSelect: () => actions.activateCollection(collection.id),
-    })),
-    { separator: true },
     { id: 'sceneCollection.new', label: 'New…', onSelect: actions.newCollection },
     { id: 'sceneCollection.duplicate', label: 'Duplicate…', disabled: !hasActive, onSelect: actions.duplicateCollection },
     { id: 'sceneCollection.rename', label: 'Rename…', disabled: !hasActive, onSelect: actions.renameCollection },
@@ -213,6 +206,13 @@ function buildSceneCollectionMenu(context: AppMenuContext): MenubarMenu {
     { separator: true },
     { id: 'sceneCollection.import', label: 'Import…', onSelect: actions.importCollection },
     { id: 'sceneCollection.export', label: 'Export…', onSelect: actions.exportCollection },
+    { separator: true },
+    ...context.collections.map((collection): MenuEntry => ({
+      id: `sceneCollection.${collection.id}`,
+      label: collection.name,
+      checked: collection.id === context.activeCollectionId,
+      onSelect: () => actions.activateCollection(collection.id),
+    })),
   ];
   return { id: 'sceneCollection', label: 'Scene Collection', entries };
 }

@@ -1,6 +1,7 @@
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Menu } from '@base-ui/react/menu';
 import { Menu as MenuIcon } from 'lucide-react';
-import { PointContextMenu, usePointContextMenu, type MenuEntry, type MenubarMenu } from '@lumacast/ui';
+import { CONTEXT_MENU_SURFACE_CLASSES, MenuEntries, useOverlayContainer, type MenuEntry, type MenubarMenu } from '@lumacast/ui';
 import type { StreamPlatform } from '../../shared/platform-capabilities';
 import './title-bar.css';
 
@@ -38,24 +39,8 @@ export function TitleBar({ platform, menuMode, menus, title, children }: TitleBa
     }
   }, []);
 
-  const hamburgerMenu = usePointContextMenu();
-  const hamburgerButtonRef = useRef<HTMLButtonElement | null>(null);
-
-  const openHamburgerMenu = () => {
-    const button = hamburgerButtonRef.current;
-    if (!button) return;
-    const rect = button.getBoundingClientRect();
-    hamburgerMenu.show({ clientX: rect.left, clientY: rect.bottom, preventDefault() {} });
-  };
-
-  const onHamburgerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
-    // No Alt-key gate (unlike classic Windows menu bars) — this is our own
-    // button, not a native one, so Enter/Space/ArrowDown just open it.
-    if (event.key === 'Enter' || event.key === ' ' || event.key === 'ArrowDown') {
-      event.preventDefault();
-      openHamburgerMenu();
-    }
-  };
+  const [hamburgerMenuOpen, setHamburgerMenuOpen] = useState(false);
+  const overlayContainer = useOverlayContainer();
 
   // OBS 31's hamburger menu: one menu whose items are File/Edit/View/Docks/
   // Profile/Scene Collection/Help, each opening its existing entries as a submenu.
@@ -64,30 +49,28 @@ export function TitleBar({ platform, menuMode, menus, title, children }: TitleBa
   return (
     <div className="title-bar" data-platform={platform}>
       {menuMode === 'hamburger' && (
-        <button
-          ref={hamburgerButtonRef}
-          type="button"
-          className="title-bar-hamburger no-drag"
-          aria-label="Menu"
-          aria-haspopup="menu"
-          aria-expanded={hamburgerMenu.open}
-          onClick={openHamburgerMenu}
-          onKeyDown={onHamburgerKeyDown}
-        >
-          <MenuIcon size={16} aria-hidden="true" />
-        </button>
+        <Menu.Root open={hamburgerMenuOpen} onOpenChange={setHamburgerMenuOpen} modal={false}>
+          <Menu.Trigger
+            type="button"
+            className="title-bar-hamburger no-drag"
+            aria-label="Menu"
+          >
+            <MenuIcon size={16} aria-hidden="true" />
+          </Menu.Trigger>
+          <Menu.Portal container={overlayContainer}>
+            <Menu.Positioner className="outline-hidden" side="bottom" sideOffset={2} align="start">
+              <Menu.Popup
+                className={CONTEXT_MENU_SURFACE_CLASSES}
+                aria-label={`${title} menu`}
+              >
+                <MenuEntries entries={hamburgerEntries} onClose={() => setHamburgerMenuOpen(false)} />
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
       )}
-      <div className="title-bar-title">{title}</div>
+      <div className="title-bar-title"><span>{title}</span></div>
       {children ? <div className="title-bar-end no-drag">{children}</div> : null}
-      {menuMode === 'hamburger' && (
-        <PointContextMenu
-          open={hamburgerMenu.open}
-          position={hamburgerMenu.position}
-          entries={hamburgerEntries}
-          label={title}
-          onClose={hamburgerMenu.close}
-        />
-      )}
     </div>
   );
 }

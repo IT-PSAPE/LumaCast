@@ -41,14 +41,19 @@ describe('TitleBar', () => {
       }
     });
 
-    it('opens from the keyboard via Enter, Space, or ArrowDown — no Alt key required', async () => {
-      for (const key of ['Enter', ' ', 'ArrowDown']) {
-        const { unmount } = render(<TitleBar platform="linux" menuMode="hamburger" menus={makeMenus()} title="LumaStream" />);
-        fireEvent.keyDown(screen.getByRole('button', { name: 'Menu' }), { key });
-        await settle();
-        expect(screen.getByRole('menu')).toBeInTheDocument();
-        unmount();
-      }
+    // Enter/Space activation comes from the native button; jsdom keydown alone
+    // does not synthesize that click. ArrowDown is the menu-specific behavior.
+    it('opens with ArrowDown and returns focus to the trigger on Escape', async () => {
+      render(<TitleBar platform="linux" menuMode="hamburger" menus={makeMenus()} title="LumaStream" />);
+      const trigger = screen.getByRole('button', { name: 'Menu' });
+      act(() => trigger.focus());
+      fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+      await settle();
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+      fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+      await settle();
+      expect(screen.queryByRole('menu')).toBeNull();
+      expect(trigger).toHaveFocus();
     });
   });
 
