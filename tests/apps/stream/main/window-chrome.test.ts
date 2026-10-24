@@ -14,7 +14,7 @@ describe('mainWindowChromeOptions', () => {
     const options = mainWindowChromeOptions('win32');
     expect(options).toEqual({
       titleBarStyle: 'hidden',
-      titleBarOverlay: { color: '#191c22', symbolColor: '#cbd1d9', height: TITLE_BAR_HEIGHT },
+      titleBarOverlay: { color: '#171717', symbolColor: '#CBCBCB', height: TITLE_BAR_HEIGHT },
     });
     expect(options.trafficLightPosition).toBeUndefined();
   });

@@ -1,8 +1,7 @@
 /* Audio Mixer dock: channel strips plus the title-row options menu and
  * per-channel gear menu (rendered by mixer-dock.tsx via packages/ui's
  * PointContextMenu, styled there). Component-local — only selectors under
- * `.mixer-strip*` live here — using the shared tokens declared on :root in
- * apps/stream/renderer/style.css. `.mixer-dock` and `.mixer-empty` are
+ * `.mixer-strip*` live here — using Cast's shared semantic theme. `.mixer-dock` and `.mixer-empty` are
  * already styled there and left alone. */
 
 .mixer-strips {
@@ -29,9 +28,9 @@
   flex-direction: column;
   gap: 7px;
   padding: 8px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border-color-secondary);
   border-radius: 5px;
-  background: linear-gradient(180deg, var(--panel-raised), var(--panel-low));
+  background: var(--background-color-secondary);
 }
 
 .mixer-strip--horizontal {
@@ -55,22 +54,22 @@
   gap: 5px;
 }
 
-.mixer-strip-icon { display: grid; color: #d39a74; }
+.mixer-strip-icon { display: grid; color: var(--text-color-tertiary); }
 
 .mixer-strip-name {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: var(--muted-2);
-  font-size: 9px;
+  color: var(--text-color-secondary);
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .mixer-strip--horizontal .mixer-strip-head { width: 100%; }
-.mixer-strip--horizontal .mixer-strip-db { flex: 0 0 auto; margin-left: auto; color: var(--muted-2); }
+.mixer-strip--horizontal .mixer-strip-db { flex: 0 0 auto; margin-left: auto; color: var(--text-color-secondary); }
 .mixer-strip--vertical .mixer-strip-head { width: 100%; gap: 4px; }
-.mixer-strip--vertical .mixer-strip-name { font-size: 8px; }
+.mixer-strip--vertical .mixer-strip-name { font-size: var(--text-sm); }
 .mixer-strip--vertical .mixer-strip-db { align-self: flex-start; }
 
 .mixer-mute, .mixer-gear {
@@ -80,23 +79,23 @@
   display: grid;
   place-items: center;
   border-radius: 3px;
-  color: var(--muted);
+  color: var(--text-color-tertiary);
   background: transparent;
   cursor: pointer;
 }
 
-.mixer-mute:hover, .mixer-gear:hover { color: var(--text); background: var(--line-soft); }
+.mixer-mute:hover, .mixer-gear:hover { color: var(--text-color-primary); background: var(--border-color-secondary); }
 
 .mixer-strip-controls { display: flex; gap: 4px; }
 
 .mixer-strip-fader-row { width: 100%; min-width: 0; display: flex; align-items: center; gap: 5px; }
 .mixer-strip-fader-row .mixer-fader { width: auto; min-width: 0; flex: 1; }
-.mixer-strip-volume { flex: 0 0 auto; color: var(--muted); font: 8px 'Segoe UI', sans-serif; text-align: right; }
+.mixer-strip-volume { flex: 0 0 auto; color: var(--text-color-tertiary); font: var(--text-sm)/1.4 var(--font-family-sans); text-align: right; }
 
 input.mixer-fader {
   width: 100%;
   margin: 0;
-  accent-color: var(--teal);
+  accent-color: var(--color-brand);
 }
 
 .mixer-strip-visual {
@@ -117,7 +116,7 @@ input.mixer-fader--vertical {
   height: 100%;
 }
 
-.mixer-strip-db { color: var(--muted); font: 9px 'Segoe UI', sans-serif; }
+.mixer-strip-db { color: var(--text-color-tertiary); font: var(--text-sm)/1.4 var(--font-family-sans); }
 
 @media (max-width: 1100px) {
   .mixer-strips { gap: 5px; }

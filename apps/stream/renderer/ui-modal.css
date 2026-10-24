@@ -20,7 +20,7 @@
   position: fixed;
   z-index: 50;
   inset: 0;
-  background: #080a0ecc;
+  background: color-mix(in srgb, var(--color-black) 60%, transparent);
   backdrop-filter: blur(5px);
 }
 
@@ -35,10 +35,10 @@
   width: min(860px, 95vw);
   max-height: min(620px, 88vh);
   overflow: hidden;
-  border: 1px solid #39424d;
+  border: 1px solid var(--border-color-primary);
   border-radius: 9px;
-  background: #1b1f25;
-  box-shadow: 0 22px 70px #000c;
+  background: var(--background-color-primary);
+  box-shadow: 0 22px 70px color-mix(in srgb, var(--color-black) 60%, transparent);
   outline: none;
 }
 
@@ -50,12 +50,12 @@
   padding: 0;
   border: 0;
   border-radius: 5px;
-  color: #9ca5b1;
+  color: var(--text-color-secondary);
   background: transparent;
   cursor: pointer;
 }
 
 .btn:hover {
-  color: #eaf0f5;
-  background: #2a3039;
+  color: var(--text-color-primary);
+  background: var(--background-color-tertiary);
 }

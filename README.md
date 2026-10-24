@@ -280,6 +280,10 @@ React-Konva (Electron stays banned for both). `packages/ui` depends only on
 `packages/kernel`, so a shared control can never couple itself to a domain model
 or to one app.
 
+Cast is the visual reference for the suite. Stream uses the same semantic colors,
+typography, buttons, and menus from `@lumacast/ui`; its styles define production
+layout without a separate palette or text scale.
+
 See [AGENTS.md](AGENTS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full layering rules and per-package charters, and [docs/adr/0043-root-apps-and-per-app-release-pipeline.md](docs/adr/0043-root-apps-and-per-app-release-pipeline.md) for the app layout and release pipeline decisions, and [docs/adr/0044-lumacloud-suite-manager.md](docs/adr/0044-lumacloud-suite-manager.md) for the LumaCloud suite manager.
 
 ## Notes

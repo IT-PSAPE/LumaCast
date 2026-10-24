@@ -18,7 +18,7 @@ export function createMainWindow(): BrowserWindow {
     minWidth: 1100,
     minHeight: 680,
     show: false,
-    backgroundColor: '#101114',
+    backgroundColor: '#171717',
     // Custom title bar (renderer/chrome/title-bar.tsx) replaces the native one
     // while keeping native window controls: macOS traffic lights, Windows/Linux
     // caption-button overlay. Projector popups below keep native chrome.

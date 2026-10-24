@@ -12,23 +12,23 @@
 }
 
 .scenes-dock .scene-row.drag-over-before {
-  border-top-color: var(--teal);
+  border-top-color: var(--color-brand);
 }
 
 .scenes-dock .scene-row.drag-over-after {
-  border-bottom-color: var(--teal);
+  border-bottom-color: var(--color-brand);
 }
 
 .scene-rename-input {
   min-width: 0;
   flex: 1;
   padding: 2px 5px;
-  border: 1px solid var(--teal);
+  border: 1px solid var(--color-brand);
   border-radius: 3px;
-  color: var(--text);
-  background: var(--panel-low);
+  color: var(--text-color-primary);
+  background: var(--background-color-secondary);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--text-label-xs);
 }
 
 .scene-rename-input:focus-visible {

@@ -27,8 +27,10 @@ export function mainWindowChromeOptions(
   return {
     titleBarStyle: 'hidden',
     titleBarOverlay: {
-      color: '#191c22',
-      symbolColor: '#cbd1d9',
+      // Native overlays cannot resolve CSS variables; match the shared dark
+      // theme's bg-primary (gray-950) and text-secondary (gray-300).
+      color: '#171717',
+      symbolColor: '#CBCBCB',
       height: TITLE_BAR_HEIGHT,
     },
   };

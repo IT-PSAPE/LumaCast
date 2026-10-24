@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { Menu as MenuIcon } from 'lucide-react';
 import { CONTEXT_MENU_SURFACE_CLASSES, MenuEntries, useOverlayContainer, type MenuEntry, type MenubarMenu } from '@lumacast/ui';
@@ -28,17 +28,6 @@ export interface TitleBarProps {
  * width) and get their menu from the hamburger button instead.
  */
 export function TitleBar({ platform, menuMode, menus, title, children }: TitleBarProps) {
-  useEffect(() => {
-    // @lumacast/ui's dark-mode token values only resolve under
-    // `data-theme="dark"`. LumaStream has no light theme (style.css hardcodes
-    // `color-scheme: dark`), so this activates the shared design system's dark
-    // palette once, globally — guarded so it never overrides an explicit
-    // light choice a future theme setting might add.
-    if (document.documentElement.dataset.theme !== 'light') {
-      document.documentElement.dataset.theme = 'dark';
-    }
-  }, []);
-
   const [hamburgerMenuOpen, setHamburgerMenuOpen] = useState(false);
   const overlayContainer = useOverlayContainer();
 

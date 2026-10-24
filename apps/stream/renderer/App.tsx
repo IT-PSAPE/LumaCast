@@ -6,7 +6,6 @@ import { TitleBar } from './chrome/title-bar';
 import { buildAppMenus } from './chrome/app-menu';
 import { ModalDialog } from './modal-dialog';
 import './ui-modal.css';
-import './ui-density.css';
 import { StreamDialog } from './dialogs/stream-dialog';
 import { BrowserSourceDialog, CollectionDialog, ProfileDialog, SceneDialog } from './dialogs/workspace-dialogs';
 import { ApplicationAudioPicker, CapturePicker, InputDevicePicker } from './dialogs/pickers';

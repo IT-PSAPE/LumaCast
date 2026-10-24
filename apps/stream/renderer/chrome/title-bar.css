@@ -1,6 +1,4 @@
-/* LumaStream's custom title bar. Colors match the existing `.topbar` this
- * chrome replaces (apps/stream/renderer/style.css), not style.css's own
- * tokens — intentionally not edited here per the parity-spec rules. */
+/* Stream's native window chrome uses the same semantic theme as Cast. */
 
 .title-bar {
   position: relative;
@@ -10,9 +8,9 @@
   height: 36px;
   min-height: 36px;
   padding: 0 12px;
-  background: #191c22;
-  border-bottom: 1px solid #2b3039;
-  box-shadow: 0 3px 14px #0002;
+  background: var(--background-color-primary);
+  border-bottom: 1px solid var(--border-color-secondary);
+  box-shadow: none;
   -webkit-app-region: no-drag;
   user-select: none;
 }
@@ -53,7 +51,7 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #b7bfca;
+  color: var(--text-color-secondary);
   cursor: pointer;
   pointer-events: auto;
   -webkit-app-region: no-drag;
@@ -61,12 +59,12 @@
 
 .title-bar-hamburger:hover,
 .title-bar-hamburger[aria-expanded='true'] {
-  background: #262b34;
-  color: #eef1f5;
+  background: var(--background-color-tertiary);
+  color: var(--text-color-primary);
 }
 
 .title-bar-hamburger:focus-visible {
-  outline: 2px solid #4c8dff;
+  outline: 2px solid var(--color-brand);
   outline-offset: 1px;
 }
 
@@ -80,8 +78,8 @@
   /* Keep this drag region in normal flow, clear of the menu and status controls.
    * Electron 44 inherits app-region, even through pointer-events: none overlays. */
   -webkit-app-region: drag;
-  color: #8891a0;
-  font-size: 11px;
+  color: var(--text-color-tertiary);
+  font-size: var(--text-label-xs);
   font-weight: 500;
   letter-spacing: 0.02em;
 }
@@ -113,9 +111,9 @@
   height: 22px;
   padding: 0 8px;
   border-radius: 4px;
-  background: #2a1f22;
-  color: #f3b4b4;
-  font-size: 10px;
+  background: color-mix(in srgb, var(--color-error) 15%, transparent);
+  color: var(--color-error);
+  font-size: var(--text-label-xs);
   font-weight: 600;
   letter-spacing: 0.03em;
   white-space: nowrap;
@@ -126,6 +124,6 @@
   height: 6px;
   flex: 0 0 6px;
   border-radius: 50%;
-  background: #f06467;
-  box-shadow: 0 0 6px #f0646770;
+  background: var(--color-error);
+  box-shadow: none;
 }
