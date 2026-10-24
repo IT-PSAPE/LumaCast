@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { ReacstButton, Title } from '@lumacast/ui';
+import { Banner, ReacstButton, Title } from '@lumacast/ui';
 import { suiteApp, type SuiteAppId } from '@lumacast/suite';
 import type { CloudDesktopAPI, OperationSnapshot, SuiteOverview } from '../../shared/desktop-api';
 import { AppCard } from '../components/app-card';
@@ -57,17 +57,21 @@ export function AppsScreen({ overview, operations, api, refresh }: AppsScreenPro
       </div>
 
       {overview.catalog.status === 'error' ? (
-        <div className="flex items-center justify-between gap-4 rounded-md border border-error/40 bg-error/10 px-3 py-2">
-          <span className="paragraph-sm text-error">{overview.catalog.error ?? 'Could not check for updates.'}</span>
-          <ReacstButton
-            variant="danger"
-            onClick={() => {
-              void refresh();
-            }}
-          >
-            Retry
-          </ReacstButton>
-        </div>
+        <Banner
+          tone="error"
+          action={
+            <ReacstButton
+              variant="danger"
+              onClick={() => {
+                void refresh();
+              }}
+            >
+              Retry
+            </ReacstButton>
+          }
+        >
+          {overview.catalog.error ?? 'Could not check for updates.'}
+        </Banner>
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">

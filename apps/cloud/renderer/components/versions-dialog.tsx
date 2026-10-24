@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { EmptyState, Modal, ReacstButton } from '@lumacast/ui';
+import { Badge, EmptyState, Modal, ReacstButton } from '@lumacast/ui';
 import type { AppRelease, SuiteAppDescriptor } from '@lumacast/suite';
 import type { CloudDesktopAPI } from '../../shared/desktop-api';
 import { versionActionLabel } from '../presentation';
@@ -52,9 +52,9 @@ export function VersionsDialog({ open, descriptor, installedVersion, api, onClos
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <div className="flex items-center gap-2">
                     <span className="label-sm text-primary">{release.version}</span>
-                    {index === 0 ? <span className="label-xs rounded-full bg-brand/15 px-1.5 text-brand">Latest</span> : null}
-                    {release.legacy ? <span className="label-xs rounded-full bg-tertiary px-1.5 text-tertiary">Legacy</span> : null}
-                    {isInstalled ? <span className="label-xs rounded-full bg-success/15 px-1.5 text-success">Installed</span> : null}
+                    {index === 0 ? <Badge tone="brand">Latest</Badge> : null}
+                    {release.legacy ? <Badge>Legacy</Badge> : null}
+                    {isInstalled ? <Badge tone="success">Installed</Badge> : null}
                   </div>
                   <span className="paragraph-xs text-tertiary">
                     {release.publishedAt ? new Date(release.publishedAt).toLocaleDateString() : 'Unknown date'}

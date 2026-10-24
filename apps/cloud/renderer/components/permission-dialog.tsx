@@ -25,7 +25,7 @@ export function PermissionDialog({ open, descriptor, onAllow, onNotNow }: Permis
         <ReacstButton variant="ghost" onClick={onNotNow}>
           Not now
         </ReacstButton>
-        <ReacstButton className="bg-brand/15 text-brand hover:bg-brand/25" onClick={onAllow}>
+        <ReacstButton variant="tinted" onClick={onAllow}>
           Allow
         </ReacstButton>
       </div>

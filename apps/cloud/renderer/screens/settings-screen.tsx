@@ -1,4 +1,4 @@
-import { ReacstButton, SegmentedControl, Title } from '@lumacast/ui';
+import { ReacstButton, SegmentedControl, Switch, Title } from '@lumacast/ui';
 import { suiteApp } from '@lumacast/suite';
 import type { CloudDesktopAPI, InstallScope, SuiteOverview } from '../../shared/desktop-api';
 
@@ -33,19 +33,13 @@ export function SettingsScreen({ overview, api }: SettingsScreenProps) {
 
       <section className="flex items-center justify-between gap-4">
         <Title.h6>Check for updates on launch</Title.h6>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={settings.checkOnLaunch}
-          onClick={() => {
-            void api.updateSettings({ checkOnLaunch: !settings.checkOnLaunch });
+        <Switch
+          label="Check for updates on launch"
+          checked={settings.checkOnLaunch}
+          onCheckedChange={(checked) => {
+            void api.updateSettings({ checkOnLaunch: checked });
           }}
-          className={`h-5 w-9 shrink-0 rounded-full transition-colors ${settings.checkOnLaunch ? 'bg-brand' : 'bg-tertiary'}`}
-        >
-          <span
-            className={`block h-4 w-4 rounded-full bg-white transition-transform ${settings.checkOnLaunch ? 'translate-x-4' : 'translate-x-0.5'}`}
-          />
-        </button>
+        />
       </section>
 
       <section className="flex flex-col gap-3">

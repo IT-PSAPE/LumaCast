@@ -44,7 +44,7 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
       <div className="flex items-center justify-between gap-4">
         <Title.h4>Updates</Title.h4>
         {total > 1 ? (
-          <ReacstButton className="bg-brand/15 text-brand hover:bg-brand/25" onClick={updateAll}>
+          <ReacstButton variant="tinted" onClick={updateAll}>
             Update all
           </ReacstButton>
         ) : null}
@@ -66,7 +66,7 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
                 </span>
               </div>
               <ReacstButton
-                className="bg-brand/15 text-brand hover:bg-brand/25"
+                variant="tinted"
                 disabled={overview.selfUpdate.status === 'downloading'}
                 onClick={() => {
                   void api.installSelfUpdate();
@@ -87,7 +87,7 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
                     {state.installed?.version ?? '—'} → {state.latest?.version ?? '—'}
                   </span>
                 </div>
-                <ReacstButton className="bg-brand/15 text-brand hover:bg-brand/25" onClick={() => updateApp(state.app)}>
+                <ReacstButton variant="tinted" onClick={() => updateApp(state.app)}>
                   Update
                 </ReacstButton>
               </div>

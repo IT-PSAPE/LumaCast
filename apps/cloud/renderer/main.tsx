@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { OverlayStackProvider } from '@lumacast/ui';
 import { App } from './App';
 import './theme.css';
 
@@ -17,4 +18,8 @@ if (container === null) {
   throw new Error('renderer root element not found');
 }
 
-createRoot(container).render(<App />);
+createRoot(container).render(
+  <OverlayStackProvider>
+    <App />
+  </OverlayStackProvider>,
+);
