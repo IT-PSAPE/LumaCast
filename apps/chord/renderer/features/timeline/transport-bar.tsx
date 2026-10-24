@@ -17,7 +17,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { ReacstButton } from '@lumacast/ui';
+import { ReacstButton, Slider } from '@lumacast/ui';
 import { nextCueStart, previousCueStart } from '../../../shared/cue-model';
 import { useChordStore } from '../../store';
 import { formatClock, formatTimecode, timelineEndMs } from '../playback';
@@ -113,14 +113,14 @@ export function TransportBar() {
         <ReacstButton.Icon label="Zoom out" onClick={() => zoomBy(1 / ZOOM_WHEEL_FACTOR)}>
           <ZoomOut />
         </ReacstButton.Icon>
-        <input
-          type="range"
-          aria-label="Zoom"
+        <Slider
+          label="Zoom"
+          labelPlacement="hidden"
+          size="sm"
           min={ZOOM_MIN_PX_PER_SEC}
           max={ZOOM_MAX_PX_PER_SEC}
-          step={1}
           value={Math.min(ZOOM_MAX_PX_PER_SEC, Math.max(ZOOM_MIN_PX_PER_SEC, zoom))}
-          onChange={(event) => setTimelineView({ zoom: Number(event.target.value) })}
+          onValueChange={(value) => setTimelineView({ zoom: value })}
           className="w-24"
         />
         <ReacstButton.Icon label="Zoom in" onClick={() => zoomBy(ZOOM_WHEEL_FACTOR)}>

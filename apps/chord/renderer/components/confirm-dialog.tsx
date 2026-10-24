@@ -43,15 +43,17 @@ export function ConfirmHost() {
   if (!pending) return null;
 
   return (
-    <Modal open onClose={() => settle(null)} title={pending.title}>
-      {pending.message ? <p className="paragraph-sm mb-4 text-secondary">{pending.message}</p> : null}
-      <div className="flex justify-end gap-2">
-        {pending.choices.map((choice) => (
-          <ReacstButton key={choice.value} variant={choice.variant ?? 'default'} onClick={() => settle(choice.value)}>
-            {choice.label}
-          </ReacstButton>
-        ))}
-      </div>
-    </Modal>
+    <Modal
+      open
+      onClose={() => settle(null)}
+      title={pending.title}
+      description={pending.message}
+      size="sm"
+      footer={pending.choices.map((choice) => (
+        <ReacstButton key={choice.value} variant={choice.variant ?? 'default'} onClick={() => settle(choice.value)}>
+          {choice.label}
+        </ReacstButton>
+      ))}
+    />
   );
 }

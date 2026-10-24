@@ -7,12 +7,12 @@ import {
   AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Italic, Underline, X,
 } from 'lucide-react';
-import { cn, Label, PlainButton, ReacstButton, SegmentedControl } from '@lumacast/ui';
+import { cn, Label, PlainButton, ReacstButton, SegmentedControl, Select, Switch, ColorField, NumberField } from '@lumacast/ui';
 import type { TextCaseTransform, TextHorizontalAlign, TextVerticalAlign } from '@lumacast/composition';
 import { THEME_PRESETS } from '../../../shared/theme-presets';
 import type { MediaFit, TextStyle, TransitionKind } from '../../../shared/project';
 import { useChordStore } from '../../store';
-import { ColorField, NumberField, SelectField, SwitchField } from '../../components/field';
+import { NativeColorPicker } from '../../components/native-color-picker';
 import { importBackground } from '../library/import-flows';
 import { Section } from './inspector-section';
 import { useSystemFonts } from './use-system-fonts';
@@ -119,16 +119,16 @@ export function ThemeTab() {
         </Section.Header>
         <Section.Body>
           <Section.Row>
-            <SelectField value={theme.text.fontFamily} options={fontOptions} onChange={(value) => patchText({ fontFamily: value })} ariaLabel="Font family" />
-            <SelectField value={theme.text.weight ?? '400'} options={WEIGHT_OPTIONS} onChange={(value) => patchText({ weight: value })} ariaLabel="Weight" />
+            <Select value={theme.text.fontFamily} options={fontOptions} onValueChange={(value) => patchText({ fontFamily: value })} label="Font family" labelPlacement="hidden" />
+            <Select value={theme.text.weight ?? '400'} options={WEIGHT_OPTIONS} onValueChange={(value) => patchText({ weight: value })} label="Weight" labelPlacement="hidden" />
           </Section.Row>
           <Section.Row>
-            <NumberField value={theme.text.fontSize} min={1} onCommit={(value) => patchText({ fontSize: value })} ariaLabel="Font size" suffix="px" />
-            <NumberField value={theme.text.lineHeight ?? 1.2} step={0.05} min={0.5} max={4} onCommit={(value) => patchText({ lineHeight: value })} ariaLabel="Line height" />
+            <NumberField value={theme.text.fontSize} min={1} onValueChange={(value) => patchText({ fontSize: value })} label="Font size" labelPlacement="hidden" suffix="px" />
+            <NumberField value={theme.text.lineHeight ?? 1.2} step={0.05} min={0.5} max={4} onValueChange={(value) => patchText({ lineHeight: value })} label="Line height" labelPlacement="hidden" />
           </Section.Row>
           <Section.Row>
-            <NumberField value={theme.text.letterSpacing ?? 0} step={0.5} onCommit={(value) => patchText({ letterSpacing: value })} ariaLabel="Letter spacing" />
-            <ColorField value={theme.text.color} onChange={(value) => patchText({ color: value })} ariaLabel="Text colour" />
+            <NumberField value={theme.text.letterSpacing ?? 0} step={0.5} onValueChange={(value) => patchText({ letterSpacing: value })} label="Letter spacing" labelPlacement="hidden" />
+            <ColorField value={theme.text.color} onValueChange={(value) => patchText({ color: value })} label="Text colour" labelPlacement="hidden" picker={<NativeColorPicker value={theme.text.color} onValueChange={(value) => patchText({ color: value })} />} />
           </Section.Row>
           <Section.Row>
             <SegmentedControl
@@ -148,7 +148,7 @@ export function ThemeTab() {
                 <Underline size={14} />
               </SegmentedControl.Icon>
             </SegmentedControl>
-            <SelectField value={theme.text.caseTransform ?? 'none'} options={CASE_OPTIONS} onChange={(value) => patchText({ caseTransform: value })} ariaLabel="Case" />
+            <Select value={theme.text.caseTransform ?? 'none'} options={CASE_OPTIONS} onValueChange={(value) => patchText({ caseTransform: value })} label="Case" labelPlacement="hidden" />
           </Section.Row>
           <div className="flex gap-1.5">
             <SegmentedControl
@@ -177,10 +177,10 @@ export function ThemeTab() {
           </div>
           <div className="flex items-center justify-between gap-2 pt-1">
             <Label.xs className="text-tertiary">Auto-fit</Label.xs>
-            <SwitchField checked={theme.text.autoFit ?? false} onChange={(checked) => patchText({ autoFit: checked })} ariaLabel="Auto-fit text" />
+            <Switch checked={theme.text.autoFit ?? false} onCheckedChange={(checked) => patchText({ autoFit: checked })} label="Auto-fit text" />
           </div>
           {theme.text.autoFit ? (
-            <NumberField value={theme.text.autoFitMaxFontSize ?? theme.text.fontSize} min={1} onCommit={(value) => patchText({ autoFitMaxFontSize: value })} ariaLabel="Max font size" suffix="px" />
+            <NumberField value={theme.text.autoFitMaxFontSize ?? theme.text.fontSize} min={1} onValueChange={(value) => patchText({ autoFitMaxFontSize: value })} label="Max font size" labelPlacement="hidden" suffix="px" />
           ) : null}
         </Section.Body>
       </Section.Root>
@@ -191,16 +191,16 @@ export function ThemeTab() {
         </Section.Header>
         <Section.Body>
           <Section.Row>
-            <NumberField value={theme.box.x} onCommit={(value) => patchBox({ x: value })} ariaLabel="X" />
-            <NumberField value={theme.box.y} onCommit={(value) => patchBox({ y: value })} ariaLabel="Y" />
+            <NumberField value={theme.box.x} onValueChange={(value) => patchBox({ x: value })} label="X" labelPlacement="hidden" />
+            <NumberField value={theme.box.y} onValueChange={(value) => patchBox({ y: value })} label="Y" labelPlacement="hidden" />
           </Section.Row>
           <Section.Row>
-            <NumberField value={theme.box.width} min={0} onCommit={(value) => patchBox({ width: value })} ariaLabel="Width" />
-            <NumberField value={theme.box.height} min={0} onCommit={(value) => patchBox({ height: value })} ariaLabel="Height" />
+            <NumberField value={theme.box.width} min={0} onValueChange={(value) => patchBox({ width: value })} label="Width" labelPlacement="hidden" />
+            <NumberField value={theme.box.height} min={0} onValueChange={(value) => patchBox({ height: value })} label="Height" labelPlacement="hidden" />
           </Section.Row>
           <Section.Row>
-            <NumberField value={theme.box.rotation} onCommit={(value) => patchBox({ rotation: value })} ariaLabel="Rotation" suffix="°" />
-            <NumberField value={theme.box.opacity} min={0} max={1} step={0.05} onCommit={(value) => patchBox({ opacity: value })} ariaLabel="Opacity" />
+            <NumberField value={theme.box.rotation} onValueChange={(value) => patchBox({ rotation: value })} label="Rotation" labelPlacement="hidden" suffix="°" />
+            <NumberField value={theme.box.opacity} min={0} max={1} step={0.05} onValueChange={(value) => patchBox({ opacity: value })} label="Opacity" labelPlacement="hidden" />
           </Section.Row>
           <div className="flex gap-1.5">
             <ReacstButton onClick={centerHorizontally}>Center horizontally</ReacstButton>
@@ -216,28 +216,28 @@ export function ThemeTab() {
         <Section.Body>
           <div className="flex items-center justify-between gap-2">
             <Label.xs className="text-tertiary">Stroke</Label.xs>
-            <SwitchField checked={theme.text.textStrokeEnabled ?? false} onChange={(checked) => patchText({ textStrokeEnabled: checked })} ariaLabel="Enable stroke" />
+            <Switch checked={theme.text.textStrokeEnabled ?? false} onCheckedChange={(checked) => patchText({ textStrokeEnabled: checked })} label="Enable stroke" />
           </div>
           {theme.text.textStrokeEnabled ? (
             <Section.Row>
-              <ColorField value={theme.text.textStrokeColor ?? '#000000'} onChange={(value) => patchText({ textStrokeColor: value })} ariaLabel="Stroke colour" />
-              <NumberField value={theme.text.textStrokeWidth ?? 2} min={0} onCommit={(value) => patchText({ textStrokeWidth: value })} ariaLabel="Stroke width" suffix="px" />
+              <ColorField value={theme.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchText({ textStrokeColor: value })} label="Stroke colour" labelPlacement="hidden" picker={<NativeColorPicker value={theme.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchText({ textStrokeColor: value })} />} />
+              <NumberField value={theme.text.textStrokeWidth ?? 2} min={0} onValueChange={(value) => patchText({ textStrokeWidth: value })} label="Stroke width" labelPlacement="hidden" suffix="px" />
             </Section.Row>
           ) : null}
 
           <div className="flex items-center justify-between gap-2 pt-1">
             <Label.xs className="text-tertiary">Shadow</Label.xs>
-            <SwitchField checked={theme.text.textShadowEnabled ?? false} onChange={(checked) => patchText({ textShadowEnabled: checked })} ariaLabel="Enable shadow" />
+            <Switch checked={theme.text.textShadowEnabled ?? false} onCheckedChange={(checked) => patchText({ textShadowEnabled: checked })} label="Enable shadow" />
           </div>
           {theme.text.textShadowEnabled ? (
             <>
               <Section.Row>
-                <ColorField value={theme.text.textShadowColor ?? '#000000'} onChange={(value) => patchText({ textShadowColor: value })} ariaLabel="Shadow colour" />
-                <NumberField value={theme.text.textShadowBlur ?? 0} min={0} onCommit={(value) => patchText({ textShadowBlur: value })} ariaLabel="Shadow blur" suffix="px" />
+                <ColorField value={theme.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchText({ textShadowColor: value })} label="Shadow colour" labelPlacement="hidden" picker={<NativeColorPicker value={theme.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchText({ textShadowColor: value })} />} />
+                <NumberField value={theme.text.textShadowBlur ?? 0} min={0} onValueChange={(value) => patchText({ textShadowBlur: value })} label="Shadow blur" labelPlacement="hidden" suffix="px" />
               </Section.Row>
               <Section.Row>
-                <NumberField value={theme.text.textShadowOffsetX ?? 0} onCommit={(value) => patchText({ textShadowOffsetX: value })} ariaLabel="Shadow offset X" />
-                <NumberField value={theme.text.textShadowOffsetY ?? 0} onCommit={(value) => patchText({ textShadowOffsetY: value })} ariaLabel="Shadow offset Y" />
+                <NumberField value={theme.text.textShadowOffsetX ?? 0} onValueChange={(value) => patchText({ textShadowOffsetX: value })} label="Shadow offset X" labelPlacement="hidden" />
+                <NumberField value={theme.text.textShadowOffsetY ?? 0} onValueChange={(value) => patchText({ textShadowOffsetY: value })} label="Shadow offset Y" labelPlacement="hidden" />
               </Section.Row>
             </>
           ) : null}
@@ -250,10 +250,10 @@ export function ThemeTab() {
         </Section.Header>
         <Section.Body>
           <Section.Row>
-            <SelectField value={theme.transition.in} options={TRANSITION_OPTIONS} onChange={(value) => patchTransition({ in: value })} ariaLabel="Transition in" />
-            <SelectField value={theme.transition.out} options={TRANSITION_OPTIONS} onChange={(value) => patchTransition({ out: value })} ariaLabel="Transition out" />
+            <Select value={theme.transition.in} options={TRANSITION_OPTIONS} onValueChange={(value) => patchTransition({ in: value })} label="Transition in" labelPlacement="hidden" />
+            <Select value={theme.transition.out} options={TRANSITION_OPTIONS} onValueChange={(value) => patchTransition({ out: value })} label="Transition out" labelPlacement="hidden" />
           </Section.Row>
-          <NumberField value={theme.transition.durationMs} min={0} step={50} onCommit={(value) => patchTransition({ durationMs: value })} ariaLabel="Transition duration" suffix="ms" />
+          <NumberField value={theme.transition.durationMs} min={0} step={50} onValueChange={(value) => patchTransition({ durationMs: value })} label="Transition duration" labelPlacement="hidden" suffix="ms" />
         </Section.Body>
       </Section.Root>
 
@@ -277,7 +277,7 @@ export function ThemeTab() {
           </SegmentedControl>
 
           {background.kind === 'color' ? (
-            <ColorField value={background.color} onChange={(value) => setBackground({ kind: 'color', color: value }, null)} ariaLabel="Background colour" />
+            <ColorField value={background.color} onValueChange={(value) => setBackground({ kind: 'color', color: value }, null)} label="Background colour" labelPlacement="hidden" picker={<NativeColorPicker value={background.color} onValueChange={(value) => setBackground({ kind: 'color', color: value }, null)} />} />
           ) : (
             <>
               <div className="flex items-center justify-between gap-2">
@@ -292,24 +292,19 @@ export function ThemeTab() {
                   </ReacstButton.Icon>
                 </div>
               </div>
-              <SelectField
+              <Select
                 value={background.fit}
                 options={FIT_OPTIONS}
-                onChange={(value) => patchBackgroundMedia({ fit: value })}
-                ariaLabel="Background fit"
+                onValueChange={(value) => patchBackgroundMedia({ fit: value })}
+                label="Background fit"
+                labelPlacement="hidden"
               />
-              <div className="flex flex-col gap-1">
-                <Label.xs className="text-tertiary">Dim</Label.xs>
-                <NumberField value={background.dim} min={0} max={1} step={0.05} onCommit={(value) => patchBackgroundMedia({ dim: value })} ariaLabel="Dim" />
-              </div>
-              <div className="flex flex-col gap-1">
-                <Label.xs className="text-tertiary">Blur</Label.xs>
-                <NumberField value={background.blur} min={0} max={40} onCommit={(value) => patchBackgroundMedia({ blur: value })} ariaLabel="Blur" suffix="px" />
-              </div>
+              <NumberField value={background.dim} min={0} max={1} step={0.05} onValueChange={(value) => patchBackgroundMedia({ dim: value })} label="Dim" />
+              <NumberField value={background.blur} min={0} max={40} onValueChange={(value) => patchBackgroundMedia({ blur: value })} label="Blur" suffix="px" />
               {background.kind === 'video' ? (
                 <div className="flex items-center justify-between gap-2">
                   <Label.xs className="text-tertiary">Loop</Label.xs>
-                  <SwitchField checked={background.loop} onChange={(checked) => patchBackgroundMedia({ loop: checked })} ariaLabel="Loop video" />
+                  <Switch checked={background.loop} onCheckedChange={(checked) => patchBackgroundMedia({ loop: checked })} label="Loop video" />
                 </div>
               ) : null}
             </>

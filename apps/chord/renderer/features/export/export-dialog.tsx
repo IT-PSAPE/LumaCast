@@ -2,7 +2,7 @@
 // progress. Copy stays terse — the controls speak for themselves (see
 // AGENTS.md's UI Copy rules).
 import { useMemo, useState } from 'react';
-import { Checkbox, Modal, ReacstButton, SegmentedControl, Select } from '@lumacast/ui';
+import { Checkbox, Modal, Progress, ReacstButton, SegmentedControl, Select } from '@lumacast/ui';
 import {
   EXPORT_CONTAINERS,
   defaultExportSettings,
@@ -138,8 +138,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const showActions = !isBusy;
 
   return (
-    <Modal open={open} onClose={handleClose} title="Export">
-      <div className="flex flex-col gap-4 p-4">
+    <Modal open={open} onClose={handleClose} title="Export" className="w-[min(32rem,95vw)]">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         <SegmentedControl
           value={kind}
           onValueChange={(value) => {
@@ -155,27 +155,19 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
         {kind === 'video' ? (
           <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 label-xs text-secondary">
-              Container
-              <Select
+            <Select
                 value={video.container}
                 onValueChange={updateContainer}
                 options={EXPORT_CONTAINERS.map((entry) => ({ value: entry.id, label: entry.label }))}
                 label="Container"
-                className="w-full"
               />
-            </label>
 
-            <label className="flex flex-col gap-1 label-xs text-secondary">
-              Video codec
-              <Select
+            <Select
                 value={video.videoCodec}
                 onValueChange={(videoCodec) => setVideo((current) => ({ ...current, videoCodec }))}
                 options={(containerInfo?.videoCodecs ?? []).map((codec) => ({ value: codec, label: VIDEO_CODEC_LABELS[codec] }))}
                 label="Video codec"
-                className="w-full"
               />
-            </label>
 
             <Checkbox
               checked={video.includeAudio}
@@ -184,21 +176,15 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
             />
 
             {video.includeAudio ? (
-              <label className="flex flex-col gap-1 label-xs text-secondary">
-                Audio codec
-                <Select
+              <Select
                   value={video.audioCodec}
                   onValueChange={(audioCodec) => setVideo((current) => ({ ...current, audioCodec }))}
                   options={(containerInfo?.audioCodecs ?? []).map((codec) => ({ value: codec, label: AUDIO_CODEC_LABELS[codec] }))}
                   label="Audio codec"
-                  className="w-full"
                 />
-              </label>
             ) : null}
 
-            <label className="flex flex-col gap-1 label-xs text-secondary">
-              Resolution
-              <Select
+            <Select
                 value={resolutionOptionId(video, project.composition.width, project.composition.height)}
                 onValueChange={updateResolution}
                 options={[
@@ -209,56 +195,38 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   ...RESOLUTION_PRESETS.map((preset) => ({ value: preset.id, label: preset.label })),
                 ]}
                 label="Resolution"
-                className="w-full"
               />
-            </label>
 
-            <label className="flex flex-col gap-1 label-xs text-secondary">
-              Frame rate
-              <Select
+            <Select
                 value={String(video.fps)}
                 onValueChange={(value) => setVideo((current) => ({ ...current, fps: Number(value) as FrameRate }))}
                 options={FRAME_RATES.map((fps) => ({ value: String(fps), label: `${fps} fps` }))}
                 label="Frame rate"
-                className="w-full"
               />
-            </label>
 
-            <label className="flex flex-col gap-1 label-xs text-secondary">
-              Quality
-              <Select
+            <Select
                 value={video.quality}
                 onValueChange={(quality) => setVideo((current) => ({ ...current, quality }))}
                 options={QUALITIES.map((quality) => ({ value: quality, label: QUALITY_LABELS[quality] }))}
                 label="Quality"
-                className="w-full"
               />
-            </label>
           </div>
         ) : null}
 
         {kind === 'audio' ? (
           <div className="flex flex-col gap-3">
-            <label className="flex flex-col gap-1 label-xs text-secondary">
-              Format
-              <Select
+            <Select
                 value={audioFormat}
                 onValueChange={setAudioFormat}
                 options={AUDIO_FORMATS.map((format) => ({ value: format, label: format.toUpperCase() }))}
                 label="Format"
-                className="w-full"
               />
-            </label>
-            <label className="flex flex-col gap-1 label-xs text-secondary">
-              Quality
-              <Select
+            <Select
                 value={audioQuality}
                 onValueChange={setAudioQuality}
                 options={QUALITIES.map((quality) => ({ value: quality, label: QUALITY_LABELS[quality] }))}
                 label="Quality"
-                className="w-full"
               />
-            </label>
           </div>
         ) : null}
 
@@ -270,9 +238,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
         {isBusy ? (
           <div className="flex flex-col gap-2">
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-tertiary/40">
-              <div className="h-full bg-brand transition-all" style={{ width: `${exportJob.percent}%` }} />
-            </div>
+            <Progress value={exportJob.percent} label="Export progress" />
             <div className="flex items-center justify-between label-xs text-secondary">
               <span>{`${exportJob.status} · ${exportJob.percent}%`}</span>
               <span>{formatEta(exportJob.etaMs)}</span>

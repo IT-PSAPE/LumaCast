@@ -1,9 +1,9 @@
 // The app root: follows the system theme, installs the menu-command bridge,
 // picks Welcome vs. the full Workspace, and mounts the two singleton
-// overlay hosts (notices, the imperative confirm dialog) exactly once.
+// overlay hosts (toasts, the imperative confirm dialog) exactly once.
+import { Toaster } from '@lumacast/ui';
 import { getApi } from './api';
 import { ConfirmHost } from './components/confirm-dialog';
-import { NoticeStack } from './components/notice';
 import { Welcome } from './features/shell/welcome';
 import { Workspace } from './features/shell/workspace';
 import { useMenuCommands } from './features/shell/menu-commands';
@@ -30,7 +30,7 @@ export function App() {
   return (
     <div className="flex h-full flex-col bg-primary text-primary">
       {isUntitledAndEmpty ? <Welcome /> : <Workspace />}
-      <NoticeStack />
+      <Toaster />
       <ConfirmHost />
     </div>
   );

@@ -3,65 +3,54 @@
 // single-use, so each stays a local function in this one file rather than
 // being split into separate wrapper-component files.
 import { useState } from 'react';
-import { Menu } from '@base-ui/react/menu';
-import { Popover } from '@base-ui/react/popover';
 import {
   ChevronDown, FilePlus2, FolderOpen, ListMusic, Redo2, Save, Undo2,
 } from 'lucide-react';
-import { cn, Modal, PlainButton, ReacstButton } from '@lumacast/ui';
+import {
+  cn, Modal, PlainButton, Popover, PointContextMenu, ReacstButton, Select, Separator, TextField,
+  usePointContextMenu, type MenuEntry,
+} from '@lumacast/ui';
 import type { CueFileFormat } from '../../../shared/desktop-api';
 import { COMPOSITION_PRESETS, FRAME_RATES, type FrameRate } from '../../../shared/project';
 import { THEME_PRESETS } from '../../../shared/theme-presets';
 import { useChordStore } from '../../store';
-import { SelectField } from '../../components/field';
 import { ExportDialog } from '../export/export-dialog';
 import { importAudio, importBackground, importLyrics } from '../library/import-flows';
 import {
   closeCueFormatChooser, closeExportDialog, openExportDialog, useShellUiState,
 } from './shell-ui-state';
 
-function ToolbarSeparator() {
-  return <div className="mx-1 h-5 w-px shrink-0 bg-(--border-color-primary)" />;
-}
-
 function TitleControl() {
   const title = useChordStore((s) => s.document.project.title);
   const dirty = useChordStore((s) => s.dirty);
   const setTitle = useChordStore((s) => s.setTitle);
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(title);
 
   if (editing) {
+    // Blur bubbles: the field commits (or reverts on Escape) first, then this
+    // leaves edit mode.
     return (
-      <input
-        autoFocus
-        value={draft}
-        aria-label="Project title"
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          setEditing(false);
-          const next = draft.trim();
-          if (next && next !== title) setTitle(next);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') event.currentTarget.blur();
-          if (event.key === 'Escape') {
-            setDraft(title);
-            event.currentTarget.blur();
-          }
-        }}
-        className="label-sm w-40 rounded-sm bg-tertiary px-2 py-1 text-primary outline-none focus:ring-1 focus:ring-brand"
-      />
+      <div className="w-40" onBlur={() => setEditing(false)}>
+        <TextField
+          autoFocus
+          size="sm"
+          value={title}
+          label="Project title"
+          labelPlacement="hidden"
+          commitOn="blur"
+          onValueChange={(value) => {
+            const next = value.trim();
+            if (next && next !== title) setTitle(next);
+          }}
+        />
+      </div>
     );
   }
 
   return (
     <button
       type="button"
-      onClick={() => {
-        setDraft(title);
-        setEditing(true);
-      }}
+      onClick={() => setEditing(true)}
       className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 hover:bg-tertiary"
     >
       <span className="label-sm max-w-40 truncate text-primary">{title}</span>
@@ -116,22 +105,24 @@ function CompositionControls() {
 
   return (
     <>
-      <SelectField
+      <Select
         value={activePreset?.id ?? 'custom'}
         options={COMPOSITION_OPTIONS}
-        ariaLabel="Composition"
+        label="Composition"
+        labelPlacement="hidden"
         className="w-36"
-        onChange={(value) => {
+        onValueChange={(value) => {
           const preset = COMPOSITION_PRESETS.find((p) => p.id === value);
           if (preset) setComposition({ width: preset.size.width, height: preset.size.height });
         }}
       />
-      <SelectField
+      <Select
         value={String(composition.fps)}
         options={FPS_OPTIONS}
-        ariaLabel="Frame rate"
+        label="Frame rate"
+        labelPlacement="hidden"
         className="w-24"
-        onChange={(value) => setComposition({ fps: Number(value) as FrameRate })}
+        onValueChange={(value) => setComposition({ fps: Number(value) as FrameRate })}
       />
     </>
   );
@@ -140,13 +131,19 @@ function CompositionControls() {
 function ThemePresetPopover() {
   const presetId = useChordStore((s) => s.document.project.theme.presetId);
   const applyPreset = useChordStore((s) => s.applyPreset);
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
   const current = THEME_PRESETS.find((preset) => preset.id === presetId);
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger
+    <>
+      <button
+        ref={setAnchor}
+        type="button"
         aria-label="Theme preset"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
         className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1.5 text-secondary hover:bg-tertiary"
       >
         <span
@@ -155,36 +152,39 @@ function ThemePresetPopover() {
         />
         <span className="label-xs">{current?.label ?? 'Custom'}</span>
         <ChevronDown size={12} />
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Positioner sideOffset={6} className="z-[60] outline-none">
-          <Popover.Popup className="grid w-56 grid-cols-3 gap-2 rounded-md border border-primary bg-primary p-2 shadow-lg">
-            {THEME_PRESETS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => {
-                  applyPreset(preset.id);
-                  setOpen(false);
-                }}
-                className={cn(
-                  'flex cursor-pointer flex-col items-center gap-1 rounded-sm border p-1.5 transition-colors',
-                  presetId === preset.id ? 'border-brand bg-brand/10' : 'border-primary hover:bg-tertiary',
-                )}
-              >
-                <span
-                  className="flex h-6 w-full items-center justify-center rounded-sm text-[10px] font-semibold"
-                  style={{ backgroundColor: preset.swatch.background, color: preset.swatch.text }}
-                >
-                  Aa
-                </span>
-                <span className="label-xs w-full truncate text-center text-secondary">{preset.label}</span>
-              </button>
-            ))}
-          </Popover.Popup>
-        </Popover.Positioner>
-      </Popover.Portal>
-    </Popover.Root>
+      </button>
+      <Popover
+        anchor={anchor}
+        open={open}
+        onClose={() => setOpen(false)}
+        placement="bottom-start"
+        offset={6}
+        className="grid w-56 grid-cols-3 gap-2 rounded-md border border-primary bg-primary p-2 shadow-lg"
+      >
+        {THEME_PRESETS.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => {
+              applyPreset(preset.id);
+              setOpen(false);
+            }}
+            className={cn(
+              'flex cursor-pointer flex-col items-center gap-1 rounded-sm border p-1.5 transition-colors',
+              presetId === preset.id ? 'border-brand bg-brand/10' : 'border-primary hover:bg-tertiary',
+            )}
+          >
+            <span
+              className="flex h-6 w-full items-center justify-center rounded-sm text-[10px] font-semibold"
+              style={{ backgroundColor: preset.swatch.background, color: preset.swatch.text }}
+            >
+              Aa
+            </span>
+            <span className="label-xs w-full truncate text-center text-secondary">{preset.label}</span>
+          </button>
+        ))}
+      </Popover>
+    </>
   );
 }
 
@@ -214,30 +214,29 @@ const CUE_FILE_FORMATS: Array<{ value: CueFileFormat; label: string }> = [
 
 function LyricsExportMenu() {
   const exportCueFile = useChordStore((s) => s.exportCueFile);
+  const menu = usePointContextMenu();
+  const entries: MenuEntry[] = CUE_FILE_FORMATS.map((format) => ({
+    id: format.value,
+    label: format.label,
+    onSelect: () => void exportCueFile(format.value),
+  }));
 
   return (
-    <Menu.Root>
-      <Menu.Trigger className="btn inline-flex items-center gap-1">
+    <>
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={menu.open}
+        className="btn inline-flex items-center gap-1"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          menu.show({ clientX: rect.left, clientY: rect.bottom + 4, preventDefault() {} });
+        }}
+      >
         Lyrics <ChevronDown size={12} />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner sideOffset={4} className="z-[60] outline-none">
-          <Menu.Popup className="min-w-36 rounded-md border border-primary bg-primary p-1 shadow-lg">
-            {CUE_FILE_FORMATS.map((format) => (
-              <Menu.Item
-                key={format.value}
-                render={<button type="button" />}
-                nativeButton
-                onClick={() => void exportCueFile(format.value)}
-                className="label-xs w-full cursor-pointer select-none rounded px-2 py-1.5 text-left text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary"
-              >
-                {format.label}
-              </Menu.Item>
-            ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+      </button>
+      <PointContextMenu open={menu.open} position={menu.position} entries={entries} label="Export lyrics" onClose={menu.close} />
+    </>
   );
 }
 
@@ -247,8 +246,8 @@ function CueFormatChooserDialog() {
   const exportCueFile = useChordStore((s) => s.exportCueFile);
 
   return (
-    <Modal open={open} onClose={closeCueFormatChooser} title="Export lyrics">
-      <div className="flex flex-col gap-2">
+    <Modal open={open} onClose={closeCueFormatChooser} title="Export lyrics" size="sm">
+      <div className="flex flex-col gap-2 p-4">
         {CUE_FILE_FORMATS.map((format) => (
           <ReacstButton
             key={format.value}
@@ -276,12 +275,12 @@ export function TopBar() {
 
       <div className="flex shrink-0 items-center gap-1">
         <DocumentControls />
-        <ToolbarSeparator />
+        <Separator orientation="vertical" className="mx-1" />
         <ImportControls />
-        <ToolbarSeparator />
+        <Separator orientation="vertical" className="mx-1" />
         <CompositionControls />
         <ThemePresetPopover />
-        <ToolbarSeparator />
+        <Separator orientation="vertical" className="mx-1" />
         <HistoryControls />
       </div>
 

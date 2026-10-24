@@ -1,7 +1,9 @@
 // A MM:SS.mmm timecode field for cue start/end. When `allowAuto` is set (the
 // cue end, which may hold until the next cue starts), typing "Auto" or
-// clearing the field commits `null`.
-import { useEffect, useRef, useState } from 'react';
+// clearing the field commits `null`. Draft/commit/Escape handling is the
+// package `TextField`'s (`commitOn="blur"`); this adds only timecode parsing.
+import { useState } from 'react';
+import { TextField } from '@lumacast/ui';
 
 function formatTimecode(ms: number): string {
   const totalMs = Math.max(0, Math.round(ms));
@@ -32,47 +34,32 @@ export interface TimecodeInputProps {
 }
 
 export function TimecodeInput({ ms, onCommit, allowAuto, ariaLabel, disabled }: TimecodeInputProps) {
-  const display = () => (ms === null ? 'Auto' : formatTimecode(ms));
-  const [draft, setDraft] = useState(display);
-  const focused = useRef(false);
+  // Bumped after every commit so the field remounts and shows the canonical
+  // text (or the last valid value after an unparseable entry).
+  const [revision, setRevision] = useState(0);
 
-  useEffect(() => {
-    if (!focused.current) setDraft(display());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ms]);
-
-  function commit() {
-    const trimmed = draft.trim();
+  function commit(text: string) {
+    const trimmed = text.trim();
     if (allowAuto && (trimmed === '' || /^auto$/i.test(trimmed))) {
       onCommit(null);
-      return;
+    } else {
+      const parsed = parseTimecode(trimmed);
+      if (parsed !== null) onCommit(parsed);
     }
-    const parsed = parseTimecode(trimmed);
-    if (parsed !== null) onCommit(parsed);
-    else setDraft(display());
+    setRevision((n) => n + 1);
   }
 
   return (
-    <input
-      type="text"
-      inputMode="numeric"
-      aria-label={ariaLabel}
+    <TextField
+      key={revision}
+      value={ms === null ? 'Auto' : formatTimecode(ms)}
+      onValueChange={commit}
+      commitOn="blur"
+      label={ariaLabel}
+      labelPlacement="hidden"
       disabled={disabled}
-      value={draft}
       placeholder={allowAuto ? 'Auto' : '00:00.000'}
-      onFocus={() => { focused.current = true; }}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={() => { focused.current = false; commit(); }}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          event.currentTarget.blur();
-        } else if (event.key === 'Escape') {
-          setDraft(display());
-          event.currentTarget.blur();
-        }
-      }}
-      className="label-xs min-h-8 w-full min-w-0 rounded-sm bg-tertiary px-2 font-mono text-primary outline-none transition-colors focus:ring-1 focus:ring-brand disabled:cursor-not-allowed disabled:opacity-50"
+      className="font-mono"
     />
   );
 }

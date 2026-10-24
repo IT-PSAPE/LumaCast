@@ -6,7 +6,7 @@ import {
   AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart,
   Italic, RotateCcw, Trash2, Underline,
 } from 'lucide-react';
-import { EmptyState, Label, ReacstButton, SegmentedControl } from '@lumacast/ui';
+import { ColorField, EmptyState, Label, NumberField, ReacstButton, SegmentedControl, Select, Switch, Textarea } from '@lumacast/ui';
 import type { TextCaseTransform, TextHorizontalAlign, TextVerticalAlign } from '@lumacast/composition';
 import { resolveCueStyle } from '../../../shared/cue-model';
 import type {
@@ -18,7 +18,7 @@ import type {
   TransitionKind,
 } from '../../../shared/project';
 import { useChordStore } from '../../store';
-import { AutoGrowTextarea, ColorField, NumberField, SelectField, SwitchField } from '../../components/field';
+import { NativeColorPicker } from '../../components/native-color-picker';
 import { TimecodeInput } from '../../components/timecode-input';
 import { Section } from './inspector-section';
 import { useSystemFonts } from './use-system-fonts';
@@ -129,21 +129,24 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
     <div className="flex flex-1 flex-col overflow-y-auto">
       <Section.Root>
         <Section.Body>
-          <AutoGrowTextarea
-            value={cue.text}
-            ariaLabel="Cue text"
-            minRows={2}
-            onFocus={() => beginTransaction('Edit text')}
-            onBlur={() => endTransaction()}
-            onChange={(value) => setCueText(cue.id, value)}
-          />
+          {/* Focus events bubble: one undo step spans a whole editing session. */}
+          <div onFocus={() => beginTransaction('Edit text')} onBlur={() => endTransaction()}>
+            <Textarea
+              value={cue.text}
+              label="Cue text"
+              labelPlacement="hidden"
+              rows={2}
+              autoResize
+              onValueChange={(value) => setCueText(cue.id, value)}
+            />
+          </div>
           <Section.Row>
             <TimecodeInput ms={cue.startMs} ariaLabel="Start" onCommit={(value) => value !== null && updateCue(cue.id, { startMs: value })} />
             <TimecodeInput ms={cue.endMs} allowAuto ariaLabel="End" onCommit={(value) => updateCue(cue.id, { endMs: value })} />
           </Section.Row>
           <div className="flex items-center justify-between gap-2 pt-1">
             <Label.xs className="text-tertiary">Detach from theme</Label.xs>
-            <SwitchField checked={detached} onChange={(checked) => (checked ? detachCue(cue.id) : relinkCue(cue.id))} ariaLabel="Detach from theme" />
+            <Switch checked={detached} onCheckedChange={(checked) => (checked ? detachCue(cue.id) : relinkCue(cue.id))} label="Detach from theme" />
           </div>
         </Section.Body>
       </Section.Root>
@@ -157,19 +160,19 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
             </Section.Header>
             <Section.Body>
               <Section.Row>
-                <SelectField value={resolved.text.fontFamily} options={fontOptions} onChange={(value) => patchOverrideText({ fontFamily: value })} ariaLabel="Font family" />
-                <SelectField value={resolved.text.weight ?? '400'} options={WEIGHT_OPTIONS} onChange={(value) => patchOverrideText({ weight: value })} ariaLabel="Weight" />
+                <Select value={resolved.text.fontFamily} options={fontOptions} onValueChange={(value) => patchOverrideText({ fontFamily: value })} label="Font family" labelPlacement="hidden" />
+                <Select value={resolved.text.weight ?? '400'} options={WEIGHT_OPTIONS} onValueChange={(value) => patchOverrideText({ weight: value })} label="Weight" labelPlacement="hidden" />
               </Section.Row>
               <Section.Row>
-                <NumberField value={resolved.text.fontSize} min={1} onCommit={(value) => patchOverrideText({ fontSize: value })} ariaLabel="Font size" suffix="px" />
-                <NumberField value={resolved.text.lineHeight ?? 1.2} step={0.05} min={0.5} max={4} onCommit={(value) => patchOverrideText({ lineHeight: value })} ariaLabel="Line height" />
+                <NumberField value={resolved.text.fontSize} min={1} onValueChange={(value) => patchOverrideText({ fontSize: value })} label="Font size" labelPlacement="hidden" suffix="px" />
+                <NumberField value={resolved.text.lineHeight ?? 1.2} step={0.05} min={0.5} max={4} onValueChange={(value) => patchOverrideText({ lineHeight: value })} label="Line height" labelPlacement="hidden" />
               </Section.Row>
               <Section.Row>
-                <NumberField value={resolved.text.letterSpacing ?? 0} step={0.5} onCommit={(value) => patchOverrideText({ letterSpacing: value })} ariaLabel="Letter spacing" />
-                <ColorField value={resolved.text.color} onChange={(value) => patchOverrideText({ color: value })} ariaLabel="Text colour" />
+                <NumberField value={resolved.text.letterSpacing ?? 0} step={0.5} onValueChange={(value) => patchOverrideText({ letterSpacing: value })} label="Letter spacing" labelPlacement="hidden" />
+                <ColorField value={resolved.text.color} onValueChange={(value) => patchOverrideText({ color: value })} label="Text colour" labelPlacement="hidden" picker={<NativeColorPicker value={resolved.text.color} onValueChange={(value) => patchOverrideText({ color: value })} />} />
               </Section.Row>
               <Section.Row>
-                <SelectField value={resolved.text.caseTransform ?? 'none'} options={CASE_OPTIONS} onChange={(value) => patchOverrideText({ caseTransform: value })} ariaLabel="Case" />
+                <Select value={resolved.text.caseTransform ?? 'none'} options={CASE_OPTIONS} onValueChange={(value) => patchOverrideText({ caseTransform: value })} label="Case" labelPlacement="hidden" />
               </Section.Row>
               <div className="flex gap-1.5">
                 <SegmentedControl
@@ -201,34 +204,34 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
               </div>
               <div className="flex items-center justify-between gap-2 pt-1">
                 <Label.xs className="text-tertiary">Auto-fit</Label.xs>
-                <SwitchField checked={resolved.text.autoFit ?? false} onChange={(checked) => patchOverrideText({ autoFit: checked })} ariaLabel="Auto-fit text" />
+                <Switch checked={resolved.text.autoFit ?? false} onCheckedChange={(checked) => patchOverrideText({ autoFit: checked })} label="Auto-fit text" />
               </div>
               {resolved.text.autoFit ? (
-                <NumberField value={resolved.text.autoFitMaxFontSize ?? resolved.text.fontSize} min={1} onCommit={(value) => patchOverrideText({ autoFitMaxFontSize: value })} ariaLabel="Max font size" suffix="px" />
+                <NumberField value={resolved.text.autoFitMaxFontSize ?? resolved.text.fontSize} min={1} onValueChange={(value) => patchOverrideText({ autoFitMaxFontSize: value })} label="Max font size" labelPlacement="hidden" suffix="px" />
               ) : null}
               <div className="flex items-center justify-between gap-2 pt-1">
                 <Label.xs className="text-tertiary">Stroke</Label.xs>
-                <SwitchField checked={resolved.text.textStrokeEnabled ?? false} onChange={(checked) => patchOverrideText({ textStrokeEnabled: checked })} ariaLabel="Enable stroke" />
+                <Switch checked={resolved.text.textStrokeEnabled ?? false} onCheckedChange={(checked) => patchOverrideText({ textStrokeEnabled: checked })} label="Enable stroke" />
               </div>
               {resolved.text.textStrokeEnabled ? (
                 <Section.Row>
-                  <ColorField value={resolved.text.textStrokeColor ?? '#000000'} onChange={(value) => patchOverrideText({ textStrokeColor: value })} ariaLabel="Stroke colour" />
-                  <NumberField value={resolved.text.textStrokeWidth ?? 2} min={0} onCommit={(value) => patchOverrideText({ textStrokeWidth: value })} ariaLabel="Stroke width" suffix="px" />
+                  <ColorField value={resolved.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textStrokeColor: value })} label="Stroke colour" labelPlacement="hidden" picker={<NativeColorPicker value={resolved.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textStrokeColor: value })} />} />
+                  <NumberField value={resolved.text.textStrokeWidth ?? 2} min={0} onValueChange={(value) => patchOverrideText({ textStrokeWidth: value })} label="Stroke width" labelPlacement="hidden" suffix="px" />
                 </Section.Row>
               ) : null}
               <div className="flex items-center justify-between gap-2 pt-1">
                 <Label.xs className="text-tertiary">Shadow</Label.xs>
-                <SwitchField checked={resolved.text.textShadowEnabled ?? false} onChange={(checked) => patchOverrideText({ textShadowEnabled: checked })} ariaLabel="Enable shadow" />
+                <Switch checked={resolved.text.textShadowEnabled ?? false} onCheckedChange={(checked) => patchOverrideText({ textShadowEnabled: checked })} label="Enable shadow" />
               </div>
               {resolved.text.textShadowEnabled ? (
                 <>
                   <Section.Row>
-                    <ColorField value={resolved.text.textShadowColor ?? '#000000'} onChange={(value) => patchOverrideText({ textShadowColor: value })} ariaLabel="Shadow colour" />
-                    <NumberField value={resolved.text.textShadowBlur ?? 0} min={0} onCommit={(value) => patchOverrideText({ textShadowBlur: value })} ariaLabel="Shadow blur" suffix="px" />
+                    <ColorField value={resolved.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textShadowColor: value })} label="Shadow colour" labelPlacement="hidden" picker={<NativeColorPicker value={resolved.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textShadowColor: value })} />} />
+                    <NumberField value={resolved.text.textShadowBlur ?? 0} min={0} onValueChange={(value) => patchOverrideText({ textShadowBlur: value })} label="Shadow blur" labelPlacement="hidden" suffix="px" />
                   </Section.Row>
                   <Section.Row>
-                    <NumberField value={resolved.text.textShadowOffsetX ?? 0} onCommit={(value) => patchOverrideText({ textShadowOffsetX: value })} ariaLabel="Shadow offset X" />
-                    <NumberField value={resolved.text.textShadowOffsetY ?? 0} onCommit={(value) => patchOverrideText({ textShadowOffsetY: value })} ariaLabel="Shadow offset Y" />
+                    <NumberField value={resolved.text.textShadowOffsetX ?? 0} onValueChange={(value) => patchOverrideText({ textShadowOffsetX: value })} label="Shadow offset X" labelPlacement="hidden" />
+                    <NumberField value={resolved.text.textShadowOffsetY ?? 0} onValueChange={(value) => patchOverrideText({ textShadowOffsetY: value })} label="Shadow offset Y" labelPlacement="hidden" />
                   </Section.Row>
                 </>
               ) : null}
@@ -242,16 +245,16 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
             </Section.Header>
             <Section.Body>
               <Section.Row>
-                <NumberField value={resolved.box.x} onCommit={(value) => patchOverrideBox({ x: value })} ariaLabel="X" />
-                <NumberField value={resolved.box.y} onCommit={(value) => patchOverrideBox({ y: value })} ariaLabel="Y" />
+                <NumberField value={resolved.box.x} onValueChange={(value) => patchOverrideBox({ x: value })} label="X" labelPlacement="hidden" />
+                <NumberField value={resolved.box.y} onValueChange={(value) => patchOverrideBox({ y: value })} label="Y" labelPlacement="hidden" />
               </Section.Row>
               <Section.Row>
-                <NumberField value={resolved.box.width} min={0} onCommit={(value) => patchOverrideBox({ width: value })} ariaLabel="Width" />
-                <NumberField value={resolved.box.height} min={0} onCommit={(value) => patchOverrideBox({ height: value })} ariaLabel="Height" />
+                <NumberField value={resolved.box.width} min={0} onValueChange={(value) => patchOverrideBox({ width: value })} label="Width" labelPlacement="hidden" />
+                <NumberField value={resolved.box.height} min={0} onValueChange={(value) => patchOverrideBox({ height: value })} label="Height" labelPlacement="hidden" />
               </Section.Row>
               <Section.Row>
-                <NumberField value={resolved.box.rotation} onCommit={(value) => patchOverrideBox({ rotation: value })} ariaLabel="Rotation" suffix="°" />
-                <NumberField value={resolved.box.opacity} min={0} max={1} step={0.05} onCommit={(value) => patchOverrideBox({ opacity: value })} ariaLabel="Opacity" />
+                <NumberField value={resolved.box.rotation} onValueChange={(value) => patchOverrideBox({ rotation: value })} label="Rotation" labelPlacement="hidden" suffix="°" />
+                <NumberField value={resolved.box.opacity} min={0} max={1} step={0.05} onValueChange={(value) => patchOverrideBox({ opacity: value })} label="Opacity" labelPlacement="hidden" />
               </Section.Row>
             </Section.Body>
           </Section.Root>
@@ -263,10 +266,10 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
             </Section.Header>
             <Section.Body>
               <Section.Row>
-                <SelectField value={resolved.transition.in} options={TRANSITION_OPTIONS} onChange={(value) => patchOverrideTransition({ in: value })} ariaLabel="Transition in" />
-                <SelectField value={resolved.transition.out} options={TRANSITION_OPTIONS} onChange={(value) => patchOverrideTransition({ out: value })} ariaLabel="Transition out" />
+                <Select value={resolved.transition.in} options={TRANSITION_OPTIONS} onValueChange={(value) => patchOverrideTransition({ in: value })} label="Transition in" labelPlacement="hidden" />
+                <Select value={resolved.transition.out} options={TRANSITION_OPTIONS} onValueChange={(value) => patchOverrideTransition({ out: value })} label="Transition out" labelPlacement="hidden" />
               </Section.Row>
-              <NumberField value={resolved.transition.durationMs} min={0} step={50} onCommit={(value) => patchOverrideTransition({ durationMs: value })} ariaLabel="Transition duration" suffix="ms" />
+              <NumberField value={resolved.transition.durationMs} min={0} step={50} onValueChange={(value) => patchOverrideTransition({ durationMs: value })} label="Transition duration" labelPlacement="hidden" suffix="ms" />
             </Section.Body>
           </Section.Root>
         </>

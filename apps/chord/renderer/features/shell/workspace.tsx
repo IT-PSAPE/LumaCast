@@ -4,12 +4,11 @@
 // that's shell chrome, not any one feature's concern.
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { PanelResize, ReacstButton } from '@lumacast/ui';
+import { PanelResize, ReacstButton, useToast } from '@lumacast/ui';
 import { AudioElement } from '../playback';
 import { PreviewCanvas } from '../canvas/preview-canvas';
 import { Timeline } from '../timeline';
 import { getApi } from '../../api';
-import { pushNotice } from '../../components/notice';
 import { Inspector } from '../inspector';
 import { importAudioFromFile, importBackgroundFromFile, importLyricsFromFile } from '../library/import-flows';
 import { TopBar } from './top-bar';
@@ -23,6 +22,7 @@ function hasFiles(event: DragEvent): boolean {
 export function Workspace() {
   const [inspectorWidth, setInspectorWidth] = useState(INSPECTOR_DEFAULT_WIDTH);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     function handleDragOver(event: DragEvent) {
@@ -46,7 +46,7 @@ export function Workspace() {
           else if (file.kind === 'cues') await importLyricsFromFile(file);
         }
       } catch (error) {
-        pushNotice(error instanceof Error ? error.message : 'Could not import the dropped file(s).', 'error');
+        toast({ description: error instanceof Error ? error.message : 'Could not import the dropped file(s).', tone: 'error' });
       }
     }
 
@@ -56,7 +56,7 @@ export function Workspace() {
       window.removeEventListener('dragover', handleDragOver);
       window.removeEventListener('drop', handleDrop);
     };
-  }, []);
+  }, [toast]);
 
   return (
     <div className="flex h-full flex-col">

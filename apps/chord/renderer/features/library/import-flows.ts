@@ -6,17 +6,22 @@
 // gets back from `api.admitFiles`, so a dropped file and a picked file run
 // through exactly the same logic. Every entry point is a plain async
 // function: no component, so nothing here needs a render tree of its own. A
-// `confirmChoice`/`pushNotice` call renders through the singleton hosts
-// mounted once in `App.tsx`.
+// `confirmChoice` call renders through the singleton host, and toasts through
+// the `Toaster`, both mounted once in `App.tsx`.
 import { createId } from '@lumacast/kernel';
+import { useToast } from '@lumacast/ui';
 import { detectCueFormat, parseCues } from '@lumacast/markers';
 import { cuesFromPlainLyrics, cuesFromTimedCues } from '../../../shared/cue-model';
 import type { ImportedFile } from '../../../shared/desktop-api';
 import type { ChordMediaRef } from '../../../shared/project';
 import { getApi } from '../../api';
 import { confirmChoice } from '../../components/confirm-dialog';
-import { pushNotice } from '../../components/notice';
 import { useChordStore } from '../../store';
+
+// `useToast` returns the module-level toast functions without touching React
+// state, so it is safe to resolve once here for these non-component flows.
+// eslint-disable-next-line react-hooks/rules-of-hooks
+const { toast } = useToast();
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -54,7 +59,7 @@ export async function importAudio(): Promise<void> {
     if (!imported) return;
     await importAudioFromFile(imported);
   } catch (error) {
-    pushNotice(errorMessage(error, 'Could not import that audio file.'), 'error');
+    toast({ description: errorMessage(error, 'Could not import that audio file.'), tone: 'error' });
   }
 }
 
@@ -83,7 +88,7 @@ export async function importBackground(): Promise<void> {
     if (!imported) return;
     await importBackgroundFromFile(imported);
   } catch (error) {
-    pushNotice(errorMessage(error, 'Could not import that background file.'), 'error');
+    toast({ description: errorMessage(error, 'Could not import that background file.'), tone: 'error' });
   }
 }
 
@@ -94,7 +99,7 @@ export async function importLyricsFromFile(imported: ImportedFile): Promise<void
 
   if (format) {
     const { cues: timed, warnings } = parseCues(text, format);
-    for (const warning of warnings) pushNotice(warning, 'error');
+    for (const warning of warnings) toast({ description: warning, tone: 'warning' });
     const parsedCues = cuesFromTimedCues(timed, createId);
 
     const hasExisting = store.document.project.cues.length > 0;
@@ -128,6 +133,6 @@ export async function importLyrics(): Promise<void> {
     if (!imported) return;
     await importLyricsFromFile(imported);
   } catch (error) {
-    pushNotice(errorMessage(error, 'Could not import that lyrics file.'), 'error');
+    toast({ description: errorMessage(error, 'Could not import that lyrics file.'), tone: 'error' });
   }
 }
