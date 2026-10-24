@@ -108,8 +108,12 @@ Global hotkeys can toggle streaming controls, recording, and replay capture.
 Browser sources can route page audio through the per-source mixer.
 YouTube account connection uses a Google OAuth Desktop app client ID supplied
 as `LUMASTREAM_GOOGLE_CLIENT_ID` when building LumaStream. Connected accounts
-can select or create upcoming broadcasts and stream to YouTube over RTMPS; OAuth
-tokens are stored with the operating system's secure credential storage.
+can select or create upcoming streams and stream to YouTube over RTMPS; OAuth
+tokens are stored with the operating system's secure credential storage. The
+YouTube panel lists scheduled streams with thumbnails and shows viewer counts,
+input health, and provider notices. Account and manual RTMPS controls are in its
+Settings dialog; new streams are created in a separate dialog. YouTube's Data
+API does not expose the general Content ID warning feed.
 The Zoom Meeting SDK uses a Public Client ID supplied as
 `LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID` when building LumaStream. Connected Zoom
 accounts can select or create scheduled meetings; OAuth tokens are stored with

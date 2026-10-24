@@ -31,17 +31,19 @@ export interface ModalProps {
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /** Prevents user initiated close actions while the dialog is working. */
+  closeDisabled?: boolean;
 }
 
 // Modal is the app's dialog surface. The class names are part of the Flux
 // stylesheet contract (`.modal`, `.modal-backdrop`, `.modal-heading`) and are
 // intentionally not restyled here.
-export function Modal({ open, onClose, title, children }: ModalProps) {
+export function Modal({ open, onClose, title, children, closeDisabled = false }: ModalProps) {
   return (
     <Dialog.Root
       open={open}
       onOpenChange={(v) => {
-        if (!v) onClose();
+        if (!v && !closeDisabled) onClose();
       }}
     >
       <Dialog.Portal>
@@ -49,7 +51,7 @@ export function Modal({ open, onClose, title, children }: ModalProps) {
         <Dialog.Popup className="modal">
           <div className="modal-heading">
             <Dialog.Title>{title}</Dialog.Title>
-            <Dialog.Close className="btn icon" aria-label="Close dialog">
+            <Dialog.Close className="btn icon" aria-label="Close dialog" disabled={closeDisabled}>
               <CloseIcon size={18} />
             </Dialog.Close>
           </div>
