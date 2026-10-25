@@ -77,7 +77,7 @@ export function ExportDialog({
         <div className="flex items-end gap-2">
           <TextField
             className="flex-1"
-            label="Destination"
+            label="Export destination"
             placeholder="Choose a folder"
             value={directory}
             onValueChange={setDirectory}

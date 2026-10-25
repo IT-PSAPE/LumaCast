@@ -558,7 +558,7 @@ try {
   );
   await page.getByRole("button", { name: "Export (2)", exact: true }).click();
   await page
-    .getByRole("textbox", { name: "Destination" })
+    .getByRole("textbox", { name: "Export destination" })
     .fill(path.join(temp, "exports"));
   await page
     .getByRole("button", { name: "Export photos", exact: true })

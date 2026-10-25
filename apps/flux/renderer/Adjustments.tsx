@@ -98,7 +98,7 @@ export function Adjustments({
         onHover={onClipHover}
       />
       <Tabs value={tab} onValueChange={onTab} className="min-h-0 flex-1">
-        <Tabs.List className="flex-none">
+        <Tabs.List aria-label="Photo tools" className="flex-none">
           {["Adjustments", "Composition", "Info"].map((name) => (
             <Tabs.Tab key={name} value={name} className="min-h-9 flex-1">
               {name}
