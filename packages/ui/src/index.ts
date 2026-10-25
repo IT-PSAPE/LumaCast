@@ -87,6 +87,7 @@ export {
 } from './panel';
 export { StatusBar, type StatusBarProps, type StatusBarItemProps } from './status-bar';
 export { Toolbar, type ToolbarProps, type ToolbarGroupProps } from './toolbar';
+export { Sidebar, type SidebarProps, type SidebarNavProps, type SidebarGroupProps, type SidebarFooterProps } from './sidebar';
 export {
   Section,
   type SectionProps,
