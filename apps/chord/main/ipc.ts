@@ -73,6 +73,8 @@ export interface IpcWindowControl {
   setDocumentEdited(edited: boolean): void;
   /** Pops the native application menu at window-relative px. */
   showApplicationMenu(x: number, y: number): void;
+  /** A text field gained or lost focus; main swaps the Edit menu accordingly. */
+  setEditableFocus(editable: boolean): void;
 }
 
 export interface IpcShellEffects {
@@ -325,6 +327,10 @@ export function createIpcHandlers(deps: IpcDeps): IpcHandlerMap {
         throw new Error(`Refusing to reveal an unrecognized path: ${path}`);
       }
       deps.shellEffects.showItemInFolder(path);
+    },
+
+    [IPC_CHANNELS.setEditableFocus]: (editableArg: unknown): void => {
+      deps.windowControl.setEditableFocus(z.boolean().parse(editableArg));
     },
 
     [IPC_CHANNELS.showApplicationMenu]: (xArg: unknown, yArg: unknown): void => {

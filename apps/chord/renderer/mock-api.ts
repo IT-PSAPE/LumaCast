@@ -35,6 +35,7 @@ export function createMockApi(): ChordDesktopAPI {
     exportAbort: async () => {},
     revealPath: async () => {},
     showApplicationMenu: async () => {},
+    setEditableFocus: async () => {},
 
     onMenuCommand: () => () => {},
     onOpenDocument: () => () => {},

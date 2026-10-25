@@ -16,6 +16,7 @@ import {
   installApplicationMenu,
   rebuildRecentMenu,
   RELEASES_URL,
+  setEditableFocus,
   type ApplicationMenuDeps,
 } from '../../../../apps/chord/main/application-menu';
 import type { MenuCommand } from '../../../../apps/chord/shared/desktop-api';
@@ -161,7 +162,7 @@ describe('apps/chord buildApplicationMenuTemplate: File menu', () => {
 });
 
 describe('apps/chord buildApplicationMenuTemplate: Edit menu', () => {
-  it('sends undo/redo/delete as commands and keeps native roles for the rest', () => {
+  it('sends undo/redo/delete as commands without claiming their keys, and keeps native roles for the rest', () => {
     const emit = vi.fn();
     const template = buildApplicationMenuTemplate(makeDeps({ emit }));
     const edit = findMenu(template, 'Edit');
@@ -170,16 +171,85 @@ describe('apps/chord buildApplicationMenuTemplate: Edit menu', () => {
     expect(roles).toEqual(['cut', 'copy', 'paste', 'selectAll']);
 
     const byLabel = Object.fromEntries(edit.map((item) => [item.label, item]));
-    expect(byLabel['Undo'].accelerator).toBe('CmdOrCtrl+Z');
-    expect(byLabel['Redo'].accelerator).toBe('Shift+CmdOrCtrl+Z');
-    expect(byLabel['Delete'].accelerator).toBe('Delete');
+    // Hint shown, key not claimed: the renderer's keydown handler owns it, so
+    // one keypress can never reach both the menu and the renderer.
+    for (const [label, accelerator] of [
+      ['Undo', 'CmdOrCtrl+Z'],
+      ['Redo', 'Shift+CmdOrCtrl+Z'],
+      ['Delete', 'Delete'],
+      ['Duplicate Cue', 'CmdOrCtrl+D'],
+    ] as const) {
+      expect(byLabel[label].accelerator).toBe(accelerator);
+      expect(byLabel[label].registerAccelerator).toBe(false);
+    }
 
     click(byLabel['Undo']);
     click(byLabel['Redo']);
     click(byLabel['Delete']);
+    click(byLabel['Duplicate Cue']);
     expect(emit).toHaveBeenNthCalledWith(1, 'undo');
     expect(emit).toHaveBeenNthCalledWith(2, 'redo');
     expect(emit).toHaveBeenNthCalledWith(3, 'delete-selection');
+    expect(emit).toHaveBeenNthCalledWith(4, 'duplicate-cue');
+  });
+
+  it('hands undo/redo/delete to the native editing roles while a text field has focus', () => {
+    const emit = vi.fn();
+    const edit = findMenu(buildApplicationMenuTemplate(makeDeps({ emit, editableFocus: true })), 'Edit');
+
+    expect(edit.map((item) => item.role).filter(Boolean)).toEqual([
+      'undo', 'redo', 'cut', 'copy', 'paste', 'selectAll', 'delete',
+    ]);
+    // No app command is left in the menu to claim a chord from the field.
+    expect(edit.filter((item) => item.click)).toEqual([]);
+    expect(edit.some((item) => item.accelerator !== undefined)).toBe(false);
+  });
+
+  it('setEditableFocus rebuilds the menu on a change and ignores a repeat', () => {
+    installApplicationMenu(makeDeps());
+    vi.mocked(Menu.setApplicationMenu).mockClear();
+
+    setEditableFocus(true);
+    expect(Menu.setApplicationMenu).toHaveBeenCalledTimes(1);
+    const rebuilt = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as MenuItemConstructorOptions[];
+    expect(findMenu(rebuilt, 'Edit')[0].role).toBe('undo');
+
+    setEditableFocus(true);
+    expect(Menu.setApplicationMenu).toHaveBeenCalledTimes(1);
+
+    setEditableFocus(false);
+    expect(Menu.setApplicationMenu).toHaveBeenCalledTimes(2);
+    const restored = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as MenuItemConstructorOptions[];
+    expect(findMenu(restored, 'Edit')[0].label).toBe('Undo');
+  });
+
+  it('keeps the editable-focus state when the recent list is rebuilt', () => {
+    installApplicationMenu(makeDeps());
+    setEditableFocus(true);
+    rebuildRecentMenu([]);
+    const rebuilt = vi.mocked(Menu.buildFromTemplate).mock.calls.at(-1)?.[0] as MenuItemConstructorOptions[];
+    expect(findMenu(rebuilt, 'Edit')[0].role).toBe('undo');
+    setEditableFocus(false);
+  });
+});
+
+describe('apps/chord buildApplicationMenuTemplate: cue commands', () => {
+  it('registers Export Lyrics on Shift+Cmd+E and the trim keys without claiming them', () => {
+    const emit = vi.fn();
+    const template = buildApplicationMenuTemplate(makeDeps({ emit }));
+    const file = Object.fromEntries(findMenu(template, 'File').map((item) => [item.label, item]));
+    expect(file['Export Lyrics…'].accelerator).toBe('Shift+CmdOrCtrl+E');
+    expect(file['Export Lyrics…'].registerAccelerator).toBeUndefined();
+
+    const timeline = Object.fromEntries(findMenu(template, 'Timeline').map((item) => [item.label, item]));
+    expect(timeline['Set Cue Start at Playhead'].accelerator).toBe('[');
+    expect(timeline['Set Cue End at Playhead'].accelerator).toBe(']');
+    expect(timeline['Set Cue Start at Playhead'].registerAccelerator).toBe(false);
+    expect(timeline['Set Cue End at Playhead'].registerAccelerator).toBe(false);
+    click(timeline['Set Cue Start at Playhead']);
+    click(timeline['Set Cue End at Playhead']);
+    expect(emit).toHaveBeenNthCalledWith(1, 'set-cue-start');
+    expect(emit).toHaveBeenNthCalledWith(2, 'set-cue-end');
   });
 });
 

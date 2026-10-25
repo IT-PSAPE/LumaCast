@@ -21,6 +21,7 @@ export const IPC_CHANNELS = {
   exportAbort: 'export-abort',
   revealPath: 'reveal-path',
   showApplicationMenu: 'window-show-menu',
+  setEditableFocus: 'menu-editable-focus',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

@@ -51,6 +51,7 @@ function makeDeps(overrides: DepsOverrides = {}): IpcDeps {
       setTitle: vi.fn(),
       setDocumentEdited: vi.fn(),
       showApplicationMenu: vi.fn(),
+      setEditableFocus: vi.fn(),
       ...overrides.windowControl,
     },
     shellEffects: {

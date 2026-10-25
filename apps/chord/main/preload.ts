@@ -39,6 +39,8 @@ const api: ChordDesktopAPI = {
   revealPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.revealPath, path),
   showApplicationMenu: (x, y) => ipcRenderer.invoke(IPC_CHANNELS.showApplicationMenu, x, y),
 
+  setEditableFocus: (editable) => ipcRenderer.invoke(IPC_CHANNELS.setEditableFocus, editable),
+
   onMenuCommand: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, command: Parameters<typeof callback>[0]) => callback(command);
     ipcRenderer.on(MENU_COMMAND_CHANNEL, handler);

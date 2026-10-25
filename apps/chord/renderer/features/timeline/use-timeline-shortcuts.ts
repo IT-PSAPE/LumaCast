@@ -6,8 +6,9 @@ import { useEffect } from 'react';
 import { nextCueStart, previousCueStart } from '../../../shared/cue-model';
 import { useChordStore } from '../../store';
 import { timelineEndMs } from '../playback';
+import { deleteSelectedCues, duplicateSelectedCue, trimSelectedCueToPlayhead } from './cue-commands';
 
-function isEditableTarget(target: EventTarget | null): boolean {
+export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   return target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
@@ -72,11 +73,38 @@ export function useTimelineShortcuts(): void {
             state.endTransaction();
           }
           return;
+        // Undo, Redo and Delete are owned here, not by the native menu: while
+        // nothing editable has focus their menu items have no registered
+        // accelerator, and while a field has focus the early return above
+        // leaves the keys to the field. See buildEditMenu in main.
+        case 'z':
+        case 'Z':
+          if (!meta) return;
+          event.preventDefault();
+          if (event.shiftKey) state.redo();
+          else state.undo();
+          return;
         case 'Delete':
         case 'Backspace':
           if (state.selection.length === 0) return;
           event.preventDefault();
-          state.deleteCues(state.selection);
+          deleteSelectedCues();
+          return;
+        case 'd':
+        case 'D':
+          if (!meta) return;
+          event.preventDefault();
+          duplicateSelectedCue();
+          return;
+        case '[':
+          if (meta) return;
+          event.preventDefault();
+          trimSelectedCueToPlayhead('start');
+          return;
+        case ']':
+          if (meta) return;
+          event.preventDefault();
+          trimSelectedCueToPlayhead('end');
           return;
         case 'a':
         case 'A':

@@ -6,6 +6,8 @@
 import { useEffect } from 'react';
 import { getApi } from '../../api';
 import { useChordStore } from '../../store';
+import { isEditableTarget } from '../timeline/use-timeline-shortcuts';
+import { deleteSelectedCues, duplicateSelectedCue, trimSelectedCueToPlayhead } from '../timeline/cue-commands';
 import { importAudio, importBackground, importLyrics } from '../library/import-flows';
 import { openCueFormatChooser, openExportDialog } from './shell-ui-state';
 
@@ -61,7 +63,16 @@ export function useMenuCommands(): void {
           break;
         }
         case 'delete-selection':
-          if (store.selection.length > 0) store.deleteCues(store.selection);
+          deleteSelectedCues();
+          break;
+        case 'duplicate-cue':
+          duplicateSelectedCue();
+          break;
+        case 'set-cue-start':
+          trimSelectedCueToPlayhead('start');
+          break;
+        case 'set-cue-end':
+          trimSelectedCueToPlayhead('end');
           break;
         case 'zoom-in':
           store.zoomBy(1.25);
@@ -83,7 +94,26 @@ export function useMenuCommands(): void {
       useChordStore.getState().loadDocument(document);
     });
 
+    // Main swaps the Edit menu between native editing roles and app commands
+    // on this; see buildEditMenu in main/application-menu.ts. Sent only on a
+    // change, since each report rebuilds the native menu.
+    let editable = false;
+    const reportFocus = (next: boolean) => {
+      if (next === editable) return;
+      editable = next;
+      void api.setEditableFocus(next);
+    };
+    // focusin names the element gaining focus, focusout the one receiving it
+    // (relatedTarget); reading either avoids a false blip between two fields.
+    const handleFocusIn = (event: FocusEvent) => reportFocus(isEditableTarget(event.target));
+    const handleFocusOut = (event: FocusEvent) => reportFocus(isEditableTarget(event.relatedTarget));
+    reportFocus(isEditableTarget(document.activeElement));
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('focusout', handleFocusOut);
+
     return () => {
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('focusout', handleFocusOut);
       unsubscribeCommand();
       unsubscribeOpen();
     };

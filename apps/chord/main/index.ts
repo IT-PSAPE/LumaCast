@@ -13,7 +13,7 @@ import path from 'node:path';
 import { PROJECT_FILE_EXTENSION } from '../shared/project';
 import type { CueFileFormat, ImportKind } from '../shared/desktop-api';
 import { APP_IDENTITY } from './app-identity';
-import { installApplicationMenu, rebuildRecentMenu, RELEASES_URL } from './application-menu';
+import { installApplicationMenu, rebuildRecentMenu, RELEASES_URL, setEditableFocus } from './application-menu';
 import { isApprovedExternalUrl } from './navigation-policy';
 import { ExportSinkRegistry } from './export-sink';
 import {
@@ -133,6 +133,7 @@ if (!app.requestSingleInstanceLock()) {
       setDocumentEdited: (edited) => {
         if (process.platform === 'darwin') mainWindow?.setDocumentEdited(edited);
       },
+      setEditableFocus: (editable) => setEditableFocus(editable),
       showApplicationMenu: (x, y) => {
         if (!mainWindow) return;
         Menu.getApplicationMenu()?.popup({ window: mainWindow, x: Math.round(x), y: Math.round(y) });

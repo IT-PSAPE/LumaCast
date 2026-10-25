@@ -25,6 +25,9 @@ export interface ApplicationMenuDeps {
    *  path payload) — see main/index.ts's handleOpenDocument. */
   onOpenRecent: (path: string) => void;
   onOpenReleaseNotes: () => void;
+  /** A text field (input, textarea, contenteditable) has focus. Flips the
+   *  Edit menu to the native editing roles; see `buildEditMenu`. Defaults to false. */
+  editableFocus?: boolean;
 }
 
 function buildRecentSubmenu(deps: ApplicationMenuDeps): MenuItemConstructorOptions[] {
@@ -50,7 +53,7 @@ function buildFileMenu(deps: ApplicationMenuDeps): MenuItemConstructorOptions[] 
     { label: 'Import Background…', click: () => deps.emit('import-background') },
     { type: 'separator' },
     { label: 'Export…', accelerator: 'CmdOrCtrl+E', click: () => deps.emit('export') },
-    { label: 'Export Lyrics…', click: () => deps.emit('export-cues') },
+    { label: 'Export Lyrics…', accelerator: 'Shift+CmdOrCtrl+E', click: () => deps.emit('export-cues') },
   ];
 
   // macOS gets Quit in the app menu; every other platform has no app menu, so
@@ -62,21 +65,50 @@ function buildFileMenu(deps: ApplicationMenuDeps): MenuItemConstructorOptions[] 
   return items;
 }
 
+// Key ownership for Undo, Redo and Delete.
+//
+// On macOS a native accelerator claims its chord app-wide, so Cmd+Z / Delete
+// typed into a lyric or the project title would fire the app command and never
+// reach the field. But Chromium on macOS also only performs a field's own
+// undo/redo/delete through the menu item's native selector, so simply
+// dropping the accelerator would break typing the other way.
+//
+// So the menu has two shapes, switched by the renderer's focus reports:
+//  - a field has focus: native `undo`/`redo`/`delete` roles. The field owns the
+//    keys; the app commands are unreachable by keyboard, which is correct.
+//  - nothing editable has focus: app commands with `registerAccelerator: false`.
+//    The label and hint stay in the menu, the click still works with the mouse,
+//    and the key itself is handled once, by the renderer's keydown handler
+//    (use-timeline-shortcuts.ts). One owner per key means no double fire.
 function buildEditMenu(deps: ApplicationMenuDeps): MenuItemConstructorOptions[] {
+  if (deps.editableFocus) {
+    return [
+      { role: 'undo' },
+      { role: 'redo' },
+      { type: 'separator' },
+      { role: 'cut' },
+      { role: 'copy' },
+      { role: 'paste' },
+      { role: 'selectAll' },
+      { type: 'separator' },
+      { role: 'delete' },
+    ];
+  }
   return [
-    { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => deps.emit('undo') },
-    { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: () => deps.emit('redo') },
+    { label: 'Undo', accelerator: 'CmdOrCtrl+Z', registerAccelerator: false, click: () => deps.emit('undo') },
+    { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', registerAccelerator: false, click: () => deps.emit('redo') },
     { type: 'separator' },
     { role: 'cut' },
     { role: 'copy' },
     { role: 'paste' },
     { role: 'selectAll' },
     { type: 'separator' },
-    { label: 'Delete', accelerator: 'Delete', click: () => deps.emit('delete-selection') },
+    { label: 'Duplicate Cue', accelerator: 'CmdOrCtrl+D', registerAccelerator: false, click: () => deps.emit('duplicate-cue') },
+    { label: 'Delete', accelerator: 'Delete', registerAccelerator: false, click: () => deps.emit('delete-selection') },
   ];
 }
 
-// Space/M/S carry no modifier: Electron would otherwise register them as
+// Space/M/S/[/] carry no modifier: Electron would otherwise register them as
 // app-wide accelerators, which fires on every keystroke while typing a lyric
 // — `registerAccelerator: false` keeps the label/hint in the menu without
 // stealing the key, and the renderer's own keydown handling (scoped to when
@@ -86,6 +118,8 @@ function buildTimelineMenu(deps: ApplicationMenuDeps): MenuItemConstructorOption
     { label: 'Play/Pause', accelerator: 'Space', registerAccelerator: false, click: () => deps.emit('play-pause') },
     { label: 'Add Cue at Playhead', accelerator: 'M', registerAccelerator: false, click: () => deps.emit('add-cue') },
     { label: 'Split at Playhead', accelerator: 'S', registerAccelerator: false, click: () => deps.emit('split-cue') },
+    { label: 'Set Cue Start at Playhead', accelerator: '[', registerAccelerator: false, click: () => deps.emit('set-cue-start') },
+    { label: 'Set Cue End at Playhead', accelerator: ']', registerAccelerator: false, click: () => deps.emit('set-cue-end') },
     { type: 'separator' },
     { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => deps.emit('zoom-in') },
     { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => deps.emit('zoom-out') },
@@ -157,6 +191,13 @@ export function buildApplicationMenuTemplate(deps: ApplicationMenuDeps): MenuIte
 }
 
 let currentDeps: ApplicationMenuDeps | null = null;
+
+/** The renderer reports whether a text field has focus; rebuilds the menu only on a change. */
+export function setEditableFocus(editable: boolean): void {
+  if (!currentDeps || Boolean(currentDeps.editableFocus) === editable) return;
+  currentDeps = { ...currentDeps, editableFocus: editable };
+  Menu.setApplicationMenu(Menu.buildFromTemplate(buildApplicationMenuTemplate(currentDeps)));
+}
 
 export function installApplicationMenu(deps: ApplicationMenuDeps): void {
   currentDeps = deps;

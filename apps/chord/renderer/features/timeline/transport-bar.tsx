@@ -62,33 +62,43 @@ export function TransportBar() {
 
   return (
     <div
-      className="flex h-9 shrink-0 items-center gap-1 border-b border-secondary bg-primary px-2"
+      className="group flex h-9 shrink-0 items-center gap-1 border-b border-secondary bg-primary px-2"
       data-ui-region="transport-bar"
     >
-      <ReacstButton.Icon label="Go to start" onClick={() => seek(0)}>
-        <ChevronFirst />
-      </ReacstButton.Icon>
       <ReacstButton.Icon label="Previous cue" onClick={goToPreviousCue}>
         <SkipBack />
-      </ReacstButton.Icon>
-      <ReacstButton.Icon label="Step back one frame" onClick={() => stepFrames(-1)}>
-        <StepBack />
       </ReacstButton.Icon>
       <ReacstButton.Icon label={playing ? 'Pause' : 'Play'} variant="take" active={playing} onClick={togglePlay}>
         {playing ? <Pause /> : <Play />}
       </ReacstButton.Icon>
-      <ReacstButton.Icon label="Step forward one frame" onClick={() => stepFrames(1)}>
-        <StepForward />
-      </ReacstButton.Icon>
       <ReacstButton.Icon label="Next cue" onClick={goToNextCue}>
         <SkipForward />
-      </ReacstButton.Icon>
-      <ReacstButton.Icon label="Go to end" onClick={() => seek(totalMs)}>
-        <ChevronLast />
       </ReacstButton.Icon>
       <ReacstButton.Icon label="Loop" active={loop} onClick={() => setLoop(!loop)}>
         <Repeat />
       </ReacstButton.Icon>
+
+      {/* Home/End and the arrow keys already do these four, so they surface
+          only on hover or keyboard focus. They stay in the tab order (opacity,
+          not display) so they remain reachable without a pointer. */}
+      <div
+        className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100"
+        role="group"
+        aria-label="Frame navigation"
+      >
+        <ReacstButton.Icon label="Go to start" onClick={() => seek(0)}>
+          <ChevronFirst />
+        </ReacstButton.Icon>
+        <ReacstButton.Icon label="Step back one frame" onClick={() => stepFrames(-1)}>
+          <StepBack />
+        </ReacstButton.Icon>
+        <ReacstButton.Icon label="Step forward one frame" onClick={() => stepFrames(1)}>
+          <StepForward />
+        </ReacstButton.Icon>
+        <ReacstButton.Icon label="Go to end" onClick={() => seek(totalMs)}>
+          <ChevronLast />
+        </ReacstButton.Icon>
+      </div>
 
       <button
         type="button"

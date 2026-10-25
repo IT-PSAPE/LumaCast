@@ -76,8 +76,8 @@ describe('empty untitled project', () => {
     expect(screen.getByTestId('preview-canvas')).toBeInTheDocument();
     expect(container.querySelector('[data-ui-region="timeline"]')).not.toBeNull();
     expect(container.querySelector('[data-ui-region="transport-bar"]')).not.toBeNull();
-    expect(screen.getByRole('button', { name: 'New' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Project settings' })).toBeInTheDocument();
     expect(container.textContent).not.toContain('NaN');
   });
 

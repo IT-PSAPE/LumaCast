@@ -289,6 +289,24 @@ describe('createChordStore', () => {
       expect(state()._undoStack.at(-1)?.label).toBe('Add cue');
     });
 
+    it('duplicateCue copies text and duration to the target start, selects the copy, and is one undo step', () => {
+      setCues([makeCue('a', 0, { endMs: 1500, text: 'Hello' })]);
+      const id = state().duplicateCue('a', 5000);
+      expect(id).not.toBeNull();
+      const copy = state().document.project.cues.find((cue) => cue.id === id);
+      expect(copy).toMatchObject({ startMs: 5000, endMs: 6500, text: 'Hello' });
+      expect(state().selection).toEqual([id]);
+      expect(state()._undoStack.at(-1)?.label).toBe('Duplicate cue');
+    });
+
+    it('duplicateCue nudges past a cue already starting at the target, and ignores an unknown id', () => {
+      setCues([makeCue('a', 1000)]);
+      const id = state().duplicateCue('a', 1000);
+      const copy = state().document.project.cues.find((cue) => cue.id === id);
+      expect(copy?.startMs).toBeGreaterThan(1000);
+      expect(state().duplicateCue('missing', 0)).toBeNull();
+    });
+
     it('updateCue patches arbitrary fields', () => {
       setCues([makeCue('a', 0)]);
       state().updateCue('a', { startMs: 250 });

@@ -97,6 +97,7 @@ export function createTestStore(overrides: Partial<TestChordStore> = {}): TestCh
     trimCue: vi.fn(),
     splitCueAt: vi.fn(),
     deleteCues: vi.fn(),
+    duplicateCue: vi.fn(() => null),
     detachCue: vi.fn(),
     relinkCue: vi.fn(),
     setCueOverride: vi.fn(),

@@ -95,6 +95,8 @@ export interface ChordActions {
   trimCue: (id: string, edge: 'start' | 'end', timeMs: number) => void;
   splitCueAt: (id: string, timeMs: number) => void;
   deleteCues: (ids: readonly string[]) => void;
+  /** Copies a cue (text, rich body, style, duration) to start at `startMs`, nudged forward a frame at a time past any cue already starting there; selects the copy. Returns its id, or null when `id` is unknown. */
+  duplicateCue: (id: string, startMs: number) => string | null;
   detachCue: (id: string) => void;
   relinkCue: (id: string) => void;
   setCueOverride: (id: string, override: CueOverride | null) => void;

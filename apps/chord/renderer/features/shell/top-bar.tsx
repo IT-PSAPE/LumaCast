@@ -4,10 +4,10 @@
 // being split into separate wrapper-component files.
 import { useState } from 'react';
 import {
-  ChevronDown, FilePlus2, FolderOpen, ListMusic, Redo2, Save, Undo2,
+  ChevronDown, ListMusic, Redo2, Save, SlidersHorizontal, Undo2,
 } from 'lucide-react';
 import {
-  cn, Modal, PlainButton, Popover, PointContextMenu, ReacstButton, Select, TextField, Toolbar,
+  cn, DropdownMenu, Modal, Popover, PointContextMenu, ReacstButton, Select, TextField, Toolbar,
   usePointContextMenu, type MenuEntry,
 } from '@lumacast/ui';
 import type { CueFileFormat } from '../../../shared/desktop-api';
@@ -59,33 +59,34 @@ function TitleControl() {
   );
 }
 
-function DocumentControls() {
-  const newDocument = useChordStore((s) => s.newDocument);
-  const openDocument = useChordStore((s) => s.openDocument);
+function SaveControl() {
   const saveDocument = useChordStore((s) => s.saveDocument);
 
   return (
-    <>
-      <ReacstButton.Icon label="New" onClick={() => void newDocument()}>
-        <FilePlus2 size={16} />
-      </ReacstButton.Icon>
-      <ReacstButton.Icon label="Open" onClick={() => void openDocument()}>
-        <FolderOpen size={16} />
-      </ReacstButton.Icon>
-      <ReacstButton.Icon label="Save" onClick={() => void saveDocument()}>
-        <Save size={16} />
-      </ReacstButton.Icon>
-    </>
+    <ReacstButton.Icon label="Save" onClick={() => void saveDocument()}>
+      <Save size={16} />
+    </ReacstButton.Icon>
   );
 }
 
-function ImportControls() {
+// Used once per project, so one menu instead of three buttons. New and Open
+// are not in the bar: they live in the File menu (Cmd+N / Cmd+O).
+const IMPORT_ENTRIES: MenuEntry[] = [
+  { id: 'audio', label: 'Audio…', onSelect: () => void importAudio() },
+  { id: 'lyrics', label: 'Lyrics…', onSelect: () => void importLyrics() },
+  { id: 'background', label: 'Background…', onSelect: () => void importBackground() },
+];
+
+function ImportMenu() {
   return (
-    <>
-      <PlainButton onClick={() => void importAudio()}>Audio…</PlainButton>
-      <PlainButton onClick={() => void importLyrics()}>Lyrics…</PlainButton>
-      <PlainButton onClick={() => void importBackground()}>Background…</PlainButton>
-    </>
+    <DropdownMenu
+      entries={IMPORT_ENTRIES}
+      trigger={(
+        <button type="button" className="btn inline-flex items-center gap-1">
+          Import… <ChevronDown size={12} />
+        </button>
+      )}
+    />
   );
 }
 
@@ -96,7 +97,7 @@ const COMPOSITION_OPTIONS = [
 
 const FPS_OPTIONS = FRAME_RATES.map((fps) => ({ value: String(fps), label: `${fps} fps` }));
 
-function CompositionControls() {
+function CompositionFields() {
   const composition = useChordStore((s) => s.document.project.composition);
   const setComposition = useChordStore((s) => s.setComposition);
   const activePreset = COMPOSITION_PRESETS.find(
@@ -104,13 +105,11 @@ function CompositionControls() {
   );
 
   return (
-    <>
+    <div className="flex flex-col gap-2">
       <Select
         value={activePreset?.id ?? 'custom'}
         options={COMPOSITION_OPTIONS}
         label="Composition"
-        labelPlacement="hidden"
-        className="w-36"
         onValueChange={(value) => {
           const preset = COMPOSITION_PRESETS.find((p) => p.id === value);
           if (preset) setComposition({ width: preset.size.width, height: preset.size.height });
@@ -120,15 +119,15 @@ function CompositionControls() {
         value={String(composition.fps)}
         options={FPS_OPTIONS}
         label="Frame rate"
-        labelPlacement="hidden"
-        className="w-24"
         onValueChange={(value) => setComposition({ fps: Number(value) as FrameRate })}
       />
-    </>
+    </div>
   );
 }
 
-function ThemePresetPopover() {
+// Composition, frame rate and theme preset are set once per project; they
+// share one popover rather than three always-visible controls.
+function ProjectSettingsPopover() {
   const presetId = useChordStore((s) => s.document.project.theme.presetId);
   const applyPreset = useChordStore((s) => s.applyPreset);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
@@ -140,17 +139,14 @@ function ThemePresetPopover() {
       <button
         ref={setAnchor}
         type="button"
-        aria-label="Theme preset"
+        aria-label="Project settings"
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
         className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1.5 text-secondary hover:bg-tertiary"
       >
-        <span
-          className="size-3.5 shrink-0 rounded-full border border-primary"
-          style={{ backgroundColor: current?.swatch.background ?? '#000000' }}
-        />
-        <span className="label-xs">{current?.label ?? 'Custom'}</span>
+        <SlidersHorizontal size={14} />
+        <span className="label-xs">Project</span>
         <ChevronDown size={12} />
       </button>
       <Popover
@@ -159,30 +155,31 @@ function ThemePresetPopover() {
         onClose={() => setOpen(false)}
         placement="bottom-start"
         offset={6}
-        className="grid w-56 grid-cols-3 gap-2 rounded-md border border-primary bg-primary p-2 shadow-lg"
+        className="flex w-64 flex-col gap-3 rounded-md border border-primary bg-primary p-3 shadow-lg"
       >
-        {THEME_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            onClick={() => {
-              applyPreset(preset.id);
-              setOpen(false);
-            }}
-            className={cn(
-              'flex cursor-pointer flex-col items-center gap-1 rounded-sm border p-1.5 transition-colors',
-              presetId === preset.id ? 'border-brand bg-brand/10' : 'border-primary hover:bg-tertiary',
-            )}
-          >
-            <span
-              className="flex h-6 w-full items-center justify-center rounded-sm text-[10px] font-semibold"
-              style={{ backgroundColor: preset.swatch.background, color: preset.swatch.text }}
+        <CompositionFields />
+        <div role="group" aria-label={`Theme preset, ${current?.label ?? 'Custom'}`} className="grid grid-cols-3 gap-2">
+          {THEME_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              aria-pressed={presetId === preset.id}
+              onClick={() => applyPreset(preset.id)}
+              className={cn(
+                'flex cursor-pointer flex-col items-center gap-1 rounded-sm border p-1.5 transition-colors',
+                presetId === preset.id ? 'border-brand bg-brand/10' : 'border-primary hover:bg-tertiary',
+              )}
             >
-              Aa
-            </span>
-            <span className="label-xs w-full truncate text-center text-secondary">{preset.label}</span>
-          </button>
-        ))}
+              <span
+                className="flex h-6 w-full items-center justify-center rounded-sm text-[10px] font-semibold"
+                style={{ backgroundColor: preset.swatch.background, color: preset.swatch.text }}
+              >
+                Aa
+              </span>
+              <span className="label-xs w-full truncate text-center text-secondary">{preset.label}</span>
+            </button>
+          ))}
+        </div>
       </Popover>
     </>
   );
@@ -275,16 +272,13 @@ export function TopBar() {
       </Toolbar.Start>
 
       <Toolbar.Center>
-        <Toolbar.Group label="Document"><DocumentControls /></Toolbar.Group>
-        <Toolbar.Group label="Import"><ImportControls /></Toolbar.Group>
-        <Toolbar.Group label="Composition">
-          <CompositionControls />
-          <ThemePresetPopover />
-        </Toolbar.Group>
+        <Toolbar.Group label="Document"><SaveControl /></Toolbar.Group>
         <Toolbar.Group label="History"><HistoryControls /></Toolbar.Group>
       </Toolbar.Center>
 
       <Toolbar.End>
+        <ImportMenu />
+        <ProjectSettingsPopover />
         <LyricsExportMenu />
         <ReacstButton className="bg-brand text-white hover:bg-brand/90" disabled={isEmpty} onClick={openExportDialog}>
           Export

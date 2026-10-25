@@ -288,6 +288,23 @@ export function createChordStore(api: ChordDesktopAPI) {
         set((state) => ({ selection: state.selection.filter((id) => !ids.includes(id)) }));
       },
 
+      duplicateCue: (id, startMs) => {
+        const source = get().document.project.cues.find((cue) => cue.id === id);
+        if (!source) return null;
+        const frame = frameDurationMs(get().document.project.composition.fps);
+        const starts = new Set(get().document.project.cues.map((cue) => cue.startMs));
+        let start = Math.max(0, startMs);
+        while (starts.has(start)) start += frame;
+        const copyId = createId();
+        const duration = source.endMs === null ? null : source.endMs - source.startMs;
+        const copy: ChordCue = { ...source, id: copyId, startMs: start, endMs: duration === null ? null : start + duration };
+        get().updateProject('Duplicate cue', (draft) => {
+          draft.cues = insertCue(draft.cues, copy);
+        });
+        get().select([copyId]);
+        return copyId;
+      },
+
       detachCue: (id) => {
         // A detached-but-unedited cue's override is `{}` (present, but every
         // field still inherits) — deliberately not run through

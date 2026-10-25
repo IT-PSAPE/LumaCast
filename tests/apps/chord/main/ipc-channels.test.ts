@@ -35,6 +35,7 @@ describe('apps/chord IPC channel identity', () => {
       'export-abort',
       'reveal-path',
       'window-show-menu',
+      'menu-editable-focus',
     ]);
   });
 
@@ -69,6 +70,7 @@ describe('apps/chord IPC channel identity', () => {
       exportAbort: IPC_CHANNELS.exportAbort,
       revealPath: IPC_CHANNELS.revealPath,
       showApplicationMenu: IPC_CHANNELS.showApplicationMenu,
+      setEditableFocus: IPC_CHANNELS.setEditableFocus,
     };
 
     for (const channel of Object.values(expected)) {

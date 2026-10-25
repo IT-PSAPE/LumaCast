@@ -39,6 +39,9 @@ export type MenuCommand =
   | 'add-cue'
   | 'split-cue'
   | 'delete-selection'
+  | 'duplicate-cue'
+  | 'set-cue-start'
+  | 'set-cue-end'
   | 'zoom-in'
   | 'zoom-out'
   | 'zoom-fit';
@@ -82,6 +85,9 @@ export interface ChordDesktopAPI {
   revealPath: (path: string) => Promise<void>;
   /** Pops the native application menu at window-relative CSS px; for the title-bar menu button on platforms with no menu bar. */
   showApplicationMenu: (x: number, y: number) => Promise<void>;
+
+  /** Reports whether a text field has focus, so main can swap the Edit menu between native editing roles and app commands. */
+  setEditableFocus: (editable: boolean) => Promise<void>;
 
   // Push channels
   onMenuCommand: (callback: (command: MenuCommand) => void) => () => void;
