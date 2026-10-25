@@ -80,7 +80,7 @@ describe('SettingsDialog', () => {
     expect(screen.getByRole('combobox', { name: 'Replay buffer duration' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: 'Video' }));
-    expect(screen.getByLabelText('Base canvas width')).toBeInTheDocument();
+    expect(screen.getByLabelText('Base (Canvas) width')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Replay buffer duration' })).not.toBeInTheDocument();
   });
 
@@ -88,13 +88,17 @@ describe('SettingsDialog', () => {
     renderDialog({ initialPage: 'video' });
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
 
-    fireEvent.change(screen.getByLabelText('Frame rate'), { target: { value: '60' } });
+    const frameRate = screen.getByLabelText('Frame rate');
+    fireEvent.change(frameRate, { target: { value: '60' } });
+    fireEvent.blur(frameRate);
     expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
   });
 
   it('shows an inline confirm before discarding a dirty draft on Cancel, and keeps editing on request', () => {
     const { onClose } = renderDialog({ initialPage: 'video' });
-    fireEvent.change(screen.getByLabelText('Frame rate'), { target: { value: '60' } });
+    const frameRate = screen.getByLabelText('Frame rate');
+    fireEvent.change(frameRate, { target: { value: '60' } });
+    fireEvent.blur(frameRate);
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.getByText('Discard unsaved changes?')).toBeInTheDocument();
@@ -102,7 +106,7 @@ describe('SettingsDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Keep Editing' }));
     expect(screen.queryByText('Discard unsaved changes?')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Frame rate')).toHaveValue(60);
+    expect(screen.getByLabelText('Frame rate')).toHaveValue('60');
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
@@ -117,7 +121,9 @@ describe('SettingsDialog', () => {
 
   it('emits only the changed patch group through its callback and closes on OK', () => {
     const { setProjectValue, onClose, onUpdateMonitoringDevice, setReplayBufferDurationSeconds } = renderDialog({ initialPage: 'video' });
-    fireEvent.change(screen.getByLabelText('Frame rate'), { target: { value: '60' } });
+    const frameRate = screen.getByLabelText('Frame rate');
+    fireEvent.change(frameRate, { target: { value: '60' } });
+    fireEvent.blur(frameRate);
 
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
 
@@ -134,11 +140,22 @@ describe('SettingsDialog', () => {
   });
 
   it('disables OK while a field is invalid and never closes the dialog', () => {
-    const { onClose } = renderDialog({ initialPage: 'video' });
-    fireEvent.change(screen.getByLabelText('Frame rate'), { target: { value: '9999' } });
+    // NumberField clamps to its min/max on commit, so range errors can no longer
+    // be typed in; the filename format is a free-text field that can still be invalid.
+    const { onClose } = renderDialog({ initialPage: 'output' });
+    fireEvent.change(screen.getByLabelText('Filename format'), { target: { value: 'bad/name' } });
     expect(screen.getByRole('button', { name: 'OK' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('clamps an out-of-range frame rate to the maximum instead of leaving the draft invalid', () => {
+    renderDialog({ initialPage: 'video' });
+    const frameRate = screen.getByLabelText('Frame rate');
+    fireEvent.change(frameRate, { target: { value: '9999' } });
+    fireEvent.blur(frameRate);
+    expect(frameRate).toHaveValue('240');
+    expect(screen.getByRole('button', { name: 'OK' })).toBeEnabled();
   });
 
   it('shows a disabled, note-free empty state on the Stream page when no streamServiceSettings prop is provided', () => {

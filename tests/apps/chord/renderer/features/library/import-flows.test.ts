@@ -2,7 +2,7 @@
 // exported async functions directly and assert on the store/api/confirm/
 // notice mocks they drive. `@lumacast/markers` and the shared `cue-model`
 // pure helpers are real (both are stable, already-built) — only the desktop
-// API, the store, and the two singleton UI hosts (confirm/notice) are
+// API, the store, and the two confirm host and the toast function are
 // mocked.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestStore, type TestChordStore } from '../../test-store';
@@ -45,9 +45,9 @@ vi.mock('../../../../../../apps/chord/renderer/components/confirm-dialog', () =>
   confirmChoice: (...args: [string, unknown[], string?]) => confirmChoiceMock(...args),
 }));
 
-const pushNoticeMock = vi.fn();
-vi.mock('../../../../../../apps/chord/renderer/components/notice', () => ({
-  pushNotice: (...args: [string, string?]) => pushNoticeMock(...args),
+const toastMock = vi.fn();
+vi.mock('@lumacast/ui', () => ({
+  useToast: () => ({ toast: (...args: unknown[]) => toastMock(...args) }),
 }));
 
 import { importAudio, importBackground, importLyrics } from '../../../../../../apps/chord/renderer/features/library/import-flows';
@@ -79,7 +79,7 @@ describe('import-flows', () => {
       vi.mocked(apiMock.importMedia).mockRejectedValueOnce(new Error('disk exploded'));
       await importAudio();
       expect(testStore.setAudio).not.toHaveBeenCalled();
-      expect(pushNoticeMock).toHaveBeenCalledWith('disk exploded', 'error');
+      expect(toastMock).toHaveBeenCalledWith({ description: 'disk exploded', tone: 'error' });
     });
   });
 
@@ -200,7 +200,7 @@ describe('import-flows', () => {
       vi.mocked(apiMock.importMedia).mockResolvedValueOnce(importedFile({ kind: 'cues', path: '/l.csv', name: 'l.csv' }));
       vi.mocked(apiMock.readCueFile).mockRejectedValueOnce(new Error('cannot read file'));
       await importLyrics();
-      expect(pushNoticeMock).toHaveBeenCalledWith('cannot read file', 'error');
+      expect(toastMock).toHaveBeenCalledWith({ description: 'cannot read file', tone: 'error' });
       expect(testStore.replaceCues).not.toHaveBeenCalled();
     });
   });

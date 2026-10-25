@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { SlideElement, TextElementPayload, Timer } from '@lumacast/composition';
@@ -41,19 +40,21 @@ vi.mock('@renderer/contexts/timers/timers-context', () => ({
 // FieldSelect's real popup needs the workbench overlay stack (see
 // shape-element-inspector.test.tsx / text-element-inspector.test.tsx for the
 // same substitution): stub it to a native <select> for plain fireEvent.change.
-vi.mock('@renderer/components/form/field', async () => {
-  const actual = await vi.importActual<typeof import('@renderer/components/form/field')>('@renderer/components/form/field');
-  function FieldSelectStub({ value, onChange, children }: { value: string; onChange: (value: string) => void; children?: ReactNode }) {
+vi.mock('@lumacast/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lumacast/ui')>();
+  type Option = { value: string; label: string };
+  function SelectStub({ value, onValueChange, options, label }: { value: string; onValueChange: (value: string) => void; options: ReadonlyArray<Option>; label?: string }) {
     return (
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {children}
+      <select aria-label={label} value={value} onChange={(event) => onValueChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
       </select>
     );
   }
-  function FieldSelectOptionStub({ value, children }: { value: string; children?: ReactNode }) {
-    return <option value={value}>{children}</option>;
-  }
-  return { ...actual, FieldSelect: Object.assign(FieldSelectStub, { Option: FieldSelectOptionStub }) };
+  return { ...actual, Select: SelectStub };
 });
 
 import { BindingInspector } from '@renderer/features/inspector/binding-inspector';

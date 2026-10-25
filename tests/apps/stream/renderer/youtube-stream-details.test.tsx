@@ -87,8 +87,10 @@ describe('YouTubeStreamDetails', () => {
     const interruptionNotice = screen.getByText('Stream interrupted').closest('[role="alert"]');
     expect(interruptionNotice).toHaveTextContent('YouTube reports that this stream stopped.');
     expect(screen.getByText('YouTube reports that this stream stopped.')).toBeInTheDocument();
-    expect(screen.getByText('Copyright notice').closest('.youtube-notice')).toHaveClass('youtube-notice--warning');
-    expect(screen.getByText('Stream interrupted').closest('.youtube-notice')).toHaveClass('youtube-notice--error');
+    // Severity is conveyed to assistive tech by politeness: a warning waits, an error interrupts.
+    expect(copyrightNotice).toHaveAttribute('aria-live', 'polite');
+    expect(interruptionNotice).toHaveAttribute('aria-live', 'assertive');
+    expect(copyrightNotice).not.toBe(interruptionNotice);
 
     const health = screen.getByRole('status', { name: 'Stream health: Excellent' });
     expect(health).toHaveAttribute('aria-live', 'polite');

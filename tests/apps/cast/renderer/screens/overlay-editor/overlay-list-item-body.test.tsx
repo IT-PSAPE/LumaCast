@@ -59,6 +59,7 @@ vi.mock('@lumacast/ui', async () => {
   const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
   return {
     ...actual,
+    useConfirm: () => mocks.confirm,
     useContextMenuTrigger: () => ({
       ref: mocks.triggerRef,
       onContextMenu: vi.fn(),
@@ -73,10 +74,6 @@ vi.mock('@lumacast/ui', async () => {
     },
   };
 });
-
-vi.mock('@renderer/components/overlays/confirm-dialog', () => ({
-  useConfirm: () => mocks.confirm,
-}));
 
 vi.mock('@renderer/components/layout/sortable-list', () => ({
   useSortableItem: () => ({

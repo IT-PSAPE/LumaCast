@@ -1,21 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { FilterChips } from '../../../../../../apps/cast/renderer/features/observability/filter-chips';
+import { SegmentedControl } from '@lumacast/ui';
 
 afterEach(cleanup);
 
-describe('FilterChips', () => {
+// FilterChips was replaced by the shared SegmentedControl; this keeps the
+// original contract (explicit option parts, selected value reported on click).
+describe('observability filter (SegmentedControl)', () => {
   it('renders explicit option parts and reports the selected value', () => {
-    const onChange = vi.fn();
+    const onValueChange = vi.fn();
     render(
-      <FilterChips.Root value="all" onChange={onChange}>
-        <FilterChips.Option value="all">All</FilterChips.Option>
-        <FilterChips.Option value="error">Errors</FilterChips.Option>
-      </FilterChips.Root>,
+      <SegmentedControl value="all" onValueChange={onValueChange}>
+        <SegmentedControl.Label value="all">All</SegmentedControl.Label>
+        <SegmentedControl.Label value="error">Errors</SegmentedControl.Label>
+      </SegmentedControl>,
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Errors' }));
-    expect(onChange).toHaveBeenCalledWith('error');
-    expect(screen.getByRole('button', { name: 'All' }).className).toContain('bg-tertiary');
+    expect(onValueChange).toHaveBeenCalledWith('error');
+    expect(screen.getByRole('button', { name: 'All' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Errors' }).getAttribute('aria-pressed')).toBe('false');
   });
 });

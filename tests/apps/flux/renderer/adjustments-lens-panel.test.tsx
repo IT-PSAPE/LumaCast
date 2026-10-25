@@ -89,7 +89,7 @@ function renderInspector(
 }
 
 function lensPanel() {
-  return screen.getByRole("group", { name: /lens correction/i });
+  return screen.getByRole("region", { name: /lens correction/i });
 }
 
 describe("Adjustments lens correction panel", () => {
@@ -130,7 +130,7 @@ describe("Adjustments lens correction panel", () => {
 
   it("auto lens correction keeps its label, tooltip, and single action", () => {
     const { onAction } = renderInspector({ recipe: recipe({ lensProfile }) });
-    const auto = within(lensPanel()).getByRole("button", {
+    const auto = screen.getByRole("button", {
       name: "Auto lens correction",
     });
     expect(auto.getAttribute("title")).toBeTruthy();
@@ -141,19 +141,20 @@ describe("Adjustments lens correction panel", () => {
 
   it("auto does not toggle the disclosure it sits in", () => {
     const { onAction } = renderInspector({ recipe: recipe({ lensProfile }) });
-    const panel = lensPanel() as HTMLDetailsElement;
-    expect(panel.open).toBe(true);
+    // The accordion trigger carries the open state the old <details> did.
+    const trigger = screen.getByRole("button", { name: "Lens correction" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(
-      within(panel).getByRole("button", { name: "Auto lens correction" }),
+      screen.getByRole("button", { name: "Auto lens correction" }),
     );
     expect(onAction).toHaveBeenCalledWith("auto_lens_correction");
-    expect(panel.open).toBe(true);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("disables auto lens correction while busy or when the file is missing", () => {
     renderInspector({ busy: true, recipe: recipe({ lensProfile }) });
     expect(
-      within(lensPanel()).getByRole("button", { name: "Auto lens correction" }),
+      screen.getByRole("button", { name: "Auto lens correction" }),
     ).toBeDisabled();
     cleanup();
     renderInspector({
@@ -161,14 +162,14 @@ describe("Adjustments lens correction panel", () => {
       recipe: recipe({ lensProfile }),
     });
     expect(
-      within(lensPanel()).getByRole("button", { name: "Auto lens correction" }),
+      screen.getByRole("button", { name: "Auto lens correction" }),
     ).toBeDisabled();
   });
 
   it("only renders the lens panel on the composition tab", () => {
     renderInspector({ tab: "Adjustments", recipe: recipe({ lensProfile }) });
     expect(
-      screen.queryByRole("group", { name: /lens correction/i }),
+      screen.queryByRole("region", { name: /lens correction/i }),
     ).toBeNull();
     cleanup();
     renderInspector({ tab: "Composition", recipe: recipe({ lensProfile }) });
@@ -178,8 +179,8 @@ describe("Adjustments lens correction panel", () => {
   it("keeps the light group auto affordance on the adjustments tab", () => {
     const { onAction } = renderInspector({ tab: "Adjustments" });
     // Exact name: `/light/i` also matches the Highlights slider group.
-    const light = screen.getByRole("group", { name: "Light" });
-    fireEvent.click(within(light).getByRole("button", { name: "Auto light" }));
+    // The Auto button sits in the accordion header, beside the trigger.
+    fireEvent.click(screen.getByRole("button", { name: "Auto light" }));
     expect(onAction).toHaveBeenCalledWith("auto_adjust");
   });
 });

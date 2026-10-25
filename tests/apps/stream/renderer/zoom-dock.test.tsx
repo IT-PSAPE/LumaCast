@@ -24,6 +24,11 @@ describe('ZoomDock', () => {
     const { api } = renderDock();
     fireEvent.click(screen.getByRole('button', { name: /connect zoom/i }));
     expect(await screen.findByText('Host · host@example.com')).toBeInTheDocument();
+    // Meetings live in the package Select's popup; open the trigger to reach the options.
+    const trigger = await screen.findByRole('combobox', { name: 'Scheduled meeting' });
+    await waitFor(() => expect(api.listZoomMeetings).toHaveBeenCalledTimes(1));
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
     expect(await screen.findByRole('option', { name: /town hall/i })).toBeInTheDocument();
     expect(api.connectZoomAccount).toHaveBeenCalledTimes(1);
     expect(api.listZoomMeetings).toHaveBeenCalledTimes(1);

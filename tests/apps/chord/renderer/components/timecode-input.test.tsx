@@ -40,7 +40,8 @@ describe('TimecodeInput', () => {
     fireEvent.change(input, { target: { value: 'not a time' } });
     fireEvent.blur(input);
     expect(onCommit).not.toHaveBeenCalled();
-    expect(input).toHaveValue('00:01.000');
+    // The field remounts after a commit attempt, so re-query the live element.
+    expect(screen.getByLabelText('Start')).toHaveValue('00:01.000');
   });
 
   it('commits on Enter (which blurs the field)', () => {

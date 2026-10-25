@@ -45,10 +45,6 @@ vi.mock('@renderer/components/controls/bin-controls', () => ({
   }),
 }));
 
-vi.mock('@renderer/components/overlays/confirm-dialog', () => ({
-  useConfirmDelete: () => mocks.confirmDelete,
-}));
-
 vi.mock('@renderer/contexts/workbench-context', () => ({
   useWorkbench: () => ({
     state: {},
@@ -56,6 +52,20 @@ vi.mock('@renderer/contexts/workbench-context', () => ({
     overlayStack: { register: vi.fn(), unregister: vi.fn(), stack: [] as string[], baseZIndex: 100, rootElement: undefined },
   }),
 }));
+
+// The package Select's popup needs the overlay stack and floating-ui
+// positioning; stubbed to a native <select> so kind/format changes are plain
+// fireEvent.change, matching the inspector tests' approach.
+function SelectStub({ value, onValueChange, options, label }: { value: string; onValueChange: (value: string) => void; options: ReadonlyArray<{ value: string; label: string }>; label?: string }) {
+  return (
+    <label>
+      {label}
+      <select aria-label={label} value={value} onChange={(event) => onValueChange(event.target.value)}>
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
 
 // Right-click/kebab row menu (Duplicate/Delete) isn't part of this panel's
 // required behavior coverage — stubbed the same way sibling row tests do
@@ -65,6 +75,8 @@ vi.mock('@lumacast/ui', async () => {
   const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
   return {
     ...actual,
+    useConfirm: () => mocks.confirmDelete,
+    Select: SelectStub,
     useContextMenuTrigger: () => ({ ref: vi.fn(), onContextMenu: vi.fn() }),
     ContextMenu: {
       Root: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -76,27 +88,6 @@ vi.mock('@lumacast/ui', async () => {
       Separator: () => <hr />,
     },
   };
-});
-
-// FieldSelect's real popup needs the workbench overlay stack and floating-ui
-// positioning; stubbed to a native <select> so kind/format changes are plain
-// fireEvent.change, matching text-element-inspector.test.tsx's approach.
-vi.mock('@renderer/components/form/field', async () => {
-  const actual = await vi.importActual<typeof import('@renderer/components/form/field')>('@renderer/components/form/field');
-  function FieldSelectStub({ value, onChange, children, label }: { value: string; onChange: (value: string) => void; children?: ReactNode; label?: string }) {
-    return (
-      <label>
-        {label}
-        <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}>
-          {children}
-        </select>
-      </label>
-    );
-  }
-  function FieldSelectOptionStub({ value, children }: { value: string; children?: ReactNode }) {
-    return <option value={value}>{children}</option>;
-  }
-  return { ...actual, FieldSelect: Object.assign(FieldSelectStub, { Option: FieldSelectOptionStub }) };
 });
 
 import { TimersPanel } from '@renderer/features/playback/timers-panel';

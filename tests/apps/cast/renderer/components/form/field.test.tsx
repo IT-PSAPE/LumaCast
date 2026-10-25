@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { WorkbenchProvider } from '@renderer/contexts/workbench-context';
-import { Field, FieldCheckbox, FieldInput, FieldSelect } from '../../../../../../apps/cast/renderer/components/form/field';
+import { FieldInput, FieldSelect } from '../../../../../../apps/cast/renderer/components/form/field';
 
 // A stateful harness for the number field: stepping is only meaningful across
 // more than one key press if the new value is fed back in as `value`, exactly
@@ -234,26 +234,5 @@ describe('Field.Select', () => {
     const positioner = screen.getByRole('listbox').closest('[style*="z-index"]');
     expect(positioner).not.toBeNull();
     await settle();
-  });
-});
-
-describe('Field.Checkbox', () => {
-  it('renders an accessible, toggleable checkbox', () => {
-    const onChange = vi.fn();
-    render(<FieldCheckbox checked={false} label="Enabled" onChange={onChange} />);
-    const checkbox = screen.getByRole('checkbox', { name: 'Enabled' });
-    expect(checkbox).toHaveAttribute('aria-checked', 'false');
-    fireEvent.click(checkbox);
-    // Base UI's onCheckedChange also passes an eventDetails object; FieldCheckbox's
-    // own contract to its caller is a plain `(checked: boolean) => void`.
-    expect(onChange.mock.calls[0]?.[0]).toBe(true);
-  });
-});
-
-describe('Field export shape', () => {
-  it('keeps the compound Field object stable', () => {
-    expect(Field.Input).toBe(FieldInput);
-    expect(Field.Select).toBe(FieldSelect);
-    expect(Field.Checkbox).toBe(FieldCheckbox);
   });
 });

@@ -17,7 +17,10 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/workbench-context', () =>
     },
   }),
 }));
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/confirm-dialog', () => ({ useConfirm: () => vi.fn().mockResolvedValue(true) }));
+vi.mock('@lumacast/ui', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@lumacast/ui')>(),
+  useConfirm: () => vi.fn().mockResolvedValue(true),
+}));
 vi.mock('../../../../../../apps/cast/renderer/components/display/lazy-scene-stage', () => ({ LazySceneStage: () => null }));
 describe('slide timing editor', () => {
   beforeEach(() => { state.save.mockReset().mockResolvedValue(undefined); state.schedules = []; });

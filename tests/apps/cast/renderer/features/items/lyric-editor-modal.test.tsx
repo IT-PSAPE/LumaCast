@@ -21,7 +21,10 @@ vi.mock('../../../../../../apps/cast/renderer/features/items/lyric-layout-config
   loadMeasureFont: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../../../../../../apps/cast/renderer/features/items/lyric-layout-config-dialog', () => ({ LyricLayoutConfigDialog: () => null }));
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/confirm-dialog', () => ({ useConfirm: () => mocks.confirm }));
+vi.mock('@lumacast/ui', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@lumacast/ui')>(),
+  useConfirm: () => mocks.confirm,
+}));
 vi.mock('../../../../../../apps/cast/renderer/components/form/doc-editor', () => ({ default: () => null }));
 
 async function settle() {

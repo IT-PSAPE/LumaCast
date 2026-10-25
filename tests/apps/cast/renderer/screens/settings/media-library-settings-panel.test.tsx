@@ -4,7 +4,8 @@ import { MediaLibrarySettingsPanel } from '../../../../../../apps/cast/renderer/
 
 const { confirm } = vi.hoisted(() => ({ confirm: vi.fn() }));
 
-vi.mock('@renderer/components/overlays/confirm-dialog', () => ({
+vi.mock('@lumacast/ui', async () => ({
+  ...(await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui')),
   useConfirm: () => confirm,
 }));
 
@@ -31,7 +32,7 @@ describe('MediaLibrarySettingsPanel', () => {
     screen.getByRole('button', { name: 'Reclaim unused media' }).click();
 
     await waitFor(() => expect(confirm).toHaveBeenCalled());
-    expect(confirm.mock.calls[0]?.[0]).toMatchObject({ destructive: true });
+    expect(confirm.mock.calls[0]?.[0]).toMatchObject({ tone: 'danger' });
     expect(api.reclaimMediaLibrary).not.toHaveBeenCalled();
   });
 

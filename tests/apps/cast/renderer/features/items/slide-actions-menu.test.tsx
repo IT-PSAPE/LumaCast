@@ -16,6 +16,7 @@ vi.mock('@lumacast/ui', async () => {
   const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
   return {
     ...actual,
+    useConfirm: () => mocks.confirm,
     ContextMenu: {
       Item: ({ children, onSelect, disabled }: { children: React.ReactNode; onSelect?: () => void; disabled?: boolean }) => (
         <button type="button" disabled={disabled} onClick={onSelect}>{children}</button>
@@ -38,10 +39,6 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/slide-context', () => ({
 
 vi.mock('../../../../../../apps/cast/renderer/contexts/navigation-context', () => ({
   useNavigation: () => ({ currentItemRef: mocks.currentItemRef }),
-}));
-
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/confirm-dialog', () => ({
-  useConfirm: () => mocks.confirm,
 }));
 
 vi.mock('../../../../../../apps/cast/renderer/features/automation/slide-automation-menu', () => ({ SlideAutomationMenu: () => null }));

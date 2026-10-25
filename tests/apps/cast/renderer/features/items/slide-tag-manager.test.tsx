@@ -14,10 +14,6 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/app-context', () => ({
   useCast: () => ({ mutatePatch: (action: () => Promise<unknown>) => action(), setStatusText: vi.fn() }),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/confirm-dialog', () => ({
-  useConfirm: () => mocks.confirm,
-}));
-
 vi.mock('../../../../../../apps/cast/renderer/components/overlays/dialog', () => ({
   Dialog: {
     Root: ({ children, open }: { children: React.ReactNode; open?: boolean }) => open ? <div>{children}</div> : null,
@@ -44,6 +40,7 @@ vi.mock('../../../../../../apps/cast/renderer/components/form/field', () => ({
 // with, so the mock has to spread the real module.
 vi.mock('@lumacast/ui', async (importOriginal) => ({
   ...await importOriginal<typeof import('@lumacast/ui')>(),
+  useConfirm: () => mocks.confirm,
   ReacstButton: ({ children, onClick, disabled }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) => (
     <button type="button" onClick={onClick} disabled={disabled}>{children}</button>
   ),
@@ -107,6 +104,8 @@ describe('SlideTagManagerProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Bridge' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    // The shared Modal hides the rest of the page while open, so wait for it to close.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(screen.getByRole('button', { name: 'Recolor' }));
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
 

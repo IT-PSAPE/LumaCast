@@ -1,5 +1,4 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SlideElement } from '@lumacast/composition';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
@@ -28,19 +27,21 @@ vi.mock('@renderer/contexts/canvas/canvas-context', () => ({
 // inspector uses (FieldInput, FieldIcon, FieldCheckbox) is self-contained, so
 // only FieldSelect is swapped for a native <select> here — the goal is
 // testing this inspector's wiring, not re-testing the Field kit itself.
-vi.mock('@renderer/components/form/field', async () => {
-  const actual = await vi.importActual<typeof import('@renderer/components/form/field')>('@renderer/components/form/field');
-  function FieldSelectStub({ value, onChange, children }: { value: string; onChange: (value: string) => void; children?: ReactNode }) {
+vi.mock('@lumacast/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lumacast/ui')>();
+  type Option = { value: string; label: string };
+  function SelectStub({ value, onValueChange, options, label }: { value: string; onValueChange: (value: string) => void; options: ReadonlyArray<Option>; label?: string }) {
     return (
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
-        {children}
+      <select aria-label={label} value={value} onChange={(event) => onValueChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
       </select>
     );
   }
-  function FieldSelectOptionStub({ value, children }: { value: string; children?: ReactNode }) {
-    return <option value={value}>{children}</option>;
-  }
-  return { ...actual, FieldSelect: Object.assign(FieldSelectStub, { Option: FieldSelectOptionStub }) };
+  return { ...actual, Select: SelectStub };
 });
 
 function shapeElement(overrides: Partial<SlideElement> = {}): SlideElement {

@@ -26,7 +26,8 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/navigation-context', () =
   }),
 }));
 
-vi.mock('../../../../../../apps/cast/renderer/components/overlays/confirm-dialog', () => ({
+vi.mock('@lumacast/ui', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@lumacast/ui')>(),
   useConfirm: () => mocks.confirm,
 }));
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { ConfirmProvider } from '@renderer/components/overlays/confirm-dialog';
+import { ConfirmProvider } from '@lumacast/ui';
 import { createDefaultAgentConfig, matrixForTier } from '@lumacast/protocol';
 import type { AgentConfig, AgentConfigUpdate, AgentCredentialStatus, AgentMcpClient, AgentMcpStatus, AgentModelInfo } from '@lumacast/protocol';
 import { AgentSettingsPanel, buildMcpSetupInstructions } from '../../../../../../apps/cast/renderer/screens/settings/agent-settings-panel';
@@ -186,7 +186,7 @@ describe('AgentSettingsPanel', () => {
     const api = stubCastApi({ config: baseConfig({ provider: 'openrouter', model: 'saved' }), credentialStatuses: [{ provider: 'openrouter', hasKey: true, keyHint: 'r123' }, { provider: 'opencode', hasKey: true, keyHint: 'z123' }] });
     renderPanel();
     const row = await screen.findByRole('group', { name: 'OpenCode Zen connection' });
-    fireEvent.change(within(row).getByLabelText('OpenCode Zen base URL'), { target: { value: 'https://custom.test/v1' } });
+    fireEvent.change(within(row).getByLabelText('Base URL'), { target: { value: 'https://custom.test/v1' } });
     fireEvent.click(within(row).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.agentUpdateConfig).toHaveBeenCalledWith({ providerBaseUrls: { opencode: 'https://custom.test/v1' } }));
   });

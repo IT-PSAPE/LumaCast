@@ -9,7 +9,7 @@ import type {
   AgentThreadSummary,
 } from '@lumacast/protocol';
 import { createDefaultAgentConfig } from '@lumacast/protocol';
-import { ConfirmProvider } from '@renderer/components/overlays/confirm-dialog';
+import { ConfirmProvider } from '@lumacast/ui';
 import { AgentChatProvider } from '@renderer/features/agent/chat/agent-chat-context';
 import { AgentChatPopup } from '@renderer/features/agent/chat/agent-chat-popup';
 import { AgentChatTrigger } from '@renderer/features/agent/chat/agent-chat-trigger';

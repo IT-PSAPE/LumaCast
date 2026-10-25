@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MenuItemConstructorOptions } from 'electron';
 
-vi.mock('electron', () => {
+// apps/stream has its own node_modules/electron, so the source under test
+// resolves to a different module id than the root one; mock both.
+const electronModule = vi.hoisted(() => {
   const buildFromTemplate = vi.fn((template: unknown) => ({ __template: template }));
   const setApplicationMenu = vi.fn();
   const getFocusedWebContents = vi.fn(() => null as unknown);
@@ -11,6 +13,8 @@ vi.mock('electron', () => {
     webContents: { getFocusedWebContents },
   };
 });
+vi.mock('electron', () => electronModule);
+vi.mock('../../../../apps/stream/node_modules/electron/index.js', () => electronModule);
 
 import { Menu, webContents } from 'electron';
 import { applyApplicationMenu, validateSerializedMenu } from '../../../../apps/stream/main/application-menu';
