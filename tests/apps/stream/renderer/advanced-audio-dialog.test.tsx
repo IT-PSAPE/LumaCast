@@ -50,7 +50,7 @@ describe('AdvancedAudioDialog', () => {
   it('reports a volume change as a 0..2 multiplier (150% -> 1.5)', () => {
     const onUpdate = vi.fn();
     render(<AdvancedAudioDialog sources={[makeSource('Mic')]} onUpdate={onUpdate} onClose={vi.fn()} />);
-    const volumeInput = screen.getByRole('textbox', { name: 'Mic volume' });
+    const volumeInput = screen.getByRole('spinbutton', { name: 'Mic volume' });
     fireEvent.change(volumeInput, { target: { value: '150' } });
     fireEvent.blur(volumeInput);
     expect(onUpdate).toHaveBeenCalledWith('Mic', { volume: 1.5 });
@@ -59,7 +59,7 @@ describe('AdvancedAudioDialog', () => {
   it('clamps volume input to the 0..200% range', () => {
     const onUpdate = vi.fn();
     render(<AdvancedAudioDialog sources={[makeSource('Mic')]} onUpdate={onUpdate} onClose={vi.fn()} />);
-    const volumeInput = screen.getByRole('textbox', { name: 'Mic volume' });
+    const volumeInput = screen.getByRole('spinbutton', { name: 'Mic volume' });
     fireEvent.change(volumeInput, { target: { value: '500' } });
     fireEvent.blur(volumeInput);
     expect(onUpdate).toHaveBeenCalledWith('Mic', { volume: 2 });

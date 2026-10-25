@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactElement } from 'react';
+import { useCallback, useState, type ReactElement, type ReactNode } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { cn } from './cn';
 import { SURFACE_CLASSES } from './context-menu';
@@ -7,10 +7,19 @@ import { useOverlayContainer, useOverlayStackEntry } from './overlay';
 
 const VIEWPORT_PADDING = 8;
 
-export interface DropdownMenuProps {
+export interface DropdownMenuRenderProps {
+  /** Dismisses the menu (and restores focus to the trigger). */
+  close: () => void;
+}
+
+/** Body of the menu: exactly one of `entries` or `children`; passing both is a type error. */
+export type DropdownMenuContent =
+  | { entries: MenuEntry[]; children?: never }
+  | { entries?: never; children: ReactNode | ((props: DropdownMenuRenderProps) => ReactNode) };
+
+export type DropdownMenuProps = DropdownMenuContent & {
   /** The button that opens the menu. Cloned via `render`, never wrapped. */
   trigger: ReactElement;
-  entries: MenuEntry[];
   side?: 'top' | 'bottom' | 'left' | 'right';
   align?: 'start' | 'center' | 'end';
   sideOffset?: number;
@@ -19,7 +28,7 @@ export interface DropdownMenuProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   className?: string;
-}
+};
 
 /**
  * A click-to-open menu anchored to its trigger element by Base UI's positioner
@@ -27,10 +36,21 @@ export interface DropdownMenuProps {
  * supplies `aria-haspopup="menu"`, `aria-expanded` and `aria-controls`, plus
  * Enter/Space/Arrow opening, Escape-and-refocus, roving focus and typeahead.
  * Rows render through `MenuEntries`, identical to `ContextMenu` and `Menubar`.
+ *
+ * Pass `entries` (the default, keeps every menu looking alike) OR `children`
+ * (a node, or `({ close }) => node`) for presentational content: icons,
+ * headings, descriptions, static preview rows, or hand-built items. Both
+ * render on the same surface.
+ *
+ * Do NOT put focusable form controls (sliders, inputs, selects, switches) in
+ * `children`: a menu is a roving-focus `menuitem` widget, so arrow keys inside
+ * a slider would also move the menu's focus and the ARIA contract breaks.
+ * Control-heavy panels belong in `Popover`, not `DropdownMenu`.
  */
 export function DropdownMenu({
   trigger,
   entries,
+  children,
   side = 'bottom',
   align = 'start',
   sideOffset = 4,
@@ -50,6 +70,8 @@ export function DropdownMenu({
     onOpenChange?.(nextOpen);
   }, [isControlled, onOpenChange]);
 
+  const close = () => { handleOpenChange(false); };
+
   return (
     <Menu.Root modal={false} open={resolvedOpen} onOpenChange={handleOpenChange}>
       <Menu.Trigger render={trigger} disabled={disabled} />
@@ -64,7 +86,9 @@ export function DropdownMenu({
           style={{ zIndex }}
         >
           <Menu.Popup className={cn(SURFACE_CLASSES, className)}>
-            <MenuEntries entries={entries} />
+            {entries
+              ? <MenuEntries entries={entries} />
+              : typeof children === 'function' ? children({ close }) : children}
           </Menu.Popup>
         </Menu.Positioner>
       </Menu.Portal>

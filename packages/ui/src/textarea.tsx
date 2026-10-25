@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type Ref } from 'react';
 import { cv } from './cv';
 import { Field, useFieldIds, type FieldLabelPlacement } from './field';
 
@@ -39,6 +39,13 @@ export interface TextareaProps {
   maxLength?: number;
   id?: string;
   className?: string;
+  ref?: Ref<HTMLTextAreaElement>;
+  /** Runs before internal key handling; `preventDefault()` skips the internal handling. */
+  onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  required?: boolean;
+  autoComplete?: string;
+  spellCheck?: boolean;
+  autoCapitalize?: string;
 }
 
 export function Textarea({
@@ -58,12 +65,23 @@ export function Textarea({
   maxLength,
   id,
   className,
+  ref,
+  onKeyDown,
+  required,
+  autoComplete,
+  spellCheck,
+  autoCapitalize,
 }: TextareaProps) {
   const ids = useFieldIds(id, { error, hint });
   const [draft, setDraft] = useState(value);
   const focused = useRef(false);
   const reverting = useRef(false);
-  const element = useRef<HTMLTextAreaElement>(null);
+  const element = useRef<HTMLTextAreaElement | null>(null);
+  function setElement(node: HTMLTextAreaElement | null) {
+    element.current = node;
+    if (typeof ref === 'function') ref(node);
+    else if (ref) ref.current = node;
+  }
   const deferred = commitOn === 'blur';
   const shown = deferred ? draft : value;
 
@@ -85,6 +103,8 @@ export function Textarea({
   }, [autoResize, maxRows, rows, shown]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    onKeyDown?.(event);
+    if (event.defaultPrevented) return;
     if (deferred && event.key === 'Escape') {
       reverting.current = true;
       setDraft(value);
@@ -99,12 +119,17 @@ export function Textarea({
       htmlFor={ids.id}
       error={error}
       hint={hint}
+      required={required}
       disabled={disabled}
       className={className}
     >
       <textarea
-        ref={element}
+        ref={setElement}
         id={ids.id}
+        required={required}
+        autoComplete={autoComplete}
+        spellCheck={spellCheck}
+        autoCapitalize={autoCapitalize}
         rows={rows}
         value={shown}
         placeholder={placeholder}

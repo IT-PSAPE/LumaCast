@@ -1,5 +1,5 @@
 import { Select as BaseSelect } from '@base-ui/react/select';
-import { useState } from 'react';
+import { useRef, useState, type FocusEvent, type ReactNode } from 'react';
 import { cn } from './cn';
 import { cv } from './cv';
 import { Field, useFieldIds, type FieldLabelPlacement } from './field';
@@ -68,11 +68,13 @@ const triggerVariants = cv({
 
 const itemStyles = 'flex cursor-pointer select-none items-center justify-between gap-2 rounded label-xs px-2 py-1.5 text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary data-[selected]:text-brand data-disabled:cursor-not-allowed data-disabled:opacity-50';
 
-export interface SelectOption<T = string> {
-  value: T;
-  label: string;
-  disabled?: boolean;
-}
+/**
+ * A plain-string label needs nothing more. A rich (non-string) label must also
+ * supply `textValue`: typeahead and the option's accessible name use real text.
+ */
+export type SelectOption<T = string> =
+  | { value: T; label: string; textValue?: undefined; disabled?: boolean }
+  | { value: T; label: ReactNode; textValue: string; disabled?: boolean };
 
 export interface SelectGroup<T = string> {
   label: string;
@@ -94,6 +96,8 @@ export interface SelectProps<T = string> {
   error?: string;
   hint?: string;
   id?: string;
+  /** Fires when focus genuinely leaves the closed Select; blurs caused by the popup opening are ignored. */
+  onBlur?: (event: FocusEvent) => void;
 }
 
 function isGroupList<T>(options: ReadonlyArray<SelectOption<T>> | ReadonlyArray<SelectGroup<T>>): options is ReadonlyArray<SelectGroup<T>> {
@@ -101,9 +105,11 @@ function isGroupList<T>(options: ReadonlyArray<SelectOption<T>> | ReadonlyArray<
   return first !== undefined && 'options' in first && Array.isArray(first.options);
 }
 
-export function Select<T = string>({ value, onValueChange, options, placeholder, disabled, className, size = 'md', label, labelPlacement, error, hint, id }: SelectProps<T>) {
+export function Select<T = string>({ value, onValueChange, options, placeholder, disabled, className, size = 'md', label, labelPlacement, error, hint, id, onBlur }: SelectProps<T>) {
   const ids = useFieldIds(id, { error, hint });
   const [open, setOpen] = useState(false);
+  // Synchronous mirror of `open`: the trigger blurs as the popup opens, before state commits.
+  const openRef = useRef(false);
   const { zIndex } = useOverlayStackEntry(open);
   const container = useOverlayContainer();
 
@@ -121,7 +127,10 @@ export function Select<T = string>({ value, onValueChange, options, placeholder,
         value={selectedIndex >= 0 ? String(selectedIndex) : null}
         disabled={disabled}
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(next) => {
+          openRef.current = next;
+          setOpen(next);
+        }}
         onValueChange={(next) => {
           const option = typeof next === 'string' ? flat[Number(next)] : undefined;
           if (option) onValueChange(option.value);
@@ -130,6 +139,7 @@ export function Select<T = string>({ value, onValueChange, options, placeholder,
         <BaseSelect.Trigger
           id={ids.id}
           aria-label={label && labelPlacement !== 'hidden' ? undefined : label}
+          onBlur={onBlur ? (event) => { if (!openRef.current) onBlur(event); } : undefined}
           aria-invalid={error ? true : undefined}
           aria-describedby={ids.describedBy}
           className={cn(triggerVariants({ size, invalid: Boolean(error) }), 'w-full')}
@@ -146,7 +156,7 @@ export function Select<T = string>({ value, onValueChange, options, placeholder,
                 const items = group.options.map((option) => {
                   const index = cursor++;
                   return (
-                    <BaseSelect.Item key={index} value={String(index)} disabled={option.disabled} className={itemStyles}>
+                    <BaseSelect.Item key={index} value={String(index)} label={option.textValue ?? (typeof option.label === 'string' ? option.label : undefined)} aria-label={option.textValue} disabled={option.disabled} className={itemStyles}>
                       <BaseSelect.ItemText className="flex-1 truncate">{option.label}</BaseSelect.ItemText>
                       <BaseSelect.ItemIndicator className="shrink-0">
                         <CheckIcon />

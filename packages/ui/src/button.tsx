@@ -1,28 +1,30 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 import { Button } from '@base-ui/react/button';
 import { cn } from './cn';
 import { cv } from './cv';
 import { Tooltip } from './tooltip';
 
 export type ButtonVariant = 'default' | 'take' | 'danger' | 'ghost' | 'primary' | 'tinted' | 'outline' | 'link';
-export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
+export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+export type ButtonShape = 'rounded' | 'pill';
 
 // One variant matrix drives both `ReacstButton` and `ReacstButton.Icon`. The
-// `shape` axis ('text' | 'icon') selects the geometry; variant colours, the
+// `kind` axis ('text' | 'icon') selects the geometry; variant colours, the
 // pressed/active state and fullWidth/align are shared.
 //
 // Disabled styling keys off Base UI's `data-disabled` attribute (present
 // whenever `disabled` is true). `loading` also sets `disabled` so it cannot be
 // activated, and `data-loading` restores full opacity for that case.
 //
-// Heights (px). Text: xs 22, sm 24, md ~25 (legacy: py-1.5 + 12px label),
-// lg 34. Icon (square): xs 20, sm 24, md 28 (legacy: p-1.5 + 16px glyph), lg 32.
+// Heights (px). Text: xs 22, sm 24, md ~25 (legacy: py-1.5 + 12px label, FROZEN),
+// lg 28, xl 34. Icon (square): xs 20, sm 24, md 28 (legacy: p-1.5 + 16px glyph),
+// lg 28, xl 32.
 // Non-md sizes use explicit heights so they are exact; md keeps its padding
 // metrics unchanged so existing call sites do not shift.
 const buttonVariants = cv({
   base: 'relative cursor-pointer transition-colors rounded-sm data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50 data-loading:data-disabled:opacity-100',
   variants: {
-    shape: {
+    kind: {
       text: 'inline-flex items-center gap-1.5 whitespace-nowrap',
       icon: '',
     },
@@ -41,6 +43,12 @@ const buttonVariants = cv({
       sm: null,
       md: null,
       lg: null,
+      xl: null,
+    },
+    // Public corner shape (Badge vocabulary). `rounded` is the base radius.
+    shape: {
+      rounded: null,
+      pill: 'rounded-full',
     },
     // `on` is the visual pressed/active state (set from `pressed || active`).
     on: {
@@ -61,7 +69,8 @@ const buttonVariants = cv({
     },
   },
   defaultVariants: {
-    shape: 'text',
+    kind: 'text',
+    shape: 'rounded',
     variant: 'default',
     size: 'md',
     on: false,
@@ -71,18 +80,20 @@ const buttonVariants = cv({
   },
   compoundVariants: [
     // Text geometry.
-    { shape: 'text', size: 'xs', className: 'h-[22px] px-2 label-xs' },
-    { shape: 'text', size: 'sm', className: 'h-6 px-2.5 label-xs' },
-    { shape: 'text', size: 'md', className: 'px-3 py-1.5 label-xs' },
-    { shape: 'text', size: 'lg', className: 'h-[34px] px-4 label-sm' },
+    { kind: 'text', size: 'xs', className: 'h-[22px] px-2 label-xs' },
+    { kind: 'text', size: 'sm', className: 'h-6 px-2.5 label-xs' },
+    { kind: 'text', size: 'md', className: 'px-3 py-1.5 label-xs' },
+    { kind: 'text', size: 'lg', className: 'h-7 px-3.5 label-xs' },
+    { kind: 'text', size: 'xl', className: 'h-[34px] px-4 label-sm' },
     // Icon geometry. Non-md sizes centre explicitly; md keeps legacy padding.
-    { shape: 'icon', size: 'xs', className: 'inline-flex size-5 items-center justify-center *:size-3' },
-    { shape: 'icon', size: 'sm', className: 'inline-flex size-6 items-center justify-center *:size-3.5' },
-    { shape: 'icon', size: 'md', className: 'p-1.5 *:size-4' },
-    { shape: 'icon', size: 'lg', className: 'inline-flex size-8 items-center justify-center *:size-[18px]' },
+    { kind: 'icon', size: 'xs', className: 'inline-flex size-5 items-center justify-center *:size-3' },
+    { kind: 'icon', size: 'sm', className: 'inline-flex size-6 items-center justify-center *:size-3.5' },
+    { kind: 'icon', size: 'md', className: 'p-1.5 *:size-4' },
+    { kind: 'icon', size: 'lg', className: 'inline-flex size-7 items-center justify-center *:size-4' },
+    { kind: 'icon', size: 'xl', className: 'inline-flex size-8 items-center justify-center *:size-[18px]' },
     // Resting text colour: icon ghost is tertiary, text ghost is secondary.
-    { shape: 'text', variant: 'ghost', className: 'text-secondary' },
-    { shape: 'icon', variant: 'ghost', className: 'text-tertiary' },
+    { kind: 'text', variant: 'ghost', className: 'text-secondary' },
+    { kind: 'icon', variant: 'ghost', className: 'text-tertiary' },
     // Pressed / active.
     { variant: 'default', on: true, className: 'bg-tertiary text-primary' },
     { variant: 'take', on: true, className: 'bg-success/15 text-primary' },
@@ -107,6 +118,10 @@ interface ButtonSharedProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>
   align?: 'center' | 'start';
   children: ReactNode;
   className?: string;
+  /** Forwarded to the underlying `<button>` (React 19 ref prop). */
+  ref?: Ref<HTMLButtonElement>;
+  /** Corner shape. `pill` is fully rounded. Default `rounded`. */
+  shape?: ButtonShape;
   fullWidth?: boolean;
   /** Order of icon vs label when children are `[icon, label]`. Default `leading`. */
   iconPosition?: 'leading' | 'trailing';
@@ -138,7 +153,7 @@ function Spinner() {
 }
 
 function renderButton(
-  shape: 'text' | 'icon',
+  kind: 'text' | 'icon',
   {
     active = false,
     align = 'center',
@@ -150,6 +165,8 @@ function renderButton(
     label,
     loading = false,
     pressed,
+    ref,
+    shape = 'rounded',
     size = 'md',
     tooltip,
     type = 'button',
@@ -159,6 +176,7 @@ function renderButton(
 ) {
   const button = (
     <Button
+      ref={ref}
       type={type}
       disabled={disabled || loading}
       aria-label={label}
@@ -168,12 +186,12 @@ function renderButton(
       data-loading={loading ? '' : undefined}
       {...buttonProps}
       className={cn(
-        buttonVariants({ shape, variant, size, on: active || pressed === true, fullWidth, align, iconPosition }),
-        loading && shape === 'icon' && '[&>:not([data-spinner])]:invisible',
+        buttonVariants({ kind, shape, variant, size, on: active || pressed === true, fullWidth, align, iconPosition }),
+        loading && kind === 'icon' && '[&>:not([data-spinner])]:invisible',
         className,
       )}
     >
-      {loading && shape === 'text' ? <span className="invisible contents">{children}</span> : children}
+      {loading && kind === 'text' ? <span className="invisible contents">{children}</span> : children}
       {loading ? <Spinner /> : null}
     </Button>
   );

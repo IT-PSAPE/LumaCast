@@ -1,3 +1,4 @@
+import { createRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ReacstButton } from '@lumacast/ui';
@@ -47,6 +48,53 @@ describe('ReacstButton', () => {
       expect(screen.getByRole('button', { name: `Do ${variant}` })).not.toBeNull();
       unmount();
     }
+  });
+
+  it('forwards ref to the native button node', () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<ReacstButton ref={ref} label="Save">Save</ReacstButton>);
+    expect(ref.current).toBe(screen.getByRole('button', { name: 'Save' }));
+    const iconRef = createRef<HTMLButtonElement>();
+    render(<ReacstButton.Icon ref={iconRef} label="Close"><svg aria-hidden /></ReacstButton.Icon>);
+    expect(iconRef.current).toBe(screen.getByRole('button', { name: 'Close' }));
+  });
+
+  it('shape="pill" renders the pill radius; default stays rounded-sm', () => {
+    render(<ReacstButton shape="pill" label="Pill">Pill</ReacstButton>);
+    const pill = screen.getByRole('button', { name: 'Pill' });
+    expect(pill.className).toContain('rounded-full');
+    expect(pill.className).not.toContain('rounded-sm');
+    render(<ReacstButton label="Plain">Plain</ReacstButton>);
+    expect(screen.getByRole('button', { name: 'Plain' }).className).toContain('rounded-sm');
+  });
+
+  it.each([
+    ['xs', 'h-[22px]'],
+    ['sm', 'h-6'],
+    ['lg', 'h-7'],
+    ['xl', 'h-[34px]'],
+  ] as const)('text size %s renders %s', (size, cls) => {
+    render(<ReacstButton size={size} label="S">S</ReacstButton>);
+    const button = screen.getByRole('button', { name: 'S' });
+    expect(button.className.split(/\s+/)).toContain(cls);
+    if (size === 'lg') expect(button.className).not.toContain('h-[34px]');
+  });
+
+  it('md keeps its padding metrics with no explicit height', () => {
+    render(<ReacstButton label="M">M</ReacstButton>);
+    const button = screen.getByRole('button', { name: 'M' });
+    expect(button.className).toContain('py-1.5');
+    expect(button.className).not.toMatch(/(^|\s)h-/);
+  });
+
+  it.each([
+    ['xs', 'size-5'],
+    ['sm', 'size-6'],
+    ['lg', 'size-7'],
+    ['xl', 'size-8'],
+  ] as const)('icon size %s renders %s', (size, cls) => {
+    render(<ReacstButton.Icon size={size} label="I"><svg aria-hidden /></ReacstButton.Icon>);
+    expect(screen.getByRole('button', { name: 'I' }).className.split(/\s+/)).toContain(cls);
   });
 
   describe('ReacstButton.Icon', () => {

@@ -143,3 +143,99 @@ describe('NumberField', () => {
     expect(input.value).toBe('30');
   });
 });
+
+describe('NumberField escape hatches', () => {
+  it('forwards ref to the input', () => {
+    const ref = { current: null as HTMLInputElement | null };
+    setup({ ref });
+    expect(ref.current).toBeInstanceOf(HTMLInputElement);
+    expect(ref.current).toBe(screen.getByRole('spinbutton'));
+  });
+
+  it('runs the consumer onKeyDown first, and preventDefault skips internal handling', () => {
+    const order: string[] = [];
+    const swallow = setup({
+      onKeyDown: (event) => {
+        order.push('consumer');
+        event.preventDefault();
+      },
+    });
+    fireEvent.keyDown(swallow.input, { key: 'ArrowUp' });
+    expect(swallow.onValueChange).not.toHaveBeenCalled();
+    expect(order).toEqual(['consumer']);
+    cleanup();
+    const pass = setup({ onKeyDown: () => order.push('consumer2') });
+    fireEvent.keyDown(pass.input, { key: 'ArrowUp' });
+    expect(pass.onValueChange).toHaveBeenCalledExactlyOnceWith(11);
+    expect(order).toEqual(['consumer', 'consumer2']);
+  });
+
+  it('passes required and autoComplete to the control', () => {
+    render(<NumberField value={1} onValueChange={vi.fn()} label="Size" required autoComplete="off" />);
+    const input = screen.getByRole('spinbutton');
+    expect(input).toBeRequired();
+    expect(input).toHaveAttribute('autocomplete', 'off');
+  });
+});
+
+describe('NumberField spinbutton contract', () => {
+  it('exposes role and aria-valuenow', () => {
+    const { input } = setup();
+    expect(screen.getByRole('spinbutton', { name: 'Size' })).toBe(input);
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveAttribute('aria-valuenow', '10');
+  });
+
+  it('omits min, max and valuetext when not set', () => {
+    const { input } = setup();
+    expect(input).not.toHaveAttribute('aria-valuemin');
+    expect(input).not.toHaveAttribute('aria-valuemax');
+    expect(input).not.toHaveAttribute('aria-valuetext');
+  });
+
+  it('sets min, max and valuetext with a suffix', () => {
+    const { input } = setup({ value: 1920, min: 0, max: 4000, suffix: 'pixels' });
+    expect(input).toHaveAttribute('aria-valuemin', '0');
+    expect(input).toHaveAttribute('aria-valuemax', '4000');
+    expect(input).toHaveAttribute('aria-valuetext', '1920 pixels');
+  });
+
+  it('omits aria-valuenow while the draft is unparseable', () => {
+    const { input } = setup();
+    type(input, '-');
+    expect(input).not.toHaveAttribute('aria-valuenow');
+    type(input, '5');
+    expect(input).toHaveAttribute('aria-valuenow', '10');
+  });
+
+  it('Home and End jump to min and max', () => {
+    const { input, onValueChange } = setup({ min: 2, max: 90 });
+    fireEvent.keyDown(input, { key: 'Home' });
+    expect(onValueChange).toHaveBeenLastCalledWith(2);
+    fireEvent.keyDown(input, { key: 'End' });
+    expect(onValueChange).toHaveBeenLastCalledWith(90);
+  });
+
+  it('Home and End do nothing without min and max', () => {
+    const { input, onValueChange } = setup();
+    expect(fireEvent.keyDown(input, { key: 'Home' })).toBe(true);
+    fireEvent.keyDown(input, { key: 'End' });
+    expect(onValueChange).not.toHaveBeenCalled();
+  });
+
+  it('PageUp and PageDown step by largeStep', () => {
+    const { input, onValueChange } = setup({ largeStep: 7 });
+    fireEvent.keyDown(input, { key: 'PageUp' });
+    expect(onValueChange).toHaveBeenLastCalledWith(17);
+    cleanup();
+    const down = setup({ largeStep: 7 });
+    fireEvent.keyDown(down.input, { key: 'PageDown' });
+    expect(down.onValueChange).toHaveBeenLastCalledWith(3);
+  });
+
+  it('PageUp defaults to step * 10 and clamps', () => {
+    const { input, onValueChange } = setup({ step: 2, max: 25 });
+    fireEvent.keyDown(input, { key: 'PageUp' });
+    expect(onValueChange).toHaveBeenLastCalledWith(25);
+  });
+});

@@ -5,9 +5,9 @@ import { NumberField, TextField, Textarea } from '@lumacast/ui';
 const noop = () => undefined;
 
 const controls = {
-  TextField: (extra: { error?: string; hint?: string }) => <TextField value="" onValueChange={noop} label="Name" {...extra} />,
-  NumberField: (extra: { error?: string; hint?: string }) => <NumberField value={1} onValueChange={noop} label="Name" {...extra} />,
-  Textarea: (extra: { error?: string; hint?: string }) => <Textarea value="" onValueChange={noop} label="Name" {...extra} />,
+  TextField: (extra: { error?: string; hint?: string; required?: boolean }) => <TextField value="" onValueChange={noop} label="Name" {...extra} />,
+  NumberField: (extra: { error?: string; hint?: string; required?: boolean }) => <NumberField value={1} onValueChange={noop} label="Name" {...extra} />,
+  Textarea: (extra: { error?: string; hint?: string; required?: boolean }) => <Textarea value="" onValueChange={noop} label="Name" {...extra} />,
 };
 
 describe.each(Object.entries(controls))('%s field wiring', (_name, renderControl) => {
@@ -39,6 +39,11 @@ describe.each(Object.entries(controls))('%s field wiring', (_name, renderControl
     const control = screen.getByLabelText('Name');
     expect(describedText(control)).toBe('Required');
     expect(screen.queryByText('Letters only')).toBeNull();
+  });
+
+  it('passes required to the control', () => {
+    render(renderControl({ required: true }));
+    expect(screen.getByLabelText(/Name/)).toBeRequired();
   });
 
   it('has no aria-describedby without error or hint', () => {

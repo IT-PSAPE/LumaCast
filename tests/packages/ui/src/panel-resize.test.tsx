@@ -186,4 +186,19 @@ describe('PanelResize', () => {
     }
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('accepts optional min, max and step without changing the defaults', () => {
+    const onChange = vi.fn();
+    render(<PanelResize width={250} onChange={onChange} side="left" min={200} max={260} step={25} />);
+    const handle = screen.getByRole('separator');
+    expect(handle).toHaveAttribute('aria-valuemin', '200');
+    expect(handle).toHaveAttribute('aria-valuemax', '260');
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenLastCalledWith(260);
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(onChange).toHaveBeenLastCalledWith(225);
+    fireEvent.pointerDown(handle, pointer('pointerdown', { clientX: 0 }));
+    fireEvent.pointerMove(handle, pointer('pointermove', { clientX: -999 }));
+    expect(onChange).toHaveBeenLastCalledWith(200);
+  });
 });

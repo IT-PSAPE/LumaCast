@@ -16,6 +16,9 @@ export interface TabsProps {
   orientation?: Orientation;
   variant?: Variant;
   size?: Size;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-describedby'?: string;
   className?: string;
   children: ReactNode;
 }
@@ -32,12 +35,18 @@ export interface TabsTabProps {
   disabled?: boolean;
   icon?: ReactNode;
   badge?: ReactNode;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-describedby'?: string;
   className?: string;
   children: ReactNode;
 }
 
 export interface TabsPanelProps {
   value: string;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-describedby'?: string;
   className?: string;
   children: ReactNode;
 }
@@ -112,6 +121,9 @@ function Root({
   orientation = 'horizontal',
   variant = 'underline',
   size = 'md',
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  'aria-describedby': ariaDescribedby,
   className,
   children,
 }: TabsProps) {
@@ -120,6 +132,9 @@ function Root({
       <BaseTabs.Root
         value={value}
         orientation={orientation}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledby}
+        aria-describedby={ariaDescribedby}
         onValueChange={(next) => {
           if (typeof next === 'string') onValueChange(next);
         }}
@@ -144,12 +159,25 @@ function List({ className, children, 'aria-label': ariaLabel, 'aria-labelledby':
   );
 }
 
-function Tab({ value, disabled, icon, badge, className, children }: TabsTabProps) {
+function Tab({
+  value,
+  disabled,
+  icon,
+  badge,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  'aria-describedby': ariaDescribedby,
+  className,
+  children,
+}: TabsTabProps) {
   const { orientation, variant, size } = useTabsStyle();
   return (
     <BaseTabs.Tab
       value={value}
       disabled={disabled}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledby}
+      aria-describedby={ariaDescribedby}
       className={tabStyles({ orientation, variant, size, className })}
     >
       {icon}
@@ -160,9 +188,25 @@ function Tab({ value, disabled, icon, badge, className, children }: TabsTabProps
 }
 
 // Base UI unmounts inactive panels by default and wires aria-labelledby to the tab.
-function Panel({ value, className, children }: TabsPanelProps) {
+// aria-labelledby is spread only when supplied so an undefined value cannot clobber that wiring.
+// `id` is deliberately not exposed: Base UI registers its generated panel id for the tab's
+// aria-controls, and a caller id would replace the DOM id but not the registered one.
+function Panel({
+  value,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  'aria-describedby': ariaDescribedby,
+  className,
+  children,
+}: TabsPanelProps) {
   return (
-    <BaseTabs.Panel value={value} className={cn('min-h-0 min-w-0 flex-1', className)}>
+    <BaseTabs.Panel
+      value={value}
+      aria-label={ariaLabel}
+      {...(ariaLabelledby ? { 'aria-labelledby': ariaLabelledby } : null)}
+      aria-describedby={ariaDescribedby}
+      className={cn('min-h-0 min-w-0 flex-1', className)}
+    >
       {children}
     </BaseTabs.Panel>
   );

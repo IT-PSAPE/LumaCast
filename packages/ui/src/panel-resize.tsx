@@ -8,16 +8,21 @@ export interface PanelResizeProps {
   width: number;
   onChange: (width: number) => void;
   side: 'left' | 'right';
-}
-
-function clamp(width: number) {
-  return Math.max(PANEL_RESIZE_MIN, Math.min(PANEL_RESIZE_MAX, width));
+  /** Defaults to PANEL_RESIZE_MIN. */
+  min?: number;
+  /** Defaults to PANEL_RESIZE_MAX. */
+  max?: number;
+  /** Keyboard step. Defaults to PANEL_RESIZE_KEYBOARD_STEP. */
+  step?: number;
 }
 
 // PanelResize is a keyboard- and pointer-operable separator for a side panel.
-// `side` only flips the drag/key direction; the 180..480 range and the reported
-// ARIA values are fixed by the app's panel layout.
-export function PanelResize({ width, onChange, side }: PanelResizeProps) {
+// `side` only flips the drag/key direction; the range defaults to 180..480 (override with
+// min/max) and the reported ARIA values follow it. Kept as its own implementation
+// rather than built on ResizeHandle: it must keep ignoring Home/End/Enter/Up/Down
+// and keep the app-styled `panel-resizer` element, which ResizeHandle does not.
+export function PanelResize({ width, onChange, side, min = PANEL_RESIZE_MIN, max = PANEL_RESIZE_MAX, step = PANEL_RESIZE_KEYBOARD_STEP }: PanelResizeProps) {
+  const clamp = (next: number) => Math.max(min, Math.min(max, next));
   const start = useRef<{ x: number; width: number } | null>(null);
   return (
     <div
@@ -25,8 +30,8 @@ export function PanelResize({ width, onChange, side }: PanelResizeProps) {
       role="separator"
       aria-label={`Resize ${side} panel`}
       aria-orientation="vertical"
-      aria-valuemin={PANEL_RESIZE_MIN}
-      aria-valuemax={PANEL_RESIZE_MAX}
+      aria-valuemin={min}
+      aria-valuemax={max}
       aria-valuenow={width}
       tabIndex={0}
       onPointerDown={(e) => {
@@ -47,7 +52,7 @@ export function PanelResize({ width, onChange, side }: PanelResizeProps) {
       onKeyDown={(e) => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
           e.preventDefault();
-          onChange(clamp(width + (e.key === 'ArrowRight' ? PANEL_RESIZE_KEYBOARD_STEP : -PANEL_RESIZE_KEYBOARD_STEP) * (side === 'left' ? 1 : -1)));
+          onChange(clamp(width + (e.key === 'ArrowRight' ? step : -step) * (side === 'left' ? 1 : -1)));
         }
       }}
     />

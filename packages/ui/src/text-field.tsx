@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { cv } from './cv';
 import { Field, useFieldIds, type FieldLabelPlacement } from './field';
 
@@ -59,6 +59,13 @@ export interface TextFieldProps {
   maxLength?: number;
   id?: string;
   className?: string;
+  ref?: Ref<HTMLInputElement>;
+  /** Runs before internal key handling; `preventDefault()` skips the internal handling. */
+  onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
+  required?: boolean;
+  autoComplete?: string;
+  spellCheck?: boolean;
+  autoCapitalize?: string;
 }
 
 export function TextField({
@@ -81,6 +88,12 @@ export function TextField({
   maxLength,
   id,
   className,
+  ref,
+  onKeyDown,
+  required,
+  autoComplete,
+  spellCheck,
+  autoCapitalize,
 }: TextFieldProps) {
   const ids = useFieldIds(id, { error, hint });
   const [draft, setDraft] = useState(value);
@@ -94,7 +107,8 @@ export function TextField({
   }, [value]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (!deferred) return;
+    onKeyDown?.(event);
+    if (event.defaultPrevented || !deferred) return;
     if (event.key === 'Enter') {
       event.currentTarget.blur();
     } else if (event.key === 'Escape') {
@@ -111,13 +125,19 @@ export function TextField({
       htmlFor={ids.id}
       error={error}
       hint={hint}
+      required={required}
       disabled={disabled}
       className={className}
     >
       <div className={boxVariants({ size, invalid: Boolean(error), disabled: Boolean(disabled) })}>
         {icon ? <span className="flex shrink-0 items-center text-tertiary">{icon}</span> : null}
         <input
+          ref={ref}
           id={ids.id}
+          required={required}
+          autoComplete={autoComplete}
+          spellCheck={spellCheck}
+          autoCapitalize={autoCapitalize}
           type={type}
           value={deferred ? draft : value}
           placeholder={placeholder}

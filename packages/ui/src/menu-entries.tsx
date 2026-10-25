@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { cn } from './cn';
 import { ContextMenu } from './context-menu';
@@ -10,6 +10,8 @@ import { ContextMenu } from './context-menu';
 export interface MenuItem {
   id: string;
   label: string;
+  /** Decorative leading glyph, shown beside the label (hidden from assistive tech). */
+  icon?: ReactNode;
   shortcut?: string;
   disabled?: boolean;
   danger?: boolean;
@@ -73,6 +75,7 @@ function EntryLabel({ item }: { item: MenuItem }) {
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         {item.checked ? <CheckIcon /> : null}
       </span>
+      {item.icon ? <span aria-hidden="true" className="flex size-4 shrink-0 items-center justify-center [&>svg]:size-4">{item.icon}</span> : null}
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       {item.shortcut ? <span className="ml-3 shrink-0 whitespace-nowrap text-[11px] tracking-wide text-tertiary">{item.shortcut}</span> : null}
     </>

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { cn } from './cn';
 
 // Meter vs Progress: Meter measures a live level that fluctuates (role="meter",
@@ -6,8 +6,9 @@ import { cn } from './cn';
 // (role="progressbar"). They are deliberately separate components; do not merge them.
 //
 // Domain mapping stays at the call site: the meter takes generic numeric zones.
-// Stream's dB semantics (floor, -18/-9 thresholds, dbToFraction) must be mapped
-// to min/max/zones by the caller, not added here.
+// Stream's dB semantics (floor, -20/-9 thresholds, dbToFraction) must be mapped
+// to min/max/zones/ticks by the caller, not added here. Stream's axis is linear in
+// dB, so min=-60, max=0, zones at -60/-20/-9 expresses it exactly.
 
 type Tone = 'success' | 'warning' | 'error' | 'brand';
 
@@ -17,12 +18,36 @@ export interface MeterZone {
   tone: Tone;
 }
 
+export interface MeterTick {
+  value: number;
+  label?: string;
+}
+
 export interface MeterProps {
   value: number;
   min?: number;
   max?: number;
-  /** Coloured bands, ascending by `from`. Callers should hoist this array so memoisation holds. */
+  /**
+   * Coloured bands, ascending by `from`.
+   * PERFORMANCE: `Meter` is memo'd for frame-rate updates. Hoist `zones` (and `ticks`) to module
+   * scope or useMemo them; an inline array is a new reference every render and defeats the memo.
+   */
   zones?: MeterZone[];
+  /**
+   * `solid` (default): the whole fill takes the colour of the zone the value is in.
+   * `banded`: each zone is painted in its own colour up to the current level (VU look).
+   * Ignored in `segments` mode.
+   */
+  fill?: 'solid' | 'banded';
+  /** Scale marks outside the bar. Decorative: hidden from assistive tech. Hoist this array. */
+  ticks?: MeterTick[];
+  /** `banded` only: hairline gap in px between zone bands. */
+  zoneGap?: number;
+  /**
+   * Opt-in transition on the level, `true` = 80ms or a duration in ms. Off by default because a
+   * lagging meter misreports the signal. Disabled under prefers-reduced-motion. Not in `segments` mode.
+   */
+  smoothing?: boolean | number;
   orientation?: 'horizontal' | 'vertical';
   /** Render N discrete blocks (LED look) instead of a continuous bar. */
   segments?: number;
@@ -44,6 +69,14 @@ const THICKNESS = {
   horizontal: { sm: 'h-1.5 w-full', md: 'h-2.5 w-full' },
   vertical: { sm: 'w-1.5 h-full', md: 'w-2.5 h-full' },
 } as const;
+const TONE_VAR: Record<Tone, string> = {
+  success: 'var(--color-success)',
+  warning: 'var(--color-warning)',
+  error: 'var(--color-error)',
+  brand: 'var(--color-brand)',
+};
+const SMOOTH_MS = 80;
+const SMOOTH_CLASS = 'transition-[clip-path,transform] ease-linear motion-reduce:transition-none';
 const DEFAULT_ZONES: MeterZone[] = [{ from: -Infinity, tone: 'brand' }];
 
 function toneAt(zones: MeterZone[], at: number): Tone {
@@ -61,6 +94,59 @@ function fractionOf(value: number, min: number, max: number): number {
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
+// One static hard-stop gradient over the whole bar. Built once per (zones, min, max, gap, axis),
+// never per level change; the level only moves a clip-path inset on it.
+function bandGradient(zones: MeterZone[], min: number, max: number, vertical: boolean, gap: number): string {
+  const stops: string[] = [];
+  for (let i = 0; i < zones.length; i++) {
+    const zone = zones[i];
+    if (!zone) continue;
+    const start = fractionOf(zone.from, min, max) * 100;
+    const next = zones[i + 1];
+    const end = next ? fractionOf(next.from, min, max) * 100 : 100;
+    const c = TONE_VAR[zone.tone];
+    const a = i > 0 && gap > 0 ? `calc(${start}% + ${gap / 2}px)` : `${start}%`;
+    const b = next && gap > 0 && end < 100 ? `calc(${end}% - ${gap / 2}px)` : `${end}%`;
+    stops.push(`${c} ${a} ${b}`);
+    if (next && gap > 0 && end < 100) stops.push(`transparent ${b} calc(${end}% + ${gap / 2}px)`);
+  }
+  return `linear-gradient(${vertical ? 'to top' : 'to right'}, ${stops.join(', ')})`;
+}
+
+// Ticks only re-render when their own props change, not on every level update.
+const Ticks = memo(function Ticks({
+  ticks,
+  min,
+  max,
+  vertical,
+}: {
+  ticks: MeterTick[];
+  min: number;
+  max: number;
+  vertical: boolean;
+}) {
+  return (
+    <div aria-hidden="true" className={cn('relative shrink-0', vertical ? 'w-6' : 'h-4 w-full')}>
+      {ticks.map((tick) => {
+        const pos = `${fractionOf(tick.value, min, max) * 100}%`;
+        return (
+          <span
+            key={tick.value}
+            className={cn(
+              'absolute flex items-center text-xs leading-none text-tertiary whitespace-nowrap',
+              vertical ? 'left-0 translate-y-1/2 flex-row gap-1' : 'top-0 -translate-x-1/2 flex-col gap-0.5',
+            )}
+            style={vertical ? { bottom: pos } : { left: pos }}
+          >
+            <span className={cn('bg-[var(--border-color-primary)]', vertical ? 'h-px w-1' : 'h-1 w-px')} />
+            {tick.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+});
+
 // memo: audio meters re-render at frame rate; props are primitives (plus a hoisted `zones`).
 // The fill is a single element driven by transform, with no React state or CSS transition.
 export const Meter = memo(function Meter({
@@ -74,10 +160,21 @@ export const Meter = memo(function Meter({
   size = 'md',
   label,
   className,
+  fill = 'solid',
+  ticks,
+  zoneGap = 0,
+  smoothing = false,
 }: MeterProps) {
   const vertical = orientation === 'vertical';
   const fraction = fractionOf(value, min, max);
   const clamped = Math.min(max, Math.max(min, value));
+
+  const banded = fill === 'banded';
+  const gradient = useMemo(
+    () => (banded ? bandGradient(zones, min, max, vertical, zoneGap) : undefined),
+    [banded, zones, min, max, vertical, zoneGap],
+  );
+  const smoothMs = smoothing === true ? SMOOTH_MS : smoothing === false ? 0 : Math.max(0, smoothing);
 
   let body;
   if (segments && segments > 0) {
@@ -93,16 +190,37 @@ export const Meter = memo(function Meter({
       );
     }
     body = <div className={cn('flex gap-px', vertical ? 'h-full flex-col-reverse' : 'w-full')}>{blocks}</div>;
+  } else if (banded) {
+    // clip-path (not scaleX) so the static gradient is revealed, never stretched.
+    const hidden = `${(1 - fraction) * 100}%`;
+    body = (
+      <div
+        className={cn('h-full w-full', smoothMs > 0 ? SMOOTH_CLASS : null)}
+        style={{
+          backgroundImage: gradient,
+          clipPath: vertical ? `inset(${hidden} 0 0 0)` : `inset(0 ${hidden} 0 0)`,
+          transitionDuration: smoothMs > 0 ? `${smoothMs}ms` : undefined,
+        }}
+      />
+    );
   } else {
     body = (
       <div
-        className={cn('h-full w-full', TONE_BG[toneAt(zones, clamped)], vertical ? 'origin-bottom' : 'origin-left')}
-        style={{ transform: vertical ? `scaleY(${fraction})` : `scaleX(${fraction})` }}
+        className={cn(
+          'h-full w-full',
+          TONE_BG[toneAt(zones, clamped)],
+          vertical ? 'origin-bottom' : 'origin-left',
+          smoothMs > 0 ? SMOOTH_CLASS : null,
+        )}
+        style={{
+          transform: vertical ? `scaleY(${fraction})` : `scaleX(${fraction})`,
+          transitionDuration: smoothMs > 0 ? `${smoothMs}ms` : undefined,
+        }}
       />
     );
   }
 
-  return (
+  const meter = (
     <div
       role="meter"
       aria-label={label}
@@ -123,6 +241,14 @@ export const Meter = memo(function Meter({
           style={vertical ? { bottom: `${fractionOf(peak, min, max) * 100}%` } : { left: `${fractionOf(peak, min, max) * 100}%` }}
         />
       ) : null}
+    </div>
+  );
+
+  if (!ticks || ticks.length === 0) return meter;
+  return (
+    <div className={cn('flex gap-1', vertical ? 'h-full flex-row' : 'w-full flex-col')}>
+      {meter}
+      <Ticks ticks={ticks} min={min} max={max} vertical={vertical} />
     </div>
   );
 });

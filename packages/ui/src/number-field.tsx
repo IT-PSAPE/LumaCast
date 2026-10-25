@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react';
 import { cn } from './cn';
 import { cv } from './cv';
 import { Field, useFieldIds, type FieldLabelPlacement } from './field';
@@ -64,6 +64,11 @@ export interface NumberFieldProps {
   id?: string;
   className?: string;
   placeholder?: string;
+  ref?: Ref<HTMLInputElement>;
+  /** Runs before internal key handling; `preventDefault()` skips the internal handling. */
+  onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
+  required?: boolean;
+  autoComplete?: string;
 }
 
 export function NumberField({
@@ -87,6 +92,10 @@ export function NumberField({
   id,
   className,
   placeholder,
+  ref,
+  onKeyDown,
+  required,
+  autoComplete,
 }: NumberFieldProps) {
   const ids = useFieldIds(id, { error, hint });
   const [draft, setDraft] = useState(() => format(value, precision));
@@ -125,7 +134,8 @@ export function NumberField({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (readOnly) return;
+    onKeyDown?.(event);
+    if (event.defaultPrevented || readOnly) return;
     if (event.key === 'Enter') {
       event.preventDefault();
       event.currentTarget.blur();
@@ -133,6 +143,17 @@ export function NumberField({
       skipBlurCommit.current = true;
       setDraft(format(value, precision));
       event.currentTarget.blur();
+    } else if (event.key === 'Home' && min !== undefined) {
+      event.preventDefault();
+      commit(min);
+    } else if (event.key === 'End' && max !== undefined) {
+      event.preventDefault();
+      commit(max);
+    } else if (event.key === 'PageUp' || event.key === 'PageDown') {
+      event.preventDefault();
+      const base = parse(draft) ?? value;
+      const amount = largeStep ?? step * 10;
+      commit(base + (event.key === 'PageUp' ? amount : -amount));
     } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       event.preventDefault();
       const base = parse(draft) ?? value;
@@ -142,13 +163,21 @@ export function NumberField({
   }
 
   return (
-    <Field label={label} labelPlacement={labelPlacement} htmlFor={ids.id} error={error} hint={hint} disabled={disabled}>
+    <Field label={label} labelPlacement={labelPlacement} htmlFor={ids.id} error={error} hint={hint} required={required} disabled={disabled}>
       <div className={cn(boxVariants({ size }), disabled && 'opacity-50', error && 'ring-1 ring-error', className)}>
         {icon ? <span className="flex shrink-0 items-center text-tertiary">{icon}</span> : null}
         <input
+          ref={ref}
           id={ids.id}
           type="text"
           inputMode="decimal"
+          role="spinbutton"
+          aria-valuenow={parse(draft) === undefined ? undefined : value}
+          aria-valuemin={min}
+          aria-valuemax={max}
+          aria-valuetext={suffix ? `${format(value, precision)} ${suffix}` : undefined}
+          required={required}
+          autoComplete={autoComplete}
           value={draft}
           placeholder={placeholder}
           disabled={disabled}

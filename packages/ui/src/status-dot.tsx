@@ -23,20 +23,9 @@ const dotStyles = cv({
   defaultVariants: { tone: 'neutral', size: 'sm' },
 });
 
-// The pulse ring inherits the dot's colour via currentColor-free tone classes.
-const ringStyles = cv({
-  base: 'absolute inset-0 rounded-full opacity-60 motion-safe:animate-ping',
-  variants: {
-    tone: {
-      neutral: 'bg-tertiary',
-      brand: 'bg-brand',
-      success: 'bg-success',
-      warning: 'bg-warning',
-      error: 'bg-error',
-    },
-  },
-  defaultVariants: { tone: 'neutral' },
-});
+// The ring inherits the dot's own background (tone class, or bg-current on a
+// solid Badge), so it is never the same colour as the surface behind it.
+const ringClass = 'absolute inset-0 rounded-full bg-inherit opacity-60 motion-safe:animate-ping';
 
 export interface StatusDotProps {
   tone?: StatusTone;
@@ -56,7 +45,7 @@ export function StatusDot({ tone, size, pulse = false, label, className }: Statu
       aria-label={label}
       aria-hidden={label ? undefined : true}
     >
-      {pulse ? <span aria-hidden="true" className={ringStyles({ tone })} /> : null}
+      {pulse ? <span aria-hidden="true" className={ringClass} /> : null}
     </span>
   );
 }

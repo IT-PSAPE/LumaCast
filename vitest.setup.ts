@@ -20,3 +20,26 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
     }),
   });
 }
+
+// jsdom has no PointerEvent, so `fireEvent.pointerEnter(el, { pointerType })`
+// would fall back to a plain Event and drop pointerType. Libraries such as
+// Base UI gate hover behaviour on pointerType === 'mouse'.
+if (typeof window !== 'undefined' && typeof window.PointerEvent !== 'function') {
+  class PointerEventPolyfill extends MouseEvent {
+    readonly pointerId: number;
+    readonly pointerType: string;
+    readonly isPrimary: boolean;
+
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 0;
+      this.pointerType = init.pointerType ?? '';
+      this.isPrimary = init.isPrimary ?? false;
+    }
+  }
+  Object.defineProperty(window, 'PointerEvent', {
+    configurable: true,
+    writable: true,
+    value: PointerEventPolyfill,
+  });
+}

@@ -70,16 +70,18 @@ export interface BadgeProps {
   shape?: 'pill' | 'rounded';
   /** Leading StatusDot in the same tone. */
   dot?: boolean;
+  /** Attention pulse on the leading dot. Requires `dot`; respects prefers-reduced-motion. */
+  pulse?: boolean;
   icon?: ReactNode;
   className?: string;
 }
 
-export function Badge({ children, tone = 'neutral', variant, size, shape, dot = false, icon, className }: BadgeProps) {
+export function Badge({ children, tone = 'neutral', variant, size, shape, dot = false, pulse = false, icon, className }: BadgeProps) {
   // On a solid fill the same-tone dot would vanish, so it renders as currentColor.
   const dotOnSolid = variant === 'solid';
   return (
     <span className={cn(badgeStyles({ tone, variant, size, shape }), className)}>
-      {dot ? <StatusDot tone={tone} className={dotOnSolid ? 'bg-current' : undefined} /> : null}
+      {dot ? <StatusDot tone={tone} pulse={pulse} className={dotOnSolid ? 'bg-current' : undefined} /> : null}
       {icon ? <span aria-hidden="true" className="inline-flex shrink-0">{icon}</span> : null}
       {children}
     </span>
