@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
-import { ReacstButton, Tabs } from '@lumacast/ui';
-import { LumaCastPanel } from '@renderer/components/layout/panel';
+import { Panel, ReacstButton, Tabs } from '@lumacast/ui';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
@@ -41,37 +40,39 @@ export function StageEditorInspectorPanel() {
   }
 
   return (
-    <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
-      <Tabs value={inspectorTab} variant="plain" className="contents" onValueChange={handleTabChange}>
-        <section className="flex flex-1 flex-col">
-          <div className="border-b border-primary">
-            <Tabs.List aria-label="Inspector" className="min-w-0 overflow-x-auto [&>*]:shrink-0">
-              {!hasSelection && <Tabs.Tab value="stage">Stage</Tabs.Tab>}
-              {hasSelection && <Tabs.Tab value="shape">Shape</Tabs.Tab>}
-              {isTextSelected && <Tabs.Tab value="text">Text</Tabs.Tab>}
-              {isTextSelected && <Tabs.Tab value="binding">Text link</Tabs.Tab>}
-              {isVideoSelected && <Tabs.Tab value="video">Video</Tabs.Tab>}
-            </Tabs.List>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {inspectorTab === 'stage' && <StageInspector />}
-            {inspectorTab === 'shape' && <ShapeElementInspector />}
-            {inspectorTab === 'text' && <TextElementInspector />}
-            {inspectorTab === 'binding' && <BindingInspector />}
-            {inspectorTab === 'video' && <VideoElementInspector />}
-          </div>
-        </section>
-      </Tabs>
+    <Panel className="border-l border-secondary" data-ui-region="inspector-panel">
+      <Panel.Body scroll={false} className="flex flex-col">
+        <Tabs value={inspectorTab} variant="plain" className="contents" onValueChange={handleTabChange}>
+          <section className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-primary">
+              <Tabs.List aria-label="Inspector" className="min-w-0 overflow-x-auto [&>*]:shrink-0">
+                {!hasSelection && <Tabs.Tab value="stage">Stage</Tabs.Tab>}
+                {hasSelection && <Tabs.Tab value="shape">Shape</Tabs.Tab>}
+                {isTextSelected && <Tabs.Tab value="text">Text</Tabs.Tab>}
+                {isTextSelected && <Tabs.Tab value="binding">Text link</Tabs.Tab>}
+                {isVideoSelected && <Tabs.Tab value="video">Video</Tabs.Tab>}
+              </Tabs.List>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {inspectorTab === 'stage' && <StageInspector />}
+              {inspectorTab === 'shape' && <ShapeElementInspector />}
+              {inspectorTab === 'text' && <TextElementInspector />}
+              {inspectorTab === 'binding' && <BindingInspector />}
+              {inspectorTab === 'video' && <VideoElementInspector />}
+            </div>
+          </section>
+        </Tabs>
+      </Panel.Body>
       {state.hasPendingChanges && (
-        <LumaCastPanel.Footer className="p-3">
+        <Panel.Footer className="py-3">
           {/* saveChanges → pushChanges → updateStage rejects when the stage no
               longer exists (#214); mutatePatch has already reported the failure
               (#221), so absorb the rethrow here. */}
           <ReacstButton onClick={() => { void actions.saveChanges().catch(() => undefined); }} disabled={state.isPushingChanges} className="w-full">
             {state.isPushingChanges ? 'Pushing…' : 'Save Changes'}
           </ReacstButton>
-        </LumaCastPanel.Footer>
+        </Panel.Footer>
       )}
-    </LumaCastPanel.Root>
+    </Panel>
   );
 }

@@ -4,7 +4,7 @@ import type { Playlist } from '@lumacast/composition';
 import { useNavigation } from '@renderer/contexts/navigation-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { useCast } from '@renderer/contexts/app-context';
-import { ReacstButton, Label } from '@lumacast/ui';
+import { Panel, ReacstButton } from '@lumacast/ui';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
@@ -44,27 +44,28 @@ export function PlaylistPanels() {
     <LumaCastPanel.Root className='h-full'>
       <SplitPanel.Panel splitId="playlist-panel" orientation="vertical" className="flex-1">
         <SplitPanel.Segment id="playlist-list" defaultSize={200} minSize={120}>
-          <LumaCastPanel.Group>
-            <LumaCastPanel.GroupTitle>
-              <Label.xs className='mr-auto'>Playlists</Label.xs>
-              <ReacstButton.Icon onClick={handleCreate} aria-label="New playlist" title="New playlist">
-                <Plus />
-              </ReacstButton.Icon>
-            </LumaCastPanel.GroupTitle>
-          </LumaCastPanel.Group>
-
-          <LumaCastPanel.GroupContent className="space-y-1">
-            <ScrollArea.Root>
-              <ScrollArea.Viewport role="list" aria-label="Playlists">
-                <SortableList.Root {...dnd}>
-                  {playlists.map((playlist) => <PlaylistRow key={playlist.id} playlist={playlist} />)}
-                </SortableList.Root>
-              </ScrollArea.Viewport>
-              <ScrollArea.Scrollbar>
-                <ScrollArea.Thumb />
-              </ScrollArea.Scrollbar>
-            </ScrollArea.Root>
-          </LumaCastPanel.GroupContent>
+          <Panel>
+            <Panel.Header>
+              <Panel.HeaderTitle>Playlists</Panel.HeaderTitle>
+              <Panel.HeaderActions>
+                <ReacstButton.Icon onClick={handleCreate} aria-label="New playlist" title="New playlist">
+                  <Plus />
+                </ReacstButton.Icon>
+              </Panel.HeaderActions>
+            </Panel.Header>
+            <Panel.Body>
+              <ScrollArea.Root>
+                <ScrollArea.Viewport role="list" aria-label="Playlists">
+                  <SortableList.Root {...dnd}>
+                    {playlists.map((playlist) => <PlaylistRow key={playlist.id} playlist={playlist} />)}
+                  </SortableList.Root>
+                </ScrollArea.Viewport>
+                <ScrollArea.Scrollbar>
+                  <ScrollArea.Thumb />
+                </ScrollArea.Scrollbar>
+              </ScrollArea.Root>
+            </Panel.Body>
+          </Panel>
         </SplitPanel.Segment>
         <SplitPanel.Segment id="playlist-rows" defaultSize={320} minSize={180}>
           <PlaylistRowsBrowser />

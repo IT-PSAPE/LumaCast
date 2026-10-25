@@ -1,17 +1,6 @@
-import { cv } from '@lumacast/ui';
-import { LoaderCircle } from 'lucide-react';
+import { StatusBar as UiStatusBar, StatusDot } from '@lumacast/ui';
 import { useNdiLiveState, useStatusBarState } from '../../contexts/app-context';
 import { AgentChatTrigger } from '../agent/chat/agent-chat-trigger';
-
-const indicatorStyles = cv({
-  base: 'inline-block size-1.5 rounded-full',
-  variants: {
-    active: {
-      true: ['bg-error'],
-      false: ['bg-tertiary'],
-    },
-  },
-});
 
 export function StatusBar() {
   const { isRunningOperation, operationText, statusText } = useStatusBarState();
@@ -21,26 +10,15 @@ export function StatusBar() {
   const displayText = isRunningOperation ? operationText ?? 'Processing...' : statusText;
 
   return (
-    <div
-      data-ui-region="status-bar"
-      className="border-t border-primary bg-primary/60 px-2 py-1 flex items-center gap-3 text-sm"
-    >
-      <span className="flex items-center gap-2 text-secondary">
-        {isRunningOperation && <LoaderCircle size={14} className="animate-spin text-tertiary" />}
-        {displayText}
-      </span>
-
-      <div className="ml-auto flex items-center gap-3 text-tertiary">
-        <span className="flex items-center gap-1">
-          <span className={indicatorStyles({ active: audienceLive })} />
-          {audienceStateLabel}
-        </span>
-        <span className="flex items-center gap-1">
-          <span className={indicatorStyles({ active: stageLive })} />
-          {stageStateLabel}
-        </span>
+    <UiStatusBar data-ui-region="status-bar">
+      <UiStatusBar.Start>
+        <UiStatusBar.Item busy={isRunningOperation}>{displayText}</UiStatusBar.Item>
+      </UiStatusBar.Start>
+      <UiStatusBar.End>
+        <UiStatusBar.Item icon={<StatusDot tone={audienceLive ? 'error' : 'neutral'} />}>{audienceStateLabel}</UiStatusBar.Item>
+        <UiStatusBar.Item icon={<StatusDot tone={stageLive ? 'error' : 'neutral'} />}>{stageStateLabel}</UiStatusBar.Item>
         <AgentChatTrigger />
-      </div>
-    </div>
+      </UiStatusBar.End>
+    </UiStatusBar>
   );
 }

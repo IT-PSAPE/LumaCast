@@ -1,5 +1,4 @@
-import { ReacstButton, EmptyState, Tabs } from '@lumacast/ui';
-import { LumaCastPanel } from '@renderer/components/layout/panel';
+import { EmptyState, Panel, ReacstButton, Tabs } from '@lumacast/ui';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { useMacroEditorScreen } from './screen-context';
 import { MacroInspector } from './macro-inspector';
@@ -27,44 +26,46 @@ export function MacroEditorInspectorPanel() {
 
   if (!currentMacro) {
     return (
-      <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="macro-inspector-panel">
+      <Panel className="border-l border-secondary" data-ui-region="macro-inspector-panel">
         <div className="flex h-full items-center justify-center p-6">
           <EmptyState.Root>
             <EmptyState.Title>No macro selected</EmptyState.Title>
           </EmptyState.Root>
         </div>
-      </LumaCastPanel.Root>
+      </Panel>
     );
   }
 
   return (
-    <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="macro-inspector-panel">
-      <Tabs value={effectiveTab} variant="plain" className="contents" onValueChange={handleTabChange}>
-        <section className="flex flex-1 flex-col">
-          <div className="border-b border-primary">
-            <Tabs.List aria-label="Inspector" className="min-w-0 overflow-x-auto [&>*]:shrink-0">
-              <Tabs.Tab value="properties">Properties</Tabs.Tab>
-              {!selectedRow && <Tabs.Tab value="triggers">Triggers</Tabs.Tab>}
-            </Tabs.List>
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {effectiveTab === 'properties' && (
-              selectedRow ? <CueInspector row={selectedRow} /> : <MacroInspector />
-            )}
-            {effectiveTab === 'triggers' && <TriggersInspector />}
-          </div>
-        </section>
-      </Tabs>
+    <Panel className="border-l border-secondary" data-ui-region="macro-inspector-panel">
+      <Panel.Body scroll={false} className="flex flex-col">
+        <Tabs value={effectiveTab} variant="plain" className="contents" onValueChange={handleTabChange}>
+          <section className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b border-primary">
+              <Tabs.List aria-label="Inspector" className="min-w-0 overflow-x-auto [&>*]:shrink-0">
+                <Tabs.Tab value="properties">Properties</Tabs.Tab>
+                {!selectedRow && <Tabs.Tab value="triggers">Triggers</Tabs.Tab>}
+              </Tabs.List>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {effectiveTab === 'properties' && (
+                selectedRow ? <CueInspector row={selectedRow} /> : <MacroInspector />
+              )}
+              {effectiveTab === 'triggers' && <TriggersInspector />}
+            </div>
+          </section>
+        </Tabs>
+      </Panel.Body>
       {hasPendingChanges && (
-        <LumaCastPanel.Footer className="p-2">
+        <Panel.Footer className="py-2">
           {/* saveChanges → updateMacroFields/setMacroCues → updateMacro rejects when
               the macro no longer exists (#214); mutatePatch has already reported the
               failure (#221), so absorb the rethrow here. */}
           <ReacstButton onClick={() => { void saveChanges().catch(() => undefined); }} disabled={isPushingChanges} className="w-full">
             {isPushingChanges ? 'Pushing…' : 'Save Changes'}
           </ReacstButton>
-        </LumaCastPanel.Footer>
+        </Panel.Footer>
       )}
-    </LumaCastPanel.Root>
+    </Panel>
   );
 }

@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { Label, EmptyState, DropdownMenu, useConfirm } from '@lumacast/ui';
+import { EmptyState, DropdownMenu, useConfirm, Panel } from '@lumacast/ui';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { useAutomation } from '@renderer/features/automation/automation-context';
 import { useMacroEditorScreen } from './screen-context';
@@ -56,22 +56,24 @@ export function MacroEditorScreenContent() {
         <LumaCastPanel.Root className="h-full border-r border-secondary">
           <SplitPanel.Panel splitId="macro-list-panel" orientation="vertical" className="h-full">
             <SplitPanel.Segment id="macro-list" defaultSize={440} minSize={180}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle>
-                  <Label.sm className="mr-auto">Macros</Label.sm>
-                  <DropdownMenu
-                    align="end"
-                    trigger={(
-                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
-                        <Plus />
-                      </button>
-                    )}
-                    entries={[
-                      { id: 'new-macro', label: 'New macro', onSelect: () => { void createMacro(); } },
-                    ]}
-                  />
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content>
+              <Panel className="min-h-0">
+                <Panel.Header>
+                  <Panel.HeaderTitle>Macros</Panel.HeaderTitle>
+                  <Panel.HeaderActions>
+                    <DropdownMenu
+                      align="end"
+                      trigger={(
+                        <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                          <Plus />
+                        </button>
+                      )}
+                      entries={[
+                        { id: 'new-macro', label: 'New macro', onSelect: () => { void createMacro(); } },
+                      ]}
+                    />
+                  </Panel.HeaderActions>
+                </Panel.Header>
+                <Panel.Body className="flex flex-col items-start scrollbar-hidden">
                   {macros.length === 0 ? (
                     <EmptyState.Root>
                       <EmptyState.Title>No macros yet</EmptyState.Title>
@@ -93,18 +95,18 @@ export function MacroEditorScreenContent() {
                       </ScrollArea.Scrollbar>
                     </ScrollArea.Root>
                   )}
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
             <SplitPanel.Segment id="macro-cues" defaultSize={220} minSize={160}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle className="border-t">
-                  <Label.xs className="mr-auto">Layers</Label.xs>
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content className="overflow-y-auto p-2">
+              <Panel className="min-h-0">
+                <Panel.Header className="border-t">
+                  <Panel.HeaderTitle>Layers</Panel.HeaderTitle>
+                </Panel.Header>
+                <Panel.Body padded className="scrollbar-hidden">
                   <MacroEditorLayersPanel />
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
           </SplitPanel.Panel>
         </LumaCastPanel.Root>

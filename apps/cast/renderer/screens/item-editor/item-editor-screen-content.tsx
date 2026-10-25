@@ -3,7 +3,7 @@ import { useCallback, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { EmptyState, Label, DropdownMenu } from '@lumacast/ui';
+import { EmptyState, DropdownMenu, Panel } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { FieldTextarea } from '../../components/form/field';
 import { StagePanel } from '../../features/canvas/stage-panel';
@@ -26,26 +26,28 @@ export function ItemEditorScreenContent() {
         <LumaCastPanel.Root className="h-full border-r border-secondary">
           <SplitPanel.Panel splitId={'slide-list-panel'} orientation="vertical" className="h-full">
             <SplitPanel.Segment id={'slide-list'} defaultSize={440} minSize={180}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle>
+              <Panel className="min-h-0">
+                <Panel.Header>
                   <ItemPicker />
-                  <DropdownMenu
-                    align="end"
-                    trigger={(
-                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
-                        <Plus />
-                      </button>
-                    )}
-                    entries={[
-                      { id: 'new-lyric', label: 'New lyric', onSelect: () => actions.openCreateItem('lyric') },
-                      { id: 'new-presentation', label: 'New presentation', onSelect: () => actions.openCreateItem('presentation') },
-                      { separator: true },
-                      { id: 'slide-timing', label: 'Slide timing', disabled: !state.currentItemRef, onSelect: () => setTimingOpen(true) },
-                      { id: 'new-slide', label: 'New slide', disabled: !state.currentItem, onSelect: () => { void actions.createSlide(); } },
-                    ]}
-                  />
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content className="min-h-0">
+                  <Panel.HeaderActions>
+                    <DropdownMenu
+                      align="end"
+                      trigger={(
+                        <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                          <Plus />
+                        </button>
+                      )}
+                      entries={[
+                        { id: 'new-lyric', label: 'New lyric', onSelect: () => actions.openCreateItem('lyric') },
+                        { id: 'new-presentation', label: 'New presentation', onSelect: () => actions.openCreateItem('presentation') },
+                        { separator: true },
+                        { id: 'slide-timing', label: 'Slide timing', disabled: !state.currentItemRef, onSelect: () => setTimingOpen(true) },
+                        { id: 'new-slide', label: 'New slide', disabled: !state.currentItem, onSelect: () => { void actions.createSlide(); } },
+                      ]}
+                    />
+                  </Panel.HeaderActions>
+                </Panel.Header>
+                <Panel.Body className="flex flex-col items-start scrollbar-hidden">
                   {!state.currentItem ? (
                     <EmptyState.Root>
                       <EmptyState.Title>No item selected</EmptyState.Title>
@@ -66,18 +68,18 @@ export function ItemEditorScreenContent() {
                       </ScrollArea.Scrollbar>
                     </ScrollArea.Root>
                   )}
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
             <SplitPanel.Segment id={"slide-objects"} defaultSize={220} minSize={160}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle className="border-t">
-                  <Label.xs className="mr-auto">Layers</Label.xs>
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content className="overflow-y-auto p-2">
+              <Panel className="min-h-0">
+                <Panel.Header className="border-t">
+                  <Panel.HeaderTitle>Layers</Panel.HeaderTitle>
+                </Panel.Header>
+                <Panel.Body padded className="scrollbar-hidden">
                   <ItemEditorLayersPanel />
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
           </SplitPanel.Panel>
         </LumaCastPanel.Root>

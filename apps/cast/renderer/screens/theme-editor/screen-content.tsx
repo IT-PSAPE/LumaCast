@@ -2,7 +2,7 @@ import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { Label, DropdownMenu } from '@lumacast/ui';
+import { DropdownMenu, Panel } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { ThemeEditorInspectorPanel } from './inspector-panel';
 import { ThemeEditorLayersPanel } from './layers-panel';
@@ -19,23 +19,25 @@ export function ThemeEditorScreenContent() {
         <LumaCastPanel.Root className="h-full border-r border-secondary">
           <SplitPanel.Panel splitId="theme-list-panel" orientation="vertical" className="h-full">
             <SplitPanel.Segment id="theme-list" defaultSize={440} minSize={180}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle>
-                  <Label.sm className="mr-auto">Themes</Label.sm>
-                  <DropdownMenu
-                    align="end"
-                    trigger={(
-                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
-                        <Plus />
-                      </button>
-                    )}
-                    entries={[
-                      { id: 'new-lyric-theme', label: 'New lyric theme', onSelect: () => actions.createTheme('lyric') },
-                      { id: 'new-presentation-theme', label: 'New presentation theme', onSelect: () => actions.createTheme('presentation') },
-                    ]}
-                  />
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content>
+              <Panel className="min-h-0">
+                <Panel.Header>
+                  <Panel.HeaderTitle>Themes</Panel.HeaderTitle>
+                  <Panel.HeaderActions>
+                    <DropdownMenu
+                      align="end"
+                      trigger={(
+                        <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                          <Plus />
+                        </button>
+                      )}
+                      entries={[
+                        { id: 'new-lyric-theme', label: 'New lyric theme', onSelect: () => actions.createTheme('lyric') },
+                        { id: 'new-presentation-theme', label: 'New presentation theme', onSelect: () => actions.createTheme('presentation') },
+                      ]}
+                    />
+                  </Panel.HeaderActions>
+                </Panel.Header>
+                <Panel.Body className="flex flex-col items-start scrollbar-hidden">
                   <ScrollArea.Root scrollPadding={8}>
                     <ScrollArea.Viewport className="p-2">
                       <div className="flex flex-col gap-4">
@@ -50,18 +52,18 @@ export function ThemeEditorScreenContent() {
                       <ScrollArea.Thumb />
                     </ScrollArea.Scrollbar>
                   </ScrollArea.Root>
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
             <SplitPanel.Segment id="theme-objects" defaultSize={220} minSize={160}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle className="border-t">
-                  <Label.xs className="mr-auto">Layers</Label.xs>
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content className="overflow-y-auto p-2">
+              <Panel className="min-h-0">
+                <Panel.Header className="border-t">
+                  <Panel.HeaderTitle>Layers</Panel.HeaderTitle>
+                </Panel.Header>
+                <Panel.Body padded className="scrollbar-hidden">
                   <ThemeEditorLayersPanel />
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
           </SplitPanel.Panel>
         </LumaCastPanel.Root>

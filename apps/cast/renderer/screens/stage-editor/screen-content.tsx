@@ -1,7 +1,7 @@
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { Label, EmptyState, DropdownMenu } from '@lumacast/ui';
+import { EmptyState, DropdownMenu, Panel } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { Plus } from 'lucide-react';
 import { StageEditorInspectorPanel } from './inspector-panel';
@@ -18,22 +18,24 @@ export function StageEditorScreenContent() {
         <LumaCastPanel.Root className="h-full border-r border-secondary">
           <SplitPanel.Panel splitId="stage-list-panel" orientation="vertical" className="h-full">
             <SplitPanel.Segment id="stage-list" defaultSize={440} minSize={180}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle>
-                  <Label.sm className="mr-auto">Stages</Label.sm>
-                  <DropdownMenu
-                    align="end"
-                    trigger={(
-                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
-                        <Plus />
-                      </button>
-                    )}
-                    entries={[
-                      { id: 'new-stage', label: 'New stage', onSelect: () => { void actions.createStage(); } },
-                    ]}
-                  />
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content>
+              <Panel className="min-h-0">
+                <Panel.Header>
+                  <Panel.HeaderTitle>Stages</Panel.HeaderTitle>
+                  <Panel.HeaderActions>
+                    <DropdownMenu
+                      align="end"
+                      trigger={(
+                        <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                          <Plus />
+                        </button>
+                      )}
+                      entries={[
+                        { id: 'new-stage', label: 'New stage', onSelect: () => { void actions.createStage(); } },
+                      ]}
+                    />
+                  </Panel.HeaderActions>
+                </Panel.Header>
+                <Panel.Body className="flex flex-col items-start scrollbar-hidden">
                   {state.stages.length === 0 ? (
                     <EmptyState.Root>
                       <EmptyState.Title>No stages yet</EmptyState.Title>
@@ -49,18 +51,18 @@ export function StageEditorScreenContent() {
                       </ScrollArea.Scrollbar>
                     </ScrollArea.Root>
                   )}
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
             <SplitPanel.Segment id="stage-objects" defaultSize={220} minSize={160}>
-              <LumaCastPanel.Group className="h-full min-h-0">
-                <LumaCastPanel.GroupTitle className="border-t">
-                  <Label.xs className="mr-auto">Layers</Label.xs>
-                </LumaCastPanel.GroupTitle>
-                <LumaCastPanel.Content className="overflow-y-auto p-2">
+              <Panel className="min-h-0">
+                <Panel.Header className="border-t">
+                  <Panel.HeaderTitle>Layers</Panel.HeaderTitle>
+                </Panel.Header>
+                <Panel.Body padded className="scrollbar-hidden">
                   <StageEditorLayersPanel />
-                </LumaCastPanel.Content>
-              </LumaCastPanel.Group>
+                </Panel.Body>
+              </Panel>
             </SplitPanel.Segment>
           </SplitPanel.Panel>
         </LumaCastPanel.Root>
