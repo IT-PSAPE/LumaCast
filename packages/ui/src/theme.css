@@ -36,8 +36,46 @@
     --font-label: var(--font-sans);
     --font-paragraph: var(--font-sans);
 
+    /* RADIUS
+       Five steps, named by role. There were no radius tokens at all before
+       this, which is why eight different radii were in use.
+
+       Rule: a parent's radius must be >= its child's radius + the padding
+       between them, or the corners visibly disagree.
+
+       hairline  2px  marks nested inside another shape (meter segments, a
+                      chip on a thumbnail, a kbd hint)
+       control   4px  every interactive atom — button, input, select, tab,
+                      badge, menu item. THE DEFAULT.
+       container 6px  anything that holds controls — panel, popover, menu
+                      panel, toast, tile, drop zone
+       surface   8px  free-floating chrome above the app — modal, floating
+                      toolbar, chat popup
+       full      pill circles and pills — switch, slider, status dot */
+    --radius-hairline: 2px;
+    --radius-control: 4px;
+    --radius-container: 6px;
+    --radius-surface: 8px;
+
+    /* SPACING ALIASES
+       Tailwind utilities cover the Tailwind-authored apps, but stream, flux
+       and soundboard carry hand-written stylesheets that cannot use them —
+       which is how 5px, 7px, 9px, 11px and 19px got in. These give that CSS
+       the same grid. 4px base, matching `--spacing`. */
+    --space-0-5: calc(var(--spacing) * 0.5);
+    --space-1: calc(var(--spacing) * 1);
+    --space-1-5: calc(var(--spacing) * 1.5);
+    --space-2: calc(var(--spacing) * 2);
+    --space-3: calc(var(--spacing) * 3);
+    --space-4: calc(var(--spacing) * 4);
+    --space-6: calc(var(--spacing) * 6);
+    --space-8: calc(var(--spacing) * 8);
+
     /* FONT SIZE */
-    --text-sm: calc(var(--spacing) * 2.875);
+    /* 12px. Was 2.875 (11.5px), which made `text-sm` SMALLER than Tailwind's
+       `text-xs` (12px) — an inversion, and below comfortable reading size for
+       a tool operated on a stage. */
+    --text-sm: calc(var(--spacing) * 3);
     --text-sm--line-height: calc(var(--spacing) * 3.75);
 
     --text-md: calc(var(--spacing) * 3.25);
@@ -271,7 +309,8 @@ body,
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-gray-300);
-  border-radius: 3px;
+  /* The thumb is 6px wide, so this was always meant to be a pill. */
+  border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -483,7 +522,7 @@ body,
     max-height: min(620px, 88vh);
     overflow: hidden;
     border: 1px solid var(--border-color-primary);
-    border-radius: 9px;
+    border-radius: var(--radius-surface);
     background: var(--background-color-primary);
     color: var(--text-color-primary);
     box-shadow: 0 22px 70px color-mix(in srgb, var(--color-black) 60%, transparent);
@@ -518,7 +557,7 @@ body,
     gap: 6px;
     padding: 6px 12px;
     border: 1px solid var(--border-color-primary);
-    border-radius: 4px;
+    border-radius: var(--radius-control);
     background: var(--background-color-tertiary);
     color: var(--text-color-secondary);
     font-size: var(--text-label-xs);
