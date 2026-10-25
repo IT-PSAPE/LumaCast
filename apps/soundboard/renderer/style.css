@@ -7,8 +7,9 @@
 body { min-width: 760px; min-height: 100vh; }
 button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 
-.app-shell { min-height: 100vh; display: grid; grid-template-columns: 258px minmax(0, 1fr); }
-.sidebar { min-height: 100vh; display: flex; flex-direction: column; padding: 28px 16px 17px; background: var(--background-color-secondary); border-right: 1px solid var(--border-color-secondary); position: relative; z-index: 1; }
+.app-frame { height: 100vh; display: flex; flex-direction: column; }
+.app-shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 258px minmax(0, 1fr); }
+.sidebar { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 20px 16px 17px; background: var(--background-color-secondary); border-right: 1px solid var(--border-color-secondary); position: relative; z-index: 1; }
 .brand { display: flex; align-items: center; gap: 11px; padding: 1px 12px 38px; }
 /* One-off app brand mark (purple), not a ui token. */
 .brand-icon { width: 35px; height: 35px; display: grid; place-items: center; border-radius: 10px; color: var(--background-color-primary); background: linear-gradient(145deg, #b2a0ff, #8e77ed); box-shadow: 0 5px 18px #9279f333; }
@@ -23,7 +24,7 @@ button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2p
 .sidebar-footer > svg:first-of-type { color: var(--color-brand); }
 .footer-spark { margin-left: auto; }
 
-.main-area { min-width: 0; min-height: 100vh; }
+.main-area { min-width: 0; min-height: 0; overflow-y: auto; }
 .topbar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 46px; border-bottom: 1px solid var(--border-color-secondary); }
 .breadcrumb { display: flex; align-items: center; gap: 10px; color: var(--text-color-tertiary); font: 10px var(--font-mono); letter-spacing: .12em; }
 .crumb-current { color: var(--text-color-secondary); }
@@ -71,7 +72,7 @@ button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2p
 .shortcut-current svg { flex: 0 0 auto; }
 .shortcut-current kbd { overflow: hidden; max-width: 118px; color: var(--text-color-secondary); font: 9px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
 
-.loading-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #262332, var(--background-color-primary) 62%); }
+.loading-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #262332, var(--background-color-primary) 62%); }
 .loading-screen > p { margin-top: 14px; color: var(--text-color-tertiary); font-size: 12px; }
 .loader-mark { width: 49px; height: 49px; display: grid; place-items: center; border: 1px solid #76649c; border-radius: 14px; color: #b29eff; background: #282335; box-shadow: 0 0 36px #a28bfa1d; }
 .error-card { width: min(400px, 90vw); padding: 30px; border: 1px solid var(--border-color-primary); border-radius: 12px; background: var(--background-color-secondary); text-align: center; }

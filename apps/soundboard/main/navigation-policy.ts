@@ -33,3 +33,7 @@ export function isTrustedRendererUrl(value: string, options: { packagedRendererF
     return (url.protocol === 'http:' || url.protocol === 'https:') && options.devServerOrigin !== null && url.origin === options.devServerOrigin;
   } catch { return false; }
 }
+
+export function describeUrlSchemeForLogging(value: string): string {
+  try { return new URL(value).protocol; } catch { return 'unparseable'; }
+}

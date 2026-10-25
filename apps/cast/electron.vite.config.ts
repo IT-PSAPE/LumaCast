@@ -29,6 +29,7 @@ const BUNDLED_WORKSPACE_PACKAGES = [
   '@lumacast/playback',
   '@lumacast/canvas',
   '@lumacast/ui',
+  '@lumacast/desktop',
 ] as const;
 
 function workspaceAlias(): Record<string, string> {

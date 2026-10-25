@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@lumacast/desktop": "file:../../packages/desktop",
     "@lumacast/ui": "file:../../packages/ui",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "lucide-react": "^1.7.0",

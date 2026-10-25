@@ -1,10 +1,10 @@
-import { BrowserWindow, type BrowserWindowConstructorOptions } from 'electron';
+import { BrowserWindow, nativeTheme, type BrowserWindowConstructorOptions } from 'electron';
 import path from 'node:path';
 import { projectorTitleForFrameName } from '../shared/projector';
 import { toStreamPlatform } from '../shared/platform-capabilities';
 import { isProjectorPopupUrl, isTrustedRendererUrl, resolveDevServerOrigin } from './navigation-policy';
 import { hardenPopupWebContents } from './popup-policy';
-import { mainWindowChromeOptions } from './window-chrome';
+import { applyTitleBarOverlay, windowChromeOptions } from '@lumacast/desktop';
 
 export function createMainWindow(): BrowserWindow {
   const preload = path.join(__dirname, '../preload/preload.js');
@@ -22,7 +22,7 @@ export function createMainWindow(): BrowserWindow {
     // Custom title bar (renderer/chrome/title-bar.tsx) replaces the native one
     // while keeping native window controls: macOS traffic lights, Windows/Linux
     // caption-button overlay. Projector popups below keep native chrome.
-    ...mainWindowChromeOptions(toStreamPlatform(process.platform)),
+    ...windowChromeOptions(toStreamPlatform(process.platform)),
     webPreferences: {
       preload,
       sandbox: true,
@@ -34,6 +34,13 @@ export function createMainWindow(): BrowserWindow {
       allowRunningInsecureContent: false,
     },
   } satisfies BrowserWindowConstructorOptions);
+  // Caption buttons follow the OS theme (no-op on macOS). Same pattern as
+  // createAppWindow in @lumacast/desktop. Projector popups are plain native
+  // frames with no overlay, so they are deliberately not included.
+  const syncOverlay = (): void => applyTitleBarOverlay(window, nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+  syncOverlay();
+  nativeTheme.on('updated', syncOverlay);
+  window.once('closed', () => nativeTheme.off('updated', syncOverlay));
   const trusted = (url: string) => isTrustedRendererUrl(url, navigationOptions);
   window.once('ready-to-show', () => window.show());
   window.webContents.on('will-navigate', (event, url) => { if (!trusted(url)) event.preventDefault(); });

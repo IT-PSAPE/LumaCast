@@ -16,6 +16,7 @@
       "@lumacast/engine": ["packages/engine/src/index.ts"],
       "@lumacast/playback": ["packages/playback/src/index.ts"],
       "@lumacast/canvas": ["packages/canvas/src/index.ts"],
+      "@lumacast/desktop": ["packages/desktop/src/index.ts"],
       "@lumacast/ui": ["packages/ui/src/index.ts"],
       "@lumacast/suite": ["packages/suite/src/index.ts"],
       "@lumacast/markers": ["packages/markers/src/index.ts"],

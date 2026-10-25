@@ -1,18 +1,17 @@
-import { Children, isValidElement, type CSSProperties, type ReactElement, type ReactNode } from 'react';
+import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import { PanelBottom, PanelLeft, PanelRight, Search, Settings } from 'lucide-react';
 import { useWorkbench } from '../../contexts/workbench-context';
 import type { WorkbenchMode } from '../../types/ui';
 import type { PaneId, SplitId } from '@renderer/components/layout/panel-split/workbench-panel-layout';
 import { usePanelRoute } from '@renderer/components/layout/panel-split/split-panel';
-import { ReacstButton, SegmentedControl, cv } from '@lumacast/ui';
+import { ReacstButton, SegmentedControl, WindowChrome, cv } from '@lumacast/ui';
 import { useNdi } from '@renderer/contexts/app-context';
 import { useCommandPalette } from '../command-palette/command-palette-context';
+import { InlineMenuBar } from './inline-menu-bar';
 import { OverflowViewMenu } from './overflow-view-menu';
 
 const isMac = window.castApi?.platform === 'darwin';
-
-const dragStyle = { WebkitAppRegion: 'drag' } as CSSProperties;
-const noDragStyle = { WebkitAppRegion: 'no-drag' } as CSSProperties;
+const isLinux = window.castApi?.platform === 'linux';
 
 const outputDotStyles = cv({
   base: 'inline-block h-2 w-2 rounded-full transition-colors',
@@ -60,37 +59,38 @@ export function AppToolbar() {
   }
 
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-3">
-      <div style={noDragStyle}>
+    // Linux keeps its native frame (no hidden title bar), so the bar drops the
+    // overlay insets there.
+    <WindowChrome data-ui-region="app-toolbar" style={isLinux ? { paddingLeft: 12, paddingRight: 12 } : undefined}>
+      <WindowChrome.Start>
+        <InlineMenuBar />
         <SegmentedControl value={workbenchMode} onValueChange={handleWorkbenchModeChange} label="Application views">
           <SegmentedControl.Label value="show">Show</SegmentedControl.Label>
           <SegmentedControl.Label value="item-editor">Edit</SegmentedControl.Label>
           <SegmentedControl.Label value="theme-editor">Themes</SegmentedControl.Label>
           <OverflowViewMenu value={workbenchMode} onSelect={handleWorkbenchModeChange} />
         </SegmentedControl>
-      </div>
+      </WindowChrome.Start>
 
-      <div aria-hidden="true" className="min-w-3 flex-1 self-stretch" style={dragStyle} />
+      <WindowChrome.Center>
+        <div className="min-w-0 max-w-md flex-1 [-webkit-app-region:no-drag]">
+          <button
+            type="button"
+            onClick={openCommandPalette}
+            aria-label="Open command palette"
+            title={`Search commands (${isMac ? '⌘' : 'Ctrl+'}K)`}
+            className="group flex h-7 w-full min-w-0 items-center gap-2 rounded-md border border-primary bg-tertiary px-2 text-left text-sm text-tertiary transition-colors hover:border-secondary hover:bg-tertiary hover:text-secondary"
+          >
+            <Search className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Search commands</span>
+            <kbd className="shrink-0 rounded border border-primary bg-primary px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-tertiary">
+              {isMac ? '⌘K' : 'Ctrl+K'}
+            </kbd>
+          </button>
+        </div>
+      </WindowChrome.Center>
 
-      <div style={noDragStyle} className="min-w-0 max-w-md flex-[2_0_180px]">
-        <button
-          type="button"
-          onClick={openCommandPalette}
-          aria-label="Open command palette"
-          title={`Search commands (${isMac ? '⌘' : 'Ctrl+'}K)`}
-          className="group flex h-7 w-full min-w-0 items-center gap-2 rounded-md border border-primary bg-tertiary px-2 text-left text-sm text-tertiary transition-colors hover:border-secondary hover:bg-tertiary hover:text-secondary"
-        >
-          <Search className="size-3.5 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">Search commands</span>
-          <kbd className="shrink-0 rounded border border-primary bg-primary px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-tertiary">
-            {isMac ? '⌘K' : 'Ctrl+K'}
-          </kbd>
-        </button>
-      </div>
-
-      <div aria-hidden="true" className="min-w-3 flex-1 self-stretch" style={dragStyle} />
-
-      <div className="flex items-center gap-2" style={noDragStyle}>
+      <WindowChrome.End>
         <ReacstButton
           variant="ghost"
           onClick={toggleAudienceOutput}
@@ -117,8 +117,8 @@ export function AppToolbar() {
         <ReacstButton.Icon label="Settings" onClick={handleOpenSettings}>
           <Settings />
         </ReacstButton.Icon>
-      </div>
-    </div>
+      </WindowChrome.End>
+    </WindowChrome>
   );
 }
 

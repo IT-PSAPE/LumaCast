@@ -1,6 +1,7 @@
-import { app, BrowserWindow, Menu, nativeImage, protocol, shell, type BrowserWindowConstructorOptions } from 'electron';
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, protocol, shell, type BrowserWindowConstructorOptions } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
+import { applyTitleBarOverlay, windowChromeOptions } from '@lumacast/desktop';
 import { PERSISTENCE_EVENTS, type PersistenceProgress } from '@lumacast/protocol';
 import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
@@ -180,21 +181,9 @@ function createRendererWindowOptions(width: number, height: number): BrowserWind
     show: false,
     backgroundColor: '#121212',
     icon: getAppIcon(),
-    ...(process.platform === 'win32'
-      ? {
-        titleBarStyle: 'hidden' as const,
-        titleBarOverlay: {
-          color: '#00000000',
-          symbolColor: '#d4d4d4',
-          height: 36,
-        },
-      }
-      : process.platform === 'darwin'
-        ? {
-          titleBarStyle: 'hidden' as const,
-          trafficLightPosition: { x: 13, y: 13 },
-        }
-        : {}),
+    // Hidden title bar on every platform; win32/linux render the menus inline
+    // in the renderer (inline-menu-bar.tsx) since no native menu bar remains.
+    ...windowChromeOptions(process.platform),
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       sandbox: false,
@@ -227,9 +216,15 @@ function createMainWindow(): void {
   const window = new BrowserWindow(createRendererWindowOptions(1680, 980));
   mainWindow = window;
   window.setTitle(APP_NAME);
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' || process.platform === 'linux') {
     window.setMenuBarVisibility(false);
   }
+  // Caption buttons follow the OS theme (Windows/Linux overlay; no-op on macOS).
+  // Same pattern as createAppWindow in @lumacast/desktop.
+  const syncOverlay = (): void => applyTitleBarOverlay(window, nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+  syncOverlay();
+  nativeTheme.on('updated', syncOverlay);
+  window.once('closed', () => nativeTheme.off('updated', syncOverlay));
 
   let shown = false;
   const showWindow = (reason: string) => {

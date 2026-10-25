@@ -1,4 +1,3 @@
-import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { AppLayoutContent } from '../../../../apps/cast/renderer/app-layout-content';
@@ -29,10 +28,6 @@ vi.mock('../../../../apps/cast/renderer/features/workbench/status-bar', () => ({
   StatusBar: () => <div data-testid="status-bar" />,
 }));
 
-vi.mock('../../../../apps/cast/renderer/features/workbench/windows-inline-menu-bar', () => ({
-  WindowsInlineMenuBar: ({ children }: { children: ReactNode }) => <div data-testid="menu-bar">{children}</div>,
-}));
-
 vi.mock('../../../../apps/cast/renderer/workbench-screen-router', () => ({
   WorkbenchScreenRouter: () => <div data-testid="workbench-screen" />,
 }));
@@ -54,7 +49,6 @@ describe('AppLayoutContent startup shell', () => {
 
     const { getByTestId, getByText, queryByTestId } = render(<AppLayoutContent />);
 
-    expect(getByTestId('menu-bar')).not.toBeNull();
     expect(getByTestId('app-toolbar')).not.toBeNull();
     expect(getByTestId('status-bar')).not.toBeNull();
     expect(getByText('Loading LumaCast App')).not.toBeNull();
@@ -72,7 +66,6 @@ describe('AppLayoutContent startup shell', () => {
     mocks.cast.snapshot = { projectId: 'demo-project' };
     view.rerender(<AppLayoutContent />);
 
-    expect(view.getByTestId('menu-bar')).not.toBeNull();
     expect(view.getByTestId('app-toolbar')).not.toBeNull();
     expect(view.getByTestId('status-bar')).not.toBeNull();
     expect(view.getByTestId('workbench-screen')).not.toBeNull();
@@ -84,7 +77,6 @@ describe('AppLayoutContent startup shell', () => {
 
     const { getByRole, getByTestId, getByText } = render(<AppLayoutContent />);
 
-    expect(getByTestId('menu-bar')).not.toBeNull();
     expect(getByTestId('app-toolbar')).not.toBeNull();
     expect(getByTestId('status-bar')).not.toBeNull();
     expect(getByText('LumaCast could not load its project data.')).not.toBeNull();

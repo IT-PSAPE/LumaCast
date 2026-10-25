@@ -148,7 +148,7 @@ function buildAppMenu(send: (id: string) => void): MenuItemConstructorOptions {
 /**
  * Builds and installs the native macOS application menu from the renderer's
  * serialized template, or clears it on Windows/Linux (where the title bar's
- * hamburger button is the only menu — see `mainWindowChromeOptions`, which
+ * hamburger button is the only menu — see `windowChromeOptions` (`@lumacast/desktop`), which
  * hides the native title bar there with no menu-bar room to show one anyway).
  * `send` is called with an item's id whenever a (non-role) item is clicked.
  */

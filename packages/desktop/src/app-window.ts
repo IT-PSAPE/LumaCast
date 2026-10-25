@@ -1,4 +1,5 @@
-import { BrowserWindow, shell, type BrowserWindowConstructorOptions, type WebPreferences } from 'electron';
+import { BrowserWindow, nativeTheme, shell, type BrowserWindowConstructorOptions, type WebPreferences } from 'electron';
+import { applyTitleBarOverlay } from './window-chrome';
 
 export interface AppWindowOptions {
   title: string;
@@ -45,6 +46,13 @@ export function createAppWindow(options: AppWindowOptions): BrowserWindow {
     ...options.chrome,
     webPreferences: options.webPreferences,
   });
+
+  // Caption-button colours follow the OS theme (the apps' renderers do too; no
+  // main-process theme store exists), initially and on every change.
+  const syncOverlay = (): void => applyTitleBarOverlay(window, nativeTheme.shouldUseDarkColors ? 'dark' : 'light');
+  syncOverlay();
+  nativeTheme.on('updated', syncOverlay);
+  window.once('closed', () => nativeTheme.off('updated', syncOverlay));
 
   let shown = false;
   const showWindow = (reason: string): void => {

@@ -16,7 +16,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { Badge, Banner, EmptyState, ReacstButton as Button, Slider, StatusDot, Switch, TextField } from "@lumacast/ui";
+import { Badge, Banner, EmptyState, ReacstButton as Button, Slider, StatusDot, Switch, TextField, WindowChrome } from "@lumacast/ui";
 import type { Sound, SoundBoard, SoundLibrary, SoundboardAPI, SoundPlaybackSettings, SoundShortcut } from "../shared/desktop-api";
 import { defaultPlaybackSettings } from "../shared/desktop-api";
 import { soundUrl } from "../shared/desktop-api";
@@ -227,17 +227,22 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
 
   const stopAll = () => activeBoard?.sounds.forEach((sound) => controls.current.get(sound.id)?.stop());
 
+  // The window has no native title bar, so the chrome (the only drag region)
+  // renders in every state: loading, load error, and the main shell.
+  const chrome = <WindowChrome><WindowChrome.Center>LumaSoundboard</WindowChrome.Center></WindowChrome>;
+
   if (loading && !library) {
-    return <main className="loading-screen"><div className="loader-mark"><AudioLines size={26} /></div><p>Loading your sound library</p></main>;
+    return <div className="app-frame">{chrome}<main className="loading-screen"><div className="loader-mark"><AudioLines size={26} /></div><p>Loading your sound library</p></main></div>;
   }
   if (loadError && !library) {
-    return <main className="loading-screen"><div className="error-card"><h1>Couldn’t open your boards</h1><p>{loadError}</p><Button variant="primary" size="xl" label="Try again" onClick={() => void load()}><RotateCcw size={16} /> Try again</Button></div></main>;
+    return <div className="app-frame">{chrome}<main className="loading-screen"><div className="error-card"><h1>Couldn’t open your boards</h1><p>{loadError}</p><Button variant="primary" size="xl" label="Try again" onClick={() => void load()}><RotateCcw size={16} /> Try again</Button></div></main></div>;
   }
 
   return (
+    <div className="app-frame">
+    {chrome}
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-icon"><AudioLines size={19} strokeWidth={2.2} /></div><div><span className="brand-name">LUMA</span><span className="brand-sub">SOUNDBOARD</span></div></div>
         <div className="sidebar-section"><div className="section-label"><span>YOUR BOARDS</span><Badge>{library?.boards.length ?? 0}</Badge></div>
           <nav className="board-list" aria-label="Sound boards">
             {library?.boards.map((board) => <Button key={board.id} label={board.name} variant="ghost" size="xl" fullWidth align="start" active={board.id === activeBoardId} aria-current={board.id === activeBoardId ? "page" : undefined} onClick={() => switchBoard(board.id)} disabled={busy}>
@@ -255,10 +260,11 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
         <header className="topbar"><div className="breadcrumb"><span>LIBRARY</span><span>/</span><span className="crumb-current">{activeBoard?.name ?? "BOARDS"}</span></div><div className="topbar-right"><StatusDot tone="success" />LOCAL LIBRARY</div></header>
         <div className="content">
           {actionError && <Banner tone="error" size="sm" className="mb-6" onDismiss={() => setActionError("")}>{actionError}</Banner>}
-          {library?.boards.length === 0 ? <EmptyState.Root className="min-h-[calc(100vh-160px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>Your soundboard begins here</EmptyState.Title><EmptyState.Description>Create a board to keep your sounds organized and ready to play.</EmptyState.Description><EmptyState.Action><form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); createBoard(); }}><TextField label="Board name" labelPlacement="hidden" value={newBoardName} onValueChange={setNewBoardName} placeholder="e.g. Studio cues" maxLength={48} disabled={busy} className="w-52" /><Button variant="primary" size="xl" label="Create board" type="submit" disabled={busy || !newBoardName.trim()}><FolderPlus size={16} /> Create board</Button></form></EmptyState.Action></EmptyState.Root>
-          : activeBoard ? <BoardContent key={activeBoard.id} board={activeBoard} busy={busy} renameValue={renameValue} setRenameValue={setRenameValue} onRename={renameBoard} onImport={importSounds} onStopAll={stopAll} onRemove={removeSound} onUpdateSound={updateSound} recordingShortcutId={recordingShortcutId} setRecordingShortcutId={setRecordingShortcutId} audioFactory={audioFactory} register={registerTile} /> : <EmptyState.Root className="min-h-[calc(100vh-160px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>No board selected</EmptyState.Title></EmptyState.Root>}
+          {library?.boards.length === 0 ? <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>Your soundboard begins here</EmptyState.Title><EmptyState.Description>Create a board to keep your sounds organized and ready to play.</EmptyState.Description><EmptyState.Action><form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); createBoard(); }}><TextField label="Board name" labelPlacement="hidden" value={newBoardName} onValueChange={setNewBoardName} placeholder="e.g. Studio cues" maxLength={48} disabled={busy} className="w-52" /><Button variant="primary" size="xl" label="Create board" type="submit" disabled={busy || !newBoardName.trim()}><FolderPlus size={16} /> Create board</Button></form></EmptyState.Action></EmptyState.Root>
+          : activeBoard ? <BoardContent key={activeBoard.id} board={activeBoard} busy={busy} renameValue={renameValue} setRenameValue={setRenameValue} onRename={renameBoard} onImport={importSounds} onStopAll={stopAll} onRemove={removeSound} onUpdateSound={updateSound} recordingShortcutId={recordingShortcutId} setRecordingShortcutId={setRecordingShortcutId} audioFactory={audioFactory} register={registerTile} /> : <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>No board selected</EmptyState.Title></EmptyState.Root>}
         </div>
       </main>
+    </div>
     </div>
   );
 }

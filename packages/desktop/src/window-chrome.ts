@@ -20,8 +20,48 @@ export interface CaptionOverlayColors {
   symbolColor: string;
 }
 
-// Matches the shared dark theme's bg-primary (gray-950) and text-secondary (gray-300).
-const DEFAULT_OVERLAY_COLORS: CaptionOverlayColors = { color: '#171717', symbolColor: '#CBCBCB' };
+export type OverlayTheme = 'light' | 'dark';
+
+// Literal hex resolved from packages/ui/src/theme.css (titleBarOverlay cannot read CSS variables).
+// Re-resolve these if the tokens change.
+export const OVERLAY_COLORS: Record<OverlayTheme, CaptionOverlayColors> = {
+  light: {
+    color: '#F6F6F6', // --background-color-secondary -> --color-gray-50
+    symbolColor: '#2D2D2D', // --text-color-secondary -> --color-gray-700
+  },
+  dark: {
+    color: '#1A1A1A', // [data-theme="dark"] --background-color-secondary -> --color-gray-900
+    symbolColor: '#CBCBCB', // [data-theme="dark"] --text-color-secondary -> --color-gray-300
+  },
+};
+
+const DEFAULT_OVERLAY_COLORS: CaptionOverlayColors = OVERLAY_COLORS.dark;
+
+/** The slice of BrowserWindow that `applyTitleBarOverlay` needs; structural so it is testable without Electron. */
+export interface TitleBarOverlayTarget {
+  isDestroyed(): boolean;
+  setTitleBarOverlay?: (options: { color: string; symbolColor: string; height: number }) => void;
+}
+
+/**
+ * Re-colours the native caption buttons of a live window for `theme`.
+ * No-op on macOS (no overlay), where `setTitleBarOverlay` is unavailable, or
+ * once the window is destroyed. Never throws.
+ */
+export function applyTitleBarOverlay(
+  window: TitleBarOverlayTarget,
+  theme: OverlayTheme,
+  platform: string = process.platform,
+  titleBarHeight: number = TITLE_BAR_HEIGHT,
+): void {
+  if (platform === 'darwin') return;
+  try {
+    if (window.isDestroyed() || typeof window.setTitleBarOverlay !== 'function') return;
+    window.setTitleBarOverlay({ ...OVERLAY_COLORS[theme], height: titleBarHeight });
+  } catch {
+    // Window torn down mid-call, or overlay not enabled on this window.
+  }
+}
 
 /**
  * Window chrome for a custom title bar of `titleBarHeight` CSS px, keeping

@@ -43,6 +43,7 @@
     "@lumacast/automation": "file:../../packages/automation",
     "@lumacast/canvas": "file:../../packages/canvas",
     "@lumacast/commands": "file:../../packages/commands",
+    "@lumacast/desktop": "file:../../packages/desktop",
     "@lumacast/composition": "file:../../packages/composition",
     "@lumacast/engine": "file:../../packages/engine",
     "@lumacast/kernel": "file:../../packages/kernel",

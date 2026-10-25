@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Menu } from '@base-ui/react/menu';
 import { Menu as MenuIcon } from 'lucide-react';
-import { CONTEXT_MENU_SURFACE_CLASSES, MenuEntries, useOverlayContainer, type MenuEntry, type MenubarMenu } from '@lumacast/ui';
+import { CONTEXT_MENU_SURFACE_CLASSES, MenuEntries, WindowChrome, useOverlayContainer, type MenuEntry, type MenubarMenu } from '@lumacast/ui';
 import type { StreamPlatform } from '../../shared/platform-capabilities';
 import './title-bar.css';
 
@@ -20,12 +20,11 @@ export interface TitleBarProps {
 }
 
 /**
- * The custom 36px title bar: a drag region carrying the window title (and, on
- * Windows/Linux, a hamburger menu button) with optional status chips on the
- * right. macOS keeps the native traffic lights (left inset, see
- * `mainWindowChromeOptions`) and its own real menu bar; Windows/Linux keep
- * native caption buttons via a `titleBarOverlay` (right inset here matches its
- * width) and get their menu from the hamburger button instead.
+ * Stream's title bar content on the shared `WindowChrome` frame (height,
+ * drag regions and platform insets come from there). Start holds the
+ * Windows/Linux hamburger menu; macOS keeps its real menu bar and traffic
+ * lights, so Start is omitted. Center is the window title; End carries the
+ * status chips.
  */
 export function TitleBar({ platform, menuMode, menus, title, children }: TitleBarProps) {
   const [hamburgerMenuOpen, setHamburgerMenuOpen] = useState(false);
@@ -36,12 +35,13 @@ export function TitleBar({ platform, menuMode, menus, title, children }: TitleBa
   const hamburgerEntries: MenuEntry[] = menus.map((menu) => ({ id: menu.id, label: menu.label, children: menu.entries }));
 
   return (
-    <div className="title-bar" data-platform={platform}>
+    <WindowChrome platform={platform}>
       {menuMode === 'hamburger' && (
+        <WindowChrome.Start>
         <Menu.Root open={hamburgerMenuOpen} onOpenChange={setHamburgerMenuOpen} modal={false}>
           <Menu.Trigger
             type="button"
-            className="title-bar-hamburger no-drag"
+            className="title-bar-hamburger"
             aria-label="Menu"
           >
             <MenuIcon size={16} aria-hidden="true" />
@@ -57,9 +57,10 @@ export function TitleBar({ platform, menuMode, menus, title, children }: TitleBa
             </Menu.Positioner>
           </Menu.Portal>
         </Menu.Root>
+        </WindowChrome.Start>
       )}
-      <div className="title-bar-title"><span>{title}</span></div>
-      {children ? <div className="title-bar-end no-drag">{children}</div> : null}
-    </div>
+      <WindowChrome.Center className="font-medium tracking-[0.02em]">{title}</WindowChrome.Center>
+      {children ? <WindowChrome.End>{children}</WindowChrome.End> : null}
+    </WindowChrome>
   );
 }

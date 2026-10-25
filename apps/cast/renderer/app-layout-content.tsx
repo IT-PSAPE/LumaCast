@@ -2,7 +2,6 @@ import { useCast } from './contexts/app-context';
 import { useAppMenu } from './hooks/use-app-menu';
 import { AppToolbar } from './features/workbench/app-toolbar';
 import { StatusBar } from './features/workbench/status-bar';
-import { WindowsInlineMenuBar } from './features/workbench/windows-inline-menu-bar';
 import { WorkbenchScreenRouter } from './workbench-screen-router';
 
 export function AppLayoutContent() {
@@ -11,9 +10,7 @@ export function AppLayoutContent() {
 
   return (
     <div className="relative flex h-screen flex-col">
-      <WindowsInlineMenuBar>
-        <AppToolbar />
-      </WindowsInlineMenuBar>
+      <AppToolbar />
       <main className="min-h-0 flex-1">
         {snapshot ? (
           <WorkbenchScreenRouter />

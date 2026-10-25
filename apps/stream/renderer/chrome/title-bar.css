@@ -1,60 +1,18 @@
-/* Stream's native window chrome uses the same semantic theme as Cast. */
-
-.title-bar {
-  position: relative;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  height: 36px;
-  min-height: 36px;
-  padding: 0 12px;
-  background: var(--background-color-primary);
-  border-bottom: 1px solid var(--border-color-secondary);
-  box-shadow: none;
-  -webkit-app-region: no-drag;
-  user-select: none;
-}
-
-/* Left inset clears the macOS traffic lights (see mainWindowChromeOptions'
- * trafficLightPosition); right inset clears the Windows/Linux titleBarOverlay
- * caption buttons. */
-.title-bar[data-platform='darwin'] {
-  padding-left: 78px;
-}
-
-.title-bar[data-platform='win32'],
-.title-bar[data-platform='linux'] {
-  padding-left: 8px;
-  padding-right: 140px;
-}
-
-.title-bar .no-drag {
-  -webkit-app-region: no-drag;
-}
-
-.title-bar-end {
-  position: relative;
-  z-index: 1;
-  height: 100%;
-}
+/* Hamburger button for the Windows/Linux menu strategy. The bar frame, insets
+ * and drag regions come from the shared WindowChrome; Start is already no-drag. */
 
 .title-bar-hamburger {
-  position: relative;
-  z-index: 1;
   display: flex;
   flex: 0 0 28px;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin-right: 8px;
   border: none;
   border-radius: 4px;
   background: transparent;
   color: var(--text-color-secondary);
   cursor: pointer;
-  pointer-events: auto;
-  -webkit-app-region: no-drag;
 }
 
 .title-bar-hamburger:hover,
@@ -66,39 +24,4 @@
 .title-bar-hamburger:focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 1px;
-}
-
-.title-bar-title {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  align-items: center;
-  justify-content: center;
-  /* Keep this drag region in normal flow, clear of the menu and status controls.
-   * Electron 44 inherits app-region, even through pointer-events: none overlays. */
-  -webkit-app-region: drag;
-  color: var(--text-color-tertiary);
-  font-size: var(--text-label-xs);
-  font-weight: 500;
-  letter-spacing: 0.02em;
-}
-
-.title-bar-title > span {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100% - 300px);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-
-.title-bar-end {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  padding-left: 8px;
 }
