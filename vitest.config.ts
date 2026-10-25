@@ -27,6 +27,8 @@ export default defineConfig({
       '@lumacast/photo-model': path.resolve(__dirname, 'packages/photo-model/src/index.ts'),
       '@lumacast/photo-imaging': path.resolve(__dirname, 'packages/photo-imaging/src/index.ts'),
       '@lumacast/photo-library': path.resolve(__dirname, 'packages/photo-library/src/index.ts'),
+      '@lumacast/desktop/constants': path.resolve(__dirname, 'packages/desktop/src/constants.ts'),
+      '@lumacast/desktop': path.resolve(__dirname, 'packages/desktop/src/index.ts'),
     },
   },
 });

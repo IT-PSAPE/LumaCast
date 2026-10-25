@@ -117,3 +117,9 @@ export {
   type UseSplitControllerOptions,
 } from './split';
 export { ResizeHandle, type ResizeHandleProps, type ResizeSource } from './resize-handle';
+export {
+  WindowChrome,
+  detectWindowChromePlatform,
+  type WindowChromeProps,
+  type WindowChromePlatform,
+} from './window-chrome';

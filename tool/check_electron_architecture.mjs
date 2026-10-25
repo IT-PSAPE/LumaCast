@@ -60,6 +60,9 @@ const NDI_HOST_COMMAND_EXPORTS = new Set(['NdiHostCommand', 'NdiHostEvent']);
 // banned for every package regardless of membership here.
 const REACT_ALLOWED_PACKAGES = new Set(['canvas', 'ui']);
 const KONVA_ALLOWED_PACKAGES = new Set(['canvas']);
+// @lumacast/desktop is the main-process window helper package; it is the one
+// package that may import Electron.
+const ELECTRON_ALLOWED_PACKAGES = new Set(['desktop']);
 
 // The Flux photo packages split into a renderer-safe domain model and two
 // Node-side packages. `photo-imaging` decodes, resizes and encodes image bytes
@@ -115,6 +118,8 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // Timed lyric-cue interchange (CSV/LRC/SRT) shared by LumaCast (records
   // audio-sync markers) and LumaChord (imports/exports a lyric video).
   markers: ['kernel'],
+  // Main-process window helpers (chrome options, createAppWindow). Shares window-chrome constants with renderers via kernel.
+  desktop: ['kernel'],
   // The approved Flux photo packages. They form a strict one-way stack above
   // kernel: the pure photo domain model, the imaging/derivation layer that
   // reads and transforms image bytes, and the library layer that owns the
@@ -1039,7 +1044,7 @@ export function check(options = {}) {
       }
       if (fromZone?.startsWith('pkg:')) {
         const fromPkg = fromZone.slice(4);
-        if (k === 'electron' || (k === 'react' && !REACT_ALLOWED_PACKAGES.has(fromPkg))) {
+        if ((k === 'electron' && !ELECTRON_ALLOWED_PACKAGES.has(fromPkg)) || (k === 'react' && !REACT_ALLOWED_PACKAGES.has(fromPkg))) {
           add('package-purity', `imports ${e.specifier}`);
         }
         if (k === 'konva' && !KONVA_ALLOWED_PACKAGES.has(fromPkg)) {

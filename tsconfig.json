@@ -23,7 +23,9 @@
       "@lumacast/markers": ["packages/markers/src/index.ts"],
       "@lumacast/photo-model": ["packages/photo-model/src/index.ts"],
       "@lumacast/photo-imaging": ["packages/photo-imaging/src/index.ts"],
-      "@lumacast/photo-library": ["packages/photo-library/src/index.ts"]
+      "@lumacast/photo-library": ["packages/photo-library/src/index.ts"],
+      "@lumacast/desktop": ["packages/desktop/src/index.ts"],
+      "@lumacast/desktop/constants": ["packages/desktop/src/constants.ts"]
     }
   },
   "include": [
