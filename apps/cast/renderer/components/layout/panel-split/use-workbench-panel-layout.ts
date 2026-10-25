@@ -1,21 +1,25 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type {
-  DragSessionState,
-  PaneId,
-  SplitDefinition,
-  SplitId,
-  SplitLayoutState,
-  WorkbenchPanelLayouts,
-} from './workbench-panel-layout';
 import {
-  applyMeasuredPaneSizes,
-  cloneSplitLayout,
-  coerceSplitLayout,
-  createDefaultSplitLayout,
+  collapseSplitPane,
+  expandSplitPane,
+  fitSplitLayoutToContainer,
+  normalizeSplitLayout,
   resizeSplitFromDelta,
-  setPaneVisibility,
-} from './split-resize';
-import { fitSplitLayoutToContainer } from './split-normalize';
+  type SplitChangeMeta,
+  type SplitLayout,
+} from '@lumacast/ui';
+import { clamp } from '../../../utils/math';
+import {
+  fromSplitLayout,
+  toSplitLayout,
+  toSplitPanes,
+  type DragSessionState,
+  type PaneId,
+  type SplitDefinition,
+  type SplitId,
+  type SplitLayoutState,
+  type WorkbenchPanelLayouts,
+} from './workbench-panel-layout';
 
 const STORAGE_KEY = 'lumacast.workbench-layout.v1';
 const STORAGE_VERSION = 3;
@@ -46,6 +50,12 @@ interface ContainerResizeInput {
   size: number;
 }
 
+interface SplitLayoutChangeInput {
+  definition: SplitDefinition;
+  layout: SplitLayout;
+  meta: SplitChangeMeta;
+}
+
 interface UseWorkbenchPanelLayoutResult {
   liveLayouts: WorkbenchPanelLayouts;
   committedLayouts: WorkbenchPanelLayouts;
@@ -55,6 +65,7 @@ interface UseWorkbenchPanelLayoutResult {
   updateDrag: (input: ResizeMoveInput) => void;
   endDrag: (input: ResizeEndInput) => void;
   syncToContainer: (input: ContainerResizeInput) => void;
+  applySplitLayout: (input: SplitLayoutChangeInput) => void;
   togglePanel: (splitId: SplitId, paneId: PaneId) => void;
   isPanelVisible: (splitId: SplitId, paneId: PaneId) => boolean;
 }
@@ -131,8 +142,8 @@ export function useWorkbenchPanelLayout(): UseWorkbenchPanelLayoutResult {
 
     const rawDelta = input.pointerPosition - session.startPointer;
     const baseSplit = resolveSplitLayout(session.baseLayouts, input.definition);
-    const resized = resizeSplitFromDelta(input.definition, baseSplit, session.handleIndex, rawDelta);
-    const nextLayouts = setSplitLayout(liveLayoutsRef.current, input.definition.id, resized.layout);
+    const resized = resizeSplitFromDelta(toSplitPanes(input.definition), toSplitLayout(baseSplit), session.handleIndex, rawDelta);
+    const nextLayouts = setSplitLayout(liveLayoutsRef.current, input.definition.id, fromSplitLayout(resized.layout, input.definition));
 
     liveLayoutsRef.current = nextLayouts;
     setLiveLayouts(nextLayouts);
@@ -162,7 +173,10 @@ export function useWorkbenchPanelLayout(): UseWorkbenchPanelLayoutResult {
     registerSplit(input.definition);
 
     const currentSplit = resolveSplitLayout(committedLayoutsRef.current, input.definition);
-    const fittedSplit = fitSplitLayoutToContainer(input.definition, currentSplit, input.size);
+    const fittedSplit = fromSplitLayout(
+      normalizeSplitLayout(toSplitPanes(input.definition), fitSplitLayoutToContainer(toSplitPanes(input.definition), toSplitLayout(currentSplit), input.size)),
+      input.definition,
+    );
     if (areSplitLayoutsEqual(currentSplit, fittedSplit, input.definition)) return;
 
     replaceBothLayouts(setSplitLayout(committedLayoutsRef.current, input.definition.id, fittedSplit), true);
@@ -178,10 +192,29 @@ export function useWorkbenchPanelLayout(): UseWorkbenchPanelLayoutResult {
     if (!paneDefinition) return;
 
     const baseSplit = resolveSplitLayout(committedLayoutsRef.current, definition);
-    const nextSplit = setPaneVisibility(definition, baseSplit, paneId, !baseSplit.panes[paneId].visible);
+    const panes = toSplitPanes(definition);
+    const split = toSplitLayout(baseSplit);
+    const toggled = baseSplit.panes[paneId].visible ? collapseSplitPane(panes, split, paneId) : expandSplitPane(panes, split, paneId);
+    const nextSplit = fromSplitLayout(toggled, definition);
 
     replaceBothLayouts(setSplitLayout(committedLayoutsRef.current, splitId, nextSplit), true);
   }, [replaceBothLayouts]);
+
+  // Split's onLayoutChange: live updates stay in memory; commits persist.
+  const applySplitLayout = useCallback((input: SplitLayoutChangeInput) => {
+    registerSplit(input.definition);
+
+    const nextSplit = fromSplitLayout(input.layout, input.definition);
+    if (input.meta.phase === 'live') {
+      const nextLive = setSplitLayout(liveLayoutsRef.current, input.definition.id, nextSplit);
+      liveLayoutsRef.current = nextLive;
+      setLiveLayouts(nextLive);
+      return;
+    }
+
+    dragSessionRef.current = null;
+    replaceBothLayouts(setSplitLayout(committedLayoutsRef.current, input.definition.id, nextSplit), true);
+  }, [registerSplit, replaceBothLayouts]);
 
   const isPanelVisible = useCallback((splitId: SplitId, paneId: PaneId) => {
     const visible = liveLayoutsRef.current[splitId]?.panes[paneId]?.visible;
@@ -197,6 +230,7 @@ export function useWorkbenchPanelLayout(): UseWorkbenchPanelLayoutResult {
     updateDrag,
     endDrag,
     syncToContainer,
+    applySplitLayout,
     togglePanel,
     isPanelVisible,
   };
@@ -220,15 +254,27 @@ function hydratePersistedLayouts(): WorkbenchPanelLayouts {
 }
 
 function resolveSplitLayout(layouts: WorkbenchPanelLayouts, definition: SplitDefinition): SplitLayoutState {
-  const fallback = createDefaultSplitLayout(definition);
-  const input = layouts[definition.id] ?? fallback;
-  return coerceSplitLayout(definition, input, fallback);
+  const input = layouts[definition.id];
+  return fromSplitLayout(normalizeSplitLayout(toSplitPanes(definition), input ? toSplitLayout(input) : undefined), definition);
+}
+
+function applyMeasuredPaneSizes(definition: SplitDefinition, layout: SplitLayoutState, paneSizes: Partial<Record<PaneId, number>>): SplitLayoutState {
+  const panes = { ...layout.panes };
+  for (const paneId of definition.paneOrder) {
+    const pane = panes[paneId];
+    const measured = paneSizes[paneId];
+    if (!pane?.visible || typeof measured !== 'number' || Number.isNaN(measured)) continue;
+    const { minSize, maxSize } = definition.panes[paneId];
+    const size = clamp(measured, minSize, maxSize);
+    panes[paneId] = { ...pane, size, lastVisibleSize: size };
+  }
+  return { panes };
 }
 
 function setSplitLayout(layouts: WorkbenchPanelLayouts, splitId: SplitId, splitLayout: SplitLayoutState): WorkbenchPanelLayouts {
   return {
     ...layouts,
-    [splitId]: cloneSplitLayout(splitLayout),
+    [splitId]: { panes: Object.fromEntries(Object.entries(splitLayout.panes).map(([id, pane]) => [id, { ...pane }])) },
   };
 }
 
@@ -267,6 +313,7 @@ function areSplitLayoutsEqual(left: SplitLayoutState, right: SplitLayoutState, d
 
 export type {
   ContainerResizeInput,
+  SplitLayoutChangeInput,
   ResizeStartInput,
   ResizeMoveInput,
   ResizeEndInput,

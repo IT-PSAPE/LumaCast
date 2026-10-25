@@ -46,7 +46,7 @@ export function SettingsScreen() {
           </LumaCastPanel.Root>
         </SplitPanel.Segment>
 
-        <SplitPanel.Segment id="settings-right" defaultSize={960} minSize={320}>
+        <SplitPanel.Segment id="settings-right" fill defaultSize={960} minSize={320}>
           <main className="h-full min-h-0 overflow-auto px-6 py-5">
             <div className="mx-auto flex max-w-5xl flex-col gap-6">
               <header className="border-b border-primary pb-4">

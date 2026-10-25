@@ -67,7 +67,7 @@ export function PlaylistPanels() {
             </Panel.Body>
           </Panel>
         </SplitPanel.Segment>
-        <SplitPanel.Segment id="playlist-rows" defaultSize={320} minSize={180}>
+        <SplitPanel.Segment id="playlist-rows" fill defaultSize={320} minSize={180}>
           <PlaylistRowsBrowser />
         </SplitPanel.Segment>
       </SplitPanel.Panel>

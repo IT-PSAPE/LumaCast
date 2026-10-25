@@ -33,17 +33,20 @@ describe('cast StatusBar', () => {
     expect(screen.getByText('Assistant')).not.toBeNull();
   });
 
-  it('shows idle labels and neutral dots when nothing is live', () => {
+  it('shows idle labels and green ready dots when nothing is live', () => {
     render(<StatusBar />);
-    expect(dotOf('Audience idle')?.classList.contains('bg-tertiary')).toBe(true);
-    expect(dotOf('Stage idle')?.classList.contains('bg-tertiary')).toBe(true);
+    // Tally contract: red = on-air, green = ready. Idle is `success`, not
+    // `neutral` — a neutral dot resolves to the tertiary surface colour, one
+    // step from the bar's own bg-secondary, so it was invisible in the app.
+    expect(dotOf('Audience idle')?.classList.contains('bg-success')).toBe(true);
+    expect(dotOf('Stage idle')?.classList.contains('bg-success')).toBe(true);
   });
 
   it('turns each on-air dot red independently with its live label', () => {
     state.live = { audienceLive: true, stageLive: false };
     render(<StatusBar />);
     expect(dotOf('Audience live')?.classList.contains('bg-error')).toBe(true);
-    expect(dotOf('Stage idle')?.classList.contains('bg-tertiary')).toBe(true);
+    expect(dotOf('Stage idle')?.classList.contains('bg-success')).toBe(true);
   });
 
   it('shows the operation text with a spinner while an operation runs', () => {

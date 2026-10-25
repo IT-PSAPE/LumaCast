@@ -1,7 +1,7 @@
 import { Children, createContext, isValidElement, useCallback, useContext, useEffect, useMemo, type HTMLAttributes, type ReactElement, type ReactNode } from 'react';
-import { ResizableSplitPane, ResizableSplitRoot, type ResizableSplitResizeEndEvent, type ResizableSplitResizeMoveEvent, type ResizableSplitResizeStartEvent } from '../resizable-split';
+import { Split, type SplitChangeMeta, type SplitLayout } from '@lumacast/ui';
 import { useWorkbenchPanelLayout } from './use-workbench-panel-layout';
-import type { PaneId, SplitDefinition, SplitId, SplitPaneDefinition } from './workbench-panel-layout';
+import { toSplitLayout, toSplitPanes, type PaneId, type SplitDefinition, type SplitId, type SplitPaneDefinition } from './workbench-panel-layout';
 
 interface PanelRouteRootProps {
   children: ReactNode;
@@ -20,6 +20,8 @@ interface PanelRoutePanelProps {
   minSize: number;
   maxSize?: number;
   collapsible?: boolean;
+  /** The pane that absorbs remaining space. Declare exactly one per split. */
+  fill?: boolean;
   className?: string;
   children: ReactNode;
 }
@@ -40,6 +42,7 @@ interface PanelElementData {
   id: PaneId;
   className?: string;
   children: ReactNode;
+  fill: boolean;
   definition: SplitPaneDefinition;
 }
 
@@ -70,42 +73,26 @@ function Panel({ splitId, orientation, className = '', children, ...props }: Pan
   const panels = useMemo(() => collectPanels(children), [children]);
   const definition = useMemo(() => createSplitDefinition(splitId, orientation, panels), [orientation, panels, splitId]);
   const layout = context.meta.getSplitLayout(definition);
-  const resizablePanes = useMemo(() => buildResizablePanes(definition, layout, panels), [definition, layout, panels]);
+  const splitPanes = useMemo(() => toSplitPanes(definition), [definition]);
 
   useEffect(() => {
     context.actions.registerSplit(definition);
   }, [context.actions, definition]);
 
-  const handleResizeStart = useCallback((event: ResizableSplitResizeStartEvent) => {
-    context.state.startDrag({
-      definition,
-      handleIndex: event.handleIndex,
-      pointerPosition: event.pointerPosition,
-      paneSizes: event.paneSizes,
-    });
-  }, [context.state, definition]);
-
-  const handleResize = useCallback((event: ResizableSplitResizeMoveEvent) => {
-    context.state.updateDrag({
-      definition,
-      pointerPosition: event.pointerPosition,
-    });
-  }, [context.state, definition]);
-
-  const handleResizeEnd = useCallback((_event: ResizableSplitResizeEndEvent) => {
-    context.state.endDrag({ splitId });
-  }, [context.state, splitId]);
-
-  const handleContainerResize = useCallback((size: number) => {
-    context.state.syncToContainer({ definition, size });
+  const handleLayoutChange = useCallback((next: SplitLayout, meta: SplitChangeMeta) => {
+    context.state.applySplitLayout({ definition, layout: next, meta });
   }, [context.state, definition]);
 
   return (
-    <ResizableSplitRoot orientation={orientation} onContainerResize={handleContainerResize} onResizeStart={handleResizeStart} onResize={handleResize} onResizeEnd={handleResizeEnd}>
-      <div {...props} className={className}>
-        {resizablePanes}
-      </div>
-    </ResizableSplitRoot>
+    <div {...props} className={className}>
+      <Split orientation={orientation} layout={toSplitLayout(layout)} onLayoutChange={handleLayoutChange} resize="cascade" fitToContainer>
+        {panels.map((panel, index) => (
+          <Split.Pane key={panel.id} {...splitPanes[index]} className={panel.className}>
+            {panel.children}
+          </Split.Pane>
+        ))}
+      </Split>
+    </div>
   );
 }
 
@@ -130,12 +117,13 @@ function collectPanels(children: ReactNode): PanelElementData[] {
   }
 
   return panelNodes.map((panelNode) => {
-    const { id, className, children: panelChildren, defaultSize, minSize, maxSize = Number.POSITIVE_INFINITY, collapsible = false } = panelNode.props;
+    const { id, className, children: panelChildren, defaultSize, minSize, maxSize = Number.POSITIVE_INFINITY, collapsible = false, fill = false } = panelNode.props;
 
     return {
       id,
       className,
       children: panelChildren,
+      fill,
       definition: {
         id,
         defaultSize,
@@ -169,35 +157,21 @@ function createSplitDefinition(splitId: SplitId, orientation: 'horizontal' | 've
 }
 
 function getFillPaneId(panels: PanelElementData[]): PaneId {
+  const declared = panels.filter((panel) => panel.fill);
+  if (declared.length > 1) {
+    throw new Error('PanelRoute.Split accepts at most one fill Segment.');
+  }
+  if (declared.length === 1) {
+    return declared[0].id;
+  }
+
+  // Fallback when no Segment declares fill: the single non-collapsible pane, else the last.
   const fixedPanels = panels.filter((panel) => !panel.definition.collapsible);
   if (fixedPanels.length === 1) {
     return fixedPanels[0].id;
   }
 
   return panels[panels.length - 1].id;
-}
-
-function buildResizablePanes(
-  definition: SplitDefinition,
-  layout: ReturnType<PanelRouteContextValue['meta']['getSplitLayout']>,
-  panels: PanelElementData[],
-): ReactElement[] {
-  return panels.map((panel) => (
-    <ResizableSplitPane
-      key={panel.id}
-      paneId={panel.id}
-      orientation={definition.orientation}
-      visible={layout.panes[panel.id].visible}
-      size={layout.panes[panel.id].size}
-      minSize={panel.definition.minSize}
-      maxSize={panel.definition.maxSize}
-      flexible={definition.fillPaneId === panel.id}
-    >
-      <section className={panel.className}>
-        {panel.children}
-      </section>
-    </ResizableSplitPane>
-  ));
 }
 
 export const SplitPanel = Object.assign(Root, {

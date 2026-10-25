@@ -9,7 +9,12 @@ const dotStyles = cv({
   base: 'relative inline-flex shrink-0 rounded-full',
   variants: {
     tone: {
-      neutral: 'bg-tertiary',
+      // `bg-current` + `text-tertiary`, not `bg-tertiary`: the tertiary SURFACE
+      // token is one step from bg-secondary and identical to bg-tertiary, so a
+      // neutral dot was invisible on both (found in cast's status bar, which is
+      // bg-secondary). The tertiary TEXT token is the quiet-but-readable one in
+      // either theme, which is what an indicator needs.
+      neutral: 'bg-current text-tertiary',
       brand: 'bg-brand',
       success: 'bg-success',
       warning: 'bg-warning',

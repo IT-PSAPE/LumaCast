@@ -77,12 +77,16 @@ describe('rendering', () => {
         <SplitPanel.Segment key="b" id="b" defaultSize={300} minSize={100}>b</SplitPanel.Segment>,
       ],
     );
+    // The package sizes a non-fill pane as `flex: 0 0 <size>px`. It emits no
+    // min/max: grow 0 and shrink 0 make the pane rigid, so a CSS bound it can
+    // never reach is redundant. The bounds are still enforced, in the resize
+    // maths. Cast's old engine set both, which is what this test used to pin.
     const a = pane('a')!;
     expect(a.style.flexBasis).toBe('240px');
-    expect(a.style.minWidth).toBe('120px');
-    expect(a.style.maxWidth).toBe('360px');
+    expect(a.style.flexGrow).toBe('0');
     expect(a.style.flexShrink).toBe('0');
-    expect(pane('b')!.style.maxWidth).toBe('');
+    expect(a.style.minWidth).toBe('');
+    expect(a.style.maxWidth).toBe('');
   });
 
   it('uses height properties for a vertical split', () => {
@@ -93,26 +97,37 @@ describe('rendering', () => {
       ],
       'vertical',
     );
+    // 'b' is the fill pane here, and a fill pane is the one case the package
+    // does bound in CSS: `flex: 1 1 0%` could otherwise shrink past minSize.
     expect(pane('a')!.style.flexBasis).toBe('150px');
-    expect(pane('a')!.style.minHeight).toBe('80px');
+    expect(pane('a')!.style.minHeight).toBe('');
+    expect(pane('b')!.style.minHeight).toBe('100px');
   });
 
   it('hydrated persisted layout drives the rendered sizes, and a hidden pane is not rendered', () => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       version: 3,
       layouts: { s: { panes: {
-        a: { size: 0, visible: false, lastVisibleSize: 250 },
+        a: { size: 250, visible: true, lastVisibleSize: 250 },
         b: { size: 410, visible: true, lastVisibleSize: 410 },
+        c: { size: 0, visible: false, lastVisibleSize: 180 },
       } } },
     }));
     renderSplit(
       [
         <SplitPanel.Segment key="a" id="a" defaultSize={200} minSize={100} collapsible>a</SplitPanel.Segment>,
         <SplitPanel.Segment key="b" id="b" defaultSize={300} minSize={100}>b</SplitPanel.Segment>,
+        <SplitPanel.Segment key="c" id="c" defaultSize={150} minSize={100} collapsible>c</SplitPanel.Segment>,
       ],
     );
-    expect(pane('a')).toBeNull();
-    expect(pane('b')!.style.flexBasis).toBe('410px');
+    // 'c' is collapsed in storage and must not render at all.
+    expect(pane('c')).toBeNull();
+    // 'a' is a non-fill pane, so its persisted 250 shows as the basis — this is
+    // what proves hydration reached the DOM. 'b' is the fill pane and takes the
+    // remainder via `flex: 1 1 0%`, so it carries no basis of its own.
+    expect(pane('a')!.style.flexBasis).toBe('250px');
+    expect(pane('b')!.style.flexGrow).toBe('1');
+    expect(pane('b')!.style.flexBasis).toBe('0%');
   });
 
   it('a version-2 persisted layout is ignored and defaults render', () => {
@@ -129,8 +144,10 @@ describe('rendering', () => {
         <SplitPanel.Segment key="b" id="b" defaultSize={300} minSize={100}>b</SplitPanel.Segment>,
       ],
     );
+    // Defaults, not the discarded v2 sizes: 'a' falls back to its 200 default
+    // rather than the stored 0/hidden, and 'b' fills.
     expect(pane('a')!.style.flexBasis).toBe('200px');
-    expect(pane('b')!.style.flexBasis).toBe('300px');
+    expect(pane('b')!.style.flexGrow).toBe('1');
   });
 
   it('mounting alone (jsdom reports a 0px container) does not write to storage', () => {

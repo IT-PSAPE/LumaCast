@@ -55,7 +55,7 @@ export function ThemeEditorScreenContent() {
                 </Panel.Body>
               </Panel>
             </SplitPanel.Segment>
-            <SplitPanel.Segment id="theme-objects" defaultSize={220} minSize={160}>
+            <SplitPanel.Segment id="theme-objects" fill defaultSize={220} minSize={160}>
               <Panel className="min-h-0">
                 <Panel.Header className="border-t">
                   <Panel.HeaderTitle>Layers</Panel.HeaderTitle>
@@ -68,7 +68,7 @@ export function ThemeEditorScreenContent() {
           </SplitPanel.Panel>
         </LumaCastPanel.Root>
       </SplitPanel.Segment>
-      <SplitPanel.Segment id="editor-center" defaultSize={840} minSize={360}>
+      <SplitPanel.Segment id="editor-center" fill defaultSize={840} minSize={360}>
         <StagePanel />
       </SplitPanel.Segment>
       <SplitPanel.Segment id="editor-right" defaultSize={320} minSize={140} collapsible>

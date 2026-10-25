@@ -71,7 +71,7 @@ export function ItemEditorScreenContent() {
                 </Panel.Body>
               </Panel>
             </SplitPanel.Segment>
-            <SplitPanel.Segment id={"slide-objects"} defaultSize={220} minSize={160}>
+            <SplitPanel.Segment id={"slide-objects"} fill defaultSize={220} minSize={160}>
               <Panel className="min-h-0">
                 <Panel.Header className="border-t">
                   <Panel.HeaderTitle>Layers</Panel.HeaderTitle>
@@ -86,9 +86,9 @@ export function ItemEditorScreenContent() {
       </SplitPanel.Segment>
 
       {/* CENTER PANEL: CANVAS & NOTES PANEL */}
-      <SplitPanel.Segment id="edit-center" defaultSize={840} minSize={360}>
+      <SplitPanel.Segment id="edit-center" fill defaultSize={840} minSize={360}>
         <SplitPanel.Panel splitId="edit-center" orientation="vertical" className="h-full">
-          <SplitPanel.Segment id="edit-middle" defaultSize={620} minSize={240}>
+          <SplitPanel.Segment id="edit-middle" fill defaultSize={620} minSize={240}>
             <StagePanel />
           </SplitPanel.Segment>
           <SplitPanel.Segment id="edit-bottom" defaultSize={220} minSize={120} collapsible>

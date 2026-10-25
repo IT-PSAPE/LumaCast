@@ -359,3 +359,27 @@ describe('syncToContainer', () => {
     expect(result.current.committedLayouts.main.panes.left).toEqual({ size: 0, visible: false, lastVisibleSize: 250 });
   });
 });
+
+// Kept from the removed split-resize characterization suite: behaviours the package Split tests do not cover.
+describe('adapter coverage carried over from split-resize', () => {
+  it('forces a non-collapsible pane visible even if persisted as hidden', () => {
+    seed({ version: STORAGE_VERSION, layouts: { main: { panes: { left: p(200), mid: p(0, false, 400), right: p(200) } } } });
+    const { result } = renderHook(() => useWorkbenchPanelLayout());
+    expect(result.current.getSplitLayout(def).panes.mid).toEqual(p(100, true, 400));
+  });
+
+  it('startDrag skips hidden panes and non-numeric measurements', () => {
+    seed({ version: STORAGE_VERSION, layouts: { main: { panes: { left: p(0, false, 250), mid: p(400), right: p(200) } } } });
+    const { result } = renderHook(() => useWorkbenchPanelLayout());
+    act(() => result.current.startDrag({ definition: def, handleIndex: 1, pointerPosition: 0, paneSizes: { left: 150, mid: Number.NaN, right: 180 } }));
+    expect(result.current.liveLayouts.main.panes).toEqual({ left: p(0, false, 250), mid: p(400), right: p(180) });
+  });
+
+  it('hiding a pane persisted below minSize records lastVisibleSize of at least minSize', () => {
+    seed({ version: STORAGE_VERSION, layouts: { main: { panes: { left: p(50), mid: p(400), right: p(200) } } } });
+    const { result } = renderHook(() => useWorkbenchPanelLayout());
+    act(() => result.current.registerSplit(def));
+    act(() => result.current.togglePanel('main', 'left'));
+    expect(result.current.committedLayouts.main.panes.left).toEqual({ size: 0, visible: false, lastVisibleSize: 100 });
+  });
+});
