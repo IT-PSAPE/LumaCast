@@ -15,11 +15,26 @@
 @source "./**/*.{ts,tsx}";
 
 @theme {
-    /* FONT FAMILY */
-    --font-body: var(--font-inter, "Open Sans"), -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-    --font-display: var(--font-inter, "Open Sans"), -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    /* FONT FAMILY
+       One stack, and it must resolve to an installed face on Windows, macOS
+       and Linux without shipping a font file. `system-ui` is the OS UI face on
+       all three (San Francisco / Segoe UI / the distro default); the rest are
+       fallbacks for older engines. Every other family token aliases this, so
+       there is exactly one place to change it.
+       Previously there were three disagreeing stacks: `--font-family-sans` led
+       with 'Avenir Next' (macOS only, so Windows and Linux already differed),
+       while --font-body/--font-display referenced an undefined `--font-inter`
+       and fell through to "Open Sans", which is installed on none of the three.
+       --font-title/-label/-paragraph were never defined at all, so the rules
+       using them were invalid and silently inherited from body. */
+    --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
     --font-mono: ui-monospace, "Roboto Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    --font-family-sans: 'Avenir Next', 'SF Pro Display', 'Segoe UI', sans-serif;
+    --font-family-sans: var(--font-sans);
+    --font-body: var(--font-sans);
+    --font-display: var(--font-sans);
+    --font-title: var(--font-sans);
+    --font-label: var(--font-sans);
+    --font-paragraph: var(--font-sans);
 
     /* FONT SIZE */
     --text-sm: calc(var(--spacing) * 2.875);

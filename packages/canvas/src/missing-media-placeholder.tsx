@@ -37,7 +37,9 @@ const APPEARANCE: Record<AppearanceMode, MissingMediaAppearance> = {
 };
 
 const LABEL_TEXT = 'MISSING MEDIA';
-const LABEL_FONT_FAMILY = 'Inter, "Open Sans", -apple-system, "Segoe UI", Roboto, Arial, sans-serif';
+// Canvas text cannot read a CSS variable, so this mirrors `--font-sans` in
+// packages/ui/src/theme.css by hand. Keep the two in step.
+const LABEL_FONT_FAMILY = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif';
 
 function readAppearanceMode(): AppearanceMode {
   if (typeof document === 'undefined') return 'dark';
