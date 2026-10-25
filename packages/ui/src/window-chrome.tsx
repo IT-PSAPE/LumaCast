@@ -76,6 +76,14 @@ function End({ className, draggable = false, ...rest }: EdgeSlotProps) {
   return <div {...rest} data-slot="end" className={cn('ml-auto flex h-full shrink-0 items-center gap-2 pl-2', draggable ? DRAG : NO_DRAG, className)} />;
 }
 
+// The app name. One treatment for all six apps, on the token scale rather than
+// an off-scale pixel size. It carries its own `drag` region so it works both in
+// a `draggable` Start and in a plain Start that also holds a button: the bar is
+// `drag`, Start carves out `no-drag`, and this carves `drag` back in.
+function Title({ className, ...rest }: HTMLAttributes<HTMLElement>) {
+  return <strong {...rest} data-slot="title" className={cn('label-xs whitespace-nowrap font-semibold text-secondary', DRAG, className)} />;
+}
+
 interface CenterProps extends HTMLAttributes<HTMLDivElement> {
   /** Make the centre interactive (for example a search field): it becomes `no-drag`. */
   interactive?: boolean;
@@ -91,4 +99,4 @@ function Center({ className, interactive = false, ...rest }: CenterProps) {
   );
 }
 
-export const WindowChrome = Object.assign(Root, { Start, Center, End });
+export const WindowChrome = Object.assign(Root, { Start, Center, End, Title });

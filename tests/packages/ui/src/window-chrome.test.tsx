@@ -58,6 +58,23 @@ describe('WindowChrome', () => {
     expect(screen.getByRole('button', { name: 'Chip' }).parentElement?.className).toContain('ml-auto');
   });
 
+  it('Title stays draggable inside a no-drag Start, so a Start holding a button still drags', () => {
+    render(
+      <WindowChrome platform="win32">
+        <WindowChrome.Start>
+          <button type="button">Menu</button>
+          <WindowChrome.Title>LumaStream</WindowChrome.Title>
+        </WindowChrome.Start>
+      </WindowChrome>,
+    );
+    const start = document.querySelector('[data-slot="start"]')!;
+    const title = document.querySelector('[data-slot="title"]')!;
+    expect(start.className).toContain('[-webkit-app-region:no-drag]');
+    expect(title.className).toContain('[-webkit-app-region:drag]');
+    expect(title.tagName).toBe('STRONG');
+    expect(title.className).toContain('label-xs');
+  });
+
   it('defaults and overrides height', () => {
     const { unmount } = renderBar('win32');
     expect(bar().style.height).toBe(`${TITLE_BAR_HEIGHT}px`);
