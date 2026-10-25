@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Modal } from '@lumacast/ui';
+import { Badge, Modal, ReacstButton, StatusDot, TooltipProvider } from '@lumacast/ui';
 import { Clapperboard, ExternalLink, Radio } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
 import type { SceneTransitionType } from './scene-transition';
@@ -301,6 +301,7 @@ export function App() {
 
 
   return (
+    <TooltipProvider>
     <main className="app-shell">
       <RuntimeVideoBank sources={allSources} runtimes={capture.runtimesSnapshot} elements={videoElements.current} mediaElements={mediaElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} onMediaElement={capture.connectMediaElement} onMediaPlaybackState={capture.onMediaPlaybackState} onBrowserElement={capture.onBrowserElement} />
       {multiviewWindowOpen && <div className="multiview-offscreen" aria-hidden="true">
@@ -318,8 +319,8 @@ export function App() {
         />)}
       </div>}
       <TitleBar platform={platform} menuMode={platform === 'darwin' ? 'native' : 'hamburger'} title="LumaStream" menus={appMenus}>
-        {(streaming.streamStatus.state === 'live' || streaming.streamStatus.state === 'connecting') && <span className="title-bar-chip"><i className="title-bar-chip-dot" />{streaming.streamStatus.state === 'connecting' ? 'CONNECTING' : 'LIVE'} · {streamDuration}</span>}
-        {(recording.recordingStartedAt !== null || recording.recordingFinalizing) && <span className="title-bar-chip"><i className="title-bar-chip-dot" />REC · {recording.recordingFinalizing ? 'Finalizing' : duration}</span>}
+        {(streaming.streamStatus.state === 'live' || streaming.streamStatus.state === 'connecting') && <Badge tone="error" shape="rounded" dot>{streaming.streamStatus.state === 'connecting' ? 'CONNECTING' : 'LIVE'} · {streamDuration}</Badge>}
+        {(recording.recordingStartedAt !== null || recording.recordingFinalizing) && <Badge tone="error" shape="rounded" dot>REC · {recording.recordingFinalizing ? 'Finalizing' : duration}</Badge>}
       </TitleBar>
 
       {settingsOpen && <SettingsDialog
@@ -415,14 +416,14 @@ export function App() {
           />
           <div ref={monitorStageRef} className={`monitor-stage ${project.studioMode ? 'studio' : ''}`}>
             {project.studioMode && <div key="preview-panel" className="stage-panel">
-              <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b><button type="button" className="mini-icon stage-projector-button" aria-label="Open preview projector" title="Open preview projector" onClick={() => multiview.openProjector('preview')}><ExternalLink size={12} /></button></div>
+              <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b><ReacstButton.Icon variant="ghost" size="xs" label="Open preview projector" tooltip="Open preview projector" onClick={() => multiview.openProjector('preview')}><ExternalLink /></ReacstButton.Icon></div>
               <div className="stage-surface" style={previewSize} onPointerDown={(event) => sources.handleStagePointerDown(event, previewScene)} onPointerMove={sources.handleStagePointerMove} onPointerUp={sources.handleStagePointerUp} onPointerCancel={sources.handleStagePointerUp}>
                 <CanvasComposition ref={previewCanvasRef} project={project} scene={previewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
                 {previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
             </div>}
             <div key="program-panel" className="stage-panel program-panel">
-              <div className="stage-label"><span><i className="program-dot" />PROGRAM</span><b>{liveScene.name}</b></div>
+              <div className="stage-label"><span><StatusDot tone="error" />PROGRAM</span><b>{liveScene.name}</b></div>
               <div className="stage-surface" style={previewSize} onPointerDown={!project.studioMode ? (event) => sources.handleStagePointerDown(event, liveScene) : undefined} onPointerMove={!project.studioMode ? sources.handleStagePointerMove : undefined} onPointerUp={!project.studioMode ? sources.handleStagePointerUp : undefined} onPointerCancel={!project.studioMode ? sources.handleStagePointerUp : undefined}>
                 <CanvasComposition ref={programCanvasRef} project={project} scene={liveScene} videoElements={videoElements.current} imageElements={imageElements.current} transition={scenes.transition} onTransitionEnd={scenes.finishTransition} />
                 {!project.studioMode && previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
@@ -435,11 +436,11 @@ export function App() {
                 <label className="transition-inline"><span>Transition</span><select aria-label="Scene transition" value={scenes.transitionType} onChange={(event) => scenes.setTransitionType(event.target.value as SceneTransitionType)}><option value="Fade">Fade</option><option value="Cut">Cut</option><option value="Swipe">Swipe</option><option value="Slide">Slide</option><option value="FadeToColor">Fade to Color</option></select></label>
                 {scenes.transitionType === 'FadeToColor' && <label className="transition-color-inline"><span>Color</span><input aria-label="Transition color" type="color" value={scenes.transitionColor} onChange={(event) => scenes.setTransitionColor(event.target.value)} /></label>}
                 <label className="transition-duration-inline"><input aria-label="Transition duration in milliseconds" type="number" min="50" max="5000" step="50" value={scenes.transitionMs} onChange={(event) => scenes.setTransitionMs(Math.max(50, Math.min(5000, Number(event.target.value) || 50)))} /><span>ms</span></label>
-                {project.studioMode && <button className="take-button toolbar-take" disabled={project.activeSceneId === project.liveSceneId} onClick={scenes.takeScene}>Take <Clapperboard size={13} /></button>}
+                {project.studioMode && <ReacstButton variant="take" size="sm" disabled={project.activeSceneId === project.liveSceneId} onClick={scenes.takeScene}>Take <Clapperboard size={13} /></ReacstButton>}
               </div>
               <div className="monitor-status-tools">
-                <button className={`studio-toggle ${project.studioMode ? 'enabled' : ''}`} aria-pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</button>
-                <button className="icon-button projector-button" aria-label="Open program projector" title="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink size={14} /></button>
+                <ReacstButton pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
+                <ReacstButton.Icon variant="ghost" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
               </div>
             </div>
             <span className="monitor-zoom">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
@@ -623,7 +624,7 @@ export function App() {
       </section>
 
       <footer className="statusbar">
-        <div className="status-left"><span className="status-indicator" /><span>Ready</span>{working && <span className="status-busy">Working…</span>}</div>
+        <div className="status-left"><StatusDot tone="success" /><span>Ready</span>{working && <span className="status-busy">Working…</span>}</div>
         <div className="status-center">{actionError && <span className={actionError.startsWith('Saved ') ? 'notice' : 'error'}>{actionError}</span>}</div>
         <div className="status-right">
           {streaming.streamStatus.state === 'live' && <>
@@ -765,5 +766,6 @@ export function App() {
         <div className="scene-delete-copy">LumaStream{appVersion ? ` ${appVersion}` : ''}</div>
       </Modal>}
     </main>
+    </TooltipProvider>
   );
 }

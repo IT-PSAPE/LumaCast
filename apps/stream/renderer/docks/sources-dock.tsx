@@ -7,9 +7,10 @@ import {
   ChevronDown, ChevronRight, Copy, Eye, EyeOff, FileAudio, FileVideo, Globe, Headphones, Image as ImageIcon,
   Layers2, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Type, Webcam, X,
 } from 'lucide-react';
-import { PointContextMenu, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { EmptyState, PointContextMenu, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { AnchoredPopover } from '../anchored-popover';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
+import { DockTitle } from './dock-title';
 import { SourceProperties, type SourcePropertiesProps } from './source-properties';
 import { fallbackSourceMoveSteps, reorderSourceSiblingsOnDrop } from '../source-order';
 import { primaryShortcutLabel, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
@@ -503,9 +504,9 @@ export function SourcesDock({
             event.stopPropagation();
             setCollapsedGroupIds((current) => collapsed ? current.filter((id) => id !== source.id) : [...current, source.id]);
           }}>{collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}</button> : null}
-          <button className="visibility-toggle" title={source.visible ? 'Hide source' : 'Show source'} onClick={(event) => { event.stopPropagation(); onUpdateSource(source.id, (current) => ({ ...current, visible: !current.visible })); }}>
-            {source.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-          </button>
+          <ReacstButton.Icon variant="ghost" size="xs" label={`Visible ${source.name}`} tooltip={source.visible ? 'Hide source' : 'Show source'} pressed={source.visible} onClick={(event) => { event.stopPropagation(); onUpdateSource(source.id, (current) => ({ ...current, visible: !current.visible })); }}>
+            {source.visible ? <Eye /> : <EyeOff />}
+          </ReacstButton.Icon>
           <span className={`source-type-icon ${source.kind}`}>{sourceIcon(source.kind, source.mediaKind)}</span>
           {renamingId === source.id
             ? <input
@@ -526,7 +527,7 @@ export function SourcesDock({
               />
             : <span className="source-label" onDoubleClick={(event) => { event.stopPropagation(); beginRename(source); }}>{source.name}</span>}
           {meterLevels[source.id] !== undefined && <span className="source-level-mini"><i style={{ width: `${Math.round((meterLevels[source.id] ?? 0) * 100)}%` }} /></span>}
-          <span className="source-actions"><button aria-label={source.locked ? 'Unlock source' : 'Lock source'} title={source.locked ? 'Unlock source' : 'Lock source'} onClick={(event) => { event.stopPropagation(); onToggleSourceLock(source.id); }}>{source.locked ? <Lock size={12} /> : <LockOpen size={12} />}</button></span>
+          <span className="source-actions"><ReacstButton.Icon variant="ghost" size="xs" label={`Lock ${source.name}`} tooltip={source.locked ? 'Unlock source' : 'Lock source'} pressed={!!source.locked} onClick={(event) => { event.stopPropagation(); onToggleSourceLock(source.id); }}>{source.locked ? <Lock /> : <LockOpen />}</ReacstButton.Icon></span>
         </div>
         {isGroup && !collapsed && <div className="source-children">{renderSourceRows(source.children ?? [], depth + 1, source.id)}</div>}
       </div>;
@@ -536,7 +537,14 @@ export function SourcesDock({
   return (
     <section className="dock sources-dock" style={style}>
       {resizer}
-      <div className="dock-title"><span>Sources</span><div className="dock-actions"><button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={15} /></button><button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => { setSourceActionsMenuOpen((open) => !open); if (selectedSource) showSourceProperties(selectedSource.id); }}><MoreHorizontal size={16} /></button><button className="mini-icon" aria-label="Hide Sources" onClick={onHide}><X size={14} /></button></div></div>
+      <DockTitle
+        title="Sources"
+        onHide={onHide}
+        actions={<>
+          <button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={15} /></button>
+          <button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => { setSourceActionsMenuOpen((open) => !open); if (selectedSource) showSourceProperties(selectedSource.id); }}><MoreHorizontal size={16} /></button>
+        </>}
+      />
       <AnchoredPopover open={sourceActionsMenuOpen} anchor={sourceActionsTriggerRef.current} className="source-menu" side="top" alignment="end" role="menu" label="Source actions" onClose={() => setSourceActionsMenuOpen(false)}>
         <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onCopySource}><Copy size={14} />Copy Source</button>
         <button role="menuitem" disabled={!sourceActions.sourceClipboardAvailable || sourceActions.working} onClick={sourceActions.onPasteSource}><Plus size={14} />Paste Source</button>
@@ -553,7 +561,13 @@ export function SourcesDock({
         <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onRemoveSelectedSource}><X size={14} />Delete Source</button>
       </AnchoredPopover>
       <div className="source-list">
-        {sources.length === 0 && <div className="source-empty"><span className="empty-stack"><Layers2 size={18} /></span><b>No sources yet</b><span>Add a source to this scene.</span></div>}
+        {sources.length === 0 && (
+          <EmptyState.Root>
+            <EmptyState.Icon><Layers2 size={18} /></EmptyState.Icon>
+            <EmptyState.Title>No sources yet</EmptyState.Title>
+            <EmptyState.Description>Add a source to this scene.</EmptyState.Description>
+          </EmptyState.Root>
+        )}
         {renderSourceRows(sources)}
       </div>
       <PointContextMenu
@@ -587,7 +601,7 @@ export function SourcesDock({
       </AnchoredPopover>
       {propertiesOpen && selectedSource && <>
         <div className="source-properties-bar">
-          <button className="mini-icon" aria-label="Close properties" title="Close properties" onClick={() => setPropertiesOpenForId(null)}><X size={13} /></button>
+          <ReacstButton.Icon variant="ghost" size="xs" label="Close properties" onClick={() => setPropertiesOpenForId(null)}><X /></ReacstButton.Icon>
         </div>
         <SourceProperties source={selectedSource} {...properties} />
       </>}

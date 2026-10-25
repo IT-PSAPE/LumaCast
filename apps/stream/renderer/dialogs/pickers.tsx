@@ -1,8 +1,14 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { ChevronDown, Headphones } from 'lucide-react';
-import { Modal } from '@lumacast/ui';
+import { Checkbox, Modal, Select } from '@lumacast/ui';
 import type { AudioApplicationOption, CaptureCursorMode, DesktopSourceOption } from '../../shared/desktop-api';
 import type { InputCaptureKind, InputDeviceOption } from '../features/capture/helpers';
+
+const CURSOR_MODE_OPTIONS: ReadonlyArray<{ value: CaptureCursorMode; label: string }> = [
+  { value: 'always', label: 'Always' },
+  { value: 'motion', label: 'Only when moving' },
+  { value: 'never', label: 'Never' },
+];
 
 export interface CapturePickerProps {
   captureOptions: DesktopSourceOption[];
@@ -25,8 +31,8 @@ export function CapturePicker({ captureOptions, captureKind, captureTargetSource
         <div className="capture-grid">{captureOptions.length === 0 ? <div className="capture-empty">No {captureKind === 'window' ? 'windows' : 'displays'} are available.</div> : captureOptions.map((option) => <button key={option.id} className="capture-option" disabled={working} onClick={() => onSelect(option)}>
           <img src={option.thumbnail} alt="" /><span className="capture-option-name">{option.name}</span>
         </button>)}</div>
-        {captureKind !== 'audio' && displayCaptureSystemAudio && <label className="system-audio-option"><input type="checkbox" checked={includeSystemAudio} onChange={(event) => setIncludeSystemAudio(event.target.checked)} /><span>Capture system audio</span><Headphones size={15} /></label>}
-        {captureKind !== 'audio' && <label className="capture-cursor-option"><span>Capture Cursor</span><select aria-label="Capture cursor" value={captureCursorMode} onChange={(event) => setCaptureCursorMode(event.target.value as CaptureCursorMode)}><option value="always">Always</option><option value="motion">Only when moving</option><option value="never">Never</option></select></label>}
+        {captureKind !== 'audio' && displayCaptureSystemAudio && <div className="flex min-h-[38px] items-center gap-2 border-t border-[var(--border-color-secondary)] px-[19px]"><Checkbox label="Capture system audio" checked={includeSystemAudio} onCheckedChange={setIncludeSystemAudio} /><Headphones size={15} className="ml-auto text-tertiary" /></div>}
+        {captureKind !== 'audio' && <div className="capture-cursor-option"><span>Capture Cursor</span><Select label="Capture cursor" labelPlacement="hidden" className="w-[180px]" size="sm" value={captureCursorMode} onValueChange={setCaptureCursorMode} options={CURSOR_MODE_OPTIONS} /></div>}
     </Modal>
   );
 }

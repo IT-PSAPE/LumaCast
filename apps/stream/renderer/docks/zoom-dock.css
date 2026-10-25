@@ -5,16 +5,11 @@
 .zoom-account-label { color: var(--text-color-tertiary); font-size: var(--text-sm); }
 .zoom-account-name { overflow: hidden; color: var(--text-color-primary); font-size: var(--text-label-xs); text-overflow: ellipsis; white-space: nowrap; }
 .zoom-field { display: flex; flex-direction: column; gap: 4px; color: var(--text-color-secondary); font-size: var(--text-label-xs); font-weight: 600; letter-spacing: 0; }
-.zoom-field input, .zoom-field select { width: 100%; padding: 6px 8px; border: 1px solid var(--border-color-secondary); border-radius: 5px; color: var(--text-color-primary); background: var(--background-color-secondary); font: inherit; font-size: var(--text-label-xs); font-weight: 400; }
-.zoom-field input:focus-visible, .zoom-field select:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 1px; }
-.zoom-empty, .zoom-meeting-meta { margin: 0; color: var(--text-color-tertiary); font-size: var(--text-label-xs); line-height: 1.45; }
+.zoom-field input { width: 100%; padding: 6px 8px; border: 1px solid var(--border-color-secondary); border-radius: 5px; color: var(--text-color-primary); background: var(--background-color-secondary); font: inherit; font-size: var(--text-label-xs); font-weight: 400; }
+.zoom-field input:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 1px; }
+.zoom-meeting-meta { margin: 0; color: var(--text-color-tertiary); font-size: var(--text-label-xs); line-height: 1.45; }
 .zoom-create-heading { margin-top: 2px; color: var(--text-color-primary); font-size: var(--text-label-xs); font-weight: 500; }
 .zoom-create-button { align-self: flex-start; }
-.zoom-error { margin: 0; color: var(--color-error); font-size: var(--text-label-xs); }
 .zoom-status-row { display: flex; align-items: center; gap: 6px; padding: 7px 11px; border-top: 1px solid var(--border-color-secondary); color: var(--text-color-secondary); font-size: var(--text-label-xs); }
-.zoom-status-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--text-color-tertiary); }
-.zoom-status-dot.live { background: var(--color-success); box-shadow: none; }
-.zoom-status-dot.connecting { background: var(--color-warning); box-shadow: none; }
-.zoom-status-dot.error { background: var(--color-error); box-shadow: none; }
 .zoom-live-controls { display: grid; gap: 7px; padding: 4px 11px 10px; }
 .zoom-live-controls > span { color: var(--text-color-tertiary); font-size: var(--text-sm); line-height: 1.4; }

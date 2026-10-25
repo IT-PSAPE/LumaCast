@@ -71,48 +71,6 @@
   white-space: nowrap;
 }
 
-.youtube-dock-header-actions {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.youtube-toolbar-button {
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border-radius: 4px;
-  color: var(--text-color-tertiary);
-  background: transparent;
-  cursor: pointer;
-}
-
-.youtube-toolbar-button:hover:not(:disabled) {
-  color: var(--text-color-primary);
-  background: var(--background-color-tertiary);
-}
-
-.youtube-toolbar-button:focus-visible {
-  outline: 2px solid var(--color-brand);
-  outline-offset: 1px;
-}
-
-.youtube-toolbar-button:disabled {
-  cursor: default;
-}
-
-.youtube-toolbar-settings {
-  width: auto;
-  flex: 0 0 auto;
-  padding: 0 4px;
-  font-size: var(--text-label-xs);
-  white-space: nowrap;
-}
-
 .youtube-dock-body {
   min-width: 0;
   min-height: 0;
@@ -162,10 +120,6 @@
   white-space: nowrap;
 }
 
-.youtube-stream-list-heading .youtube-toolbar-button {
-  flex: 0 0 24px;
-}
-
 .youtube-panel-notice {
   min-width: 0;
   min-height: 0;
@@ -180,24 +134,6 @@
   text-align: center;
 }
 
-.youtube-panel-notice__title {
-  max-width: 16rem;
-  color: var(--text-color-secondary);
-  font-size: var(--text-label-xs);
-  font-weight: 500;
-  line-height: 1.1;
-}
-
-.youtube-panel-notice__description {
-  max-width: 16rem;
-  color: var(--text-color-tertiary);
-  font-size: var(--text-label-xs);
-  line-height: 1.4;
-}
-
-.youtube-panel-notice--warning .youtube-panel-notice__title { color: var(--color-warning); }
-.youtube-panel-notice--error .youtube-panel-notice__title { color: var(--color-error); }
-
 .youtube-panel-notice__actions {
   display: flex;
   flex-wrap: wrap;
@@ -205,41 +141,6 @@
   justify-content: center;
   gap: 8px;
   margin-top: 2px;
-}
-
-.youtube-details-error {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--color-error);
-  font-size: var(--text-label-xs);
-  line-height: 1.4;
-}
-
-.youtube-details-error > span {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.youtube-details-retry {
-  flex: 0 0 auto;
-  padding: 2px 4px;
-  border-radius: 3px;
-  color: var(--text-color-primary);
-  background: var(--background-color-tertiary);
-  font-size: var(--text-label-xs);
-  cursor: pointer;
-}
-
-.youtube-details-retry:hover:not(:disabled) { background: color-mix(in srgb, var(--color-brand) 10%, transparent); }
-.youtube-details-retry:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 1px; }
-
-.youtube-runtime-error {
-  margin: 0;
-  color: var(--color-error);
-  font-size: var(--text-label-xs);
-  line-height: 1.4;
 }
 
 .youtube-stream-list {
@@ -346,38 +247,6 @@
   color: var(--color-brand);
 }
 
-.youtube-notice {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 12px;
-  border: 0;
-  border-radius: 4px;
-  color: var(--text-color-secondary);
-  font-size: var(--text-label-xs);
-  line-height: 1.4;
-}
-
-.youtube-notice--warning {
-  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
-}
-
-.youtube-notice--error {
-  background: color-mix(in srgb, var(--color-error) 15%, transparent);
-}
-
-.youtube-notice--info {
-  background: color-mix(in srgb, var(--color-brand) 15%, transparent);
-}
-
-.youtube-notice__label { flex: 0 0 auto; font-weight: 600; }
-.youtube-notice__text { min-width: 0; color: var(--text-color-secondary); }
-.youtube-notice--warning .youtube-notice__label { color: var(--color-warning); }
-.youtube-notice--error .youtube-notice__label { color: var(--color-error); }
-.youtube-notice--info .youtube-notice__label { color: var(--color-brand); }
-
 .youtube-stream-details {
   min-width: 0;
   display: flex;
@@ -436,19 +305,6 @@
   align-items: center;
   gap: 8px;
 }
-
-.youtube-health-dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: var(--text-color-tertiary);
-}
-
-.youtube-health-dot--waiting { background: var(--text-color-tertiary); }
-.youtube-health-dot--excellent { background: var(--color-success); }
-.youtube-health-dot--warning { background: var(--color-warning); }
-.youtube-health-dot--error { background: var(--color-error); }
 
 .youtube-health-label {
   min-width: 0;
@@ -633,7 +489,6 @@
 
 @container youtube-dock (max-width: 220px) {
   .youtube-dock-header { gap: 4px; padding-inline: 8px; }
-  .youtube-dock-header-actions { gap: 2px; }
   .youtube-dock-footer { gap: 4px; padding-inline: 6px; }
 }
 
@@ -663,18 +518,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.youtube-status-dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: var(--text-color-tertiary);
-}
-
-.youtube-status-dot.live { background: var(--color-success); box-shadow: none; }
-.youtube-status-dot.connecting { background: var(--color-warning); box-shadow: none; }
-.youtube-status-dot.error { background: var(--color-error); box-shadow: none; }
 
 .youtube-dock-footer .youtube-status-text {
   min-width: 0;

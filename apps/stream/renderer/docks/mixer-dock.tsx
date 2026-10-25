@@ -1,7 +1,8 @@
-import { useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX, X } from 'lucide-react';
-import { PointContextMenu, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX } from 'lucide-react';
+import { EmptyState, PointContextMenu, ReacstButton, Slider, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { sourceIcon } from '../source-ui';
+import { DockTitle } from './dock-title';
 import { AudioMeter } from '../audio-meter';
 import { METER_FLOOR_DB, linearToDb, updatePeakHold, type PeakHoldState } from '../audio-meter-model';
 import { AdvancedAudioDialog } from '../dialogs/advanced-audio-dialog';
@@ -78,6 +79,8 @@ function buildChannelMenu(source: StreamSource, handlers: {
 
   return entries;
 }
+
+const formatPercent = (value: number): string => `${value}%`;
 
 function readStoredLayout(): MixerLayout {
   try {
@@ -172,39 +175,48 @@ export function MixerDock({
   return (
     <section className="dock mixer-dock" style={style}>
       {resizer}
-      <div className="dock-title">
-        <span>Audio Mixer</span>
-        <div className="dock-actions">
+      <DockTitle
+        title="Audio Mixer"
+        onHide={onHide}
+        actions={(
           <button ref={titleMenuButtonRef} className="mini-icon" aria-label="Audio Mixer options" onClick={openTitleMenu}>
             <MoreHorizontal size={16} />
           </button>
-          <button className="mini-icon" aria-label="Hide Audio Mixer" onClick={onHide}><X size={14} /></button>
-        </div>
-      </div>
+        )}
+      />
       {meteredSources.length === 0
-        ? <div className="mixer-empty"><AudioLines size={20} /><span>Add a microphone or capture source with system audio.</span></div>
+        ? (
+          <EmptyState.Root>
+            <EmptyState.Icon><AudioLines size={20} /></EmptyState.Icon>
+            <EmptyState.Description>Add a microphone or capture source with system audio.</EmptyState.Description>
+          </EmptyState.Root>
+        )
         : <div className={`mixer-strips mixer-strips--${layout}`}>{meteredSources.map((source) => {
           const peak = peakHoldsRef.current[source.id] ?? { peakDb: METER_FLOOR_DB, heldUntil: 0 };
           const levelDb = linearToDb(meterLevels[source.id] ?? 0);
           const volumePercent = Math.round(source.volume * 100);
           const displayedVolume = source.muted ? 0 : volumePercent;
           const dbLabel = source.muted ? 'Muted' : `${Math.round(linearToDb(source.volume) * 10) / 10} dB`;
-          const onVolumeChange = (event: ChangeEvent<HTMLInputElement>) => {
-            updateAudio(source.id, { volume: Number(event.target.value) / 100, muted: false });
+          // Live while dragging; the parent applies and persists each step (no separate commit hook).
+          const onVolumeChange = (value: number) => {
+            updateAudio(source.id, { volume: value / 100, muted: false });
           };
           const muteButton = (
-            <button
-              className="mixer-mute"
-              aria-label={source.muted ? `Unmute ${source.name}` : `Mute ${source.name}`}
+            <ReacstButton.Icon
+              variant="ghost"
+              size="xs"
+              pressed={source.muted}
+              label={`Mute ${source.name}`}
+              tooltip={source.muted ? 'Unmute' : 'Mute'}
               onClick={() => updateAudio(source.id, { volume: source.volume, muted: !source.muted })}
             >
-              {source.muted ? <VolumeX size={13} /> : <Volume2 size={13} />}
-            </button>
+              {source.muted ? <VolumeX /> : <Volume2 />}
+            </ReacstButton.Icon>
           );
           const gearButton = (
-            <button className="mixer-gear" aria-label={`${source.name} options`} onClick={(event) => openChannelMenu(event, source.id)}>
-              <Settings2 size={13} />
-            </button>
+            <ReacstButton.Icon variant="ghost" size="xs" label={`${source.name} options`} onClick={(event) => openChannelMenu(event, source.id)}>
+              <Settings2 />
+            </ReacstButton.Icon>
           );
 
           if (layout === 'vertical') {
@@ -217,15 +229,18 @@ export function MixerDock({
                 <span className="mixer-strip-db">{dbLabel}</span>
                 <div className="mixer-strip-visual">
                   <AudioMeter orientation="vertical" levelDb={levelDb} peakDb={peak.peakDb} ticks label={`${source.name} level`} />
-                  <input
-                    className="mixer-fader mixer-fader--vertical"
-                    aria-label={`${source.name} volume`}
-                    type="range"
-                    min="0"
-                    max="200"
-                    value={displayedVolume}
-                    onChange={onVolumeChange}
-                  />
+                  <div className="mixer-fader mixer-fader--vertical">
+                    <Slider
+                      orientation="vertical"
+                      size="sm"
+                      label={`${source.name} volume`}
+                      labelPlacement="hidden"
+                      min={0}
+                      max={200}
+                      value={displayedVolume}
+                      onValueChange={onVolumeChange}
+                    />
+                  </div>
                 </div>
                 <div className="mixer-strip-controls">{muteButton}{gearButton}</div>
               </div>
@@ -241,16 +256,19 @@ export function MixerDock({
               </div>
               <AudioMeter orientation="horizontal" levelDb={levelDb} peakDb={peak.peakDb} ticks label={`${source.name} level`} />
               <div className="mixer-strip-fader-row">
-                <input
-                  className="mixer-fader"
-                  aria-label={`${source.name} volume`}
-                  type="range"
-                  min="0"
-                  max="200"
-                  value={displayedVolume}
-                  onChange={onVolumeChange}
-                />
-                <span className="mixer-strip-volume">{displayedVolume}%</span>
+                <div className="mixer-fader">
+                  <Slider
+                    size="sm"
+                    label={`${source.name} volume`}
+                    labelPlacement="hidden"
+                    min={0}
+                    max={200}
+                    value={displayedVolume}
+                    onValueChange={onVolumeChange}
+                    showValue
+                    formatValue={formatPercent}
+                  />
+                </div>
                 {muteButton}
                 {gearButton}
               </div>

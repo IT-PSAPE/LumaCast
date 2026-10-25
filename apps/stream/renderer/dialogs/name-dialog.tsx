@@ -1,5 +1,5 @@
-import { useId, useRef, type Dispatch, type SetStateAction } from 'react';
-import { Modal } from '@lumacast/ui';
+import { useId, type Dispatch, type SetStateAction } from 'react';
+import { Banner, Modal, TextField } from '@lumacast/ui';
 
 export type NameDialogMode = 'new' | 'duplicate' | 'rename' | 'delete';
 
@@ -24,7 +24,9 @@ export interface NameDialogProps {
 
 export function NameDialog({ noun, mode, name, setName, nameMaxLength, deleteCopy, error = '', working = false, deleteDisabled = false, onSubmit, onClose }: NameDialogProps) {
   const formId = useId();
-  const nameRef = useRef<HTMLInputElement>(null);
+  const nameId = useId();
+  // TextField does not forward refs; resolve the input by id when Modal asks for initial focus.
+  const nameRef = { get current() { return document.getElementById(nameId); } };
   const deleting = mode === 'delete';
   return (
     <Modal
@@ -44,9 +46,9 @@ export function NameDialog({ noun, mode, name, setName, nameMaxLength, deleteCop
       {deleting
         ? <div className="scene-delete-copy">{deleteCopy}</div>
         : <form id={formId} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-          <div className="stream-form-fields"><label>Name<input ref={nameRef} maxLength={nameMaxLength} value={name} onChange={(event) => setName(event.target.value)} required /></label></div>
+          <div className="stream-form-fields"><TextField id={nameId} label="Name" maxLength={nameMaxLength} value={name} onValueChange={setName} error={error || undefined} /></div>
         </form>}
-      {error && <p className="collection-error" role="alert">{error}</p>}
+      {deleting && error && <Banner tone="error" size="sm" className="mx-4 mb-4 w-auto">{error}</Banner>}
     </Modal>
   );
 }

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { RefreshCw, X } from 'lucide-react';
-import { EmptyState, ReacstButton } from '@lumacast/ui';
+import { Banner, EmptyState, ReacstButton, StatusDot, type StatusTone } from '@lumacast/ui';
 import type {
   StreamAPI,
   StreamRuntimeStatus,
@@ -14,6 +14,7 @@ import type {
 import { validateStreamServiceSettings } from '../../shared/stream-services';
 import { formatElapsed } from '../format-elapsed';
 import { friendlyError } from '../features/shared/friendly-error';
+import { DockTitle } from './dock-title';
 import { YouTubeSettingsDialog, CreateYouTubeStreamDialog, EndYouTubeStreamDialog } from './youtube-dialogs';
 import { YouTubeStreamDetails } from './youtube-stream-details';
 import { YouTubeStreamRow } from './youtube-stream-row';
@@ -21,6 +22,8 @@ import studioWordmark from '../assets/youtube/studio-wordmark.svg';
 import './youtube-dock.css';
 
 const DETAILS_POLL_INTERVAL_MS = 30_000;
+
+const STATUS_TONES: Record<StreamRuntimeStatus['state'], StatusTone> = { live: 'success', connecting: 'warning', error: 'error', stopped: 'neutral' };
 
 export interface YouTubeDockProps {
   api: StreamAPI;
@@ -44,6 +47,7 @@ function makeDefaultScheduledStartTime(savedTime?: string): string {
   return new Date(Date.now() + 5 * 60 * 1000).toISOString();
 }
 
+/** Problems and warnings are in-flow Banners; neutral states (loading, empty, not connected) are EmptyStates. */
 function StreamNotice({
   title,
   description,
@@ -55,13 +59,16 @@ function StreamNotice({
   children?: ReactNode;
   tone?: 'info' | 'warning' | 'error';
 }) {
-  return (
-    <EmptyState.Root className={`youtube-panel-notice youtube-panel-notice--${tone}`} role={tone === 'error' ? 'alert' : 'status'}>
-      <EmptyState.Title className="youtube-panel-notice__title">{title}</EmptyState.Title>
-      {description && <EmptyState.Description className="youtube-panel-notice__description">{description}</EmptyState.Description>}
-      {children && <EmptyState.Action className="youtube-panel-notice__actions">{children}</EmptyState.Action>}
-    </EmptyState.Root>
-  );
+  if (tone === 'info') {
+    return (
+      <EmptyState.Root className="youtube-panel-notice">
+        <EmptyState.Title>{title}</EmptyState.Title>
+        {description && <EmptyState.Description>{description}</EmptyState.Description>}
+        {children && <EmptyState.Action className="youtube-panel-notice__actions">{children}</EmptyState.Action>}
+      </EmptyState.Root>
+    );
+  }
+  return <Banner tone={tone} size="sm" title={title} action={children}>{description}</Banner>;
 }
 
 export function YouTubeDock({
@@ -309,7 +316,7 @@ export function YouTubeDock({
             <div className="youtube-stream-list-heading">
               <strong role="heading" aria-level={2}>Select a stream</strong>
               <ReacstButton variant="default" className="youtube-new-stream-button" onClick={() => { setCreateError(''); setCreateOpen(true); }}>New stream</ReacstButton>
-              <button type="button" className="mini-icon youtube-toolbar-button" aria-label="Close stream chooser" title="Close stream chooser" onClick={() => setChooserOpen(false)}><X size={14} /></button>
+              <ReacstButton.Icon variant="ghost" size="sm" label="Close stream chooser" onClick={() => setChooserOpen(false)}><X /></ReacstButton.Icon>
             </div>
             {broadcastsLoading
               ? <StreamNotice title="Loading streams" description="Fetching your scheduled YouTube streams." />
@@ -332,16 +339,10 @@ export function YouTubeDock({
           </div>
         )}
         {broadcastsError && account && !chooserOpen && (
-          <div className="youtube-details-error" role="status">
-            <span>Streams could not be refreshed: {broadcastsError}</span>
-            <button type="button" className="youtube-details-retry" onClick={() => void refreshStreams()}>Retry</button>
-          </div>
+          <Banner tone="warning" size="sm" action={<ReacstButton size="xs" onClick={() => void refreshStreams()}>Retry</ReacstButton>}>Streams could not be refreshed: {broadcastsError}</Banner>
         )}
         {hasStaleSelection && !selectedBroadcast && !details?.title && !chooserOpen && !outputIsRunning && !youtubeOutputStillActive && (
-          <div className="youtube-details-error" role="status">
-            <span>Selected stream is unavailable.</span>
-            <button type="button" className="youtube-details-retry youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Choose stream</button>
-          </div>
+          <Banner tone="warning" size="sm" action={<ReacstButton size="xs" className="youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Choose stream</ReacstButton>}>Selected stream is unavailable.</Banner>
         )}
         <div hidden={chooserOpen}>
           <YouTubeStreamDetails
@@ -352,12 +353,9 @@ export function YouTubeDock({
           />
         </div>
         {detailsError && account && settings.youtube.broadcastId && (
-          <div className="youtube-details-error" role="alert">
-            <span>Stream details could not be refreshed: {detailsError}</span>
-            <button type="button" className="youtube-details-retry" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</button>
-          </div>
+          <Banner tone="error" size="sm" action={<ReacstButton size="xs" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</ReacstButton>}>Stream details could not be refreshed: {detailsError}</Banner>
         )}
-        {status.state === 'error' && status.message && <p className="youtube-runtime-error" role="alert">{status.message}</p>}
+        {status.state === 'error' && status.message && <Banner tone="error" size="sm">{status.message}</Banner>}
       </>
     );
   } else if (accountLoading) {
@@ -380,7 +378,7 @@ export function YouTubeDock({
         <div className="youtube-stream-list-heading">
           <strong role="heading" aria-level={2}>Select a stream</strong>
           <ReacstButton variant="default" className="youtube-new-stream-button" onClick={() => { setCreateError(''); setCreateOpen(true); }}>New stream</ReacstButton>
-          <button type="button" className="mini-icon youtube-toolbar-button" aria-label="Close stream chooser" title="Close stream chooser" onClick={() => setChooserOpen(false)}><X size={14} /></button>
+          <ReacstButton.Icon variant="ghost" size="sm" label="Close stream chooser" onClick={() => setChooserOpen(false)}><X /></ReacstButton.Icon>
         </div>
         {scheduledBroadcasts.length === 0
           ? <StreamNotice title="No scheduled streams" description="Create a stream to get started." />
@@ -405,7 +403,7 @@ export function YouTubeDock({
           <ReacstButton variant="take" className="youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Choose another</ReacstButton>
         </StreamNotice>
         <YouTubeStreamDetails title={settings.youtube.title} details={details} loading={detailsLoading} />
-        {detailsError && <div className="youtube-details-error" role="alert"><span>Stream details could not be refreshed: {detailsError}</span><button type="button" className="youtube-details-retry" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</button></div>}
+        {detailsError && <Banner tone="error" size="sm" action={<ReacstButton size="xs" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</ReacstButton>}>Stream details could not be refreshed: {detailsError}</Banner>}
       </>
     );
   } else if (selectedBroadcast) {
@@ -421,18 +419,19 @@ export function YouTubeDock({
   return (
     <section className="dock youtube-dock" style={style}>
       {resizer}
-      <div className="dock-title youtube-dock-header">
-        <span>YouTube Live</span>
-        <div className="youtube-dock-header-actions">
-          {account && !outputIsRunning && !youtubeOutputStillActive && <button type="button" className="mini-icon youtube-toolbar-button" aria-label="Refresh streams" title="Refresh streams" disabled={refreshBusy} onClick={() => { void refreshStreams(); setDetailsReload((current) => current + 1); }}>
-            <RefreshCw size={14} />
-          </button>}
-          {!outputIsRunning && !youtubeOutputStillActive && <ReacstButton variant="ghost" className="youtube-toolbar-button youtube-toolbar-settings" onClick={() => { setSettingsError(''); setSettingsOpen(true); }}>Settings</ReacstButton>}
-          <button type="button" className="mini-icon youtube-toolbar-button" aria-label="Hide YouTube Live" title="Hide YouTube Live" onClick={onHide}>
-            <X size={14} />
-          </button>
-        </div>
-      </div>
+      <DockTitle
+        title="YouTube Live"
+        className="youtube-dock-header"
+        onHide={onHide}
+        actions={<>
+          {account && !outputIsRunning && !youtubeOutputStillActive && (
+            <ReacstButton.Icon variant="ghost" size="sm" label="Refresh streams" disabled={refreshBusy} onClick={() => { void refreshStreams(); setDetailsReload((current) => current + 1); }}>
+              <RefreshCw />
+            </ReacstButton.Icon>
+          )}
+          {!outputIsRunning && !youtubeOutputStillActive && <ReacstButton variant="ghost" size="sm" onClick={() => { setSettingsError(''); setSettingsOpen(true); }}>Settings</ReacstButton>}
+        </>}
+      />
       <div className="youtube-studio-brand-row">
         <button type="button" className="youtube-studio-brand-button" aria-label="Open YouTube Studio" title="Open YouTube Studio" onClick={onOpenDashboard}>
           <img src={studioWordmark} alt="YouTube Studio" width={65.0667} height={16} draggable={false} />
@@ -444,17 +443,17 @@ export function YouTubeDock({
       {otherActiveOutputs.length > 0 && <div className="youtube-active-outputs" aria-label="Other active outputs">
         {otherActiveOutputs.map((output) => (
           <div className="youtube-active-output" key={output.id}>
-            <span className={`youtube-status-dot ${output.status.state}`} />
+            <StatusDot tone={STATUS_TONES[output.status.state]} />
             <span className="youtube-active-output-name">{output.id === 'primary' ? 'Output' : output.id}</span>
             <span className="youtube-active-output-status">{output.status.state === 'live' ? 'Live' : output.status.state === 'connecting' ? 'Connecting' : output.status.state === 'error' ? 'Error' : 'Offline'}</span>
-            <button type="button" className="secondary-button" aria-label={`End ${output.id} output`} onClick={() => onStopStreaming(output.id)}>End</button>
+            <ReacstButton size="sm" label={`End ${output.id} output`} onClick={() => onStopStreaming(output.id)}>End</ReacstButton>
           </div>
         ))}
       </div>}
 
       <div className="youtube-dock-footer">
         <div className="youtube-status-row" role="group" aria-label={`YouTube output ${status.state}`}>
-          <span className={`youtube-status-dot ${status.state}`} />
+          <StatusDot tone={STATUS_TONES[status.state]} />
           <span className="youtube-status-text" role="status" aria-live="polite" aria-atomic="true">{status.state === 'live' ? 'Live' : status.state === 'connecting' ? 'Connecting' : status.state === 'error' ? 'Error' : 'Offline'}</span>
           {status.state === 'live' && <span className="youtube-elapsed">{formatElapsed(now - (streamingStartedAt ?? now))}</span>}
           {status.state === 'live' && <span className="youtube-bitrate">{status.bitrateKbps ?? 0} kb/s</span>}

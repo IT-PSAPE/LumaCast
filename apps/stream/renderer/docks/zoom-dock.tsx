@@ -1,8 +1,10 @@
 /// <reference types="vite/client" />
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import { Banner, EmptyState, NumberField, ReacstButton, Select, StatusDot, TextField, type StatusTone } from '@lumacast/ui';
 import type { StreamAPI, StreamRuntimeStatus, StreamServiceSettings, ZoomAccount, ZoomMeeting } from '../../shared/desktop-api';
 import { friendlyError } from '../features/shared/friendly-error';
+import { DockTitle } from './dock-title';
 import './zoom-dock.css';
 
 export interface ZoomDockProps {
@@ -16,6 +18,8 @@ export interface ZoomDockProps {
   style?: CSSProperties;
   resizer?: ReactNode;
 }
+
+const STATUS_TONES: Record<StreamRuntimeStatus['state'], StatusTone> = { live: 'success', connecting: 'warning', error: 'error', stopped: 'neutral' };
 
 function toLocalDateTimeValue(value: string): string {
   const date = new Date(value);
@@ -97,7 +101,7 @@ export function ZoomDock({ api, settings, onChange, status, onGoLive, onStopStre
   return (
     <section className="dock zoom-dock" style={style}>
       {resizer}
-      <div className="dock-title"><span>Zoom Meeting Control Panel</span><button className="mini-icon" aria-label="Hide Zoom Meeting Control Panel" onClick={onHide}><X size={14} /></button></div>
+      <DockTitle title="Zoom Meeting Control Panel" onHide={onHide} />
       <div className="zoom-dock-body">
         <div className="zoom-account-row">
           <div className="zoom-account-copy">
@@ -106,31 +110,31 @@ export function ZoomDock({ api, settings, onChange, status, onGoLive, onStopStre
           </div>
           {account
             ? <>
-              <button type="button" className="mini-icon" aria-label="Refresh scheduled meetings" disabled={loading} onClick={() => void refreshMeetings()}><RefreshCw size={13} /></button>
-              <button type="button" className="secondary-button" disabled={accountBusy} onClick={() => void disconnectAccount()}>Disconnect</button>
+              <ReacstButton.Icon variant="ghost" size="sm" label="Refresh scheduled meetings" disabled={loading} onClick={() => void refreshMeetings()}><RefreshCw /></ReacstButton.Icon>
+              <ReacstButton size="sm" disabled={accountBusy} onClick={() => void disconnectAccount()}>Disconnect</ReacstButton>
             </>
-            : <button type="button" className="secondary-button" disabled={accountBusy} onClick={() => void connectAccount()}>{accountBusy ? 'Connecting…' : 'Connect Zoom'}</button>}
+            : <ReacstButton size="sm" disabled={accountBusy} onClick={() => void connectAccount()}>{accountBusy ? 'Connecting…' : 'Connect Zoom'}</ReacstButton>}
         </div>
 
         {account ? <>
-          <label className="zoom-field">
-            <span>Scheduled meeting</span>
-            <select value={selectedMeetingId} disabled={loading} onChange={(event) => updateZoom({ selectedMeetingId: event.target.value })}>
-              <option value="">Select a meeting</option>
-              {meetings.map((meeting) => (
-                <option key={meeting.id} value={meeting.id}>
-                  {meeting.topic} · {Number.isFinite(Date.parse(meeting.startTime)) ? new Date(meeting.startTime).toLocaleString() : 'Time not set'}
-                </option>
-              ))}
-            </select>
-          </label>
-          {meetings.length === 0 && !loading && <p className="zoom-empty">No upcoming scheduled meetings. Create one below.</p>}
+          <Select
+            size="sm"
+            label="Scheduled meeting"
+            value={selectedMeetingId}
+            disabled={loading}
+            onValueChange={(value) => updateZoom({ selectedMeetingId: value })}
+            options={[
+              { value: '', label: 'Select a meeting' },
+              ...meetings.map((meeting) => ({
+                value: meeting.id,
+                label: `${meeting.topic} · ${Number.isFinite(Date.parse(meeting.startTime)) ? new Date(meeting.startTime).toLocaleString() : 'Time not set'}`,
+              })),
+            ]}
+          />
+          {meetings.length === 0 && !loading && <EmptyState.Root><EmptyState.Description>No upcoming scheduled meetings. Create one below.</EmptyState.Description></EmptyState.Root>}
           {selectedMeeting && <p className="zoom-meeting-meta">{selectedMeeting.durationMinutes} min · {selectedMeeting.status}</p>}
           <div className="zoom-create-heading">Create a meeting</div>
-          <label className="zoom-field">
-            <span>Meeting name</span>
-            <input type="text" maxLength={200} value={settings.zoom.topic} onChange={(event) => updateZoom({ topic: event.target.value })} />
-          </label>
+          <TextField size="sm" label="Meeting name" maxLength={200} commitOn="change" value={settings.zoom.topic} onValueChange={(topic) => updateZoom({ topic })} />
           <label className="zoom-field">
             <span>Scheduled start</span>
             <input type="datetime-local" value={toLocalDateTimeValue(startTime)} onChange={(event) => {
@@ -138,30 +142,26 @@ export function ZoomDock({ api, settings, onChange, status, onGoLive, onStopStre
               updateZoom({ startTime: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '' });
             }} />
           </label>
-          <label className="zoom-field">
-            <span>Duration (minutes)</span>
-            <input type="number" min={1} max={1440} step={1} value={settings.zoom.durationMinutes} onChange={(event) => updateZoom({ durationMinutes: Number(event.target.value) })} />
-          </label>
-          <button
-            type="button"
-            className="secondary-button zoom-create-button"
+          <NumberField size="sm" label="Duration" suffix="min" min={1} max={1440} step={1} precision={0} value={settings.zoom.durationMinutes} onValueChange={(durationMinutes) => updateZoom({ durationMinutes })} />
+          <ReacstButton
+            size="sm"
+            className="zoom-create-button"
             disabled={createBusy || !settings.zoom.topic.trim() || !Number.isFinite(Date.parse(startTime)) || Date.parse(startTime) < Date.now() - 60_000 || !Number.isInteger(settings.zoom.durationMinutes) || settings.zoom.durationMinutes < 1 || settings.zoom.durationMinutes > 1440}
             onClick={() => void createMeeting()}
-          >{createBusy ? 'Creating…' : 'Create meeting'}</button>
-        </> : <p className="zoom-empty">Connect a Zoom account to select scheduled meetings and create new ones here.</p>}
-        {integrationError && <p className="zoom-error" role="alert">{integrationError}</p>}
+          >{createBusy ? 'Creating…' : 'Create meeting'}</ReacstButton>
+        </> : <EmptyState.Root><EmptyState.Description>Connect a Zoom account to select scheduled meetings and create new ones here.</EmptyState.Description></EmptyState.Root>}
+        {integrationError && <Banner tone="error" size="sm">{integrationError}</Banner>}
       </div>
       <div className="zoom-status-row">
-        <span className={`zoom-status-dot ${status.state}`} />
+        <StatusDot tone={STATUS_TONES[status.state]} />
         <span>{status.state === 'live' ? 'Sending to Zoom' : status.state === 'connecting' ? (status.message ?? 'Joining…') : status.state === 'error' ? (status.message ?? 'Meeting error') : 'Not in a meeting'}</span>
       </div>
       {account && selectedMeeting && <div className="zoom-live-controls">
-        <button
-          type="button"
-          className={status.state === 'live' || status.state === 'connecting' ? 'secondary-button' : 'primary-button'}
+        <ReacstButton
+          variant={status.state === 'live' || status.state === 'connecting' ? 'default' : 'primary'}
           disabled={!selectedMeetingId || !account}
           onClick={status.state === 'live' || status.state === 'connecting' ? onStopStreaming : onGoLive}
-        >{status.state === 'live' ? 'Stop Zoom output' : status.state === 'connecting' ? 'Cancel Zoom output' : 'Start Zoom output'}</button>
+        >{status.state === 'live' ? 'Stop Zoom output' : status.state === 'connecting' ? 'Cancel Zoom output' : 'Start Zoom output'}</ReacstButton>
         <span>Production Studio requires the meeting host or co-host.</span>
       </div>
       }

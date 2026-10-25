@@ -1,5 +1,5 @@
-import { useId, useRef, type Dispatch, type SetStateAction } from 'react';
-import { Modal } from '@lumacast/ui';
+import { useId, type Dispatch, type SetStateAction } from 'react';
+import { Modal, TextField } from '@lumacast/ui';
 
 export interface BrowserSourceDialogProps {
   url: string;
@@ -10,7 +10,9 @@ export interface BrowserSourceDialogProps {
 
 export function BrowserSourceDialog({ url, setUrl, onSubmit, onClose }: BrowserSourceDialogProps) {
   const formId = useId();
-  const urlRef = useRef<HTMLInputElement>(null);
+  const urlId = useId();
+  // TextField does not forward refs; resolve the input by id when Modal asks for initial focus.
+  const urlRef = { get current() { return document.getElementById(urlId); } };
   return (
     <Modal
       open
@@ -24,7 +26,7 @@ export function BrowserSourceDialog({ url, setUrl, onSubmit, onClose }: BrowserS
       </>}
     >
       <form id={formId} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
-        <div className="stream-form-fields"><label>URL<input ref={urlRef} autoComplete="off" autoCapitalize="off" spellCheck={false} placeholder="https://example.com" value={url} onChange={(event) => setUrl(event.target.value)} required /></label></div>
+        <div className="stream-form-fields"><TextField id={urlId} label="URL" type="url" placeholder="https://example.com" value={url} onValueChange={setUrl} /></div>
       </form>
     </Modal>
   );

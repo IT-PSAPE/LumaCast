@@ -1,6 +1,6 @@
-import { useId, useState } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
-import { Modal } from '@lumacast/ui';
+import { useId } from 'react';
+import { Banner, Checkbox, Modal, NumberField, Select, Slider, TextField } from '@lumacast/ui';
+import { StreamKeyField } from './stream-key-field';
 import { hardwareEncodingLabelForPlatform, type StreamPlatform } from '../../shared/platform-capabilities';
 import { getStreamService, STREAM_SERVICES, validateStreamServiceSettings, type StreamServiceId } from '../../shared/stream-services';
 import {
@@ -28,13 +28,16 @@ export interface StreamDialogProps {
 }
 
 export function StreamDialog({ project, setProjectValue, platform, working, settings, onChangeSettings, videoEncoderOptions, systemVideoEncoder, onSubmit, onClose }: StreamDialogProps) {
-  const [keyVisible, setKeyVisible] = useState(false);
   const formId = useId();
   const preset = getStreamService(settings.service);
   const validationMessage = validateStreamServiceSettings(settings);
 
   function update(patch: Partial<StreamServiceSettings>): void {
     onChangeSettings({ ...settings, ...patch });
+  }
+
+  function updateOutput(patch: Partial<StreamProject['output']>): void {
+    setProjectValue((current) => ({ ...current, output: { ...current.output, ...patch } }));
   }
 
   function updateService(service: StreamServiceId): void {
@@ -57,41 +60,35 @@ export function StreamDialog({ project, setProjectValue, platform, working, sett
     >
         <form id={formId} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
           <div className="stream-form-fields">
-            <label>Service<select value={settings.service} onChange={(event) => updateService(event.target.value as StreamServiceId)}>{STREAM_SERVICES.map((service) => <option key={service.id} value={service.id}>{service.label}</option>)}</select></label>
-            {preset.servers.length > 0 && <label>Server<select value={settings.serverId} onChange={(event) => update({ serverId: event.target.value })}>{preset.servers.map((server) => <option key={server.id} value={server.id}>{server.label}</option>)}</select></label>}
-            <label>{preset.keyLabel}
-              <div className="stream-key-row">
-                <input
-                  type={keyVisible ? 'text' : 'password'}
-                  autoComplete="off"
-                  autoCapitalize="off"
-                  spellCheck={false}
-                  maxLength={512}
-                  value={settings.streamKey}
-                  onChange={(event) => update({ streamKey: event.target.value })}
-                />
-                <button type="button" className="mini-icon" aria-label={keyVisible ? 'Hide stream key' : 'Show stream key'} onClick={() => setKeyVisible((visible) => !visible)}>{keyVisible ? <EyeOff size={14} /> : <Eye size={14} />}</button>
-              </div>
-            </label>
-            {settings.service === 'custom' && <label>Server URL<input autoComplete="off" autoCapitalize="off" spellCheck={false} placeholder="RTMP(S) URL, srt://host:port, or rist://host:port" value={settings.customServer} onChange={(event) => update({ customServer: event.target.value })} required /></label>}
-            {validationMessage && <span className="stream-field-error" role="alert">{validationMessage}</span>}
+            <Select label="Service" value={settings.service} onValueChange={updateService} options={STREAM_SERVICES.map((service) => ({ value: service.id, label: service.label }))} />
+            {preset.servers.length > 0 && <Select label="Server" value={settings.serverId} onValueChange={(serverId) => update({ serverId })} options={preset.servers.map((server) => ({ value: server.id, label: server.label }))} />}
+            <StreamKeyField label={preset.keyLabel} value={settings.streamKey} onValueChange={(streamKey) => update({ streamKey })} />
+            {settings.service === 'custom' && <TextField label="Server URL" placeholder="RTMP(S) URL, srt://host:port, or rist://host:port" value={settings.customServer} onValueChange={(customServer) => update({ customServer })} />}
+            {validationMessage && <Banner tone="error" size="sm">{validationMessage}</Banner>}
             <div className="stream-bitrate-grid">
-              <label>Video bitrate<input type="number" min="250" max="50000" step="250" disabled={project.output.streamRateControl === 'quality'} value={project.output.streamVideoBitrateKbps} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamVideoBitrateKbps: Math.max(250, Math.min(50000, Math.round(Number(event.target.value) || 250))) } }))} required /><span>kb/s</span></label>
-              <label>Audio bitrate<input type="number" min="32" max="320" step="16" value={project.output.streamAudioBitrateKbps} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamAudioBitrateKbps: Math.max(32, Math.min(320, Math.round(Number(event.target.value) || 32))) } }))} required /><span>kb/s</span></label>
+              <NumberField label="Video bitrate" suffix="kb/s" min={250} max={50000} step={250} disabled={project.output.streamRateControl === 'quality'} value={project.output.streamVideoBitrateKbps} onValueChange={(value) => updateOutput({ streamVideoBitrateKbps: Math.round(value) })} />
+              <NumberField label="Audio bitrate" suffix="kb/s" min={32} max={320} step={16} value={project.output.streamAudioBitrateKbps} onValueChange={(value) => updateOutput({ streamAudioBitrateKbps: Math.round(value) })} />
             </div>
-            <label>Audio track<select value={project.output.streamAudioTrack} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamAudioTrack: Number(event.target.value) as AudioTrack } }))}>{AUDIO_TRACKS.map((track) => <option key={track} value={track}>Track {track}</option>)}</select></label>
-            <label>Video encoder<select value={project.output.streamVideoEncoder} onChange={(event) => {
-              const encoder = event.target.value as VideoEncoderFamily;
-              setProjectValue((current) => ({ ...current, output: {
+            <Select label="Audio track" value={String(project.output.streamAudioTrack)} onValueChange={(value) => updateOutput({ streamAudioTrack: Number(value) as AudioTrack })} options={AUDIO_TRACKS.map((track) => ({ value: String(track), label: `Track ${track}` }))} />
+            <Select
+              label="Video encoder"
+              value={project.output.streamVideoEncoder}
+              onValueChange={(encoder) => setProjectValue((current) => ({ ...current, output: {
                 ...current.output,
                 streamVideoEncoder: encoder,
                 streamRateControl: normalizeVideoRateControl(encoder, current.output.streamRateControl),
-              } }));
-            }}>{videoEncoderOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label>Rate control<select value={project.output.streamRateControl} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamRateControl: event.target.value as StreamProject['output']['streamRateControl'] } }))}>{VIDEO_RATE_CONTROL_OPTIONS.filter((option) => getVideoEncoderRateControlModes(project.output.streamVideoEncoder).includes(option.value)).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-            <label>Encoder quality<input className="encoder-range" type="range" min="0" max="100" disabled={project.output.streamVideoEncoder === 'libopenh264'} value={project.output.streamEncoderQuality} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamEncoderQuality: Number(event.target.value) } }))} /><span className="range-value">{project.output.streamEncoderQuality}</span></label>
-            <label>Keyframe interval (seconds)<input type="number" min="1" max="10" step="1" value={project.output.streamKeyframeIntervalSeconds} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamKeyframeIntervalSeconds: Math.max(1, Math.min(10, Math.round(Number(event.target.value) || 1))) } }))} /></label>
-            <label className="encoder-toggle"><input type="checkbox" checked={project.output.streamHardwareEncoding} disabled={project.output.streamVideoEncoder !== systemVideoEncoder} onChange={(event) => setProjectValue((current) => ({ ...current, output: { ...current.output, streamHardwareEncoding: event.target.checked } }))} /><span>{hardwareEncodingLabelForPlatform(platform)}</span></label>
+              } }))}
+              options={videoEncoderOptions}
+            />
+            <Select
+              label="Rate control"
+              value={project.output.streamRateControl}
+              onValueChange={(streamRateControl) => updateOutput({ streamRateControl })}
+              options={VIDEO_RATE_CONTROL_OPTIONS.filter((option) => getVideoEncoderRateControlModes(project.output.streamVideoEncoder).includes(option.value))}
+            />
+            <Slider label="Encoder quality" showValue min={0} max={100} disabled={project.output.streamVideoEncoder === 'libopenh264'} value={project.output.streamEncoderQuality} onValueChange={(streamEncoderQuality) => updateOutput({ streamEncoderQuality })} />
+            <NumberField label="Keyframe interval" suffix="s" min={1} max={10} step={1} value={project.output.streamKeyframeIntervalSeconds} onValueChange={(value) => updateOutput({ streamKeyframeIntervalSeconds: Math.round(value) })} />
+            <Checkbox label={hardwareEncodingLabelForPlatform(platform)} checked={project.output.streamHardwareEncoding} disabled={project.output.streamVideoEncoder !== systemVideoEncoder} onCheckedChange={(streamHardwareEncoding) => updateOutput({ streamHardwareEncoding })} />
           </div>
         </form>
     </Modal>

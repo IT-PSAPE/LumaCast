@@ -53,3 +53,12 @@
 .source-rename-input:focus-visible {
   outline: none;
 }
+
+/* Package fields inside the properties panel: spacing between stacked controls
+   (zero specificity so legacy `.device-property` etc. margins still win), a
+   shared inline-label column so sliders and selects line up, and the volume
+   slider filling the row beside its mute button. */
+:where(.source-properties) > :not(.property-heading),
+:where(.filter-details) > :not(summary) { margin-top: 5px; }
+.source-properties label[for] { min-width: 62px; }
+.volume-property > :first-child { min-width: 0; flex: 1; }

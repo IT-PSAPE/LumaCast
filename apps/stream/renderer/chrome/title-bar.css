@@ -102,28 +102,3 @@
   margin-left: auto;
   padding-left: 8px;
 }
-
-/* LIVE/REC status chips, shown while streaming/recording (see App.tsx). */
-.title-bar-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--color-error) 15%, transparent);
-  color: var(--color-error);
-  font-size: var(--text-label-xs);
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-}
-
-.title-bar-chip-dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 6px;
-  border-radius: 50%;
-  background: var(--color-error);
-  box-shadow: none;
-}

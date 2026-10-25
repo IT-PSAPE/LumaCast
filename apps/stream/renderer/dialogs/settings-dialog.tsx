@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
-import { Checkbox, EmptyState, Modal, SegmentedControl, Select, Switch } from '@lumacast/ui';
+import { Banner, Checkbox, Field, Modal, NumberField, ReacstButton, SegmentedControl, Select, Slider, Switch, Tabs, TextField, Textarea } from '@lumacast/ui';
 import type { AudioOutputDeviceOption } from '../audio-output-devices';
 import { SCALED_OUTPUT_LIMITS } from '../output-scaling';
 import { flattenSourceNodes } from '../../shared/source-tree';
@@ -35,6 +34,7 @@ import {
   type SettingsDraftErrors,
   type SettingsPage,
 } from './settings-draft';
+import { StreamKeyField } from './stream-key-field';
 import './settings-dialog.css';
 
 interface AudioSettingsBundle {
@@ -125,10 +125,6 @@ const FILENAME_TOKENS: ReadonlyArray<{ token: string; meaning: string }> = [
 /** Sentinel so the Select never has to represent "system default" as an empty string. */
 const DEFAULT_MONITORING_DEVICE = '__default__';
 
-function FieldError({ message }: { message?: string }) {
-  return message ? <p className="hotkey-error" role="alert">{message}</p> : null;
-}
-
 export function SettingsDialog({
   settingsOpenerRef,
   onClose,
@@ -155,7 +151,6 @@ export function SettingsDialog({
   const [baseline, setBaseline] = useState<SettingsDraft>(() => createSettingsDraft(project.output, audio.audioSettings, recording.recordingPreferences, replayBufferDurationSeconds, streamServiceSettings));
   const [draft, setDraft] = useState<SettingsDraft>(() => createSettingsDraft(project.output, audio.audioSettings, recording.recordingPreferences, replayBufferDurationSeconds, streamServiceSettings));
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
-  const [keyVisible, setKeyVisible] = useState(false);
 
   useEffect(() => {
     lastSettingsPage = page;
@@ -255,94 +250,83 @@ export function SettingsDialog({
     setConfirmingDiscard(false);
   };
 
-  const handleNavKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault();
-    const nextIndex = event.key === 'ArrowDown' ? (index + 1) % SETTINGS_PAGES.length : (index - 1 + SETTINGS_PAGES.length) % SETTINGS_PAGES.length;
-    const next = SETTINGS_PAGES[nextIndex]!;
-    selectPage(next.id);
-    requestAnimationFrame(() => document.getElementById(`settings-tab-${next.id}`)?.focus());
+  const renderPage = (id: SettingsPage) => {
+    switch (id) {
+      case 'general':
+        return (
+          <GeneralPage
+            seconds={draft.replayBufferDurationSeconds}
+            disabled={replayBufferStartedAt !== null}
+            onChange={(seconds) => setDraft((current) => ({ ...current, replayBufferDurationSeconds: seconds }))}
+          />
+        );
+      case 'stream':
+        return draft.streamServiceSettings ? (
+          <StreamPage
+            settings={draft.streamServiceSettings}
+            onChangeService={changeStreamService}
+            onUpdate={updateStreamService}
+            onUpdateYoutube={updateYoutubeDraft}
+          />
+        ) : (
+          <Banner tone="warning" size="sm">Stream service settings unavailable</Banner>
+        );
+      case 'output':
+        return (
+          <OutputPage
+            output={draft.output}
+            errors={errors}
+            updateOutput={updateOutput}
+            recording={recording}
+            updateRecordingPreferences={updateRecordingPreferences}
+            filenameFormat={draft.recordingPreferences.filenameFormat}
+            recordingLocked={recordingStartedAt !== null || recordingFinalizing}
+            replayBufferStartedAt={replayBufferStartedAt}
+            videoEncoderOptions={videoEncoderOptions}
+            systemVideoEncoder={systemVideoEncoder}
+            platform={platformValue}
+          />
+        );
+      case 'audio':
+        return <AudioPage audio={audio} monitoringDeviceId={draft.audioSettings.monitoringDeviceId} updateAudio={updateAudioSettings} />;
+      case 'video':
+        return <VideoPage output={draft.output} errors={errors} updateOutput={updateOutput} />;
+      case 'hotkeys':
+        return <HotkeysPage project={project} hotkeys={hotkeys} />;
+      case 'advanced':
+        return <AdvancedPage onRemuxRecording={onRemuxRecording} />;
+    }
   };
 
   return (
-    <Modal open onClose={requestClose} title="Settings">
-      <div className="settings-dialog-root">
-        <nav className="settings-nav" aria-label="Settings sections">
-          {SETTINGS_PAGES.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              id={`settings-tab-${item.id}`}
-              aria-selected={page === item.id}
-              aria-controls={`settings-panel-${item.id}`}
-              tabIndex={page === item.id ? 0 : -1}
-              className={`settings-nav-item${page === item.id ? ' active' : ''}`}
-              onClick={() => selectPage(item.id)}
-              onKeyDown={(event) => handleNavKeyDown(event, index)}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="settings-content" id={`settings-panel-${page}`} role="tabpanel" aria-labelledby={`settings-tab-${page}`}>
-          {page === 'general' && (
-            <GeneralPage
-              seconds={draft.replayBufferDurationSeconds}
-              disabled={replayBufferStartedAt !== null}
-              onChange={(seconds) => setDraft((current) => ({ ...current, replayBufferDurationSeconds: seconds }))}
-            />
-          )}
-          {page === 'stream' && (draft.streamServiceSettings ? (
-            <StreamPage
-              settings={draft.streamServiceSettings}
-              onChangeService={changeStreamService}
-              onUpdate={updateStreamService}
-              onUpdateYoutube={updateYoutubeDraft}
-              keyVisible={keyVisible}
-              onToggleKeyVisible={() => setKeyVisible((value) => !value)}
-            />
-          ) : (
-            <EmptyState.Root>
-              <EmptyState.Title>Stream service settings unavailable</EmptyState.Title>
-            </EmptyState.Root>
-          ))}
-          {page === 'output' && (
-            <OutputPage
-              output={draft.output}
-              errors={errors}
-              updateOutput={updateOutput}
-              recording={recording}
-              updateRecordingPreferences={updateRecordingPreferences}
-              filenameFormat={draft.recordingPreferences.filenameFormat}
-              recordingLocked={recordingStartedAt !== null || recordingFinalizing}
-              replayBufferStartedAt={replayBufferStartedAt}
-              videoEncoderOptions={videoEncoderOptions}
-              systemVideoEncoder={systemVideoEncoder}
-              platform={platformValue}
-            />
-          )}
-          {page === 'audio' && <AudioPage audio={audio} monitoringDeviceId={draft.audioSettings.monitoringDeviceId} updateAudio={updateAudioSettings} />}
-          {page === 'video' && <VideoPage output={draft.output} errors={errors} updateOutput={updateOutput} />}
-          {page === 'hotkeys' && <HotkeysPage project={project} hotkeys={hotkeys} />}
-          {page === 'advanced' && <AdvancedPage onRemuxRecording={onRemuxRecording} />}
-        </div>
-      </div>
-      <div className="modal-footer">
-        {confirmingDiscard ? (
-          <>
-            <span>Discard unsaved changes?</span>
-            <button type="button" className="secondary-button" onClick={keepEditing}>Keep Editing</button>
-            <button type="button" className="secondary-button" onClick={confirmDiscard}>Discard</button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="secondary-button" onClick={requestClose}>Cancel</button>
-            <button type="button" className="secondary-button" disabled={!dirty || hasErrors} onClick={applyChanges}>Apply</button>
-            <button type="button" className="primary-button" disabled={hasErrors} onClick={handleOk}>OK</button>
-          </>
-        )}
-      </div>
+    <Modal
+      open
+      onClose={requestClose}
+      title="Settings"
+      footer={confirmingDiscard ? (
+        <>
+          <span className="mr-auto label-xs text-tertiary">Discard unsaved changes?</span>
+          <button type="button" className="secondary-button" onClick={keepEditing}>Keep Editing</button>
+          <button type="button" className="secondary-button" onClick={confirmDiscard}>Discard</button>
+        </>
+      ) : (
+        <>
+          <button type="button" className="secondary-button" onClick={requestClose}>Cancel</button>
+          <button type="button" className="secondary-button" disabled={!dirty || hasErrors} onClick={applyChanges}>Apply</button>
+          <button type="button" className="primary-button" disabled={hasErrors} onClick={handleOk}>OK</button>
+        </>
+      )}
+    >
+      <Tabs value={page} onValueChange={(next) => selectPage(next as SettingsPage)} orientation="vertical" variant="pill" className="settings-dialog-root">
+        <Tabs.List className="settings-nav">
+          {SETTINGS_PAGES.map((item) => <Tabs.Tab key={item.id} value={item.id}>{item.label}</Tabs.Tab>)}
+        </Tabs.List>
+        {SETTINGS_PAGES.map((item) => (
+          <Tabs.Panel key={item.id} value={item.id} className="settings-content">
+            {renderPage(item.id)}
+          </Tabs.Panel>
+        ))}
+      </Tabs>
     </Modal>
   );
 }
@@ -351,15 +335,13 @@ function GeneralPage({ seconds, disabled, onChange }: { seconds: number; disable
   return (
     <div className="settings-page">
       <div className="popover-heading"><strong>Replay Buffer</strong></div>
-      <label>Replay buffer duration
-        <Select
-          label="Replay buffer duration"
-          value={String(seconds)}
-          disabled={disabled}
-          onValueChange={(value) => onChange(Number(value))}
-          options={REPLAY_BUFFER_OPTIONS.map((value) => ({ value: String(value), label: `${value} seconds` }))}
-        />
-      </label>
+      <Select
+        label="Replay buffer duration"
+        value={String(seconds)}
+        disabled={disabled}
+        onValueChange={(value) => onChange(Number(value))}
+        options={REPLAY_BUFFER_OPTIONS.map((value) => ({ value: String(value), label: `${value} seconds` }))}
+      />
     </div>
   );
 }
@@ -369,78 +351,41 @@ function StreamPage({
   onChangeService,
   onUpdate,
   onUpdateYoutube,
-  keyVisible,
-  onToggleKeyVisible,
 }: {
   settings: StreamServiceSettings;
   onChangeService: (service: StreamServiceId) => void;
   onUpdate: (patch: Partial<StreamServiceSettings>) => void;
   onUpdateYoutube: (patch: Partial<YouTubeBroadcastDraft>) => void;
-  keyVisible: boolean;
-  onToggleKeyVisible: () => void;
 }) {
   const preset = getStreamService(settings.service);
   const validationMessage = validateStreamServiceSettings(settings);
   return (
     <div className="settings-page">
       <div className="popover-heading"><strong>Service</strong></div>
-      <label>Service
-        <Select
-          label="Stream service"
-          value={settings.service}
-          onValueChange={onChangeService}
-          options={STREAM_SERVICES.map((service) => ({ value: service.id, label: service.label }))}
-        />
-      </label>
+      <Select
+        label="Service"
+        value={settings.service}
+        onValueChange={onChangeService}
+        options={STREAM_SERVICES.map((service) => ({ value: service.id, label: service.label }))}
+      />
       {settings.service === 'custom' ? (
-        <label>Server URL
-          <input
-            type="text"
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            placeholder="RTMP(S), srt://, or rist:// URL"
-            value={settings.customServer}
-            onChange={(event) => onUpdate({ customServer: event.target.value })}
-          />
-        </label>
+        <TextField label="Server URL" placeholder="RTMP(S), srt://, or rist:// URL" value={settings.customServer} onValueChange={(customServer) => onUpdate({ customServer })} />
       ) : (
-        <label>Server
-          <Select
-            label="Ingest server"
-            value={settings.serverId}
-            onValueChange={(value) => onUpdate({ serverId: value })}
-            options={preset.servers.map((server) => ({ value: server.id, label: server.label }))}
-          />
-        </label>
+        <Select
+          label="Server"
+          value={settings.serverId}
+          onValueChange={(serverId) => onUpdate({ serverId })}
+          options={preset.servers.map((server) => ({ value: server.id, label: server.label }))}
+        />
       )}
-      <label>{preset.keyLabel}
-        <div className="settings-password-row">
-          <input
-            type={keyVisible ? 'text' : 'password'}
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            maxLength={512}
-            value={settings.streamKey}
-            onChange={(event) => onUpdate({ streamKey: event.target.value })}
-          />
-          <button type="button" className="mini-icon" aria-label={keyVisible ? 'Hide stream key' : 'Show stream key'} onClick={onToggleKeyVisible}>
-            {keyVisible ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
-        </div>
-      </label>
-      {validationMessage && <p className="hotkey-error" role="status">{validationMessage}</p>}
+      <StreamKeyField label={preset.keyLabel} value={settings.streamKey} onValueChange={(streamKey) => onUpdate({ streamKey })} />
+      {validationMessage && <Banner tone="warning" size="sm">{validationMessage}</Banner>}
       {settings.service === 'youtube' && (
         <>
           <div className="popover-heading video-heading"><strong>Broadcast</strong></div>
-          <label>Title
-            <input type="text" maxLength={100} value={settings.youtube.title} onChange={(event) => onUpdateYoutube({ title: event.target.value })} />
-          </label>
-          <label>Description
-            <textarea rows={3} maxLength={5000} value={settings.youtube.description} onChange={(event) => onUpdateYoutube({ description: event.target.value })} />
-          </label>
-          <label>Privacy
+          <TextField label="Title" maxLength={100} value={settings.youtube.title} onValueChange={(title) => onUpdateYoutube({ title })} />
+          <Textarea label="Description" rows={3} maxLength={5000} value={settings.youtube.description} onValueChange={(description) => onUpdateYoutube({ description })} />
+          <Field label="Privacy">
             <SegmentedControl
               label="Broadcast privacy"
               value={settings.youtube.privacy}
@@ -453,7 +398,7 @@ function StreamPage({
               <SegmentedControl.Label value="unlisted">Unlisted</SegmentedControl.Label>
               <SegmentedControl.Label value="private">Private</SegmentedControl.Label>
             </SegmentedControl>
-          </label>
+          </Field>
         </>
       )}
     </div>
@@ -486,70 +431,55 @@ function OutputPage({
   platform: StreamPlatform;
 }) {
   const hardwareLabel = hardwareEncodingLabelForPlatform(platform);
+  const mp4Locked = output.recordingContainer !== 'mp4' || recordingLocked;
   return (
     <div className="settings-page">
       <div className="popover-heading"><strong>Streaming</strong></div>
       <div className="settings-field-grid">
-        <label>Video bitrate (kb/s)
-          <input type="number" min={250} max={50000} step={250} disabled={output.streamRateControl === 'quality'} value={output.streamVideoBitrateKbps} onChange={(event) => updateOutput({ streamVideoBitrateKbps: Number(event.target.value) })} />
-          <FieldError message={errors.streamVideoBitrateKbps} />
-        </label>
-        <label>Audio bitrate (kb/s)
-          <input type="number" min={32} max={320} step={16} value={output.streamAudioBitrateKbps} onChange={(event) => updateOutput({ streamAudioBitrateKbps: Number(event.target.value) })} />
-          <FieldError message={errors.streamAudioBitrateKbps} />
-        </label>
+        <NumberField label="Video bitrate" suffix="kb/s" min={250} max={50000} step={250} disabled={output.streamRateControl === 'quality'} value={output.streamVideoBitrateKbps} onValueChange={(streamVideoBitrateKbps) => updateOutput({ streamVideoBitrateKbps })} error={errors.streamVideoBitrateKbps} />
+        <NumberField label="Audio bitrate" suffix="kb/s" min={32} max={320} step={16} value={output.streamAudioBitrateKbps} onValueChange={(streamAudioBitrateKbps) => updateOutput({ streamAudioBitrateKbps })} error={errors.streamAudioBitrateKbps} />
       </div>
-      <label>Audio track
-        <Select
-          label="Streaming audio track"
-          value={String(output.streamAudioTrack)}
-          onValueChange={(value) => updateOutput({ streamAudioTrack: Number(value) as AudioTrack })}
-          options={AUDIO_TRACKS.map((track) => ({ value: String(track), label: `Track ${track}` }))}
-        />
-      </label>
-      <label>Video encoder
-        <Select
-          label="Streaming video encoder"
-          value={output.streamVideoEncoder}
-          onValueChange={(value) => updateOutput({ streamVideoEncoder: value, streamRateControl: normalizeVideoRateControl(value, output.streamRateControl) })}
-          options={videoEncoderOptions}
-        />
-        <FieldError message={errors.streamVideoEncoder} />
-      </label>
-      <label>Rate control
-        <Select
-          label="Streaming rate control"
-          value={output.streamRateControl}
-          onValueChange={(value) => updateOutput({ streamRateControl: value })}
-          options={VIDEO_RATE_CONTROL_OPTIONS.filter((option) => getVideoEncoderRateControlModes(output.streamVideoEncoder).includes(option.value))}
-        />
-      </label>
-      <label>Encoder quality
-        <input type="range" min={0} max={100} disabled={output.streamVideoEncoder === 'libopenh264'} value={output.streamEncoderQuality} onChange={(event) => updateOutput({ streamEncoderQuality: Number(event.target.value) })} />
-        <span className="range-value">{output.streamEncoderQuality}</span>
-      </label>
-      <label>Keyframe interval (seconds)
-        <input type="number" min={1} max={10} step={1} value={output.streamKeyframeIntervalSeconds} onChange={(event) => updateOutput({ streamKeyframeIntervalSeconds: Number(event.target.value) })} />
-        <FieldError message={errors.streamKeyframeIntervalSeconds} />
-      </label>
+      <Select
+        label="Audio track"
+        value={String(output.streamAudioTrack)}
+        onValueChange={(value) => updateOutput({ streamAudioTrack: Number(value) as AudioTrack })}
+        options={AUDIO_TRACKS.map((track) => ({ value: String(track), label: `Track ${track}` }))}
+      />
+      <Select
+        label="Video encoder"
+        value={output.streamVideoEncoder}
+        onValueChange={(value) => updateOutput({ streamVideoEncoder: value, streamRateControl: normalizeVideoRateControl(value, output.streamRateControl) })}
+        options={videoEncoderOptions}
+        error={errors.streamVideoEncoder}
+      />
+      <Select
+        label="Rate control"
+        value={output.streamRateControl}
+        onValueChange={(value) => updateOutput({ streamRateControl: value })}
+        options={VIDEO_RATE_CONTROL_OPTIONS.filter((option) => getVideoEncoderRateControlModes(output.streamVideoEncoder).includes(option.value))}
+      />
+      <Slider label="Encoder quality" showValue min={0} max={100} disabled={output.streamVideoEncoder === 'libopenh264'} value={output.streamEncoderQuality} onValueChange={(streamEncoderQuality) => updateOutput({ streamEncoderQuality })} />
+      <NumberField label="Keyframe interval" suffix="s" min={1} max={10} step={1} value={output.streamKeyframeIntervalSeconds} onValueChange={(streamKeyframeIntervalSeconds) => updateOutput({ streamKeyframeIntervalSeconds })} error={errors.streamKeyframeIntervalSeconds} />
       <div className="settings-toggle-row">
         <Switch checked={output.streamHardwareEncoding} disabled={output.streamVideoEncoder !== systemVideoEncoder} onCheckedChange={(checked) => updateOutput({ streamHardwareEncoding: checked })} label={hardwareLabel} />
         <span>{hardwareLabel}</span>
       </div>
 
       <div className="popover-heading video-heading"><strong>Recording</strong></div>
-      <label>Recording folder
-        <div className="recording-directory-control">
-          <input aria-label="Recording folder" readOnly value={recording.recordingPreferences.directory || 'Videos'} title={recording.recordingPreferences.directory || 'Videos'} />
-          <button type="button" className="secondary-button" onClick={recording.onChooseDirectory}>Browse</button>
-          <button type="button" className="secondary-button" onClick={recording.onUseDefaultDirectory}>Default</button>
-        </div>
-      </label>
-      <label>Filename format
-        <input aria-label="Recording filename format" maxLength={120} value={filenameFormat} onChange={(event) => updateRecordingPreferences({ filenameFormat: event.target.value })} />
-        <FieldError message={errors.recordingFilenameFormat} />
-      </label>
-      {recording.recordingPreferencesError && <p className="hotkey-error" role="alert">{recording.recordingPreferencesError}</p>}
+      <TextField
+        label="Recording folder"
+        readOnly
+        value={recording.recordingPreferences.directory || 'Videos'}
+        onValueChange={() => {}}
+        trailing={
+          <>
+            <ReacstButton size="xs" variant="ghost" onClick={recording.onChooseDirectory}>Browse</ReacstButton>
+            <ReacstButton size="xs" variant="ghost" onClick={recording.onUseDefaultDirectory}>Default</ReacstButton>
+          </>
+        }
+      />
+      <TextField label="Filename format" maxLength={120} value={filenameFormat} onValueChange={(value) => updateRecordingPreferences({ filenameFormat: value })} error={errors.recordingFilenameFormat} />
+      {recording.recordingPreferencesError && <Banner tone="error" size="sm">{recording.recordingPreferencesError}</Banner>}
       <details className="filter-details settings-audio-tracks">
         <summary>Recording audio tracks</summary>
         <div className="audio-track-grid">
@@ -569,49 +499,31 @@ function OutputPage({
         </div>
       </details>
       <div className="settings-field-grid">
-        <label>Recording video bitrate (kb/s)
-          <input type="number" min={500} max={50000} step={500} disabled={output.recordingContainer === 'mp4' && output.recordingRateControl === 'quality'} value={output.recordingVideoBitrateKbps} onChange={(event) => updateOutput({ recordingVideoBitrateKbps: Number(event.target.value) })} />
-          <FieldError message={errors.recordingVideoBitrateKbps} />
-        </label>
-        <label>Audio bitrate per track (kb/s)
-          <input type="number" min={32} max={320} step={16} value={output.recordingAudioBitrateKbps} onChange={(event) => updateOutput({ recordingAudioBitrateKbps: Number(event.target.value) })} />
-          <FieldError message={errors.recordingAudioBitrateKbps} />
-        </label>
+        <NumberField label="Recording video bitrate" suffix="kb/s" min={500} max={50000} step={500} disabled={output.recordingContainer === 'mp4' && output.recordingRateControl === 'quality'} value={output.recordingVideoBitrateKbps} onValueChange={(recordingVideoBitrateKbps) => updateOutput({ recordingVideoBitrateKbps })} error={errors.recordingVideoBitrateKbps} />
+        <NumberField label="Audio bitrate per track" suffix="kb/s" min={32} max={320} step={16} value={output.recordingAudioBitrateKbps} onValueChange={(recordingAudioBitrateKbps) => updateOutput({ recordingAudioBitrateKbps })} error={errors.recordingAudioBitrateKbps} />
       </div>
-      <label>Recording format
-        <Select label="Recording format" value={output.recordingContainer} disabled={recordingLocked} onValueChange={(value) => updateOutput({ recordingContainer: value })} options={RECORDING_CONTAINER_OPTIONS} />
-      </label>
-      <label>MP4 encoder
-        <Select
-          label="MP4 encoder"
-          value={output.recordingVideoEncoder}
-          disabled={output.recordingContainer !== 'mp4' || recordingLocked}
-          onValueChange={(value) => updateOutput({ recordingVideoEncoder: value, recordingRateControl: normalizeVideoRateControl(value, output.recordingRateControl) })}
-          options={videoEncoderOptions}
-        />
-        <FieldError message={errors.recordingVideoEncoder} />
-      </label>
-      <label>MP4 rate control
-        <Select
-          label="MP4 rate control"
-          value={output.recordingRateControl}
-          disabled={output.recordingContainer !== 'mp4' || recordingLocked}
-          onValueChange={(value) => updateOutput({ recordingRateControl: value })}
-          options={VIDEO_RATE_CONTROL_OPTIONS.filter((option) => getVideoEncoderRateControlModes(output.recordingVideoEncoder).includes(option.value))}
-        />
-      </label>
-      <label>MP4 encoder quality
-        <input type="range" min={0} max={100} disabled={output.recordingContainer !== 'mp4' || output.recordingVideoEncoder === 'libopenh264' || recordingLocked} value={output.recordingEncoderQuality} onChange={(event) => updateOutput({ recordingEncoderQuality: Number(event.target.value) })} />
-        <span className="range-value">{output.recordingEncoderQuality}</span>
-      </label>
-      <label>MP4 keyframe interval (seconds)
-        <input type="number" min={1} max={10} step={1} disabled={output.recordingContainer !== 'mp4' || recordingLocked} value={output.recordingKeyframeIntervalSeconds} onChange={(event) => updateOutput({ recordingKeyframeIntervalSeconds: Number(event.target.value) })} />
-        <FieldError message={errors.recordingKeyframeIntervalSeconds} />
-      </label>
+      <Select label="Recording format" value={output.recordingContainer} disabled={recordingLocked} onValueChange={(value) => updateOutput({ recordingContainer: value })} options={RECORDING_CONTAINER_OPTIONS} />
+      <Select
+        label="MP4 encoder"
+        value={output.recordingVideoEncoder}
+        disabled={mp4Locked}
+        onValueChange={(value) => updateOutput({ recordingVideoEncoder: value, recordingRateControl: normalizeVideoRateControl(value, output.recordingRateControl) })}
+        options={videoEncoderOptions}
+        error={errors.recordingVideoEncoder}
+      />
+      <Select
+        label="MP4 rate control"
+        value={output.recordingRateControl}
+        disabled={mp4Locked}
+        onValueChange={(value) => updateOutput({ recordingRateControl: value })}
+        options={VIDEO_RATE_CONTROL_OPTIONS.filter((option) => getVideoEncoderRateControlModes(output.recordingVideoEncoder).includes(option.value))}
+      />
+      <Slider label="MP4 encoder quality" showValue min={0} max={100} disabled={mp4Locked || output.recordingVideoEncoder === 'libopenh264'} value={output.recordingEncoderQuality} onValueChange={(recordingEncoderQuality) => updateOutput({ recordingEncoderQuality })} />
+      <NumberField label="MP4 keyframe interval" suffix="s" min={1} max={10} step={1} disabled={mp4Locked} value={output.recordingKeyframeIntervalSeconds} onValueChange={(recordingKeyframeIntervalSeconds) => updateOutput({ recordingKeyframeIntervalSeconds })} error={errors.recordingKeyframeIntervalSeconds} />
       <div className="settings-toggle-row">
         <Switch
           checked={output.recordingHardwareEncoding}
-          disabled={output.recordingContainer !== 'mp4' || output.recordingVideoEncoder !== systemVideoEncoder || recordingLocked}
+          disabled={mp4Locked || output.recordingVideoEncoder !== systemVideoEncoder}
           onCheckedChange={(checked) => updateOutput({ recordingHardwareEncoding: checked })}
           label="MP4 hardware encoding"
         />
@@ -626,21 +538,19 @@ function AudioPage({ audio, monitoringDeviceId, updateAudio }: { audio: AudioSet
   return (
     <div className="settings-page">
       <div className="popover-heading"><strong>Monitoring</strong></div>
-      <label>Monitoring device
-        <Select
-          label="Monitoring device"
-          disabled={!audio.monitorDeviceSelectionSupported}
-          value={monitoringDeviceId === '' ? DEFAULT_MONITORING_DEVICE : monitoringDeviceId}
-          onValueChange={(value) => updateAudio({ monitoringDeviceId: value === DEFAULT_MONITORING_DEVICE ? '' : value })}
-          options={[
-            { value: DEFAULT_MONITORING_DEVICE, label: 'System Default' },
-            ...(savedDeviceMissing ? [{ value: monitoringDeviceId, label: 'Saved device unavailable' }] : []),
-            ...audio.audioOutputDevices.map((device) => ({ value: device.deviceId, label: device.label })),
-          ]}
-        />
-      </label>
-      {audio.audioSettingsError && <p className="hotkey-error" role="alert">{audio.audioSettingsError}</p>}
-      {!audio.monitorDeviceSelectionSupported && <p className="hotkey-error" role="status">Audio output device selection is unavailable.</p>}
+      <Select
+        label="Monitoring device"
+        disabled={!audio.monitorDeviceSelectionSupported}
+        value={monitoringDeviceId === '' ? DEFAULT_MONITORING_DEVICE : monitoringDeviceId}
+        onValueChange={(value) => updateAudio({ monitoringDeviceId: value === DEFAULT_MONITORING_DEVICE ? '' : value })}
+        options={[
+          { value: DEFAULT_MONITORING_DEVICE, label: 'System Default' },
+          ...(savedDeviceMissing ? [{ value: monitoringDeviceId, label: 'Saved device unavailable' }] : []),
+          ...audio.audioOutputDevices.map((device) => ({ value: device.deviceId, label: device.label })),
+        ]}
+      />
+      {audio.audioSettingsError && <Banner tone="error" size="sm">{audio.audioSettingsError}</Banner>}
+      {!audio.monitorDeviceSelectionSupported && <Banner tone="warning" size="sm">Audio output device selection is unavailable.</Banner>}
     </div>
   );
 }
@@ -650,46 +560,45 @@ function VideoPage({ output, errors, updateOutput }: { output: StreamOutputConfi
     <div className="settings-page">
       <div className="popover-heading"><strong>Canvas</strong></div>
       <div className="settings-field-grid">
-        <label>Base (Canvas) width
-          <input aria-label="Base canvas width" type="number" min={320} max={16384} step={1} value={output.baseWidth} onChange={(event) => updateOutput({ baseWidth: Number(event.target.value) })} />
-          <FieldError message={errors.baseWidth} />
-        </label>
-        <label>Base (Canvas) height
-          <input aria-label="Base canvas height" type="number" min={180} max={16384} step={1} value={output.baseHeight} onChange={(event) => updateOutput({ baseHeight: Number(event.target.value) })} />
-          <FieldError message={errors.baseHeight} />
-        </label>
-        <label>Output (Scaled) width
-          <input aria-label="Output scaled width" type="number" min={SCALED_OUTPUT_LIMITS.minWidth} max={SCALED_OUTPUT_LIMITS.maxWidth} step={2} value={output.width} onChange={(event) => updateOutput({ width: Number(event.target.value) })} />
-          <FieldError message={errors.width} />
-        </label>
-        <label>Output (Scaled) height
-          <input aria-label="Output scaled height" type="number" min={SCALED_OUTPUT_LIMITS.minHeight} max={SCALED_OUTPUT_LIMITS.maxHeight} step={2} value={output.height} onChange={(event) => updateOutput({ height: Number(event.target.value) })} />
-          <FieldError message={errors.height} />
-        </label>
+        <NumberField label="Base (Canvas) width" suffix="px" min={320} max={16384} step={1} value={output.baseWidth} onValueChange={(baseWidth) => updateOutput({ baseWidth })} error={errors.baseWidth} />
+        <NumberField label="Base (Canvas) height" suffix="px" min={180} max={16384} step={1} value={output.baseHeight} onValueChange={(baseHeight) => updateOutput({ baseHeight })} error={errors.baseHeight} />
+        <NumberField label="Output (Scaled) width" suffix="px" min={SCALED_OUTPUT_LIMITS.minWidth} max={SCALED_OUTPUT_LIMITS.maxWidth} step={2} value={output.width} onValueChange={(width) => updateOutput({ width })} error={errors.width} />
+        <NumberField label="Output (Scaled) height" suffix="px" min={SCALED_OUTPUT_LIMITS.minHeight} max={SCALED_OUTPUT_LIMITS.maxHeight} step={2} value={output.height} onValueChange={(height) => updateOutput({ height })} error={errors.height} />
       </div>
-      <label>Frame rate (FPS)
-        <input aria-label="Frame rate" type="number" min={1} max={240} step={0.01} value={output.frameRate} onChange={(event) => updateOutput({ frameRate: Number(event.target.value) })} />
-        <FieldError message={errors.frameRate} />
-      </label>
+      <NumberField label="Frame rate" suffix="FPS" min={1} max={240} step={0.01} value={output.frameRate} onValueChange={(frameRate) => updateOutput({ frameRate })} error={errors.frameRate} />
     </div>
   );
 }
 
 function HotkeysPage({ project, hotkeys }: { project: StreamProject; hotkeys: HotkeysDraftBundle }) {
+  // TextField has no key handler, so the capture inputs stay native inside Field.
+  const globalRows: ReadonlyArray<{ action: keyof StreamGlobalHotkeys; label: string; ariaLabel: string }> = [
+    { action: 'toggleStreaming', label: 'Toggle streaming', ariaLabel: 'Toggle streaming shortcut' },
+    { action: 'toggleRecording', label: 'Toggle recording', ariaLabel: 'Toggle recording shortcut' },
+    { action: 'toggleReplayBuffer', label: 'Toggle replay buffer', ariaLabel: 'Toggle replay buffer shortcut' },
+    { action: 'saveReplay', label: 'Save replay', ariaLabel: 'Save replay shortcut' },
+  ];
   return (
     <div className="settings-page">
       <div className="popover-heading"><strong>Global Hotkeys</strong></div>
-      <label>Toggle streaming<input aria-label="Toggle streaming shortcut" readOnly value={hotkeys.hotkeyDraft?.toggleStreaming ?? project.hotkeys.toggleStreaming} onKeyDown={(event) => hotkeys.onCaptureHotkey('toggleStreaming', event)} /></label>
-      <label>Toggle recording<input aria-label="Toggle recording shortcut" readOnly value={hotkeys.hotkeyDraft?.toggleRecording ?? project.hotkeys.toggleRecording} onKeyDown={(event) => hotkeys.onCaptureHotkey('toggleRecording', event)} /></label>
-      <label>Toggle replay buffer<input aria-label="Toggle replay buffer shortcut" readOnly value={hotkeys.hotkeyDraft?.toggleReplayBuffer ?? project.hotkeys.toggleReplayBuffer} onKeyDown={(event) => hotkeys.onCaptureHotkey('toggleReplayBuffer', event)} /></label>
-      <label>Save replay<input aria-label="Save replay shortcut" readOnly value={hotkeys.hotkeyDraft?.saveReplay ?? project.hotkeys.saveReplay} onKeyDown={(event) => hotkeys.onCaptureHotkey('saveReplay', event)} /></label>
+      {globalRows.map((row) => (
+        <Field key={row.action} label={row.label} htmlFor={`hotkey-${row.action}`}>
+          <input id={`hotkey-${row.action}`} className="settings-hotkey-input" aria-label={row.ariaLabel} readOnly value={hotkeys.hotkeyDraft?.[row.action] ?? project.hotkeys[row.action]} onKeyDown={(event) => hotkeys.onCaptureHotkey(row.action, event)} />
+        </Field>
+      ))}
       <div className="popover-heading video-heading"><strong>Scene Switches</strong></div>
-      {project.scenes.map((scene) => <label key={scene.id}>{scene.name}<input aria-label={`Switch to ${scene.name} shortcut`} readOnly value={hotkeys.sceneSwitchHotkeyDraft[scene.id] ?? ''} onKeyDown={(event) => hotkeys.onCaptureSceneSwitchHotkey(scene.id, event)} /></label>)}
+      {project.scenes.map((scene) => (
+        <Field key={scene.id} label={scene.name} htmlFor={`hotkey-scene-${scene.id}`}>
+          <input id={`hotkey-scene-${scene.id}`} className="settings-hotkey-input" aria-label={`Switch to ${scene.name} shortcut`} readOnly value={hotkeys.sceneSwitchHotkeyDraft[scene.id] ?? ''} onKeyDown={(event) => hotkeys.onCaptureSceneSwitchHotkey(scene.id, event)} />
+        </Field>
+      ))}
       <div className="popover-heading video-heading"><strong>Source Visibility</strong></div>
       {project.scenes.flatMap((scene) => flattenSourceNodes(scene.sources).map((source) => (
-        <label key={source.id}>{scene.name} · {source.name}<input aria-label={`Toggle visibility for ${source.name} in ${scene.name} shortcut`} readOnly value={hotkeys.sourceVisibilityHotkeyDraft[source.id] ?? ''} onKeyDown={(event) => hotkeys.onCaptureSourceVisibilityHotkey(source.id, event)} /></label>
+        <Field key={source.id} label={`${scene.name} · ${source.name}`} htmlFor={`hotkey-source-${source.id}`}>
+          <input id={`hotkey-source-${source.id}`} className="settings-hotkey-input" aria-label={`Toggle visibility for ${source.name} in ${scene.name} shortcut`} readOnly value={hotkeys.sourceVisibilityHotkeyDraft[source.id] ?? ''} onKeyDown={(event) => hotkeys.onCaptureSourceVisibilityHotkey(source.id, event)} />
+        </Field>
       )))}
-      {hotkeys.hotkeyError && <p className="hotkey-error" role="alert">{hotkeys.hotkeyError}</p>}
+      {hotkeys.hotkeyError && <Banner tone="error" size="sm">{hotkeys.hotkeyError}</Banner>}
       <button className="apply-hotkeys" type="button" disabled={hotkeys.hotkeysWorking || !hotkeys.hotkeyDraft} onClick={hotkeys.onApply}>{hotkeys.hotkeysWorking ? 'Applying…' : 'Apply Hotkeys'}</button>
     </div>
   );

@@ -4,11 +4,12 @@ import {
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
   type ReactNode, type SetStateAction,
 } from 'react';
-import { Layers2, Plus, Redo2, Undo2, X } from 'lucide-react';
-import { PointContextMenu, usePointContextMenu, type MenuEntry, type PointContextMenuTrigger } from '@lumacast/ui';
+import { Layers2, Plus, Redo2, Undo2 } from 'lucide-react';
+import { Badge, PointContextMenu, ReacstButton, usePointContextMenu, type MenuEntry, type PointContextMenuTrigger } from '@lumacast/ui';
 import { moveSceneBy, moveSceneTo, reorderOnDrop } from '../scene-order';
 import { primaryShortcutLabel, type StreamPlatform } from '../../shared/platform-capabilities';
 import type { StreamScene } from '../../shared/desktop-api';
+import { DockTitle } from './dock-title';
 import './scenes-dock.css';
 
 // Pointer movement (px) a row must travel before a press becomes a drag
@@ -347,7 +348,15 @@ export function ScenesDock({
   return (
     <aside className="dock scenes-dock" style={style}>
       {resizer}
-      <div className="dock-title"><span>Scenes</span><div className="dock-actions"><button className="mini-icon" aria-label="Undo" title={`Undo (${primaryShortcutLabel(platform, 'Z')})`} disabled={!undoAvailable} onClick={onUndo}><Undo2 size={14} /></button><button className="mini-icon" aria-label="Redo" title={`Redo (${primaryShortcutLabel(platform, 'Z', true)})`} disabled={!redoAvailable} onClick={onRedo}><Redo2 size={14} /></button><button className="mini-icon" aria-label="Add scene" onClick={onAddScene}><Plus size={15} /></button><button className="mini-icon" aria-label="Hide Scenes" onClick={onHide}><X size={14} /></button></div></div>
+      <DockTitle
+        title="Scenes"
+        onHide={onHide}
+        actions={<>
+          <ReacstButton.Icon variant="ghost" size="sm" label="Undo" tooltip={`Undo (${primaryShortcutLabel(platform, 'Z')})`} disabled={!undoAvailable} onClick={onUndo}><Undo2 /></ReacstButton.Icon>
+          <ReacstButton.Icon variant="ghost" size="sm" label="Redo" tooltip={`Redo (${primaryShortcutLabel(platform, 'Z', true)})`} disabled={!redoAvailable} onClick={onRedo}><Redo2 /></ReacstButton.Icon>
+          <ReacstButton.Icon variant="ghost" size="sm" label="Add scene" onClick={onAddScene}><Plus /></ReacstButton.Icon>
+        </>}
+      />
       <div className="scene-list">
         {scenes.map((scene, index) => {
           const isActive = scene.id === activeSceneId;
@@ -392,7 +401,7 @@ export function ScenesDock({
                   onBlur={() => commitRename(scene)}
                 />
               ) : <span className="scene-name">{scene.name}</span>}
-              {isLive && <span className="live-tag">LIVE</span>}
+              {isLive && <Badge tone="error" shape="rounded">LIVE</Badge>}
             </button>
           );
         })}

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import { Volume2, VolumeX } from 'lucide-react';
-import { Checkbox, EmptyState, Modal, ReacstButton, Select } from '@lumacast/ui';
+import { Checkbox, EmptyState, Modal, NumberField, ReacstButton, Select, Slider } from '@lumacast/ui';
 import { AUDIO_TRACKS, type AudioMonitoring, type AudioTrack, type StreamSource } from '../../shared/desktop-api';
 import './advanced-audio-dialog.css';
 
@@ -46,7 +46,7 @@ export function AdvancedAudioDialog({ sources, onUpdate, onClose, openerRef }: A
                   <span className="sr-only">Mute</span>
                 </th>
                 <th scope="col">Name</th>
-                <th scope="col">Volume (%)</th>
+                <th scope="col">Volume</th>
                 <th scope="col">Balance</th>
                 <th scope="col">Audio Monitoring</th>
                 <th scope="col" colSpan={AUDIO_TRACKS.length}>Tracks</th>
@@ -103,27 +103,32 @@ function AdvancedAudioRow({ source, onUpdate }: { source: StreamSource; onUpdate
       </td>
       <td className="advanced-audio-name" title={source.name}>{source.name}</td>
       <td>
-        <input
-          type="number"
-          className="advanced-audio-volume-input"
+        <NumberField
+          size="sm"
+          className="w-[72px]"
+          label={`${source.name} volume`}
+          labelPlacement="hidden"
+          suffix="%"
           min={0}
           max={200}
           step={1}
-          aria-label={`${source.name} volume`}
+          precision={0}
           value={volumePercent}
-          onChange={(event) => setVolumePercent(Number(event.target.value))}
+          onValueChange={setVolumePercent}
         />
       </td>
       <td>
-        <input
-          type="range"
-          className="advanced-audio-balance-input"
+        <Slider
+          size="sm"
+          className="w-[110px]"
+          label={`${source.name} balance`}
+          labelPlacement="hidden"
           min={-100}
           max={100}
           step={1}
-          aria-label={`${source.name} balance`}
+          fillFrom={0}
           value={balancePercent}
-          onChange={(event) => setBalancePercent(Number(event.target.value))}
+          onValueChange={setBalancePercent}
         />
       </td>
       <td>

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { ClipboardPaste, Eye, EyeOff } from 'lucide-react';
-import { Modal, ReacstButton, Select } from '@lumacast/ui';
+import { Banner, Modal, ReacstButton, Select, Textarea } from '@lumacast/ui';
 import type { StreamServiceSettings, YouTubeAccount, YouTubeBroadcastDraft, YouTubePrivacy } from '../../shared/desktop-api';
 import { getStreamService } from '../../shared/stream-services';
 
@@ -62,22 +62,19 @@ export function YouTubeSettingsDialog({ open, account, busy, error, settings, on
               ? <ReacstButton variant="default" disabled={busy} onClick={onDisconnect}>{busy ? 'Disconnecting…' : 'Disconnect'}</ReacstButton>
               : <ReacstButton variant="default" disabled={busy} onClick={onConnect}>{busy ? 'Connecting…' : 'Connect YouTube'}</ReacstButton>}
           </div>
-          {error && <p className="youtube-dialog-error" role="alert">{error}</p>}
+          {error && <Banner tone="error" size="sm">{error}</Banner>}
         </section>
 
         <section className="youtube-dialog-section" aria-labelledby="youtube-manual-heading">
           <h3 id="youtube-manual-heading">Manual RTMPS</h3>
           <p className="youtube-dialog-empty">Used when no YouTube account is connected.</p>
-          <label className="youtube-dialog-field">
-            <span>Server</span>
-            <Select
-              label="YouTube ingest server"
-              size="sm"
-              value={settings.serverId}
-              onValueChange={(serverId) => update({ serverId })}
-              options={youtubePreset.servers.map((server) => ({ value: server.id, label: server.label }))}
-            />
-          </label>
+          <Select
+            label="YouTube ingest server"
+            size="sm"
+            value={settings.serverId}
+            onValueChange={(serverId) => update({ serverId })}
+            options={youtubePreset.servers.map((server) => ({ value: server.id, label: server.label }))}
+          />
           <label className="youtube-dialog-field">
             <span>{youtubePreset.keyLabel}</span>
             <div className="youtube-dialog-key-row">
@@ -93,14 +90,14 @@ export function YouTubeSettingsDialog({ open, account, busy, error, settings, on
                   update({ streamKey: event.target.value });
                 }}
               />
-              <button type="button" className="mini-icon" aria-label={keyVisible ? 'Hide stream key' : 'Show stream key'} onClick={() => setKeyVisible((visible) => !visible)}>
-                {keyVisible ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-              <button type="button" className="mini-icon" aria-label="Paste stream key" onClick={() => void pasteStreamKey()}>
-                <ClipboardPaste size={14} />
-              </button>
+              <ReacstButton.Icon variant="ghost" size="sm" label="Show stream key" pressed={keyVisible} tooltip={keyVisible ? 'Hide stream key' : 'Show stream key'} onClick={() => setKeyVisible((visible) => !visible)}>
+                {keyVisible ? <EyeOff /> : <Eye />}
+              </ReacstButton.Icon>
+              <ReacstButton.Icon variant="ghost" size="sm" label="Paste stream key" onClick={() => void pasteStreamKey()}>
+                <ClipboardPaste />
+              </ReacstButton.Icon>
             </div>
-            {pasteFailed && <span className="youtube-dialog-error" role="alert">Clipboard access was denied.</span>}
+            {pasteFailed && <Banner tone="error" size="sm">Clipboard access was denied.</Banner>}
           </label>
         </section>
 
@@ -183,14 +180,8 @@ export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onC
             />
             {showTitleError && <span id={titleErrorId} className="youtube-dialog-error" role="alert">Enter a title.</span>}
           </div>
-          <label className="youtube-dialog-field">
-            <span>Description</span>
-            <textarea rows={3} maxLength={5000} disabled={busy} value={draft.description} onChange={(event) => update({ description: event.target.value })} />
-          </label>
-          <label className="youtube-dialog-field">
-            <span>Privacy</span>
-            <Select label="Stream privacy" size="sm" disabled={busy} value={draft.privacy} onValueChange={(privacy) => update({ privacy })} options={PRIVACY_OPTIONS} />
-          </label>
+          <Textarea label="Description" rows={3} maxLength={5000} disabled={busy} commitOn="change" value={draft.description} onValueChange={(description) => update({ description })} />
+          <Select label="Stream privacy" size="sm" disabled={busy} value={draft.privacy} onValueChange={(privacy) => update({ privacy })} options={PRIVACY_OPTIONS} />
           <div className="youtube-dialog-field">
             <label htmlFor={startTimeId}>Start time</label>
             <input
@@ -207,7 +198,7 @@ export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onC
             {showStartTimeError && <span id={startTimeErrorId} className="youtube-dialog-error" role="alert">Choose a future start time.</span>}
           </div>
           <p className="youtube-dialog-empty">The stream will be created and selected. It will not go live yet.</p>
-          {error && <p className="youtube-dialog-error" role="alert">{error}</p>}
+          {error && <Banner tone="error" size="sm">{error}</Banner>}
           <div className="youtube-dialog-footer">
             <ReacstButton variant="default" disabled={busy} onClick={onClose}>Cancel</ReacstButton>
             <ReacstButton variant="take" type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create stream'}</ReacstButton>

@@ -72,31 +72,36 @@
 .mixer-strip--vertical .mixer-strip-name { font-size: var(--text-sm); }
 .mixer-strip--vertical .mixer-strip-db { align-self: flex-start; }
 
-.mixer-mute, .mixer-gear {
-  flex: 0 0 auto;
-  width: 20px;
-  height: 20px;
-  display: grid;
-  place-items: center;
-  border-radius: 3px;
-  color: var(--text-color-tertiary);
-  background: transparent;
-  cursor: pointer;
+.mixer-strip-controls { display: flex; gap: 4px; }
+
+.mixer-strip-fader-row { width: 100%; min-width: 0; display: flex; align-items: center; gap: 5px; }
+.mixer-strip-fader-row .mixer-fader { min-width: 0; flex: 1; }
+
+.mixer-strip-visual {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 6px;
+  height: 110px;
 }
 
-.mixer-mute:hover, .mixer-gear:hover { color: var(--text-color-primary); background: var(--border-color-secondary); }
+/* The vertical Slider fills its fader column: its Field wrapper adds three
+ * nested divs between this box and the slider control, which must all inherit
+ * the column height. */
+.mixer-fader--vertical { width: 20px; height: 100%; }
+.mixer-fader--vertical > div,
+.mixer-fader--vertical > div > div,
+.mixer-fader--vertical > div > div > div { height: 100%; }
+
+.mixer-strip-db { flex: 0 0 auto; margin-left: auto; color: var(--text-color-secondary); }
+.mixer-strip--vertical .mixer-strip-head { width: 100%; gap: 4px; }
+.mixer-strip--vertical .mixer-strip-name { font-size: var(--text-sm); }
+.mixer-strip--vertical .mixer-strip-db { align-self: flex-start; }
 
 .mixer-strip-controls { display: flex; gap: 4px; }
 
 .mixer-strip-fader-row { width: 100%; min-width: 0; display: flex; align-items: center; gap: 5px; }
-.mixer-strip-fader-row .mixer-fader { width: auto; min-width: 0; flex: 1; }
-.mixer-strip-volume { flex: 0 0 auto; color: var(--text-color-tertiary); font: var(--text-sm)/1.4 var(--font-family-sans); text-align: right; }
-
-input.mixer-fader {
-  width: 100%;
-  margin: 0;
-  accent-color: var(--color-brand);
-}
+.mixer-strip-fader-row .mixer-fader { min-width: 0; flex: 1; }
 
 .mixer-strip-visual {
   display: flex;
