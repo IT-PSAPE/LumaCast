@@ -196,7 +196,6 @@ export function LyricTrack() {
     <div className="flex border-b border-secondary" style={{ height: LYRIC_TRACK_HEIGHT_PX }} data-ui-region="lyric-track">
       <div className="flex w-32 shrink-0 flex-col justify-center gap-0.5 border-r border-secondary bg-primary px-2">
         <span className="label-xs text-secondary">Lyrics</span>
-        <span className="paragraph-xs text-tertiary">{cues.length} {cues.length === 1 ? 'cue' : 'cues'}</span>
       </div>
       <div
         ref={contentRef}

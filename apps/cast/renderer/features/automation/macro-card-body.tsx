@@ -24,7 +24,6 @@ export function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelec
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
-  const cueCountLabel = `${macro.cues.length} ${macro.cues.length === 1 ? 'cue' : 'cues'}`;
 
   async function handleDelete() {
     const ok = await confirm({
@@ -46,7 +45,6 @@ export function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelec
           <Thumbnail.Body>
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-tertiary text-secondary">
               <Workflow className="size-7" strokeWidth={1.5} />
-              <span className="text-xs text-tertiary">{cueCountLabel}</span>
             </div>
           </Thumbnail.Body>
           <Thumbnail.Caption>

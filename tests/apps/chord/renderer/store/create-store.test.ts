@@ -128,6 +128,7 @@ import { createChordStore, type ChordStoreImpl } from '../../../../../apps/chord
 
 function createFakeApi(overrides: Partial<ChordDesktopAPI> = {}): ChordDesktopAPI {
   return {
+    setEditableFocus: vi.fn(async () => {}),
     newProject: vi.fn(async () => ({ project: fixtures.makeProject('new-project', '2024-06-01T00:00:00.000Z'), path: null })),
     openProject: vi.fn(async () => null),
     saveProject: vi.fn(async () => null),

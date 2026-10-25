@@ -6,8 +6,7 @@
 import { useEffect } from 'react';
 import { getApi } from '../../api';
 import { useChordStore } from '../../store';
-import { isEditableTarget } from '../timeline/use-timeline-shortcuts';
-import { deleteSelectedCues, duplicateSelectedCue, trimSelectedCueToPlayhead } from '../timeline/cue-commands';
+import { deleteSelectedCues, duplicateSelectedCue, isEditableTarget, trimSelectedCueToPlayhead } from '../timeline';
 import { importAudio, importBackground, importLyrics } from '../library/import-flows';
 import { openCueFormatChooser, openExportDialog } from './shell-ui-state';
 

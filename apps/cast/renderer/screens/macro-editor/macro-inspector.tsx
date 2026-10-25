@@ -9,7 +9,7 @@ import type { OnScopeExit, ScopeLevel } from '@lumacast/automation';
 
 export function MacroInspector() {
   const {
-    state: { currentMacro, rows, pendingName, pendingDescription },
+    state: { currentMacro, pendingName, pendingDescription },
     actions: { updateMacroName, updateMacroDescription, deleteCurrentMacro },
   } = useMacroEditorScreen();
   const { actions: { updateMacroFields } } = useAutomation();
@@ -25,9 +25,6 @@ export function MacroInspector() {
         <Section.Body>
           <TextField label="Name" value={pendingName} onValueChange={updateMacroName} className="col-span-full" />
           <Textarea label="Description" value={pendingDescription} onValueChange={updateMacroDescription} rows={3} className="col-span-full" />
-          <div className="text-xs text-tertiary">
-            {rows.length} {rows.length === 1 ? 'cue' : 'cues'} in this macro.
-          </div>
         </Section.Body>
       </Section.Root>
       <Section.Root>

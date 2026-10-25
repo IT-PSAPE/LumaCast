@@ -18,7 +18,6 @@ export function MacroListItemBody({ macro, index, isActive, onSelect, onDuplicat
   const activeRef = useScrollAreaActiveItem<HTMLDivElement>(isActive);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger();
   const { containerRef, containerStyle, handleProps } = useSortableItem(macro.id);
-  const cueCountLabel = `${macro.cues.length} ${macro.cues.length === 1 ? 'cue' : 'cues'}`;
 
   return (
     <>
@@ -38,7 +37,6 @@ export function MacroListItemBody({ macro, index, isActive, onSelect, onDuplicat
         <Thumbnail.Body>
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-tertiary text-secondary">
             <Workflow className="size-6" strokeWidth={1.5} />
-            <span className="text-xs text-tertiary">{cueCountLabel}</span>
           </div>
         </Thumbnail.Body>
         <Thumbnail.Caption>

@@ -9,6 +9,7 @@ import {
   ListRow,
   Sidebar,
   StatusBar,
+  StatusDot,
   WindowChrome,
   type StatusTone,
 } from "@lumacast/ui";
@@ -111,7 +112,9 @@ export function App() {
         <Sidebar width={200}>
           <Sidebar.Nav>
             {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
-              const count = id === "updates" ? updateCount : 0;
+              // A dot, not a tally: what matters is that updates are waiting,
+              // not how many. Pending work is named on the Updates screen itself.
+              const pending = id === "updates" && updateCount > 0;
               return (
                 <ListRow
                   key={id}
@@ -123,7 +126,7 @@ export function App() {
                     <Icon size={16} />
                   </ListRow.Leading>
                   <ListRow.Label>{label}</ListRow.Label>
-                  {count > 0 ? <ListRow.Meta>{count}</ListRow.Meta> : null}
+                  {pending ? <ListRow.Meta><StatusDot tone="brand" label="Updates available" /></ListRow.Meta> : null}
                 </ListRow>
               );
             })}

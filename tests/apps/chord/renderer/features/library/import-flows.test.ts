@@ -9,6 +9,7 @@ import { createTestStore, type TestChordStore } from '../../test-store';
 import type { ChordDesktopAPI, ImportedFile } from '../../../../../../apps/chord/shared/desktop-api';
 
 const apiMock: ChordDesktopAPI = {
+  setEditableFocus: vi.fn(async () => {}),
   newProject: vi.fn(),
   openProject: vi.fn(),
   saveProject: vi.fn(),

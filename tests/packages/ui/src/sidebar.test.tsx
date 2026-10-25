@@ -78,7 +78,7 @@ describe('Sidebar', () => {
   it('labels a Group with a real, non-uppercase heading', () => {
     render(
       <Sidebar>
-        <Sidebar.Group label="Your boards" count={3}>
+        <Sidebar.Group label="Your boards">
           <Sidebar.Nav aria-label="Sound boards">x</Sidebar.Nav>
         </Sidebar.Group>
       </Sidebar>,
@@ -87,7 +87,8 @@ describe('Sidebar', () => {
     expect(heading.tagName).toBe('H2');
     expect(heading.className).not.toContain('uppercase');
     expect(screen.getByRole('region', { name: 'Your boards' })).toBeTruthy();
-    expect(screen.getByText('3')).toBeTruthy();
+    // No count badge: see the note on Panel.HeaderTitle.
+    expect(screen.getByRole('region', { name: 'Your boards' }).textContent).toBe('Your boardsx');
   });
 
   it('pins Footer below a scrolling body even when declared first', () => {

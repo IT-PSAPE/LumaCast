@@ -212,7 +212,7 @@ export function CommandPalette() {
       id: `macro:${macro.id}`,
       kind: 'macro',
       label: macro.name,
-      subtitle: macro.description || `Macro · ${macro.cues.length} cues`,
+      subtitle: macro.description || 'Macro',
       icon: { kind: 'macro' },
       onSelect: () => {
         void runMacro(macro.id);

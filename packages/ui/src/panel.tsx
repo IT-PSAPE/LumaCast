@@ -1,5 +1,4 @@
 import { createContext, useContext, type HTMLAttributes, type ReactNode } from 'react';
-import { Badge } from './badge';
 import { cn } from './cn';
 import { cv } from './cv';
 
@@ -84,8 +83,6 @@ export interface PanelHeaderProps extends HTMLAttributes<HTMLElement> {
 export interface PanelHeaderTitleProps extends HTMLAttributes<HTMLHeadingElement> {
   children: ReactNode;
   icon?: ReactNode;
-  /** Trailing count rendered as a Badge. */
-  count?: number;
 }
 
 export interface PanelHeaderActionsProps extends HTMLAttributes<HTMLDivElement> {
@@ -132,12 +129,17 @@ function Header({ children, divided, height, className, ...rest }: PanelHeaderPr
   );
 }
 
-function HeaderTitle({ children, icon, count, className, ...rest }: PanelHeaderTitleProps) {
+// Deliberately no `count`. A count badge beside a title restates what the
+// list underneath already shows, and once the prop exists it spreads: the
+// soundboard ended up showing the same number four times on one screen. Name
+// the thing; do not number it. A count that IS the payload — "Delete 12 cues",
+// a search position, a selection summary — belongs at that call site, phrased
+// as a sentence.
+function HeaderTitle({ children, icon, className, ...rest }: PanelHeaderTitleProps) {
   return (
     <div className="flex min-w-0 items-center gap-2">
       {icon ? <span aria-hidden="true" className="inline-flex shrink-0 text-tertiary">{icon}</span> : null}
       <h2 {...rest} className={cn('min-w-0 truncate label-sm text-primary', className)}>{children}</h2>
-      {count === undefined ? null : <Badge size="sm">{count}</Badge>}
     </div>
   );
 }

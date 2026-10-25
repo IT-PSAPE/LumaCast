@@ -9,7 +9,7 @@ import { ItemContextMenuItems } from './item-context-menu-items';
 import { useDeleteItem } from './use-delete-item';
 import { useDuplicateItem } from './use-duplicate-item';
 
-export function ItemBinRowBody<T extends ItemLike>({ item, itemRef, slides, isSelected, isEditing, isFirst, isLast, onOpen, onRename, onMove }: ItemProps<T>) {
+export function ItemBinRowBody<T extends ItemLike>({ item, itemRef, isSelected, isEditing, isFirst, isLast, onOpen, onRename, onMove }: ItemProps<T>) {
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteItem(itemRef, item.title);
   const handleDuplicate = useDuplicateItem(itemRef, item.title);
@@ -48,9 +48,6 @@ export function ItemBinRowBody<T extends ItemLike>({ item, itemRef, slides, isSe
         <SelectableRow.Label>
           <RenameField ref={renameRef} value={item.title} onValueChange={handleRename} className="label-xs" />
         </SelectableRow.Label>
-        <SelectableRow.Trailing>
-          <span className="text-xs text-tertiary">{slides.length} {slides.length === 1 ? 'slide' : 'slides'}</span>
-        </SelectableRow.Trailing>
       </SelectableRow.Root>
       <ItemContextMenuItems
         itemRef={itemRef}

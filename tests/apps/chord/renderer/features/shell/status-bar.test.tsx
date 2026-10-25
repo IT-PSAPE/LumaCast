@@ -23,13 +23,16 @@ describe('ShellStatusBar', () => {
     expect(screen.queryByText(/cues?$/)).not.toBeInTheDocument();
   });
 
-  it('shows cue count, selection and timeline length', () => {
+  // No cue tally: the cues are drawn on the timeline right above this bar, so
+  // counting them restated what you can already see. "N selected" stays —
+  // that is transient state with nothing else reporting it.
+  it('shows selection and timeline length, and never a cue tally', () => {
     testStore = createTestStore({
       document: createTestDocument({ cues: [cue('a', 0), cue('b', 2000)] as never }),
       selection: ['a'],
     });
     render(<ShellStatusBar />);
-    expect(screen.getByText('2 cues')).toBeInTheDocument();
+    expect(screen.queryByText('2 cues')).not.toBeInTheDocument();
     expect(screen.getByText('1 selected')).toBeInTheDocument();
     expect(screen.getByText('Length 0:10.0')).toBeInTheDocument();
   });

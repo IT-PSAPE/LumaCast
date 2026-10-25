@@ -1,5 +1,4 @@
 import { Children, isValidElement, useId, type HTMLAttributes, type ReactNode } from 'react';
-import { Badge } from './badge';
 import { cn } from './cn';
 import { cv } from './cv';
 import { ResizeHandle } from './resize-handle';
@@ -63,8 +62,6 @@ export interface SidebarGroupProps extends Omit<HTMLAttributes<HTMLElement>, 'ti
   children: ReactNode;
   /** Heading text. */
   label: ReactNode;
-  /** Trailing count rendered as a Badge. */
-  count?: number;
 }
 
 export interface SidebarFooterProps extends HTMLAttributes<HTMLDivElement> {
@@ -100,14 +97,12 @@ function Nav({ children, 'aria-label': ariaLabel = 'Destinations', className, ..
   );
 }
 
-function Group({ children, label, count, className, ...rest }: SidebarGroupProps) {
+// No `count` — see the note on Panel.HeaderTitle.
+function Group({ children, label, className, ...rest }: SidebarGroupProps) {
   const headingId = useId();
   return (
     <section {...rest} aria-labelledby={headingId} className={cn('flex flex-col gap-1', className)}>
-      <div className="flex min-w-0 items-center justify-between gap-2 px-2">
-        <h2 id={headingId} className="min-w-0 truncate label-xs text-tertiary">{label}</h2>
-        {count === undefined ? null : <Badge size="sm">{count}</Badge>}
-      </div>
+      <h2 id={headingId} className="min-w-0 truncate px-2 label-xs text-tertiary">{label}</h2>
       {children}
     </section>
   );

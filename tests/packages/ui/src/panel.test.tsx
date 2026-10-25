@@ -7,7 +7,7 @@ afterEach(cleanup);
 const full = (density?: 'compact' | 'comfortable') => (
   <Panel aria-label="Scenes" density={density}>
     <Panel.Header>
-      <Panel.HeaderTitle icon={<svg data-testid="icon" />} count={3}>Scenes</Panel.HeaderTitle>
+      <Panel.HeaderTitle icon={<svg data-testid="icon" />}>Scenes</Panel.HeaderTitle>
       <Panel.HeaderActions><button>Add</button></Panel.HeaderActions>
     </Panel.Header>
     <Panel.Subheader>Filters</Panel.Subheader>
@@ -24,7 +24,6 @@ describe('Panel', () => {
     render(full());
     expect(screen.getByRole('heading', { name: 'Scenes' })).toBeTruthy();
     expect(screen.getByTestId('icon')).toBeTruthy();
-    expect(screen.getByText('3')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Add' })).toBeTruthy();
     for (const text of ['Filters', 'Content', 'Left', 'Right']) expect(screen.getByText(text)).toBeTruthy();
   });
@@ -90,11 +89,13 @@ describe('Panel', () => {
     expect(screen.getByRole('heading').closest('header')?.className).not.toMatch(/border-b/);
   });
 
-  it('omits the count badge when count is undefined, shows zero', () => {
-    const { rerender } = render(<Panel><Panel.Header><Panel.HeaderTitle>T</Panel.HeaderTitle></Panel.Header></Panel>);
-    expect(screen.queryByText('0')).toBeNull();
-    rerender(<Panel><Panel.Header><Panel.HeaderTitle count={0}>T</Panel.HeaderTitle></Panel.Header></Panel>);
-    expect(screen.getByText('0')).toBeTruthy();
+  // HeaderTitle deliberately has no `count`. A tally beside a title restates
+  // the list below it, and once the prop existed it spread — soundboard showed
+  // the same number four times on one screen.
+  it('renders no count badge beside the title', () => {
+    render(<Panel><Panel.Header><Panel.HeaderTitle>Scenes</Panel.HeaderTitle></Panel.Header></Panel>);
+    const header = screen.getByRole('heading', { name: 'Scenes' }).closest('header')!;
+    expect(header.textContent).toBe('Scenes');
   });
 
   it('root fills by default; fill={false} sizes to content', () => {

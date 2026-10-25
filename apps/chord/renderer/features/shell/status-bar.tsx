@@ -45,8 +45,6 @@ export function ShellStatusBar() {
                 <StatusBar.Divider />
               </>
             )}
-            <StatusBar.Item>{project.cues.length} {project.cues.length === 1 ? 'cue' : 'cues'}</StatusBar.Item>
-            <StatusBar.Divider />
             <StatusBar.Item>Length {formatClock(timelineEndMs(project))}</StatusBar.Item>
           </>
         )}
