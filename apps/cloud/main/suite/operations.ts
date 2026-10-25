@@ -9,6 +9,7 @@ import { unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
   compareVersions,
+  isValidVersion,
   selectInstallArtifact,
   suiteApp,
   type AppRelease,
@@ -98,6 +99,9 @@ function decideKind(
   versionScheme: VersionScheme,
 ): OperationKind {
   if (!installed) return 'install';
+  // An install whose version could not be read ('') cannot be compared;
+  // treat the request as a reinstall of the chosen release.
+  if (!isValidVersion(installed.version, versionScheme)) return 'install';
   const cmp = compareVersions(release.version, installed.version, versionScheme);
   if (cmp === 0) return 'install'; // same version requested again: reinstall.
   return cmp > 0 ? 'update' : 'downgrade';

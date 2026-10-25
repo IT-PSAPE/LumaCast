@@ -86,6 +86,21 @@ describe('statusLabel', () => {
     expect(statusLabel(state)).toBe('Update available 0.1.26 → 0.1.27');
   });
 
+  it('says an app with an unreadable version is still installed', () => {
+    // A found-on-disk app whose version could not be read carries version "".
+    // The old label rendered a bare "Installed ", which reads as not installed
+    // and invites a re-download of something already present.
+    const state = makeAppState({
+      status: 'unknown',
+      installed: { app: 'cast', version: '', location: '/Applications/LumaCast.app', scope: 'user' },
+    });
+    expect(statusLabel(state)).toBe('Installed (version unknown)');
+  });
+
+  it('says Unknown only when nothing is installed', () => {
+    expect(statusLabel(makeAppState({ status: 'unknown', installed: null }))).toBe('Unknown');
+  });
+
   it('labels an app ahead of the catalog', () => {
     expect(statusLabel(makeAppState({ status: 'ahead' }))).toBe('Newer than published');
   });

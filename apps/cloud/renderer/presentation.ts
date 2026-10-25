@@ -64,10 +64,15 @@ export function statusLabel(state: AppState): string {
     default:
       // An installed app whose catalog has nothing yet (LumaCloud before its
       // first release) is still installed; only say "Unknown" when there is
-      // no version to show.
-      return state.installed
+      // no version to show. `version` is "" when the app was found on disk but
+      // its version could not be read (an unreadable Info.plist, or PowerShell
+      // failing on Windows). It is still installed, and saying so matters more
+      // than the number — a blank "Installed " reads as a bug, and "Not
+      // installed" would be a lie that invites a pointless re-download.
+      if (!state.installed) return "Unknown";
+      return state.installed.version
         ? `Installed ${state.installed.version}`
-        : "Unknown";
+        : "Installed (version unknown)";
   }
 }
 

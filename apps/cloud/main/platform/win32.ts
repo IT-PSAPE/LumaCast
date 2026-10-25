@@ -26,6 +26,7 @@ import type {
   PlatformEnv,
   UninstallRequest,
 } from './adapter';
+import { RECORD_SCOPES } from './adapter';
 import { assertInside, assertNotSelf } from './safety';
 import { UPDATER_CACHE_DIR_NAMES, userDataDirCandidates } from './user-data-names';
 import { parseRegQueryOutput, type RegQueryEntry } from './win32-registry';
@@ -87,7 +88,12 @@ async function readExeVersion(exePath: string, exec: PlatformAdapterDeps['exec']
   try {
     // Use PowerShell to get the file version info
     const psCommand = `(Get-Item "${exePath.replace(/"/g, '""')}").VersionInfo.FileVersion`;
-    const result = await exec('powershell', ['-NoProfile', '-Command', psCommand], { timeoutMs: 5000 });
+    // 15s: a cold PowerShell start or an antivirus scan of the exe routinely
+    // exceeds 5s. A timeout is not fatal (the caller keeps the app, version
+    // unknown), but a longer budget avoids needlessly losing the version.
+    const result = await exec('powershell', ['-NoProfile', '-NonInteractive', '-Command', psCommand], {
+      timeoutMs: 15_000,
+    });
     if (result.code === 0 && result.stdout.trim()) {
       return result.stdout.trim();
     }
@@ -147,7 +153,9 @@ async function entryToInstalled(
   if (!version && location) {
     version = (await readExeVersion(path.win32.join(location, app.win.executableName), deps.exec)) ?? '';
   }
-  return { app: app.id, version: version || '0.0.0', location, scope };
+  // An empty version means "unknown": '0.0.0' parses as a real semver and
+  // would render as "update available" instead of deriving the 'unknown' state.
+  return { app: app.id, version, location, scope };
 }
 
 /**
@@ -179,7 +187,41 @@ async function findExeDir(
   return null;
 }
 
+/**
+ * Trusts the install record written at install time, after confirming the
+ * executable is still there (a record for a deleted app must not report
+ * installed). The version is refreshed from the uninstall entry's
+ * `DisplayVersion` when present (one cheap `reg query`, no PowerShell), since
+ * an in-app self-update changes the exe without touching the record.
+ */
+async function discoverRecorded(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Promise<InstalledApp | null> {
+  if (!deps.records) return null;
+  for (const scope of RECORD_SCOPES) {
+    const record = deps.records.get(app.id, scope);
+    if (!record) continue;
+    try {
+      if (!(await deps.fs.exists(path.win32.join(record.location, app.win.executableName)))) continue;
+    } catch {
+      continue;
+    }
+    let version = record.version;
+    if (scope !== 'unknown') {
+      try {
+        const entry = await findAppEntry(deps, scope === 'system' ? 'HKLM' : 'HKCU', app);
+        version = (entry?.values.DisplayVersion ?? '').trim() || version;
+      } catch {
+        // keep the recorded version
+      }
+    }
+    return { app: app.id, version, location: record.location, scope };
+  }
+  return null;
+}
+
 async function discover(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Promise<InstalledApp | null> {
+  const recorded = await discoverRecorded(deps, app);
+  if (recorded) return recorded;
+
   const userEntry = await findAppEntry(deps, 'HKCU', app);
   if (userEntry) {
     return entryToInstalled(deps, userEntry, app, 'user');
@@ -192,8 +234,10 @@ async function discover(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Pro
 
   // Neither hive has an uninstall entry. Probe the conventional product-name
   // directory first (the common case), then scan the install locations for
-  // the executable, and read its version from the file metadata. This handles
-  // portable installs or apps installed before Cloud was present.
+  // the executable. If the executable exists the app IS installed: its file
+  // version is read best-effort (PowerShell can time out, and some binaries
+  // carry no FileVersion) and an unreadable version is reported as unknown
+  // ('') rather than discarding the install.
   const locations = installLocations(deps.env);
   const candidates: Array<{ dir: string; scope: InstalledApp['scope'] }> = [
     { dir: path.win32.join(locations.user, app.productName), scope: 'user' },
@@ -206,10 +250,8 @@ async function discover(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Pro
   for (const candidate of candidates) {
     const exePath = path.win32.join(candidate.dir, app.win.executableName);
     if (await deps.fs.exists(exePath)) {
-      const version = await readExeVersion(exePath, deps.exec);
-      if (version) {
-        return { app: app.id, version, location: candidate.dir, scope: candidate.scope };
-      }
+      const version = (await readExeVersion(exePath, deps.exec)) ?? '';
+      return { app: app.id, version, location: candidate.dir, scope: candidate.scope };
     }
   }
   return null;
@@ -243,6 +285,11 @@ function parseCommandLine(command: string): { file: string; args: string[] } {
   return { file, args };
 }
 
+async function clearRecords(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Promise<void> {
+  if (!deps.records) return;
+  for (const scope of RECORD_SCOPES) await deps.records.remove(app.id, scope);
+}
+
 async function install(deps: PlatformAdapterDeps, request: InstallRequest): Promise<InstalledApp> {
   const { app, artifact, artifactPath, signal } = request;
   assertNotSelf(app);
@@ -258,10 +305,14 @@ async function install(deps: PlatformAdapterDeps, request: InstallRequest): Prom
     throw new Error(`Installer exited ${result.code}: ${result.stderr}`);
   }
 
+  // Drop any earlier record so the post-install discovery reads the new
+  // version rather than the previous install's.
+  await clearRecords(deps, app);
   const installed = await discover(deps, app);
   if (!installed) {
     throw new Error(`Install completed but ${app.win.displayName} was not found afterward`);
   }
+  await deps.records?.set(installed);
   return installed;
 }
 
@@ -290,6 +341,8 @@ async function uninstall(deps: PlatformAdapterDeps, request: UninstallRequest): 
   if (result.code !== 0) {
     throw new Error(`Uninstaller exited ${result.code}: ${result.stderr}`);
   }
+
+  await deps.records?.remove(app.id, installed.scope);
 
   if (removeUserData) {
     for (const name of userDataDirCandidates(app, 'win32')) {

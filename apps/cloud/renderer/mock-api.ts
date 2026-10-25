@@ -68,6 +68,8 @@ const RELEASES_BY_APP: Record<SuiteAppId, AppRelease[]> = {
     release("flux", "0.10.0", "flux-v0.10.0", false, daysAgo(30)),
   ],
   chord: [],
+  stream: [],
+  soundboard: [],
   cloud: [release("cloud", "0.1.0", "cloud-v0.1.0", false, daysAgo(14))],
 };
 

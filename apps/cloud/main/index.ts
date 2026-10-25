@@ -11,6 +11,7 @@ import { createPlatformAdapter } from './platform';
 import { createNodePlatformDeps } from './platform/node-deps';
 import type { PlatformEnv } from './platform/adapter';
 import { CatalogService } from './suite/catalog-service';
+import { InstallRecordStore } from './suite/install-records';
 import { SettingsStore } from './suite/settings-store';
 import { SuiteManager } from './suite/suite-manager';
 
@@ -104,7 +105,11 @@ if (!app.requestSingleInstanceLock()) {
         appDataDir: app.getPath('appData'),
         downloadsDir,
       };
-      const adapter = createPlatformAdapter(createNodePlatformDeps(env, (p) => shell.trashItem(p)));
+      const records = await InstallRecordStore.open(path.join(userDataDir, 'installs.json'));
+      const adapter = createPlatformAdapter({
+        ...createNodePlatformDeps(env, (p) => shell.trashItem(p)),
+        records,
+      });
 
       selfUpdater = new SelfUpdater();
 

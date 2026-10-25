@@ -220,6 +220,18 @@ describe('apps/cloud OperationQueue install', () => {
     await tracker.waitForTerminal(snapshot.id);
   });
 
+  it('decides "install" (reinstall) when the installed version is unknown', async () => {
+    const v110 = buildInstallable('1.1.0', Buffer.from('b'.repeat(64)));
+    const installed: InstalledApp = { app: 'cast', version: '', location: '/x', scope: 'user' };
+    const queue = new OperationQueue(
+      baseDeps({ catalog: fakeCatalog([v110]), fetch: fakeFetch([v110]), discover: async () => installed }),
+    );
+    const tracker = createTracker(queue);
+    const snapshot = await queue.enqueueInstall({ app: 'cast' });
+    expect(snapshot.kind).toBe('install');
+    await tracker.waitForTerminal(snapshot.id);
+  });
+
   it('decides "downgrade" when an older version is explicitly requested', async () => {
     const v100 = buildInstallable('1.0.0', Buffer.from('a'.repeat(64)));
     const v110 = buildInstallable('1.1.0', Buffer.from('b'.repeat(64)));

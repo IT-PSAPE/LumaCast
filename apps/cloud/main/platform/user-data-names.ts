@@ -35,6 +35,8 @@ export const UPDATER_CACHE_DIR_NAMES: Record<SuiteAppId, string> = {
   cast: 'lumacast-updater',
   flux: 'lumaflux-updater',
   chord: 'lumachord-updater',
+  stream: 'lumastream-updater',
+  soundboard: 'lumasoundboard-updater',
   cloud: 'lumacloud-updater',
 };
 

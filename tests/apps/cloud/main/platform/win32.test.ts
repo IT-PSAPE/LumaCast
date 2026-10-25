@@ -255,14 +255,19 @@ describe('win32 platform adapter', () => {
       });
     });
 
-    it('probes for the executable but still reports not-installed when no registry entry exists', async () => {
+    it('reports an executable found by probing as installed even when its version is empty', async () => {
       const rig = createRig({
         dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast'],
         files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast\\LumaCast.exe': 'binary' },
         exec: () => emptyReg(),
       });
       const adapter = createWin32PlatformAdapter(rig.deps);
-      await expect(adapter.discover(CAST_APP)).resolves.toBeNull();
+      await expect(adapter.discover(CAST_APP)).resolves.toEqual({
+        app: 'cast',
+        version: '',
+        location: 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast',
+        scope: 'user',
+      });
     });
 
     it('discovers app from executable file version when no registry entry exists', async () => {
@@ -285,7 +290,7 @@ describe('win32 platform adapter', () => {
       });
     });
 
-    it('returns null when executable exists but version cannot be read', async () => {
+    it('reports installed with an unknown version when the executable exists but PowerShell fails', async () => {
       const rig = createRig({
         dirs: ['C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast'],
         files: { 'C:\\Users\\test\\AppData\\Local\\Programs\\LumaCast\\LumaCast.exe': 'binary' },
@@ -297,7 +302,7 @@ describe('win32 platform adapter', () => {
         },
       });
       const adapter = createWin32PlatformAdapter(rig.deps);
-      await expect(adapter.discover(CAST_APP)).resolves.toBeNull();
+      await expect(adapter.discover(CAST_APP)).resolves.toMatchObject({ app: 'cast', version: '' });
     });
 
     it('returns null when the registry query itself fails', async () => {

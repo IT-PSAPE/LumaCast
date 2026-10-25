@@ -86,8 +86,23 @@ export interface PlatformAdapter {
   revealPath: (installed: InstalledApp) => string;
 }
 
+/**
+ * Where each install landed, recorded by `install()` and trusted first by
+ * `discover()` (after it re-confirms the binary is still on disk). Keyed per
+ * app id and per scope. `get` is synchronous (served from memory).
+ */
+export interface InstallRecords {
+  get: (app: InstalledApp['app'], scope: InstalledApp['scope']) => InstalledApp | undefined;
+  set: (installed: InstalledApp) => Promise<void>;
+  remove: (app: InstalledApp['app'], scope: InstalledApp['scope']) => Promise<void>;
+}
+
+export const RECORD_SCOPES: ReadonlyArray<InstalledApp['scope']> = ['user', 'system', 'unknown'];
+
 export interface PlatformAdapterDeps {
   env: PlatformEnv;
+  /** Optional so adapters stay usable (and testable) without persistence. */
+  records?: InstallRecords;
   exec: ExecFn;
   fs: PlatformFs;
   /**

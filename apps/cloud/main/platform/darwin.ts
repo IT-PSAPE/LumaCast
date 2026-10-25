@@ -12,6 +12,7 @@ import type {
   PlatformEnv,
   UninstallRequest,
 } from './adapter';
+import { RECORD_SCOPES } from './adapter';
 import { readInfoPlist } from './info-plist';
 import { assertInside, assertNotSelf } from './safety';
 import { updaterCacheDir, userDataDirCandidates } from './user-data-names';
@@ -46,6 +47,7 @@ async function readBundleAt(
   app: SuiteAppDescriptor,
   bundlePath: string,
   scope: InstalledApp['scope'],
+  recorded?: InstalledApp,
 ): Promise<InstalledApp | null> {
   const exists = await deps.fs.exists(bundlePath);
   if (!exists) {
@@ -55,7 +57,11 @@ async function readBundleAt(
   try {
     xml = await deps.fs.readFile(path.posix.join(bundlePath, 'Contents', 'Info.plist'));
   } catch {
-    return null;
+    // The bundle exists but its identity cannot be re-read. Without a record
+    // we cannot rule out a foreign bundle sharing the name, so it stays
+    // undiscovered; a recorded install (identity verified when it landed)
+    // is still installed, version as last recorded.
+    return recorded ? { ...recorded, location: bundlePath, scope } : null;
   }
   const plist = readInfoPlist(xml);
   if (plist.bundleId !== app.bundleId) {
@@ -65,13 +71,25 @@ async function readBundleAt(
   }
   return {
     app: app.id,
-    version: plist.shortVersion ?? plist.version ?? '0.0.0',
+    version: plist.shortVersion ?? plist.version ?? '',
     location: bundlePath,
     scope,
   };
 }
 
 async function discover(deps: PlatformAdapterDeps, app: SuiteAppDescriptor): Promise<InstalledApp | null> {
+  // The recorded location goes first, but is re-verified like any other
+  // candidate (bundle present, bundle id matches); a deleted bundle falls
+  // through to the normal search.
+  if (deps.records) {
+    for (const scope of RECORD_SCOPES) {
+      const record = deps.records.get(app.id, scope);
+      if (!record) continue;
+      const found = await readBundleAt(deps, app, record.location, scope, record);
+      if (found) return found;
+    }
+  }
+
   const locations = installLocations(deps.env);
   const bundleName = app.mac.bundleName;
 
@@ -227,6 +245,7 @@ async function install(deps: PlatformAdapterDeps, request: InstallRequest): Prom
   if (!installed) {
     throw new Error(`Install completed but ${bundleName} was not found afterward`);
   }
+  await deps.records?.set(installed);
   return installed;
 }
 
@@ -253,6 +272,8 @@ async function uninstall(deps: PlatformAdapterDeps, request: UninstallRequest): 
   } else {
     await runElevated(deps, `rm -rf ${shellQuote(installed.location)}`, signal);
   }
+
+  await deps.records?.remove(app.id, installed.scope);
 
   if (removeUserData) {
     for (const name of userDataDirCandidates(app, 'darwin')) {
