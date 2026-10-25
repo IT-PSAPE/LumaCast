@@ -310,6 +310,13 @@ describe("soundboard renderer", () => {
     vi.useRealTimers();
   });
 
+  it("explains a missing desktop bridge instead of throwing on undefined", async () => {
+    vi.stubGlobal("soundboard", undefined);
+    render(<App />);
+    expect(await screen.findByText(/desktop bridge is missing/)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("rejects invalid time ranges without sending them to the API", async () => {
     const playback = { startTime: 1, endTime: 5, loop: false, shortcut: null };
     const api = apiFor(library(board("one", "Board", [sound("tone", "Tone", playback)])));

@@ -83,8 +83,8 @@ export function createChordStore(api: ChordDesktopAPI) {
 
     return {
       // ── State ────────────────────────────────────────────────────────
-      // A fresh, untitled, empty project so `Welcome` and the rest of the
-      // shell have a real document to read before `newDocument`/
+      // A fresh, untitled, empty project so the editor opens straight into it
+      // and the rest of the shell has a real document to read before `newDocument`/
       // `openDocument` ever runs (matches how the app opens in practice: an
       // untitled document exists from launch, mirroring most desktop apps).
       document: { project: createEmptyProject(nowIso(), createId()), path: null },

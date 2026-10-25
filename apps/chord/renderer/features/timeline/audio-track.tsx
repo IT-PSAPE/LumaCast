@@ -3,6 +3,7 @@
 // range only.
 import { useEffect, useRef } from 'react';
 import { useChordStore } from '../../store';
+import { importAudio } from '../library/import-flows';
 import { timelineEndMs, useAudioWaveform } from '../playback';
 import { msToPx } from './timeline-math';
 
@@ -13,7 +14,6 @@ export function AudioTrack() {
   const audioUrl = useChordStore((state) => state.media.audioUrl);
   const view = useChordStore((state) => state.timeline);
   const project = useChordStore((state) => state.document.project);
-  const setAudio = useChordStore((state) => state.setAudio);
 
   const waveform = useAudioWaveform(audioUrl ?? undefined);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -55,12 +55,6 @@ export function AudioTrack() {
     }
   }, [waveform.peaks, view.scrollMs, view.zoom, view.viewportWidth, durationMs]);
 
-  async function handleImportAudio() {
-    const imported = await window.lumachord?.importMedia('audio');
-    if (!imported) return;
-    setAudio({ path: imported.path, name: imported.name, durationMs: null }, imported.url);
-  }
-
   return (
     <div className="flex border-b border-secondary" style={{ height: AUDIO_TRACK_HEIGHT_PX }} data-ui-region="audio-track">
       <div className="flex w-32 shrink-0 flex-col justify-center gap-0.5 border-r border-secondary bg-primary px-2">
@@ -68,7 +62,7 @@ export function AudioTrack() {
         {audio ? (
           <span className="truncate paragraph-xs text-tertiary" title={audio.name}>{audio.name}</span>
         ) : (
-          <button type="button" onClick={handleImportAudio} className="w-fit label-xs text-brand hover:underline">
+          <button type="button" onClick={() => void importAudio()} className="w-fit label-xs text-brand hover:underline">
             Import audio
           </button>
         )}
@@ -78,7 +72,7 @@ export function AudioTrack() {
           <canvas ref={canvasRef} className="absolute inset-0" />
         ) : (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center paragraph-xs text-tertiary">
-            No audio
+            Drop an audio file here
           </div>
         )}
       </div>

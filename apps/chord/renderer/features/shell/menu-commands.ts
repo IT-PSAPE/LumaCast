@@ -38,7 +38,7 @@ export function useMenuCommands(): void {
           void importBackground();
           break;
         case 'export':
-          openExportDialog();
+          if (store.document.project.cues.length > 0 || store.document.project.audio !== null) openExportDialog();
           break;
         case 'export-cues':
           openCueFormatChooser();

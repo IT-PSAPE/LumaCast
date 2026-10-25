@@ -62,7 +62,8 @@ export function CueTab() {
   if (selected.length === 0) {
     return (
       <EmptyState.Root>
-        <EmptyState.Title>Select a lyric on the timeline</EmptyState.Title>
+        <EmptyState.Title>{cues.length === 0 ? 'No lyrics yet' : 'Select a lyric on the timeline'}</EmptyState.Title>
+        {cues.length === 0 ? <EmptyState.Description>Drop a lyric file or add a cue from the timeline.</EmptyState.Description> : null}
       </EmptyState.Root>
     );
   }

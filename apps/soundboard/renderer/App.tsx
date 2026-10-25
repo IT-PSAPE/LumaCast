@@ -125,6 +125,7 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
     setLoading(true);
     setLoadError("");
     try {
+      if (!api) throw new Error("LumaSoundboard's desktop bridge is missing. Open the LumaSoundboard app window; this page cannot run in a browser tab or an outdated instance.");
       const next = await api.load();
       if (request !== loadRequest.current) return;
       setLibrary(next);

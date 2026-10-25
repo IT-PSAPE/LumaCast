@@ -55,8 +55,19 @@ describe('TopBar', () => {
     expect(testStore.undo).toHaveBeenCalledTimes(1);
   });
 
-  it('the Export button opens the export dialog', () => {
+  it('the Export button is disabled for an empty project', () => {
     testStore = createTestStore();
+    render(<TopBar />);
+    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'New' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Open' })).toBeEnabled();
+  });
+
+  it('the Export button opens the export dialog', () => {
+    const project = createTestStore().document.project;
+    testStore = createTestStore({
+      document: { project: { ...project, cues: [{ id: 'a', startMs: 0, endMs: null, text: 'Hi', override: null }] }, path: null },
+    });
     render(<TopBar />);
     expect(screen.queryByTestId('export-dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Export' }));

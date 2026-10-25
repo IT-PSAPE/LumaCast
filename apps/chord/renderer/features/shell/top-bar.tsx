@@ -265,6 +265,7 @@ function CueFormatChooserDialog() {
 }
 
 export function TopBar() {
+  const isEmpty = useChordStore((s) => s.document.project.cues.length === 0 && s.document.project.audio === null);
   const exportDialogOpen = useShellUiState((s) => s.exportDialogOpen);
 
   return (
@@ -285,7 +286,7 @@ export function TopBar() {
 
       <Toolbar.End>
         <LyricsExportMenu />
-        <ReacstButton className="bg-brand text-white hover:bg-brand/90" onClick={openExportDialog}>
+        <ReacstButton className="bg-brand text-white hover:bg-brand/90" disabled={isEmpty} onClick={openExportDialog}>
           Export
         </ReacstButton>
       </Toolbar.End>

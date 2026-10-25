@@ -206,6 +206,11 @@ export function LyricTrack() {
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
       >
+        {cues.length === 0 ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center paragraph-xs text-tertiary">
+            Drop a lyric file, or add a cue
+          </div>
+        ) : null}
         {cues.map((cue, index) => {
           const endMs = cueEndMs(cues, index, endOfTimelineMs);
           const left = msToPx(cue.startMs - view.scrollMs, view.zoom);

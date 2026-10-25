@@ -19,6 +19,17 @@ describe('Inspector', () => {
   it('shows the empty state on the Cue tab with nothing selected', () => {
     testStore = createTestStore({ inspectorTab: 'cue', selection: [] });
     render(<Inspector />);
+    expect(screen.getByText('No lyrics yet')).toBeInTheDocument();
+  });
+
+  it('asks for a selection once cues exist', () => {
+    const project = createTestStore().document.project;
+    testStore = createTestStore({
+      inspectorTab: 'cue',
+      selection: [],
+      document: { project: { ...project, cues: [{ id: 'a', startMs: 0, endMs: null, text: 'Hello', override: null }] }, path: null },
+    });
+    render(<Inspector />);
     expect(screen.getByText('Select a lyric on the timeline')).toBeInTheDocument();
   });
 
