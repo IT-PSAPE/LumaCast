@@ -12,6 +12,7 @@ describe('apps/flux DesktopAPI contract', () => {
     const methods = [...source.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
 
     expect(methods).toEqual([
+      'platform',
       'command',
       'chooseImport',
       'chooseDirectory',
@@ -20,6 +21,7 @@ describe('apps/flux DesktopAPI contract', () => {
       'assetUrl',
       'pathsForFiles',
       'onChange',
+      'onMenuCommand',
       'settings',
       'updateSettings',
     ]);

@@ -1,6 +1,7 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
+import type { AppCommand } from '../shared/app-command';
 import type { DesktopAPI } from '../shared/desktop-api';
-import { CATALOG_CHANGE_CHANNEL, IPC_CHANNELS } from './ipc-channels';
+import { CATALOG_CHANGE_CHANNEL, IPC_CHANNELS, MENU_COMMAND_CHANNEL } from './ipc-channels';
 
 // The one and only surface the renderer can reach. It is a fixed set of
 // channels over `ipcRenderer.invoke`; the renderer never sees a module
@@ -10,6 +11,7 @@ import { CATALOG_CHANGE_CHANNEL, IPC_CHANNELS } from './ipc-channels';
 // `window.lumaflux` keeps the name the Lumaflux UI already uses; only the
 // implementation behind it is new.
 const api: DesktopAPI = {
+  platform: process.platform,
   command: (name, args) => ipcRenderer.invoke(IPC_CHANNELS.command, name, args),
   chooseImport: (folder) => ipcRenderer.invoke(IPC_CHANNELS.chooseImport, folder),
   chooseDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.chooseDirectory),
@@ -29,6 +31,11 @@ const api: DesktopAPI = {
     const handler = () => callback();
     ipcRenderer.on(CATALOG_CHANGE_CHANNEL, handler);
     return () => ipcRenderer.removeListener(CATALOG_CHANGE_CHANNEL, handler);
+  },
+  onMenuCommand: (callback) => {
+    const handler = (_event: IpcRendererEvent, command: AppCommand) => callback(command);
+    ipcRenderer.on(MENU_COMMAND_CHANNEL, handler);
+    return () => ipcRenderer.removeListener(MENU_COMMAND_CHANNEL, handler);
   },
   settings: () => ipcRenderer.invoke(IPC_CHANNELS.agentSettings),
   updateSettings: (enabled, roots) => ipcRenderer.invoke(IPC_CHANNELS.updateAgentSettings, enabled, roots),

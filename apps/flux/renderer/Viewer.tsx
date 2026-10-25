@@ -22,6 +22,7 @@ import {
   type PixelReadout,
 } from "./histogram-data";
 import { fullCrop, resizeCrop, type CropBox } from "./crop";
+import { primaryShortcutLabel } from "./shortcuts";
 export function Viewer({
   onHistogram,
   onSample,
@@ -313,7 +314,7 @@ export function Viewer({
         <Toolbar.Group label="Edit history">
           <ReacstButton.Icon
             size="sm"
-            title="Undo (⌘Z)"
+            title={`Undo (${primaryShortcutLabel(window.lumaflux?.platform, "Z")})`}
             aria-label="Undo"
             disabled={!photo.history.length || busy}
             onClick={() => onAction("undo")}
@@ -322,7 +323,7 @@ export function Viewer({
           </ReacstButton.Icon>
           <ReacstButton.Icon
             size="sm"
-            title="Redo (⇧⌘Z)"
+            title={`Redo (${primaryShortcutLabel(window.lumaflux?.platform, "Z", true)})`}
             aria-label="Redo"
             disabled={!photo.future.length || busy}
             onClick={() => onAction("redo")}

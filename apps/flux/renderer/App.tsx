@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Images,
   FolderOpen,
@@ -38,6 +38,8 @@ import { Adjustments } from "./Adjustments";
 import { FolderBrowser } from "./FolderBrowser";
 import { Viewer } from "./Viewer";
 import { AgentDialog, ExportDialog } from "./Dialogs";
+import type { AppCommand } from "../shared/app-command";
+import { isTypingTarget, primaryShortcutLabel, resolveShortcut } from "./shortcuts";
 declare global {
   interface Window {
     lumaflux: DesktopAPI;
@@ -295,38 +297,67 @@ export function App() {
       photos[Math.max(0, Math.min(photos.length - 1, activeIndex + direction))];
     if (next) select(next);
   };
+  // The ids a rating or favourite key applies to: the active photo in the
+  // editor; in the gallery the visible selection, else the focused photo.
+  const keyTargets = () => {
+    if (view === "editor") return photo ? [photo] : [];
+    const chosen = photos.filter((p) => selected.has(p.id));
+    return chosen.length ? chosen : photo ? [photo] : [];
+  };
+  const runCommand = (command: AppCommand) => {
+    if (command === "select-all") {
+      void safe(() => run("set_selection", { ids: photos.map((p) => p.id) }));
+    } else if (command === "undo" || command === "redo") {
+      if (isTypingTarget(document.activeElement)) {
+        document.execCommand(command);
+      } else if (!busy) void safe(() => action(command));
+    } else if (command === "next") navigate(1);
+    else if (command === "previous") navigate(-1);
+    else if (command === "toggle-clipping")
+      setClipping((previous) => ({
+        shadows: !(previous.shadows && previous.highlights),
+        highlights: !(previous.shadows && previous.highlights),
+      }));
+    else if (command === "library") setView("gallery");
+    else if (command === "edit") {
+      if (!photo) return;
+      setView("editor");
+      if (section === "jobs") setSection("all");
+    } else if (command === "favorite") {
+      const targets = keyTargets();
+      const favorite = !targets.every((p) => p.favorite);
+      void safe(async () => {
+        for (const p of targets) await api.command("update_metadata", { id: p.id, favorite });
+        await refresh();
+      });
+    } else if (command.startsWith("rate-")) {
+      const rating = Number(command.slice(5));
+      const targets = keyTargets();
+      void safe(async () => {
+        for (const p of targets) await api.command("update_metadata", { id: p.id, rating });
+        await refresh();
+      });
+    } else if (command === "import-photos") {
+      if (!busy) void safe(async () => importPaths(await api.chooseImport()));
+    } else if (command === "import-folder") {
+      if (!busy) void safe(async () => importPaths(await api.chooseImport(true)));
+    } else if (command === "export") {
+      if (state.selection.length) setExportOpen(true);
+    }
+  };
+  const commandRef = useRef(runCommand);
+  commandRef.current = runCommand;
+  useEffect(() => api.onMenuCommand((command) => commandRef.current(command)), []);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement;
-      if (
-        target.closest('input,textarea,select,[role="slider"],[role="dialog"]')
-      )
-        return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
-        event.preventDefault();
-        void safe(() => run("set_selection", { ids: photos.map((p) => p.id) }));
-      } else if (
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "z"
-      ) {
-        event.preventDefault();
-        if (!busy) void safe(() => action(event.shiftKey ? "redo" : "undo"));
-      } else if (event.key === "ArrowRight") navigate(1);
-      else if (event.key === "ArrowLeft") navigate(-1);
-      else if (event.key.toLowerCase() === "j" && view === "editor")
-        setClipping((previous) => ({
-          shadows: !(previous.shadows && previous.highlights),
-          highlights: !(previous.shadows && previous.highlights),
-        }));
-      else if (event.key.toLowerCase() === "g") setView("gallery");
-      else if (event.key.toLowerCase() === "e" && photo) {
-        setView("editor");
-        if (section === "jobs") setSection("all");
-      } else if (event.key === "Escape") setView("gallery");
+      const command = resolveShortcut(event, view);
+      if (!command) return;
+      if (command === "select-all") event.preventDefault();
+      commandRef.current(command);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  });
+  }, [view]);
   return (
     <div
       className="app"
@@ -686,7 +717,9 @@ export function App() {
                           )}
                         </button>
                         <div className="tile-info">
-                          <span title={p.name}>{p.name}</span>
+                          <span title={`${p.name} · ${p.width} × ${p.height}`}>
+                            {p.name}
+                          </span>
                           <button
                             aria-label={`Favorite ${p.name}`}
                             aria-pressed={p.favorite}
@@ -706,14 +739,14 @@ export function App() {
                           </button>
                         </div>
                         <div className="tile-bottom">
-                          <span>
-                            {p.width} × {p.height}
-                          </span>
-                          <div className="stars">
+                          <div
+                            className={`stars ${p.rating > 0 ? "rated" : ""}`}
+                          >
                             {[1, 2, 3, 4, 5].map((n) => (
                               <button
                                 key={n}
                                 aria-label={`Rate ${p.name} ${n}`}
+                                aria-pressed={p.rating === n}
                                 onClick={() =>
                                   safe(() =>
                                     run("update_metadata", {
@@ -735,29 +768,32 @@ export function App() {
                     ))}
                   </div>
                   <div className="gallery-footer">
-                    <ReacstButton
-                      size="sm"
-                      variant="ghost"
-                      onClick={() =>
-                        safe(() =>
-                          run("set_selection", {
-                            ids: photos.map((p) => p.id),
-                          }),
-                        )
-                      }
-                    >
-                      Select all
-                    </ReacstButton>
-                    <ReacstButton
-                      size="sm"
-                      variant="ghost"
-                      disabled={!state.selection.length}
-                      onClick={() =>
-                        safe(() => run("set_selection", { ids: [] }))
-                      }
-                    >
-                      Clear selection
-                    </ReacstButton>
+                    {state.selection.length > 0 && (
+                      <>
+                        <ReacstButton
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            safe(() =>
+                              run("set_selection", {
+                                ids: photos.map((p) => p.id),
+                              }),
+                            )
+                          }
+                        >
+                          Select all
+                        </ReacstButton>
+                        <ReacstButton
+                          size="sm"
+                          variant="ghost"
+                          onClick={() =>
+                            safe(() => run("set_selection", { ids: [] }))
+                          }
+                        >
+                          Clear selection
+                        </ReacstButton>
+                      </>
+                    )}
                     <span className="spacer" />
                     <Slider
                       className="w-40"
@@ -865,7 +901,7 @@ export function App() {
           <StatusBar.Item>
             {state.activity[0]?.source === "MCP"
               ? `Agent: ${state.activity[0].action}`
-              : "G Library · E Edit · Arrow keys Navigate · ⌘Z Undo"}
+              : `G Library · E Edit · ← → Navigate · 0–5 Rate · F Favorite · ${primaryShortcutLabel(api.platform, "Z")} Undo`}
           </StatusBar.Item>
         </StatusBar.End>
       </StatusBar>

@@ -194,12 +194,8 @@ h3 {
 }
 .tile-bottom {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: flex-end;
   margin: 0 2px 3px;
-  color: var(--text-color-tertiary);
-  font-size: 10px;
-  gap: 6px;
 }
 .stars {
   display: flex;
@@ -207,6 +203,23 @@ h3 {
 }
 .stars button {
   color: var(--color-brand);
+}
+/* Rating and favourite controls appear on hover, focus, or selection. They
+ * stay in the tab order and the accessibility tree; an applied rating or
+ * favourite is always visible. */
+.stars:not(.rated),
+.tile-info button:not([aria-pressed="true"]) {
+  opacity: 0;
+}
+.photo-tile:hover .stars,
+.photo-tile:hover .tile-info button,
+.photo-tile:focus-within .stars,
+.photo-tile:focus-within .tile-info button,
+.photo-tile.selected .stars,
+.photo-tile.selected .tile-info button,
+.photo-tile.focused .stars,
+.photo-tile.focused .tile-info button {
+  opacity: 1;
 }
 .gallery-footer {
   height: 32px;

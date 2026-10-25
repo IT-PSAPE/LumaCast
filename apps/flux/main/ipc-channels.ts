@@ -20,3 +20,6 @@ export const CATALOG_CHANGE_CHANNEL = 'catalog-change';
 
 /** Channels the renderer invokes, in the order main registers them. */
 export const INVOKED_CHANNELS: readonly IpcChannel[] = Object.values(IPC_CHANNELS);
+
+/** The channel main pushes to the renderer when a native menu item is chosen. */
+export const MENU_COMMAND_CHANNEL = 'menu-command';

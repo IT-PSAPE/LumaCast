@@ -17,7 +17,8 @@ import { APP_IDENTITY } from './app-identity';
 import { createMainWindow } from './window';
 import { resolveUserData } from './user-data';
 import { resolveImagingResources } from './imaging/paths';
-import { CATALOG_CHANGE_CHANNEL, IPC_CHANNELS } from './ipc-channels';
+import { CATALOG_CHANGE_CHANNEL, IPC_CHANNELS, MENU_COMMAND_CHANNEL } from './ipc-channels';
+import { installApplicationMenu } from './application-menu';
 import { startMcp } from './mcp/server';
 
 // The `lumaflux:` scheme serves photo thumbnails to <img> elements. It is
@@ -296,6 +297,14 @@ if (!app.requestSingleInstanceLock()) {
 
       service.on('change', () => {
         if (window && !window.isDestroyed()) window.webContents.send(CATALOG_CHANGE_CHANNEL);
+      });
+
+      installApplicationMenu({
+        platform: process.platform,
+        isPackaged: app.isPackaged,
+        emit: (command) => {
+          if (window && !window.isDestroyed()) window.webContents.send(MENU_COMMAND_CHANNEL, command);
+        },
       });
 
       const openWindow = () => {

@@ -9,8 +9,11 @@
 // user script that reads the bridge. Photo metadata and edit types come from
 // @lumacast/photo-model, which is renderer-safe by construction.
 import type { AgentSettings, Recipe } from '@lumacast/photo-model';
+import type { AppCommand } from './app-command';
 
 export interface DesktopAPI {
+  /** `process.platform`, for platform-correct shortcut labels. */
+  platform: string;
   command: (name: string, args?: unknown) => Promise<any>;
   chooseImport: (folder?: boolean) => Promise<string[]>;
   chooseDirectory: () => Promise<string | null>;
@@ -23,6 +26,7 @@ export interface DesktopAPI {
   assetUrl: (id: string, revision: number) => string;
   pathsForFiles: (files: File[]) => string[];
   onChange: (callback: () => void) => () => void;
+  onMenuCommand: (callback: (command: AppCommand) => void) => () => void;
   settings: () => Promise<AgentSettings>;
   updateSettings: (enabled: boolean, roots: string[]) => Promise<AgentSettings>;
 }
