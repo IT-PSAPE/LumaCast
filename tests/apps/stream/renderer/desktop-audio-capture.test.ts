@@ -5,7 +5,7 @@ import { retainDesktopAudioTracks } from '../../../../apps/stream/renderer/deskt
 describe('desktop audio capture tracks', () => {
   it('stops captured video immediately and retains audio for the mixer', () => {
     const videoTrack = { kind: 'video', stop: vi.fn() } as unknown as MediaStreamTrack;
-    const audioTrack = { kind: 'audio', stop: vi.fn() } as unknown as MediaStreamTrack;
+    const audioTrack = { kind: 'audio', stop: vi.fn() } as unknown as MediaStreamAudioTrack;
     const stream = {
       getAudioTracks: () => [audioTrack],
       getTracks: () => [videoTrack, audioTrack],

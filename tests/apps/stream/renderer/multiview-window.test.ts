@@ -38,6 +38,10 @@ function stubRect(video: HTMLVideoElement, width: number, height: number): void 
   });
 }
 
+// Narrow cast at the fake boundary: the window only issues drawing calls and sets style
+// properties, so a Proxy that swallows every method call is a faithful stand-in.
+const drawingSink = new Proxy({}, { get: (_target, property) => (property === 'canvas' ? undefined : () => undefined), set: () => true }) as unknown as CanvasRenderingContext2D;
+
 describe('Stream multiview window', () => {
   let frames: FrameRequestCallback[];
   let controls: MultiviewWindowControl[];
@@ -53,6 +57,9 @@ describe('Stream multiview window', () => {
     capturedStream = { getTracks: () => [track] } as unknown as MediaStream;
     captureStreamSpy = vi.fn(() => capturedStream);
     Object.defineProperty(HTMLCanvasElement.prototype, 'captureStream', { value: captureStreamSpy, configurable: true });
+    // jsdom has no canvas backend, so getContext('2d') returns null and the window skips
+    // drawFrame (and with it the layout used for hit-testing). Provide a drawing-call sink.
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => drawingSink);
     vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
       frames.push(callback);
       return frames.length;

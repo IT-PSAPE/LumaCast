@@ -8,6 +8,8 @@ afterEach(cleanup);
 function renderDock(overrides: { settings?: Partial<StreamServiceSettings>; getZoomAccount?: () => Promise<any> } = {}) {
   const settings: StreamServiceSettings = { ...createDefaultStreamServiceSettings(), ...overrides.settings };
   const onChange = vi.fn();
+  const onGoLive = vi.fn();
+  const onStopStreaming = vi.fn();
   const api = {
     getZoomAccount: vi.fn(overrides.getZoomAccount ?? (() => Promise.resolve(null))),
     connectZoomAccount: vi.fn().mockResolvedValue({ userId: 'zoom-user', displayName: 'Host', email: 'host@example.com' }),
@@ -15,7 +17,7 @@ function renderDock(overrides: { settings?: Partial<StreamServiceSettings>; getZ
     listZoomMeetings: vi.fn().mockResolvedValue([{ id: 'meeting-1', topic: 'Town hall', startTime: '2026-10-20T14:00:00Z', durationMinutes: 60, status: 'waiting' }]),
     createZoomMeeting: vi.fn().mockResolvedValue({ id: 'meeting-2', topic: 'Product launch', startTime: '2026-10-21T14:00:00Z', durationMinutes: 45, status: 'waiting' }),
   } as unknown as StreamAPI;
-  render(<ZoomDock api={api} settings={settings} onChange={onChange} status={{ state: 'stopped' }} onHide={vi.fn()} />);
+  render(<ZoomDock api={api} settings={settings} onChange={onChange} status={{ state: 'stopped' }} onGoLive={onGoLive} onStopStreaming={onStopStreaming} onHide={vi.fn()} />);
   return { api, settings, onChange };
 }
 

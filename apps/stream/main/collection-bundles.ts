@@ -203,7 +203,8 @@ export class CollectionBundleStore {
       await rename(temporaryPath, outputPath);
       return true;
     } catch (error) {
-      zip.outputStream.destroy(error instanceof Error ? error : new Error('Scene collection export failed.'));
+      // @types/yazl declares NodeJS.ReadableStream, but yazl's outputStream is a PassThrough (a Readable with destroy).
+      (zip.outputStream as Readable).destroy(error instanceof Error ? error : new Error('Scene collection export failed.'));
       await writePromise.catch(() => undefined);
       await rm(temporaryPath, { force: true });
       throw error;

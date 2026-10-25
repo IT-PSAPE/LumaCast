@@ -25,7 +25,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function createService(fetcher: typeof fetch, openExternal = vi.fn(async () => undefined)) {
+async function createService(fetcher: typeof fetch, openExternal: (rawUrl: string) => Promise<void> = vi.fn(async () => undefined)) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-zoom-live-'));
   temporaryDirectories.push(directory);
   return {
@@ -61,16 +61,19 @@ describe('Zoom Meeting integration', () => {
       if (url === 'https://api.zoom.us/v2/users/me') return jsonResponse({ id: account.userId, display_name: account.displayName, email: account.email });
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
-    let authorizationUrl: URL | null = null;
+    // Assigned inside the openExternal callback; a holder keeps TypeScript from narrowing a bare `let` to null.
+    const captured: { authorizationUrl?: URL } = {};
     const openExternal = vi.fn(async (rawUrl: string) => {
-      authorizationUrl = new URL(rawUrl);
-      const callback = new URL(authorizationUrl.searchParams.get('redirect_uri')!);
-      callback.search = new URLSearchParams({ code: 'authorization-code', state: authorizationUrl.searchParams.get('state')! }).toString();
+      const url = new URL(rawUrl);
+      captured.authorizationUrl = url;
+      const callback = new URL(url.searchParams.get('redirect_uri')!);
+      callback.search = new URLSearchParams({ code: 'authorization-code', state: url.searchParams.get('state')! }).toString();
       expect((await fetch(callback)).ok).toBe(true);
     });
     const { directory, service } = await createService(fetcher, openExternal);
 
     await expect(service.connect()).resolves.toEqual(account);
+    const authorizationUrl = captured.authorizationUrl;
 
     expect(authorizationUrl?.searchParams.get('code_challenge_method')).toBe('S256');
     expect(authorizationUrl?.searchParams.get('scope')).toContain('user:read:zak');
@@ -92,7 +95,7 @@ describe('Zoom Meeting integration', () => {
       calls.push({ url, init });
       if (url.endsWith('/users/me/meetings') && init?.method === 'POST') return jsonResponse({ id: 12345678901, topic: 'Launch planning', start_time: '2026-10-20T14:00:00Z', duration: 45, status: 'waiting' });
       if (url.includes('/users/me/meetings?')) return jsonResponse({ meetings: [{ id: 12345678900, topic: 'Town hall', start_time: '2026-10-20T14:00:00Z', duration: 60, status: 'waiting' }] });
-      if (url.endsWith('/users/me/zak')) return jsonResponse({ token: 'short-lived-zak' });
+      if (url.endsWith('/users/me/token?type=zak')) return jsonResponse({ token: 'short-lived-zak' });
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
     const { directory, service } = await createService(fetcher);
@@ -105,7 +108,7 @@ describe('Zoom Meeting integration', () => {
     expect(calls[0]?.url).toContain('type=upcoming');
     expect(calls[0]?.url).toContain('page_size=100');
     expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({ topic: 'Launch planning', type: 2, duration: 45 });
-    expect(calls[2]?.url).toBe('https://api.zoom.us/v2/users/me/zak');
+    expect(calls[2]?.url).toBe('https://api.zoom.us/v2/users/me/token?type=zak');
     expect(created).toMatchObject({ id: '12345678901', topic: 'Launch planning', durationMinutes: 45 });
   });
 

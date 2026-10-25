@@ -9,7 +9,7 @@ import type {
   AgentThreadSummary,
 } from '@lumacast/protocol';
 import { createDefaultAgentConfig } from '@lumacast/protocol';
-import { ConfirmProvider } from '@lumacast/ui';
+import { ConfirmProvider, OverlayStackProvider } from '@lumacast/ui';
 import { AgentChatProvider } from '@renderer/features/agent/chat/agent-chat-context';
 import { AgentChatPopup } from '@renderer/features/agent/chat/agent-chat-popup';
 import { AgentChatTrigger } from '@renderer/features/agent/chat/agent-chat-trigger';
@@ -29,51 +29,22 @@ if (typeof Element.prototype.getAnimations !== 'function') {
   Element.prototype.getAnimations = () => [];
 }
 
-// ─── Workbench / overlay-stack mock ────────────────────────────────
-// A real, React-observable stack — overlays register from an effect and only
-// re-read `isTopmost` once that registration re-renders them (same reasoning
-// as tests/app/renderer/components/overlays/workbench-overlay-stack.ts).
+// ─── Workbench mock ────────────────────────────────────────────────
+// The popup reads only `actions` from the workbench. Overlay stacking and the
+// #overlay-root portal target come from the package's real
+// `OverlayStackProvider`, mounted in the Harness below.
 
-const workbench = vi.hoisted(() => {
-  const listeners = new Set<() => void>();
-  let stack: string[] = [];
-  function emit() { for (const listener of listeners) listener(); }
-  return {
-    setWorkbenchMode: vi.fn(),
-    setSettingsTab: vi.fn(),
-    subscribe(listener: () => void) { listeners.add(listener); return () => listeners.delete(listener); },
-    getStack: () => stack,
-    register: (id: string) => { if (!stack.includes(id)) { stack = [...stack, id]; emit(); } },
-    unregister: (id: string) => { if (stack.includes(id)) { stack = stack.filter((entry) => entry !== id); emit(); } },
-    reset() { stack = []; emit(); },
-  };
-});
+const workbench = vi.hoisted(() => ({
+  setWorkbenchMode: vi.fn(),
+  setSettingsTab: vi.fn(),
+}));
 
-function overlayRoot(): HTMLElement {
-  const existing = document.getElementById('overlay-root');
-  if (existing) return existing;
-  const created = document.createElement('div');
-  created.id = 'overlay-root';
-  document.body.appendChild(created);
-  return created;
-}
-
-vi.mock('@renderer/contexts/workbench-context', async () => {
-  const react = await vi.importActual<typeof import('react')>('react');
-  return {
-    useWorkbench: () => ({
-      state: {},
-      actions: { setWorkbenchMode: workbench.setWorkbenchMode, setSettingsTab: workbench.setSettingsTab },
-      overlayStack: {
-        rootElement: overlayRoot(),
-        stack: react.useSyncExternalStore(workbench.subscribe, workbench.getStack),
-        baseZIndex: 9000,
-        register: workbench.register,
-        unregister: workbench.unregister,
-      },
-    }),
-  };
-});
+vi.mock('@renderer/contexts/workbench-context', () => ({
+  useWorkbench: () => ({
+    state: {},
+    actions: { setWorkbenchMode: workbench.setWorkbenchMode, setSettingsTab: workbench.setSettingsTab },
+  }),
+}));
 
 // ─── Fixtures ───────────────────────────────────────────────────────
 
@@ -157,12 +128,14 @@ function buildCastApi() {
 
 function Harness() {
   return (
-    <ConfirmProvider>
-      <AgentChatProvider>
-        <AgentChatTrigger />
-        <AgentChatPopup.Root />
-      </AgentChatProvider>
-    </ConfirmProvider>
+    <OverlayStackProvider>
+      <ConfirmProvider>
+        <AgentChatProvider>
+          <AgentChatTrigger />
+          <AgentChatPopup.Root />
+        </AgentChatProvider>
+      </ConfirmProvider>
+    </OverlayStackProvider>
   );
 }
 
@@ -177,7 +150,6 @@ async function openConfiguredPopup() {
 }
 
 beforeEach(() => {
-  workbench.reset();
   castApi = buildCastApi();
   (window as unknown as { castApi: unknown }).castApi = castApi;
   window.localStorage.clear();

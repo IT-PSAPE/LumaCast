@@ -11,12 +11,18 @@ class FakeTrack extends EventTarget {
   }
 }
 
+// Narrow cast at the fake boundary: listenForMediaStreamEnd only reads readyState and
+// add/removeEventListener, which FakeTrack implements; the rest of MediaStreamTrack is unused.
+function streamOf(...tracks: FakeTrack[]): Pick<MediaStream, 'getTracks'> {
+  return { getTracks: () => tracks as unknown as MediaStreamTrack[] };
+}
+
 describe('media stream end listener', () => {
   it('fires once after every track ends and removes its listeners', () => {
     const audio = new FakeTrack();
     const video = new FakeTrack();
     const onEnd = vi.fn();
-    listenForMediaStreamEnd({ getTracks: () => [audio, video] }, onEnd);
+    listenForMediaStreamEnd(streamOf(audio, video), onEnd);
 
     audio.end();
     expect(onEnd).not.toHaveBeenCalled();
@@ -29,7 +35,7 @@ describe('media stream end listener', () => {
   it('can detach before the tracks end', () => {
     const audio = new FakeTrack();
     const onEnd = vi.fn();
-    const detach = listenForMediaStreamEnd({ getTracks: () => [audio] }, onEnd);
+    const detach = listenForMediaStreamEnd(streamOf(audio), onEnd);
 
     detach();
     audio.end();

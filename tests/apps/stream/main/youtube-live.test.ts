@@ -41,7 +41,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-async function createService(fetcher: typeof fetch, openExternal = vi.fn(async () => undefined), output = createOutput()) {
+async function createService(fetcher: typeof fetch, openExternal: (rawUrl: string) => Promise<void> = vi.fn(async () => undefined), output = createOutput()) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-youtube-live-'));
   temporaryDirectories.push(directory);
   return {
@@ -90,17 +90,20 @@ describe('YouTube Live integration', () => {
       if (url.endsWith('/channels?part=id,snippet&mine=true')) return jsonResponse({ items: [{ id: 'channel-1', snippet: { title: 'Test Channel' } }] });
       throw new Error(`Unexpected request: ${url}`);
     }) as typeof fetch;
-    let authorizationUrl: URL | null = null;
+    // Assigned inside the openExternal callback; a holder keeps TypeScript from narrowing a bare `let` to null.
+    const captured: { authorizationUrl?: URL } = {};
     const openExternal = vi.fn(async (rawUrl: string) => {
-      authorizationUrl = new URL(rawUrl);
-      const callback = new URL(authorizationUrl.searchParams.get('redirect_uri')!);
-      callback.search = new URLSearchParams({ code: 'authorization-code', state: authorizationUrl.searchParams.get('state')! }).toString();
+      const url = new URL(rawUrl);
+      captured.authorizationUrl = url;
+      const callback = new URL(url.searchParams.get('redirect_uri')!);
+      callback.search = new URLSearchParams({ code: 'authorization-code', state: url.searchParams.get('state')! }).toString();
       const response = await fetch(callback);
       expect(response.ok).toBe(true);
     });
     const { directory, service } = await createService(fetcher, openExternal);
 
     await expect(service.connect()).resolves.toEqual(account);
+    const authorizationUrl = captured.authorizationUrl;
 
     expect(authorizationUrl?.searchParams.get('code_challenge_method')).toBe('S256');
     expect(authorizationUrl?.searchParams.get('scope')).toBe('https://www.googleapis.com/auth/youtube.force-ssl');

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Menubar as BaseMenubar } from '@base-ui/react/menubar';
 import { Menu } from '@base-ui/react/menu';
 import { cn } from './cn';
@@ -45,6 +45,10 @@ export interface MenubarProps {
 export function Menubar({ menus, className, label }: MenubarProps) {
   const container = useOverlayContainer();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Menu a sibling just took over from. Its popup must not hand focus back to
+  // its own trigger on the way out: that focus-in re-opens it (trigger-focus)
+  // and the two menus then fight over the open slot.
+  const displacedMenuId = useRef<string | null>(null);
 
   return (
     <BaseMenubar modal={false} aria-label={label} className={cn('flex h-full items-center gap-0.5', className)}>
@@ -52,7 +56,12 @@ export function Menubar({ menus, className, label }: MenubarProps) {
         <Menu.Root
           key={menu.id}
           open={openMenuId === menu.id}
-          onOpenChange={(nextOpen) => {
+          onOpenChange={(nextOpen, eventDetails) => {
+            if (nextOpen) {
+              if (openMenuId !== null && openMenuId !== menu.id) displacedMenuId.current = openMenuId;
+            } else if (eventDetails.reason === 'list-navigation') {
+              displacedMenuId.current = menu.id;
+            }
             setOpenMenuId((current) => {
               if (nextOpen) return menu.id;
               return current === menu.id ? null : current;
@@ -65,7 +74,14 @@ export function Menubar({ menus, className, label }: MenubarProps) {
               {/* App menus run wider than a row's context menu (longer labels,
                   shortcut hints), so the shared surface's context-menu width
                   cap is relaxed here. */}
-              <Menu.Popup className={cn(SURFACE_CLASSES, 'max-w-72 min-w-48')}>
+              <Menu.Popup
+                className={cn(SURFACE_CLASSES, 'max-w-72 min-w-48')}
+                finalFocus={() => {
+                  const displaced = displacedMenuId.current === menu.id;
+                  if (displaced) displacedMenuId.current = null;
+                  return !displaced;
+                }}
+              >
                 <MenuEntries entries={menu.entries} />
               </Menu.Popup>
             </Menu.Positioner>

@@ -272,13 +272,13 @@ export class ZoomLiveService {
   }
 
   private async refreshTokens(current: OAuthTokens): Promise<OAuthTokens> {
-    if (!this.confidentialClientId || !this.clientSecret) throw this.reconnectRequired();
-    const authorization = Buffer.from(`${this.confidentialClientId}:${this.clientSecret}`, 'utf8').toString('base64');
-    const response = await this.fetcher(ZOOM_TOKEN, {
-      method: 'POST',
-      headers: { authorization: `Basic ${authorization}`, 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ refresh_token: current.refreshToken, grant_type: 'refresh_token' }),
-    });
+    const useConfidentialClient = Boolean(this.confidentialClientId && this.clientSecret);
+    const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded' };
+    const parameters = new URLSearchParams(useConfidentialClient ? {} : { client_id: this.publicClientId });
+    parameters.set('refresh_token', current.refreshToken);
+    parameters.set('grant_type', 'refresh_token');
+    if (useConfidentialClient) headers.authorization = `Basic ${Buffer.from(`${this.confidentialClientId}:${this.clientSecret}`, 'utf8').toString('base64')}`;
+    const response = await this.fetcher(ZOOM_TOKEN, { method: 'POST', headers, body: parameters });
     const body = await this.readJson<{ access_token?: string; refresh_token?: string; expires_in?: number }>(response);
     if (!response.ok || !body.access_token) throw parseZoomError(body, response.status);
     const next: OAuthTokens = {
@@ -293,10 +293,6 @@ export class ZoomLiveService {
 
   private oauthClientId(): string {
     return this.confidentialClientId && this.clientSecret ? this.confidentialClientId : this.publicClientId;
-  }
-
-  private reconnectRequired(): Error {
-    return new Error('Zoom access expired or was rejected. Reconnect your account to continue.');
   }
 
   private async loadAuth(): Promise<StoredZoomAuth | null> {

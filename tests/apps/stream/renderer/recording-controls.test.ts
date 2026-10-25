@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { pauseRecordingChannels, recordingElapsedTime, resumeRecordingChannels, stopRecordingChannels } from '../../../../apps/stream/renderer/recording-controls';
 
-function makeRecorder(initialState: MediaRecorderState = 'recording') {
+type RecordingState = MediaRecorder['state'];
+
+function makeRecorder(initialState: RecordingState = 'recording') {
   let state = initialState;
   return {
     get state() { return state; },

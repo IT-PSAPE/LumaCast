@@ -60,9 +60,6 @@ describe('Menubar', () => {
     expect(screen.getByText('Quit')).not.toBeNull();
   });
 
-  // KNOWN FAILING under jsdom: the pointer-type gate now passes and Base UI opens
-  // Edit (trigger-hover), but Edit's trigger-focus then reopens File and the
-  // focus ping-pong closes Edit again. Unresolved; not confirmed as a product bug.
   it('switches to a hovered sibling menu while one is open', async () => {
     render(<Menubar menus={buildMenus(() => {})} label="App menu" />);
 
@@ -100,10 +97,6 @@ describe('Menubar', () => {
     expect(document.activeElement?.textContent).toContain('Settings');
   });
 
-  // KNOWN FAILING under jsdom at the first ArrowLeft: Base UI closes Edit
-  // (list-navigation) but focus returning to the Edit trigger reopens it
-  // (trigger-focus) instead of landing on File. ArrowRight and the corrected
-  // focus-in-popup assertions pass. Unresolved; not confirmed as a product bug.
   it('closes the open menu and opens the adjacent one with ArrowRight/ArrowLeft, wrapping at the ends', async () => {
     render(<Menubar menus={buildMenus(() => {})} label="App menu" />);
 

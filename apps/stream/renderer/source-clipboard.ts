@@ -1,7 +1,7 @@
 import type { StreamSource } from '../shared/desktop-api';
 import { transformGroupChildren } from '../shared/source-tree';
 
-export function duplicateSource(source: StreamSource, id = crypto.randomUUID()): StreamSource {
+export function duplicateSource(source: StreamSource, id: string = crypto.randomUUID()): StreamSource {
   const copy = structuredClone(source);
   const regenerateIds = (item: StreamSource, nextId: string): StreamSource => ({
     ...item,

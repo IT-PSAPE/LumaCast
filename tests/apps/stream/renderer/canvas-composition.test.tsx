@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanvasComposition, hitTestSource } from '../../../../apps/stream/renderer/canvas-composition';
 import { createDefaultProject, type SourceKind, type StreamScene } from '../../../../apps/stream/shared/desktop-api';
 
-interface FakeContext extends Partial<CanvasRenderingContext2D> {
+// Only the drawing calls the composition makes; cast to CanvasRenderingContext2D at the getContext mock boundary.
+interface FakeContext {
   fillRect: ReturnType<typeof vi.fn>;
   drawImage: ReturnType<typeof vi.fn>;
   clearRect: ReturnType<typeof vi.fn>;
