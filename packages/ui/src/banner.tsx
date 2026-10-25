@@ -15,6 +15,13 @@ export interface BannerProps {
   action?: ReactNode;
   /** When supplied, renders a close control. */
   onDismiss?: () => void;
+  /** Accessible name of the close control. Defaults to "Dismiss". */
+  dismissLabel?: string;
+  /**
+   * Screen-reader announcement. Defaults by tone: `error` is assertive (role="alert");
+   * info, success and warning are polite (role="status"). `off` renders no live region role.
+   */
+  live?: 'polite' | 'assertive' | 'off';
   variant?: 'soft' | 'outline';
   size?: 'sm' | 'md';
   className?: string;
@@ -99,19 +106,22 @@ export function Banner({
   icon,
   action,
   onDismiss,
+  dismissLabel = 'Dismiss',
+  live = tone === 'error' ? 'assertive' : 'polite',
   variant = 'soft',
   size = 'md',
   className,
 }: BannerProps): ReactElement {
-  const live = tone === 'warning' || tone === 'error';
   const glyph = icon === undefined ? <ToneGlyph tone={tone} /> : icon;
   const hasBody = children !== undefined && children !== null && children !== false;
   const sm = size === 'sm';
 
   return (
     <div
-      role={live ? 'alert' : 'status'}
-      aria-live={live ? undefined : 'polite'}
+      role={live === 'assertive' ? 'alert' : live === 'polite' ? 'status' : undefined}
+      aria-live={live}
+      // Title and body are one message: announce the whole region when either changes.
+      aria-atomic={live === 'off' ? undefined : true}
       className={bannerVariants({ tone, variant, size, className })}
     >
       {glyph !== null && glyph !== false ? (
@@ -129,7 +139,7 @@ export function Banner({
       {onDismiss ? (
         <button
           type="button"
-          aria-label="Dismiss"
+          aria-label={dismissLabel}
           onClick={onDismiss}
           className="flex size-5 shrink-0 cursor-pointer items-center justify-center self-center rounded-sm text-secondary transition-colors hover:bg-tertiary hover:text-primary focus-visible:outline-2 focus-visible:outline-brand"
         >

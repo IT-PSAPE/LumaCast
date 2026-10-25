@@ -237,7 +237,8 @@ function ToastItem({ entry }: { entry: ToastEntry }): ReactElement {
     return () => clearTimeout(timer);
   }, [id, closing]);
 
-  const urgent = entry.tone === 'warning' || entry.tone === 'error';
+  // Only errors interrupt a screen reader; info, success and warning are polite (matches Banner).
+  const urgent = entry.tone === 'error';
 
   return (
     <div

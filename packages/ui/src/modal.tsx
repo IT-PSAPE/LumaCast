@@ -1,7 +1,7 @@
 import { type ReactNode, type RefObject } from 'react';
 import { Dialog } from '@base-ui/react/dialog';
 import { cn } from './cn';
-import { useOverlayStackEntry } from './overlay';
+import { useOverlayContainer, useOverlayStackEntry } from './overlay';
 
 // The close glyph is inlined rather than pulled from an icon package: @lumacast/ui
 // may depend only on `@lumacast/kernel`, so the markup is written here. The paths
@@ -59,6 +59,8 @@ export interface ModalProps {
   dismissible?: boolean;
   /** Element that receives focus on open. Defaults to Base UI's first-tabbable behaviour. */
   initialFocus?: RefObject<HTMLElement | null>;
+  /** ARIA role of the popup. Defaults to `dialog`; use `alertdialog` for interruptions that need a response. */
+  role?: 'dialog' | 'alertdialog';
 }
 
 // Modal is the app's dialog surface. The class names are part of the stylesheet
@@ -76,11 +78,15 @@ export function Modal({
   footer,
   dismissible = true,
   initialFocus,
+  role = 'dialog',
 }: ModalProps) {
   // Join the overlay stack so a modal opened from another modal is layered
   // above it, and so only the topmost one reacts to Escape. z-index is owned by
   // overlay.tsx (backdrop = slot, popup = slot + 1); the stylesheet sets none.
   const { zIndex, backdropZIndex, isTopmost } = useOverlayStackEntry(open, 'modal');
+  // Portal into the shared overlay root so sibling popups (Select, Popover) live
+  // in the same container; a body-level dialog would aria-hide that root.
+  const container = useOverlayContainer();
 
   return (
     <Dialog.Root
@@ -93,12 +99,13 @@ export function Modal({
         onClose();
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Backdrop className="modal-backdrop" style={{ zIndex: backdropZIndex }} />
+      <Dialog.Portal container={container}>
+        <Dialog.Backdrop className="modal-backdrop pointer-events-auto" style={{ zIndex: backdropZIndex }} />
         <Dialog.Popup
-          className={cn('modal', SIZE_CLASS[size], className)}
+          className={cn('modal pointer-events-auto', SIZE_CLASS[size], className)}
           style={{ zIndex }}
           initialFocus={initialFocus}
+          role={role}
         >
           <div className="modal-heading">
             {description ? (

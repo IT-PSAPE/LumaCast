@@ -21,6 +21,8 @@ export interface TabsProps {
 }
 
 export interface TabsListProps {
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
   className?: string;
   children: ReactNode;
 }
@@ -129,10 +131,14 @@ function Root({
   );
 }
 
-function List({ className, children }: TabsListProps) {
+function List({ className, children, 'aria-label': ariaLabel, 'aria-labelledby': ariaLabelledby }: TabsListProps) {
   const { orientation, variant } = useTabsStyle();
   return (
-    <BaseTabs.List activateOnFocus className={listStyles({ orientation, variant, className })}>
+    <BaseTabs.List
+      activateOnFocus
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledby}
+      className={listStyles({ orientation, variant, className })}>
       {children}
     </BaseTabs.List>
   );

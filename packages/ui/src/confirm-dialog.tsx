@@ -56,6 +56,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }): ReactEle
         title={options?.title ?? ''}
         description={options?.description}
         size="sm"
+        role="alertdialog"
         footer={
           <>
             <ReacstButton variant="ghost" onClick={() => settle(false)}>
