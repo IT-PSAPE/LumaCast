@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Badge, Modal, ReacstButton, StatusBar, StatusDot, TooltipProvider } from '@lumacast/ui';
+import { Badge, Modal, NumberField, ReacstButton, Select, StatusBar, StatusDot, Toolbar, TooltipProvider } from '@lumacast/ui';
 import { Clapperboard, ExternalLink, Radio } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
 import type { SceneTransitionType } from './scene-transition';
@@ -49,6 +49,14 @@ import { useHotkeys } from './features/hotkeys/use-hotkeys';
 import { useRuntimeStats } from './features/status/use-runtime-stats';
 import { useAppMenu } from './features/chrome/use-app-menu';
 import { useNativeMenu } from './features/chrome/use-native-menu';
+
+const transitionOptions: { value: SceneTransitionType; label: string }[] = [
+  { value: 'Fade', label: 'Fade' },
+  { value: 'Cut', label: 'Cut' },
+  { value: 'Swipe', label: 'Swipe' },
+  { value: 'Slide', label: 'Slide' },
+  { value: 'FadeToColor', label: 'Fade to Color' },
+];
 
 // Populated only if the build defines it (no current Vite config does); the
 // About dialog falls back to the product name alone when it's absent.
@@ -430,21 +438,26 @@ export function App() {
               </div>
             </div>
           </div>
-          <div className="monitor-status">
-            <div className="monitor-status-actions">
-              <div className="monitor-transition-controls">
-                <label className="transition-inline"><span>Transition</span><select aria-label="Scene transition" value={scenes.transitionType} onChange={(event) => scenes.setTransitionType(event.target.value as SceneTransitionType)}><option value="Fade">Fade</option><option value="Cut">Cut</option><option value="Swipe">Swipe</option><option value="Slide">Slide</option><option value="FadeToColor">Fade to Color</option></select></label>
-                {scenes.transitionType === 'FadeToColor' && <label className="transition-color-inline"><span>Color</span><input aria-label="Transition color" type="color" value={scenes.transitionColor} onChange={(event) => scenes.setTransitionColor(event.target.value)} /></label>}
-                <label className="transition-duration-inline"><input aria-label="Transition duration in milliseconds" type="number" min="50" max="5000" step="50" value={scenes.transitionMs} onChange={(event) => scenes.setTransitionMs(Math.max(50, Math.min(5000, Number(event.target.value) || 50)))} /><span>ms</span></label>
-                {project.studioMode && <ReacstButton variant="take" size="sm" disabled={project.activeSceneId === project.liveSceneId} onClick={scenes.takeScene}>Take <Clapperboard size={13} /></ReacstButton>}
-              </div>
-              <div className="monitor-status-tools">
-                <ReacstButton pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
-                <ReacstButton.Icon variant="ghost" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
-              </div>
-            </div>
-            <span className="monitor-zoom">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
-          </div>
+          <Toolbar size="sm" label="Program controls" className="border-t border-primary text-sm text-tertiary">
+            <Toolbar.Group label="Transition">
+              <span>Transition</span>
+              <Select<SceneTransitionType> size="sm" className="w-28" label="Scene transition" labelPlacement="hidden" value={scenes.transitionType} onValueChange={scenes.setTransitionType} options={transitionOptions} />
+              {scenes.transitionType === 'FadeToColor' && (
+                <label className="flex items-center gap-1.5 rounded-sm bg-tertiary px-2 py-1">
+                  <span>Color</span>
+                  <input aria-label="Transition color" type="color" className="h-[18px] w-[19px] cursor-pointer rounded-xs border border-primary bg-transparent p-px [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-xs [&::-webkit-color-swatch]:border-0" value={scenes.transitionColor} onChange={(event) => scenes.setTransitionColor(event.target.value)} />
+                </label>
+              )}
+              <NumberField size="sm" className="w-24" label="Transition duration in milliseconds" labelPlacement="hidden" suffix="ms" commitOn="change" min={50} max={5000} step={50} value={scenes.transitionMs} onValueChange={scenes.setTransitionMs} />
+              {project.studioMode && <ReacstButton variant="take" size="sm" disabled={project.activeSceneId === project.liveSceneId} onClick={scenes.takeScene}>Take <Clapperboard size={13} /></ReacstButton>}
+            </Toolbar.Group>
+            <Toolbar.Spacer />
+            <Toolbar.Group label="Program">
+              <ReacstButton pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
+              <ReacstButton.Icon variant="ghost" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
+            </Toolbar.Group>
+            <span className="shrink-0 rounded-xs bg-tertiary px-1.5 py-0.5">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
+          </Toolbar>
         </section>
 
         {visibleDockIds.includes('sources') && <SourcesDock

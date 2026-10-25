@@ -53,18 +53,6 @@ button:disabled { cursor: default; opacity: .43; }
 .live-tag { padding: 2px 5px; border: 0; border-radius: 3px; color: var(--color-success); background: color-mix(in srgb, var(--color-success) 15%, transparent); font: 500 var(--text-sm)/1.4 var(--font-family-sans); letter-spacing: 0; font-size: var(--text-sm); }
 .scene-menu button:hover:not(:disabled) { color: var(--text-color-primary); background: var(--background-color-tertiary); }.scene-menu button:disabled { opacity: .4; }.scene-menu .scene-menu-danger { color: var(--color-error); }
 
-.monitor-status-actions { min-width: 0; flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.monitor-transition-controls, .monitor-status-tools { min-width: 0; display: flex; align-items: center; gap: 5px; }
-.monitor-status-tools { flex: 0 0 auto; margin-left: auto; }
-.transition-inline { display: flex; align-items: center; gap: 5px; color: var(--text-color-tertiary); font-size: var(--text-sm); }
-.transition-inline select { width: 90px; height: 28px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--text-color-secondary); background: var(--background-color-tertiary); font-size: var(--text-label-xs); }
-.transition-duration-inline { height: 28px; display: flex; align-items: center; gap: 3px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--text-color-tertiary); background: var(--background-color-tertiary); font-size: var(--text-sm); }
-.transition-duration-inline input { width: 48px; border: 0; color: var(--text-color-secondary); background: transparent; font-size: var(--text-label-xs); text-align: right; }
-.transition-duration-inline input::-webkit-inner-spin-button { opacity: .4; }
-.transition-color-inline { height: 28px; display: flex; align-items: center; gap: 5px; padding: 0 5px; border: 0; border-radius: 4px; color: var(--text-color-tertiary); background: var(--background-color-tertiary); font-size: var(--text-sm); }
-.transition-color-inline input { width: 19px; height: 18px; padding: 1px; border: 1px solid var(--border-color-primary); border-radius: 3px; background: transparent; cursor: pointer; }
-.transition-color-inline input::-webkit-color-swatch-wrapper { padding: 0; }
-.transition-color-inline input::-webkit-color-swatch { border: 0; border-radius: 2px; }
 .monitor-stage { flex: 1; min-height: 0; display: grid; place-items: center; padding: 14px 18px 10px; }
 .monitor-stage.studio { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 12px; padding-inline: 12px; }
 .stage-panel { min-width: 0; width: 100%; display: flex; flex-direction: column; gap: 6px; }
@@ -83,8 +71,6 @@ button:disabled { cursor: default; opacity: .43; }
 .resize-nw { left: -4px; top: -4px; cursor: nwse-resize; }.resize-n { left: 50%; top: -4px; transform: translateX(-50%); cursor: ns-resize; }.resize-ne { right: -4px; top: -4px; cursor: nesw-resize; }
 .resize-e { right: -4px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }.resize-se { right: -4px; bottom: -4px; cursor: nwse-resize; }.resize-s { left: 50%; bottom: -4px; transform: translateX(-50%); cursor: ns-resize; }
 .resize-sw { left: -4px; bottom: -4px; cursor: nesw-resize; }.resize-w { left: -4px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
-.monitor-status { min-height: 36px; flex: 0 0 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-top: 1px solid var(--border-color-secondary); color: var(--text-color-tertiary); font-size: var(--text-sm); flex-basis: 36px; }
-.monitor-zoom { flex: 0 0 auto; padding: 3px 6px; border: 0; border-radius: 3px; color: var(--text-color-tertiary); background: var(--background-color-tertiary); font-size: var(--text-sm); }
 
 .controls-dock { padding-bottom: 5px; }
 .stream-button { height: 31px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 4px; color: var(--text-color-primary); background: color-mix(in srgb, var(--color-success) 15%, transparent); font-size: var(--text-label-xs); font-weight: 500; cursor: pointer; }
