@@ -13,9 +13,11 @@ const sound = (id: string, name = `Sound ${id}`, playback?: SoundPlaybackSetting
 const board = (id: string, name: string, sounds: Sound[] = []) => ({ id, name, sounds });
 const library = (...boards: SoundLibrary["boards"]): SoundLibrary => ({ version: 2, boards });
 
-function apiFor(initial: SoundLibrary): SoundboardAPI & { snapshot: () => SoundLibrary } {
+function apiFor(initial: SoundLibrary) {
   let value = initial;
   const clone = () => structuredClone(value);
+  // `satisfies`, not a return annotation: an annotation widens each vi.fn()
+  // back to a plain function and loses `.mock`.
   return {
     snapshot: clone,
     load: vi.fn(async () => clone()),
@@ -23,8 +25,8 @@ function apiFor(initial: SoundLibrary): SoundboardAPI & { snapshot: () => SoundL
     renameBoard: vi.fn(async (id, name) => { const item = value.boards.find((candidate) => candidate.id === id); if (item) item.name = name; return clone(); }),
     importSounds: vi.fn(async (id) => { const item = value.boards.find((candidate) => candidate.id === id); item?.sounds.push(sound(`${id}-sound`, "Imported cue")); return clone(); }),
     removeSound: vi.fn(async (boardId, soundId) => { const item = value.boards.find((candidate) => candidate.id === boardId); if (item) item.sounds = item.sounds.filter((itemSound) => itemSound.id !== soundId); return clone(); }),
-    updateSound: vi.fn(async (boardId, soundId, playback: SoundPlaybackSettings) => { const item = value.boards.find((candidate) => candidate.id === boardId)?.sounds.find((candidate) => candidate.id === soundId); if (item) item.playback = structuredClone(playback); return clone(); }),
-  };
+    updateSound: vi.fn(async (boardId: string, soundId: string, playback: SoundPlaybackSettings) => { const item = value.boards.find((candidate) => candidate.id === boardId)?.sounds.find((candidate) => candidate.id === soundId); if (item) item.playback = structuredClone(playback); return clone(); }),
+  } satisfies SoundboardAPI & { snapshot: () => SoundLibrary };
 }
 
 class FakeAudio {
@@ -61,6 +63,12 @@ function audioFactoryFor(elements: FakeAudio[]) {
   };
 }
 
+async function chooseFromMenu(soundName: string, item: string | RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: `More actions for ${soundName}` }));
+  const entry = await screen.findByRole(typeof item === "string" && item === "Loop range" ? "menuitemcheckbox" : "menuitem", { name: item });
+  fireEvent.click(entry);
+}
+
 describe("soundboard renderer", () => {
   it("creates boards, renames the selected board, imports sounds, and removes them", async () => {
     const api = apiFor(library());
@@ -87,7 +95,7 @@ describe("soundboard renderer", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Add sounds" })[0]!);
     expect(await screen.findByText("Imported cue")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Remove Imported cue" }));
+    await chooseFromMenu("Imported cue", "Remove sound");
     expect(await screen.findByText("No sounds in this board")).toBeInTheDocument();
     expect(api.removeSound).toHaveBeenCalledWith("board-1", "board-1-sound");
   });
@@ -100,12 +108,12 @@ describe("soundboard renderer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Play Rain" }));
     fireEvent.click(screen.getByRole("button", { name: "Play Bell" }));
-    await waitFor(() => expect(screen.getAllByText("PLAYING")).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByRole("button", { name: /^Pause / })).toHaveLength(2));
     expect(elements[0]!.play).toHaveBeenCalledOnce();
     expect(elements[1]!.play).toHaveBeenCalledOnce();
 
     act(() => { elements[0]!.currentTime = 7; elements[0]!.dispatch("timeupdate"); });
-    fireEvent.click(screen.getByRole("button", { name: "Pause Rain" }).closest(".play-button")!);
+    fireEvent.click(screen.getByRole("button", { name: "Pause Rain" }));
     expect(await screen.findByRole("button", { name: "Resume Rain" })).toBeInTheDocument();
     expect(elements[0]!.pause).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Stop Rain" }));
@@ -146,14 +154,15 @@ describe("soundboard renderer", () => {
     render(<App api={api} audioFactory={audioFactoryFor(elements)} />);
     fireEvent.click(await screen.findByRole("button", { name: /First/ }));
     fireEvent.click(screen.getByRole("button", { name: "Play Cue" }));
-    await waitFor(() => expect(screen.getByText("PLAYING")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pause Cue" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: /Second/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Board name" })).toHaveValue("Second"));
     expect(elements[0]!.currentTime).toBe(0);
     expect(elements[0]!.pause).toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: /First/ }));
-    fireEvent.click(await screen.findByRole("button", { name: "Remove Cue" }));
+    await screen.findByRole("button", { name: "Play Cue" });
+    await chooseFromMenu("Cue", "Remove sound");
     await screen.findByText("No sounds in this board");
     expect(elements[0]!.src).toBe("");
     expect(elements.at(-1)!.src).toBe("");
@@ -179,7 +188,7 @@ describe("soundboard renderer", () => {
     act(() => { elements[0]!.pause(); elements[0]!.dispatch("ended"); });
     await act(async () => { resolveEndedPlay(); await Promise.resolve(); });
     expect(screen.getByRole("button", { name: "Play Cue" })).toBeInTheDocument();
-    expect(screen.queryByText("PLAYING")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Pause / })).not.toBeInTheDocument();
 
     elements[0]!.pendingPlay = Promise.reject(new DOMException("blocked", "NotAllowedError"));
     fireEvent.click(screen.getByRole("button", { name: "Play Cue" }));
@@ -225,31 +234,66 @@ describe("soundboard renderer", () => {
     expect(await screen.findByText("Cue")).toBeInTheDocument();
   });
 
-  it("loads fractional timestamps, seeks inside the segment, and saves parsed values", async () => {
+  it("shows the saved range on the handles, seeks inside it, and saves handle moves immediately", async () => {
     const playback = { startTime: 1.5, endTime: 8.5, loop: false, shortcut: null };
     const elements: FakeAudio[] = [];
     const api = apiFor(library(board("one", "Board", [sound("tone", "Tone", playback)])));
     render(<App api={api} audioFactory={audioFactoryFor(elements)} />);
     await screen.findByText("Tone");
 
-    const start = screen.getByRole("textbox", { name: "Start time for Tone" });
-    const end = screen.getByRole("textbox", { name: "End time for Tone" });
-    expect(start).toHaveValue("0:01.5");
-    expect(end).toHaveValue("0:08.5");
-    const slider = screen.getByRole("slider", { name: "Seek Tone" });
-    expect(slider).toHaveAttribute("min", "1.5");
-    expect(slider).toHaveAttribute("max", "8.5");
-    fireEvent.change(slider, { target: { value: "4.125" } });
-    expect(elements[0]!.currentTime).toBe(4.125);
+    const start = screen.getByRole("slider", { name: "Start of Tone" });
+    const end = screen.getByRole("slider", { name: "End of Tone" });
+    expect(start).toHaveAttribute("aria-valuenow", "1.5");
+    expect(end).toHaveAttribute("aria-valuenow", "8.5");
+    expect(screen.queryByRole("textbox", { name: /time for Tone/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Save range/ })).toBeNull();
 
-    fireEvent.change(start, { target: { value: "00:02.125" } });
-    fireEvent.change(end, { target: { value: "00:07.75" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save range for Tone" }));
-    await waitFor(() => expect(api.updateSound).toHaveBeenCalledWith("one", "tone", {
-      ...playback,
-      startTime: 2.125,
-      endTime: 7.75,
-    }));
+    act(() => { elements[0]!.currentTime = 3; elements[0]!.dispatch("timeupdate"); });
+    fireEvent.keyDown(screen.getByRole("button", { name: /^(Play|Resume) Tone$/ }), { key: "ArrowRight", code: "ArrowRight" });
+    expect(elements[0]!.currentTime).toBe(4);
+    fireEvent.keyDown(screen.getByRole("button", { name: /^(Play|Resume) Tone$/ }), { key: "ArrowRight", code: "ArrowRight", shiftKey: true });
+    expect(elements[0]!.currentTime).toBe(8.5);
+
+    fireEvent.keyDown(start, { key: "ArrowRight" });
+    fireEvent.keyUp(start, { key: "ArrowRight" });
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "tone", { ...playback, startTime: 1.51 }));
+    fireEvent.keyDown(end, { key: "ArrowLeft", shiftKey: true });
+    fireEvent.keyUp(end, { key: "ArrowLeft", shiftKey: true });
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "tone", { ...playback, startTime: 1.51, endTime: 6.7 }));
+  });
+
+  it("sets in and out at the playhead from the I and O keys, the buttons and the menu", async () => {
+    const playback = { startTime: 0, endTime: null, loop: false, shortcut: null };
+    const elements: FakeAudio[] = [];
+    const api = apiFor(library(board("one", "Board", [sound("cue", "Cue", playback)])));
+    render(<App api={api} audioFactory={audioFactoryFor(elements)} />);
+    await screen.findByText("Cue");
+    const play = screen.getByRole("button", { name: "Play Cue" });
+
+    act(() => { elements[0]!.currentTime = 4; });
+    fireEvent.keyDown(play, { key: "i", code: "KeyI" });
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", { ...playback, startTime: 4 }));
+
+    act(() => { elements[0]!.currentTime = 9; });
+    fireEvent.keyDown(screen.getByRole("slider", { name: "End of Cue" }), { key: "o", code: "KeyO" });
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", { ...playback, startTime: 4, endTime: 9 }));
+
+    // Modified keys and text entry are ignored.
+    const calls = api.updateSound.mock.calls.length;
+    fireEvent.keyDown(play, { key: "i", code: "KeyI", metaKey: true });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Board name" }), { key: "i", code: "KeyI" });
+    expect(api.updateSound.mock.calls.length).toBe(calls);
+
+    // The out point cannot be placed at or before the in point: it is held one minimum range after it.
+    act(() => { elements[0]!.currentTime = 1; });
+    fireEvent.click(screen.getByRole("button", { name: "Set out for Cue" }));
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", { ...playback, startTime: 4, endTime: 4.1 }));
+
+    act(() => { elements[0]!.currentTime = 6; });
+    await chooseFromMenu("Cue", /^Set in at playhead/);
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", { ...playback, startTime: 4, endTime: 4.1 }));
+    await chooseFromMenu("Cue", "Reset range");
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", playback));
   });
 
   it("persists loop toggles and shortcut clearing without rebuilding the player", async () => {
@@ -259,15 +303,17 @@ describe("soundboard renderer", () => {
     render(<App api={api} audioFactory={audioFactoryFor(elements)} />);
     await screen.findByText("Cue");
 
-    const loopSwitch = screen.getByRole("switch", { name: "Loop Cue" });
+    const loopSwitch = screen.getByRole("button", { name: "Loop Cue" });
+    expect(loopSwitch).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(loopSwitch);
     await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", { ...playback, loop: true }));
-    expect(elements[0]!.loop).toBe(true);
+    await waitFor(() => expect(elements[0]!.loop).toBe(true));
     fireEvent.click(loopSwitch);
     await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", playback));
-    expect(elements[0]!.loop).toBe(false);
+    await waitFor(() => expect(elements[0]!.loop).toBe(false));
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear shortcut for Cue" }));
+    expect(screen.getByText("Ctrl + K")).toBeInTheDocument();
+    await chooseFromMenu("Cue", "Clear shortcut");
     await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "cue", { ...playback, shortcut: null }));
     expect(elements).toHaveLength(1);
   });
@@ -281,27 +327,25 @@ describe("soundboard renderer", () => {
     await waitFor(() => expect(elements[0]!.paused).toBe(false));
     act(() => { elements[0]!.currentTime = 5; elements[0]!.dispatch("timeupdate"); });
 
-    fireEvent.click(screen.getByRole("switch", { name: "Loop Cue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Loop Cue" }));
     await waitFor(() => expect(elements[0]!.loop).toBe(true));
     expect(elements[0]!.paused).toBe(false);
 
     vi.useFakeTimers();
-    const start = screen.getByRole("textbox", { name: "Start time for Cue" });
-    const end = screen.getByRole("textbox", { name: "End time for Cue" });
-    const save = screen.getByRole("button", { name: "Save range for Cue" });
-    fireEvent.change(start, { target: { value: "2" } });
-    fireEvent.change(end, { target: { value: "8" } });
-    await act(async () => { fireEvent.click(save); await Promise.resolve(); await Promise.resolve(); });
-    expect(api.snapshot().boards[0]!.sounds[0]!.playback).toEqual({ ...playback, startTime: 2, endTime: 8, loop: true });
+    const start = screen.getByRole("slider", { name: "Start of Cue" });
+    const end = screen.getByRole("slider", { name: "End of Cue" });
+    fireEvent.keyDown(start, { key: "Home" });
+    fireEvent.keyDown(end, { key: "End" });
+    act(() => { elements[0]!.currentTime = 5; });
+    await act(async () => { fireEvent.keyDown(screen.getByRole("button", { name: /Pause Cue/ }), { key: "i", code: "KeyI" }); await Promise.resolve(); await Promise.resolve(); });
+    expect(api.snapshot().boards[0]!.sounds[0]!.playback).toEqual({ ...playback, startTime: 5, loop: true });
     expect(elements[0]!.currentTime).toBe(5);
     expect(elements[0]!.paused).toBe(false);
     expect(vi.getTimerCount()).toBe(1);
 
-    fireEvent.change(start, { target: { value: "6" } });
-    fireEvent.change(end, { target: { value: "9" } });
-    await act(async () => { fireEvent.click(save); await Promise.resolve(); await Promise.resolve(); });
-    expect(api.snapshot().boards[0]!.sounds[0]!.playback).toEqual({ ...playback, startTime: 6, endTime: 9, loop: true });
-    expect(elements[0]!.currentTime).toBe(6);
+    act(() => { elements[0]!.currentTime = 7; });
+    await act(async () => { fireEvent.keyDown(screen.getByRole("button", { name: /Pause Cue/ }), { key: "o", code: "KeyO" }); await Promise.resolve(); await Promise.resolve(); });
+    expect(api.snapshot().boards[0]!.sounds[0]!.playback).toEqual({ ...playback, startTime: 5, endTime: 7, loop: true });
     expect(elements[0]!.paused).toBe(false);
     expect(vi.getTimerCount()).toBe(1);
     expect(elements).toHaveLength(1);
@@ -317,34 +361,25 @@ describe("soundboard renderer", () => {
     vi.unstubAllGlobals();
   });
 
-  it("rejects invalid time ranges without sending them to the API", async () => {
+  it("makes an invalid range unreachable: handles cannot cross or collapse, so nothing invalid is sent", async () => {
     const playback = { startTime: 1, endTime: 5, loop: false, shortcut: null };
     const api = apiFor(library(board("one", "Board", [sound("tone", "Tone", playback)])));
     render(<App api={api} audioFactory={audioFactoryFor([])} />);
     await screen.findByText("Tone");
-    const start = screen.getByRole("textbox", { name: "Start time for Tone" });
-    const end = screen.getByRole("textbox", { name: "End time for Tone" });
-    const save = screen.getByRole("button", { name: "Save range for Tone" });
+    const start = screen.getByRole("slider", { name: "Start of Tone" });
+    const end = screen.getByRole("slider", { name: "End of Tone" });
 
-    fireEvent.change(end, { target: { value: "0:00.5" } });
-    fireEvent.click(save);
-    expect(await screen.findByRole("alert")).toHaveTextContent("End time must be after start time.");
-    expect(api.updateSound).not.toHaveBeenCalled();
-
-    fireEvent.change(end, { target: { value: "18.01" } });
-    fireEvent.click(save);
-    expect(await screen.findByRole("alert")).toHaveTextContent("End time can’t exceed the audio duration.");
-    fireEvent.change(end, { target: { value: "1:" } });
-    fireEvent.click(save);
-    expect(await screen.findByRole("alert")).toHaveTextContent("End time must be after start time.");
-    fireEvent.change(end, { target: { value: "1:0x10" } });
-    fireEvent.click(save);
-    expect(await screen.findByRole("alert")).toHaveTextContent("End time must be after start time.");
-    fireEvent.change(end, { target: { value: "" } });
-    fireEvent.change(start, { target: { value: "18" } });
-    fireEvent.click(save);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Start time must be before the audio ends.");
-    expect(api.updateSound).not.toHaveBeenCalled();
+    fireEvent.keyDown(start, { key: "End" });
+    fireEvent.keyUp(start, { key: "End" });
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "tone", { ...playback, startTime: 4.9 }));
+    fireEvent.keyDown(end, { key: "Home" });
+    fireEvent.keyUp(end, { key: "Home" });
+    await waitFor(() => expect(api.updateSound).toHaveBeenLastCalledWith("one", "tone", { ...playback, startTime: 4.9, endTime: 5 }));
+    for (const [, , settings] of api.updateSound.mock.calls) {
+      expect(settings.endTime === null || settings.endTime - settings.startTime >= 0.099).toBe(true);
+      expect(settings.startTime).toBeGreaterThanOrEqual(0);
+    }
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("loops a partial segment and the full default range", async () => {
@@ -457,7 +492,7 @@ describe("soundboard renderer", () => {
     expect(elements[0]!.play).toHaveBeenCalledTimes(1);
 
     vi.mocked(document.hasFocus).mockReturnValue(true);
-    fireEvent.keyDown(screen.getByRole("textbox", { name: "Start time for Alpha" }), { key: "a", code: "KeyA", ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "Board name" }), { key: "a", code: "KeyA", ctrlKey: true });
     expect(elements[0]!.play).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Second" }));
     await screen.findByText("Beta");
@@ -470,7 +505,7 @@ describe("soundboard renderer", () => {
     const api = apiFor(library(board("one", "Board", [sound("cue", "Cue")])));
     render(<App api={api} audioFactory={audioFactoryFor([])} />);
     await screen.findByText("Cue");
-    fireEvent.click(screen.getByRole("button", { name: "Record shortcut for Cue" }));
+    await chooseFromMenu("Cue", "Record shortcut");
     vi.mocked(document.hasFocus).mockReturnValue(false);
     const unfocused = new KeyboardEvent("keydown", { key: "u", code: "KeyU", ctrlKey: true, bubbles: true, cancelable: true });
     act(() => { window.dispatchEvent(unfocused); });
@@ -492,9 +527,10 @@ describe("soundboard renderer", () => {
       shortcut: { code: "KeyK", ctrl: true, alt: false, shift: true, meta: false },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Record shortcut for Cue" }));
+    await chooseFromMenu("Cue", /^Change shortcut/);
+    expect(screen.getByRole("button", { name: "Cancel shortcut recording for Cue" })).toBeInTheDocument();
     act(() => { window.dispatchEvent(new Event("blur")); });
-    expect(screen.getByRole("button", { name: "Record shortcut for Cue" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Cancel shortcut recording for Cue" })).toBeNull();
     const late = new KeyboardEvent("keydown", { key: "x", code: "KeyX", ctrlKey: true, bubbles: true, cancelable: true });
     act(() => { window.dispatchEvent(late); });
     expect(api.updateSound).toHaveBeenCalledTimes(1);

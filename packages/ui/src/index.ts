@@ -49,6 +49,7 @@ export { TextField, type TextFieldProps } from './text-field';
 export { Textarea, type TextareaProps } from './textarea';
 export { NumberField, type NumberFieldProps } from './number-field';
 export { Slider, type SliderProps } from './slider';
+export { RangeSlider, type RangeSliderProps, type RangeValue } from './range-slider';
 export { ColorField, normalizeHex, type ColorFieldProps } from './color-field';
 export {
   Tabs,

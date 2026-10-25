@@ -1,22 +1,20 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   AudioLines,
-  Check,
   CircleStop,
   Disc3,
   FolderPlus,
   Headphones,
-  Keyboard,
   Pause,
   Play,
   Plus,
+  Repeat,
   RotateCcw,
   Sparkles,
-  Trash2,
   Volume2,
-  X,
+  Ellipsis,
 } from "lucide-react";
-import { Badge, Banner, EmptyState, ListRow, Panel, ReacstButton as Button, Sidebar, Slider, StatusBar, StatusDot, Switch, TextField, WindowChrome } from "@lumacast/ui";
+import { Banner, DropdownMenu, EmptyState, ListRow, Panel, RangeSlider, ReacstButton as Button, Sidebar, StatusBar, StatusDot, TextField, WindowChrome, type MenuEntry } from "@lumacast/ui";
 import type { Sound, SoundBoard, SoundLibrary, SoundboardAPI, SoundPlaybackSettings, SoundShortcut } from "../shared/desktop-api";
 import { defaultPlaybackSettings } from "../shared/desktop-api";
 import { soundUrl } from "../shared/desktop-api";
@@ -52,26 +50,6 @@ function formatTimestamp(seconds: number) {
     : `${minutes}:${secondText.padStart(2, "0")}`;
 }
 
-function parseTimestamp(input: string): number | null {
-  const value = input.trim();
-  if (!value) return null;
-  if (/^\d+(?:\.\d+)?$/.test(value)) return Number(value);
-  const parts = value.split(":");
-  if (parts.length !== 2 && parts.length !== 3) return Number.NaN;
-  const secondsText = parts[parts.length - 1]!;
-  const minutesText = parts[parts.length - 2]!;
-  const hoursText = parts.length === 3 ? parts[0]! : "0";
-  if (!/^(?:[0-5]?\d)(?:\.\d+)?$/.test(secondsText)) return Number.NaN;
-  if (parts.length === 2 && !/^\d+$/.test(minutesText)) return Number.NaN;
-  if (parts.length === 3 && !/^\d{1,2}$/.test(minutesText)) return Number.NaN;
-  if (!/^\d+$/.test(hoursText)) return Number.NaN;
-  const seconds = Number(secondsText);
-  const minutes = Number(minutesText);
-  const hours = Number(hoursText);
-  if (parts.length === 3 && minutes >= 60) return Number.NaN;
-  return hours * 3600 + minutes * 60 + seconds;
-}
-
 function shortcutLabel(shortcut: SoundShortcut | null | undefined) {
   if (!shortcut) return "No shortcut";
   const parts = [shortcut.ctrl && "Ctrl", shortcut.alt && "Alt", shortcut.shift && "Shift", shortcut.meta && "Meta"] .filter(Boolean);
@@ -84,6 +62,16 @@ function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) return false;
   return target.closest("input, textarea, select, [contenteditable='true']") !== null;
 }
+
+// Range handles are `input[type=range]`, which are not text entry: I/O must work while one is focused.
+function isTextEntryTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return target.closest("input:not([type='range']), textarea, select, [contenteditable='true']") !== null;
+}
+
+const MIN_RANGE = 0.1;
+const OUT_OF_RANGE = "The saved time range is outside this audio file.";
+const round = (value: number) => Math.round(value * 100) / 100;
 
 function matchesShortcut(event: KeyboardEvent, shortcut: SoundShortcut | null | undefined) {
   return Boolean(shortcut && event.code === shortcut.code && event.ctrlKey === shortcut.ctrl && event.altKey === shortcut.alt && event.shiftKey === shortcut.shift && event.metaKey === shortcut.meta);
@@ -244,10 +232,10 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
     {chrome}
     <div className="app-shell">
       <Sidebar width={258} className="board-rail">
-        <Sidebar.Group label="Your boards" count={library?.boards.length ?? 0}>
+        <Sidebar.Group label="Your boards">
           <Sidebar.Nav aria-label="Sound boards">
             {library?.boards.map((board) => <ListRow key={board.id} as="button" selected={board.id === activeBoardId} disabled={busy} onClick={() => switchBoard(board.id)} aria-label={board.name}>
-              <ListRow.Leading><Disc3 size={17} /></ListRow.Leading><ListRow.Label>{board.name}</ListRow.Label><ListRow.Meta>{board.sounds.length}</ListRow.Meta>
+              <ListRow.Leading><Disc3 size={17} /></ListRow.Leading><ListRow.Label>{board.name}</ListRow.Label>
             </ListRow>)}
           </Sidebar.Nav>
           <form className="mt-2" onSubmit={(event) => { event.preventDefault(); createBoard(); }}>
@@ -259,7 +247,7 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
 
       <Panel className="min-w-0">
         <Panel.Header>
-          <Panel.HeaderTitle icon={<Volume2 size={16} />} count={activeBoard?.sounds.length}>{activeBoard?.name ?? "Boards"}</Panel.HeaderTitle>
+          <Panel.HeaderTitle icon={<Volume2 size={16} />}>{activeBoard?.name ?? "Boards"}</Panel.HeaderTitle>
           {activeBoard && <Panel.HeaderActions><Button size="md" label="Add sounds" onClick={importSounds} disabled={busy}><Plus size={16} /><span>Add sounds</span></Button>{activeBoard.sounds.length > 0 && <Button variant="ghost" size="md" label="Stop all" onClick={stopAll}><CircleStop size={16} /><span>Stop all</span></Button>}</Panel.HeaderActions>}
         </Panel.Header>
         <Panel.Body>
@@ -280,7 +268,7 @@ function BoardContent({ board, busy, renameValue, setRenameValue, onRename, onIm
   board: SoundBoard; busy: boolean; renameValue: string | null; setRenameValue: (value: string | null) => void; onRename: (event: FormEvent) => void; onImport: () => void; onRemove: (sound: Sound) => void; onUpdateSound: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recordingShortcutId: string | null; setRecordingShortcutId: (soundId: string | null) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void;
 }) {
   return <>
-      <div className="board-heading"><div><form className="title-form" onSubmit={onRename}><TextField label="Board name" labelPlacement="hidden" value={renameValue ?? board.name} onValueChange={setRenameValue} maxLength={48} disabled={busy} className="w-[min(100%,360px)]" /><Button variant="take" size="sm" label="Save" type="submit" disabled={busy || !renameValue?.trim() || renameValue.trim() === board.name}>Save</Button></form><p className="board-subtitle">{board.sounds.length ? `${board.sounds.length} sound${board.sounds.length === 1 ? "" : "s"} in this collection` : "A quiet canvas, ready for your next sound."}</p></div></div>
+      <div className="board-heading"><div><form className="title-form" onSubmit={onRename}><TextField label="Board name" labelPlacement="hidden" value={renameValue ?? board.name} onValueChange={setRenameValue} maxLength={48} disabled={busy} className="w-[min(100%,360px)]" /><Button variant="take" size="sm" label="Save" type="submit" disabled={busy || !renameValue?.trim() || renameValue.trim() === board.name}>Save</Button></form></div></div>
     {board.sounds.length === 0 ? <EmptyState.Root className="min-h-[375px] rounded-lg border border-dashed border-primary"><EmptyState.Icon><Volume2 size={22} /></EmptyState.Icon><EmptyState.Title>No sounds in this board</EmptyState.Title><EmptyState.Description>Add audio files to start building your collection.</EmptyState.Description><EmptyState.Action><Button variant="primary" size="xl" label="Add sounds" onClick={onImport} disabled={busy}><Plus size={16} /> Add sounds</Button></EmptyState.Action></EmptyState.Root>
       : <div className="sound-grid">{board.sounds.map((sound, index) => <SoundTile key={sound.id} sound={sound} index={index} busy={busy} onRemove={() => onRemove(sound)} onUpdate={onUpdateSound} recording={recordingShortcutId === sound.id} onRecordingChange={(isRecording) => setRecordingShortcutId(isRecording ? sound.id : null)} audioFactory={audioFactory} register={register} />)}</div>}
   </>;
@@ -304,10 +292,11 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
   const playIntent = useRef(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [startText, setStartText] = useState(() => formatTimestamp(settings.startTime));
-  const [endText, setEndText] = useState(() => settings.endTime === null ? "" : formatTimestamp(settings.endTime));
-  const [scrub, setScrub] = useState<number | null>(null);
-  const [rangeError, setRangeError] = useState("");
+  const [draft, setDraft] = useState<[number, number] | null>(null);
+  const pendingRange = useRef<[number, number] | null>(null);
+  const savingRange = useRef(false);
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
   const [error, setError] = useState("");
   const markPlaying = useCallback((value: boolean) => {
     playingRef.current = value;
@@ -406,7 +395,7 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
     if (!element.paused) { pause(); return; }
     const latest = settingsRef.current;
     if (!validPlayback(latest)) {
-      setError(durationRef.current > 0 ? "The saved time range is outside this audio file." : "Audio duration is still loading.");
+      setError(durationRef.current > 0 ? OUT_OF_RANGE : "Audio duration is still loading.");
       return;
     }
     clearBoundary();
@@ -426,7 +415,7 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
       if (alive.current && request === playRequest.current) {
         playIntent.current = false;
         markPlaying(false);
-        setError(reason instanceof Error && reason.name === "NotAllowedError" ? "Playback was blocked. Try again." : "This audio file couldn’t be played.");
+        setError((reason as { name?: unknown } | null)?.name === "NotAllowedError" ? "Playback was blocked. Try again." : "This audio file couldn’t be played.");
       }
     }
   }, [busy, clearBoundary, markPlaying, pause, scheduleBoundary, validPlayback]);
@@ -456,7 +445,7 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
           playIntent.current = false;
           element.pause();
         }
-        setError(length > 0 ? "The saved time range is outside this audio file." : "Audio duration couldn’t be read.");
+        setError(length > 0 ? OUT_OF_RANGE : "Audio duration couldn’t be read.");
         return;
       }
       if (element.paused) {
@@ -513,12 +502,6 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
   }, [audioFactory, clearBoundary, handleBoundary, markPlaying, register, resetToSegmentStart, scheduleBoundary, sound.id, stop, validPlayback]);
 
   useEffect(() => {
-    setStartText(formatTimestamp(settings.startTime));
-    setEndText(settings.endTime === null ? "" : formatTimestamp(settings.endTime));
-    setRangeError("");
-  }, [settings.startTime, settings.endTime]);
-
-  useEffect(() => {
     const element = audio.current;
     if (!element) return;
     element.loop = settings.loop && settings.startTime === 0 && settings.endTime === null;
@@ -531,6 +514,7 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
       }
       return;
     }
+    setError((message) => message === OUT_OF_RANGE ? "" : message);
     if (element.currentTime < settings.startTime || element.currentTime >= (settings.endTime ?? durationRef.current)) {
       element.currentTime = settings.startTime;
       setCurrent(settings.startTime);
@@ -565,32 +549,62 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
     };
   }, [onRecordingChange, onUpdate, recording, sound.id]);
 
-  const handleSeek = (value: number) => {
+  const seekTo = (value: number) => {
     const element = audio.current;
     if (!element || !validPlayback(settings)) return;
+    const end = settings.endTime ?? durationRef.current;
+    const target = Math.min(end, Math.max(settings.startTime, value));
     clearBoundary();
-    element.currentTime = value;
-    setCurrent(value);
+    element.currentTime = target;
+    setCurrent(target);
     if (!element.paused) scheduleBoundary();
   };
 
-  const saveRange = async (event: FormEvent) => {
-    event.preventDefault();
-    const start = parseTimestamp(startText);
-    const end = endText.trim() ? parseTimestamp(endText) : null;
+  // Range edits apply as they are made. The draft keeps the handles under the pointer while a
+  // save is in flight; edits made during a save coalesce into one follow-up write.
+  const commitRange = async (range: [number, number]) => {
+    pendingRange.current = range;
+    if (savingRange.current) return;
+    savingRange.current = true;
+    try {
+      while (pendingRange.current) {
+        const [from, to] = pendingRange.current;
+        pendingRange.current = null;
+        const length = durationRef.current;
+        await onUpdateRef.current(sound.id, { ...settingsRef.current, startTime: from, endTime: length > 0 && to >= length - 0.005 ? null : to });
+      }
+    } finally {
+      savingRange.current = false;
+      if (alive.current) setDraft(null);
+    }
+  };
+
+  const playhead = () => audio.current?.currentTime ?? current;
+  const markIn = () => {
     const length = durationRef.current;
-    let message = "";
-    if (start === null || !Number.isFinite(start) || start < 0) message = "Enter a valid start time.";
-    else if (end !== null && (!Number.isFinite(end) || end <= start)) message = "End time must be after start time.";
-    else if (length <= 0) message = "Audio duration is still loading.";
-    else if (length > 0 && start >= length) message = "Start time must be before the audio ends.";
-    else if (length > 0 && end !== null && end > length) message = "End time can’t exceed the audio duration.";
-    if (message) { setRangeError(message); return; }
-    const updated = { ...settingsRef.current, startTime: start!, endTime: end };
-    setRangeError("");
-    const ok = await onUpdate(sound.id, updated);
-    if (ok && audio.current && !validPlayback(updated)) {
-      setRangeError(durationRef.current > 0 ? "The saved time range is outside this audio file." : "Audio duration is still loading.");
+    const end = settingsRef.current.endTime ?? length;
+    if (length <= 0 || end - MIN_RANGE < 0) return;
+    const from = round(Math.min(Math.max(0, playhead()), end - MIN_RANGE));
+    void commitRange([from, end]);
+  };
+  const markOut = () => {
+    const length = durationRef.current;
+    if (length <= 0) return;
+    const start = settingsRef.current.startTime;
+    const to = round(Math.min(length, Math.max(playhead(), start + MIN_RANGE)));
+    void commitRange([start, to]);
+  };
+  const resetRange = () => { void commitRange([0, durationRef.current]); };
+
+  const onCardKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    // Menu popups are portalled but still bubble here through React; only keys from inside the card count.
+    if (event.defaultPrevented || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!event.currentTarget.contains(event.target as Node) || isTextEntryTarget(event.target)) return;
+    if (event.code === "KeyI") { event.preventDefault(); markIn(); }
+    else if (event.code === "KeyO") { event.preventDefault(); markOut(); }
+    else if ((event.code === "ArrowLeft" || event.code === "ArrowRight") && (event.target as Element).closest("[data-transport]")) {
+      event.preventDefault();
+      seekTo(playhead() + (event.code === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 5 : 1));
     }
   };
 
@@ -601,23 +615,49 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
     void onUpdate(sound.id, { ...settingsRef.current, shortcut: null });
   };
 
-  const boundary = settings.endTime ?? duration;
-  const maxSeek = Math.max(settings.startTime, boundary || settings.startTime);
-  const seekValue = Math.min(maxSeek, Math.max(settings.startTime, current));
-  const shownValue = scrub ?? seekValue;
+  const trackMax = duration > 0 ? duration : Math.max(1, settings.endTime ?? 1);
+  const savedEnd = Math.min(trackMax, settings.endTime ?? trackMax);
+  const range: [number, number] = draft ?? [Math.min(settings.startTime, Math.max(0, savedEnd - MIN_RANGE)), savedEnd];
+  const trimmed = range[0] > 0 || (duration > 0 && range[1] < duration - 0.005);
+  const canEdit = duration > 0;
+  const shortcutText = settings.shortcut ? shortcutLabel(settings.shortcut) : null;
 
-  return <article className={`sound-card group ${playing ? "is-playing" : ""}`} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }}>
-    <div className="card-topline"><span className="track-number">{String(index + 1).padStart(2, "0")}</span><Badge tone={playing ? "brand" : "neutral"} dot>{playing ? "PLAYING" : "READY"}</Badge><Button.Icon className="ml-auto opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100" label={`Remove ${sound.name}`} variant="danger" size="sm" onClick={onRemove} disabled={busy}><Trash2 size={15} /></Button.Icon></div>
-    <div className={`sound-art art-${index % 5}`}><div className="art-ring ring-a" /><div className="art-ring ring-b" /><div className="art-center"><AudioLines size={23} /></div><div className="art-orb orb-a" /><div className="art-orb orb-b" /></div>
-    <div className="sound-copy"><h2 title={sound.name}>{sound.name}</h2><p>{audioType(sound.fileName)}</p></div>
-    <div className="progress-wrap"><Slider label={`Seek ${sound.name}`} labelPlacement="hidden" size="sm" min={settings.startTime} max={maxSeek} step={0.01} value={shownValue} disabled={duration <= 0 || !validPlayback(settings)} onValueChange={setScrub} onCommit={(value) => { handleSeek(value); setScrub(null); }} /><div className="time-row"><span>{formatTime(shownValue)}</span><span>{formatTime(maxSeek)}</span></div></div>
-    <div className="card-controls"><Button.Icon variant="primary" size="xl" shape="pill" label={playing ? `Pause ${sound.name}` : current > settings.startTime ? `Resume ${sound.name}` : `Play ${sound.name}`} onClick={() => { void togglePlay(); }} disabled={busy || duration <= 0 || !validPlayback(settings)}>{playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</Button.Icon><Button.Icon label={`Stop ${sound.name}`} variant="ghost" size="xl" onClick={stop} disabled={busy || !playing && current === settings.startTime}><CircleStop /></Button.Icon><span className="duration-label"><Volume2 size={13} /> {formatTime(duration)}</span></div>
-    <form className="segment-settings" onSubmit={(event) => { void saveRange(event); }}>
-      <div className="segment-fields"><TextField size="sm" label={`Start time for ${sound.name}`} labelPlacement="hidden" icon={<span>Start</span>} value={startText} placeholder="0:00" onValueChange={(value) => { setStartText(value); setRangeError(""); }} /><TextField size="sm" label={`End time for ${sound.name}`} labelPlacement="hidden" icon={<span>End</span>} value={endText} placeholder="Full duration" onValueChange={(value) => { setEndText(value); setRangeError(""); }} /><Button size="sm" label={`Save range for ${sound.name}`} type="submit" disabled={busy}>Save</Button></div>
-      <div className="loop-row"><span>Loop</span><Switch checked={settings.loop} onCheckedChange={changeLoop} label={`Loop ${sound.name}`} disabled={busy} /></div>
-      {rangeError && <Banner tone="error" size="sm" icon={null} className="mt-2">{rangeError}</Banner>}
-    </form>
-    <div className="shortcut-row"><div className="shortcut-current"><Keyboard size={14} /><kbd>{shortcutLabel(settings.shortcut)}</kbd></div><Button size="xs" className="ml-auto" label={recording ? `Cancel shortcut recording for ${sound.name}` : `Record shortcut for ${sound.name}`} variant={recording ? "take" : "ghost"} onClick={() => onRecordingChange(!recording)} onBlur={() => { if (recording) onRecordingChange(false); }} disabled={busy}>{recording ? <><Check size={13} /> Press a key</> : "Shortcut"}</Button>{settings.shortcut && <Button.Icon size="xs" label={`Clear shortcut for ${sound.name}`} variant="ghost" onClick={clearShortcut} disabled={busy}><X size={13} /></Button.Icon>}</div>
+  const menuEntries: MenuEntry[] = [
+    { id: "in", label: "Set in at playhead", shortcut: "I", onSelect: markIn, disabled: !canEdit },
+    { id: "out", label: "Set out at playhead", shortcut: "O", onSelect: markOut, disabled: !canEdit },
+    { id: "reset", label: "Reset range", onSelect: resetRange, disabled: !canEdit || !trimmed },
+    { separator: true },
+    { id: "loop", label: "Loop range", checked: settings.loop, onSelect: () => changeLoop(!settings.loop), disabled: busy },
+    { separator: true },
+    { id: "record", label: recording ? "Cancel shortcut recording" : shortcutText ? `Change shortcut (${shortcutText})` : "Record shortcut", onSelect: () => onRecordingChange(!recording), disabled: busy },
+    { id: "clear", label: "Clear shortcut", onSelect: clearShortcut, disabled: busy || !settings.shortcut },
+    { separator: true },
+    { id: "remove", label: "Remove sound", danger: true, onSelect: onRemove, disabled: busy },
+  ];
+
+  const reveal = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100";
+
+  return <article className={`sound-card group ${playing ? "is-playing" : ""}`} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }} onKeyDown={onCardKeyDown}>
+    <div className="card-head">
+      <div className={`sound-art art-${index % 5}`}><AudioLines size={16} /></div>
+      <div className="sound-copy"><h2 title={sound.name}>{sound.name}</h2><p>{recording
+        ? <Button size="xs" variant="take" label={`Cancel shortcut recording for ${sound.name}`} onClick={() => onRecordingChange(false)}>Press a key · Esc</Button>
+        : <>{audioType(sound.fileName)}{shortcutText && <> · <kbd>{shortcutText}</kbd></>}</>}</p></div>
+      <DropdownMenu align="end" entries={menuEntries} trigger={<Button.Icon label={`More actions for ${sound.name}`} variant="ghost" size="sm" className={`${reveal} aria-expanded:opacity-100`}><Ellipsis /></Button.Icon>} />
+    </div>
+    <div className="range-row">
+      <RangeSlider size="sm" label={`Range of ${sound.name}`} labelPlacement="hidden" startLabel={`Start of ${sound.name}`} endLabel={`End of ${sound.name}`} min={0} max={trackMax} step={0.01} minRange={MIN_RANGE} value={range} playhead={canEdit ? current : undefined} disabled={!canEdit} formatValue={formatTimestamp} onValueChange={setDraft} onCommit={(next) => { void commitRange(next); }} onSeek={seekTo} />
+      <Button.Icon size="sm" variant="ghost" pressed={settings.loop} label={`Loop ${sound.name}`} onClick={() => changeLoop(!settings.loop)} disabled={busy}><Repeat /></Button.Icon>
+    </div>
+    <div className="time-row"><span>{formatTimestamp(range[0]) || "0:00"}</span><span>{formatTime(current)}</span><span>{formatTimestamp(range[1]) || "0:00"}</span></div>
+    <div className="card-controls">
+      <Button.Icon data-transport="" variant="primary" size="xl" shape="pill" label={playing ? `Pause ${sound.name}` : current > settings.startTime ? `Resume ${sound.name}` : `Play ${sound.name}`} onClick={() => { void togglePlay(); }} disabled={busy || duration <= 0 || !validPlayback(settings)}>{playing ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}</Button.Icon>
+      <Button.Icon data-transport="" label={`Stop ${sound.name}`} variant="ghost" size="xl" onClick={stop} disabled={busy || !playing && current === settings.startTime}><CircleStop /></Button.Icon>
+      <div className={`mark-buttons ${reveal}`}>
+        <Button size="xs" variant="ghost" label={`Set in for ${sound.name}`} onClick={markIn} disabled={!canEdit}>Set in <kbd>I</kbd></Button>
+        <Button size="xs" variant="ghost" label={`Set out for ${sound.name}`} onClick={markOut} disabled={!canEdit}>Set out <kbd>O</kbd></Button>
+      </div>
+    </div>
     {error && <Banner tone="error" size="sm" icon={null} className="mt-2.5">{error}</Banner>}
   </article>;
 }

@@ -11,33 +11,38 @@ export function isTrustedInvocation(event: Pick<IpcMainInvokeEvent, 'sender' | '
 }
 
 export function registerSoundboardIpc(store: LibraryStore, dialogs: IpcDialogs, getContents: () => WebContents | null, isTrustedUrl: (url: string) => boolean): () => void {
+  // Handlers are async so a refused invocation is always a rejected promise, never a synchronous throw,
+  // and the check runs before any store or dialog access.
+  const assertTrusted = (event: IpcMainInvokeEvent): void => {
+    const contents = getContents();
+    if (!contents || !isTrustedInvocation(event, contents, isTrustedUrl)) throw new Error('Untrusted renderer invocation.');
+  };
   const handlers: Array<[string, (_event: IpcMainInvokeEvent, ...args: any[]) => unknown]> = [
-    [IPC_CHANNELS.load, (event) => {
-      if (!getContents() || !isTrustedInvocation(event, getContents()!, isTrustedUrl)) throw new Error('Untrusted renderer invocation.');
+    [IPC_CHANNELS.load, async (event) => {
+      assertTrusted(event);
       return store.load();
     }],
-    [IPC_CHANNELS.createBoard, (event, name) => {
-      if (!getContents() || !isTrustedInvocation(event, getContents()!, isTrustedUrl)) throw new Error('Untrusted renderer invocation.');
+    [IPC_CHANNELS.createBoard, async (event, name) => {
+      assertTrusted(event);
       return store.createBoard(name);
     }],
-    [IPC_CHANNELS.renameBoard, (event, boardId, name) => {
-      if (!getContents() || !isTrustedInvocation(event, getContents()!, isTrustedUrl)) throw new Error('Untrusted renderer invocation.');
+    [IPC_CHANNELS.renameBoard, async (event, boardId, name) => {
+      assertTrusted(event);
       return store.renameBoard(boardId, name);
     }],
     [IPC_CHANNELS.importSounds, async (event, boardId) => {
-      const contents = getContents();
-      if (!contents || !isTrustedInvocation(event, contents, isTrustedUrl)) throw new Error('Untrusted renderer invocation.');
+      assertTrusted(event);
       const library = await store.load();
       if (!library.boards.some((board) => board.id === boardId)) throw new Error('Board was not found.');
       const paths = await dialogs.chooseAudioFiles();
       return paths === null || paths.length === 0 ? library : store.importSounds(boardId, paths);
     }],
-    [IPC_CHANNELS.removeSound, (event, boardId, soundId) => {
-      if (!getContents() || !isTrustedInvocation(event, getContents()!, isTrustedUrl)) throw new Error('Untrusted renderer invocation.');
+    [IPC_CHANNELS.removeSound, async (event, boardId, soundId) => {
+      assertTrusted(event);
       return store.removeSound(boardId, soundId);
     }],
-    [IPC_CHANNELS.updateSound, (event, boardId, soundId, settings) => {
-      if (!getContents() || !isTrustedInvocation(event, getContents()!, isTrustedUrl)) throw new Error('Untrusted renderer invocation.');
+    [IPC_CHANNELS.updateSound, async (event, boardId, soundId, settings) => {
+      assertTrusted(event);
       return store.updateSound(boardId, soundId, settings);
     }],
   ];

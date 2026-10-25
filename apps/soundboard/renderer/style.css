@@ -26,37 +26,25 @@ button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2p
 .sound-card:hover { transform: translateY(-3px); border-color: var(--border-color-primary); }
 .sound-card.is-playing { border-color: var(--color-brand); }
 @keyframes card-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
-.card-topline { display: flex; align-items: center; gap: 8px; height: 24px; }
-.track-number { color: var(--text-color-tertiary); font: 10px var(--font-mono); }
-/* Decorative cover art uses one-off purple/teal/amber hues; none are ui tokens. */
-.sound-art { position: relative; height: 126px; display: grid; place-items: center; overflow: hidden; margin: 9px 0 13px; border: 1px solid #383442; border-radius: 7px; background: radial-gradient(ellipse at 50% 48%, #342b46 0%, #25212f 42%, var(--background-color-secondary) 100%); }
-.sound-art:before { content: ''; position: absolute; inset: 0; opacity: .18; background: repeating-linear-gradient(0deg, transparent 0 19px, #aca0d11a 20px), repeating-linear-gradient(90deg, transparent 0 19px, #aca0d11a 20px); mask-image: linear-gradient(transparent, black 30%, black 70%, transparent); }
-.sound-art.art-1 { background: radial-gradient(ellipse at 45% 52%, #293c43, #1d2a31 46%, var(--background-color-secondary)); }
-.sound-art.art-2 { background: radial-gradient(ellipse at 58% 45%, #443332, #2a2429 46%, var(--background-color-secondary)); }
-.sound-art.art-3 { background: radial-gradient(ellipse at 48% 48%, #304032, #232d28 46%, var(--background-color-secondary)); }
-.sound-art.art-4 { background: radial-gradient(ellipse at 52% 50%, #3d3345, #27222e 46%, var(--background-color-secondary)); }
-.art-ring { position: absolute; width: 86px; height: 86px; border: 1px solid #a997df30; border-radius: 50%; }
-.ring-a { width: 100px; height: 100px; }
-.ring-b { width: 70px; height: 70px; border-color: #c6b5ff36; }
-.art-center { position: relative; z-index: 1; width: 43px; height: 43px; display: grid; place-items: center; border: 1px solid #b39cff55; border-radius: 50%; color: #c0adff; background: #a18be51a; box-shadow: 0 0 28px #a28bfa20; }
-.art-orb { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #c0adff; box-shadow: 0 0 9px #c0adff; }
-.orb-a { top: 26px; left: 28%; }.orb-b { right: 23%; bottom: 28px; width: 3px; height: 3px; }
-.is-playing .art-ring { animation: sonar 2.3s infinite ease-out; }.is-playing .ring-b { animation-delay: .75s; }
-@keyframes sonar { 0% { transform: scale(.7); opacity: .8; } 100% { transform: scale(1.35); opacity: 0; } }
-.sound-copy { min-width: 0; }
+/* Cover tile uses one-off purple/teal/amber hues; none are ui tokens. */
+.sound-art { position: relative; flex: 0 0 auto; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #383442; border-radius: 9px; color: #c0adff; background: radial-gradient(circle at 50% 45%, #342b46, #25212f); }
+.sound-art.art-1 { background: radial-gradient(circle at 45% 50%, #293c43, #1d2a31); }
+.sound-art.art-2 { background: radial-gradient(circle at 58% 45%, #443332, #2a2429); }
+.sound-art.art-3 { background: radial-gradient(circle at 48% 48%, #304032, #232d28); }
+.sound-art.art-4 { background: radial-gradient(circle at 52% 50%, #3d3345, #27222e); }
+.is-playing .sound-art:after { content: ''; position: absolute; inset: -1px; border: 1px solid #c0adff; border-radius: 9px; animation: sonar 1.8s infinite ease-out; }
+@keyframes sonar { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.5); opacity: 0; } }
+.card-head { display: flex; align-items: center; gap: 10px; }
+.sound-copy { min-width: 0; flex: 1; }
 .sound-copy h2 { overflow: hidden; margin: 0; color: var(--text-color-primary); font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.sound-copy p { overflow: hidden; margin: 4px 0 0; color: var(--text-color-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-.progress-wrap { margin-top: 13px; }
-.time-row { display: flex; justify-content: space-between; margin-top: 2px; color: var(--text-color-tertiary); font: 9px var(--font-mono); }
-.card-controls { display: flex; align-items: center; gap: 7px; margin-top: 13px; }
-.duration-label { display: flex; align-items: center; gap: 5px; margin-left: auto; color: var(--text-color-tertiary); font: 10px var(--font-mono); }
-.segment-settings { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-color-secondary); }
-.segment-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; align-items: end; gap: 7px; }
-.loop-row { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; color: var(--text-color-secondary); font-size: 11px; }
-.shortcut-row { min-height: 36px; display: flex; align-items: center; gap: 7px; margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--border-color-secondary); }
-.shortcut-current { min-width: 0; display: flex; align-items: center; gap: 6px; color: var(--text-color-tertiary); }
-.shortcut-current svg { flex: 0 0 auto; }
-.shortcut-current kbd { overflow: hidden; max-width: 118px; color: var(--text-color-secondary); font: 9px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+.sound-copy p { display: flex; align-items: center; gap: 4px; overflow: hidden; margin: 3px 0 0; color: var(--text-color-tertiary); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.range-row { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+.range-row > :first-child { flex: 1 1 0; }
+.time-row { display: flex; justify-content: space-between; margin-top: 1px; color: var(--text-color-tertiary); font: 10px var(--font-mono); font-variant-numeric: tabular-nums; }
+.time-row span:nth-child(2) { color: var(--text-color-secondary); }
+.card-controls { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.mark-buttons { display: flex; align-items: center; gap: 2px; margin-left: auto; }
+.mark-buttons kbd, .sound-copy kbd { font: 10px var(--font-mono); color: var(--text-color-secondary); }
 
 .loading-screen { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #262332, var(--background-color-primary) 62%); }
 .loading-screen > p { margin-top: 14px; color: var(--text-color-tertiary); font-size: 12px; }

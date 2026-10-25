@@ -24,9 +24,16 @@ describe('soundboard library store', () => {
   it('trims and validates names and rejects malformed manifests', async () => {
     const { root, store } = await setup();
     await expect(store.createBoard('   ')).rejects.toThrow(/name/);
-    await writeFile(path.join(root, 'library.json'), '{"version":2,"boards":[]}');
-    const invalid = new LibraryStore(root);
-    await expect(invalid.load()).rejects.toThrow(/invalid format/);
+    const manifest = path.join(root, 'library.json');
+    // A well-formed version 2 manifest must load, not be treated as malformed.
+    await writeFile(manifest, '{"version":2,"boards":[]}');
+    await expect(new LibraryStore(root).load()).resolves.toEqual({ version: 2, boards: [] });
+    for (const malformed of ['{"version":3,"boards":[]}', '{"version":2}', '{"version":2,"boards":{}}', '[]']) {
+      await writeFile(manifest, malformed);
+      await expect(new LibraryStore(root).load()).rejects.toThrow(/invalid format/);
+      // The unreadable manifest is left on disk for repair rather than overwritten.
+      expect(await readFile(manifest, 'utf8')).toBe(malformed);
+    }
   });
 
   it('copies supported imports into managed storage and deletes removed audio', async () => {
