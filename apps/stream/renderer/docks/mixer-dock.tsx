@@ -1,14 +1,20 @@
 import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX } from 'lucide-react';
-import { EmptyState, PointContextMenu, ReacstButton, Slider, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX, X } from 'lucide-react';
+import { EmptyState, Meter, PointContextMenu, Panel, ReacstButton, Slider, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { sourceIcon } from '../source-ui';
-import { DockTitle } from './dock-title';
-import { AudioMeter } from '../audio-meter';
-import { METER_FLOOR_DB, linearToDb, updatePeakHold, type PeakHoldState } from '../audio-meter-model';
+import { METER_FLOOR_DB, METER_ZONES, linearToDb, updatePeakHold, type MeterZoneTone, type PeakHoldState } from '../audio-meter-model';
 import { AdvancedAudioDialog } from '../dialogs/advanced-audio-dialog';
 import { buildMixerMenu, parseMixerLayout, MIXER_LAYOUT_STORAGE_KEY, type MixerLayout } from './mixer-menu';
 import { AUDIO_TRACKS, type AudioMonitoring, type AudioTrack, type StreamSource } from '../../shared/desktop-api';
 import './mixer-dock.css';
+
+// `Meter` is memoised, so these live at module scope: an inline array would be a new reference
+// on every render and make every channel re-render at the 80ms capture rate.
+const ZONE_TONES: Record<MeterZoneTone, 'success' | 'warning' | 'error'> = { ok: 'success', warn: 'warning', hot: 'error' };
+const METER_BANDS = METER_ZONES.map((zone) => ({ from: zone.fromDb, tone: ZONE_TONES[zone.tone] }));
+const dbTick = (value: number) => ({ value, label: value === 0 ? '0' : `\u2212${Math.abs(value)}` });
+const HORIZONTAL_METER_TICKS = [-60, -40, -20, 0].map(dbTick);
+const VERTICAL_METER_TICKS = [-60, -48, -36, -24, -12, 0].map(dbTick);
 
 type AudioPatch = Partial<Pick<StreamSource, 'volume' | 'muted' | 'balance' | 'audioMonitoring' | 'audioTracks'>>;
 
@@ -173,17 +179,18 @@ export function MixerDock({
   }
 
   return (
-    <section className="dock mixer-dock" style={style}>
+    <Panel density="compact" className="dock mixer-dock" style={style}>
       {resizer}
-      <DockTitle
-        title="Audio Mixer"
-        onHide={onHide}
-        actions={(
+      <Panel.Header data-dock-handle className="cursor-grab select-none">
+        <Panel.HeaderTitle>Audio Mixer</Panel.HeaderTitle>
+        <Panel.HeaderActions>
           <button ref={titleMenuButtonRef} className="mini-icon" aria-label="Audio Mixer options" onClick={openTitleMenu}>
             <MoreHorizontal size={16} />
           </button>
-        )}
-      />
+
+          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Audio Mixer" onClick={onHide}><X /></ReacstButton.Icon>
+        </Panel.HeaderActions>
+      </Panel.Header>
       {meteredSources.length === 0
         ? (
           <EmptyState.Root>
@@ -228,7 +235,7 @@ export function MixerDock({
                 </div>
                 <span className="mixer-strip-db">{dbLabel}</span>
                 <div className="mixer-strip-visual">
-                  <AudioMeter orientation="vertical" levelDb={levelDb} peakDb={peak.peakDb} ticks label={`${source.name} level`} />
+                  <Meter orientation="vertical" fill="banded" smoothing={80} zoneGap={1} min={METER_FLOOR_DB} max={0} zones={METER_BANDS} ticks={VERTICAL_METER_TICKS} value={levelDb} peak={peak.peakDb} label={`${source.name} level`} />
                   <div className="mixer-fader mixer-fader--vertical">
                     <Slider
                       orientation="vertical"
@@ -254,7 +261,7 @@ export function MixerDock({
                 <span className="mixer-strip-name" title={source.name}>{source.name}</span>
                 <span className="mixer-strip-db">{dbLabel}</span>
               </div>
-              <AudioMeter orientation="horizontal" levelDb={levelDb} peakDb={peak.peakDb} ticks label={`${source.name} level`} />
+              <Meter fill="banded" smoothing={80} zoneGap={1} min={METER_FLOOR_DB} max={0} zones={METER_BANDS} ticks={HORIZONTAL_METER_TICKS} value={levelDb} peak={peak.peakDb} label={`${source.name} level`} />
               <div className="mixer-strip-fader-row">
                 <div className="mixer-fader">
                   <Slider
@@ -297,6 +304,6 @@ export function MixerDock({
           openerRef={titleMenuButtonRef}
         />
       )}
-    </section>
+    </Panel>
   );
 }

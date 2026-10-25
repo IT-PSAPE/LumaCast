@@ -1,8 +1,7 @@
 import { type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { Copy, FileVideo, MoreHorizontal, Pause, Play, Radio, Settings2, Square } from 'lucide-react';
-import { DropdownMenu, ReacstButton, StatusDot, type MenuEntry } from '@lumacast/ui';
+import { Copy, FileVideo, MoreHorizontal, Pause, Play, Radio, Settings2, Square, X } from 'lucide-react';
+import { DropdownMenu, Panel, ReacstButton, StatusDot, type MenuEntry } from '@lumacast/ui';
 import type { StreamRuntimeStatus } from '../../shared/desktop-api';
-import { DockTitle } from './dock-title';
 
 export interface ControlsDockProps {
   style?: CSSProperties;
@@ -64,20 +63,21 @@ export function ControlsDock({
   ];
 
   return (
-    <aside className="dock controls-dock" style={style}>
+    <Panel density="compact" className="dock controls-dock" style={style}>
       {resizer}
-      <DockTitle
-        title="Controls"
-        onHide={onHide}
-        actions={(
+      <Panel.Header data-dock-handle className="cursor-grab select-none">
+        <Panel.HeaderTitle>Controls</Panel.HeaderTitle>
+        <Panel.HeaderActions>
           <DropdownMenu
             align="end"
             sideOffset={2}
             entries={options}
             trigger={<ReacstButton.Icon variant="ghost" size="sm" label="Controls options"><MoreHorizontal /></ReacstButton.Icon>}
           />
-        )}
-      />
+
+          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Controls" onClick={onHide}><X /></ReacstButton.Icon>
+        </Panel.HeaderActions>
+      </Panel.Header>
       <div className="control-body">
         <div className="control-action-grid">
           {streamingStartedAt === null ? <ReacstButton className="control-action" variant="take" disabled={working} onClick={onGoLive}><Radio size={13} />Go Live</ReacstButton> : <ReacstButton className="control-action" variant="danger" onClick={onStopStreaming}><Square size={11} fill="currentColor" />Stop Live</ReacstButton>}
@@ -97,6 +97,6 @@ export function ControlsDock({
         </div>
       </div>
       <div className="control-bottom"><ReacstButton className="control-small" label="Remux recording" disabled={working} onClick={onRemuxRecording}><FileVideo size={14} />Remux</ReacstButton><ReacstButton className="control-small" onClick={onOpenSettings}><Settings2 size={14} />Settings</ReacstButton></div>
-    </aside>
+    </Panel>
   );
 }

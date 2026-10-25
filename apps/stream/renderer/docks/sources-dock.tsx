@@ -7,10 +7,9 @@ import {
   ChevronDown, ChevronRight, Copy, Eye, EyeOff, FileAudio, FileVideo, Globe, Headphones, Image as ImageIcon,
   Layers2, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Type, Webcam, X,
 } from 'lucide-react';
-import { EmptyState, PointContextMenu, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { EmptyState, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { AnchoredPopover } from '../anchored-popover';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
-import { DockTitle } from './dock-title';
 import { SourceProperties, type SourcePropertiesProps } from './source-properties';
 import { fallbackSourceMoveSteps, reorderSourceSiblingsOnDrop } from '../source-order';
 import { primaryShortcutLabel, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
@@ -535,16 +534,17 @@ export function SourcesDock({
   };
 
   return (
-    <section className="dock sources-dock" style={style}>
+    <Panel density="compact" className="dock sources-dock" style={style}>
       {resizer}
-      <DockTitle
-        title="Sources"
-        onHide={onHide}
-        actions={<>
+      <Panel.Header data-dock-handle className="cursor-grab select-none">
+        <Panel.HeaderTitle>Sources</Panel.HeaderTitle>
+        <Panel.HeaderActions>
           <button ref={sourceMenuTriggerRef} className="mini-icon" aria-label="Add source" aria-haspopup="menu" aria-expanded={sourceMenuOpen} onClick={() => setSourceMenuOpen((open) => !open)}><Plus size={15} /></button>
           <button ref={sourceActionsTriggerRef} className="mini-icon" aria-label="More source actions" aria-haspopup="menu" aria-expanded={sourceActionsMenuOpen} onClick={() => { setSourceActionsMenuOpen((open) => !open); if (selectedSource) showSourceProperties(selectedSource.id); }}><MoreHorizontal size={16} /></button>
-        </>}
-      />
+
+          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Sources" onClick={onHide}><X /></ReacstButton.Icon>
+        </Panel.HeaderActions>
+      </Panel.Header>
       <AnchoredPopover open={sourceActionsMenuOpen} anchor={sourceActionsTriggerRef.current} className="source-menu" side="top" alignment="end" role="menu" label="Source actions" onClose={() => setSourceActionsMenuOpen(false)}>
         <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onCopySource}><Copy size={14} />Copy Source</button>
         <button role="menuitem" disabled={!sourceActions.sourceClipboardAvailable || sourceActions.working} onClick={sourceActions.onPasteSource}><Plus size={14} />Paste Source</button>
@@ -605,6 +605,6 @@ export function SourcesDock({
         </div>
         <SourceProperties source={selectedSource} {...properties} />
       </>}
-    </section>
+    </Panel>
   );
 }

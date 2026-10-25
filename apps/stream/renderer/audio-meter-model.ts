@@ -1,6 +1,6 @@
 // Pure math for OBS-style audio meters: linear-to-dB conversion, the meter's
 // fixed dB range, its three colour zones, and peak-hold ballistics. No DOM —
-// `audio-meter.tsx` renders this; tests exercise it directly.
+// `mixer-dock.tsx` renders this via the shared Meter; tests exercise it directly.
 
 /** Bottom of the meter's displayed dB range. Anything quieter reads as silence. */
 export const METER_FLOOR_DB = -60;

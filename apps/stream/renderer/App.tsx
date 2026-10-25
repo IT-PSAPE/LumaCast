@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Badge, Modal, ReacstButton, StatusDot, TooltipProvider } from '@lumacast/ui';
+import { Badge, Modal, ReacstButton, StatusBar, StatusDot, TooltipProvider } from '@lumacast/ui';
 import { Clapperboard, ExternalLink, Radio } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
 import type { SceneTransitionType } from './scene-transition';
@@ -623,33 +623,38 @@ export function App() {
         {workbench.dockDrag && <div className="dock-drop-indicator" style={{ left: workbench.dockDrag.left, top: workbench.dockDrag.top, height: workbench.dockDrag.height }} />}
       </section>
 
-      <footer className="statusbar">
-        <div className="status-left"><StatusDot tone="success" /><span>Ready</span>{working && <span className="status-busy">Working…</span>}</div>
-        <div className="status-center">{actionError && <span className={actionError.startsWith('Saved ') ? 'notice' : 'error'}>{actionError}</span>}</div>
-        <div className="status-right">
+      <StatusBar label="Stream status">
+        <StatusBar.Start>
+          <StatusBar.Item icon={<StatusDot tone="success" />}>Ready</StatusBar.Item>
+          {working && <StatusBar.Item tone="warning">Working…</StatusBar.Item>}
+        </StatusBar.Start>
+        <StatusBar.Center>
+          {actionError && <StatusBar.Item live tone={actionError.startsWith('Saved ') ? 'success' : 'error'} className="truncate">{actionError}</StatusBar.Item>}
+        </StatusBar.Center>
+        <StatusBar.End>
           {streaming.streamStatus.state === 'live' && <>
-            <span>LIVE {streamDuration} · {streaming.streamStatus.bitrateKbps ?? 0} kb/s</span>
-            <span className="status-divider" />
+            <StatusBar.Item>LIVE {streamDuration} · {streaming.streamStatus.bitrateKbps ?? 0} kb/s</StatusBar.Item>
+            <StatusBar.Divider />
           </>}
           {(recording.recordingStartedAt !== null || recording.recordingFinalizing) && <>
-            <span>REC {recording.recordingFinalizing ? 'Finalizing' : duration}</span>
-            <span className="status-divider" />
+            <StatusBar.Item>REC {recording.recordingFinalizing ? 'Finalizing' : duration}</StatusBar.Item>
+            <StatusBar.Divider />
           </>}
           {streaming.reconnectCount > 0 && <>
-            <span>Reconnects: {streaming.reconnectCount}</span>
-            <span className="status-divider" />
+            <StatusBar.Item>Reconnects: {streaming.reconnectCount}</StatusBar.Item>
+            <StatusBar.Divider />
           </>}
-          <span>Canvas {project.output.baseWidth} × {project.output.baseHeight}</span>
-          <span className="status-divider" />
-          <span>Output {project.output.width} × {project.output.height}</span>
-          <span className="status-divider" />
-          <span>{project.output.frameRate} FPS</span>
+          <StatusBar.Item>Canvas {project.output.baseWidth} × {project.output.baseHeight}</StatusBar.Item>
+          <StatusBar.Divider />
+          <StatusBar.Item>Output {project.output.width} × {project.output.height}</StatusBar.Item>
+          <StatusBar.Divider />
+          <StatusBar.Item>{project.output.frameRate} FPS</StatusBar.Item>
           {runtimeStats.runtimeStats && <>
-            <span className="status-divider" />
-            <span>CPU {Math.round(runtimeStats.runtimeStats.cpuPercent)}%</span>
+            <StatusBar.Divider />
+            <StatusBar.Item>CPU {Math.round(runtimeStats.runtimeStats.cpuPercent)}%</StatusBar.Item>
           </>}
-        </div>
-      </footer>
+        </StatusBar.End>
+      </StatusBar>
 
       {scenes.sceneDialog && <NameDialog
         noun="Scene"

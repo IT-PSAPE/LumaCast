@@ -1,10 +1,9 @@
 /// <reference types="vite/client" />
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { Banner, EmptyState, NumberField, ReacstButton, Select, StatusDot, TextField, type StatusTone } from '@lumacast/ui';
+import { RefreshCw, X } from 'lucide-react';
+import { Banner, EmptyState, NumberField, Panel, ReacstButton, Select, StatusDot, TextField, type StatusTone } from '@lumacast/ui';
 import type { StreamAPI, StreamRuntimeStatus, StreamServiceSettings, ZoomAccount, ZoomMeeting } from '../../shared/desktop-api';
 import { friendlyError } from '../features/shared/friendly-error';
-import { DockTitle } from './dock-title';
 import './zoom-dock.css';
 
 export interface ZoomDockProps {
@@ -99,9 +98,14 @@ export function ZoomDock({ api, settings, onChange, status, onGoLive, onStopStre
   }
 
   return (
-    <section className="dock zoom-dock" style={style}>
+    <Panel density="compact" className="dock zoom-dock" style={style}>
       {resizer}
-      <DockTitle title="Zoom Meeting Control Panel" onHide={onHide} />
+      <Panel.Header data-dock-handle className="cursor-grab select-none">
+        <Panel.HeaderTitle>Zoom Meeting Control Panel</Panel.HeaderTitle>
+        <Panel.HeaderActions>
+          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Zoom Meeting Control Panel" onClick={onHide}><X /></ReacstButton.Icon>
+        </Panel.HeaderActions>
+      </Panel.Header>
       <div className="zoom-dock-body">
         <div className="zoom-account-row">
           <div className="zoom-account-copy">
@@ -165,6 +169,6 @@ export function ZoomDock({ api, settings, onChange, status, onGoLive, onStopStre
         <span>Production Studio requires the meeting host or co-host.</span>
       </div>
       }
-    </section>
+    </Panel>
   );
 }

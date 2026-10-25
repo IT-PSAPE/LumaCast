@@ -4,12 +4,11 @@ import {
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
   type ReactNode, type SetStateAction,
 } from 'react';
-import { Layers2, Plus, Redo2, Undo2 } from 'lucide-react';
-import { Badge, PointContextMenu, ReacstButton, usePointContextMenu, type MenuEntry, type PointContextMenuTrigger } from '@lumacast/ui';
+import { Layers2, Plus, Redo2, Undo2, X } from 'lucide-react';
+import { Badge, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry, type PointContextMenuTrigger } from '@lumacast/ui';
 import { moveSceneBy, moveSceneTo, reorderOnDrop } from '../scene-order';
 import { primaryShortcutLabel, type StreamPlatform } from '../../shared/platform-capabilities';
 import type { StreamScene } from '../../shared/desktop-api';
-import { DockTitle } from './dock-title';
 import './scenes-dock.css';
 
 // Pointer movement (px) a row must travel before a press becomes a drag
@@ -346,17 +345,18 @@ export function ScenesDock({
   const dropAtEnd = dropIndex !== null && dropIndex === scenes.length && scenes.length > 0;
 
   return (
-    <aside className="dock scenes-dock" style={style}>
+    <Panel density="compact" className="dock scenes-dock" style={style}>
       {resizer}
-      <DockTitle
-        title="Scenes"
-        onHide={onHide}
-        actions={<>
+      <Panel.Header data-dock-handle className="cursor-grab select-none">
+        <Panel.HeaderTitle>Scenes</Panel.HeaderTitle>
+        <Panel.HeaderActions>
           <ReacstButton.Icon variant="ghost" size="sm" label="Undo" tooltip={`Undo (${primaryShortcutLabel(platform, 'Z')})`} disabled={!undoAvailable} onClick={onUndo}><Undo2 /></ReacstButton.Icon>
           <ReacstButton.Icon variant="ghost" size="sm" label="Redo" tooltip={`Redo (${primaryShortcutLabel(platform, 'Z', true)})`} disabled={!redoAvailable} onClick={onRedo}><Redo2 /></ReacstButton.Icon>
           <ReacstButton.Icon variant="ghost" size="sm" label="Add scene" onClick={onAddScene}><Plus /></ReacstButton.Icon>
-        </>}
-      />
+
+          <ReacstButton.Icon variant="ghost" size="sm" label="Hide Scenes" onClick={onHide}><X /></ReacstButton.Icon>
+        </Panel.HeaderActions>
+      </Panel.Header>
       <div className="scene-list">
         {scenes.map((scene, index) => {
           const isActive = scene.id === activeSceneId;
@@ -413,6 +413,6 @@ export function ScenesDock({
         label={menuScene ? `${menuScene.name} options` : 'Scene options'}
         onClose={contextMenu.close}
       />
-    </aside>
+    </Panel>
   );
 }

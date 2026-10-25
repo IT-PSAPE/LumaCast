@@ -137,6 +137,12 @@ describe('ResizeHandle', () => {
     expect(onValueChange).toHaveBeenCalledTimes(2);
   });
 
+  it('renders a native tooltip without disturbing the accessible name', () => {
+    render(<ResizeHandle orientation="horizontal" label="Resize Scenes dock" title="Drag to resize" />);
+    const h = screen.getByRole('separator', { name: 'Resize Scenes dock' });
+    expect(h).toHaveAttribute('title', 'Drag to resize');
+  });
+
   it('double click resets', () => {
     const onReset = vi.fn();
     render(<ResizeHandle orientation="horizontal" onReset={onReset} />);

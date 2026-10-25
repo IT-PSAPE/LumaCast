@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent, type RefObject } from 'react';
+import { ResizeHandle } from '@lumacast/ui';
 import {
   clampBottomPanelHeight, DEFAULT_WORKBENCH_LAYOUT, DOCK_LABELS, DOCK_MIN_WIDTHS, isDefaultWorkbenchLayout,
   parseWorkbenchLayout, reorderDockOnDrop, resetWorkbenchLayout, resizeDockWidths, serializeWorkbenchLayout,
@@ -46,7 +47,9 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
     try { return parseWorkbenchLayout(window.localStorage.getItem(WORKBENCH_LAYOUT_STORAGE_KEY)); } catch { return { ...DEFAULT_WORKBENCH_LAYOUT }; }
   });
   const [workbenchResizing, setWorkbenchResizing] = useState<'columns' | 'rows' | null>(null);
-  const workbenchDragRef = useRef<{ kind: 'columns'; boundary: number; startX: number; widths: number[] } | { kind: 'rows'; startY: number; height: number; workbenchHeight: number } | null>(null);
+  const workbenchDragRef = useRef<{ startY: number; height: number; workbenchHeight: number } | null>(null);
+  // Dock widths measured when a column gesture starts; every move recomputes from this snapshot.
+  const columnDragRef = useRef<{ boundary: number; widths: number[] } | null>(null);
   // Two quick drags that end near the same spot also fire dblclick; only a click pair without movement resets a dimension.
   const workbenchDragMovedRef = useRef(false);
   // Dragging a dock's title row to reorder it. `before` is authoritative (read on pointerup/Escape);
@@ -81,13 +84,24 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
   const measureDockWidths = () => visibleDocks(workbenchLayout)
     .map((id) => workbenchRef.current?.querySelector<HTMLElement>(DOCK_SELECTORS[id])?.getBoundingClientRect().width ?? 0);
 
-  const startDockResize = (boundary: number, event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    workbenchDragRef.current = { kind: 'columns', boundary, startX: event.clientX, widths: measureDockWidths() };
+  const startDockResize = (boundary: number) => {
+    columnDragRef.current = { boundary, widths: measureDockWidths() };
     workbenchDragMovedRef.current = false;
-    event.currentTarget.setPointerCapture(event.pointerId);
     setWorkbenchResizing('columns');
+  };
+
+  const moveDockResize = (delta: number) => {
+    const drag = columnDragRef.current;
+    if (!drag) return;
+    if (Math.abs(delta) > 3) workbenchDragMovedRef.current = true;
+    const ids = visibleDocks(workbenchLayout);
+    const widths = resizeDockWidths(drag.widths, drag.boundary, delta, ids.map((id) => DOCK_MIN_WIDTHS[id]));
+    setWorkbenchLayout((current) => ({ ...current, dockWeights: dockWeightsFromWidths(ids, widths, current.dockWeights) }));
+  };
+
+  const endDockResize = () => {
+    columnDragRef.current = null;
+    setWorkbenchResizing(null);
   };
 
   const startPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -96,7 +110,7 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
     const workbenchHeight = workbenchRef.current?.getBoundingClientRect().height ?? 0;
     const firstVisibleDock = visibleDocks(workbenchLayout)[0];
     const height = firstVisibleDock ? (workbenchRef.current?.querySelector<HTMLElement>(DOCK_SELECTORS[firstVisibleDock])?.getBoundingClientRect().height ?? 0) : 0;
-    workbenchDragRef.current = { kind: 'rows', startY: event.clientY, height, workbenchHeight };
+    workbenchDragRef.current = { startY: event.clientY, height, workbenchHeight };
     workbenchDragMovedRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
     setWorkbenchResizing('rows');
@@ -105,16 +119,9 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
   const moveWorkbenchResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     const drag = workbenchDragRef.current;
     if (!drag || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-    if (Math.abs(drag.kind === 'columns' ? event.clientX - drag.startX : event.clientY - drag.startY) > 3) workbenchDragMovedRef.current = true;
-    if (drag.kind === 'columns') {
-      const ids = visibleDocks(workbenchLayout);
-      const minWidths = ids.map((id) => DOCK_MIN_WIDTHS[id]);
-      const widths = resizeDockWidths(drag.widths, drag.boundary, event.clientX - drag.startX, minWidths);
-      setWorkbenchLayout((current) => ({ ...current, dockWeights: dockWeightsFromWidths(ids, widths, current.dockWeights) }));
-    } else {
-      const bottomPanelHeight = clampBottomPanelHeight(drag.height - (event.clientY - drag.startY), drag.workbenchHeight);
-      setWorkbenchLayout((current) => ({ ...current, bottomPanelHeight }));
-    }
+    if (Math.abs(event.clientY - drag.startY) > 3) workbenchDragMovedRef.current = true;
+    const bottomPanelHeight = clampBottomPanelHeight(drag.height - (event.clientY - drag.startY), drag.workbenchHeight);
+    setWorkbenchLayout((current) => ({ ...current, bottomPanelHeight }));
   };
 
   const endWorkbenchResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -128,17 +135,16 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
     setWorkbenchLayout((current) => ({ ...current, [dimension]: null }));
   };
 
-  const dockResizer = (boundary: number, label: string): ReactNode => <div
-    className="dock-resizer"
-    role="separator"
-    aria-orientation="vertical"
-    aria-label={`Resize ${label}`}
+  const dockResizer = (boundary: number, label: string): ReactNode => <ResizeHandle
+    orientation="horizontal"
+    variant="bar"
+    label={`Resize ${label}`}
     title="Drag to resize · double-click to reset"
-    onPointerDown={(event) => startDockResize(boundary, event)}
-    onPointerMove={moveWorkbenchResize}
-    onPointerUp={endWorkbenchResize}
-    onPointerCancel={endWorkbenchResize}
-    onDoubleClick={() => resetWorkbenchDimension('dockWeights')}
+    className="absolute right-0.5 top-0 h-full"
+    onResizeStart={() => startDockResize(boundary)}
+    onResizeMove={moveDockResize}
+    onResizeEnd={endDockResize}
+    onReset={() => resetWorkbenchDimension('dockWeights')}
   />;
 
   const toggleDock = (id: DockId) => setWorkbenchLayout((current) => toggleDockVisibility(current, id));
@@ -180,7 +186,7 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
     if (event.button !== 0) return;
     const target = event.target as HTMLElement;
     if (target.closest('button, input, select, a')) return;
-    const titleElement = target.closest<HTMLElement>('.dock-title');
+    const titleElement = target.closest<HTMLElement>('[data-dock-handle]');
     if (!titleElement) return;
     const dockElement = titleElement.closest<HTMLElement>('.dock');
     const id = dockElement && (Object.keys(DOCK_SELECTORS) as DockId[]).find((candidate) => dockElement.matches(DOCK_SELECTORS[candidate]));

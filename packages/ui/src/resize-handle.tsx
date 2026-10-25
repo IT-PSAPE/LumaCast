@@ -35,6 +35,8 @@ export interface ResizeHandleProps {
   reverse?: boolean;
   variant?: 'rule' | 'hairline' | 'bar';
   label?: string;
+  /** Native hover tooltip, for a handle whose affordance is not obvious from its size. */
+  title?: string;
   onValueChange?: (value: number) => void;
   onResizeStart?: (source: ResizeSource) => void;
   onResizeMove?: (delta: number) => void;
@@ -101,6 +103,7 @@ export function ResizeHandle({
   reverse = false,
   variant = 'rule',
   label,
+  title,
   onValueChange,
   onResizeStart,
   onResizeMove,
@@ -175,6 +178,7 @@ export function ResizeHandle({
       role="separator"
       tabIndex={0}
       aria-label={label}
+      title={title}
       aria-orientation={isHorizontal ? 'vertical' : 'horizontal'}
       aria-valuenow={scalar ? value : undefined}
       aria-valuemin={scalar ? min : undefined}

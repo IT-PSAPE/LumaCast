@@ -5,18 +5,6 @@
   container-type: inline-size;
 }
 
-.youtube-dock-header {
-  min-width: 0;
-  min-height: 35px;
-  flex: 0 0 35px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--border-color-secondary);
-}
-
 .youtube-studio-brand-row {
   min-width: 0;
   min-height: 41px;
@@ -60,15 +48,6 @@
 
 .youtube-studio-brand-button:disabled {
   cursor: default;
-}
-
-/* Responsive dock-title row uses the standard shared 35px sizing. */
-.youtube-dock-header > span {
-  min-width: 0;
-  flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .youtube-dock-body {
@@ -488,7 +467,6 @@
 }
 
 @container youtube-dock (max-width: 220px) {
-  .youtube-dock-header { gap: 4px; padding-inline: 8px; }
   .youtube-dock-footer { gap: 4px; padding-inline: 6px; }
 }
 

@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { RefreshCw, X } from 'lucide-react';
-import { Banner, EmptyState, ReacstButton, StatusDot, type StatusTone } from '@lumacast/ui';
+import { Banner, EmptyState, Panel, ReacstButton, StatusDot, type StatusTone } from '@lumacast/ui';
 import type {
   StreamAPI,
   StreamRuntimeStatus,
@@ -14,7 +14,6 @@ import type {
 import { validateStreamServiceSettings } from '../../shared/stream-services';
 import { formatElapsed } from '../format-elapsed';
 import { friendlyError } from '../features/shared/friendly-error';
-import { DockTitle } from './dock-title';
 import { YouTubeSettingsDialog, CreateYouTubeStreamDialog, EndYouTubeStreamDialog } from './youtube-dialogs';
 import { YouTubeStreamDetails } from './youtube-stream-details';
 import { YouTubeStreamRow } from './youtube-stream-row';
@@ -417,21 +416,21 @@ export function YouTubeDock({
   }
 
   return (
-    <section className="dock youtube-dock" style={style}>
+    <Panel density="compact" className="dock youtube-dock" style={style}>
       {resizer}
-      <DockTitle
-        title="YouTube Live"
-        className="youtube-dock-header"
-        onHide={onHide}
-        actions={<>
+      <Panel.Header data-dock-handle className="cursor-grab select-none">
+        <Panel.HeaderTitle>YouTube Live</Panel.HeaderTitle>
+        <Panel.HeaderActions>
           {account && !outputIsRunning && !youtubeOutputStillActive && (
             <ReacstButton.Icon variant="ghost" size="sm" label="Refresh streams" disabled={refreshBusy} onClick={() => { void refreshStreams(); setDetailsReload((current) => current + 1); }}>
               <RefreshCw />
             </ReacstButton.Icon>
           )}
           {!outputIsRunning && !youtubeOutputStillActive && <ReacstButton variant="ghost" size="sm" onClick={() => { setSettingsError(''); setSettingsOpen(true); }}>Settings</ReacstButton>}
-        </>}
-      />
+
+          <ReacstButton.Icon variant="ghost" size="sm" label="Hide YouTube Live" onClick={onHide}><X /></ReacstButton.Icon>
+        </Panel.HeaderActions>
+      </Panel.Header>
       <div className="youtube-studio-brand-row">
         <button type="button" className="youtube-studio-brand-button" aria-label="Open YouTube Studio" title="Open YouTube Studio" onClick={onOpenDashboard}>
           <img src={studioWordmark} alt="YouTube Studio" width={65.0667} height={16} draggable={false} />
@@ -496,6 +495,6 @@ export function YouTubeDock({
           onStopStreaming('youtube');
         }}
       />
-    </section>
+    </Panel>
   );
 }
