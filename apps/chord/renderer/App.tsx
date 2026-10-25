@@ -4,6 +4,7 @@
 import { Toaster } from '@lumacast/ui';
 import { getApi } from './api';
 import { ConfirmHost } from './components/confirm-dialog';
+import { ShellStatusBar } from './features/shell/status-bar';
 import { TitleBar } from './features/shell/title-bar';
 import { Welcome } from './features/shell/welcome';
 import { Workspace } from './features/shell/workspace';
@@ -32,6 +33,7 @@ export function App() {
     <div className="flex h-full flex-col bg-primary text-primary">
       <TitleBar />
       {isUntitledAndEmpty ? <Welcome /> : <Workspace />}
+      <ShellStatusBar />
       <Toaster />
       <ConfirmHost />
     </div>
