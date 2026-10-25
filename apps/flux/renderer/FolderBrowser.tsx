@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FolderOpen, ChevronUp, FileImage } from "lucide-react";
-import { ReacstButton } from "@lumacast/ui";
+import { ListRow, ReacstButton } from "@lumacast/ui";
 type Listing = {
   path: string;
   parent: string;
@@ -51,34 +51,35 @@ export function FolderBrowser({
           </div>
           <div className="directory-entries">
             {listing.folders.map((f) => (
-              <ReacstButton
-                variant="ghost"
-                align="start"
-                fullWidth
-                className="min-w-0"
+              <ListRow
+                as="button"
+                density="compact"
                 key={f.path}
                 disabled={loading}
                 onClick={() => void browse(f.path)}
               >
-                <FolderOpen size={13} className="shrink-0" />
-                <span className="truncate">{f.name}</span>
-              </ReacstButton>
+                <ListRow.Leading>
+                  <FolderOpen size={13} />
+                </ListRow.Leading>
+                <ListRow.Label>{f.name}</ListRow.Label>
+              </ListRow>
             ))}
             {listing.files.map((f) => (
-              <ReacstButton
-                variant="ghost"
-                align="start"
-                fullWidth
-                className="min-w-0"
+              <ListRow
+                as="button"
+                density="compact"
                 key={f.path}
-                title={`Import ${f.name}`}
                 onClick={() =>
                   void onImport([f.path]).catch((e) => onError(String(e)))
                 }
               >
-                <FileImage size={13} className="shrink-0" />
-                <span className="truncate">{f.name}</span>
-              </ReacstButton>
+                <ListRow.Leading>
+                  <FileImage size={13} />
+                </ListRow.Leading>
+                <ListRow.Label>
+                  <span title={`Import ${f.name}`}>{f.name}</span>
+                </ListRow.Label>
+              </ListRow>
             ))}
             {!listing.files.length && !listing.folders.length && (
               <p className="muted">No supported photos or folders.</p>

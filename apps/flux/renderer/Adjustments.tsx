@@ -18,6 +18,7 @@ import {
 import {
   Accordion,
   Checkbox,
+  Panel,
   ReacstButton,
   Select,
   Slider,
@@ -84,7 +85,7 @@ export function Adjustments({
         ? ["Light", "Color", "Detail"]
         : [];
   return (
-    <aside className="adjustments panel">
+    <Panel className="border-l border-primary bg-secondary">
       <Histogram
         data={histogramData}
         sample={pixelSample}
@@ -366,7 +367,7 @@ export function Adjustments({
           </Accordion>
         </Tabs.Panel>
       </Tabs>
-      <div className="adjustments-footer">
+      <Panel.Footer className="gap-1 py-2">
         <ReacstButton.Icon
           size="sm"
           aria-label="Copy"
@@ -396,7 +397,7 @@ export function Adjustments({
           <Layers size={13} />
           Apply to selected
         </ReacstButton>
-      </div>
-    </aside>
+      </Panel.Footer>
+    </Panel>
   );
 }

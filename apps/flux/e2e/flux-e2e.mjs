@@ -167,7 +167,7 @@ try {
   );
   assert.equal(
     await page
-      .locator(".viewer-tools")
+      .getByRole("toolbar", { name: "Viewer tools" })
       .getByRole("button", { name: "Undo", exact: true })
       .count(),
     1,
@@ -300,7 +300,7 @@ try {
   );
   const id = state.photos.find((p) => p.name === "color-study.png").id;
   assert.equal(await page.locator(".navigation").count(), 0);
-  assert.equal(await page.locator(".library-toolbar").count(), 0);
+  assert.equal(await page.getByRole("toolbar", { name: "Library" }).count(), 0);
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await page
     .getByRole("slider", { name: "Luminance noise", exact: true })

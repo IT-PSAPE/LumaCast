@@ -153,21 +153,6 @@ h3 {
   position: relative;
   background: var(--background-color-primary);
 }
-.library-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border-color-secondary);
-  flex-shrink: 0;
-}
-.library-toolbar h1 {
-  max-width: 350px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .gallery {
   flex: 1;
   overflow: auto;
@@ -268,12 +253,6 @@ h3 {
   border-top: 1px solid var(--border-color-primary);
   flex-shrink: 0;
 }
-.adjustments {
-  border-left: 1px solid var(--border-color-primary);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
 /* Help prose sits inside an accordion panel that already owns the gutters, so
  * it adds only the closing gap. */
 .panel-help {
@@ -324,13 +303,6 @@ h3 {
   margin: 0 0 8px;
   font-size: 10px;
 }
-.adjustments-footer {
-  padding: 8px;
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 4px;
-  border-top: 1px solid var(--border-color-primary);
-}
 /* Definition lists align their label column, including the grouped rows the
  * Info tab wraps in a div, so `display: contents` keeps them in the grid. */
 .metadata {
@@ -351,32 +323,11 @@ h3 {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.statusbar {
-  height: 21px;
-  flex-shrink: 0;
-  border-top: 1px solid var(--border-color-primary);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 15px;
-  font-size: 10px;
-  color: var(--text-color-tertiary);
-  background: var(--background-color-secondary);
-}
 .viewer {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-.viewer-tools {
-  display: flex;
-  align-items: center;
-  height: 36px;
-  min-height: 36px;
-  padding: 0 8px;
-  gap: 4px;
-  flex: none;
 }
 .zoom-label {
   min-width: 35px;
@@ -585,10 +536,6 @@ h3 {
   min-width: 0;
   display: flex;
 }
-.inspector-shell .adjustments {
-  width: 100%;
-  min-width: 0;
-}
 .crop-handle {
   position: absolute;
   width: 10px;
@@ -696,13 +643,6 @@ h3 {
   white-space: nowrap;
   font-size: 10px;
 }
-.toolbar-group {
-  display: flex;
-  gap: 4px;
-  padding-right: 8px;
-  margin-right: 4px;
-  border-right: 1px solid var(--border-color-primary);
-}
 .histogram-panel {
   flex: none;
   padding: 6px 10px 3px;
@@ -800,10 +740,6 @@ h3 {
   visibility: hidden;
 }
 @media (max-width: 1200px) {
-  .library-toolbar {
-    padding: 7px 10px;
-    gap: 6px;
-  }
   .gallery {
     padding: 12px;
     gap: 10px;

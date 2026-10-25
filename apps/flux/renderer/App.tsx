@@ -21,12 +21,15 @@ import { adjustmentControls } from "@lumacast/photo-model";
 import {
   Banner,
   EmptyState,
+  ListRow,
   PanelResize,
   ReacstButton,
   SegmentedControl,
   Select,
   Slider,
+  StatusBar,
   TextField,
+  Toolbar,
   WindowChrome,
 } from "@lumacast/ui";
 import type { HistogramData, PixelReadout } from "./histogram-data";
@@ -392,75 +395,51 @@ export function App() {
           <>
             <aside className="navigation panel" style={{ width: leftWidth }}>
               <h2>Library</h2>
-              <ReacstButton
-                variant="ghost"
-                align="start"
-                fullWidth
-                active={section === "all"}
-                aria-current={section === "all" ? "page" : undefined}
-                className="[&>svg]:shrink-0"
-                onClick={() => {
-                  setSection("all");
-                  setView("gallery");
-                }}
-              >
-                <Images size={13} />
-                All photos<span className="ml-auto text-tertiary">{state.photos.length}</span>
-              </ReacstButton>
-              <ReacstButton
-                variant="ghost"
-                align="start"
-                fullWidth
-                active={section === "favorites"}
-                aria-current={section === "favorites" ? "page" : undefined}
-                className="[&>svg]:shrink-0"
-                onClick={() => {
-                  setSection("favorites");
-                  setView("gallery");
-                }}
-              >
-                <Heart size={13} />
-                Favorites
-                <span className="ml-auto text-tertiary">{state.photos.filter((p) => p.favorite).length}</span>
-              </ReacstButton>
-              <ReacstButton
-                variant="ghost"
-                align="start"
-                fullWidth
-                active={section === "jobs"}
-                aria-current={section === "jobs" ? "page" : undefined}
-                className="[&>svg]:shrink-0"
-                onClick={() => {
-                  setSection("jobs");
-                  setView("gallery");
-                }}
-              >
-                <ArrowDownToLine size={13} />
-                Exports<span className="ml-auto text-tertiary">{state.jobs.length}</span>
-              </ReacstButton>
+              {(
+                [
+                  ["all", Images, "All photos", state.photos.length],
+                  ["favorites", Heart, "Favorites", state.photos.filter((p) => p.favorite).length],
+                  ["jobs", ArrowDownToLine, "Exports", state.jobs.length],
+                ] as const
+              ).map(([id, Icon, label, count]) => (
+                <ListRow
+                  key={id}
+                  as="button"
+                  density="compact"
+                  selected={section === id}
+                  onClick={() => {
+                    setSection(id);
+                    setView("gallery");
+                  }}
+                >
+                  <ListRow.Leading>
+                    <Icon size={13} />
+                  </ListRow.Leading>
+                  <ListRow.Label>{label}</ListRow.Label>
+                  <ListRow.Meta>{count}</ListRow.Meta>
+                </ListRow>
+              ))}
               <h2>Folders</h2>
               <div className="folder-list">
                 {folders.length ? (
                   folders.map((folder) => (
-                    <ReacstButton
-                      title={folder}
-                      variant="ghost"
-                      align="start"
-                      fullWidth
-                      active={section === folder}
-                      aria-current={section === folder ? "page" : undefined}
-                      className="min-w-0"
+                    <ListRow
                       key={folder}
+                      as="button"
+                      density="compact"
+                      selected={section === folder}
                       onClick={() => {
                         setSection(folder);
                         setView("gallery");
                       }}
                     >
-                      <FolderOpen size={13} className="shrink-0" />
-                      <span className="truncate">
-                        {folder.split(/[\\/]/).pop()}
-                      </span>
-                    </ReacstButton>
+                      <ListRow.Leading>
+                        <FolderOpen size={13} />
+                      </ListRow.Leading>
+                      <ListRow.Label>
+                        <span title={folder}>{folder.split(/[\\/]/).pop()}</span>
+                      </ListRow.Label>
+                    </ListRow>
                   ))
                 ) : (
                   <p className="muted small">Imported folders appear here.</p>
@@ -553,9 +532,10 @@ export function App() {
           ) : (
             <>
               {view === "gallery" && (
-                <div className="library-toolbar">
+                <Toolbar label="Library" variant="bordered" className="max-[1200px]:gap-1.5">
+                  <Toolbar.Start>
                   <div>
-                    <h1>
+                    <h1 className="max-w-[350px] truncate">
                       {section === "all"
                         ? "All photos"
                         : section === "favorites"
@@ -569,7 +549,8 @@ export function App() {
                         : ""}
                     </span>
                   </div>
-                  <span className="spacer" />
+                  </Toolbar.Start>
+                  <Toolbar.End>
                   <TextField
                     className="w-40 max-[1200px]:w-28"
                     size="sm"
@@ -609,7 +590,8 @@ export function App() {
                       })),
                     ]}
                   />
-                </div>
+                  </Toolbar.End>
+                </Toolbar>
               )}
               {view === "editor" && photo && recipe ? (
                 <>
@@ -875,14 +857,20 @@ export function App() {
           </>
         )}
       </div>
-      <footer className="statusbar">
-        <span>{busy ? "Working…" : ready ? "Ready" : "Opening library…"}</span>
-        <span>
-          {state.activity[0]?.source === "MCP"
-            ? `Agent: ${state.activity[0].action}`
-            : "G Library · E Edit · Arrow keys Navigate · ⌘Z Undo"}
-        </span>
-      </footer>
+      <StatusBar label="Flux status">
+        <StatusBar.Start>
+          <StatusBar.Item busy={busy} live>
+            {busy ? "Working…" : ready ? "Ready" : "Opening library…"}
+          </StatusBar.Item>
+        </StatusBar.Start>
+        <StatusBar.End>
+          <StatusBar.Item>
+            {state.activity[0]?.source === "MCP"
+              ? `Agent: ${state.activity[0].action}`
+              : "G Library · E Edit · Arrow keys Navigate · ⌘Z Undo"}
+          </StatusBar.Item>
+        </StatusBar.End>
+      </StatusBar>
       {notice && (
         <div className="pointer-events-none fixed bottom-10 left-[230px] z-20 w-[min(650px,60vw)] [&_button]:pointer-events-auto">
           <Banner onDismiss={() => setNotice("")}>

@@ -13,7 +13,7 @@ import {
 import type { Photo, Recipe } from "@lumacast/photo-model";
 import { neutralRecipe } from "@lumacast/photo-model";
 import { LatestPreview } from "./latest-preview";
-import { ReacstButton } from "@lumacast/ui";
+import { ReacstButton, Toolbar } from "@lumacast/ui";
 import {
   histogram,
   clippingPixels,
@@ -309,8 +309,8 @@ export function Viewer({
   }
   return (
     <div className="viewer">
-      <div className="viewer-tools">
-        <div className="toolbar-group" aria-label="Edit history">
+      <Toolbar size="sm" label="Viewer tools">
+        <Toolbar.Group label="Edit history">
           <ReacstButton.Icon
             size="sm"
             title="Undo (⌘Z)"
@@ -338,7 +338,7 @@ export function Viewer({
           >
             <RefreshCcw size={14} />
           </ReacstButton.Icon>
-        </div>
+        </Toolbar.Group>
         <ReacstButton.Icon
           size="sm"
           aria-label="Previous photo"
@@ -350,7 +350,7 @@ export function Viewer({
         <ReacstButton.Icon size="sm" aria-label="Next photo" disabled={!canNext} onClick={next}>
           <ChevronRight size={14} />
         </ReacstButton.Icon>
-        <span className="spacer" />
+        <Toolbar.Spacer />
         <ReacstButton
           size="sm"
           pressed={compare}
@@ -400,7 +400,7 @@ export function Viewer({
           <Maximize size={13} />
           Fit
         </ReacstButton>
-      </div>
+      </Toolbar>
       <div
         className={`canvas ${composition && !compare ? "cropping" : ""} ${compare ? "comparing" : ""}`}
         onPointerDown={down}
