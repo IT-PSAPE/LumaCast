@@ -16,7 +16,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { Badge, Banner, EmptyState, ListRow, Panel, ReacstButton as Button, Slider, StatusBar, StatusDot, Switch, TextField, WindowChrome } from "@lumacast/ui";
+import { Badge, Banner, EmptyState, ListRow, Panel, ReacstButton as Button, Sidebar, Slider, StatusBar, StatusDot, Switch, TextField, WindowChrome } from "@lumacast/ui";
 import type { Sound, SoundBoard, SoundLibrary, SoundboardAPI, SoundPlaybackSettings, SoundShortcut } from "../shared/desktop-api";
 import { defaultPlaybackSettings } from "../shared/desktop-api";
 import { soundUrl } from "../shared/desktop-api";
@@ -229,7 +229,7 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
 
   // The window has no native title bar, so the chrome (the only drag region)
   // renders in every state: loading, load error, and the main shell.
-  const chrome = <WindowChrome><WindowChrome.Center>LumaSoundboard</WindowChrome.Center></WindowChrome>;
+  const chrome = <WindowChrome><WindowChrome.Start draggable><WindowChrome.Title>LumaSoundboard</WindowChrome.Title></WindowChrome.Start></WindowChrome>;
 
   if (loading && !library) {
     return <div className="app-frame">{chrome}<main className="loading-screen"><div className="loader-mark"><AudioLines size={26} /></div><p>Loading your sound library</p></main></div>;
@@ -242,19 +242,19 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
     <div className="app-frame">
     {chrome}
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-section"><div className="section-label"><span>YOUR BOARDS</span><Badge>{library?.boards.length ?? 0}</Badge></div>
-          <nav className="board-list" aria-label="Sound boards">
+      <Sidebar width={258} className="board-rail">
+        <Sidebar.Group label="Your boards" count={library?.boards.length ?? 0}>
+          <Sidebar.Nav aria-label="Sound boards">
             {library?.boards.map((board) => <ListRow key={board.id} as="button" selected={board.id === activeBoardId} disabled={busy} onClick={() => switchBoard(board.id)} aria-label={board.name}>
               <ListRow.Leading><Disc3 size={17} /></ListRow.Leading><ListRow.Label>{board.name}</ListRow.Label><ListRow.Meta>{board.sounds.length}</ListRow.Meta>
             </ListRow>)}
-          </nav>
-          <form className="mt-3" onSubmit={(event) => { event.preventDefault(); createBoard(); }}>
+          </Sidebar.Nav>
+          <form className="mt-2" onSubmit={(event) => { event.preventDefault(); createBoard(); }}>
             <TextField label="New board name" labelPlacement="hidden" value={newBoardName} onValueChange={setNewBoardName} placeholder="Name a new board" maxLength={48} disabled={busy} trailing={<Button.Icon type="submit" label="Create board" variant="ghost" size="sm" disabled={busy || !newBoardName.trim()}><Plus size={17} /></Button.Icon>} />
           </form>
-        </div>
-        <div className="sidebar-footer"><div className="footer-glow" /><Headphones size={17} /><span>Ready when you are.</span><Sparkles className="footer-spark" size={15} /></div>
-      </aside>
+        </Sidebar.Group>
+        <Sidebar.Footer className="flex items-center gap-2 text-xs text-tertiary"><Headphones size={17} className="text-brand" /><span>Ready when you are.</span><Sparkles className="ml-auto" size={15} /></Sidebar.Footer>
+      </Sidebar>
 
       <Panel className="min-w-0">
         <Panel.Header>

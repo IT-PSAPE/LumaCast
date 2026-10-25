@@ -23,6 +23,7 @@ import {
   EmptyState,
   ListRow,
   PanelResize,
+  Sidebar,
   ReacstButton,
   SegmentedControl,
   Select,
@@ -343,7 +344,7 @@ export function App() {
       <WindowChrome>
         <WindowChrome.Start draggable>
           <SlidersHorizontal size={16} className="text-brand" />
-          <strong className="text-[13px] font-semibold tracking-tight">Lumaflux</strong>
+          <WindowChrome.Title>Lumaflux</WindowChrome.Title>
         </WindowChrome.Start>
         <WindowChrome.Center>
           <div className="[-webkit-app-region:no-drag]">
@@ -393,34 +394,36 @@ export function App() {
       <div className="workspace">
         {view === "gallery" && (
           <>
-            <aside className="navigation panel" style={{ width: leftWidth }}>
-              <h2>Library</h2>
-              {(
-                [
-                  ["all", Images, "All photos", state.photos.length],
-                  ["favorites", Heart, "Favorites", state.photos.filter((p) => p.favorite).length],
-                  ["jobs", ArrowDownToLine, "Exports", state.jobs.length],
-                ] as const
-              ).map(([id, Icon, label, count]) => (
-                <ListRow
-                  key={id}
-                  as="button"
-                  density="compact"
-                  selected={section === id}
-                  onClick={() => {
-                    setSection(id);
-                    setView("gallery");
-                  }}
-                >
-                  <ListRow.Leading>
-                    <Icon size={13} />
-                  </ListRow.Leading>
-                  <ListRow.Label>{label}</ListRow.Label>
-                  <ListRow.Meta>{count}</ListRow.Meta>
-                </ListRow>
-              ))}
-              <h2>Folders</h2>
-              <div className="folder-list">
+            <Sidebar resizable width={leftWidth} onWidthChange={setLeftWidth} min={180} max={480}>
+              <Sidebar.Group label="Library">
+                <Sidebar.Nav aria-label="Library">
+                  {(
+                    [
+                      ["all", Images, "All photos", state.photos.length],
+                      ["favorites", Heart, "Favorites", state.photos.filter((p) => p.favorite).length],
+                      ["jobs", ArrowDownToLine, "Exports", state.jobs.length],
+                    ] as const
+                  ).map(([id, Icon, label, count]) => (
+                    <ListRow
+                      key={id}
+                      as="button"
+                      density="compact"
+                      selected={section === id}
+                      onClick={() => {
+                        setSection(id);
+                        setView("gallery");
+                      }}
+                    >
+                      <ListRow.Leading>
+                        <Icon size={13} />
+                      </ListRow.Leading>
+                      <ListRow.Label>{label}</ListRow.Label>
+                      <ListRow.Meta>{count}</ListRow.Meta>
+                    </ListRow>
+                  ))}
+                </Sidebar.Nav>
+              </Sidebar.Group>
+              <Sidebar.Group label="Folders">
                 {folders.length ? (
                   folders.map((folder) => (
                     <ListRow
@@ -442,11 +445,11 @@ export function App() {
                     </ListRow>
                   ))
                 ) : (
-                  <p className="muted small">Imported folders appear here.</p>
+                  <p className="muted small px-2">Imported folders appear here.</p>
                 )}
-              </div>
+              </Sidebar.Group>
               <FolderBrowser onImport={importPaths} onError={setNotice} />
-              <div className="import-actions">
+              <Sidebar.Footer className="flex flex-col gap-1">
                 <ReacstButton
                   size="sm"
                   fullWidth
@@ -469,13 +472,8 @@ export function App() {
                   <FolderOpen size={13} />
                   Import folder
                 </ReacstButton>
-              </div>
-            </aside>
-            <PanelResize
-              side="left"
-              width={leftWidth}
-              onChange={setLeftWidth}
-            />
+              </Sidebar.Footer>
+            </Sidebar>
           </>
         )}
         <main className="main-area">
@@ -532,7 +530,7 @@ export function App() {
           ) : (
             <>
               {view === "gallery" && (
-                <Toolbar label="Library" variant="bordered" className="max-[1200px]:gap-1.5">
+                <Toolbar size="sm" label="Library" variant="bordered" className="max-[1200px]:gap-1.5">
                   <Toolbar.Start>
                   <div>
                     <h1 className="max-w-[350px] truncate">

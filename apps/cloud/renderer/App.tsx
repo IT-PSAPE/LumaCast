@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import {
   ListRow,
+  Sidebar,
   StatusBar,
   WindowChrome,
   type StatusTone,
@@ -80,7 +81,9 @@ export function App() {
   // renders in every state, including before the first overview arrives.
   const chrome = (
     <WindowChrome>
-      <WindowChrome.Center>LumaCloud</WindowChrome.Center>
+      <WindowChrome.Start draggable>
+        <WindowChrome.Title>LumaCloud</WindowChrome.Title>
+      </WindowChrome.Start>
     </WindowChrome>
   );
 
@@ -105,8 +108,8 @@ export function App() {
     <div className="flex h-screen flex-col bg-primary text-primary">
       {chrome}
       <div className="flex min-h-0 flex-1">
-        <aside className="flex w-[200px] shrink-0 flex-col border-r border-primary bg-secondary p-2">
-          <nav aria-label="Destinations" className="flex flex-col gap-1">
+        <Sidebar width={200}>
+          <Sidebar.Nav>
             {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
               const count = id === "updates" ? updateCount : 0;
               return (
@@ -124,8 +127,8 @@ export function App() {
                 </ListRow>
               );
             })}
-          </nav>
-        </aside>
+          </Sidebar.Nav>
+        </Sidebar>
 
         <main className="flex-1 overflow-y-auto p-8">
           {screen === "apps" ? (

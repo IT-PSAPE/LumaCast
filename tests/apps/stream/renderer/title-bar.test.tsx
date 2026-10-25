@@ -66,6 +66,15 @@ describe('TitleBar', () => {
     });
   });
 
+  it('places the title in the start slot after the hamburger, with an empty centre', () => {
+    render(<TitleBar platform="win32" menuMode="hamburger" menus={makeMenus()} title="LumaStream"><span>LIVE</span></TitleBar>);
+    const start = document.querySelector('[data-slot="start"]')!;
+    expect(start).toContainElement(screen.getByText('LumaStream'));
+    expect(screen.getByRole('button', { name: 'Menu' }).compareDocumentPosition(screen.getByText('LumaStream')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(document.querySelector('[data-slot="center"]')).toBeNull();
+    expect(document.querySelector('[data-slot="end"]')).toContainElement(screen.getByText('LIVE'));
+  });
+
   it('still renders the title and right-side children in both modes', () => {
     render(<TitleBar platform="darwin" menuMode="native" menus={makeMenus()} title="LumaStream"><span>LIVE</span></TitleBar>);
     expect(screen.getByText('LIVE')).toBeInTheDocument();

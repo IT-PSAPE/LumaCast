@@ -22,9 +22,9 @@ export interface TitleBarProps {
 /**
  * Stream's title bar content on the shared `WindowChrome` frame (height,
  * drag regions and platform insets come from there). Start holds the
- * Windows/Linux hamburger menu; macOS keeps its real menu bar and traffic
- * lights, so Start is omitted. Center is the window title; End carries the
- * status chips.
+ * Windows/Linux hamburger menu (macOS keeps its real menu bar and traffic
+ * lights) followed by the window title, which is its own drag region inside
+ * the no-drag Start. Center is empty; End carries the status chips.
  */
 export function TitleBar({ platform, menuMode, menus, title, children }: TitleBarProps) {
   const [hamburgerMenuOpen, setHamburgerMenuOpen] = useState(false);
@@ -36,30 +36,30 @@ export function TitleBar({ platform, menuMode, menus, title, children }: TitleBa
 
   return (
     <WindowChrome platform={platform}>
-      {menuMode === 'hamburger' && (
-        <WindowChrome.Start>
-        <Menu.Root open={hamburgerMenuOpen} onOpenChange={setHamburgerMenuOpen} modal={false}>
-          <Menu.Trigger
-            type="button"
-            className="title-bar-hamburger"
-            aria-label="Menu"
-          >
-            <MenuIcon size={16} aria-hidden="true" />
-          </Menu.Trigger>
-          <Menu.Portal container={overlayContainer}>
-            <Menu.Positioner className="outline-hidden" side="bottom" sideOffset={2} align="start">
-              <Menu.Popup
-                className={CONTEXT_MENU_SURFACE_CLASSES}
-                aria-label={`${title} menu`}
-              >
-                <MenuEntries entries={hamburgerEntries} onClose={() => setHamburgerMenuOpen(false)} />
-              </Menu.Popup>
-            </Menu.Positioner>
-          </Menu.Portal>
-        </Menu.Root>
-        </WindowChrome.Start>
-      )}
-      <WindowChrome.Center className="font-medium tracking-[0.02em]">{title}</WindowChrome.Center>
+      <WindowChrome.Start>
+        {menuMode === 'hamburger' && (
+          <Menu.Root open={hamburgerMenuOpen} onOpenChange={setHamburgerMenuOpen} modal={false}>
+            <Menu.Trigger
+              type="button"
+              className="title-bar-hamburger"
+              aria-label="Menu"
+            >
+              <MenuIcon size={16} aria-hidden="true" />
+            </Menu.Trigger>
+            <Menu.Portal container={overlayContainer}>
+              <Menu.Positioner className="outline-hidden" side="bottom" sideOffset={2} align="start">
+                <Menu.Popup
+                  className={CONTEXT_MENU_SURFACE_CLASSES}
+                  aria-label={`${title} menu`}
+                >
+                  <MenuEntries entries={hamburgerEntries} onClose={() => setHamburgerMenuOpen(false)} />
+                </Menu.Popup>
+              </Menu.Positioner>
+            </Menu.Portal>
+          </Menu.Root>
+        )}
+        <WindowChrome.Title>{title}</WindowChrome.Title>
+      </WindowChrome.Start>
       {children ? <WindowChrome.End>{children}</WindowChrome.End> : null}
     </WindowChrome>
   );

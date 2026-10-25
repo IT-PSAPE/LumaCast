@@ -107,43 +107,6 @@ h3 {
   flex: 1;
   min-height: 0;
 }
-.panel {
-  background: var(--background-color-secondary);
-}
-.navigation {
-  display: flex;
-  flex-direction: column;
-  flex: none;
-  border-right: 1px solid var(--border-color-primary);
-  padding: 10px 7px 0;
-  min-width: 0;
-  min-height: 0;
-}
-.import-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: auto;
-  margin-bottom: 12px;
-  flex: none;
-}
-.navigation h2 {
-  font-size: 11px;
-  color: var(--text-color-secondary);
-  padding: 0 10px;
-  margin: 0 0 10px;
-}
-.navigation h2:not(:first-child) {
-  margin-top: 15px;
-}
-.folder-list {
-  overflow: auto;
-  flex: 1;
-  min-height: 40px;
-}
-.folder-list p {
-  padding: 4px 10px;
-}
 .main-area {
   flex: 1;
   min-width: 0;

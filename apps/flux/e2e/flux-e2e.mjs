@@ -124,7 +124,7 @@ try {
   );
   await page.getByRole("button", { name: "Dismiss" }).click();
   assert.equal(await page.locator(".adjustments").count(), 0);
-  assert.equal(await page.locator(".navigation").count(), 1);
+  assert.equal(await page.getByRole("complementary").count(), 1);
   await app.evaluate(({ dialog }, folder) => {
     dialog.showOpenDialog = async () => ({
       canceled: false,
@@ -141,11 +141,11 @@ try {
   await page
     .getByRole("button", { name: "Import this folder", exact: true })
     .waitFor();
-  const left = await page.locator(".navigation").boundingBox();
-  await page.getByRole("separator", { name: "Resize left panel" }).focus();
+  const left = await page.getByRole("complementary").boundingBox();
+  await page.getByRole("separator", { name: "Resize sidebar" }).focus();
   await page.keyboard.press("ArrowRight");
   assert.ok(
-    (await page.locator(".navigation").boundingBox()).width > left.width,
+    (await page.getByRole("complementary").boundingBox()).width > left.width,
   );
   await page.screenshot({ path: path.join(root, "output/playwright/gallery.png" });
   await page
@@ -299,7 +299,7 @@ try {
     window.lumaflux.command("get_app_state"),
   );
   const id = state.photos.find((p) => p.name === "color-study.png").id;
-  assert.equal(await page.locator(".navigation").count(), 0);
+  assert.equal(await page.getByRole("complementary").count(), 0);
   assert.equal(await page.getByRole("toolbar", { name: "Library" }).count(), 0);
   await page.getByRole("button", { name: "Details", exact: true }).click();
   await page
