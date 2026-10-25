@@ -16,7 +16,7 @@ import {
   Volume2,
   X,
 } from "lucide-react";
-import { Badge, Banner, EmptyState, ReacstButton as Button, Slider, StatusDot, Switch, TextField, WindowChrome } from "@lumacast/ui";
+import { Badge, Banner, EmptyState, ListRow, Panel, ReacstButton as Button, Slider, StatusBar, StatusDot, Switch, TextField, WindowChrome } from "@lumacast/ui";
 import type { Sound, SoundBoard, SoundLibrary, SoundboardAPI, SoundPlaybackSettings, SoundShortcut } from "../shared/desktop-api";
 import { defaultPlaybackSettings } from "../shared/desktop-api";
 import { soundUrl } from "../shared/desktop-api";
@@ -245,9 +245,9 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
       <aside className="sidebar">
         <div className="sidebar-section"><div className="section-label"><span>YOUR BOARDS</span><Badge>{library?.boards.length ?? 0}</Badge></div>
           <nav className="board-list" aria-label="Sound boards">
-            {library?.boards.map((board) => <Button key={board.id} label={board.name} variant="ghost" size="xl" fullWidth align="start" active={board.id === activeBoardId} aria-current={board.id === activeBoardId ? "page" : undefined} onClick={() => switchBoard(board.id)} disabled={busy}>
-              <Disc3 size={17} /><span className="min-w-0 flex-1 truncate">{board.name}</span><Badge>{board.sounds.length}</Badge>
-            </Button>)}
+            {library?.boards.map((board) => <ListRow key={board.id} as="button" selected={board.id === activeBoardId} disabled={busy} onClick={() => switchBoard(board.id)} aria-label={board.name}>
+              <ListRow.Leading><Disc3 size={17} /></ListRow.Leading><ListRow.Label>{board.name}</ListRow.Label><ListRow.Meta>{board.sounds.length}</ListRow.Meta>
+            </ListRow>)}
           </nav>
           <form className="mt-3" onSubmit={(event) => { event.preventDefault(); createBoard(); }}>
             <TextField label="New board name" labelPlacement="hidden" value={newBoardName} onValueChange={setNewBoardName} placeholder="Name a new board" maxLength={48} disabled={busy} trailing={<Button.Icon type="submit" label="Create board" variant="ghost" size="sm" disabled={busy || !newBoardName.trim()}><Plus size={17} /></Button.Icon>} />
@@ -256,26 +256,30 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
         <div className="sidebar-footer"><div className="footer-glow" /><Headphones size={17} /><span>Ready when you are.</span><Sparkles className="footer-spark" size={15} /></div>
       </aside>
 
-      <main className="main-area">
-        <header className="topbar"><div className="breadcrumb"><span>LIBRARY</span><span>/</span><span className="crumb-current">{activeBoard?.name ?? "BOARDS"}</span></div><div className="topbar-right"><StatusDot tone="success" />LOCAL LIBRARY</div></header>
+      <Panel className="min-w-0">
+        <Panel.Header>
+          <Panel.HeaderTitle icon={<Volume2 size={16} />} count={activeBoard?.sounds.length}>{activeBoard?.name ?? "Boards"}</Panel.HeaderTitle>
+          {activeBoard && <Panel.HeaderActions><Button size="md" label="Add sounds" onClick={importSounds} disabled={busy}><Plus size={16} /><span>Add sounds</span></Button>{activeBoard.sounds.length > 0 && <Button variant="ghost" size="md" label="Stop all" onClick={stopAll}><CircleStop size={16} /><span>Stop all</span></Button>}</Panel.HeaderActions>}
+        </Panel.Header>
+        <Panel.Body>
         <div className="content">
           {actionError && <Banner tone="error" size="sm" className="mb-6" onDismiss={() => setActionError("")}>{actionError}</Banner>}
           {library?.boards.length === 0 ? <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>Your soundboard begins here</EmptyState.Title><EmptyState.Description>Create a board to keep your sounds organized and ready to play.</EmptyState.Description><EmptyState.Action><form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); createBoard(); }}><TextField label="Board name" labelPlacement="hidden" value={newBoardName} onValueChange={setNewBoardName} placeholder="e.g. Studio cues" maxLength={48} disabled={busy} className="w-52" /><Button variant="primary" size="xl" label="Create board" type="submit" disabled={busy || !newBoardName.trim()}><FolderPlus size={16} /> Create board</Button></form></EmptyState.Action></EmptyState.Root>
-          : activeBoard ? <BoardContent key={activeBoard.id} board={activeBoard} busy={busy} renameValue={renameValue} setRenameValue={setRenameValue} onRename={renameBoard} onImport={importSounds} onStopAll={stopAll} onRemove={removeSound} onUpdateSound={updateSound} recordingShortcutId={recordingShortcutId} setRecordingShortcutId={setRecordingShortcutId} audioFactory={audioFactory} register={registerTile} /> : <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>No board selected</EmptyState.Title></EmptyState.Root>}
+          : activeBoard ? <BoardContent key={activeBoard.id} board={activeBoard} busy={busy} renameValue={renameValue} setRenameValue={setRenameValue} onRename={renameBoard} onImport={importSounds} onRemove={removeSound} onUpdateSound={updateSound} recordingShortcutId={recordingShortcutId} setRecordingShortcutId={setRecordingShortcutId} audioFactory={audioFactory} register={registerTile} /> : <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>No board selected</EmptyState.Title></EmptyState.Root>}
         </div>
-      </main>
+        </Panel.Body>
+      </Panel>
     </div>
+    <StatusBar label="Library status"><StatusBar.Start><StatusBar.Item tone="success" icon={<StatusDot tone="success" />}>Local library</StatusBar.Item></StatusBar.Start></StatusBar>
     </div>
   );
 }
 
-function BoardContent({ board, busy, renameValue, setRenameValue, onRename, onImport, onStopAll, onRemove, onUpdateSound, recordingShortcutId, setRecordingShortcutId, audioFactory, register }: {
-  board: SoundBoard; busy: boolean; renameValue: string | null; setRenameValue: (value: string | null) => void; onRename: (event: FormEvent) => void; onImport: () => void; onStopAll: () => void; onRemove: (sound: Sound) => void; onUpdateSound: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recordingShortcutId: string | null; setRecordingShortcutId: (soundId: string | null) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void;
+function BoardContent({ board, busy, renameValue, setRenameValue, onRename, onImport, onRemove, onUpdateSound, recordingShortcutId, setRecordingShortcutId, audioFactory, register }: {
+  board: SoundBoard; busy: boolean; renameValue: string | null; setRenameValue: (value: string | null) => void; onRename: (event: FormEvent) => void; onImport: () => void; onRemove: (sound: Sound) => void; onUpdateSound: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recordingShortcutId: string | null; setRecordingShortcutId: (soundId: string | null) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void;
 }) {
   return <>
-      <div className="board-heading"><div className="heading-copy"><form className="title-form" onSubmit={onRename}><TextField label="Board name" labelPlacement="hidden" value={renameValue ?? board.name} onValueChange={setRenameValue} maxLength={48} disabled={busy} className="w-[min(100%,360px)]" /><Button variant="take" size="sm" label="Save" type="submit" disabled={busy || !renameValue?.trim() || renameValue.trim() === board.name}>Save</Button></form><p className="board-subtitle">{board.sounds.length ? `${board.sounds.length} sound${board.sounds.length === 1 ? "" : "s"} in this collection` : "A quiet canvas, ready for your next sound."}</p></div>
-      <div className="header-actions"><Button size="xl" label="Add sounds" onClick={onImport} disabled={busy}><Plus size={16} /><span>Add sounds</span></Button>{board.sounds.length > 0 && <Button variant="ghost" size="xl" label="Stop all" onClick={onStopAll}><CircleStop size={16} /><span>Stop all</span></Button>}</div>
-    </div>
+      <div className="board-heading"><div><form className="title-form" onSubmit={onRename}><TextField label="Board name" labelPlacement="hidden" value={renameValue ?? board.name} onValueChange={setRenameValue} maxLength={48} disabled={busy} className="w-[min(100%,360px)]" /><Button variant="take" size="sm" label="Save" type="submit" disabled={busy || !renameValue?.trim() || renameValue.trim() === board.name}>Save</Button></form><p className="board-subtitle">{board.sounds.length ? `${board.sounds.length} sound${board.sounds.length === 1 ? "" : "s"} in this collection` : "A quiet canvas, ready for your next sound."}</p></div></div>
     {board.sounds.length === 0 ? <EmptyState.Root className="min-h-[375px] rounded-lg border border-dashed border-primary"><EmptyState.Icon><Volume2 size={22} /></EmptyState.Icon><EmptyState.Title>No sounds in this board</EmptyState.Title><EmptyState.Description>Add audio files to start building your collection.</EmptyState.Description><EmptyState.Action><Button variant="primary" size="xl" label="Add sounds" onClick={onImport} disabled={busy}><Plus size={16} /> Add sounds</Button></EmptyState.Action></EmptyState.Root>
       : <div className="sound-grid">{board.sounds.map((sound, index) => <SoundTile key={sound.id} sound={sound} index={index} busy={busy} onRemove={() => onRemove(sound)} onUpdate={onUpdateSound} recording={recordingShortcutId === sound.id} onRecordingChange={(isRecording) => setRecordingShortcutId(isRecording ? sound.id : null)} audioFactory={audioFactory} register={register} />)}</div>}
   </>;

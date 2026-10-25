@@ -96,4 +96,26 @@ describe('Panel', () => {
     rerender(<Panel><Panel.Header><Panel.HeaderTitle count={0}>T</Panel.HeaderTitle></Panel.Header></Panel>);
     expect(screen.getByText('0')).toBeTruthy();
   });
+
+  it('root fills by default; fill={false} sizes to content', () => {
+    const { rerender } = render(<Panel aria-label="p">x</Panel>);
+    expect(screen.getByLabelText('p').className).toContain('h-full');
+    rerender(<Panel aria-label="p" fill={false}>x</Panel>);
+    expect(screen.getByLabelText('p').className).not.toContain('h-full');
+  });
+
+  it('header is fixed-height by default; height="auto" uses a min height', () => {
+    const { rerender } = render(<Panel><Panel.Header>H</Panel.Header></Panel>);
+    expect(screen.getByRole('banner').className).toContain('h-10');
+    rerender(<Panel><Panel.Header height="auto">H</Panel.Header></Panel>);
+    let cls = screen.getByRole('banner').className;
+    expect(cls).toContain('min-h-10');
+    expect(cls).not.toMatch(/(^|\s)h-10/);
+    rerender(<Panel density="compact"><Panel.Header>H</Panel.Header></Panel>);
+    expect(screen.getByRole('banner').className).toContain('h-8');
+    rerender(<Panel density="compact"><Panel.Header height="auto">H</Panel.Header></Panel>);
+    cls = screen.getByRole('banner').className;
+    expect(cls).toContain('min-h-8');
+    expect(cls).not.toMatch(/(^|\s)h-8/);
+  });
 });

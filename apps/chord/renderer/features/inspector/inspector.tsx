@@ -1,7 +1,7 @@
 // The right-hand inspector panel: a `Cue`/`Theme` tab switch over the two
 // editors. Kept to routing + the tab switch itself; each tab's fields live
 // in its own file (`cue-tab.tsx`/`theme-tab.tsx`).
-import { Tabs } from '@lumacast/ui';
+import { Panel, Tabs } from '@lumacast/ui';
 import { useChordStore } from '../../store';
 import { CueTab } from './cue-tab';
 import { ThemeTab } from './theme-tab';
@@ -11,11 +11,12 @@ export function Inspector() {
   const setInspectorTab = useChordStore((s) => s.setInspectorTab);
 
   return (
+    <Panel className="bg-secondary">
     <Tabs
       value={inspectorTab}
       onValueChange={(value) => setInspectorTab(value as 'cue' | 'theme')}
       variant="underline"
-      className="h-full bg-secondary"
+      className="min-h-0 flex-1"
     >
       <Tabs.List className="shrink-0 px-2">
         <Tabs.Tab value="cue" className="flex-1">Cue</Tabs.Tab>
@@ -28,5 +29,6 @@ export function Inspector() {
         <ThemeTab />
       </Tabs.Panel>
     </Tabs>
+    </Panel>
   );
 }

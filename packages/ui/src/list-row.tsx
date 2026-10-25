@@ -18,6 +18,8 @@ export interface ListRowProps {
   selected?: boolean;
   disabled?: boolean;
   density?: Density;
+  /** `hover`: actions fade in on hover, focus-within or selection (always keyboard reachable). `always`: always visible. Default `hover`. */
+  actions?: 'hover' | 'always';
   /** Element of the clickable surface. `div` renders role="button" when `onClick` is set. */
   as?: 'div' | 'button' | 'a';
   /** Only used with `as="a"`. */
@@ -60,8 +62,21 @@ function Leading({ className, children }: ListRowPartProps) {
   return <span className={cn('inline-flex shrink-0 items-center text-tertiary', className)}>{children}</span>;
 }
 
-function Label({ className, children }: ListRowPartProps) {
+export interface ListRowLabelProps extends ListRowPartProps {
+  /** Secondary line under the label, truncated. */
+  description?: ReactNode;
+}
+
+function Label({ className, description, children }: ListRowLabelProps) {
   const density = useContext(DensityContext);
+  if (description !== undefined && description !== null && description !== false) {
+    return (
+      <span className="flex min-w-0 flex-1 flex-col py-1">
+        <span className={cn('min-w-0 truncate group-data-[selected]/row:font-semibold', density === 'compact' ? 'label-xs' : 'label-sm', className)}>{children}</span>
+        <span data-list-row-description="" className="min-w-0 truncate label-xs text-tertiary">{description}</span>
+      </span>
+    );
+  }
   return (
     <span className={cn('min-w-0 flex-1 truncate group-data-[selected]/row:font-semibold', density === 'compact' ? 'label-xs' : 'label-sm', className)}>
       {children}
@@ -78,7 +93,7 @@ function Actions(_props: ListRowPartProps): ReactElement | null {
   return null;
 }
 
-function Root({ selected = false, disabled = false, density = 'comfortable', as = 'div', href, onClick, 'aria-label': ariaLabel, className, children }: ListRowProps) {
+function Root({ selected = false, disabled = false, density = 'comfortable', actions: actionsMode = 'hover', as = 'div', href, onClick, 'aria-label': ariaLabel, className, children }: ListRowProps) {
   const surface: ReactNode[] = [];
   let actions: ReactNode = null;
   let actionsClassName: string | undefined;
@@ -143,7 +158,8 @@ function Root({ selected = false, disabled = false, density = 'comfortable', as 
         {actions ? (
           <div
             className={cn(
-              'flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 group-data-[selected]/row:opacity-100 motion-reduce:transition-none',
+              'flex shrink-0 items-center gap-1',
+              actionsMode === 'hover' && 'opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100 group-data-[selected]/row:opacity-100 motion-reduce:transition-none',
               actionsClassName,
             )}
           >

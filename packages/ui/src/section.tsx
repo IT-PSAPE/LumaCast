@@ -42,7 +42,10 @@ export interface SectionBodyProps {
   children: ReactNode;
 }
 export interface SectionRowProps {
-  label: string;
+  /** Visible label. Omit for a label-less row (e.g. controls with their own hidden labels). */
+  label?: string;
+  /** `2` lays children out as an equal two-column grid. Default 1 (single control). */
+  columns?: 1 | 2;
   /** Id of the control the label names (forwarded to Field). */
   htmlFor?: string;
   hint?: string;
@@ -149,8 +152,12 @@ function Body({ className, children }: SectionBodyProps) {
   return <div className={bodyStyles({ density, className })}>{children}</div>;
 }
 
-function Row({ label, htmlFor, hint, error, disabled, layout = 'inline', labelWidth = '6rem', className, children }: SectionRowProps) {
+function Row({ label, columns = 1, htmlFor, hint, error, disabled, layout = 'inline', labelWidth = '6rem', className, children }: SectionRowProps) {
   const width = typeof labelWidth === 'number' ? `${labelWidth}px` : labelWidth;
+  const content = columns === 2 ? <div className="grid min-w-0 grid-cols-2 gap-1.5">{children}</div> : children;
+  if (label === undefined) {
+    return <div className={cn('min-w-0', className)}>{content}</div>;
+  }
   return (
     <div style={{ '--section-label-w': width } as CSSProperties} className="min-w-0">
       <Field
@@ -162,7 +169,7 @@ function Row({ label, htmlFor, hint, error, disabled, layout = 'inline', labelWi
         disabled={disabled}
         className={cn(layout === 'inline' && '[&>div>label]:w-(--section-label-w) [&>div>label]:truncate', className)}
       >
-        {children}
+        {content}
       </Field>
     </div>
   );

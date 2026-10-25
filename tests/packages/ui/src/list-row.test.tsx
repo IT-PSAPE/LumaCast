@@ -115,4 +115,36 @@ describe('ListRow', () => {
     fireEvent.keyDown(row, { key: ' ' });
     expect(onClick).toHaveBeenCalledTimes(2);
   });
+
+  it('actions hide until hover/focus by default but stay in the DOM and tab order', () => {
+    render(
+      <ListRow onClick={() => {}}>
+        <ListRow.Label>Row</ListRow.Label>
+        <ListRow.Actions><button>Revoke</button></ListRow.Actions>
+      </ListRow>,
+    );
+    const wrap = screen.getByRole('button', { name: 'Revoke' }).parentElement!;
+    expect(wrap.className).toContain('opacity-0');
+    expect(wrap.className).toContain('group-focus-within/row:opacity-100');
+    expect(screen.getByRole('button', { name: 'Revoke' }).tabIndex).toBe(0);
+  });
+
+  it('actions="always" are never faded', () => {
+    render(
+      <ListRow actions="always">
+        <ListRow.Label>Row</ListRow.Label>
+        <ListRow.Actions><button>Update</button></ListRow.Actions>
+      </ListRow>,
+    );
+    const wrap = screen.getByRole('button', { name: 'Update' }).parentElement!;
+    expect(wrap.className).not.toContain('opacity-0');
+  });
+
+  it('Label renders a description line only when given', () => {
+    const { container, rerender } = render(<ListRow><ListRow.Label>Name</ListRow.Label></ListRow>);
+    expect(container.querySelector('[data-list-row-description]')).toBeNull();
+    rerender(<ListRow><ListRow.Label description="v1.2 installed">Name</ListRow.Label></ListRow>);
+    expect(screen.getByText('v1.2 installed').className).toContain('truncate');
+    expect(screen.getByText('Name').className).toContain('truncate');
+  });
 });

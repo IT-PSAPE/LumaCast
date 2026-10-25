@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Badge, EmptyState, Modal, ReacstButton } from '@lumacast/ui';
-import type { AppRelease, SuiteAppDescriptor } from '@lumacast/suite';
-import type { CloudDesktopAPI } from '../../shared/desktop-api';
-import { versionActionLabel } from '../presentation';
+import { useEffect, useState } from "react";
+import { Badge, EmptyState, Modal, ReacstButton } from "@lumacast/ui";
+import type { AppRelease, SuiteAppDescriptor } from "@lumacast/suite";
+import type { CloudDesktopAPI } from "../../shared/desktop-api";
+import { versionActionLabel } from "../presentation";
 
 interface VersionsDialogProps {
   open: boolean;
@@ -13,7 +13,14 @@ interface VersionsDialogProps {
   onSelectVersion: (version: string) => void;
 }
 
-export function VersionsDialog({ open, descriptor, installedVersion, api, onClose, onSelectVersion }: VersionsDialogProps) {
+export function VersionsDialog({
+  open,
+  descriptor,
+  installedVersion,
+  api,
+  onClose,
+  onSelectVersion,
+}: VersionsDialogProps) {
   const [releases, setReleases] = useState<AppRelease[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -36,7 +43,11 @@ export function VersionsDialog({ open, descriptor, installedVersion, api, onClos
   if (!descriptor) return null;
 
   return (
-    <Modal open={open} onClose={onClose} title={`${descriptor.productName} versions`}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`${descriptor.productName} versions`}
+    >
       {loading ? (
         <p className="paragraph-sm text-tertiary">Loading…</p>
       ) : releases.length === 0 ? (
@@ -48,16 +59,25 @@ export function VersionsDialog({ open, descriptor, installedVersion, api, onClos
           {releases.map((release, index) => {
             const isInstalled = release.version === installedVersion;
             return (
-              <li key={release.tag} className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-secondary">
+              <li
+                key={release.tag}
+                className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-secondary"
+              >
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <div className="flex items-center gap-2">
-                    <span className="label-sm text-primary">{release.version}</span>
+                    <span className="label-sm text-primary">
+                      {release.version}
+                    </span>
                     {index === 0 ? <Badge tone="brand">Latest</Badge> : null}
                     {release.legacy ? <Badge>Legacy</Badge> : null}
-                    {isInstalled ? <Badge tone="success">Installed</Badge> : null}
+                    {isInstalled ? (
+                      <Badge tone="success">Installed</Badge>
+                    ) : null}
                   </div>
                   <span className="paragraph-xs text-tertiary">
-                    {release.publishedAt ? new Date(release.publishedAt).toLocaleDateString() : 'Unknown date'}
+                    {release.publishedAt
+                      ? new Date(release.publishedAt).toLocaleDateString()
+                      : "Unknown date"}
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
@@ -70,8 +90,14 @@ export function VersionsDialog({ open, descriptor, installedVersion, api, onClos
                   >
                     Notes
                   </button>
-                  <ReacstButton onClick={() => onSelectVersion(release.version)}>
-                    {versionActionLabel(release, installedVersion, descriptor.versionScheme)}
+                  <ReacstButton
+                    onClick={() => onSelectVersion(release.version)}
+                  >
+                    {versionActionLabel(
+                      release,
+                      installedVersion,
+                      descriptor.versionScheme,
+                    )}
                   </ReacstButton>
                 </div>
               </li>

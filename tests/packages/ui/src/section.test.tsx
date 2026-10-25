@@ -92,4 +92,35 @@ describe('Section.Row', () => {
     );
     expect(screen.getByRole('alert').textContent).toBe('Required');
   });
+
+describe('Section.Row columns and label-less', () => {
+  it('default single-control row has no grid', () => {
+    const { container } = render(<Section.Row label="A" htmlFor="a"><input id="a" /></Section.Row>);
+    expect(container.querySelector('.grid-cols-2')).toBeNull();
+  });
+
+  it('columns={2} lays children out in a two-column grid inside the Field', () => {
+    const { container } = render(
+      <Section.Row label="Pos" columns={2}>
+        <input aria-label="x" />
+        <input aria-label="y" />
+      </Section.Row>,
+    );
+    const grid = container.querySelector('.grid-cols-2');
+    expect(grid?.children.length).toBe(2);
+    expect(screen.getByText('Pos')).toBeTruthy();
+  });
+
+  it('omitting label renders just the grid, with no label element', () => {
+    const { container } = render(
+      <Section.Row columns={2} className="extra">
+        <input aria-label="font" />
+        <input aria-label="weight" />
+      </Section.Row>,
+    );
+    expect(container.querySelector('label')).toBeNull();
+    expect(container.querySelector('.grid-cols-2')?.children.length).toBe(2);
+    expect(container.firstElementChild?.className).toContain('extra');
+  });
+});
 });

@@ -7,7 +7,7 @@ import {
   ChevronDown, FilePlus2, FolderOpen, ListMusic, Redo2, Save, Undo2,
 } from 'lucide-react';
 import {
-  cn, Modal, PlainButton, Popover, PointContextMenu, ReacstButton, Select, Separator, TextField,
+  cn, Modal, PlainButton, Popover, PointContextMenu, ReacstButton, Select, TextField, Toolbar,
   usePointContextMenu, type MenuEntry,
 } from '@lumacast/ui';
 import type { CueFileFormat } from '../../../shared/desktop-api';
@@ -268,31 +268,30 @@ export function TopBar() {
   const exportDialogOpen = useShellUiState((s) => s.exportDialogOpen);
 
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 border-b border-primary bg-primary px-2">
-      <div className="flex min-w-0 flex-1 items-center">
+    <Toolbar size="md" variant="bordered" label="Project" className="bg-primary">
+      <Toolbar.Start>
         <TitleControl />
-      </div>
+      </Toolbar.Start>
 
-      <div className="flex shrink-0 items-center gap-1">
-        <DocumentControls />
-        <Separator orientation="vertical" className="mx-1" />
-        <ImportControls />
-        <Separator orientation="vertical" className="mx-1" />
-        <CompositionControls />
-        <ThemePresetPopover />
-        <Separator orientation="vertical" className="mx-1" />
-        <HistoryControls />
-      </div>
+      <Toolbar.Center>
+        <Toolbar.Group label="Document"><DocumentControls /></Toolbar.Group>
+        <Toolbar.Group label="Import"><ImportControls /></Toolbar.Group>
+        <Toolbar.Group label="Composition">
+          <CompositionControls />
+          <ThemePresetPopover />
+        </Toolbar.Group>
+        <Toolbar.Group label="History"><HistoryControls /></Toolbar.Group>
+      </Toolbar.Center>
 
-      <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
+      <Toolbar.End>
         <LyricsExportMenu />
         <ReacstButton className="bg-brand text-white hover:bg-brand/90" onClick={openExportDialog}>
           Export
         </ReacstButton>
-      </div>
+      </Toolbar.End>
 
       <ExportDialog open={exportDialogOpen} onClose={closeExportDialog} />
       <CueFormatChooserDialog />
-    </div>
+    </Toolbar>
   );
 }

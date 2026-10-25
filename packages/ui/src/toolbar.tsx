@@ -21,8 +21,9 @@ const rootStyles = cv({
   variants: {
     size: { sm: 'h-9', md: 'h-12', lg: 'h-16' },
     variant: {
-      plain: 'shrink-0 bg-secondary px-3',
+      plain: 'shrink-0 px-3',
       bordered: 'shrink-0 border-b border-primary bg-secondary px-3',
+      surface: 'shrink-0 bg-secondary px-3',
       floating: 'w-fit gap-0.5 rounded-lg border border-primary bg-tertiary/90 p-1 shadow-lg backdrop-blur-sm',
     },
   },
@@ -41,7 +42,8 @@ const segmentStyles = cv({
 export interface ToolbarProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg';
-  variant?: 'plain' | 'bordered' | 'floating';
+  /** `plain` is transparent (inherits its container); `surface` paints bg-secondary; `bordered` adds a bottom rule on bg-secondary. */
+  variant?: 'plain' | 'surface' | 'bordered' | 'floating';
   /** Accessible name of the toolbar. */
   label?: string;
 }

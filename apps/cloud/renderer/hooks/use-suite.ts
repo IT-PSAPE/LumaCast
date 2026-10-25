@@ -1,9 +1,13 @@
 // Wires one `CloudDesktopAPI` (real or mock) into React state: an initial
 // load of the overview and the operation list, then live updates through
 // `onOverview`/`onOperation` for as long as the component stays mounted.
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CloudDesktopAPI, OperationSnapshot, SuiteOverview } from '../../shared/desktop-api';
-import { getApi } from '../api';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  CloudDesktopAPI,
+  OperationSnapshot,
+  SuiteOverview,
+} from "../../shared/desktop-api";
+import { getApi } from "../api";
 
 export interface UseSuiteResult {
   overview: SuiteOverview | null;
@@ -14,7 +18,9 @@ export interface UseSuiteResult {
 
 export function useSuite(api: CloudDesktopAPI = getApi()): UseSuiteResult {
   const [overview, setOverview] = useState<SuiteOverview | null>(null);
-  const [operationsById, setOperationsById] = useState<ReadonlyMap<string, OperationSnapshot>>(new Map());
+  const [operationsById, setOperationsById] = useState<
+    ReadonlyMap<string, OperationSnapshot>
+  >(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -23,7 +29,10 @@ export function useSuite(api: CloudDesktopAPI = getApi()): UseSuiteResult {
       if (!cancelled) setOverview(next);
     });
     void api.operations().then((next) => {
-      if (!cancelled) setOperationsById(new Map(next.map((operation) => [operation.id, operation])));
+      if (!cancelled)
+        setOperationsById(
+          new Map(next.map((operation) => [operation.id, operation])),
+        );
     });
 
     const unsubscribeOverview = api.onOverview((next) => {
@@ -46,7 +55,10 @@ export function useSuite(api: CloudDesktopAPI = getApi()): UseSuiteResult {
   }, [api]);
 
   const operations = useMemo(
-    () => Array.from(operationsById.values()).sort((a, b) => b.startedAt.localeCompare(a.startedAt)),
+    () =>
+      Array.from(operationsById.values()).sort((a, b) =>
+        b.startedAt.localeCompare(a.startedAt),
+      ),
     [operationsById],
   );
 

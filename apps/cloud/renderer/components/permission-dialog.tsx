@@ -1,5 +1,5 @@
-import { Modal, ReacstButton } from '@lumacast/ui';
-import type { SuiteAppDescriptor } from '@lumacast/suite';
+import { Modal, ReacstButton } from "@lumacast/ui";
+import type { SuiteAppDescriptor } from "@lumacast/suite";
 
 interface PermissionDialogProps {
   open: boolean;
@@ -8,13 +8,22 @@ interface PermissionDialogProps {
   onNotNow: () => void;
 }
 
-const PERMITTED_ACTIONS = ['Install', 'Update', 'Downgrade', 'Remove', 'Open'];
+const PERMITTED_ACTIONS = ["Install", "Update", "Downgrade", "Remove", "Open"];
 
-export function PermissionDialog({ open, descriptor, onAllow, onNotNow }: PermissionDialogProps) {
+export function PermissionDialog({
+  open,
+  descriptor,
+  onAllow,
+  onNotNow,
+}: PermissionDialogProps) {
   if (!descriptor) return null;
 
   return (
-    <Modal open={open} onClose={onNotNow} title={`Allow LumaCloud to manage ${descriptor.productName}?`}>
+    <Modal
+      open={open}
+      onClose={onNotNow}
+      title={`Allow LumaCloud to manage ${descriptor.productName}?`}
+    >
       <p className="paragraph-sm text-secondary">{descriptor.bundleId}</p>
       <ul className="mt-3 list-disc space-y-1 pl-5 paragraph-sm text-secondary">
         {PERMITTED_ACTIONS.map((action) => (

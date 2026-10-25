@@ -75,4 +75,16 @@ describe('Toolbar', () => {
     expect(screen.getByRole('separator')).toBeTruthy();
     expect(container.querySelector('[aria-hidden="true"].flex-1')).not.toBeNull();
   });
+
+  it('plain is transparent; surface and bordered paint bg-secondary', () => {
+    const bar = () => screen.getByRole('toolbar');
+    const { rerender } = render(<Toolbar label="t">x</Toolbar>);
+    expect(bar().className).not.toContain('bg-secondary');
+    rerender(<Toolbar label="t" variant="surface">x</Toolbar>);
+    expect(bar().className).toContain('bg-secondary');
+    expect(bar().className).not.toContain('border-b');
+    rerender(<Toolbar label="t" variant="bordered">x</Toolbar>);
+    expect(bar().className).toContain('bg-secondary');
+    expect(bar().className).toContain('border-b');
+  });
 });

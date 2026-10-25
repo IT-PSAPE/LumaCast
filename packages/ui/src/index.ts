@@ -96,7 +96,7 @@ export {
   type SectionBodyProps,
   type SectionRowProps,
 } from './section';
-export { ListRow, type ListRowProps, type ListRowPartProps } from './list-row';
+export { ListRow, type ListRowProps, type ListRowPartProps, type ListRowLabelProps } from './list-row';
 export {
   Split,
   useSplitController,

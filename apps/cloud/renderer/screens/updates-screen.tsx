@@ -1,11 +1,15 @@
-import { useState } from 'react';
-import { EmptyState, ReacstButton, Title } from '@lumacast/ui';
-import { suiteApp, type SuiteAppId } from '@lumacast/suite';
-import type { CloudDesktopAPI, SuiteOverview } from '../../shared/desktop-api';
-import { PermissionDialog } from '../components/permission-dialog';
-import { formatRelativeTime } from '../presentation';
+import { useState } from "react";
+import { EmptyState, Panel, ReacstButton, Title, Toolbar } from "@lumacast/ui";
+import { suiteApp, type SuiteAppId } from "@lumacast/suite";
+import type { CloudDesktopAPI, SuiteOverview } from "../../shared/desktop-api";
+import { PermissionDialog } from "../components/permission-dialog";
+import { formatRelativeTime } from "../presentation";
 
-const SELF_UPDATE_LISTED_STATUSES = new Set(['available', 'downloading', 'ready']);
+const SELF_UPDATE_LISTED_STATUSES = new Set([
+  "available",
+  "downloading",
+  "ready",
+]);
 
 interface UpdatesScreenProps {
   overview: SuiteOverview;
@@ -13,10 +17,17 @@ interface UpdatesScreenProps {
 }
 
 export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
-  const [pending, setPending] = useState<{ app: SuiteAppId; run: () => void } | null>(null);
+  const [pending, setPending] = useState<{
+    app: SuiteAppId;
+    run: () => void;
+  } | null>(null);
 
-  const updatable = overview.apps.filter((state) => state.status === 'update-available');
-  const cloudListed = SELF_UPDATE_LISTED_STATUSES.has(overview.selfUpdate.status);
+  const updatable = overview.apps.filter(
+    (state) => state.status === "update-available",
+  );
+  const cloudListed = SELF_UPDATE_LISTED_STATUSES.has(
+    overview.selfUpdate.status,
+  );
   const total = updatable.length + (cloudListed ? 1 : 0);
 
   function requestAction(app: SuiteAppId, run: () => void): void {
@@ -36,61 +47,90 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
 
   function updateAll(): void {
     updatable.forEach((state) => updateApp(state.app));
-    if (cloudListed && overview.selfUpdate.status === 'available') void api.installSelfUpdate();
+    if (cloudListed && overview.selfUpdate.status === "available")
+      void api.installSelfUpdate();
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
-        <Title.h4>Updates</Title.h4>
-        {total > 1 ? (
-          <ReacstButton variant="tinted" onClick={updateAll}>
-            Update all
-          </ReacstButton>
-        ) : null}
-      </div>
+      <Toolbar label="Updates" className="px-0">
+        <Toolbar.Start>
+          <Title.h4>Updates</Title.h4>
+        </Toolbar.Start>
+        <Toolbar.End>
+          {total > 1 ? (
+            <ReacstButton variant="tinted" onClick={updateAll}>
+              Update all
+            </ReacstButton>
+          ) : null}
+        </Toolbar.End>
+      </Toolbar>
 
       {total === 0 ? (
         <EmptyState.Root>
           <EmptyState.Title>Everything is up to date</EmptyState.Title>
-          <EmptyState.Description>Last checked {formatRelativeTime(overview.catalog.fetchedAt, Date.now())}</EmptyState.Description>
+          <EmptyState.Description>
+            Last checked{" "}
+            {formatRelativeTime(overview.catalog.fetchedAt, Date.now())}
+          </EmptyState.Description>
         </EmptyState.Root>
       ) : (
         <div className="flex flex-col gap-2">
           {cloudListed ? (
-            <div className="flex items-center justify-between gap-4 rounded-md border border-primary bg-secondary px-4 py-3">
-              <div className="flex flex-col">
-                <span className="label-sm text-primary">LumaCloud</span>
-                <span className="paragraph-xs text-tertiary">
-                  {overview.host.cloudVersion} → {overview.selfUpdate.availableVersion ?? '—'}
-                </span>
-              </div>
-              <ReacstButton
-                variant="tinted"
-                disabled={overview.selfUpdate.status === 'downloading'}
-                onClick={() => {
-                  void api.installSelfUpdate();
-                }}
+            <Panel variant="raised" className="h-auto">
+              <Panel.Header divided={false}>
+                <Panel.HeaderTitle>LumaCloud</Panel.HeaderTitle>
+                <Panel.HeaderActions>
+                  <ReacstButton
+                    variant="tinted"
+                    disabled={overview.selfUpdate.status === "downloading"}
+                    onClick={() => {
+                      void api.installSelfUpdate();
+                    }}
+                  >
+                    {overview.selfUpdate.status === "ready"
+                      ? "Restart to Update"
+                      : "Update"}
+                  </ReacstButton>
+                </Panel.HeaderActions>
+              </Panel.Header>
+              <Panel.Body
+                scroll={false}
+                padded
+                className="pt-0 paragraph-xs text-tertiary"
               >
-                {overview.selfUpdate.status === 'ready' ? 'Restart to Update' : 'Update'}
-              </ReacstButton>
-            </div>
+                {overview.host.cloudVersion} →{" "}
+                {overview.selfUpdate.availableVersion ?? "—"}
+              </Panel.Body>
+            </Panel>
           ) : null}
 
           {updatable.map((state) => {
             const descriptor = suiteApp(state.app);
             return (
-              <div key={state.app} className="flex items-center justify-between gap-4 rounded-md border border-primary bg-secondary px-4 py-3">
-                <div className="flex flex-col">
-                  <span className="label-sm text-primary">{descriptor.productName}</span>
-                  <span className="paragraph-xs text-tertiary">
-                    {state.installed?.version ?? '—'} → {state.latest?.version ?? '—'}
-                  </span>
-                </div>
-                <ReacstButton variant="tinted" onClick={() => updateApp(state.app)}>
-                  Update
-                </ReacstButton>
-              </div>
+              <Panel key={state.app} variant="raised" className="h-auto">
+                <Panel.Header divided={false}>
+                  <Panel.HeaderTitle>
+                    {descriptor.productName}
+                  </Panel.HeaderTitle>
+                  <Panel.HeaderActions>
+                    <ReacstButton
+                      variant="tinted"
+                      onClick={() => updateApp(state.app)}
+                    >
+                      Update
+                    </ReacstButton>
+                  </Panel.HeaderActions>
+                </Panel.Header>
+                <Panel.Body
+                  scroll={false}
+                  padded
+                  className="pt-0 paragraph-xs text-tertiary"
+                >
+                  {state.installed?.version ?? "—"} →{" "}
+                  {state.latest?.version ?? "—"}
+                </Panel.Body>
+              </Panel>
             );
           })}
         </div>

@@ -1,6 +1,16 @@
-import { ReacstButton, SegmentedControl, Switch, Title } from '@lumacast/ui';
-import { suiteApp } from '@lumacast/suite';
-import type { CloudDesktopAPI, InstallScope, SuiteOverview } from '../../shared/desktop-api';
+import {
+  Panel,
+  ReacstButton,
+  SegmentedControl,
+  Switch,
+  Title,
+} from "@lumacast/ui";
+import { suiteApp } from "@lumacast/suite";
+import type {
+  CloudDesktopAPI,
+  InstallScope,
+  SuiteOverview,
+} from "../../shared/desktop-api";
 
 interface SettingsScreenProps {
   overview: SuiteOverview;
@@ -9,7 +19,8 @@ interface SettingsScreenProps {
 
 export function SettingsScreen({ overview, api }: SettingsScreenProps) {
   const { settings, host } = overview;
-  const systemScopeDisabled = host.platform === 'win32' && !host.systemScopeWritable;
+  const systemScopeDisabled =
+    host.platform === "win32" && !host.systemScopeWritable;
 
   return (
     <div className="flex flex-col gap-8">
@@ -28,7 +39,9 @@ export function SettingsScreen({ overview, api }: SettingsScreenProps) {
             All users
           </SegmentedControl.Label>
         </SegmentedControl>
-        <p className="paragraph-xs text-tertiary">{host.installLocations[settings.installScope]}</p>
+        <p className="paragraph-xs text-tertiary">
+          {host.installLocations[settings.installScope]}
+        </p>
       </section>
 
       <section className="flex items-center justify-between gap-4">
@@ -49,20 +62,35 @@ export function SettingsScreen({ overview, api }: SettingsScreenProps) {
         ) : (
           <div className="flex flex-col gap-2">
             {settings.grants.map((grant) => (
-              <div key={grant.app} className="flex items-center justify-between gap-4 rounded-md border border-primary bg-primary px-4 py-2">
-                <div className="flex flex-col">
-                  <span className="label-sm text-primary">{suiteApp(grant.app).productName}</span>
-                  <span className="paragraph-xs text-tertiary">{grant.bundleId}</span>
-                </div>
-                <ReacstButton
-                  variant="ghost"
-                  onClick={() => {
-                    void api.revoke(grant.app);
-                  }}
+              <Panel
+                key={grant.app}
+                variant="raised"
+                density="compact"
+                className="h-auto"
+              >
+                <Panel.Header divided={false}>
+                  <Panel.HeaderTitle>
+                    {suiteApp(grant.app).productName}
+                  </Panel.HeaderTitle>
+                  <Panel.HeaderActions>
+                    <ReacstButton
+                      variant="ghost"
+                      onClick={() => {
+                        void api.revoke(grant.app);
+                      }}
+                    >
+                      Revoke
+                    </ReacstButton>
+                  </Panel.HeaderActions>
+                </Panel.Header>
+                <Panel.Body
+                  scroll={false}
+                  padded
+                  className="pt-0 paragraph-xs text-tertiary"
                 >
-                  Revoke
-                </ReacstButton>
-              </div>
+                  {grant.bundleId}
+                </Panel.Body>
+              </Panel>
             ))}
           </div>
         )}
@@ -71,7 +99,9 @@ export function SettingsScreen({ overview, api }: SettingsScreenProps) {
       <section className="flex flex-col gap-3">
         <Title.h6>About</Title.h6>
         <div className="flex items-center justify-between gap-4">
-          <span className="paragraph-sm text-secondary">LumaCloud {host.cloudVersion}</span>
+          <span className="paragraph-sm text-secondary">
+            LumaCloud {host.cloudVersion}
+          </span>
           <ReacstButton
             variant="ghost"
             onClick={() => {

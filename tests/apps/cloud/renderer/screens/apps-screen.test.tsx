@@ -28,7 +28,7 @@ describe('AppsScreen', () => {
     // Chord also ships no releases and isn't installed, so 'Not installed'
     // renders on two cards (Lumaflux and LumaChord) — scope to Lumaflux's
     // own card instead of asserting on the ambiguous shared text.
-    const fluxCard = screen.getByText('Lumaflux').closest('.rounded-lg') as HTMLElement;
+    const fluxCard = screen.getByText('Lumaflux').closest('section') as HTMLElement;
     expect(fluxCard).not.toBeNull();
     expect(within(fluxCard).getByText('Not installed')).toBeInTheDocument();
     expect(screen.getAllByText('Not installed')).toHaveLength(2);

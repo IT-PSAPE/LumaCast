@@ -1,13 +1,17 @@
-import { useState } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { Banner, ReacstButton, Title } from '@lumacast/ui';
-import { suiteApp, type SuiteAppId } from '@lumacast/suite';
-import type { CloudDesktopAPI, OperationSnapshot, SuiteOverview } from '../../shared/desktop-api';
-import { AppCard } from '../components/app-card';
-import { PermissionDialog } from '../components/permission-dialog';
-import { UninstallDialog } from '../components/uninstall-dialog';
-import { VersionsDialog } from '../components/versions-dialog';
-import { activeOperationFor, formatRelativeTime } from '../presentation';
+import { useState } from "react";
+import { RefreshCw } from "lucide-react";
+import { Banner, ReacstButton, Title, Toolbar } from "@lumacast/ui";
+import { suiteApp, type SuiteAppId } from "@lumacast/suite";
+import type {
+  CloudDesktopAPI,
+  OperationSnapshot,
+  SuiteOverview,
+} from "../../shared/desktop-api";
+import { AppCard } from "../components/app-card";
+import { PermissionDialog } from "../components/permission-dialog";
+import { UninstallDialog } from "../components/uninstall-dialog";
+import { VersionsDialog } from "../components/versions-dialog";
+import { activeOperationFor, formatRelativeTime } from "../presentation";
 
 interface AppsScreenProps {
   overview: SuiteOverview;
@@ -16,13 +20,25 @@ interface AppsScreenProps {
   refresh: () => Promise<void>;
 }
 
-export function AppsScreen({ overview, operations, api, refresh }: AppsScreenProps) {
-  const [pending, setPending] = useState<{ app: SuiteAppId; run: () => void } | null>(null);
+export function AppsScreen({
+  overview,
+  operations,
+  api,
+  refresh,
+}: AppsScreenProps) {
+  const [pending, setPending] = useState<{
+    app: SuiteAppId;
+    run: () => void;
+  } | null>(null);
   const [versionsApp, setVersionsApp] = useState<SuiteAppId | null>(null);
   const [uninstallApp, setUninstallApp] = useState<SuiteAppId | null>(null);
 
-  const versionsState = versionsApp ? (overview.apps.find((entry) => entry.app === versionsApp) ?? null) : null;
-  const uninstallState = uninstallApp ? (overview.apps.find((entry) => entry.app === uninstallApp) ?? null) : null;
+  const versionsState = versionsApp
+    ? (overview.apps.find((entry) => entry.app === versionsApp) ?? null)
+    : null;
+  const uninstallState = uninstallApp
+    ? (overview.apps.find((entry) => entry.app === uninstallApp) ?? null)
+    : null;
 
   function requestAction(app: SuiteAppId, run: () => void): void {
     const granted = overview.settings.grants.some((grant) => grant.app === app);
@@ -43,20 +59,27 @@ export function AppsScreen({ overview, operations, api, refresh }: AppsScreenPro
     <div className="flex flex-col gap-6">
       <Title.h4>Apps</Title.h4>
 
-      <div className="flex items-center justify-between gap-4">
-        <span className="label-xs text-tertiary">Last checked {formatRelativeTime(overview.catalog.fetchedAt, Date.now())}</span>
-        <ReacstButton
-          variant="ghost"
-          onClick={() => {
-            void refresh();
-          }}
-        >
-          <RefreshCw size={14} />
-          Refresh
-        </ReacstButton>
-      </div>
+      <Toolbar label="Catalog" size="sm" className="px-0">
+        <Toolbar.Start>
+          <span className="label-xs text-tertiary">
+            Last checked{" "}
+            {formatRelativeTime(overview.catalog.fetchedAt, Date.now())}
+          </span>
+        </Toolbar.Start>
+        <Toolbar.End>
+          <ReacstButton
+            variant="ghost"
+            onClick={() => {
+              void refresh();
+            }}
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </ReacstButton>
+        </Toolbar.End>
+      </Toolbar>
 
-      {overview.catalog.status === 'error' ? (
+      {overview.catalog.status === "error" ? (
         <Banner
           tone="error"
           action={
@@ -70,14 +93,14 @@ export function AppsScreen({ overview, operations, api, refresh }: AppsScreenPro
             </ReacstButton>
           }
         >
-          {overview.catalog.error ?? 'Could not check for updates.'}
+          {overview.catalog.error ?? "Could not check for updates."}
         </Banner>
       ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {overview.apps.map((state) => {
           const descriptor = suiteApp(state.app);
-          const isSelf = state.app === 'cloud';
+          const isSelf = state.app === "cloud";
           const activeOperation = activeOperationFor(state.app, operations);
 
           return (
@@ -91,23 +114,23 @@ export function AppsScreen({ overview, operations, api, refresh }: AppsScreenPro
               platform={overview.host.platform}
               onPrimaryAction={(action) => {
                 switch (action) {
-                  case 'install':
-                  case 'update':
+                  case "install":
+                  case "update":
                     runInstall(state.app);
                     break;
-                  case 'open':
+                  case "open":
                     requestAction(state.app, () => {
                       void api.open(state.app);
                     });
                     break;
-                  case 'self-check':
+                  case "self-check":
                     void api.checkForSelfUpdate();
                     break;
-                  case 'self-install':
-                  case 'self-restart':
+                  case "self-install":
+                  case "self-restart":
                     void api.installSelfUpdate();
                     break;
-                  case 'none':
+                  case "none":
                     break;
                 }
               }}
@@ -122,7 +145,8 @@ export function AppsScreen({ overview, operations, api, refresh }: AppsScreenPro
               onOtherVersions={() => setVersionsApp(state.app)}
               onUninstall={() => setUninstallApp(state.app)}
               onReleaseNotes={() => {
-                const version = state.latest?.version ?? state.installed?.version;
+                const version =
+                  state.latest?.version ?? state.installed?.version;
                 if (version) void api.openReleaseNotes(state.app, version);
               }}
               onCancel={() => {
@@ -152,7 +176,10 @@ export function AppsScreen({ overview, operations, api, refresh }: AppsScreenPro
         onClose={() => setUninstallApp(null)}
         onConfirm={(removeUserData) => {
           const app = uninstallApp;
-          if (app) requestAction(app, () => { void api.uninstall(app, { removeUserData }); });
+          if (app)
+            requestAction(app, () => {
+              void api.uninstall(app, { removeUserData });
+            });
           setUninstallApp(null);
         }}
       />

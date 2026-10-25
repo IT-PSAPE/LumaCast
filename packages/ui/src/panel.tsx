@@ -7,24 +7,32 @@ type PanelVariant = 'plain' | 'bordered' | 'raised';
 type PanelDensity = 'compact' | 'comfortable';
 
 const rootStyles = cv({
-  base: 'flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden text-primary',
+  base: 'flex min-h-0 w-full min-w-0 flex-col overflow-hidden text-primary',
   variants: {
+    fill: { true: 'h-full', false: '' },
     variant: {
       plain: 'bg-primary',
       bordered: 'border border-secondary bg-primary',
       raised: 'rounded-md border border-secondary bg-secondary',
     },
   },
-  defaultVariants: { variant: 'plain' },
+  defaultVariants: { variant: 'plain', fill: true },
 });
 
 const headerStyles = cv({
   base: 'flex shrink-0 items-center justify-between gap-2 px-3',
   variants: {
-    density: { compact: 'h-8', comfortable: 'h-10' },
+    density: { compact: '', comfortable: '' },
+    height: { fixed: '', auto: 'py-1.5' },
     divided: { true: 'border-b border-secondary', false: '' },
   },
-  defaultVariants: { density: 'comfortable', divided: true },
+  compoundVariants: [
+    { density: 'compact', height: 'fixed', class: 'h-8' },
+    { density: 'comfortable', height: 'fixed', class: 'h-10' },
+    { density: 'compact', height: 'auto', class: 'min-h-8' },
+    { density: 'comfortable', height: 'auto', class: 'min-h-10' },
+  ],
+  defaultVariants: { density: 'comfortable', height: 'fixed', divided: true },
 });
 
 const subheaderStyles = cv({
@@ -61,12 +69,16 @@ export interface PanelProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
   variant?: PanelVariant;
   density?: PanelDensity;
+  /** `false` sizes the panel to its content instead of filling its container. Default true. */
+  fill?: boolean;
 }
 
 export interface PanelHeaderProps extends HTMLAttributes<HTMLElement> {
   children: ReactNode;
   /** Bottom border. Default true. */
   divided?: boolean;
+  /** `auto` grows with content (min height kept) for forms or tabs in the header. Default `fixed`. */
+  height?: 'fixed' | 'auto';
 }
 
 export interface PanelHeaderTitleProps extends HTMLAttributes<HTMLHeadingElement> {
@@ -101,20 +113,20 @@ export interface PanelFooterSegmentProps extends HTMLAttributes<HTMLDivElement> 
   children: ReactNode;
 }
 
-function Root({ children, variant, density = 'comfortable', className, ...rest }: PanelProps) {
+function Root({ children, variant, fill, density = 'comfortable', className, ...rest }: PanelProps) {
   return (
     <DensityContext.Provider value={density}>
-      <section {...rest} className={cn(rootStyles({ variant }), className)}>
+      <section {...rest} className={cn(rootStyles({ variant, fill }), className)}>
         {children}
       </section>
     </DensityContext.Provider>
   );
 }
 
-function Header({ children, divided, className, ...rest }: PanelHeaderProps) {
+function Header({ children, divided, height, className, ...rest }: PanelHeaderProps) {
   const density = useContext(DensityContext);
   return (
-    <header {...rest} className={cn(headerStyles({ density, divided }), className)}>
+    <header {...rest} className={cn(headerStyles({ density, height, divided }), className)}>
       {children}
     </header>
   );
