@@ -1,5 +1,10 @@
 appId: com.lumacast.stream
 productName: LumaStream
+
+publish:
+  provider: generic
+  url: https://github.com/IT-PSAPE/LumaCast/releases/download/stream-feed
+  updaterCacheDirName: lumastream-updater
 npmRebuild: false
 directories:
   output: dist

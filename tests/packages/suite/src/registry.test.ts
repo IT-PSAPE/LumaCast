@@ -24,8 +24,53 @@ describe('LEGACY_MANAGED_IDENTITIES', () => {
 });
 
 describe('SUITE_APPS', () => {
-  it('lists cast, flux, cloud in that order', () => {
-    expect(SUITE_APPS.map((app) => app.id)).toEqual(['cast', 'flux', 'chord', 'cloud']);
+  it('lists every app in Cloud order', () => {
+    expect(SUITE_APPS.map((app) => app.id)).toEqual(['cast', 'flux', 'chord', 'stream', 'soundboard', 'cloud']);
+  });
+
+  it('ids are unique', () => {
+    const ids = SUITE_APPS.map((app) => app.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('every entry has all required fields non-empty', () => {
+    for (const app of SUITE_APPS) {
+      for (const value of [
+        app.id, app.productName, app.bundleId, app.summary, app.versionScheme, app.releaseTagPrefix, app.feedTag,
+        app.mac.bundleName, app.win.executableName, app.win.displayName, app.linux.executableName, app.linux.debPackageName,
+      ]) {
+        expect(value).toEqual(expect.any(String));
+        expect(value.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('describes stream exactly', () => {
+    expect(suiteApp('stream')).toMatchObject({
+      productName: 'LumaStream',
+      bundleId: 'com.lumacast.stream',
+      versionScheme: 'semver',
+      releaseTagPrefix: 'stream-v',
+      legacyTagPrefix: null,
+      feedTag: 'stream-feed',
+      mac: { bundleName: 'LumaStream.app' },
+      win: { executableName: 'LumaStream.exe', displayName: 'LumaStream' },
+      linux: { executableName: 'lumastream', debPackageName: 'lumastream' },
+    });
+  });
+
+  it('describes soundboard exactly', () => {
+    expect(suiteApp('soundboard')).toMatchObject({
+      productName: 'LumaSoundboard',
+      bundleId: 'com.lumacast.soundboard',
+      versionScheme: 'semver',
+      releaseTagPrefix: 'soundboard-v',
+      legacyTagPrefix: null,
+      feedTag: 'soundboard-feed',
+      mac: { bundleName: 'LumaSoundboard.app' },
+      win: { executableName: 'LumaSoundboard.exe', displayName: 'LumaSoundboard' },
+      linux: { executableName: 'lumasoundboard', debPackageName: 'lumasoundboard' },
+    });
   });
 
   it('is frozen', () => {

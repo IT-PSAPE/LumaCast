@@ -1,5 +1,10 @@
 appId: com.lumacast.soundboard
 productName: LumaSoundboard
+
+publish:
+  provider: generic
+  url: https://github.com/IT-PSAPE/LumaCast/releases/download/soundboard-feed
+  updaterCacheDirName: lumasoundboard-updater
 npmRebuild: false
 directories:
   output: dist
