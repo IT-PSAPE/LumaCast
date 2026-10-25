@@ -1,9 +1,8 @@
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { Label, EmptyState } from '@lumacast/ui';
+import { Label, EmptyState, DropdownMenu } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { Dropdown } from '../../components/form/dropdown';
 import { Plus } from 'lucide-react';
 import { StageEditorInspectorPanel } from './inspector-panel';
 import { StageEditorLayersPanel } from './layers-panel';
@@ -22,19 +21,17 @@ export function StageEditorScreenContent() {
               <LumaCastPanel.Group className="h-full min-h-0">
                 <LumaCastPanel.GroupTitle>
                   <Label.sm className="mr-auto">Stages</Label.sm>
-                  <Dropdown>
-                    <Dropdown.Trigger
-                      aria-label="Add"
-                      className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4"
-                    >
-                      <Plus />
-                    </Dropdown.Trigger>
-                    <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={() => { void actions.createStage(); }}>
-                        New stage
-                      </Dropdown.Item>
-                    </Dropdown.Panel>
-                  </Dropdown>
+                  <DropdownMenu
+                    align="end"
+                    trigger={(
+                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                        <Plus />
+                      </button>
+                    )}
+                    entries={[
+                      { id: 'new-stage', label: 'New stage', onSelect: () => { void actions.createStage(); } },
+                    ]}
+                  />
                 </LumaCastPanel.GroupTitle>
                 <LumaCastPanel.Content>
                   {state.stages.length === 0 ? (

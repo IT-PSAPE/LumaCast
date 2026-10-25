@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type { MediaAsset, SlideBackground, SlideBackgroundFit, SlideGradient } from '@lumacast/composition';
 import { ColorPicker } from '@renderer/components/form/color-picker';
-import { FieldInput, FieldSelect } from '@renderer/components/form/field';
-import { ReacstButton, Label } from '@lumacast/ui';
+import { FieldInput } from '@renderer/components/form/field';
+import { ReacstButton, Label, Select } from '@lumacast/ui';
 import { MediaPickerDialog, type MediaPickerAssetKind } from '@renderer/components/overlays/media-picker-dialog';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
@@ -84,13 +84,7 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
         <Label.xs>{title}</Label.xs>
       </Section.Header>
       <Section.Body>
-        <FieldSelect value={kind} onChange={handleKindChange}>
-          <FieldSelect.Option value={'none' satisfies BackgroundKind}>None</FieldSelect.Option>
-          <FieldSelect.Option value={'color' satisfies BackgroundKind}>Solid color</FieldSelect.Option>
-          <FieldSelect.Option value={'gradient' satisfies BackgroundKind}>Gradient</FieldSelect.Option>
-          <FieldSelect.Option value={'image' satisfies BackgroundKind}>Image</FieldSelect.Option>
-          <FieldSelect.Option value={'video' satisfies BackgroundKind}>Video</FieldSelect.Option>
-        </FieldSelect>
+        <Select value={kind} onValueChange={handleKindChange} options={[{ value: 'none' satisfies BackgroundKind, label: 'None' }, { value: 'color' satisfies BackgroundKind, label: 'Solid color' }, { value: 'gradient' satisfies BackgroundKind, label: 'Gradient' }, { value: 'image' satisfies BackgroundKind, label: 'Image' }, { value: 'video' satisfies BackgroundKind, label: 'Video' }]} className="w-full" />
 
         {background?.type === 'color' ? (
           <ColorPicker value={background.color} onChange={(color) => onChange({ type: 'color', color })} />
@@ -99,13 +93,7 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
         {background?.type === 'gradient' ? (
           <>
             <Section.Row>
-              <FieldSelect
-                value={background.gradient.kind}
-                onChange={(value) => updateGradient({ kind: value as SlideGradient['kind'] })}
-              >
-                <FieldSelect.Option value={'linear' satisfies SlideGradient['kind']}>Linear</FieldSelect.Option>
-                <FieldSelect.Option value={'radial' satisfies SlideGradient['kind']}>Radial</FieldSelect.Option>
-              </FieldSelect>
+              <Select value={background.gradient.kind} onValueChange={(value) => updateGradient({ kind: value as SlideGradient['kind'] })} options={[{ value: 'linear' satisfies SlideGradient['kind'], label: 'Linear' }, { value: 'radial' satisfies SlideGradient['kind'], label: 'Radial' }]} className="w-full" />
               {background.gradient.kind === 'linear' ? (
                 <FieldInput
                   type="number"
@@ -139,14 +127,7 @@ export function BackgroundControls({ title, background, onChange }: BackgroundCo
 
         {background?.type === 'image' || background?.type === 'video' ? (
           <>
-            <FieldSelect
-              value={background.fit}
-              onChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })}
-            >
-              <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
-              <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
-              <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
-            </FieldSelect>
+            <Select value={background.fit} onValueChange={(value) => onChange({ ...background, fit: value as SlideBackgroundFit })} options={[{ value: 'cover' satisfies SlideBackgroundFit, label: 'Cover' }, { value: 'contain' satisfies SlideBackgroundFit, label: 'Contain' }, { value: 'fill' satisfies SlideBackgroundFit, label: 'Fill / Stretch' }]} className="w-full" />
             <ReacstButton onClick={() => setPickerKind(background.type === 'image' ? 'image' : 'video')}>
               Replace {background.type}…
             </ReacstButton>

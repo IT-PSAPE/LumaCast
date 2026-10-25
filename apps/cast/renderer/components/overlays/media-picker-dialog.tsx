@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { MediaAsset } from '@lumacast/composition';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { ReacstButton } from '@lumacast/ui';
-import { Dialog } from './dialog';
+import { ReacstButton, Modal } from '@lumacast/ui';
 import { type MediaPickerAssetKind } from './media-picker-types';
 import { MediaPickerAssetTile } from './media-picker-asset-tile';
 import { UploadMediaDialog } from './upload-media-dialog';
@@ -77,61 +76,58 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
   }
 
   return (
-    <Dialog.Root open onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content data-ui-region="media-picker-dialog" className="max-h-[min(560px,calc(100vh-6rem))] max-w-[560px] overflow-hidden">
-            <Dialog.Header>
-              <Dialog.Title>{kind === 'image' ? 'Add Image Element' : 'Add Video Element'}</Dialog.Title>
-              <Dialog.CloseButton />
-            </Dialog.Header>
-            {/* A single grid track gives the scroll area a definite height; a flex/block body
-                sized by the dialog's max-height leaves `size-full` nothing to resolve against. */}
-            <Dialog.Body className="grid grid-rows-[minmax(0,1fr)] overflow-hidden">
-              <ScrollArea.Root scrollPadding={16}>
-                <ScrollArea.Viewport className="p-4">
-                  {filteredAssets.length === 0 ? (
-                    <p className="m-0 text-center text-sm text-tertiary">
-                      {kind === 'image' && 'No images in the project yet. Upload or import images to add an image element.'}
-                      {kind === 'video' && 'No videos in the project yet. Upload or import videos to add a video element.'}
-                    </p>
-                  ) : (
-                    <div role="group" aria-label={kind === 'image' ? 'Project images' : 'Project videos'} className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
-                      {filteredAssets.map((asset) => (
-                        <MediaPickerAssetTile
-                          key={asset.id}
-                          asset={asset}
-                          isSelected={selectedIds.has(asset.id)}
-                          onToggle={toggleAsset}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </ScrollArea.Viewport>
-                <ScrollArea.Scrollbar>
-                  <ScrollArea.Thumb />
-                </ScrollArea.Scrollbar>
-              </ScrollArea.Root>
-            </Dialog.Body>
-            <Dialog.Footer>
-              <span className="text-sm text-tertiary">
-                {selectedIds.size > 0 ? `${selectedIds.size} selected` : `Select ${kind === 'image' ? 'images' : 'videos'} to add`}
-              </span>
-              <div className="flex gap-2">
-                <ReacstButton variant="ghost" onClick={() => setShowUploadDialog(true)}>
-                  Upload
-                </ReacstButton>
-                <ReacstButton variant="ghost" onClick={onClose}>Cancel</ReacstButton>
-                <ReacstButton onClick={handleConfirm} disabled={selectedIds.size === 0}>
-                  Add{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
-                </ReacstButton>
+    <Modal
+      open
+      onClose={onClose}
+      title={kind === 'image' ? 'Add Image Element' : 'Add Video Element'}
+      size="md"
+      className="max-h-[min(560px,calc(100vh-6rem))] max-w-[560px]"
+      footer={(
+        <div className="flex w-full items-center justify-between gap-2">
+          <span className="text-sm text-tertiary">
+            {selectedIds.size > 0 ? `${selectedIds.size} selected` : `Select ${kind === 'image' ? 'images' : 'videos'} to add`}
+          </span>
+          <div className="flex gap-2">
+            <ReacstButton variant="ghost" onClick={() => setShowUploadDialog(true)}>
+              Upload
+            </ReacstButton>
+            <ReacstButton variant="ghost" onClick={onClose}>Cancel</ReacstButton>
+            <ReacstButton onClick={handleConfirm} disabled={selectedIds.size === 0}>
+              Add{selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}
+            </ReacstButton>
+          </div>
+        </div>
+      )}
+    >
+      {/* A single grid track gives the scroll area a definite height; a flex/block body
+          sized by the dialog's max-height leaves `size-full` nothing to resolve against. */}
+      <div data-ui-region="media-picker-dialog" className="min-h-0 flex-1 grid grid-rows-[minmax(0,1fr)] overflow-hidden">
+        <ScrollArea.Root scrollPadding={16}>
+          <ScrollArea.Viewport className="p-4">
+            {filteredAssets.length === 0 ? (
+              <p className="m-0 text-center text-sm text-tertiary">
+                {kind === 'image' && 'No images in the project yet. Upload or import images to add an image element.'}
+                {kind === 'video' && 'No videos in the project yet. Upload or import videos to add a video element.'}
+              </p>
+            ) : (
+              <div role="group" aria-label={kind === 'image' ? 'Project images' : 'Project videos'} className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-3">
+                {filteredAssets.map((asset) => (
+                  <MediaPickerAssetTile
+                    key={asset.id}
+                    asset={asset}
+                    isSelected={selectedIds.has(asset.id)}
+                    onToggle={toggleAsset}
+                  />
+                ))}
               </div>
-            </Dialog.Footer>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Dialog.Portal>
-      {/* Inside the picker's root, so Base UI treats the upload dialog as a
+            )}
+          </ScrollArea.Viewport>
+          <ScrollArea.Scrollbar>
+            <ScrollArea.Thumb />
+          </ScrollArea.Scrollbar>
+        </ScrollArea.Root>
+      </div>
+      {/* Inside the picker's popup, so Base UI treats the upload dialog as a
           nested dialog: the picker stays put behind it and keeps its focus
           trap ordered instead of two sibling traps fighting over focus. */}
       {showUploadDialog ? (
@@ -141,6 +137,6 @@ export function MediaPickerDialog({ assets, kind, onConfirm, onClose, onImportAs
           onImport={handleImport}
         />
       ) : null}
-    </Dialog.Root>
+    </Modal>
   );
 }

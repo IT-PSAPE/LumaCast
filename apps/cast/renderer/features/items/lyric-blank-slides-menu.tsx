@@ -2,8 +2,7 @@ import { Check } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { LyricBlankSlideMode } from '@lumacast/composition';
 import { Dropdown } from '../../components/form/dropdown';
-import { FieldSelect } from '../../components/form/field';
-import { ContextMenu } from '@lumacast/ui';
+import { ContextMenu, Select } from '@lumacast/ui';
 import { useCast } from '../../contexts/app-context';
 
 const BLANK_SLIDE_OPTIONS: Array<{ value: LyricBlankSlideMode; label: string }> = [
@@ -17,7 +16,7 @@ export function LyricBlankSlidesField({ value, onChange }: {
   value: LyricBlankSlideMode;
   onChange: (mode: LyricBlankSlideMode) => void;
 }) {
-  return <FieldSelect label="Blank slides" value={value} onChange={(mode) => onChange(mode as LyricBlankSlideMode)} options={BLANK_SLIDE_OPTIONS} />;
+  return <Select label="Blank slides" value={value} onValueChange={(mode) => onChange(mode as LyricBlankSlideMode)} options={BLANK_SLIDE_OPTIONS} />;
 }
 
 export function LyricBlankSlidesMenu({ mode, onChange, surface = 'context' }: {

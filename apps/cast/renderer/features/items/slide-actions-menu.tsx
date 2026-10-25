@@ -1,6 +1,5 @@
 import type { Id } from '@lumacast/kernel';
-import { ContextMenu } from '@lumacast/ui';
-import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
+import { ContextMenu, useConfirm } from '@lumacast/ui';
 import { useSlides } from '@renderer/contexts/slide-context';
 import { useNavigation } from '@renderer/contexts/navigation-context';
 import { SlideAutomationMenu } from '../automation/slide-automation-menu';
@@ -30,7 +29,7 @@ export function SlideActionsMenu({ slideIds: selectedSlideIds }: { slideIds: Id[
         ? 'This slide and all its elements will be permanently removed.'
         : 'These slides and all their elements will be permanently removed.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (!ok) return;
     for (const slideId of [...slideIds].reverse()) await deleteSlide(slideId);

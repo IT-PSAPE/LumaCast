@@ -5,8 +5,7 @@ import { useNavigation } from '@renderer/contexts/navigation-context';
 import { usePlaylistPanelManagement } from './use-playlist-panel-management';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
-import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
-import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
+import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 
 export function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
@@ -39,7 +38,7 @@ export function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
       title: `Delete "${playlist.name}"?`,
       description: 'All entries and separators in this playlist will be removed. This action cannot be undone.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (ok) await deletePlaylist(playlist.id);
   }

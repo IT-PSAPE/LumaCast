@@ -5,8 +5,7 @@ import { getPlaylistEntryItemRef } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlides } from '../../contexts/slide-context';
 import { useProjectContent } from '../../contexts/use-project-content';
-import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
-import { useConfirm } from '../../components/overlays/confirm-dialog';
+import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
 import { ItemIcon } from '../../components/display/entity-icon';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
@@ -62,7 +61,7 @@ export function PlaylistItemRowBody({
       title: `Remove "${item?.title ?? 'item'}" from playlist?`,
       description: 'The item itself is not deleted — only this playlist entry is removed.',
       confirmLabel: 'Remove',
-      destructive: true,
+      tone: 'danger',
     });
     // removePlaylistRow rejects when the row no longer exists (#214), which
     // this context-menu action can race with a concurrent delete. mutatePatch

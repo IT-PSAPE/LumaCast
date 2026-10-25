@@ -1,6 +1,5 @@
-import { ReacstButton, EmptyState } from '@lumacast/ui';
+import { ReacstButton, EmptyState, Tabs } from '@lumacast/ui';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
-import { Tabs } from '@renderer/components/display/tabs';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { useMacroEditorScreen } from './screen-context';
 import { MacroInspector } from './macro-inspector';
@@ -40,12 +39,12 @@ export function MacroEditorInspectorPanel() {
 
   return (
     <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="macro-inspector-panel">
-      <Tabs.Root value={effectiveTab} onValueChange={handleTabChange}>
+      <Tabs value={effectiveTab} variant="plain" className="contents" onValueChange={handleTabChange}>
         <section className="flex flex-1 flex-col">
           <div className="border-b border-primary">
-            <Tabs.List label="Inspector">
-              <Tabs.Trigger value="properties">Properties</Tabs.Trigger>
-              {!selectedRow && <Tabs.Trigger value="triggers">Triggers</Tabs.Trigger>}
+            <Tabs.List aria-label="Inspector" className="min-w-0 overflow-x-auto [&>*]:shrink-0">
+              <Tabs.Tab value="properties">Properties</Tabs.Tab>
+              {!selectedRow && <Tabs.Tab value="triggers">Triggers</Tabs.Tab>}
             </Tabs.List>
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
@@ -55,7 +54,7 @@ export function MacroEditorInspectorPanel() {
             {effectiveTab === 'triggers' && <TriggersInspector />}
           </div>
         </section>
-      </Tabs.Root>
+      </Tabs>
       {hasPendingChanges && (
         <LumaCastPanel.Footer className="p-2">
           {/* saveChanges → updateMacroFields/setMacroCues → updateMacro rejects when

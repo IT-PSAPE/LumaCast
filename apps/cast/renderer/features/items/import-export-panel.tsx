@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ListMusic, Search } from 'lucide-react';
-import { ReacstButton, SegmentedControl, EmptyState } from '@lumacast/ui';
-import { Tabs } from '@renderer/components/display/tabs';
+import { ReacstButton, SegmentedControl, EmptyState, Tabs } from '@lumacast/ui';
 import { FieldIcon, FieldInput } from '@renderer/components/form/field';
 import { BrokenReferenceReviewList } from './broken-reference-review-list';
 import { useDeckImportExport } from './use-deck-import-export';
@@ -67,12 +66,12 @@ export function ImportExportPanel() {
 
   return (
     <div className="flex flex-col gap-5">
-      <Tabs.Root value={activeTab} onValueChange={(value) => setActiveTab(value as TransferTab)}>
-        <Tabs.List label="Import &amp; export" className="border-b border-primary">
-          <Tabs.Trigger value="export">Export</Tabs.Trigger>
-          <Tabs.Trigger value="import">Import</Tabs.Trigger>
+      <Tabs value={activeTab} variant="plain" className="contents" onValueChange={(value) => setActiveTab(value as TransferTab)}>
+        <Tabs.List aria-label="Import &amp; export" className="border-b border-primary min-w-0 overflow-x-auto [&>*]:shrink-0">
+          <Tabs.Tab value="export">Export</Tabs.Tab>
+          <Tabs.Tab value="import">Import</Tabs.Tab>
         </Tabs.List>
-      </Tabs.Root>
+      </Tabs>
 
       {activeTab === 'export' ? (
         <section className="flex flex-col gap-4">

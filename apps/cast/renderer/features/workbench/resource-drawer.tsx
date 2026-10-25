@@ -1,7 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Ellipsis } from 'lucide-react';
 import type { ThemeOwnerType } from '@lumacast/composition';
-import { Tabs } from '../../components/display/tabs';
 import { Dropdown } from '../../components/form/dropdown';
 import { FileTrigger } from '../../components/form/file-trigger';
 import { useThemeEditor } from '../../contexts/asset-editor/asset-editor-context';
@@ -25,7 +24,7 @@ import {
 import { useGridSize } from '../../hooks/use-grid-size';
 import { BinControlsProvider, BinControlsSearchField, BinControlsViewOptions, type BinGridConfig } from '@renderer/components/controls/bin-controls';
 import { detectMediaFileType } from '../../utils/slides';
-import { cn } from '@lumacast/ui';
+import { cn, Tabs } from '@lumacast/ui';
 
 const STANDARD_SORT_OPTIONS = [
   { key: 'name', label: 'Name' },
@@ -156,7 +155,7 @@ function Root({ children }: { children: ReactNode }) {
 
   return (
     <ResourceDrawerContext.Provider value={value}>
-      <Tabs.Root value={drawerTab} onValueChange={handleTabChange}>
+      <Tabs value={drawerTab} variant="plain" className="contents" onValueChange={handleTabChange}>
         <BinControlsProvider
           searchValue={searchValue}
           onSearchChange={setSearchValue}
@@ -177,7 +176,7 @@ function Root({ children }: { children: ReactNode }) {
             {children}
           </footer>
         </BinControlsProvider>
-      </Tabs.Root>
+      </Tabs>
     </ResourceDrawerContext.Provider>
   );
 }
@@ -193,12 +192,12 @@ function Header() {
     <div className="flex h-8 items-center gap-1.5 border-b border-primary px-1">
       {/* w-auto shrink-0 overrides Tabs.List's own `w-full`, which would
           otherwise act as a flex basis of 100% and starve the search field. */}
-      <Tabs.List label="Resource tabs" className="w-auto shrink-0" tabsClassName="gap-0.5">
-        <Tabs.Trigger value="deck">Deck</Tabs.Trigger>
-        <Tabs.Trigger value="themes">Themes</Tabs.Trigger>
-        <Tabs.Trigger value="image">Images</Tabs.Trigger>
-        <Tabs.Trigger value="video">Videos</Tabs.Trigger>
-        <Tabs.Trigger value="audio">Audio</Tabs.Trigger>
+      <Tabs.List aria-label="Resource tabs" className="w-auto shrink-0 gap-0.5 min-w-0 overflow-x-auto [&>*]:shrink-0">
+        <Tabs.Tab value="deck">Deck</Tabs.Tab>
+        <Tabs.Tab value="themes">Themes</Tabs.Tab>
+        <Tabs.Tab value="image">Images</Tabs.Tab>
+        <Tabs.Tab value="video">Videos</Tabs.Tab>
+        <Tabs.Tab value="audio">Audio</Tabs.Tab>
       </Tabs.List>
       <div className="ml-auto min-w-0 w-full max-w-xs">
         <DrawerSearchField tab={state.drawerTab} />

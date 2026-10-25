@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { OverlayAnimation } from '@lumacast/composition';
-import { FieldInput, FieldSelect } from '../../../components/form/field';
+import { FieldInput } from '../../../components/form/field';
 import { useWorkbench } from '../../../contexts/workbench-context';
+import { Select } from '@lumacast/ui';
 
 export function OverlaySettingsPanel() {
   const { state: { overlayDefaults }, actions: { updateOverlayDefaults } } = useWorkbench();
@@ -49,12 +50,7 @@ export function OverlaySettingsPanel() {
         <h2 className="text-sm font-semibold text-primary">Overlay defaults</h2>
       </header>
       <div className="grid gap-4 md:grid-cols-2">
-        <FieldSelect label="Animation" value={overlayDefaults.animationKind} onChange={handleAnimationKindChange}>
-          <FieldSelect.Option value={'none' satisfies OverlayAnimation['kind']}>None</FieldSelect.Option>
-          <FieldSelect.Option value={'dissolve' satisfies OverlayAnimation['kind']}>Dissolve</FieldSelect.Option>
-          <FieldSelect.Option value={'fade' satisfies OverlayAnimation['kind']}>Fade</FieldSelect.Option>
-          <FieldSelect.Option value={'pulse' satisfies OverlayAnimation['kind']}>Pulse</FieldSelect.Option>
-        </FieldSelect>
+        <Select label="Animation" value={overlayDefaults.animationKind} onValueChange={handleAnimationKindChange} options={[{ value: 'none' satisfies OverlayAnimation['kind'], label: 'None' }, { value: 'dissolve' satisfies OverlayAnimation['kind'], label: 'Dissolve' }, { value: 'fade' satisfies OverlayAnimation['kind'], label: 'Fade' }, { value: 'pulse' satisfies OverlayAnimation['kind'], label: 'Pulse' }]} />
         <FieldInput type="number" label="Transition duration (ms)" value={durationDraft} onChange={setDurationDraft} onBlur={handleDurationBlur} />
         <FieldInput type="number" label="Auto-clear after (ms)" value={autoClearDraft} onChange={setAutoClearDraft} onBlur={handleAutoClearBlur} wide />
       </div>

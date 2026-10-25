@@ -11,9 +11,8 @@ import type {
   AgentPermissionMatrix,
   AgentPermissionTier,
 } from '@lumacast/protocol';
-import { ReacstButton, SegmentedControl, Label } from '@lumacast/ui';
-import { FieldCheckbox, FieldInput, FieldSelect, FieldTextarea } from '@renderer/components/form/field';
-import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
+import { ReacstButton, SegmentedControl, Label, Select, Checkbox, TextField, useConfirm } from '@lumacast/ui';
+import { FieldTextarea } from '@renderer/components/form/field';
 import { AgentConnections } from './agent-connections';
 import { Section } from '@renderer/features/inspector/inspector-section';
 
@@ -186,7 +185,7 @@ export function AgentSettingsPanel() {
       title: `Revoke ${client.name}?`,
       description: 'This client loses access immediately and must be reconnected with a new token.',
       confirmLabel: 'Revoke',
-      destructive: true,
+      tone: 'danger',
     });
     if (!confirmed) return;
     setMcpError(null);
@@ -252,12 +251,7 @@ export function AgentSettingsPanel() {
       <Section.Root>
         <Section.Header><Label.xs>Permissions</Label.xs></Section.Header>
         <Section.Body>
-          <FieldSelect value={tierValue} onChange={handleTierChange} label="Permission tier">
-            {AGENT_PERMISSION_TIERS.map((tier) => (
-              <FieldSelect.Option key={tier.id} value={tier.id}>{tier.label}</FieldSelect.Option>
-            ))}
-            {currentTier === null ? <FieldSelect.Option value={CUSTOM_TIER}>Custom</FieldSelect.Option> : null}
-          </FieldSelect>
+          <Select value={tierValue} onValueChange={handleTierChange} label="Permission tier" options={[...AGENT_PERMISSION_TIERS.map((tier) => ({ value: tier.id, label: tier.label })), ...(currentTier === null ? [{ value: CUSTOM_TIER, label: 'Custom' }] : [])]} />
 
           <div className="flex flex-col gap-2">
             {ACTION_RISK_CLASSES.map((riskClass) => (
@@ -324,7 +318,7 @@ export function AgentSettingsPanel() {
           </div>
         </Section.Header>
         <Section.Body>
-          <FieldCheckbox checked={mcpStatus?.enabled ?? false} onChange={handleMcpEnabledChange} label="Enable MCP server" />
+          <Checkbox checked={mcpStatus?.enabled ?? false} onCheckedChange={handleMcpEnabledChange} label="Enable MCP server" />
 
           <p className="text-sm text-secondary">{mcpStatus?.running ? `Running on ${mcpStatus.endpoint}` : 'Stopped'}</p>
           {mcpStatus?.lastError ? <p role="alert" className="text-sm text-error">{mcpStatus.lastError}</p> : null}
@@ -347,12 +341,7 @@ export function AgentSettingsPanel() {
                     <tr key={client.id} className="border-t border-secondary" data-testid={`mcp-client-${client.id}`}>
                       <td className="py-1.5 text-primary">{client.name}</td>
                       <td className="py-1.5">
-                        <FieldSelect value={clientTier ?? CUSTOM_TIER} onChange={(value) => handleClientTierChange(client, value)}>
-                          {AGENT_PERMISSION_TIERS.map((tier) => (
-                            <FieldSelect.Option key={tier.id} value={tier.id}>{tier.label}</FieldSelect.Option>
-                          ))}
-                          {clientTier === null ? <FieldSelect.Option value={CUSTOM_TIER}>Custom</FieldSelect.Option> : null}
-                        </FieldSelect>
+                        <Select value={clientTier ?? CUSTOM_TIER} onValueChange={(value) => handleClientTierChange(client, value)} options={[...AGENT_PERMISSION_TIERS.map((tier) => ({ value: tier.id, label: tier.label })), ...(clientTier === null ? [{ value: CUSTOM_TIER, label: 'Custom' }] : [])]} className="w-full" />
                       </td>
                       <td className="py-1.5 text-secondary">{formatTimestamp(client.createdAt)}</td>
                       <td className="py-1.5 text-secondary">{client.lastSeenAt ? formatTimestamp(client.lastSeenAt) : 'Never'}</td>
@@ -368,7 +357,7 @@ export function AgentSettingsPanel() {
 
           {revealedClient ? (
             <div className="flex flex-col gap-2 rounded border border-primary p-3">
-              <FieldInput label="Token" value={revealedClient.token} onChange={() => undefined} disabled inputClassName="font-mono" />
+              <TextField label="Token" value={revealedClient.token} onValueChange={() => undefined} disabled />
               <p className="text-sm text-tertiary">This token won&apos;t be shown again.</p>
               <div className="flex items-center gap-2">
                 <ReacstButton onClick={handleCopyToken}>Copy token</ReacstButton>
@@ -378,12 +367,8 @@ export function AgentSettingsPanel() {
             </div>
           ) : addingClient ? (
             <div className="flex items-center gap-2">
-              <FieldInput value={newClientName} onChange={setNewClientName} placeholder="Client name" ariaLabel="Client name" wrapperClassName="flex-1" />
-              <FieldSelect value={newClientTier} onChange={(value) => setNewClientTier(value as AgentPermissionTier)}>
-                {AGENT_PERMISSION_TIERS.map((tier) => (
-                  <FieldSelect.Option key={tier.id} value={tier.id}>{tier.label}</FieldSelect.Option>
-                ))}
-              </FieldSelect>
+              <TextField value={newClientName} onValueChange={setNewClientName} placeholder="Client name" label="Client name" labelPlacement="hidden" className="flex-1" />
+              <Select value={newClientTier} onValueChange={(value) => setNewClientTier(value as AgentPermissionTier)} options={[...AGENT_PERMISSION_TIERS.map((tier) => ({ value: tier.id, label: tier.label }))]} className="w-full" />
               <ReacstButton onClick={() => void handleCreateClient()} disabled={!newClientName.trim() || creatingClient}>
                 {creatingClient ? 'Creating…' : 'Create'}
               </ReacstButton>

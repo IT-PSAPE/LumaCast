@@ -40,10 +40,9 @@ import type {
   AgentToolCallStatus,
 } from '@lumacast/protocol';
 import { AGENT_PROVIDERS, agentProviderBaseUrl, inferModelVendor, prettifyModelId } from '@lumacast/protocol';
-import { ReacstButton, EmptyState, cn, useOverlayContainer, useOverlayStackEntry } from '@lumacast/ui';
+import { ReacstButton, EmptyState, DropdownMenu, cn, useOverlayContainer, useOverlayStackEntry, useConfirm } from '@lumacast/ui';
 import { Dropdown, useDropdown } from '@renderer/components/form/dropdown';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
-import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
 import { ModelVendorLogo } from '@renderer/features/agent/model-vendor-logo';
 import { useAgentChat, type AgentChatView } from './agent-chat-context';
@@ -164,21 +163,24 @@ function HeaderMenu({ threadId, title, onRequestRename }: { threadId: Id; title:
   const confirm = useConfirm();
 
   async function handleDelete() {
-    const confirmed = await confirm({ title: `Delete "${title}"?`, confirmLabel: 'Delete', destructive: true });
+    const confirmed = await confirm({ title: `Delete "${title}"?`, confirmLabel: 'Delete', tone: 'danger' });
     if (!confirmed) return;
     await actions.deleteThread(threadId);
   }
 
   return (
-    <Dropdown>
-      <Dropdown.Trigger aria-label="Thread options" className="cursor-pointer rounded-sm bg-transparent p-1.5 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
-        <Ellipsis />
-      </Dropdown.Trigger>
-      <Dropdown.Panel placement="bottom-end">
-        <Dropdown.Item onClick={onRequestRename}>Rename</Dropdown.Item>
-        <Dropdown.Item onClick={() => void handleDelete()}>Delete</Dropdown.Item>
-      </Dropdown.Panel>
-    </Dropdown>
+    <DropdownMenu
+      align="end"
+      trigger={(
+        <button type="button" aria-label="Thread options" className="cursor-pointer rounded-sm bg-transparent p-1.5 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
+          <Ellipsis />
+        </button>
+      )}
+      entries={[
+        { id: 'rename', label: 'Rename', onSelect: onRequestRename },
+        { id: 'delete', label: 'Delete', onSelect: () => void handleDelete() },
+      ]}
+    />
   );
 }
 
@@ -190,7 +192,7 @@ function ThreadList() {
 
   async function handleDelete(thread: AgentThreadSummary, event: React.MouseEvent) {
     event.stopPropagation();
-    const confirmed = await confirm({ title: `Delete "${thread.title}"?`, confirmLabel: 'Delete', destructive: true });
+    const confirmed = await confirm({ title: `Delete "${thread.title}"?`, confirmLabel: 'Delete', tone: 'danger' });
     if (!confirmed) return;
     await actions.deleteThread(thread.id);
   }

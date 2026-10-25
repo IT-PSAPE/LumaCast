@@ -2,9 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { GripVertical } from 'lucide-react';
 import type { ItemRef } from '@lumacast/composition';
 import type { PlaybackSchedule } from '@lumacast/automation';
-import { ReacstButton } from '@lumacast/ui';
-import { Dialog } from '../../components/overlays/dialog';
-import { useConfirm } from '../../components/overlays/confirm-dialog';
+import { ReacstButton, useConfirm, Modal } from '@lumacast/ui';
 import { SortableList, useSortableItem, useSortableOrder, type SortableOrderCommit } from '../../components/layout/sortable-list';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { LazySceneStage } from '../../components/display/lazy-scene-stage';
@@ -79,7 +77,7 @@ function TimingEditor({ itemRef, onClose }: { itemRef: ItemRef; onClose: () => v
   const dirty = useMemo(() => JSON.stringify({ draft, enabled }) !== initial, [draft, enabled, initial]);
   async function close() {
     if (saving) return;
-    if (dirty && !await confirm({ title: 'Discard timing changes?', confirmLabel: 'Discard', destructive: true })) return;
+    if (dirty && !await confirm({ title: 'Discard timing changes?', confirmLabel: 'Discard', tone: 'danger' })) return;
     onClose();
   }
   async function save() {
@@ -99,23 +97,30 @@ function TimingEditor({ itemRef, onClose }: { itemRef: ItemRef; onClose: () => v
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save slide timing.'); }
     finally { setSaving(false); }
   }
-  return <Dialog.Root open onOpenChange={open => { if (!open) void close(); }}>
-    <Dialog.Portal><Dialog.Backdrop /><Dialog.Positioner>
-      <Dialog.Content className="w-full max-w-xl" data-ui-region="slide-timing-modal">
-        <Dialog.Header><Dialog.Title>Slide timing</Dialog.Title><Dialog.CloseButton /></Dialog.Header>
-        <Dialog.Body className="space-y-3 p-4">
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={enabled} disabled={saving} onChange={event => setEnabled(event.target.checked)} />Enable slide timing</label>
-          <div className="max-h-[60vh] space-y-2 overflow-auto">
-            <SortableList.Root {...dnd} layout="vertical">
-              {items.map((step, index) => <TimingRow key={step.slideId} step={step} index={index} disabled={saving} onChange={changeDuration} />)}
-            </SortableList.Root>
-            {items.length === 0 && <p className="text-sm text-secondary">Add slides to set their timing.</p>}
-          </div>
-          {error && <p role="alert" className="text-sm text-error">{error}</p>}
-        </Dialog.Body>
-        <Dialog.Footer><ReacstButton variant="ghost" disabled={saving} onClick={() => void close()}>Cancel</ReacstButton>
-          <ReacstButton variant="take" disabled={saving || items.length === 0} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</ReacstButton></Dialog.Footer>
-      </Dialog.Content>
-    </Dialog.Positioner></Dialog.Portal>
-  </Dialog.Root>;
+  return (
+    <Modal
+      open
+      onClose={() => void close()}
+      title="Slide timing"
+      size="md"
+      className="max-w-xl"
+      footer={(
+        <div className="flex w-full items-center justify-end gap-2">
+          <ReacstButton variant="ghost" disabled={saving} onClick={() => void close()}>Cancel</ReacstButton>
+          <ReacstButton variant="take" disabled={saving || items.length === 0} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</ReacstButton>
+        </div>
+      )}
+    >
+      <div data-ui-region="slide-timing-modal" className="min-h-0 flex-1 overflow-y-auto space-y-3 p-4">
+        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={enabled} disabled={saving} onChange={event => setEnabled(event.target.checked)} />Enable slide timing</label>
+        <div className="max-h-[60vh] space-y-2 overflow-auto">
+          <SortableList.Root {...dnd} layout="vertical">
+            {items.map((step, index) => <TimingRow key={step.slideId} step={step} index={index} disabled={saving} onChange={changeDuration} />)}
+          </SortableList.Root>
+          {items.length === 0 && <p className="text-sm text-secondary">Add slides to set their timing.</p>}
+        </div>
+        {error && <p role="alert" className="text-sm text-error">{error}</p>}
+      </div>
+    </Modal>
+  );
 }

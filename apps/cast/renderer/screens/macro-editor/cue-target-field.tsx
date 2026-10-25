@@ -1,4 +1,3 @@
-import { FieldSelect } from '@renderer/components/form/field';
 import type { Id } from '@lumacast/kernel';
 import type {
   CueClearLayer,
@@ -7,6 +6,7 @@ import type {
   LifecycleAction,
   LifecycleTarget,
 } from '@lumacast/automation';
+import { Select } from '@lumacast/ui';
 
 interface CueTargetOptions {
   overlayOptions: Array<{ value: Id; label: string }>;
@@ -27,72 +27,32 @@ interface CueTargetFieldProps {
 export function CueTargetField({ kind, payload, options, onChange }: CueTargetFieldProps) {
   if (kind === 'overlay.activate' || kind === 'overlay.clear') {
     return (
-      <FieldSelect
-        label="Overlay"
-        value={String((payload as { overlayId?: Id }).overlayId ?? '')}
-        options={options.overlayOptions}
-        onChange={(value) => onChange({ overlayId: value })}
-        wide
-      />
+      <Select label="Overlay" value={String((payload as { overlayId?: Id }).overlayId ?? '')} onValueChange={(value) => onChange({ overlayId: value })} options={options.overlayOptions} className="col-span-full" />
     );
   }
   if (kind === 'mediaLayer.set') {
     return (
-      <FieldSelect
-        label="Asset"
-        value={String((payload as { assetId?: Id }).assetId ?? '')}
-        options={options.mediaLayerOptions}
-        onChange={(value) => onChange({ assetId: value })}
-        wide
-      />
+      <Select label="Asset" value={String((payload as { assetId?: Id }).assetId ?? '')} onValueChange={(value) => onChange({ assetId: value })} options={options.mediaLayerOptions} className="col-span-full" />
     );
   }
   if (kind === 'video.arm') {
     return (
-      <FieldSelect
-        label="Video"
-        value={String((payload as { assetId?: Id }).assetId ?? '')}
-        options={options.videoOptions}
-        onChange={(value) => onChange({ assetId: value })}
-        wide
-      />
+      <Select label="Video" value={String((payload as { assetId?: Id }).assetId ?? '')} onValueChange={(value) => onChange({ assetId: value })} options={options.videoOptions} className="col-span-full" />
     );
   }
   if (kind === 'audio.arm') {
     return (
-      <FieldSelect
-        label="Audio"
-        value={String((payload as { assetId?: Id }).assetId ?? '')}
-        options={options.audioOptions}
-        onChange={(value) => onChange({ assetId: value })}
-        wide
-      />
+      <Select label="Audio" value={String((payload as { assetId?: Id }).assetId ?? '')} onValueChange={(value) => onChange({ assetId: value })} options={options.audioOptions} className="col-span-full" />
     );
   }
   if (kind === 'stage.set') {
     return (
-      <FieldSelect
-        label="Stage"
-        value={String((payload as { stageId?: Id }).stageId ?? '')}
-        options={options.stageOptions}
-        onChange={(value) => onChange({ stageId: value })}
-        wide
-      />
+      <Select label="Stage" value={String((payload as { stageId?: Id }).stageId ?? '')} onValueChange={(value) => onChange({ stageId: value })} options={options.stageOptions} className="col-span-full" />
     );
   }
   if (kind === 'layer.clear') {
     return (
-      <FieldSelect
-        label="Layer"
-        value={String((payload as { layer?: CueClearLayer }).layer ?? 'media')}
-        onChange={(value) => onChange({ layer: value as CueClearLayer })}
-        wide
-      >
-        <FieldSelect.Option value={'media' satisfies CueClearLayer}>Media</FieldSelect.Option>
-        <FieldSelect.Option value={'video' satisfies CueClearLayer}>Video</FieldSelect.Option>
-        <FieldSelect.Option value={'content' satisfies CueClearLayer}>Content</FieldSelect.Option>
-        <FieldSelect.Option value={'overlay' satisfies CueClearLayer}>Overlay</FieldSelect.Option>
-      </FieldSelect>
+      <Select label="Layer" value={String((payload as { layer?: CueClearLayer }).layer ?? 'media')} onValueChange={(value) => onChange({ layer: value as CueClearLayer })} options={[{ value: 'media' satisfies CueClearLayer, label: 'Media' }, { value: 'video' satisfies CueClearLayer, label: 'Video' }, { value: 'content' satisfies CueClearLayer, label: 'Content' }, { value: 'overlay' satisfies CueClearLayer, label: 'Overlay' }]} className="col-span-full" />
     );
   }
   if (kind === 'flow.lifecycle') {
@@ -101,22 +61,8 @@ export function CueTargetField({ kind, payload, options, onChange }: CueTargetFi
     const target = lifecycle.target ?? '*';
     return (
       <>
-        <FieldSelect
-          label="Action"
-          value={action}
-          onChange={(value) => onChange({ action: value as LifecycleAction, target })}
-          wide
-        >
-          <FieldSelect.Option value={'cancel' satisfies LifecycleAction}>Cancel (stop future work)</FieldSelect.Option>
-          <FieldSelect.Option value={'revert' satisfies LifecycleAction}>Revert (stop + undo effects)</FieldSelect.Option>
-        </FieldSelect>
-        <FieldSelect
-          label="Target"
-          value={String(target)}
-          options={options.macroOptions}
-          onChange={(value) => onChange({ action, target: value as LifecycleTarget })}
-          wide
-        />
+        <Select label="Action" value={action} onValueChange={(value) => onChange({ action: value as LifecycleAction, target })} options={[{ value: 'cancel' satisfies LifecycleAction, label: 'Cancel (stop future work)' }, { value: 'revert' satisfies LifecycleAction, label: 'Revert (stop + undo effects)' }]} className="col-span-full" />
+        <Select label="Target" value={String(target)} onValueChange={(value) => onChange({ action, target: value as LifecycleTarget })} options={options.macroOptions} className="col-span-full" />
       </>
     );
   }

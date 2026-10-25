@@ -3,9 +3,7 @@ import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { Label, EmptyState } from '@lumacast/ui';
-import { Dropdown } from '@renderer/components/form/dropdown';
-import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
+import { Label, EmptyState, DropdownMenu, useConfirm } from '@lumacast/ui';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { useAutomation } from '@renderer/features/automation/automation-context';
 import { useMacroEditorScreen } from './screen-context';
@@ -44,7 +42,7 @@ export function MacroEditorScreenContent() {
       title: `Delete "${macro.name}"?`,
       description: 'This macro will be permanently removed. Existing slide bindings to it are also removed.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     // deleteMacro rejects when the macro no longer exists (#214), which a
     // delete can race with a concurrent delete. mutatePatch has already
@@ -61,19 +59,17 @@ export function MacroEditorScreenContent() {
               <LumaCastPanel.Group className="h-full min-h-0">
                 <LumaCastPanel.GroupTitle>
                   <Label.sm className="mr-auto">Macros</Label.sm>
-                  <Dropdown>
-                    <Dropdown.Trigger
-                      aria-label="Add"
-                      className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4"
-                    >
-                      <Plus />
-                    </Dropdown.Trigger>
-                    <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={() => { void createMacro(); }}>
-                        New macro
-                      </Dropdown.Item>
-                    </Dropdown.Panel>
-                  </Dropdown>
+                  <DropdownMenu
+                    align="end"
+                    trigger={(
+                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                        <Plus />
+                      </button>
+                    )}
+                    entries={[
+                      { id: 'new-macro', label: 'New macro', onSelect: () => { void createMacro(); } },
+                    ]}
+                  />
                 </LumaCastPanel.GroupTitle>
                 <LumaCastPanel.Content>
                   {macros.length === 0 ? (

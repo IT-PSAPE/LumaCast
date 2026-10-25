@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react';
-import { Checkbox } from '@renderer/components/form/checkbox';
+import { Checkbox } from '@lumacast/ui';
 
 export function AdvancedDisclosure({
   open,
@@ -27,18 +27,9 @@ export function AdvancedDisclosure({
           <p className="text-xs text-tertiary">
             By default, only themes used by selected items are bundled. Toggle on to include unused workspace assets.
           </p>
-          <Checkbox.Root checked={extras.includeAllThemes} onCheckedChange={(v) => onChange('includeAllThemes', v)}>
-            <Checkbox.Indicator />
-            <Checkbox.Label>Include all themes</Checkbox.Label>
-          </Checkbox.Root>
-          <Checkbox.Root checked={extras.includeOverlays} onCheckedChange={(v) => onChange('includeOverlays', v)}>
-            <Checkbox.Indicator />
-            <Checkbox.Label>Include overlays</Checkbox.Label>
-          </Checkbox.Root>
-          <Checkbox.Root checked={extras.includeStages} onCheckedChange={(v) => onChange('includeStages', v)}>
-            <Checkbox.Indicator />
-            <Checkbox.Label>Include page layouts (stages)</Checkbox.Label>
-          </Checkbox.Root>
+          <Checkbox checked={extras.includeAllThemes} onCheckedChange={(v) => onChange('includeAllThemes', v)} label="Include all themes" />
+          <Checkbox checked={extras.includeOverlays} onCheckedChange={(v) => onChange('includeOverlays', v)} label="Include overlays" />
+          <Checkbox checked={extras.includeStages} onCheckedChange={(v) => onChange('includeStages', v)} label="Include page layouts (stages)" />
         </div>
       ) : null}
     </div>

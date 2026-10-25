@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useMetricsStore, useShallow, type ObsEventCategory } from './metrics-store';
 import { SectionShell } from './section-shell';
-import { FilterChips } from './filter-chips';
 import { EventRow } from './event-row';
+import { SegmentedControl } from '@lumacast/ui';
 
 export function EventTimelineSection() {
   const { events, clearEvents, mirrorEventsToConsole, setMirrorEventsToConsole } = useMetricsStore(
@@ -31,19 +31,20 @@ export function EventTimelineSection() {
           >
             {mirrorEventsToConsole ? 'Mirror to logs: on' : 'Mirror to logs: off'}
           </button>
-          <FilterChips.Root
+          <SegmentedControl
             value={filter}
-            onChange={(next) => setFilter(next)}
+            onValueChange={(next) => { if (typeof next === 'string' && next) setFilter(next as typeof filter); }}
+            className="flex-wrap"
           >
-            <FilterChips.Option value={'all' satisfies 'all' | ObsEventCategory}>All</FilterChips.Option>
-            <FilterChips.Option value={'ndi' satisfies ObsEventCategory}>NDI</FilterChips.Option>
-            <FilterChips.Option value={'layer' satisfies ObsEventCategory}>Layers</FilterChips.Option>
-            <FilterChips.Option value={'overlay' satisfies ObsEventCategory}>Overlays</FilterChips.Option>
-            <FilterChips.Option value={'slide' satisfies ObsEventCategory}>Slides</FilterChips.Option>
-            <FilterChips.Option value={'playback' satisfies ObsEventCategory}>Playback</FilterChips.Option>
-            <FilterChips.Option value={'system' satisfies ObsEventCategory}>System</FilterChips.Option>
-            <FilterChips.Option value={'error' satisfies ObsEventCategory}>Errors</FilterChips.Option>
-          </FilterChips.Root>
+            <SegmentedControl.Label value={'all' satisfies 'all' | ObsEventCategory}>All</SegmentedControl.Label>
+            <SegmentedControl.Label value={'ndi' satisfies ObsEventCategory}>NDI</SegmentedControl.Label>
+            <SegmentedControl.Label value={'layer' satisfies ObsEventCategory}>Layers</SegmentedControl.Label>
+            <SegmentedControl.Label value={'overlay' satisfies ObsEventCategory}>Overlays</SegmentedControl.Label>
+            <SegmentedControl.Label value={'slide' satisfies ObsEventCategory}>Slides</SegmentedControl.Label>
+            <SegmentedControl.Label value={'playback' satisfies ObsEventCategory}>Playback</SegmentedControl.Label>
+            <SegmentedControl.Label value={'system' satisfies ObsEventCategory}>System</SegmentedControl.Label>
+            <SegmentedControl.Label value={'error' satisfies ObsEventCategory}>Errors</SegmentedControl.Label>
+          </SegmentedControl>
           <button
             type="button"
             className="rounded border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40"

@@ -1,6 +1,6 @@
-import { cn, EmptyState, Label } from '@lumacast/ui';
+import { cn, Checkbox, EmptyState, Label, Select } from '@lumacast/ui';
 import { ColorPicker } from '../../components/form/color-picker';
-import { FieldIcon, FieldInput, FieldSelect } from '../../components/form/field';
+import { FieldIcon, FieldInput } from '../../components/form/field';
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal,
   AlignEndVertical, AlignStartHorizontal, AlignStartVertical,
@@ -124,11 +124,7 @@ export function ShapeElementInspector() {
           </Section.Header>
           <Section.Body>
             <Section.Row>
-              <FieldSelect value={mediaFit} onChange={(value) => handleMediaFitChange(value as SlideBackgroundFit)}>
-                <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
-                <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
-                <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
-              </FieldSelect>
+              <Select value={mediaFit} onValueChange={(value) => handleMediaFitChange(value as SlideBackgroundFit)} options={[{ value: 'cover' satisfies SlideBackgroundFit, label: 'Cover' }, { value: 'contain' satisfies SlideBackgroundFit, label: 'Contain' }, { value: 'fill' satisfies SlideBackgroundFit, label: 'Fill / Stretch' }]} className="w-full" />
             </Section.Row>
           </Section.Body>
         </Section.Root>
@@ -159,7 +155,7 @@ export function ShapeElementInspector() {
       <Section.Root>
         <Section.Header>
           <Label.xs>{`${styleLabelPrefix}Fill`}</Label.xs>
-          <Section.Checkbox className='ml-auto' checked={visual.fillEnabled} onChange={handleFillToggle} />
+          <Checkbox className='ml-auto' checked={visual.fillEnabled} onCheckedChange={handleFillToggle} />
         </Section.Header>
         {visual.fillEnabled ? (
           <Section.Body>
@@ -173,7 +169,7 @@ export function ShapeElementInspector() {
       <Section.Root>
         <Section.Header>
           <Label.xs>Text Stroke</Label.xs>
-          <Section.Checkbox className='ml-auto' checked={visual.strokeEnabled} onChange={(enabled) => updateVisual({ strokeEnabled: enabled })} />
+          <Checkbox className='ml-auto' checked={visual.strokeEnabled} onCheckedChange={(enabled) => updateVisual({ strokeEnabled: enabled })} />
         </Section.Header>
         {visual.strokeEnabled ? (
           <Section.Body>
@@ -181,11 +177,7 @@ export function ShapeElementInspector() {
               <ColorPicker value={visual.strokeColor} onChange={(value: string) => { updateVisual({ strokeColor: value }); }} />
             </Section.Row>
             <Section.Row>
-              <FieldSelect value={visual.strokePosition} onChange={(value: string) => { updateVisual({ strokePosition: value as StrokePosition }); }}>
-                <FieldSelect.Option value={'inside' satisfies StrokePosition}>Inside</FieldSelect.Option>
-                <FieldSelect.Option value={'center' satisfies StrokePosition}>Center</FieldSelect.Option>
-                <FieldSelect.Option value={'outside' satisfies StrokePosition}>Outside</FieldSelect.Option>
-              </FieldSelect>
+              <Select value={visual.strokePosition} onValueChange={(value: string) => { updateVisual({ strokePosition: value as StrokePosition }); }} options={[{ value: 'inside' satisfies StrokePosition, label: 'Inside' }, { value: 'center' satisfies StrokePosition, label: 'Center' }, { value: 'outside' satisfies StrokePosition, label: 'Outside' }]} className="w-full" />
               <FieldInput type="number" value={visual.strokeWidth} onChange={(value: string) => { updateVisual({ strokeWidth: Math.max(0, parseNumber(value, visual.strokeWidth)) }); }}>
                 <FieldIcon><RulerDimensionLine size={14} /></FieldIcon>
               </FieldInput>
@@ -197,7 +189,7 @@ export function ShapeElementInspector() {
       <Section.Root>
         <Section.Header>
           <Label.xs>Text Shadow</Label.xs>
-          <Section.Checkbox className='ml-auto' checked={visual.shadowEnabled} onChange={(enabled) => updateVisual({ shadowEnabled: enabled })} />
+          <Checkbox className='ml-auto' checked={visual.shadowEnabled} onCheckedChange={(enabled) => updateVisual({ shadowEnabled: enabled })} />
         </Section.Header>
         {visual.shadowEnabled ? (
           <Section.Body>

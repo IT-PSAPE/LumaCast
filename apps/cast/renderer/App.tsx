@@ -20,10 +20,10 @@ import { NdiOutputsGate } from './features/playback/ndi-outputs-gate';
 import { MediaResidencyBoundary } from './features/playback/media-residency-boundary';
 import { SlideRenderHost } from './features/render/slide-render-host';
 import { useObservabilityRuntime } from './features/observability/observability-runtime';
-import { ConfirmProvider } from './components/overlays/confirm-dialog';
 import { ErrorBoundary } from './components/feedback/error-boundary';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
 import { AppLayoutContent } from './app-layout-content';
+import { ConfirmProvider } from '@lumacast/ui';
 
 function ObservabilityRuntime() {
   useObservabilityRuntime();

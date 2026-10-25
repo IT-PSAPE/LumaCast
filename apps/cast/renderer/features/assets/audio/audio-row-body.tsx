@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBinScrollRoot } from '@renderer/components/layout/bin-shell';
 import { useMediaDerivative } from '../../../hooks/use-media-derivative';
 import { useElements } from '../../../contexts/canvas/canvas-context';
-import { useContextMenuTrigger, ContextMenu } from '@lumacast/ui';
-import { useConfirm } from '../../../components/overlays/confirm-dialog';
+import { useContextMenuTrigger, ContextMenu, useConfirm } from '@lumacast/ui';
 import { MediaAssetIcon } from '../../../components/display/entity-icon';
 import { SelectableRow } from '../../../components/display/selectable-row';
 import type { AudioRowProps } from './audio-bin-types';
@@ -60,7 +59,7 @@ export function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
       title: `Delete "${asset.name}"?`,
       description: 'This audio will be permanently removed.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (ok) await deleteMedia(asset.id);
   }

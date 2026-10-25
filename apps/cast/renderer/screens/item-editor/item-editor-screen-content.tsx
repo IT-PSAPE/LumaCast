@@ -3,9 +3,8 @@ import { useCallback, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { EmptyState, Label } from '@lumacast/ui';
+import { EmptyState, Label, DropdownMenu } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { Dropdown } from '../../components/form/dropdown';
 import { FieldTextarea } from '../../components/form/field';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { useItemEditorScreen } from './screen-context';
@@ -30,27 +29,21 @@ export function ItemEditorScreenContent() {
               <LumaCastPanel.Group className="h-full min-h-0">
                 <LumaCastPanel.GroupTitle>
                   <ItemPicker />
-                  <Dropdown>
-                    <Dropdown.Trigger
-                      aria-label="Add"
-                      className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4"
-                    >
-                      <Plus />
-                    </Dropdown.Trigger>
-                    <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={() => actions.openCreateItem('lyric')}>
-                        New lyric
-                      </Dropdown.Item>
-                      <Dropdown.Item onClick={() => actions.openCreateItem('presentation')}>
-                        New presentation
-                      </Dropdown.Item>
-                      <Dropdown.Separator />
-                      <Dropdown.Item disabled={!state.currentItemRef} onClick={() => setTimingOpen(true)}>Slide timing</Dropdown.Item>
-                      <Dropdown.Item onClick={() => { void actions.createSlide(); }} disabled={!state.currentItem}>
-                        New slide
-                      </Dropdown.Item>
-                    </Dropdown.Panel>
-                  </Dropdown>
+                  <DropdownMenu
+                    align="end"
+                    trigger={(
+                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                        <Plus />
+                      </button>
+                    )}
+                    entries={[
+                      { id: 'new-lyric', label: 'New lyric', onSelect: () => actions.openCreateItem('lyric') },
+                      { id: 'new-presentation', label: 'New presentation', onSelect: () => actions.openCreateItem('presentation') },
+                      { separator: true },
+                      { id: 'slide-timing', label: 'Slide timing', disabled: !state.currentItemRef, onSelect: () => setTimingOpen(true) },
+                      { id: 'new-slide', label: 'New slide', disabled: !state.currentItem, onSelect: () => { void actions.createSlide(); } },
+                    ]}
+                  />
                 </LumaCastPanel.GroupTitle>
                 <LumaCastPanel.Content className="min-h-0">
                   {!state.currentItem ? (

@@ -1,7 +1,7 @@
 import type { StrokePosition, TextCaseTransform } from '@lumacast/composition';
-import { cn, SegmentedControl, EmptyState, Label } from '@lumacast/ui';
+import { cn, Checkbox, SegmentedControl, EmptyState, Label, Select, TextField } from '@lumacast/ui';
 import { ColorPicker } from '../../components/form/color-picker';
-import { FieldIcon, FieldInput, FieldSelect } from '../../components/form/field';
+import { FieldIcon, FieldInput } from '../../components/form/field';
 import { useTextInspector } from './use-text-inspector';
 
 import {
@@ -42,7 +42,7 @@ export function TextElementInspector() {
           <Label.xs>Content</Label.xs>
         </Section.Header>
         <Section.Body>
-          <FieldInput value={textPayload.text} onChange={handleTextChange} />
+          <TextField value={textPayload.text} onValueChange={handleTextChange} className="w-full" />
         </Section.Body>
       </Section.Root>
 
@@ -51,13 +51,13 @@ export function TextElementInspector() {
           <Label.xs>Typography</Label.xs>
           <div className="ml-auto flex items-center gap-1.5">
             <Label.xs>Auto-fit</Label.xs>
-            <Section.Checkbox checked={formatting.autoFit} onChange={handleAutoFitToggle} />
+            <Checkbox checked={formatting.autoFit} onCheckedChange={handleAutoFitToggle} />
           </div>
         </Section.Header>
         <Section.Body>
           <Section.Row>
-            <FieldSelect value={formatting.fontFamily} onChange={handleFontFamilyChange} options={fontOptions} />
-            <FieldInput type="text" value={formatting.weight} onChange={handleWeightChange} />
+            <Select value={formatting.fontFamily} onValueChange={handleFontFamilyChange} options={fontOptions} className="w-full" />
+            <TextField value={formatting.weight} onValueChange={handleWeightChange} className="w-full" />
           </Section.Row>
           <Section.Row>
             {formatting.autoFit ? (
@@ -101,11 +101,7 @@ export function TextElementInspector() {
             </SegmentedControl.Icon>
           </SegmentedControl>
           <Section.Row>
-            <FieldSelect value={formatting.caseTransform} onChange={handleCaseChange}>
-              <FieldSelect.Option value={'none' satisfies TextCaseTransform}>None</FieldSelect.Option>
-              <FieldSelect.Option value={'uppercase' satisfies TextCaseTransform}>Uppercase</FieldSelect.Option>
-              <FieldSelect.Option value={'sentence' satisfies TextCaseTransform}>Sentence</FieldSelect.Option>
-            </FieldSelect>
+            <Select value={formatting.caseTransform} onValueChange={handleCaseChange} options={[{ value: 'none' satisfies TextCaseTransform, label: 'None' }, { value: 'uppercase' satisfies TextCaseTransform, label: 'Uppercase' }, { value: 'sentence' satisfies TextCaseTransform, label: 'Sentence' }]} className="w-full" />
             <ColorPicker value={textVisual.color} onChange={handleTextColorChange} />
           </Section.Row>
         </Section.Body>
@@ -150,7 +146,7 @@ export function TextElementInspector() {
       <Section.Root>
         <Section.Header>
           <Label.xs>Text Stroke</Label.xs>
-          <Section.Checkbox className='ml-auto' checked={textVisual.strokeEnabled} onChange={(enabled) => updateTextVisual({ strokeEnabled: enabled })} />
+          <Checkbox className='ml-auto' checked={textVisual.strokeEnabled} onCheckedChange={(enabled) => updateTextVisual({ strokeEnabled: enabled })} />
         </Section.Header>
         {textVisual.strokeEnabled ? (
           <Section.Body>
@@ -158,11 +154,7 @@ export function TextElementInspector() {
               <ColorPicker value={textVisual.strokeColor} onChange={(value: string) => { updateTextVisual({ strokeColor: value }); }} />
             </Section.Row>
             <Section.Row>
-              <FieldSelect value={textVisual.strokePosition} onChange={(value: string) => { updateTextVisual({ strokePosition: value as StrokePosition }); }}>
-                <FieldSelect.Option value={'inside' satisfies StrokePosition}>Inside</FieldSelect.Option>
-                <FieldSelect.Option value={'center' satisfies StrokePosition}>Center</FieldSelect.Option>
-                <FieldSelect.Option value={'outside' satisfies StrokePosition}>Outside</FieldSelect.Option>
-              </FieldSelect>
+              <Select value={textVisual.strokePosition} onValueChange={(value: string) => { updateTextVisual({ strokePosition: value as StrokePosition }); }} options={[{ value: 'inside' satisfies StrokePosition, label: 'Inside' }, { value: 'center' satisfies StrokePosition, label: 'Center' }, { value: 'outside' satisfies StrokePosition, label: 'Outside' }]} className="w-full" />
               <FieldInput type="number" value={textVisual.strokeWidth} onChange={(value: string) => { updateTextVisual({ strokeWidth: Math.max(0, parseNumber(value, textVisual.strokeWidth)) }); }}>
                 <FieldIcon><RulerDimensionLine size={14} /></FieldIcon>
               </FieldInput>
@@ -174,7 +166,7 @@ export function TextElementInspector() {
       <Section.Root>
         <Section.Header>
           <Label.xs>Text Shadow</Label.xs>
-          <Section.Checkbox className='ml-auto' checked={textVisual.shadowEnabled} onChange={(enabled) => updateTextVisual({ shadowEnabled: enabled })} />
+          <Checkbox className='ml-auto' checked={textVisual.shadowEnabled} onCheckedChange={(enabled) => updateTextVisual({ shadowEnabled: enabled })} />
         </Section.Header>
         {textVisual.shadowEnabled ? (
           <Section.Body>

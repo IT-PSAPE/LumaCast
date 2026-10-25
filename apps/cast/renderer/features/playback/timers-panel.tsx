@@ -3,13 +3,12 @@ import { ChevronRight, Copy, Ellipsis, Pause, Play, Plus, RotateCcw, Trash2 } fr
 import { createId, type Id } from '@lumacast/kernel';
 import type { Timer, TimerFormat, TimerKind, TimerReading, TimerRunState, TimerThreshold } from '@lumacast/composition';
 import { Accordion, useAccordionItem } from '@renderer/components/display/accordion';
-import { EmptyState, ReacstButton, cn, ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
+import { EmptyState, ReacstButton, cn, ContextMenu, useContextMenuTrigger, Select, Checkbox, useConfirm } from '@lumacast/ui';
 import { useBinControls } from '@renderer/components/controls/bin-controls';
 import { BinShell } from '@renderer/components/layout/bin-shell';
 import { Dropdown } from '@renderer/components/form/dropdown';
-import { FieldCheckbox, FieldColor, FieldInput, FieldSelect } from '@renderer/components/form/field';
+import { FieldColor, FieldInput } from '@renderer/components/form/field';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
-import { useConfirmDelete } from '@renderer/components/overlays/confirm-dialog';
 import { useTimers } from '@renderer/contexts/timers/timers-context';
 import { filterByText } from '../../utils/filter-by-text';
 import { formatDurationInput, parseDurationSeconds } from './timer-duration-input';
@@ -20,7 +19,7 @@ export function TimersPanel() {
   const { timers, runStates, readings, createTimer, updateTimer, deleteTimer, duplicateTimer, toggle, reset, pauseAll, resetAll } = useTimers();
   const { state: { searchValue } } = useBinControls();
   const [openIds, setOpenIds] = useState<string[]>([]);
-  const confirmDelete = useConfirmDelete();
+  const confirm = useConfirm();
 
   const filtered = useMemo(
     () => filterByText(timers, searchValue, (timer: Timer) => [timer.name]),
@@ -28,7 +27,12 @@ export function TimersPanel() {
   );
 
   async function handleDelete(timer: Timer) {
-    const ok = await confirmDelete(`"${timer.name}"`);
+    const ok = await confirm({
+      title: `Delete "${timer.name}"?`,
+      description: 'This action cannot be undone.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
     // deleteTimer may race a concurrent delete of the same row; the store
     // layer has already surfaced the failure, so absorb the rethrow here.
     if (ok) await deleteTimer(timer.id).catch(() => undefined);
@@ -195,11 +199,7 @@ function TimerConfig({ timer, onUpdate }: { timer: Timer; onUpdate: (patch: Time
 
   return (
     <div className="flex flex-col gap-2 px-1.5 pb-2 pt-1">
-      <FieldSelect value={timer.kind} onChange={(value) => onUpdate({ kind: value as TimerKind })} label="Kind">
-        <FieldSelect.Option value={'countdown' satisfies TimerKind}>Countdown</FieldSelect.Option>
-        <FieldSelect.Option value={'countdown-to-time' satisfies TimerKind}>Countdown to time</FieldSelect.Option>
-        <FieldSelect.Option value={'elapsed' satisfies TimerKind}>Elapsed</FieldSelect.Option>
-      </FieldSelect>
+      <Select value={timer.kind} onValueChange={(value) => onUpdate({ kind: value as TimerKind })} label="Kind" options={[{ value: 'countdown' satisfies TimerKind, label: 'Countdown' }, { value: 'countdown-to-time' satisfies TimerKind, label: 'Countdown to time' }, { value: 'elapsed' satisfies TimerKind, label: 'Elapsed' }]} />
 
       {timer.kind === 'countdown' && (
         <FieldInput
@@ -244,12 +244,9 @@ function TimerConfig({ timer, onUpdate }: { timer: Timer; onUpdate: (patch: Time
         </div>
       )}
 
-      <FieldSelect value={timer.format} onChange={(value) => onUpdate({ format: value as TimerFormat })} label="Format">
-        <FieldSelect.Option value={'mm:ss' satisfies TimerFormat}>MM:SS</FieldSelect.Option>
-        <FieldSelect.Option value={'hh:mm:ss' satisfies TimerFormat}>HH:MM:SS</FieldSelect.Option>
-      </FieldSelect>
+      <Select value={timer.format} onValueChange={(value) => onUpdate({ format: value as TimerFormat })} label="Format" options={[{ value: 'mm:ss' satisfies TimerFormat, label: 'MM:SS' }, { value: 'hh:mm:ss' satisfies TimerFormat, label: 'HH:MM:SS' }]} />
 
-      <FieldCheckbox checked={timer.allowOverrun} label="Allow overrun" onChange={(checked) => onUpdate({ allowOverrun: checked })} />
+      <Checkbox checked={timer.allowOverrun} label="Allow overrun" onCheckedChange={(checked) => onUpdate({ allowOverrun: checked })} />
 
       <div className="flex flex-col gap-1.5 border-t border-secondary/60 pt-2">
         {timer.thresholds.map((threshold) => (

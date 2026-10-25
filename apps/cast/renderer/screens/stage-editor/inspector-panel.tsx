@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
-import { ReacstButton } from '@lumacast/ui';
+import { ReacstButton, Tabs } from '@lumacast/ui';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
-import { Tabs } from '@renderer/components/display/tabs';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
@@ -43,15 +42,15 @@ export function StageEditorInspectorPanel() {
 
   return (
     <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
-      <Tabs.Root value={inspectorTab} onValueChange={handleTabChange}>
+      <Tabs value={inspectorTab} variant="plain" className="contents" onValueChange={handleTabChange}>
         <section className="flex flex-1 flex-col">
           <div className="border-b border-primary">
-            <Tabs.List label="Inspector">
-              {!hasSelection && <Tabs.Trigger value="stage">Stage</Tabs.Trigger>}
-              {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
-              {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
-              {isTextSelected && <Tabs.Trigger value="binding">Text link</Tabs.Trigger>}
-              {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
+            <Tabs.List aria-label="Inspector" className="min-w-0 overflow-x-auto [&>*]:shrink-0">
+              {!hasSelection && <Tabs.Tab value="stage">Stage</Tabs.Tab>}
+              {hasSelection && <Tabs.Tab value="shape">Shape</Tabs.Tab>}
+              {isTextSelected && <Tabs.Tab value="text">Text</Tabs.Tab>}
+              {isTextSelected && <Tabs.Tab value="binding">Text link</Tabs.Tab>}
+              {isVideoSelected && <Tabs.Tab value="video">Video</Tabs.Tab>}
             </Tabs.List>
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
@@ -62,7 +61,7 @@ export function StageEditorInspectorPanel() {
             {inspectorTab === 'video' && <VideoElementInspector />}
           </div>
         </section>
-      </Tabs.Root>
+      </Tabs>
       {state.hasPendingChanges && (
         <LumaCastPanel.Footer className="p-3">
           {/* saveChanges → pushChanges → updateStage rejects when the stage no

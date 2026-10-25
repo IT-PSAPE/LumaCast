@@ -3,8 +3,7 @@ import { useEffect, useRef } from 'react';
 import type { PlaylistSeparator } from '@lumacast/composition';
 import { useNavigation } from '../../contexts/navigation-context';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
-import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
-import { useConfirm } from '../../components/overlays/confirm-dialog';
+import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { getSeparatorColors, SEPARATOR_COLOR_OPTIONS } from './separator-color';
 import type { RowDragProps } from './row-drag-props';
 
@@ -52,7 +51,7 @@ export function SeparatorRowBody({
       title: `Delete "${row.label}"?`,
       description: 'This removes the separator from the playlist. The items around it stay.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     // removePlaylistRow rejects when the row no longer exists (#214), which a
     // context-menu action can race with a concurrent delete. mutatePatch has

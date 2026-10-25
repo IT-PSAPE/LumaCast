@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OverlayAnimation } from '@lumacast/composition';
-import { FieldInput, FieldSelect } from '../../components/form/field';
+import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useOverlayEditor } from '../../contexts/asset-editor/asset-editor-context';
 import { useWorkbench } from '../../contexts/workbench-context';
 import { Section } from './inspector-section';
+import { Select } from '@lumacast/ui';
 
 export function SlideInspector() {
   const { setStatusText } = useCast();
@@ -46,8 +47,10 @@ export function SlideInspector() {
     setOverlayNameDraft(value);
   }
 
+  // Select has no blur hook, so a kind change commits immediately with the new value.
   function handleTransitionKindChange(value: string) {
     setTransitionKindDraft(value);
+    commitOverlaySettings(value);
   }
 
   function handleTransitionDurationChange(value: string) {
@@ -59,10 +62,14 @@ export function SlideInspector() {
   }
 
   function handleOverlaySettingsBlur() {
+    commitOverlaySettings(transitionKindDraft);
+  }
+
+  function commitOverlaySettings(kind: string) {
     if (!currentOverlay) return;
 
     const nextName = overlayNameDraft.trim() || currentOverlay.name;
-    const nextTransitionKind = transitionKindDraft === 'dissolve' ? 'dissolve' : 'none';
+    const nextTransitionKind = kind === 'dissolve' ? 'dissolve' : 'none';
     const nextDurationMs = Math.max(0, Number.parseInt(transitionDurationDraft || '0', 10) || 0);
     const nextAutoClearDurationMs = autoClearDurationDraft.trim() === ''
       ? null
@@ -114,15 +121,7 @@ export function SlideInspector() {
           </Section.Header>
           <Section.Body>
             <Section.Row>
-              <FieldSelect
-                value={transitionKindDraft}
-                onChange={handleTransitionKindChange}
-                onBlur={handleOverlaySettingsBlur}
-                label="Transition"
-              >
-                <FieldSelect.Option value={'none' satisfies OverlayAnimation['kind']}>Cut</FieldSelect.Option>
-                <FieldSelect.Option value={'dissolve' satisfies OverlayAnimation['kind']}>Dissolve</FieldSelect.Option>
-              </FieldSelect>
+              <Select value={transitionKindDraft} onValueChange={handleTransitionKindChange} label="Transition" options={[{ value: 'none' satisfies OverlayAnimation['kind'], label: 'Cut' }, { value: 'dissolve' satisfies OverlayAnimation['kind'], label: 'Dissolve' }]} />
               <FieldInput
                 type="number"
                 value={transitionDurationDraft}

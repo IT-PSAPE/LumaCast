@@ -1,8 +1,8 @@
 import type { MediaAsset } from '@lumacast/composition';
 import { useElements } from '../../../contexts/canvas/canvas-context';
 import { useCast } from '../../../contexts/app-context';
-import { useConfirm } from '../../../components/overlays/confirm-dialog';
 import { castMediaSrc } from '../../../utils/slides';
+import { useConfirm } from '@lumacast/ui';
 
 export function useMediaContextActions(asset: MediaAsset) {
   const { deleteMedia } = useElements();
@@ -31,7 +31,7 @@ export function useMediaContextActions(asset: MediaAsset) {
       title: `Delete "${asset.name}"?`,
       description: 'Slides and elements that reference this media will lose their source.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (!ok) return;
     await deleteMedia(asset.id);

@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Settings } from 'lucide-react';
-import { ReacstButton } from '@lumacast/ui';
+import { ReacstButton, useConfirm, Modal } from '@lumacast/ui';
 import type { LyricBlankSlideMode } from '@lumacast/composition';
-import { Dialog } from '../../components/overlays/dialog';
-import { useConfirm } from '../../components/overlays/confirm-dialog';
 import DocEditor, { type Block } from '../../components/form/doc-editor';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useLyricEditorSave } from './use-lyric-editor-document';
@@ -77,7 +75,7 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
       const discard = await confirm({
         title: 'Discard changes?',
         confirmLabel: 'Discard',
-        destructive: true,
+        tone: 'danger',
       });
       if (!discard) return;
     }
@@ -109,46 +107,41 @@ export function LyricEditorModal({ isOpen, onClose }: LyricEditorModalProps) {
 
   return (
     <>
-      <Dialog.Root open onOpenChange={(open) => { if (!open) void requestClose(); }}>
-        <Dialog.Portal>
-          <Dialog.Backdrop />
-          <Dialog.Positioner>
-            <Dialog.Content data-ui-region="lyric-editor-modal" className="h-[calc(100vh-2rem)] w-full max-w-4xl">
-              <Dialog.Header>
-                <Dialog.Title>Lyric editor</Dialog.Title>
-                <div className="flex items-center gap-1">
-                  <ReacstButton.Icon label="Layout settings" variant="ghost" onClick={() => setIsConfigOpen(true)}>
-                    <Settings />
-                  </ReacstButton.Icon>
-                  <Dialog.CloseButton />
-                </div>
-              </Dialog.Header>
-              <Dialog.Body className="flex h-full flex-col overflow-auto bg-primary/95 px-0 py-0">
-                <div className="shrink-0 border-b border-secondary px-4 py-2">
-                  <fieldset disabled={isSaving} className="max-w-56">
-                    <LyricBlankSlidesField value={blankSlideMode} onChange={setBlankSlideMode} />
-                  </fieldset>
-                </div>
-                <div className="min-h-0 flex-1">
-                  <DocEditor key={editorEpoch} initialBlocks={editorBlocks} onChange={handleChange} />
-                </div>
-              </Dialog.Body>
-              <Dialog.Footer>
-                <div className="flex items-center gap-2">
-                  {prePreviewBlocks !== null && (
-                    <ReacstButton variant="ghost" onClick={handleRevert} disabled={isSaving}>Revert</ReacstButton>
-                  )}
-                  <ReacstButton variant="default" onClick={() => void handlePreview()} disabled={isSaving}>Preview</ReacstButton>
-                </div>
-                <div className="flex items-center gap-2">
-                  <ReacstButton variant="ghost" onClick={() => void requestClose()} disabled={isSaving}>Cancel</ReacstButton>
-                  <ReacstButton variant="take" onClick={handleSave} disabled={isSaving}>Save</ReacstButton>
-                </div>
-              </Dialog.Footer>
-            </Dialog.Content>
-          </Dialog.Positioner>
-        </Dialog.Portal>
-      </Dialog.Root>
+      <Modal
+        open
+        onClose={() => void requestClose()}
+        title="Lyric editor"
+        size="full"
+        className="max-w-4xl"
+        footer={(
+          <div className="flex w-full items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              {prePreviewBlocks !== null && (
+                <ReacstButton variant="ghost" onClick={handleRevert} disabled={isSaving}>Revert</ReacstButton>
+              )}
+              <ReacstButton variant="default" onClick={() => void handlePreview()} disabled={isSaving}>Preview</ReacstButton>
+            </div>
+            <div className="flex items-center gap-2">
+              <ReacstButton variant="ghost" onClick={() => void requestClose()} disabled={isSaving}>Cancel</ReacstButton>
+              <ReacstButton variant="take" onClick={handleSave} disabled={isSaving}>Save</ReacstButton>
+            </div>
+          </div>
+        )}
+      >
+        <div data-ui-region="lyric-editor-modal" className="min-h-0 flex-1 flex flex-col overflow-auto bg-primary/95">
+          <div className="flex shrink-0 items-end justify-between gap-2 border-b border-secondary px-4 py-2">
+            <fieldset disabled={isSaving} className="max-w-56 flex-1">
+              <LyricBlankSlidesField value={blankSlideMode} onChange={setBlankSlideMode} />
+            </fieldset>
+            <ReacstButton.Icon label="Layout settings" variant="ghost" onClick={() => setIsConfigOpen(true)}>
+              <Settings />
+            </ReacstButton.Icon>
+          </div>
+          <div className="min-h-0 flex-1">
+            <DocEditor key={editorEpoch} initialBlocks={editorBlocks} onChange={handleChange} />
+          </div>
+        </div>
+      </Modal>
 
       <LyricLayoutConfigDialog
         isOpen={isConfigOpen}

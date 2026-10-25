@@ -1,6 +1,6 @@
 import type { ItemRef } from '@lumacast/composition';
-import { useConfirm } from '../../components/overlays/confirm-dialog';
 import { useNavigation } from '../../contexts/navigation-context';
+import { useConfirm } from '@lumacast/ui';
 
 export function useDeleteItem(itemRef: ItemRef, title: string) {
   const { deleteItem } = useNavigation();
@@ -11,7 +11,7 @@ export function useDeleteItem(itemRef: ItemRef, title: string) {
       title: `Delete "${title}"?`,
       description: 'This permanently removes the item and all its slides. This action cannot be undone.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (ok) await deleteItem(itemRef);
   };

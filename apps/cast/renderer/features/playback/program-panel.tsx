@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlignLeft, Ellipsis, Film, Image, Layers, Layers2, Pencil, Plus, Square, VolumeX, XCircle } from 'lucide-react';
-import { ReacstButton } from '@lumacast/ui';
+import { ReacstButton, Tabs } from '@lumacast/ui';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
-import { Tabs } from '../../components/display/tabs';
 import { Dropdown } from '../../components/form/dropdown';
 import { IconGroup } from '@renderer/components/icon-group';
 import { useNavigation } from '../../contexts/navigation-context';
@@ -159,7 +158,7 @@ export function ProgramPanel() {
         </IconGroup.Root>
       </LumaCastPanel.Group>
       <LumaCastPanel.Group className='flex-1 min-h-0' >
-        <Tabs.Root value={bottomTab} onValueChange={handleTabChange}>
+        <Tabs value={bottomTab} variant="plain" className="contents" onValueChange={handleTabChange}>
           <BinControlsProvider
             searchValue={searchValue}
             onSearchChange={setSearchValue}
@@ -168,11 +167,11 @@ export function ProgramPanel() {
             grid={grid}
           >
             <LumaCastPanel.GroupTitle>
-              <Tabs.List label="Bottom panel" className="mr-auto" tabsClassName="gap-2">
-                <Tabs.Trigger value="overlays">Overlays</Tabs.Trigger>
-                <Tabs.Trigger value="stage">Stage</Tabs.Trigger>
-                <Tabs.Trigger value="macros">Macros</Tabs.Trigger>
-                <Tabs.Trigger value="timers">Timers</Tabs.Trigger>
+              <Tabs.List aria-label="Bottom panel" className="mr-auto gap-2 min-w-0 overflow-x-auto [&>*]:shrink-0">
+                <Tabs.Tab value="overlays">Overlays</Tabs.Tab>
+                <Tabs.Tab value="stage">Stage</Tabs.Tab>
+                <Tabs.Tab value="macros">Macros</Tabs.Tab>
+                <Tabs.Tab value="timers">Timers</Tabs.Tab>
               </Tabs.List>
             </LumaCastPanel.GroupTitle>
             <div className="w-full flex shrink-0 items-center gap-1.5 border-b border-secondary px-1.5 py-1">
@@ -248,7 +247,7 @@ export function ProgramPanel() {
               </LumaCastPanel.Content>
             </Tabs.Panel>
           </BinControlsProvider>
-        </Tabs.Root>
+        </Tabs>
       </LumaCastPanel.Group>
     </LumaCastPanel.Root>
   );

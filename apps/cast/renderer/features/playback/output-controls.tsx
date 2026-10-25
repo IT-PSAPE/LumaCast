@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { NdiOutputName } from '@lumacast/protocol';
-import { FieldCheckbox as CheckboxField, FieldInput } from '../../components/form/field';
+import { FieldInput } from '../../components/form/field';
 import { useNdi } from '../../contexts/app-context';
+import { Checkbox } from '@lumacast/ui';
 
 // Per-output controls block. Rendered once per `NdiOutputName` so audience and
 // stage senders are configured side-by-side with identical UX.
@@ -37,11 +38,11 @@ export function OutputControls({ name }: { name: NdiOutputName }) {
   return (
     <section className="flex flex-col gap-3 border-b border-primary pb-5">
       <OutputIdentity name={name} />
-      <CheckboxField checked={enabled} label="Enabled" onChange={handleSetOutputEnabled} />
+      <Checkbox checked={enabled} label="Enabled" onCheckedChange={handleSetOutputEnabled} />
       <div className="flex flex-col gap-3">
         <FieldInput label="Sender name" value={senderNameDraft} onChange={setSenderNameDraft} onBlur={handleCommitSenderName} wide />
       </div>
-      <CheckboxField checked={config.withAlpha} label="Include alpha channel" onChange={handleSetWithAlpha} />
+      <Checkbox checked={config.withAlpha} label="Include alpha channel" onCheckedChange={handleSetWithAlpha} />
       <p className="text-sm text-tertiary">
         Leave alpha off for normal playback. In NDI Studio Monitor, also disable
         &quot;Show the NDI source&apos;s Alpha Channel&quot; unless you intentionally want to view the matte.

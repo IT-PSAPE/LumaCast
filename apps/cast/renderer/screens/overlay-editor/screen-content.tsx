@@ -1,9 +1,8 @@
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { Label, EmptyState } from '@lumacast/ui';
+import { Label, EmptyState, DropdownMenu } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
-import { Dropdown } from '../../components/form/dropdown';
 import { Plus } from 'lucide-react';
 import { OverlayEditorInspectorPanel } from './inspector-panel';
 import { OverlayEditorLayersPanel } from './layers-panel';
@@ -22,19 +21,17 @@ export function OverlayEditorScreenContent() {
               <LumaCastPanel.Group className="h-full min-h-0">
                 <LumaCastPanel.GroupTitle>
                   <Label.sm className="mr-auto">Overlays</Label.sm>
-                  <Dropdown>
-                    <Dropdown.Trigger
-                      aria-label="Add"
-                      className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4"
-                    >
-                      <Plus />
-                    </Dropdown.Trigger>
-                    <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={() => { void actions.createOverlay(); }}>
-                        New overlay
-                      </Dropdown.Item>
-                    </Dropdown.Panel>
-                  </Dropdown>
+                  <DropdownMenu
+                    align="end"
+                    trigger={(
+                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                        <Plus />
+                      </button>
+                    )}
+                    entries={[
+                      { id: 'new-overlay', label: 'New overlay', onSelect: () => { void actions.createOverlay(); } },
+                    ]}
+                  />
                 </LumaCastPanel.GroupTitle>
                 <LumaCastPanel.Content>
                   {state.overlays.length === 0 ? (

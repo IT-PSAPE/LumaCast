@@ -1,6 +1,5 @@
 import type { ClockFormat, TextBinding, TextBindingKind, TextElementPayload } from '@lumacast/composition';
-import { Label, EmptyState, ReacstButton } from '@lumacast/ui';
-import { FieldSelect } from '@renderer/components/form/field';
+import { Label, EmptyState, ReacstButton, Select } from '@lumacast/ui';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useTimers } from '@renderer/contexts/timers/timers-context';
 import { Section } from './inspector-section';
@@ -65,14 +64,7 @@ export function BindingInspector() {
           <Label.xs>Link to</Label.xs>
         </Section.Header>
         <Section.Body>
-          <FieldSelect value={selectedKind} onChange={handleKindChange}>
-            <FieldSelect.Option value={'none' satisfies TextBindingKind | 'none'}>None (static text)</FieldSelect.Option>
-            <FieldSelect.Option value={'timer' satisfies TextBindingKind}>Timer</FieldSelect.Option>
-            <FieldSelect.Option value={'clock' satisfies TextBindingKind}>Clock (system time)</FieldSelect.Option>
-            <FieldSelect.Option value={'current-slide-text' satisfies TextBindingKind}>Current slide text</FieldSelect.Option>
-            <FieldSelect.Option value={'next-slide-text' satisfies TextBindingKind}>Next slide text</FieldSelect.Option>
-            <FieldSelect.Option value={'slide-notes' satisfies TextBindingKind}>Slide notes</FieldSelect.Option>
-          </FieldSelect>
+          <Select value={selectedKind} onValueChange={handleKindChange} options={[{ value: 'none' satisfies TextBindingKind | 'none', label: 'None (static text)' }, { value: 'timer' satisfies TextBindingKind, label: 'Timer' }, { value: 'clock' satisfies TextBindingKind, label: 'Clock (system time)' }, { value: 'current-slide-text' satisfies TextBindingKind, label: 'Current slide text' }, { value: 'next-slide-text' satisfies TextBindingKind, label: 'Next slide text' }, { value: 'slide-notes' satisfies TextBindingKind, label: 'Slide notes' }]} className="w-full" />
         </Section.Body>
       </Section.Root>
 
@@ -82,12 +74,7 @@ export function BindingInspector() {
             <Label.xs>Timer</Label.xs>
           </Section.Header>
           <Section.Body>
-            <FieldSelect value={binding.timerId ?? ''} onChange={handleTimerChange}>
-              <FieldSelect.Option value="">Choose a timer</FieldSelect.Option>
-              {timers.map((timer) => (
-                <FieldSelect.Option key={timer.id} value={timer.id}>{timer.name}</FieldSelect.Option>
-              ))}
-            </FieldSelect>
+            <Select value={binding.timerId ?? ''} onValueChange={handleTimerChange} options={[{ value: "", label: 'Choose a timer' }, ...timers.map((timer) => ({ value: timer.id, label: timer.name }))]} className="w-full" />
             <Section.Row>
               {hasLinkedTimer && (
                 <span className="min-w-0 flex-1 truncate font-mono text-sm tabular-nums text-secondary">
@@ -108,12 +95,7 @@ export function BindingInspector() {
             <Label.xs>Clock format</Label.xs>
           </Section.Header>
           <Section.Body>
-            <FieldSelect value={binding.clockFormat ?? '12h'} onChange={handleClockFormatChange}>
-              <FieldSelect.Option value={'12h' satisfies ClockFormat}>12-hour (1:23 PM)</FieldSelect.Option>
-              <FieldSelect.Option value={'12h-seconds' satisfies ClockFormat}>12-hour with seconds (1:23:45 PM)</FieldSelect.Option>
-              <FieldSelect.Option value={'24h' satisfies ClockFormat}>24-hour (13:23)</FieldSelect.Option>
-              <FieldSelect.Option value={'24h-seconds' satisfies ClockFormat}>24-hour with seconds (13:23:45)</FieldSelect.Option>
-            </FieldSelect>
+            <Select value={binding.clockFormat ?? '12h'} onValueChange={handleClockFormatChange} options={[{ value: '12h' satisfies ClockFormat, label: '12-hour (1:23 PM)' }, { value: '12h-seconds' satisfies ClockFormat, label: '12-hour with seconds (1:23:45 PM)' }, { value: '24h' satisfies ClockFormat, label: '24-hour (13:23)' }, { value: '24h-seconds' satisfies ClockFormat, label: '24-hour with seconds (13:23:45)' }]} className="w-full" />
           </Section.Body>
         </Section.Root>
       )}

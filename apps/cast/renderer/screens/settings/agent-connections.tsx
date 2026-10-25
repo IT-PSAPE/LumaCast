@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Check } from 'lucide-react';
 import { AGENT_PROVIDERS, agentProviderBaseUrl, inferModelVendor, prettifyModelId } from '@lumacast/protocol';
 import type { AgentConfig, AgentConfigUpdate, AgentCredentialStatus, AgentModelInfo, AgentProviderId } from '@lumacast/protocol';
-import { ReacstButton, Label } from '@lumacast/ui';
+import { ReacstButton, Label, Select, TextField } from '@lumacast/ui';
 import { FieldInput, FieldSelect } from '@renderer/components/form/field';
 import { ModelVendorLogo } from '@renderer/features/agent/model-vendor-logo';
 import { Section } from '@renderer/features/inspector/inspector-section';
@@ -116,8 +116,8 @@ function ConnectionRow({ provider, options, onProvider, config, credential, comm
   }
   return <div role="group" aria-label={`${info.label} connection`} className="flex flex-col gap-1.5">
     <div className="grid grid-cols-1 items-end gap-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1.6fr)]">
-      <FieldSelect label="Provider" value={provider} onChange={(value) => { if (!busy) onProvider?.(value as AgentProviderId); }} options={options.map((entry) => ({ value: entry.id, label: entry.label }))} />
-      {editableUrl ? <FieldInput label="Base URL" ariaLabel={`${info.label} base URL`} value={url} onChange={setUrl} disabled={busy} placeholder={info.defaultBaseUrl ?? 'https://…/v1'} /> : <div className="min-h-8 truncate px-1 text-xs leading-8 text-tertiary" title={info.defaultBaseUrl ?? undefined}>{info.defaultBaseUrl ?? 'Default endpoint'}</div>}
+      <Select label="Provider" value={provider} onValueChange={(value) => { if (!busy) onProvider?.(value as AgentProviderId); }} options={options.map((entry) => ({ value: entry.id, label: entry.label }))} />
+      {editableUrl ? <TextField label="Base URL" value={url} onValueChange={setUrl} disabled={busy} placeholder={info.defaultBaseUrl ?? 'https://…/v1'} /> : <div className="min-h-8 truncate px-1 text-xs leading-8 text-tertiary" title={info.defaultBaseUrl ?? undefined}>{info.defaultBaseUrl ?? 'Default endpoint'}</div>}
       <div className="flex min-w-0 items-end gap-1">
         <div className="min-w-0 flex-1"><FieldInput label="API key" ariaLabel={`${info.label} API key`} type="text" value={key} onChange={setKey} disabled={busy} placeholder={credential?.hasKey ? `••••${credential.keyHint ?? ''}` : 'API key'} onKeyDown={(event) => { if (event.key === 'Enter' && (key.trim() || credential?.hasKey)) void save(); }} /></div>
         {dirty || !credential?.hasKey ? <ReacstButton disabled={busy || (!key.trim() && !credential?.hasKey)} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</ReacstButton> : null}
@@ -173,7 +173,7 @@ function ProviderModels({ provider, label, config, commit, onToggle }: {
       {choices.map((entry) => <FieldSelect.Option key={entry.id} value={entry.id}><span className="flex min-w-0 items-center gap-1.5"><ModelVendorLogo vendor={entry.vendor} className="size-4" /><span className="truncate">{entry.label}</span>{entry.isFree ? <span className="text-xs text-success">Free</span> : null}</span></FieldSelect.Option>)}
     </FieldSelect>
     <div className="flex items-center justify-between gap-2"><Label.xs>Composer models</Label.xs><span className="text-xs text-tertiary">{shortlist.length ? `${shortlist.length} selected` : 'All models'}</span>{shortlist.length > 0 ? <ReacstButton variant="ghost" onClick={() => void commit({ composerModels: { ...config.composerModels, [provider]: [] } }).catch((failure) => setError(message(failure)))}>Clear</ReacstButton> : null}</div>
-    <FieldInput value={filter} onChange={setFilter} placeholder="Filter models" ariaLabel={`Filter ${label} models`} />
+    <TextField value={filter} onValueChange={setFilter} placeholder="Filter models" label={`Filter ${label} models`} labelPlacement="hidden" className="w-full" />
     <div className="max-h-64 overflow-y-auto rounded border border-secondary">
       {filtered.map((entry) => <ComposerModelRow key={entry.id} model={entry} checked={shortlist.includes(entry.id)} onToggle={toggle} />)}
       {filtered.length === 0 ? <p className="px-2 py-1.5 text-sm text-tertiary">{filter ? 'No matches' : loading ? 'Loading…' : 'No models available.'}</p> : null}

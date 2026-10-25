@@ -2,8 +2,7 @@ import { useRef } from 'react';
 import { Check, Play, Workflow } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { Macro } from '@lumacast/automation';
-import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
-import { useConfirm } from '../../components/overlays/confirm-dialog';
+import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
 import { Thumbnail } from '../../components/display/thumbnail';
 
@@ -32,7 +31,7 @@ export function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelec
       title: `Delete "${macro.name}"?`,
       description: 'This macro will be permanently removed. Existing slide bindings to it are also removed.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     // onDeleteMacro → deleteMacro rejects when the macro no longer exists
     // (#214), which a delete can race with a concurrent delete. mutatePatch has

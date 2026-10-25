@@ -2,9 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { ItemType, LyricBlankSlideMode, PlaylistRow } from '@lumacast/composition';
 import { getPlaylistEntryItemRef } from '@lumacast/composition';
-import { ReacstButton } from '@lumacast/ui';
-import { Dialog } from '../../components/overlays/dialog';
-import { FieldInput, FieldSelect } from '../../components/form/field';
+import { ReacstButton, Select, Modal } from '@lumacast/ui';
+import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useProjectContent } from '../../contexts/use-project-content';
 import { useNavigation } from '../../contexts/navigation-context';
@@ -123,78 +122,56 @@ export function CreateItemDialog({ isOpen, type, onClose }: CreateItemDialogProp
   const placeholder = type === 'lyric' ? 'New Lyric' : 'New Presentation';
 
   return (
-    <Dialog.Root open onOpenChange={(nextOpen) => { if (!nextOpen) onClose(); }}>
-      <Dialog.Portal>
-        <Dialog.Backdrop />
-        <Dialog.Positioner>
-          <Dialog.Content data-ui-region="create-item-dialog" className="w-full max-w-md">
-            <Dialog.Header>
-              <Dialog.Title>{title}</Dialog.Title>
-              <Dialog.CloseButton />
-            </Dialog.Header>
-            <Dialog.Body className="flex flex-col gap-3 p-4">
-              <FieldInput
-                label="Name"
-                value={name}
-                onChange={setName}
-                onKeyDown={handleKeyDown}
-                placeholder={placeholder}
-                disabled={busy}
-                inputRef={inputRef}
-                wrapperClassName="focus-within:ring-1 focus-within:ring-brand"
-              />
-              {compatibleThemes.length > 0 ? (
-                <FieldSelect
-                  label="Theme"
-                  value={themeId}
-                  onChange={setThemeId}
-                  options={compatibleThemes.map((theme) => ({ value: theme.id, label: theme.name }))}
-                >
-                  <FieldSelect.Option value="">No theme</FieldSelect.Option>
-                </FieldSelect>
-              ) : null}
-              {type === 'lyric' ? (
-                <LyricBlankSlidesField value={blankSlideMode} onChange={setBlankSlideMode} />
-              ) : null}
-              {playlistOptions.length > 0 ? (
-                <FieldSelect
-                  label="Add to playlist"
-                  value={playlistId}
-                  onChange={handlePlaylistChange}
-                  options={playlistOptions}
-                >
-                  <FieldSelect.Option value="">Don't add to a playlist</FieldSelect.Option>
-                </FieldSelect>
-              ) : null}
-              {playlistId && positionOptions.length > 0 ? (
-                <FieldSelect
-                  label="Position"
-                  value={position || String(selectedPlaylistRows.length)}
-                  onChange={setPosition}
-                  options={positionOptions}
-                />
-              ) : null}
-            </Dialog.Body>
-            <Dialog.Footer className={type === 'lyric' ? undefined : 'justify-end gap-2'}>
-              <ReacstButton variant="ghost" onClick={onClose} disabled={busy}>Close</ReacstButton>
-              {type === 'lyric' ? (
-                <div className="flex items-center gap-2">
-                  <ReacstButton variant="take" onClick={() => handleCreate()} disabled={busy}>
-                    {busy ? 'Saving…' : 'Save'}
-                  </ReacstButton>
-                  <ReacstButton variant="take" onClick={() => handleCreate({ thenOpenEditor: true })} disabled={busy}>
-                    {busy ? 'Saving…' : 'Save and edit'}
-                  </ReacstButton>
-                </div>
-              ) : (
-                <ReacstButton variant="take" onClick={() => handleCreate()} disabled={busy}>
-                  {busy ? 'Creating…' : 'New'}
-                </ReacstButton>
-              )}
-            </Dialog.Footer>
-          </Dialog.Content>
-        </Dialog.Positioner>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      size="md"
+      className="max-w-md"
+      footer={(
+        <div className="flex w-full items-center justify-between gap-2">
+          <ReacstButton variant="ghost" onClick={onClose} disabled={busy}>Close</ReacstButton>
+          {type === 'lyric' ? (
+            <div className="flex items-center gap-2">
+              <ReacstButton variant="take" onClick={() => handleCreate()} disabled={busy}>
+                {busy ? 'Saving…' : 'Save'}
+              </ReacstButton>
+              <ReacstButton variant="take" onClick={() => handleCreate({ thenOpenEditor: true })} disabled={busy}>
+                {busy ? 'Saving…' : 'Save and edit'}
+              </ReacstButton>
+            </div>
+          ) : (
+            <ReacstButton variant="take" onClick={() => handleCreate()} disabled={busy}>
+              {busy ? 'Creating…' : 'New'}
+            </ReacstButton>
+          )}
+        </div>
+      )}
+    >
+      <div data-ui-region="create-item-dialog" className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+        <FieldInput
+          label="Name"
+          value={name}
+          onChange={setName}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          disabled={busy}
+          inputRef={inputRef}
+          wrapperClassName="focus-within:ring-1 focus-within:ring-brand"
+        />
+        {compatibleThemes.length > 0 ? (
+          <Select label="Theme" value={themeId} onValueChange={setThemeId} options={[{ value: "", label: 'No theme' }, ...compatibleThemes.map((theme) => ({ value: theme.id, label: theme.name }))]} />
+        ) : null}
+        {type === 'lyric' ? (
+          <LyricBlankSlidesField value={blankSlideMode} onChange={setBlankSlideMode} />
+        ) : null}
+        {playlistOptions.length > 0 ? (
+          <Select label="Add to playlist" value={playlistId} onValueChange={handlePlaylistChange} options={[{ value: "", label: "Don't add to a playlist" }, ...playlistOptions]} />
+        ) : null}
+        {playlistId && positionOptions.length > 0 ? (
+          <Select label="Position" value={position || String(selectedPlaylistRows.length)} onValueChange={setPosition} options={positionOptions} />
+        ) : null}
+      </div>
+    </Modal>
   );
 }

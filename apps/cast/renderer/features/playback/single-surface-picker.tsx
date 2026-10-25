@@ -1,5 +1,5 @@
 import { useWorkbench } from '../../contexts/workbench-context';
-import { Dropdown } from '../../components/form/dropdown';
+import { DropdownMenu } from '@lumacast/ui';
 import { ChevronDown } from 'lucide-react';
 import type { ProgramSurfaceKind } from '../../types/ui';
 import { SURFACE_LABELS, SURFACE_ORDER } from './surface-constants';
@@ -17,18 +17,15 @@ export function SingleSurfacePicker() {
   }
 
   return (
-    <Dropdown className="ml-auto">
-      <Dropdown.Trigger className="flex min-w-0 items-center gap-1 rounded-sm bg-tertiary px-2 py-1 text-sm text-primary transition-colors hover:bg-tertiary">
-        <span className="truncate">{SURFACE_LABELS[programSingleSurface]}</span>
-        <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
-      </Dropdown.Trigger>
-      <Dropdown.Panel placement="bottom-end">
-        {SURFACE_ORDER.map((kind) => (
-          <Dropdown.Item key={kind} onClick={() => handleSurfacePick(kind)}>
-            {SURFACE_LABELS[kind]}
-          </Dropdown.Item>
-        ))}
-      </Dropdown.Panel>
-    </Dropdown>
+    <DropdownMenu
+      align="end"
+      trigger={(
+        <button type="button" className="ml-auto flex min-w-0 items-center gap-1 rounded-sm bg-tertiary px-2 py-1 text-sm text-primary transition-colors hover:bg-tertiary">
+          <span className="truncate">{SURFACE_LABELS[programSingleSurface]}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
+        </button>
+      )}
+      entries={SURFACE_ORDER.map((kind) => ({ id: kind, label: SURFACE_LABELS[kind], onSelect: () => handleSurfacePick(kind) }))}
+    />
   );
 }

@@ -3,8 +3,7 @@ import type { Id } from '@lumacast/kernel';
 import type { Overlay } from '@lumacast/composition';
 import { LAYER_PREVIEW_SLIDE, overlayToLayerElements } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
-import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
-import { useConfirm } from '../../../components/overlays/confirm-dialog';
+import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { RenameField, type RenameFieldHandle } from '../../../components/form/rename-field';
 import { Thumbnail } from '../../../components/display/thumbnail';
 import { SceneFrame } from '../../../components/display/scene-frame';
@@ -55,7 +54,7 @@ export function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, 
       title: `Delete "${overlay.name}"?`,
       description: 'This overlay will be permanently removed.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (ok) await deleteOverlay(overlay.id);
   }

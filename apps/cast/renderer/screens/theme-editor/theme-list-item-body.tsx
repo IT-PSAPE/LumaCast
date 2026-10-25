@@ -5,8 +5,7 @@ import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
 import { buildRenderScene } from '../../features/canvas/build-render-scene';
 import { useScrollAreaActiveItem } from '@renderer/components/layout/scroll-area';
-import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
-import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
+import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { useThemeEditor } from '@renderer/contexts/asset-editor/asset-editor-context';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { useMediaProxyMap } from '../../hooks/use-media-proxy-map';
@@ -58,7 +57,7 @@ export function ThemeListItemBody({
       title: `Delete "${theme.name}"?`,
       description: 'This theme will be permanently removed.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (ok) deleteTheme(theme.id);
   }

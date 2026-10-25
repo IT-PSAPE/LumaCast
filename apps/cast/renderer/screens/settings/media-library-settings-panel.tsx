@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { ReacstButton } from '@lumacast/ui';
-import { useConfirm } from '@renderer/components/overlays/confirm-dialog';
+import { ReacstButton, useConfirm } from '@lumacast/ui';
 
 export function MediaLibrarySettingsPanel() {
   const confirm = useConfirm();
@@ -12,7 +11,7 @@ export function MediaLibrarySettingsPanel() {
       title: 'Reclaim unused media?',
       description: 'Media files no longer used by any item, theme, overlay or stage are deleted from the library. Undoing back past a deletion will not find them again.',
       confirmLabel: 'Reclaim',
-      destructive: true,
+      tone: 'danger',
     });
     if (!confirmed) return;
 

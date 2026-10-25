@@ -1,9 +1,8 @@
 import { Plus } from 'lucide-react';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
-import { Dropdown } from '../../components/form/dropdown';
 import { StagePanel } from '../../features/canvas/stage-panel';
 import { SplitPanel } from '@renderer/components/layout/panel-split/split-panel';
-import { Label } from '@lumacast/ui';
+import { Label, DropdownMenu } from '@lumacast/ui';
 import { ScrollArea } from '@renderer/components/layout/scroll-area';
 import { ThemeEditorInspectorPanel } from './inspector-panel';
 import { ThemeEditorLayersPanel } from './layers-panel';
@@ -23,18 +22,18 @@ export function ThemeEditorScreenContent() {
               <LumaCastPanel.Group className="h-full min-h-0">
                 <LumaCastPanel.GroupTitle>
                   <Label.sm className="mr-auto">Themes</Label.sm>
-                  <Dropdown>
-                    <Dropdown.Trigger
-                      aria-label="Add"
-                      className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4"
-                    >
-                      <Plus />
-                    </Dropdown.Trigger>
-                    <Dropdown.Panel placement="bottom-end">
-                      <Dropdown.Item onClick={() => actions.createTheme('lyric')}>New lyric theme</Dropdown.Item>
-                      <Dropdown.Item onClick={() => actions.createTheme('presentation')}>New presentation theme</Dropdown.Item>
-                    </Dropdown.Panel>
-                  </Dropdown>
+                  <DropdownMenu
+                    align="end"
+                    trigger={(
+                      <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                        <Plus />
+                      </button>
+                    )}
+                    entries={[
+                      { id: 'new-lyric-theme', label: 'New lyric theme', onSelect: () => actions.createTheme('lyric') },
+                      { id: 'new-presentation-theme', label: 'New presentation theme', onSelect: () => actions.createTheme('presentation') },
+                    ]}
+                  />
                 </LumaCastPanel.GroupTitle>
                 <LumaCastPanel.Content>
                   <ScrollArea.Root scrollPadding={8}>

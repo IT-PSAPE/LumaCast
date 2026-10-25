@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
-import { ReacstButton } from '@lumacast/ui';
+import { ReacstButton, Tabs } from '@lumacast/ui';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
-import { Tabs } from '@renderer/components/display/tabs';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { ItemInspector } from '@renderer/features/inspector/item-inspector';
@@ -47,13 +46,13 @@ export function ItemEditorInspectorPanel() {
 
   return (
     <LumaCastPanel.Root className="h-full border-l border-secondary" data-ui-region="inspector-panel">
-      <Tabs.Root value={inspectorTab} onValueChange={handleTabChange}>
+      <Tabs value={inspectorTab} variant="plain" className="contents" onValueChange={handleTabChange}>
         <section className="flex flex-1 flex-col">
-          <Tabs.List label="Inspector" className="border-b border-primary">
-            {!hasSelection && <Tabs.Trigger value="presentation">Item</Tabs.Trigger>}
-            {hasSelection && <Tabs.Trigger value="shape">Shape</Tabs.Trigger>}
-            {isTextSelected && <Tabs.Trigger value="text">Text</Tabs.Trigger>}
-            {isVideoSelected && <Tabs.Trigger value="video">Video</Tabs.Trigger>}
+          <Tabs.List aria-label="Inspector" className="border-b border-primary min-w-0 overflow-x-auto [&>*]:shrink-0">
+            {!hasSelection && <Tabs.Tab value="presentation">Item</Tabs.Tab>}
+            {hasSelection && <Tabs.Tab value="shape">Shape</Tabs.Tab>}
+            {isTextSelected && <Tabs.Tab value="text">Text</Tabs.Tab>}
+            {isVideoSelected && <Tabs.Tab value="video">Video</Tabs.Tab>}
           </Tabs.List>
           <Tabs.Panel value="presentation">
             <ItemInspector />
@@ -69,7 +68,7 @@ export function ItemEditorInspectorPanel() {
             <VideoElementInspector />
           </Tabs.Panel>
         </section>
-      </Tabs.Root>
+      </Tabs>
       {state.hasPendingChanges && (
         <LumaCastPanel.Footer className="p-3">
           {/* saveChanges → pushChanges → updateElementsBatch/deleteElementsBatch

@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import type { SlideBackgroundFit, VideoElementPayload } from '@lumacast/composition';
 import { readMediaFit } from '@lumacast/composition';
-import { FieldCheckbox, FieldInput, FieldSelect } from '@renderer/components/form/field';
-import { EmptyState, Label } from '@lumacast/ui';
+import { FieldInput } from '@renderer/components/form/field';
+import { EmptyState, Label, Select, Checkbox } from '@lumacast/ui';
 import { Section } from './inspector-section';
 import { useElements } from '../../contexts/canvas/canvas-context';
 import { parseNumber } from '../../utils/slides';
@@ -56,22 +56,22 @@ export function VideoElementInspector() {
         </Section.Header>
         <Section.Body>
           <Section.Row>
-            <FieldCheckbox
+            <Checkbox
               checked={payload.autoplay ?? false}
               label="Autoplay"
-              onChange={(checked) => updatePayload({ autoplay: checked })}
+              onCheckedChange={(checked) => updatePayload({ autoplay: checked })}
             />
-            <FieldCheckbox
+            <Checkbox
               checked={payload.loop ?? false}
               label="Loop"
-              onChange={(checked) => updatePayload({ loop: checked })}
+              onCheckedChange={(checked) => updatePayload({ loop: checked })}
             />
           </Section.Row>
           <Section.Row>
-            <FieldCheckbox
+            <Checkbox
               checked={payload.muted ?? false}
               label="Mute"
-              onChange={(checked) => updatePayload({ muted: checked })}
+              onCheckedChange={(checked) => updatePayload({ muted: checked })}
             />
             <FieldInput
               label="Speed"
@@ -92,11 +92,7 @@ export function VideoElementInspector() {
         </Section.Header>
         <Section.Body>
           <Section.Row>
-            <FieldSelect value={fit} onChange={(value) => updatePayload({ fit: value as SlideBackgroundFit })}>
-              <FieldSelect.Option value={'cover' satisfies SlideBackgroundFit}>Cover</FieldSelect.Option>
-              <FieldSelect.Option value={'contain' satisfies SlideBackgroundFit}>Contain</FieldSelect.Option>
-              <FieldSelect.Option value={'fill' satisfies SlideBackgroundFit}>Fill / Stretch</FieldSelect.Option>
-            </FieldSelect>
+            <Select value={fit} onValueChange={(value) => updatePayload({ fit: value as SlideBackgroundFit })} options={[{ value: 'cover' satisfies SlideBackgroundFit, label: 'Cover' }, { value: 'contain' satisfies SlideBackgroundFit, label: 'Contain' }, { value: 'fill' satisfies SlideBackgroundFit, label: 'Fill / Stretch' }]} className="w-full" />
           </Section.Row>
         </Section.Body>
       </Section.Root>

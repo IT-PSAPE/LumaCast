@@ -18,8 +18,8 @@ const outputDotStyles = cv({
   base: 'inline-block h-2 w-2 rounded-full transition-colors',
   variants: {
     active: {
-      true: ['bg-success'],
-      false: ['bg-error'],
+      true: ['bg-error'],
+      false: ['bg-tertiary'],
     },
   },
 });
@@ -28,8 +28,8 @@ const outputBorderStyles = cv({
   base: 'flex items-center gap-1.5 rounded border bg-tertiary px-2 py-1 text-sm cursor-pointer transition-colors hover:border-text-muted',
   variants: {
     active: {
-      true: ['border-success/40'],
-      false: ['border-red-500/40'],
+      true: ['border-error/40'],
+      false: [],
     },
   },
 });

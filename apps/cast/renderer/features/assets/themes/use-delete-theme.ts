@@ -1,6 +1,6 @@
 import type { EditorThemeSource } from '@lumacast/canvas';
-import { useConfirm } from '../../../components/overlays/confirm-dialog';
 import { useThemeEditor } from '../../../contexts/asset-editor/asset-editor-context';
+import { useConfirm } from '@lumacast/ui';
 
 export function useDeleteTheme(theme: EditorThemeSource) {
   const { deleteTheme } = useThemeEditor();
@@ -11,7 +11,7 @@ export function useDeleteTheme(theme: EditorThemeSource) {
       title: `Delete "${theme.name}"?`,
       description: 'Slides linked to this theme will be detached.',
       confirmLabel: 'Delete',
-      destructive: true,
+      tone: 'danger',
     });
     if (ok) deleteTheme(theme.id);
   };

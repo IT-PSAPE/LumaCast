@@ -2,10 +2,10 @@ import type { Hsb, Rgb, Hsl } from '../../../utils/color';
 import {
   hexToHsb, hsbToRgb, rgbToHex, rgbToHsb, rgbToHsl, hslToRgb,
 } from '../../../utils/color';
+import { DropdownMenu } from '@lumacast/ui';
 import { ChevronDown } from 'lucide-react';
 import { Field } from '@base-ui/react/field';
 import { NumberField } from '@base-ui/react/number-field';
-import { Dropdown } from '../dropdown';
 import { MiniHexInput } from './mini-hex-input';
 import { SplitInput } from './split-input';
 import { SplitInputGroup } from './split-input-group';
@@ -64,23 +64,25 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
 
   return (
     <div className="flex items-stretch gap-px">
-      <Dropdown className="shrink-0">
-        <Dropdown.Trigger className="flex items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
-          <span className="truncate px-1.5">
-            {mode === 'hex' && 'Hex'}
-            {mode === 'rgb' && 'RGB'}
-            {mode === 'hsb' && 'HSB'}
-            {mode === 'hsl' && 'HSL'}
-          </span>
-          <ChevronDown className="shrink-0 size-3.5 mr-1.5 text-tertiary" />
-        </Dropdown.Trigger>
-        <Dropdown.Panel>
-          <Dropdown.Item onClick={() => handleModeSelect('hex')}>Hex</Dropdown.Item>
-          <Dropdown.Item onClick={() => handleModeSelect('rgb')}>RGB</Dropdown.Item>
-          <Dropdown.Item onClick={() => handleModeSelect('hsb')}>HSB</Dropdown.Item>
-          <Dropdown.Item onClick={() => handleModeSelect('hsl')}>HSL</Dropdown.Item>
-        </Dropdown.Panel>
-      </Dropdown>
+      <DropdownMenu
+        trigger={(
+          <button type="button" className="flex shrink-0 items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
+            <span className="truncate px-1.5">
+              {mode === 'hex' && 'Hex'}
+              {mode === 'rgb' && 'RGB'}
+              {mode === 'hsb' && 'HSB'}
+              {mode === 'hsl' && 'HSL'}
+            </span>
+            <ChevronDown className="shrink-0 size-3.5 mr-1.5 text-tertiary" />
+          </button>
+        )}
+        entries={[
+          { id: 'hex', label: 'Hex', onSelect: () => handleModeSelect('hex') },
+          { id: 'rgb', label: 'RGB', onSelect: () => handleModeSelect('rgb') },
+          { id: 'hsb', label: 'HSB', onSelect: () => handleModeSelect('hsb') },
+          { id: 'hsl', label: 'HSL', onSelect: () => handleModeSelect('hsl') },
+        ]}
+      />
 
       {mode === 'hex' ? <MiniHexInput value={rgbToHex(rgb)} onCommit={handleHexCommit} /> : null}
       {mode === 'rgb' ? (

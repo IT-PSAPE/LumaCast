@@ -5,9 +5,8 @@ import type { ItemRef, Slide, SlideElement } from '@lumacast/composition';
 import { createAudioSlideMarker, roundToMs, type AudioSlideMarker, type PlaybackSchedule } from '@lumacast/automation';
 import { formatCues, type CueFormat } from '@lumacast/markers';
 import { Switch } from '@base-ui/react/switch';
-import { ReacstButton } from '@lumacast/ui';
-import { Field } from '@renderer/components/form/field';
-import { Dropdown } from '@renderer/components/form/dropdown';
+import { ReacstButton, DropdownMenu } from '@lumacast/ui';
+import { FieldInput } from '@renderer/components/form/field';
 import { useAudio } from '../../contexts/playback/playback-context';
 import { usePlaybackSchedules } from '../../contexts/playback-schedules-context';
 import { useProjectContent } from '../../contexts/use-project-content';
@@ -475,7 +474,7 @@ export function MarkerRow({ marker, index, controller }: MarkerRowProps) {
   return (
     <div className="flex min-w-0 items-center gap-1.5 rounded-sm bg-primary/60 px-1.5 py-1">
       <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-tertiary">{index + 1}</span>
-      <Field.Input
+      <FieldInput
         type="number"
         min={0}
         step={0.01}
@@ -493,22 +492,23 @@ export function MarkerRow({ marker, index, controller }: MarkerRowProps) {
       <span className="shrink-0 text-[10px] tabular-nums text-tertiary">{formatPlaybackTime(seconds)}</span>
       <div className="min-w-0 flex-1">
         {hasSlides ? (
-          <Dropdown className="w-full">
-            <Dropdown.Trigger
-              aria-label={`Marker ${index + 1} slide`}
-              className="flex h-7 w-full min-w-0 items-center gap-1 rounded bg-tertiary px-1.5 text-xs text-secondary"
-            >
-              <span className="flex-1 truncate text-left">{label}</span>
-              <ChevronDown className="size-3 shrink-0 text-tertiary" />
-            </Dropdown.Trigger>
-            <Dropdown.Panel>
-              {controller.boundSlides.map((slide, slideIndex) => (
-                <Dropdown.Item key={slide.id} onClick={() => controller.setMarkerSlide(marker.id, slide.id)}>
-                  Slide {slideIndex + 1}
-                </Dropdown.Item>
-              ))}
-            </Dropdown.Panel>
-          </Dropdown>
+          <DropdownMenu
+            trigger={(
+              <button
+                type="button"
+                aria-label={`Marker ${index + 1} slide`}
+                className="flex h-7 w-full min-w-0 items-center gap-1 rounded bg-tertiary px-1.5 text-xs text-secondary"
+              >
+                <span className="flex-1 truncate text-left">{label}</span>
+                <ChevronDown className="size-3 shrink-0 text-tertiary" />
+              </button>
+            )}
+            entries={controller.boundSlides.map((slide, slideIndex) => ({
+              id: slide.id,
+              label: `Slide ${slideIndex + 1}`,
+              onSelect: () => controller.setMarkerSlide(marker.id, slide.id),
+            }))}
+          />
         ) : (
           <span className="flex h-7 w-full min-w-0 items-center rounded bg-tertiary px-1.5 text-xs text-tertiary">
             {label}
@@ -579,34 +579,41 @@ export function AudioSyncEditor({ controller }: AudioSyncEditorProps) {
           <Switch.Thumb className="size-3 rounded-full bg-white transition-transform data-checked:translate-x-3" />
         </span>
       </Switch.Root>
-      <Dropdown className="w-44 shrink-0">
-        <Dropdown.Trigger aria-label="Bind item" className="flex h-7 w-full min-w-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary">
-          <span className="min-w-0 flex-1 truncate text-left">{itemTriggerLabel(controller)}</span>
-          <ChevronDown className="size-3 shrink-0 text-tertiary" />
-        </Dropdown.Trigger>
-        <Dropdown.Panel>
-          <Dropdown.Item onClick={() => controller.setItemRef(null)}>No item</Dropdown.Item>
-          {controller.hasSavedSchedule ? <Dropdown.Item onClick={controller.removeSchedule}>Remove sync</Dropdown.Item> : null}
-          {controller.candidateItems.map((candidate) => (
-            <Dropdown.Item key={`${candidate.itemRef.type}:${candidate.itemRef.id}`} onClick={() => controller.setItemRef(candidate.itemRef)}>{candidate.title}</Dropdown.Item>
-          ))}
-        </Dropdown.Panel>
-      </Dropdown>
-      <Dropdown className="w-32 shrink-0">
-        <Dropdown.Trigger
-          disabled={exportDisabled}
-          aria-label="Export lyrics"
-          className="flex h-7 w-full min-w-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary disabled:opacity-50"
-        >
-          <span className="min-w-0 flex-1 truncate text-left">Export lyrics</span>
-          <ChevronDown className="size-3 shrink-0 text-tertiary" />
-        </Dropdown.Trigger>
-        <Dropdown.Panel>
-          {EXPORT_CUE_FORMATS.map(({ format, label }) => (
-            <Dropdown.Item key={format} onClick={() => void handleExport(format)}>{label}</Dropdown.Item>
-          ))}
-        </Dropdown.Panel>
-      </Dropdown>
+      <DropdownMenu
+        trigger={(
+          <button type="button" aria-label="Bind item" className="flex h-7 w-44 min-w-0 shrink-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary">
+            <span className="min-w-0 flex-1 truncate text-left">{itemTriggerLabel(controller)}</span>
+            <ChevronDown className="size-3 shrink-0 text-tertiary" />
+          </button>
+        )}
+        entries={[
+          { id: 'no-item', label: 'No item', onSelect: () => controller.setItemRef(null) },
+          ...(controller.hasSavedSchedule ? [{ id: 'remove-sync', label: 'Remove sync', onSelect: controller.removeSchedule }] : []),
+          ...controller.candidateItems.map((candidate) => ({
+            id: `${candidate.itemRef.type}:${candidate.itemRef.id}`,
+            label: candidate.title,
+            onSelect: () => controller.setItemRef(candidate.itemRef),
+          })),
+        ]}
+      />
+      <DropdownMenu
+        disabled={exportDisabled}
+        trigger={(
+          <button
+            type="button"
+            aria-label="Export lyrics"
+            className="flex h-7 w-32 min-w-0 shrink-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary disabled:opacity-50"
+          >
+            <span className="min-w-0 flex-1 truncate text-left">Export lyrics</span>
+            <ChevronDown className="size-3 shrink-0 text-tertiary" />
+          </button>
+        )}
+        entries={EXPORT_CUE_FORMATS.map(({ format, label }) => ({
+          id: format,
+          label,
+          onSelect: () => void handleExport(format),
+        }))}
+      />
       {exportError ? <span role="alert" className="text-[10px] text-error">{exportError}</span> : null}
     </div>
   );

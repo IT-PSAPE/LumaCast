@@ -1,6 +1,4 @@
 import type { ReactNode } from 'react';
-import { Check } from 'lucide-react';
-import { Checkbox } from '@renderer/components/form/checkbox';
 
 function Root({ children }: { children: ReactNode }) {
   return (
@@ -34,19 +32,4 @@ function Row({ children }: { children: ReactNode }) {
   );
 }
 
-interface CheckboxProps {
-  checked?: boolean;
-  className?: string;
-  onChange: (checked: boolean) => void;
-}
-
-function CheckboxControl({ checked, className, onChange }: CheckboxProps) {
-  return (
-    <Checkbox.Root checked={checked} onCheckedChange={onChange} className={className}>
-      <Checkbox.Indicator className="size-4">
-        {checked ? <Check size={14} strokeWidth={3} aria-hidden="true" />: null}
-      </Checkbox.Indicator>
-    </Checkbox.Root>
-  );
-}
-export const Section = { Root, Header, Body, Row, Checkbox: CheckboxControl };
+export const Section = { Root, Header, Body, Row };

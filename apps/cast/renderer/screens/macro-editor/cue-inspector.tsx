@@ -1,6 +1,6 @@
 import { Trash2 } from 'lucide-react';
-import { ReacstButton, Label } from '@lumacast/ui';
-import { FieldInput, FieldSelect } from '@renderer/components/form/field';
+import { ReacstButton, Label, Select } from '@lumacast/ui';
+import { FieldInput } from '@renderer/components/form/field';
 import { Section } from '@renderer/features/inspector/inspector-section';
 import { useProjectContent } from '@renderer/contexts/use-project-content';
 import { CUE_KIND_LABELS } from '@lumacast/automation';
@@ -39,15 +39,7 @@ export function CueInspector({ row }: { row: MacroEditorCueRow }) {
       <Section.Root>
         <Section.Header><Label.xs>Cue</Label.xs></Section.Header>
         <Section.Body>
-          <FieldSelect
-            label="Cue type"
-            value={kind ?? ''}
-            options={CUE_KIND_OPTIONS}
-            onChange={(value) => { if (value) updateRowKind(row.localId, value as CueKind); }}
-            wide
-          >
-            {!kind && <FieldSelect.Option value="">Pick a cue type…</FieldSelect.Option>}
-          </FieldSelect>
+          <Select label="Cue type" value={kind ?? ''} onValueChange={(value) => { if (value) updateRowKind(row.localId, value as CueKind); }} options={[...(!kind ? [{ value: "", label: 'Pick a cue type…' }] : []), ...CUE_KIND_OPTIONS]} className="col-span-full" />
           {kind ? (
             <CueTargetField
               kind={kind}
@@ -56,15 +48,7 @@ export function CueInspector({ row }: { row: MacroEditorCueRow }) {
               onChange={(next) => updateRowPayload(row.localId, next)}
             />
           ) : null}
-          <FieldSelect
-            label="On failure"
-            value={failurePolicy}
-            onChange={(value) => updateRowFailurePolicy(row.localId, value as CueFailurePolicy)}
-            wide
-          >
-            <FieldSelect.Option value={'continue' satisfies CueFailurePolicy}>Continue</FieldSelect.Option>
-            <FieldSelect.Option value={'abort' satisfies CueFailurePolicy}>Abort</FieldSelect.Option>
-          </FieldSelect>
+          <Select label="On failure" value={failurePolicy} onValueChange={(value) => updateRowFailurePolicy(row.localId, value as CueFailurePolicy)} options={[{ value: 'continue' satisfies CueFailurePolicy, label: 'Continue' }, { value: 'abort' satisfies CueFailurePolicy, label: 'Abort' }]} className="col-span-full" />
         </Section.Body>
       </Section.Root>
       <Section.Root>

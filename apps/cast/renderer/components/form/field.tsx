@@ -1,13 +1,11 @@
 import { Children, isValidElement, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type HTMLAttributes, type KeyboardEventHandler, type ReactElement, type ReactNode, type Ref } from 'react';
-import { Check, ChevronDown } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { Field as BaseField } from '@base-ui/react/field';
 import { Input as BaseInput } from '@base-ui/react/input';
 import { NumberField } from '@base-ui/react/number-field';
 import { Select as BaseSelect } from '@base-ui/react/select';
-import { Checkbox as BaseCheckbox } from '@base-ui/react/checkbox';
-import { cn } from '@lumacast/ui';
+import { cn, DropdownMenu } from '@lumacast/ui';
 import { useWorkbench } from '@renderer/contexts/workbench-context';
-import { Dropdown } from './dropdown';
 
 type ColorMode = 'solid' | 'gradient' | 'image';
 
@@ -361,21 +359,23 @@ function FieldColor({ value, onChange, label, wide, mode = 'solid', onModeChange
       <span className="text-tertiary text-sm select-none">#</span>
       <BaseInput type="text" value={displayHex(safeValue)} onChange={handleHexInput} maxLength={8} aria-label="Hex color" className="min-w-0 w-full bg-transparent py-1 pr-2 outline-none font-mono text-sm" />
       {onModeChange ? (
-        <Dropdown className="shrink-0">
-          <Dropdown.Trigger className="flex items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
-            <span className="truncate px-1.5">
-              {mode === 'solid' && 'Solid'}
-              {mode === 'gradient' && 'Gradient'}
-              {mode === 'image' && 'Image'}
-            </span>
-            <ChevronDown className="shrink-0 size-3.5 mr-1.5 text-tertiary" />
-          </Dropdown.Trigger>
-          <Dropdown.Panel>
-            <Dropdown.Item onClick={() => handleModeChange('solid')}>Solid</Dropdown.Item>
-            <Dropdown.Item onClick={() => handleModeChange('gradient')}>Gradient</Dropdown.Item>
-            <Dropdown.Item onClick={() => handleModeChange('image')}>Image</Dropdown.Item>
-          </Dropdown.Panel>
-        </Dropdown>
+        <DropdownMenu
+          trigger={(
+            <button type="button" className="flex shrink-0 items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
+              <span className="truncate px-1.5">
+                {mode === 'solid' && 'Solid'}
+                {mode === 'gradient' && 'Gradient'}
+                {mode === 'image' && 'Image'}
+              </span>
+              <ChevronDown className="shrink-0 size-3.5 mr-1.5 text-tertiary" />
+            </button>
+          )}
+          entries={[
+            { id: 'solid', label: 'Solid', onSelect: () => handleModeChange('solid') },
+            { id: 'gradient', label: 'Gradient', onSelect: () => handleModeChange('gradient') },
+            { id: 'image', label: 'Image', onSelect: () => handleModeChange('image') },
+          ]}
+        />
       ) : null}
     </div>
   );
@@ -386,24 +386,6 @@ function FieldColor({ value, onChange, label, wide, mode = 'solid', onModeChange
       <BaseField.Label className="truncate text-sm text-secondary">{label}</BaseField.Label>
       {colorField}
     </BaseField.Root>
-  );
-}
-
-function FieldCheckbox({ checked, className, disabled = false, label, onChange }: { checked: boolean; className?: string; disabled?: boolean; label: string; onChange: (checked: boolean) => void }) {
-  return (
-    <label className={cn('group inline-flex items-center gap-2 text-sm text-secondary', disabled && 'opacity-50', className)}>
-      <BaseCheckbox.Root
-        checked={checked}
-        disabled={disabled}
-        onCheckedChange={onChange}
-        className="grid size-4 shrink-0 place-items-center rounded border border-primary bg-primary text-transparent transition-colors data-[checked]:border-brand data-[checked]:bg-brand/15 data-[checked]:text-brand group-focus-within:outline-2 group-focus-within:outline-offset-1 group-focus-within:outline-brand"
-      >
-        <BaseCheckbox.Indicator>
-          <Check size={11} strokeWidth={2.5} />
-        </BaseCheckbox.Indicator>
-      </BaseCheckbox.Root>
-      {label}
-    </label>
   );
 }
 
@@ -419,5 +401,4 @@ function extractFieldIcon(children: ReactNode): ReactNode {
   return icon;
 }
 
-export const Field = { Label: FieldLabel, Icon: FieldIcon, Input: FieldInput, Select: FieldSelect, Textarea: FieldTextarea, Color: FieldColor, Checkbox: FieldCheckbox };
-export { FieldLabel, FieldIcon, FieldInput, FieldSelect, FieldTextarea, FieldColor, FieldCheckbox };
+export { FieldLabel, FieldIcon, FieldInput, FieldSelect, FieldTextarea, FieldColor };

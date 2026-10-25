@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Unlink } from 'lucide-react';
 import { getItemTypeLabel } from '@lumacast/composition';
-import { ReacstButton, Label } from '@lumacast/ui';
-import { FieldInput, FieldSelect } from '../../components/form/field';
-import { useConfirm } from '../../components/overlays/confirm-dialog';
+import { ReacstButton, Label, Select, useConfirm } from '@lumacast/ui';
+import { FieldInput } from '../../components/form/field';
 import { useCast } from '../../contexts/app-context';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useProjectContent } from '../../contexts/use-project-content';
@@ -75,7 +74,7 @@ export function ItemInspector() {
       title: `Reset "${currentItem.title}" to theme?`,
       description: 'This replaces every slide’s content with the theme’s elements. Elements you added yourself will be removed.',
       confirmLabel: 'Reset',
-      destructive: true,
+      tone: 'danger',
     });
     if (!ok) return;
     try {
@@ -147,7 +146,7 @@ export function ItemInspector() {
               <p className="m-0 text-sm text-tertiary">Assigned theme unavailable.</p>
               <div className="flex gap-2">
                 <div className="flex-1 min-w-0">
-                  <FieldSelect value={NO_TEMPLATE_VALUE} onChange={handleApplyTheme} options={themeOptions} />
+                  <Select value={NO_TEMPLATE_VALUE} onValueChange={handleApplyTheme} options={themeOptions} className="w-full" />
                 </div>
                 <ReacstButton.Icon label="Remove theme" onClick={handleDetachTheme}>
                   <Unlink size={14} />
@@ -157,7 +156,7 @@ export function ItemInspector() {
           ) : compatibleThemes.length === 0 ? (
             <p className="m-0 text-sm text-tertiary">No compatible themes available.</p>
           ) : (
-            <FieldSelect value={NO_TEMPLATE_VALUE} onChange={handleApplyTheme} options={themeOptions} />
+            <Select value={NO_TEMPLATE_VALUE} onValueChange={handleApplyTheme} options={themeOptions} className="w-full" />
           )}
         </Section.Body>
       </Section.Root>

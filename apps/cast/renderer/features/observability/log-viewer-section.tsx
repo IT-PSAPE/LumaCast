@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogReadResult, LogSessionSummary } from '@lumacast/protocol';
 import { SectionShell } from './section-shell';
-import { FilterChips } from './filter-chips';
 import { formatBytes, lineColor } from './observability-format';
+import { SegmentedControl } from '@lumacast/ui';
 
 type LogLevelFilter = 'all' | 'INFO' | 'WARN' | 'ERROR';
 
@@ -152,15 +152,16 @@ export function LogViewerSection() {
           )}
         </div>
         <div className="flex min-h-72 flex-col gap-2">
-          <FilterChips.Root
+          <SegmentedControl
             value={levelFilter}
-            onChange={(next) => setLevelFilter(next)}
+            onValueChange={(next) => { if (typeof next === 'string' && next) setLevelFilter(next as typeof levelFilter); }}
+            className="flex-wrap"
           >
-            <FilterChips.Option value={'all' satisfies LogLevelFilter}>All</FilterChips.Option>
-            <FilterChips.Option value={'INFO' satisfies LogLevelFilter}>Info</FilterChips.Option>
-            <FilterChips.Option value={'WARN' satisfies LogLevelFilter}>Warn</FilterChips.Option>
-            <FilterChips.Option value={'ERROR' satisfies LogLevelFilter}>Error</FilterChips.Option>
-          </FilterChips.Root>
+            <SegmentedControl.Label value={'all' satisfies LogLevelFilter}>All</SegmentedControl.Label>
+            <SegmentedControl.Label value={'INFO' satisfies LogLevelFilter}>Info</SegmentedControl.Label>
+            <SegmentedControl.Label value={'WARN' satisfies LogLevelFilter}>Warn</SegmentedControl.Label>
+            <SegmentedControl.Label value={'ERROR' satisfies LogLevelFilter}>Error</SegmentedControl.Label>
+          </SegmentedControl>
           <div
             ref={lineContainerRef}
             onScroll={handleScroll}
