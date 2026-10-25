@@ -44,7 +44,7 @@ export function ActivityScreen({ operations }: ActivityScreenProps) {
                 key={operation.id}
                 variant="raised"
                 density="compact"
-                className="h-auto"
+                fill={false}
               >
                 <Panel.Header divided={false}>
                   <Panel.HeaderTitle>

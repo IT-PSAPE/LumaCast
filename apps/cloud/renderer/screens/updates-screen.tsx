@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { EmptyState, Panel, ReacstButton, Title, Toolbar } from "@lumacast/ui";
+import { EmptyState, ListRow, ReacstButton, Title, Toolbar } from "@lumacast/ui";
 import { suiteApp, type SuiteAppId } from "@lumacast/suite";
 import type { CloudDesktopAPI, SuiteOverview } from "../../shared/desktop-api";
 import { PermissionDialog } from "../components/permission-dialog";
@@ -77,60 +77,46 @@ export function UpdatesScreen({ overview, api }: UpdatesScreenProps) {
       ) : (
         <div className="flex flex-col gap-2">
           {cloudListed ? (
-            <Panel variant="raised" className="h-auto">
-              <Panel.Header divided={false}>
-                <Panel.HeaderTitle>LumaCloud</Panel.HeaderTitle>
-                <Panel.HeaderActions>
-                  <ReacstButton
-                    variant="tinted"
-                    disabled={overview.selfUpdate.status === "downloading"}
-                    onClick={() => {
-                      void api.installSelfUpdate();
-                    }}
-                  >
-                    {overview.selfUpdate.status === "ready"
-                      ? "Restart to Update"
-                      : "Update"}
-                  </ReacstButton>
-                </Panel.HeaderActions>
-              </Panel.Header>
-              <Panel.Body
-                scroll={false}
-                padded
-                className="pt-0 paragraph-xs text-tertiary"
+            <ListRow actions="always">
+              <ListRow.Label
+                description={`${overview.host.cloudVersion} → ${overview.selfUpdate.availableVersion ?? "—"}`}
               >
-                {overview.host.cloudVersion} →{" "}
-                {overview.selfUpdate.availableVersion ?? "—"}
-              </Panel.Body>
-            </Panel>
+                LumaCloud
+              </ListRow.Label>
+              <ListRow.Actions>
+                <ReacstButton
+                  variant="tinted"
+                  disabled={overview.selfUpdate.status === "downloading"}
+                  onClick={() => {
+                    void api.installSelfUpdate();
+                  }}
+                >
+                  {overview.selfUpdate.status === "ready"
+                    ? "Restart to Update"
+                    : "Update"}
+                </ReacstButton>
+              </ListRow.Actions>
+            </ListRow>
           ) : null}
 
           {updatable.map((state) => {
             const descriptor = suiteApp(state.app);
             return (
-              <Panel key={state.app} variant="raised" className="h-auto">
-                <Panel.Header divided={false}>
-                  <Panel.HeaderTitle>
-                    {descriptor.productName}
-                  </Panel.HeaderTitle>
-                  <Panel.HeaderActions>
-                    <ReacstButton
-                      variant="tinted"
-                      onClick={() => updateApp(state.app)}
-                    >
-                      Update
-                    </ReacstButton>
-                  </Panel.HeaderActions>
-                </Panel.Header>
-                <Panel.Body
-                  scroll={false}
-                  padded
-                  className="pt-0 paragraph-xs text-tertiary"
+              <ListRow key={state.app} actions="always">
+                <ListRow.Label
+                  description={`${state.installed?.version ?? "—"} → ${state.latest?.version ?? "—"}`}
                 >
-                  {state.installed?.version ?? "—"} →{" "}
-                  {state.latest?.version ?? "—"}
-                </Panel.Body>
-              </Panel>
+                  {descriptor.productName}
+                </ListRow.Label>
+                <ListRow.Actions>
+                  <ReacstButton
+                    variant="tinted"
+                    onClick={() => updateApp(state.app)}
+                  >
+                    Update
+                  </ReacstButton>
+                </ListRow.Actions>
+              </ListRow>
             );
           })}
         </div>

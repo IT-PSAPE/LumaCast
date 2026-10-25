@@ -139,10 +139,10 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
               onValueChange={(value) => setCueText(cue.id, value)}
             />
           </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          <Section.Row columns={2}>
             <TimecodeInput ms={cue.startMs} ariaLabel="Start" onCommit={(value) => value !== null && updateCue(cue.id, { startMs: value })} />
             <TimecodeInput ms={cue.endMs} allowAuto ariaLabel="End" onCommit={(value) => updateCue(cue.id, { endMs: value })} />
-          </div>
+          </Section.Row>
           <div className="flex items-center justify-between gap-2 pt-1">
             <Label.xs className="text-tertiary">Detach from theme</Label.xs>
             <Switch checked={detached} onCheckedChange={(checked) => (checked ? detachCue(cue.id) : relinkCue(cue.id))} label="Detach from theme" />
@@ -155,21 +155,21 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
           <Section density="compact" className="px-3 py-3">
             <Section.Header><Section.Title>Text</Section.Title><Section.Actions>{cue.override?.text ? <ResetButton onClick={() => resetSection('text')} /> : null}</Section.Actions></Section.Header>
             <Section.Body>
-              <div className="grid grid-cols-2 gap-1.5">
+              <Section.Row columns={2}>
                 <Select value={resolved.text.fontFamily} options={fontOptions} onValueChange={(value) => patchOverrideText({ fontFamily: value })} label="Font family" labelPlacement="hidden" />
                 <Select value={resolved.text.weight ?? '400'} options={WEIGHT_OPTIONS} onValueChange={(value) => patchOverrideText({ weight: value })} label="Weight" labelPlacement="hidden" />
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              </Section.Row>
+              <Section.Row columns={2}>
                 <NumberField value={resolved.text.fontSize} min={1} onValueChange={(value) => patchOverrideText({ fontSize: value })} label="Font size" labelPlacement="hidden" suffix="px" />
                 <NumberField value={resolved.text.lineHeight ?? 1.2} step={0.05} min={0.5} max={4} onValueChange={(value) => patchOverrideText({ lineHeight: value })} label="Line height" labelPlacement="hidden" />
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              </Section.Row>
+              <Section.Row columns={2}>
                 <NumberField value={resolved.text.letterSpacing ?? 0} step={0.5} onValueChange={(value) => patchOverrideText({ letterSpacing: value })} label="Letter spacing" labelPlacement="hidden" />
                 <ColorField value={resolved.text.color} onValueChange={(value) => patchOverrideText({ color: value })} label="Text colour" labelPlacement="hidden" picker={<NativeColorPicker value={resolved.text.color} onValueChange={(value) => patchOverrideText({ color: value })} />} />
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              </Section.Row>
+              <Section.Row columns={2}>
                 <Select value={resolved.text.caseTransform ?? 'none'} options={CASE_OPTIONS} onValueChange={(value) => patchOverrideText({ caseTransform: value })} label="Case" labelPlacement="hidden" />
-              </div>
+              </Section.Row>
               <div className="flex gap-1.5">
                 <SegmentedControl
                   aria-label="Text style"
@@ -210,10 +210,10 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
                 <Switch checked={resolved.text.textStrokeEnabled ?? false} onCheckedChange={(checked) => patchOverrideText({ textStrokeEnabled: checked })} label="Enable stroke" />
               </div>
               {resolved.text.textStrokeEnabled ? (
-                <div className="grid grid-cols-2 gap-1.5">
+                <Section.Row columns={2}>
                   <ColorField value={resolved.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textStrokeColor: value })} label="Stroke colour" labelPlacement="hidden" picker={<NativeColorPicker value={resolved.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textStrokeColor: value })} />} />
                   <NumberField value={resolved.text.textStrokeWidth ?? 2} min={0} onValueChange={(value) => patchOverrideText({ textStrokeWidth: value })} label="Stroke width" labelPlacement="hidden" suffix="px" />
-                </div>
+                </Section.Row>
               ) : null}
               <div className="flex items-center justify-between gap-2 pt-1">
                 <Label.xs className="text-tertiary">Shadow</Label.xs>
@@ -221,14 +221,14 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
               </div>
               {resolved.text.textShadowEnabled ? (
                 <>
-                  <div className="grid grid-cols-2 gap-1.5">
+                  <Section.Row columns={2}>
                     <ColorField value={resolved.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textShadowColor: value })} label="Shadow colour" labelPlacement="hidden" picker={<NativeColorPicker value={resolved.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchOverrideText({ textShadowColor: value })} />} />
                     <NumberField value={resolved.text.textShadowBlur ?? 0} min={0} onValueChange={(value) => patchOverrideText({ textShadowBlur: value })} label="Shadow blur" labelPlacement="hidden" suffix="px" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-1.5">
+                  </Section.Row>
+                  <Section.Row columns={2}>
                     <NumberField value={resolved.text.textShadowOffsetX ?? 0} onValueChange={(value) => patchOverrideText({ textShadowOffsetX: value })} label="Shadow offset X" labelPlacement="hidden" />
                     <NumberField value={resolved.text.textShadowOffsetY ?? 0} onValueChange={(value) => patchOverrideText({ textShadowOffsetY: value })} label="Shadow offset Y" labelPlacement="hidden" />
-                  </div>
+                  </Section.Row>
                 </>
               ) : null}
             </Section.Body>
@@ -237,28 +237,28 @@ function SingleCueEditor({ cue }: { cue: ChordCue }) {
           <Section density="compact" className="px-3 py-3">
             <Section.Header><Section.Title>Position</Section.Title><Section.Actions>{cue.override?.box ? <ResetButton onClick={() => resetSection('box')} /> : null}</Section.Actions></Section.Header>
             <Section.Body>
-              <div className="grid grid-cols-2 gap-1.5">
+              <Section.Row columns={2}>
                 <NumberField value={resolved.box.x} onValueChange={(value) => patchOverrideBox({ x: value })} label="X" labelPlacement="hidden" />
                 <NumberField value={resolved.box.y} onValueChange={(value) => patchOverrideBox({ y: value })} label="Y" labelPlacement="hidden" />
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              </Section.Row>
+              <Section.Row columns={2}>
                 <NumberField value={resolved.box.width} min={0} onValueChange={(value) => patchOverrideBox({ width: value })} label="Width" labelPlacement="hidden" />
                 <NumberField value={resolved.box.height} min={0} onValueChange={(value) => patchOverrideBox({ height: value })} label="Height" labelPlacement="hidden" />
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              </Section.Row>
+              <Section.Row columns={2}>
                 <NumberField value={resolved.box.rotation} onValueChange={(value) => patchOverrideBox({ rotation: value })} label="Rotation" labelPlacement="hidden" suffix="°" />
                 <NumberField value={resolved.box.opacity} min={0} max={1} step={0.05} onValueChange={(value) => patchOverrideBox({ opacity: value })} label="Opacity" labelPlacement="hidden" />
-              </div>
+              </Section.Row>
             </Section.Body>
           </Section>
 
           <Section density="compact" className="px-3 py-3">
             <Section.Header><Section.Title>Transition</Section.Title><Section.Actions>{cue.override?.transition ? <ResetButton onClick={() => resetSection('transition')} /> : null}</Section.Actions></Section.Header>
             <Section.Body>
-              <div className="grid grid-cols-2 gap-1.5">
+              <Section.Row columns={2}>
                 <Select value={resolved.transition.in} options={TRANSITION_OPTIONS} onValueChange={(value) => patchOverrideTransition({ in: value })} label="Transition in" labelPlacement="hidden" />
                 <Select value={resolved.transition.out} options={TRANSITION_OPTIONS} onValueChange={(value) => patchOverrideTransition({ out: value })} label="Transition out" labelPlacement="hidden" />
-              </div>
+              </Section.Row>
               <NumberField value={resolved.transition.durationMs} min={0} step={50} onValueChange={(value) => patchOverrideTransition({ durationMs: value })} label="Transition duration" labelPlacement="hidden" suffix="ms" />
             </Section.Body>
           </Section>

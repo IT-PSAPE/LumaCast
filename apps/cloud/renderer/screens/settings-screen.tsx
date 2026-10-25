@@ -1,5 +1,5 @@
 import {
-  Panel,
+  ListRow,
   ReacstButton,
   SegmentedControl,
   Switch,
@@ -62,35 +62,21 @@ export function SettingsScreen({ overview, api }: SettingsScreenProps) {
         ) : (
           <div className="flex flex-col gap-2">
             {settings.grants.map((grant) => (
-              <Panel
-                key={grant.app}
-                variant="raised"
-                density="compact"
-                className="h-auto"
-              >
-                <Panel.Header divided={false}>
-                  <Panel.HeaderTitle>
-                    {suiteApp(grant.app).productName}
-                  </Panel.HeaderTitle>
-                  <Panel.HeaderActions>
-                    <ReacstButton
-                      variant="ghost"
-                      onClick={() => {
-                        void api.revoke(grant.app);
-                      }}
-                    >
-                      Revoke
-                    </ReacstButton>
-                  </Panel.HeaderActions>
-                </Panel.Header>
-                <Panel.Body
-                  scroll={false}
-                  padded
-                  className="pt-0 paragraph-xs text-tertiary"
-                >
-                  {grant.bundleId}
-                </Panel.Body>
-              </Panel>
+              <ListRow key={grant.app} actions="always">
+                <ListRow.Label description={grant.bundleId}>
+                  {suiteApp(grant.app).productName}
+                </ListRow.Label>
+                <ListRow.Actions>
+                  <ReacstButton
+                    variant="ghost"
+                    onClick={() => {
+                      void api.revoke(grant.app);
+                    }}
+                  >
+                    Revoke
+                  </ReacstButton>
+                </ListRow.Actions>
+              </ListRow>
             ))}
           </div>
         )}

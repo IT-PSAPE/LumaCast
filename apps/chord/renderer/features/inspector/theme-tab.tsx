@@ -113,19 +113,19 @@ export function ThemeTab() {
       <Section density="compact" className="px-3 py-3">
         <Section.Header><Section.Title>Text</Section.Title></Section.Header>
         <Section.Body>
-          <div className="grid grid-cols-2 gap-1.5">
+          <Section.Row columns={2}>
             <Select value={theme.text.fontFamily} options={fontOptions} onValueChange={(value) => patchText({ fontFamily: value })} label="Font family" labelPlacement="hidden" />
             <Select value={theme.text.weight ?? '400'} options={WEIGHT_OPTIONS} onValueChange={(value) => patchText({ weight: value })} label="Weight" labelPlacement="hidden" />
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          </Section.Row>
+          <Section.Row columns={2}>
             <NumberField value={theme.text.fontSize} min={1} onValueChange={(value) => patchText({ fontSize: value })} label="Font size" labelPlacement="hidden" suffix="px" />
             <NumberField value={theme.text.lineHeight ?? 1.2} step={0.05} min={0.5} max={4} onValueChange={(value) => patchText({ lineHeight: value })} label="Line height" labelPlacement="hidden" />
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          </Section.Row>
+          <Section.Row columns={2}>
             <NumberField value={theme.text.letterSpacing ?? 0} step={0.5} onValueChange={(value) => patchText({ letterSpacing: value })} label="Letter spacing" labelPlacement="hidden" />
             <ColorField value={theme.text.color} onValueChange={(value) => patchText({ color: value })} label="Text colour" labelPlacement="hidden" picker={<NativeColorPicker value={theme.text.color} onValueChange={(value) => patchText({ color: value })} />} />
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          </Section.Row>
+          <Section.Row columns={2}>
             <SegmentedControl
               aria-label="Text style"
               selectionMode="multiple"
@@ -144,7 +144,7 @@ export function ThemeTab() {
               </SegmentedControl.Icon>
             </SegmentedControl>
             <Select value={theme.text.caseTransform ?? 'none'} options={CASE_OPTIONS} onValueChange={(value) => patchText({ caseTransform: value })} label="Case" labelPlacement="hidden" />
-          </div>
+          </Section.Row>
           <div className="flex gap-1.5">
             <SegmentedControl
               aria-label="Horizontal alignment"
@@ -183,18 +183,18 @@ export function ThemeTab() {
       <Section density="compact" className="px-3 py-3">
         <Section.Header><Section.Title>Position</Section.Title></Section.Header>
         <Section.Body>
-          <div className="grid grid-cols-2 gap-1.5">
+          <Section.Row columns={2}>
             <NumberField value={theme.box.x} onValueChange={(value) => patchBox({ x: value })} label="X" labelPlacement="hidden" />
             <NumberField value={theme.box.y} onValueChange={(value) => patchBox({ y: value })} label="Y" labelPlacement="hidden" />
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          </Section.Row>
+          <Section.Row columns={2}>
             <NumberField value={theme.box.width} min={0} onValueChange={(value) => patchBox({ width: value })} label="Width" labelPlacement="hidden" />
             <NumberField value={theme.box.height} min={0} onValueChange={(value) => patchBox({ height: value })} label="Height" labelPlacement="hidden" />
-          </div>
-          <div className="grid grid-cols-2 gap-1.5">
+          </Section.Row>
+          <Section.Row columns={2}>
             <NumberField value={theme.box.rotation} onValueChange={(value) => patchBox({ rotation: value })} label="Rotation" labelPlacement="hidden" suffix="°" />
             <NumberField value={theme.box.opacity} min={0} max={1} step={0.05} onValueChange={(value) => patchBox({ opacity: value })} label="Opacity" labelPlacement="hidden" />
-          </div>
+          </Section.Row>
           <div className="flex gap-1.5">
             <ReacstButton onClick={centerHorizontally}>Center horizontally</ReacstButton>
             <ReacstButton onClick={lowerThird}>Lower third</ReacstButton>
@@ -210,10 +210,10 @@ export function ThemeTab() {
             <Switch checked={theme.text.textStrokeEnabled ?? false} onCheckedChange={(checked) => patchText({ textStrokeEnabled: checked })} label="Enable stroke" />
           </div>
           {theme.text.textStrokeEnabled ? (
-            <div className="grid grid-cols-2 gap-1.5">
+            <Section.Row columns={2}>
               <ColorField value={theme.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchText({ textStrokeColor: value })} label="Stroke colour" labelPlacement="hidden" picker={<NativeColorPicker value={theme.text.textStrokeColor ?? '#000000'} onValueChange={(value) => patchText({ textStrokeColor: value })} />} />
               <NumberField value={theme.text.textStrokeWidth ?? 2} min={0} onValueChange={(value) => patchText({ textStrokeWidth: value })} label="Stroke width" labelPlacement="hidden" suffix="px" />
-            </div>
+            </Section.Row>
           ) : null}
 
           <div className="flex items-center justify-between gap-2 pt-1">
@@ -222,14 +222,14 @@ export function ThemeTab() {
           </div>
           {theme.text.textShadowEnabled ? (
             <>
-              <div className="grid grid-cols-2 gap-1.5">
+              <Section.Row columns={2}>
                 <ColorField value={theme.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchText({ textShadowColor: value })} label="Shadow colour" labelPlacement="hidden" picker={<NativeColorPicker value={theme.text.textShadowColor ?? '#000000'} onValueChange={(value) => patchText({ textShadowColor: value })} />} />
                 <NumberField value={theme.text.textShadowBlur ?? 0} min={0} onValueChange={(value) => patchText({ textShadowBlur: value })} label="Shadow blur" labelPlacement="hidden" suffix="px" />
-              </div>
-              <div className="grid grid-cols-2 gap-1.5">
+              </Section.Row>
+              <Section.Row columns={2}>
                 <NumberField value={theme.text.textShadowOffsetX ?? 0} onValueChange={(value) => patchText({ textShadowOffsetX: value })} label="Shadow offset X" labelPlacement="hidden" />
                 <NumberField value={theme.text.textShadowOffsetY ?? 0} onValueChange={(value) => patchText({ textShadowOffsetY: value })} label="Shadow offset Y" labelPlacement="hidden" />
-              </div>
+              </Section.Row>
             </>
           ) : null}
         </Section.Body>
@@ -238,10 +238,10 @@ export function ThemeTab() {
       <Section density="compact" className="px-3 py-3">
         <Section.Header><Section.Title>Transition</Section.Title></Section.Header>
         <Section.Body>
-          <div className="grid grid-cols-2 gap-1.5">
+          <Section.Row columns={2}>
             <Select value={theme.transition.in} options={TRANSITION_OPTIONS} onValueChange={(value) => patchTransition({ in: value })} label="Transition in" labelPlacement="hidden" />
             <Select value={theme.transition.out} options={TRANSITION_OPTIONS} onValueChange={(value) => patchTransition({ out: value })} label="Transition out" labelPlacement="hidden" />
-          </div>
+          </Section.Row>
           <NumberField value={theme.transition.durationMs} min={0} step={50} onValueChange={(value) => patchTransition({ durationMs: value })} label="Transition duration" labelPlacement="hidden" suffix="ms" />
         </Section.Body>
       </Section>

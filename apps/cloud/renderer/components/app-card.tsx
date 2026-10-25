@@ -99,7 +99,7 @@ export function AppCard({
   ];
 
   return (
-    <Panel variant="raised" className="h-auto">
+    <Panel variant="raised" fill={false}>
       <Panel.Header divided={false}>
         <Panel.HeaderTitle>{descriptor.productName}</Panel.HeaderTitle>
         {!isSelf ? (
