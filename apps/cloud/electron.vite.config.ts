@@ -12,7 +12,7 @@ import path from 'node:path';
 // them would emit require("@lumacast/<name>") in the bundled output, and
 // Node's CJS loader cannot parse that raw source — so they stay bundled via the
 // alias below instead.
-const BUNDLED_WORKSPACE_PACKAGES = ['@lumacast/ui', '@lumacast/suite'] as const;
+const BUNDLED_WORKSPACE_PACKAGES = ['@lumacast/ui', '@lumacast/suite', '@lumacast/kernel', '@lumacast/desktop'] as const;
 
 function workspaceAlias(): Record<string, string> {
   return Object.fromEntries(

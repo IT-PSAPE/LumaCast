@@ -27,6 +27,7 @@ import {
   Select,
   Slider,
   TextField,
+  WindowChrome,
 } from "@lumacast/ui";
 import type { HistogramData, PixelReadout } from "./histogram-data";
 import { Adjustments } from "./Adjustments";
@@ -336,37 +337,40 @@ export function App() {
         );
       }}
     >
-      <header className="app-header">
-        <div className="brand">
-          <SlidersHorizontal size={20} />
-          <strong>Lumaflux</strong>
-          <span>Photo studio</span>
-        </div>
-        <SegmentedControl
-          label="View"
-          value={view}
-          onValueChange={(next) => {
-            if (next === "gallery") setView("gallery");
-            else if (next === "editor") {
-              setView("editor");
-              if (section === "jobs") setSection("all");
-            }
-          }}
-        >
-          <SegmentedControl.Label value="gallery" className="gap-1.5">
-            <Grid2X2 size={13} />
-            Library
-          </SegmentedControl.Label>
-          <SegmentedControl.Label
-            value="editor"
-            className="gap-1.5"
-            disabled={!photo}
-          >
-            <ImageIcon size={13} />
-            Edit
-          </SegmentedControl.Label>
-        </SegmentedControl>
-        <div className="header-actions">
+      <WindowChrome>
+        <WindowChrome.Start draggable>
+          <SlidersHorizontal size={16} className="text-brand" />
+          <strong className="text-[13px] font-semibold tracking-tight">Lumaflux</strong>
+        </WindowChrome.Start>
+        <WindowChrome.Center>
+          <div className="[-webkit-app-region:no-drag]">
+            <SegmentedControl
+              label="View"
+              value={view}
+              onValueChange={(next) => {
+                if (next === "gallery") setView("gallery");
+                else if (next === "editor") {
+                  setView("editor");
+                  if (section === "jobs") setSection("all");
+                }
+              }}
+            >
+              <SegmentedControl.Label value="gallery" className="gap-1.5">
+                <Grid2X2 size={13} />
+                Library
+              </SegmentedControl.Label>
+              <SegmentedControl.Label
+                value="editor"
+                className="gap-1.5"
+                disabled={!photo}
+              >
+                <ImageIcon size={13} />
+                Edit
+              </SegmentedControl.Label>
+            </SegmentedControl>
+          </div>
+        </WindowChrome.Center>
+        <WindowChrome.End>
           <ReacstButton size="sm" onClick={() => setAgentOpen(true)}>
             <Bot size={13} />
             Agents
@@ -381,8 +385,8 @@ export function App() {
             Export
             {state.selection.length > 0 ? ` (${state.selection.length})` : ""}
           </ReacstButton>
-        </div>
-      </header>
+        </WindowChrome.End>
+      </WindowChrome>
       <div className="workspace">
         {view === "gallery" && (
           <>

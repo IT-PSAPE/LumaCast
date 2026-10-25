@@ -1,6 +1,6 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { Activity, Download, Package, Settings as SettingsIcon } from 'lucide-react';
-import { Title } from '@lumacast/ui';
+import { WindowChrome } from '@lumacast/ui';
 import { useSuite } from './hooks/use-suite';
 import { AppsScreen } from './screens/apps-screen';
 import { UpdatesScreen } from './screens/updates-screen';
@@ -77,15 +77,29 @@ export function App() {
   const { overview, operations, refresh, api } = useSuite();
   const [screen, setScreen] = useState<ScreenId>('apps');
 
+  // The window has no native title bar, so the chrome (the only drag region)
+  // renders in every state, including before the first overview arrives.
+  const chrome = (
+    <WindowChrome>
+      <WindowChrome.Center>LumaCloud</WindowChrome.Center>
+    </WindowChrome>
+  );
+
   if (!overview) {
-    return <div className="flex h-screen items-center justify-center bg-primary" />;
+    return (
+      <div className="flex h-screen flex-col bg-primary">
+        {chrome}
+        <div className="flex-1" />
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-screen bg-primary text-primary">
+    <div className="flex h-screen flex-col bg-primary text-primary">
+      {chrome}
+      <div className="flex min-h-0 flex-1">
       <aside className="flex w-[200px] shrink-0 flex-col justify-between border-r border-primary bg-secondary p-4">
         <div className="flex flex-col gap-6">
-          <Title.h6>LumaCloud</Title.h6>
           <nav className="flex flex-col gap-1">
             {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
               <button
@@ -112,6 +126,7 @@ export function App() {
         {screen === 'activity' ? <ActivityScreen operations={operations} /> : null}
         {screen === 'settings' ? <SettingsScreen overview={overview} api={api} /> : null}
       </main>
+      </div>
     </div>
   );
 }

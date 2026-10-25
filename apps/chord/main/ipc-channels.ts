@@ -20,6 +20,7 @@ export const IPC_CHANNELS = {
   exportClose: 'export-close',
   exportAbort: 'export-abort',
   revealPath: 'reveal-path',
+  showApplicationMenu: 'window-show-menu',
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

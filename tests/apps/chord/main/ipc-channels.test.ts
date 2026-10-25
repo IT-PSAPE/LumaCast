@@ -34,6 +34,7 @@ describe('apps/chord IPC channel identity', () => {
       'export-close',
       'export-abort',
       'reveal-path',
+      'window-show-menu',
     ]);
   });
 
@@ -67,6 +68,7 @@ describe('apps/chord IPC channel identity', () => {
       exportClose: IPC_CHANNELS.exportClose,
       exportAbort: IPC_CHANNELS.exportAbort,
       revealPath: IPC_CHANNELS.revealPath,
+      showApplicationMenu: IPC_CHANNELS.showApplicationMenu,
     };
 
     for (const channel of Object.values(expected)) {

@@ -9,6 +9,7 @@
     "paths": {
       "@renderer/*": ["apps/flux/renderer/*"],
       "@lumacast/kernel": ["packages/kernel/src/index.ts"],
+      "@lumacast/desktop": ["packages/desktop/src/index.ts"],
       "@lumacast/composition": ["packages/composition/src/index.ts"],
       "@lumacast/automation": ["packages/automation/src/index.ts"],
       "@lumacast/commands": ["packages/commands/src/index.ts"],

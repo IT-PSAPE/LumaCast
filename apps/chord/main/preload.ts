@@ -37,6 +37,7 @@ const api: ChordDesktopAPI = {
   exportClose: (sinkId) => ipcRenderer.invoke(IPC_CHANNELS.exportClose, sinkId),
   exportAbort: (sinkId) => ipcRenderer.invoke(IPC_CHANNELS.exportAbort, sinkId),
   revealPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.revealPath, path),
+  showApplicationMenu: (x, y) => ipcRenderer.invoke(IPC_CHANNELS.showApplicationMenu, x, y),
 
   onMenuCommand: (callback) => {
     const handler = (_event: Electron.IpcRendererEvent, command: Parameters<typeof callback>[0]) => callback(command);

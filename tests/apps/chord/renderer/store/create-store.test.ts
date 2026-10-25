@@ -145,6 +145,7 @@ function createFakeApi(overrides: Partial<ChordDesktopAPI> = {}): ChordDesktopAP
     exportClose: vi.fn(async () => {}),
     exportAbort: vi.fn(async () => {}),
     revealPath: vi.fn(async () => {}),
+    showApplicationMenu: vi.fn(async () => {}),
     onMenuCommand: vi.fn(() => () => {}),
     onOpenDocument: vi.fn(() => () => {}),
     ...overrides,

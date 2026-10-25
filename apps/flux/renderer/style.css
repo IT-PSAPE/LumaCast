@@ -102,45 +102,6 @@ h3 {
   flex-direction: column;
   overflow: hidden;
 }
-.app-header {
-  height: 40px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--border-color-primary);
-  background: var(--background-color-secondary);
-  gap: 16px;
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 260px;
-}
-.brand > svg {
-  color: var(--color-brand);
-  width: 16px;
-  height: 16px;
-}
-.brand strong {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-.brand span {
-  font-size: 11px;
-  color: var(--text-color-tertiary);
-  padding-left: 9px;
-  border-left: 1px solid var(--border-color-primary);
-}
-.header-actions {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-  width: 300px;
-}
 .workspace {
   display: flex;
   flex: 1;
@@ -839,16 +800,6 @@ h3 {
   visibility: hidden;
 }
 @media (max-width: 1200px) {
-  .app-header {
-    padding: 0 14px;
-  }
-  .brand span {
-    display: none;
-  }
-  .brand,
-  .header-actions {
-    width: 240px;
-  }
   .library-toolbar {
     padding: 7px 10px;
     gap: 6px;

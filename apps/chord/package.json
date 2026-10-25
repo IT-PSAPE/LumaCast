@@ -25,6 +25,7 @@
     "@base-ui/react": "^1.8.0",
     "@lumacast/canvas": "file:../../packages/canvas",
     "@lumacast/composition": "file:../../packages/composition",
+    "@lumacast/desktop": "file:../../packages/desktop",
     "@lumacast/kernel": "file:../../packages/kernel",
     "@lumacast/markers": "file:../../packages/markers",
     "@lumacast/ui": "file:../../packages/ui",

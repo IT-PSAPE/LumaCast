@@ -26,6 +26,7 @@ const apiMock: ChordDesktopAPI = {
   exportClose: vi.fn(),
   exportAbort: vi.fn(),
   revealPath: vi.fn(),
+  showApplicationMenu: vi.fn(),
   onMenuCommand: vi.fn(),
   onOpenDocument: vi.fn(),
 };

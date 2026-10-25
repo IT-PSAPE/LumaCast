@@ -71,6 +71,8 @@ export interface IpcWindowControl {
   setTitle(title: string): void;
   /** macOS-only affordance; a no-op implementation elsewhere is fine. */
   setDocumentEdited(edited: boolean): void;
+  /** Pops the native application menu at window-relative px. */
+  showApplicationMenu(x: number, y: number): void;
 }
 
 export interface IpcShellEffects {
@@ -126,6 +128,7 @@ const cueFormatSchema = z.enum(['csv', 'lrc', 'srt']) satisfies z.ZodType<CueFil
 const extensionSchema = z.string().min(1).max(16);
 const sinkIdSchema = z.string().min(1).max(128);
 const positionSchema = z.number().int().min(0);
+const menuCoordinateSchema = z.number().finite().min(0).max(100_000);
 const bytesSchema = z.instanceof(Uint8Array);
 const cueTextSchema = z.string().max(MAX_CUE_FILE_BYTES);
 const saveOptionsSchema = z.object({ saveAs: z.boolean().optional() }).optional();
@@ -322,6 +325,10 @@ export function createIpcHandlers(deps: IpcDeps): IpcHandlerMap {
         throw new Error(`Refusing to reveal an unrecognized path: ${path}`);
       }
       deps.shellEffects.showItemInFolder(path);
+    },
+
+    [IPC_CHANNELS.showApplicationMenu]: (xArg: unknown, yArg: unknown): void => {
+      deps.windowControl.showApplicationMenu(menuCoordinateSchema.parse(xArg), menuCoordinateSchema.parse(yArg));
     },
   };
 }

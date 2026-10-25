@@ -80,6 +80,8 @@ export interface ChordDesktopAPI {
   /** Deletes the partial file. */
   exportAbort: (sinkId: string) => Promise<void>;
   revealPath: (path: string) => Promise<void>;
+  /** Pops the native application menu at window-relative CSS px; for the title-bar menu button on platforms with no menu bar. */
+  showApplicationMenu: (x: number, y: number) => Promise<void>;
 
   // Push channels
   onMenuCommand: (callback: (command: MenuCommand) => void) => () => void;

@@ -23,6 +23,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@lumacast/desktop": "file:../../packages/desktop",
+    "@lumacast/kernel": "file:../../packages/kernel",
     "@lumacast/suite": "file:../../packages/suite",
     "@lumacast/ui": "file:../../packages/ui",
     "electron-updater": "^6.8.3",

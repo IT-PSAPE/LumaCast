@@ -2,6 +2,7 @@ import {
   app,
   BrowserWindow,
   dialog,
+  Menu,
   protocol,
   shell,
   type OpenDialogOptions,
@@ -131,6 +132,10 @@ if (!app.requestSingleInstanceLock()) {
       setTitle: (title) => mainWindow?.setTitle(title),
       setDocumentEdited: (edited) => {
         if (process.platform === 'darwin') mainWindow?.setDocumentEdited(edited);
+      },
+      showApplicationMenu: (x, y) => {
+        if (!mainWindow) return;
+        Menu.getApplicationMenu()?.popup({ window: mainWindow, x: Math.round(x), y: Math.round(y) });
       },
     },
     shellEffects: {
