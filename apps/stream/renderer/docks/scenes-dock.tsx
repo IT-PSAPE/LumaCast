@@ -35,8 +35,8 @@ export interface ScenesDockProps {
   onDuplicateScene: () => void;
   /** Enables the "Transition to Program" context-menu action. */
   studioMode?: boolean;
-  /** Takes the (already-selected) active scene to program, OBS "Take" semantics. */
-  onTakeScene?: () => void;
+  /** Transitions the selected scene to program. */
+  onTransitionScene?: () => void;
   /** Opens a projector window of the given kind. Projector submenu is omitted when absent. */
   onOpenProjector?: (kind: 'preview' | 'program') => void;
   /** Commits an inline rename. Falls back to the rename dialog (setSceneDialog) when absent. */
@@ -75,7 +75,7 @@ export function ScenesDock({
   working,
   onDuplicateScene,
   studioMode = false,
-  onTakeScene,
+  onTransitionScene,
   onOpenProjector,
   onRenameScene,
   onReorderScenes,
@@ -244,7 +244,7 @@ export function ScenesDock({
         id: 'transition',
         label: 'Transition to Program',
         disabled: scene.id === liveSceneId,
-        onSelect: () => onTakeScene?.(),
+        onSelect: () => onTransitionScene?.(),
       });
     }
 

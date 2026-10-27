@@ -117,13 +117,19 @@ API does not expose the general Content ID warning feed.
 The Zoom Meeting SDK uses a Public Client ID supplied as
 `LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID` when building LumaStream. Connected Zoom
 accounts can select or create scheduled meetings; OAuth tokens are stored with
-the operating system's secure credential storage. The native Meeting SDK sender
+the operating system's secure credential storage. The Zoom panel keeps the
+selected meeting and output actions in view; account settings and meeting
+creation open in separate dialogs. The native Meeting SDK sender
 joins with the connected user's ZAK and sends raw I420 video and PCM audio from
 the program canvas and mixer through Production Studio. It runs alongside
 YouTube RTMPS and local recording. The SDK app key, OAuth access token, and
 user's ZAK serve separate purposes. Production Studio can send only when the
 signed-in user is the meeting host or co-host. Zoom requires app review before
 joining meetings outside the SDK app owner's account.
+The Controls panel contains streaming, recording, and replay actions, with
+independent stop or cancel controls for each active destination. Global settings
+are available from the title bar. File > Convert to MP4 and Settings > Advanced
+repackage MKV or WebM recordings without re-encoding, keeping the original file.
 Zoom's PKCE guide lists Meeting SDK 7.0.2 as preferred. Use the exact native
 Windows/macOS packages and version supplied through the Zoom Marketplace, then
 check their platform changelog and minimum-version policy before packaging.

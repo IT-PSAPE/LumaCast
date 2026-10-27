@@ -72,7 +72,7 @@ function buildFileMenu(context: AppMenuContext): MenubarMenu {
     { id: 'file.exportCollection', label: 'Export Scene Collection…', onSelect: actions.exportCollection },
     { separator: true },
     { id: 'file.showRecordings', label: 'Show Recordings', onSelect: actions.showRecordings },
-    { id: 'file.remux', label: 'Remux Recordings…', onSelect: actions.remux },
+    { id: 'file.remux', label: 'Convert to MP4…', onSelect: actions.remux },
     { separator: true },
     { id: 'file.settings', label: 'Settings…', onSelect: actions.openSettings },
     { separator: true },

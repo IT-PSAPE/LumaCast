@@ -4,7 +4,7 @@ import { cn } from './cn';
 import { cv } from './cv';
 import { Tooltip } from './tooltip';
 
-export type ButtonVariant = 'default' | 'take' | 'danger' | 'ghost' | 'primary' | 'tinted' | 'outline' | 'link';
+export type ButtonVariant = 'default' | 'take' | 'success' | 'danger' | 'ghost' | 'primary' | 'tinted' | 'outline' | 'link';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 export type ButtonShape = 'rounded' | 'pill';
 
@@ -31,6 +31,7 @@ const buttonVariants = cv({
     variant: {
       default: 'bg-tertiary text-primary hover:bg-brand/10',
       take: 'bg-success/15 text-primary hover:bg-success/25',
+      success: 'bg-success/15 text-primary hover:bg-success/25',
       danger: 'bg-error/15 text-primary hover:bg-error/25',
       ghost: 'bg-transparent hover:bg-tertiary hover:text-primary',
       primary: 'bg-brand text-white hover:bg-brand/90',
@@ -97,6 +98,7 @@ const buttonVariants = cv({
     // Pressed / active.
     { variant: 'default', on: true, className: 'bg-tertiary text-primary' },
     { variant: 'take', on: true, className: 'bg-success/15 text-primary' },
+    { variant: 'success', on: true, className: 'bg-success/15 text-primary' },
     { variant: 'danger', on: true, className: 'bg-error/15 text-primary' },
     { variant: 'ghost', on: true, className: 'bg-tertiary text-primary' },
     { variant: 'primary', on: true, className: 'bg-brand' },

@@ -46,7 +46,7 @@ export interface UseScenesResult {
   duplicateActiveScene: () => Promise<void>;
   deleteActiveScene: () => void;
   chooseScene: (sceneId: string) => void;
-  takeScene: () => void;
+  transitionScene: () => void;
   toggleStudioMode: () => void;
   transitionToScene: (sceneId: string) => void;
 
@@ -56,7 +56,7 @@ export interface UseScenesResult {
 
 /**
  * Scene list editing (add/rename/duplicate/delete/reorder), program/preview
- * switching (choose/take/transition), and Studio Mode. Mirrors the former
+ * switching (choose/transition), and Studio Mode. Mirrors the former
  * inline App.tsx implementation exactly.
  */
 export function useScenes(params: UseScenesParams): UseScenesResult {
@@ -201,7 +201,7 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
     selectSource(null);
   };
 
-  const takeScene = () => {
+  const transitionScene = () => {
     if (!project || project.activeSceneId === project.liveSceneId) return;
     const nextTransition = createSceneTransition(transitionType, project.liveSceneId, performance.now(), transitionMs, transitionColor);
     setTransition(nextTransition);
@@ -214,8 +214,8 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
     setTransition(null);
   };
 
-  // Sets preview to `sceneId` and immediately takes it to program — equivalent to
-  // selecting the scene as preview then hitting Take, done atomically so it works
+  // Sets preview to `sceneId` and immediately transitions it to program — equivalent to
+  // selecting the scene as preview then hitting Transition, done atomically so it works
   // the same whether or not Studio Mode is on.
   const transitionToScene = (sceneId: string) => {
     if (!project || sceneId === project.liveSceneId) return;
@@ -234,7 +234,7 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
     transition, transitionType, setTransitionType, transitionColor, setTransitionColor, transitionMs, setTransitionMs,
     finishTransition,
     addScene, renameActiveScene, renameScene, reorderScenes, duplicateActiveScene, deleteActiveScene,
-    chooseScene, takeScene, toggleStudioMode, transitionToScene,
+    chooseScene, transitionScene, toggleStudioMode, transitionToScene,
     resetForWorkspaceChange,
   };
 }

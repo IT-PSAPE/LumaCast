@@ -22,26 +22,24 @@ button:disabled { cursor: default; opacity: .43; }
 .mini-icon { width: 24px; height: 24px; }
 .mini-icon:hover { color: var(--text-color-primary); background: var(--background-color-tertiary); }
 
-.workbench { min-height: 0; position: relative; display: grid; grid-template-columns: minmax(160px, .9fr) minmax(185px, 1fr) minmax(225px, 1.2fr) minmax(180px, .95fr); grid-template-rows: minmax(280px, 1fr) 210px; background: var(--background-color-secondary); }
+.workbench { min-width: 0; min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(280px, 1fr) 210px; overflow: hidden; background: var(--background-color-secondary); }
 .dock { min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border-color-secondary); border-bottom: 1px solid var(--border-color-secondary); background: var(--background-color-primary); }
-.panel-resizer { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 6px; touch-action: none; cursor: row-resize; }
-.panel-resizer::after { content: ''; position: absolute; inset: 2px 0; border-radius: 2px; background: transparent; transition: background .12s; }
-.panel-resizer:hover::after, .workbench.resizing-rows .panel-resizer::after { background: var(--color-brand); }
+.workbench-panel-resizer { position: absolute; z-index: 5; left: 0; right: 0; bottom: 0; height: 6px; touch-action: none; cursor: row-resize; }
+.workbench-panel-resizer::after { content: ''; position: absolute; inset: 0; border-radius: var(--radius-hairline); background: transparent; transition: background .12s; }
+.workbench-panel-resizer:hover::after, .workbench.resizing-rows .workbench-panel-resizer::after { background: var(--color-brand); }
 .workbench.resizing-columns { cursor: col-resize; }
 .workbench.resizing-rows { cursor: row-resize; }
 .workbench.resizing-columns, .workbench.resizing-rows { user-select: none; }
 .workbench.resizing-rows * { pointer-events: none; }
-.workbench.resizing-rows .panel-resizer { pointer-events: auto; }
+.workbench.resizing-rows .workbench-panel-resizer { pointer-events: auto; }
 .workbench.reordering { cursor: grabbing; user-select: none; }
 .workbench.reordering * { pointer-events: none; }
 .dock-drop-indicator { position: absolute; width: 2px; background: var(--color-brand); z-index: 6; pointer-events: none; }
-.scenes-dock { grid-row: 2; border-bottom: 0; }
+.scenes-dock { border-bottom: 0; }
 .monitor-dock { position: relative; min-width: 0; min-height: 0; grid-column: 1 / -1; grid-row: 1; display: flex; flex-direction: column; background: var(--background-color-secondary); border-bottom: 1px solid var(--border-color-secondary); }
-.controls-dock { grid-row: 2; border-bottom: 0; }
-.sources-dock { grid-row: 2; border-bottom: 0; }
-.mixer-dock { grid-row: 2; border-bottom: 0; }
-.youtube-dock { grid-row: 2; border-bottom: 0; }
-.zoom-dock { grid-row: 2; border-bottom: 0; }
+.workbench-docks { min-width: 0; min-height: 0; grid-column: 1 / -1; grid-row: 2; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--border-color-primary) transparent; }
+.workbench-docks-grid { display: grid; height: 100%; grid-template-columns: minmax(200px, .9fr) minmax(185px, 1fr) minmax(225px, 1.2fr) minmax(180px, .95fr); }
+.controls-dock, .sources-dock, .mixer-dock, .youtube-dock, .zoom-dock { border-bottom: 0; }
 
 .scene-list { flex: 1; overflow-y: auto; padding: 7px 6px; }
 .scene-row { min-height: 28px; width: 100%; display: flex; align-items: center; gap: 8px; margin: 2px 0; padding: 0 8px; border: 1px solid transparent; border-radius: 4px; color: var(--text-color-secondary); background: transparent; text-align: left; cursor: pointer; }
@@ -72,28 +70,6 @@ button:disabled { cursor: default; opacity: .43; }
 .resize-e { right: -4px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }.resize-se { right: -4px; bottom: -4px; cursor: nwse-resize; }.resize-s { left: 50%; bottom: -4px; transform: translateX(-50%); cursor: ns-resize; }
 .resize-sw { left: -4px; bottom: -4px; cursor: nesw-resize; }.resize-w { left: -4px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
 
-.controls-dock { padding-bottom: 5px; }
-.stream-button { height: 31px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 4px; color: var(--text-color-primary); background: color-mix(in srgb, var(--color-success) 15%, transparent); font-size: var(--text-label-xs); font-weight: 500; cursor: pointer; }
-.stream-button:not(:disabled):hover { background: color-mix(in srgb, var(--color-success) 25%, transparent); }
-.stream-button:disabled { opacity: .55; cursor: wait; }
-.stream-button.stop-stream { border-color: transparent; color: var(--text-color-primary); background: color-mix(in srgb, var(--color-error) 15%, transparent); }
-.stream-button.stop-stream:hover { background: color-mix(in srgb, var(--color-error) 25%, transparent); }
-.record-button { width: 100%; height: 30px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border-color-primary); border-radius: 4px; color: var(--text-color-primary); background: var(--background-color-tertiary); font-size: var(--text-label-xs); cursor: pointer; }
-.record-button:hover:not(:disabled) { border-color: transparent; color: var(--text-color-primary); background: color-mix(in srgb, var(--color-error) 25%, transparent); }
-.record-button.stop-record { border-color: transparent; color: var(--text-color-primary); background: color-mix(in srgb, var(--color-error) 15%, transparent); }
-.record-button-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-error); }
-.control-bottom { display: flex; flex-shrink: 0; gap: 6px; margin: 0 8px; padding-top: 5px; }
-.control-small { min-width: 0; flex: 1; }
-.control-action-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 5px; padding: 6px 7px 2px; }
-.control-body { flex: 1; min-height: 0; overflow-y: auto; }
-.control-action { min-width: 0; min-height: 30px; padding-inline: 6px; white-space: normal; }
-.control-action .record-button-dot { width: 7px; height: 7px; flex: 0 0 7px; }
-.control-status-lines { display: grid; gap: 4px; padding: 4px 9px 1px; color: var(--text-color-tertiary); font-size: var(--text-sm); }
-.control-status-lines > span { min-width: 0; display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.control-status-dot { width: 5px; height: 5px; flex: 0 0 5px; border-radius: 50%; background: var(--text-color-tertiary); }
-.control-status-dot.live-dot { background: var(--color-success); box-shadow: none; }
-.control-status-dot.record-dot { background: var(--color-error); box-shadow: none; }
-.control-bitrate { margin-left: auto; color: var(--text-color-secondary); }
 
 .source-list { flex: 1; min-height: 0; overflow-y: auto; padding: 5px 6px; }
 .source-row { min-height: 28px; display: flex; align-items: center; gap: 6px; padding: 0 4px; border: 1px solid transparent; border-radius: 4px; color: var(--text-color-secondary); cursor: pointer; }
@@ -242,12 +218,10 @@ button:disabled { cursor: default; opacity: .43; }
 .fatal { text-align: center; }.fatal h1 { margin: 5px 0 0; color: var(--text-color-primary); font-size: 18px; }.fatal p { max-width: 460px; color: var(--text-color-secondary); font-size: var(--text-label-xs); }
 
 @media (max-width: 1280px) {
-  .workbench { grid-template-columns: minmax(145px, .85fr) minmax(170px, .95fr) minmax(205px, 1.15fr) minmax(165px, .9fr); grid-template-rows: minmax(270px, 1fr) 205px; }
-  .monitor-stage { padding-inline: 10px; }
-  .mixer-channels { gap: 5px; }.mixer-channel { min-width: 112px; padding: 7px; }
+  .workbench { grid-template-rows: minmax(270px, 1fr) 205px; }
+  .monitor-stage { padding-inline: var(--space-2); }
+  .mixer-channels { gap: var(--space-1); }.mixer-channel { min-width: 112px; padding: var(--space-2); }
 }
-
-.control-action > svg { flex-shrink: 0; }
 
 @media (prefers-reduced-motion: reduce) {
   .source-level-mini i { transition: none; }

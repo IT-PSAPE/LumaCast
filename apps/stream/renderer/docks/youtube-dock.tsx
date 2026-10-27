@@ -399,7 +399,7 @@ export function YouTubeDock({
       <>
         <StreamNotice title="Selected stream unavailable" description="This stream is no longer in your upcoming list. Refresh or choose another stream." tone="warning">
           <ReacstButton variant="default" onClick={() => void refreshStreams()}>Refresh streams</ReacstButton>
-          <ReacstButton variant="take" className="youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Choose another</ReacstButton>
+          <ReacstButton variant="success" className="youtube-open-stream-chooser" onClick={() => setChooserOpen(true)}>Choose another</ReacstButton>
         </StreamNotice>
         <YouTubeStreamDetails title={settings.youtube.title} details={details} loading={detailsLoading} />
         {detailsError && <Banner tone="error" size="sm" action={<ReacstButton size="xs" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</ReacstButton>}>Stream details could not be refreshed: {detailsError}</Banner>}
@@ -462,8 +462,8 @@ export function YouTubeDock({
           : status.state === 'live'
             ? <ReacstButton variant="danger" className="youtube-footer-action" disabled={endStopPending} onClick={() => setEndConfirmOpen(true)}>{endStopPending ? 'Ending…' : 'End stream'}</ReacstButton>
             : status.state === 'error'
-              ? canGoLive && <ReacstButton variant="take" className="youtube-footer-action" onClick={onGoLive}>Try again</ReacstButton>
-              : canGoLive && <ReacstButton variant="take" className="youtube-footer-action" onClick={onGoLive}>Go live</ReacstButton>}
+              ? canGoLive && <ReacstButton variant="success" className="youtube-footer-action" onClick={onGoLive}>Try again</ReacstButton>
+              : canGoLive && <ReacstButton variant="success" className="youtube-footer-action" onClick={onGoLive}>Go live</ReacstButton>}
       </div>
 
       <YouTubeSettingsDialog

@@ -1,5 +1,5 @@
 import { useId, type Dispatch, type SetStateAction } from 'react';
-import { Modal, TextField } from '@lumacast/ui';
+import { Modal, ReacstButton, TextField } from '@lumacast/ui';
 
 export interface BrowserSourceDialogProps {
   url: string;
@@ -21,8 +21,8 @@ export function BrowserSourceDialog({ url, setUrl, onSubmit, onClose }: BrowserS
       onClose={onClose}
       initialFocus={urlRef}
       footer={<>
-        <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-        <button className="primary-button" type="submit" form={formId}>Add Source</button>
+        <ReacstButton size="sm" onClick={onClose}>Cancel</ReacstButton>
+        <ReacstButton size="sm" variant="primary" type="submit" form={formId}>Add Source</ReacstButton>
       </>}
     >
       <form id={formId} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>

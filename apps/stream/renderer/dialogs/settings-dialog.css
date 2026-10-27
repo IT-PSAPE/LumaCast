@@ -21,6 +21,19 @@
   overflow: hidden;
 }
 
+.settings-dialog-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.settings-discard-note {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
 .settings-nav {
   min-width: 0;
   padding: 10px 8px;
@@ -61,6 +74,12 @@
   cursor: pointer;
 }
 
+.settings-hotkey-input:focus-visible {
+  border-color: var(--color-brand);
+  outline: 2px solid color-mix(in srgb, var(--color-brand) 45%, transparent);
+  outline-offset: 1px;
+}
+
 .settings-field-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -99,4 +118,57 @@
 
 .settings-audio-tracks {
   margin: 0;
+}
+
+.settings-supporting-copy {
+  margin: calc(-1 * var(--space-1)) 0 0;
+  color: var(--text-color-tertiary);
+  font-size: var(--text-label-xs);
+  line-height: 1.45;
+}
+
+.settings-token-details {
+  margin-top: var(--space-2);
+}
+
+.modal:has(.settings-dialog-root) > .flex:has(.settings-dialog-footer) {
+  flex-wrap: wrap;
+}
+
+.settings-dialog-footer {
+  flex: 1 1 100%;
+}
+
+@media (max-width: 620px) {
+  .modal:has(.settings-dialog-root) {
+    width: min(900px, 96vw);
+    max-height: 92vh;
+  }
+
+  .settings-dialog-root {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-color-secondary);
+    padding: var(--space-1) var(--space-2);
+  }
+
+  .settings-nav > [role="tab"] {
+    flex: 0 0 auto;
+  }
+
+  .settings-content {
+    grid-row: 2;
+    padding: var(--space-3);
+  }
+
+  .settings-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

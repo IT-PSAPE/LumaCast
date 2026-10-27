@@ -94,6 +94,15 @@ describe('SettingsDialog', () => {
     expect(screen.getByRole('button', { name: 'Apply' })).toBeEnabled();
   });
 
+  it('shows each hardware-encoding switch caption once while keeping the switch accessible name', () => {
+    renderDialog({ initialPage: 'output' });
+
+    expect(screen.getByRole('switch', { name: 'Use Media Foundation hardware encoding' })).toBeInTheDocument();
+    expect(screen.getAllByText('Use Media Foundation hardware encoding', { exact: true })).toHaveLength(1);
+    expect(screen.getByRole('switch', { name: 'MP4 hardware encoding' })).toBeInTheDocument();
+    expect(screen.getAllByText('MP4 hardware encoding', { exact: true })).toHaveLength(1);
+  });
+
   it('shows an inline confirm before discarding a dirty draft on Cancel, and keeps editing on request', () => {
     const { onClose } = renderDialog({ initialPage: 'video' });
     const frameRate = screen.getByLabelText('Frame rate');
@@ -161,6 +170,19 @@ describe('SettingsDialog', () => {
   it('shows a disabled, note-free empty state on the Stream page when no streamServiceSettings prop is provided', () => {
     renderDialog({ initialPage: 'stream' });
     expect(screen.getByText('Stream service settings unavailable')).toBeInTheDocument();
+  });
+
+  it('keeps recording conversion available on Advanced and exposes the full filename token reference', () => {
+    const onRemuxRecording = vi.fn();
+    renderDialog({ initialPage: 'advanced', onRemuxRecording });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Convert to MP4…' }));
+    expect(onRemuxRecording).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Repackages MKV or WebM without re-encoding. The original file stays intact.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Filename tokens'));
+    expect(screen.getByText('%CCYY')).toBeInTheDocument();
+    expect(screen.getByText('%ss')).toBeInTheDocument();
   });
 
   it('restores focus to the opener control on unmount', () => {

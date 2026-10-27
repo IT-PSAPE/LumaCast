@@ -1,5 +1,5 @@
 import { useId, type Dispatch, type SetStateAction } from 'react';
-import { Banner, Modal, TextField } from '@lumacast/ui';
+import { Banner, Modal, ReacstButton, TextField } from '@lumacast/ui';
 
 export type NameDialogMode = 'new' | 'duplicate' | 'rename' | 'delete';
 
@@ -37,10 +37,10 @@ export function NameDialog({ noun, mode, name, setName, nameMaxLength, deleteCop
       closeDisabled={working}
       initialFocus={deleting ? undefined : nameRef}
       footer={<>
-        <button className="secondary-button" type="button" disabled={working} onClick={onClose}>Cancel</button>
+        <ReacstButton size="sm" disabled={working} onClick={onClose}>Cancel</ReacstButton>
         {deleting
-          ? <button className="primary-button danger-button" type="button" disabled={working || deleteDisabled} onClick={onSubmit}>{working ? 'Deleting…' : `Delete ${noun}`}</button>
-          : <button className="primary-button" type="submit" form={formId} disabled={working}>{working ? 'Saving…' : 'Save'}</button>}
+          ? <ReacstButton size="sm" variant="danger" disabled={working || deleteDisabled} onClick={onSubmit}>{working ? 'Deleting…' : `Delete ${noun}`}</ReacstButton>
+          : <ReacstButton size="sm" variant="primary" type="submit" form={formId} disabled={working}>{working ? 'Saving…' : 'Save'}</ReacstButton>}
       </>}
     >
       {deleting

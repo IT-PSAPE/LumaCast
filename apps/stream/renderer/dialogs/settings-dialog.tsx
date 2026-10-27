@@ -304,16 +304,18 @@ export function SettingsDialog({
       onClose={requestClose}
       title="Settings"
       footer={confirmingDiscard ? (
-        <>
-          <span className="mr-auto label-xs text-tertiary">Discard unsaved changes?</span>
-          <button type="button" className="secondary-button" onClick={keepEditing}>Keep Editing</button>
-          <button type="button" className="secondary-button" onClick={confirmDiscard}>Discard</button>
-        </>
+        <div className="settings-dialog-footer">
+          <span className="settings-discard-note label-xs text-tertiary">Discard unsaved changes?</span>
+          <ReacstButton size="sm" onClick={keepEditing}>Keep Editing</ReacstButton>
+          <ReacstButton size="sm" variant="danger" onClick={confirmDiscard}>Discard</ReacstButton>
+        </div>
       ) : (
         <>
-          <button type="button" className="secondary-button" onClick={requestClose}>Cancel</button>
-          <button type="button" className="secondary-button" disabled={!dirty || hasErrors} onClick={applyChanges}>Apply</button>
-          <button type="button" className="primary-button" disabled={hasErrors} onClick={handleOk}>OK</button>
+          <div className="settings-dialog-footer">
+            <ReacstButton size="sm" onClick={requestClose}>Cancel</ReacstButton>
+            <ReacstButton size="sm" variant="tinted" disabled={!dirty || hasErrors} onClick={applyChanges}>Apply</ReacstButton>
+            <ReacstButton size="sm" variant="primary" disabled={hasErrors} onClick={handleOk}>OK</ReacstButton>
+          </div>
         </>
       )}
     >
@@ -599,7 +601,7 @@ function HotkeysPage({ project, hotkeys }: { project: StreamProject; hotkeys: Ho
         </Field>
       )))}
       {hotkeys.hotkeyError && <Banner tone="error" size="sm">{hotkeys.hotkeyError}</Banner>}
-      <button className="apply-hotkeys" type="button" disabled={hotkeys.hotkeysWorking || !hotkeys.hotkeyDraft} onClick={hotkeys.onApply}>{hotkeys.hotkeysWorking ? 'Applying…' : 'Apply Hotkeys'}</button>
+      <ReacstButton size="sm" variant="tinted" fullWidth disabled={hotkeys.hotkeysWorking || !hotkeys.hotkeyDraft} onClick={hotkeys.onApply}>{hotkeys.hotkeysWorking ? 'Applying…' : 'Apply Hotkeys'}</ReacstButton>
     </div>
   );
 }
@@ -607,14 +609,17 @@ function HotkeysPage({ project, hotkeys }: { project: StreamProject; hotkeys: Ho
 function AdvancedPage({ onRemuxRecording }: { onRemuxRecording?: () => void }) {
   return (
     <div className="settings-page">
-      <div className="popover-heading"><strong>Filename Tokens</strong></div>
-      <dl className="settings-token-legend">
-        {FILENAME_TOKENS.map(({ token, meaning }) => (
-          <div key={token} className="settings-token-row"><dt>{token}</dt><dd>{meaning}</dd></div>
-        ))}
-      </dl>
-      <div className="popover-heading video-heading"><strong>Recordings</strong></div>
-      <button type="button" className="secondary-button" disabled={!onRemuxRecording} onClick={() => onRemuxRecording?.()}>Remux Recordings…</button>
+      <div className="popover-heading"><strong>Recordings</strong></div>
+      <ReacstButton size="sm" variant="default" disabled={!onRemuxRecording} onClick={() => onRemuxRecording?.()}>Convert to MP4…</ReacstButton>
+      <p className="settings-supporting-copy">Repackages MKV or WebM without re-encoding. The original file stays intact.</p>
+      <details className="filter-details settings-token-details">
+        <summary>Filename tokens</summary>
+        <dl className="settings-token-legend">
+          {FILENAME_TOKENS.map(({ token, meaning }) => (
+            <div key={token} className="settings-token-row"><dt>{token}</dt><dd>{meaning}</dd></div>
+          ))}
+        </dl>
+      </details>
     </div>
   );
 }

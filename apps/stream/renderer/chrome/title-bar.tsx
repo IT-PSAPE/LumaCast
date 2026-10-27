@@ -15,7 +15,7 @@ export interface TitleBarProps {
   menuMode: 'native' | 'hamburger';
   menus: MenubarMenu[];
   title: string;
-  // Right-side status chips (e.g. LIVE/REC indicators).
+  // Right-side actions such as the global Settings button.
   children?: ReactNode;
 }
 
@@ -24,7 +24,7 @@ export interface TitleBarProps {
  * drag regions and platform insets come from there). Start holds the
  * Windows/Linux hamburger menu (macOS keeps its real menu bar and traffic
  * lights) followed by the window title, which is its own drag region inside
- * the no-drag Start. Center is empty; End carries the status chips.
+ * the no-drag Start. Center is empty; End carries global actions.
  */
 export function TitleBar({ platform, menuMode, menus, title, children }: TitleBarProps) {
   const [hamburgerMenuOpen, setHamburgerMenuOpen] = useState(false);

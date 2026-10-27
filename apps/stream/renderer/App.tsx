@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { Badge, Modal, NumberField, ReacstButton, Select, StatusBar, StatusDot, Toolbar, TooltipProvider } from '@lumacast/ui';
-import { Clapperboard, ExternalLink, Radio } from 'lucide-react';
+import { Modal, NumberField, ReacstButton, Select, StatusBar, StatusDot, Toolbar, TooltipProvider } from '@lumacast/ui';
+import { Clapperboard, ExternalLink, Radio, Settings } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
 import type { SceneTransitionType } from './scene-transition';
 import { TitleBar } from './chrome/title-bar';
@@ -27,7 +27,7 @@ import { formatElapsed } from './format-elapsed';
 import { recordingElapsedTime } from './recording-controls';
 import { flattenSourceNodes } from '../shared/source-tree';
 import { canReferenceScene, getVisibleSourceIdsForScenes } from '../shared/scene-reference-graph';
-import { dockColumnsTemplate, dockGridColumn, workbenchRowsTemplate } from './workbench-layout';
+import { dockColumnsMinWidth, dockColumnsTemplate, dockGridColumn, workbenchRowsTemplate } from './workbench-layout';
 import {
   desktopAudioCaptureModeForPlatform, isVideoEncoderAvailableOnPlatform, primaryShortcutLabel,
   supportsApplicationAudioCapture, supportsDisplayCaptureSystemAudio, systemVideoEncoderForPlatform,
@@ -305,7 +305,6 @@ export function App() {
   // Docks render in a fixed DOM order but are placed by grid column, so the
   // visually last dock is the one that drops its right border.
   const lastDockId = visibleDockIds[visibleDockIds.length - 1];
-  const streamServiceLabel = streaming.streamServiceLabel;
 
 
   return (
@@ -327,8 +326,7 @@ export function App() {
         />)}
       </div>}
       <TitleBar platform={platform} menuMode={platform === 'darwin' ? 'native' : 'hamburger'} title="LumaStream" menus={appMenus}>
-        {(streaming.streamStatus.state === 'live' || streaming.streamStatus.state === 'connecting') && <Badge tone="error" shape="rounded" dot>{streaming.streamStatus.state === 'connecting' ? 'CONNECTING' : 'LIVE'} · {streamDuration}</Badge>}
-        {(recording.recordingStartedAt !== null || recording.recordingFinalizing) && <Badge tone="error" shape="rounded" dot>REC · {recording.recordingFinalizing ? 'Finalizing' : duration}</Badge>}
+        <ReacstButton.Icon variant="ghost" size="sm" label="Open settings" tooltip="Settings" onClick={openSettings}><Settings /></ReacstButton.Icon>
       </TitleBar>
 
       {settingsOpen && <SettingsDialog
@@ -378,40 +376,15 @@ export function App() {
       <section
         ref={workbench.workbenchRef}
         className={`workbench${workbench.workbenchResizing ? ` resizing-${workbench.workbenchResizing}` : ''}${workbench.dockDrag ? ' reordering' : ''}`}
-        style={{ gridTemplateColumns: dockColumnsTemplate(workbench.workbenchLayout) ?? undefined, gridTemplateRows: workbenchRowsTemplate(workbench.workbenchLayout.bottomPanelHeight, visibleDockIds.length) ?? undefined }}
+        style={{ gridTemplateRows: workbenchRowsTemplate(workbench.workbenchLayout.bottomPanelHeight, visibleDockIds.length) ?? undefined }}
         onPointerDown={workbench.handleWorkbenchTitlePointerDown}
         onPointerMove={workbench.handleWorkbenchTitlePointerMove}
         onPointerUp={workbench.endDockDrag}
         onPointerCancel={workbench.endDockDrag}
       >
-        {visibleDockIds.includes('scenes') && <ScenesDock
-          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'scenes') ?? undefined, opacity: workbench.dockDragOpacity('scenes'), borderRight: lastDockId === 'scenes' ? 0 : undefined }}
-          resizer={workbench.resizerForDock('scenes')}
-          onHide={() => workbench.toggleDock('scenes')}
-          platform={platform}
-          scenes={project.scenes}
-          activeSceneId={project.activeSceneId}
-          liveSceneId={project.liveSceneId}
-          undoAvailable={workspace.undoAvailable}
-          redoAvailable={workspace.redoAvailable}
-          onUndo={workspace.undoSceneEdit}
-          onRedo={workspace.redoSceneEdit}
-          onAddScene={scenes.addScene}
-          onChooseScene={scenes.chooseScene}
-          setSceneNameDraft={scenes.setSceneNameDraft}
-          setSceneDialog={scenes.setSceneDialog}
-          working={working}
-          onDuplicateScene={() => void scenes.duplicateActiveScene()}
-          studioMode={project.studioMode}
-          onTakeScene={scenes.takeScene}
-          onOpenProjector={multiview.openProjector}
-          onRenameScene={scenes.renameScene}
-          onReorderScenes={scenes.reorderScenes}
-        />}
-
         <section className="monitor-dock">
           <div
-            className="panel-resizer"
+            className="workbench-panel-resizer"
             role="separator"
             aria-orientation="horizontal"
             aria-label="Resize bottom panel"
@@ -440,7 +413,6 @@ export function App() {
           </div>
           <Toolbar size="sm" label="Program controls" className="border-t border-primary text-sm text-tertiary">
             <Toolbar.Group label="Transition">
-              <span>Transition</span>
               <Select<SceneTransitionType> size="sm" className="w-28" label="Scene transition" labelPlacement="hidden" value={scenes.transitionType} onValueChange={scenes.setTransitionType} options={transitionOptions} />
               {scenes.transitionType === 'FadeToColor' && (
                 <label className="flex items-center gap-1.5 rounded-sm bg-tertiary px-2 py-1">
@@ -449,16 +421,43 @@ export function App() {
                 </label>
               )}
               <NumberField size="sm" className="w-24" label="Transition duration in milliseconds" labelPlacement="hidden" suffix="ms" commitOn="change" min={50} max={5000} step={50} value={scenes.transitionMs} onValueChange={scenes.setTransitionMs} />
-              {project.studioMode && <ReacstButton variant="take" size="sm" disabled={project.activeSceneId === project.liveSceneId} onClick={scenes.takeScene}>Take <Clapperboard size={13} /></ReacstButton>}
+              {project.studioMode && <ReacstButton variant="success" size="sm" aria-label="Transition scene" title="Transition scene" disabled={project.activeSceneId === project.liveSceneId} onClick={() => scenes.transitionScene()}>Transition <Clapperboard size={13} /></ReacstButton>}
             </Toolbar.Group>
             <Toolbar.Spacer />
             <Toolbar.Group label="Program">
-              <ReacstButton pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
-              <ReacstButton.Icon variant="ghost" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
+              <ReacstButton size="sm" pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
+              <ReacstButton.Icon variant="ghost" size="sm" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
             </Toolbar.Group>
             <span className="shrink-0 rounded-xs bg-tertiary px-1.5 py-0.5">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
           </Toolbar>
         </section>
+
+        <div className="workbench-docks">
+          <div className="workbench-docks-grid" style={{ gridTemplateColumns: dockColumnsTemplate(workbench.workbenchLayout) ?? undefined, minWidth: dockColumnsMinWidth(workbench.workbenchLayout) }}>
+        {visibleDockIds.includes('scenes') && <ScenesDock
+          style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'scenes') ?? undefined, opacity: workbench.dockDragOpacity('scenes'), borderRight: lastDockId === 'scenes' ? 0 : undefined }}
+          resizer={workbench.resizerForDock('scenes')}
+          onHide={() => workbench.toggleDock('scenes')}
+          platform={platform}
+          scenes={project.scenes}
+          activeSceneId={project.activeSceneId}
+          liveSceneId={project.liveSceneId}
+          undoAvailable={workspace.undoAvailable}
+          redoAvailable={workspace.redoAvailable}
+          onUndo={workspace.undoSceneEdit}
+          onRedo={workspace.redoSceneEdit}
+          onAddScene={scenes.addScene}
+          onChooseScene={scenes.chooseScene}
+          setSceneNameDraft={scenes.setSceneNameDraft}
+          setSceneDialog={scenes.setSceneDialog}
+          working={working}
+          onDuplicateScene={() => void scenes.duplicateActiveScene()}
+          studioMode={project.studioMode}
+          onTransitionScene={scenes.transitionScene}
+          onOpenProjector={multiview.openProjector}
+          onRenameScene={scenes.renameScene}
+          onReorderScenes={scenes.reorderScenes}
+        />}
 
         {visibleDockIds.includes('sources') && <SourcesDock
           style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'sources') ?? undefined, opacity: workbench.dockDragOpacity('sources'), borderRight: lastDockId === 'sources' ? 0 : undefined }}
@@ -610,10 +609,16 @@ export function App() {
           resizer={workbench.resizerForDock('controls')}
           onHide={() => workbench.toggleDock('controls')}
           working={working}
-          streamingStartedAt={streaming.streamingStartedAt}
-          streamServiceLabel={streamServiceLabel}
+          streamOutputs={Object.entries(streaming.outputStatuses)
+            .filter(([, status]) => status.state !== 'stopped')
+            .map(([id, status]) => ({
+              id,
+              label: id === 'youtube' ? 'YouTube' : id === 'zoom' ? 'Zoom' : 'Output',
+              status,
+              duration: formatElapsed(streaming.outputStartedAt[id] === undefined ? 0 : clockNow - streaming.outputStartedAt[id], 'full'),
+            }))}
           onGoLive={streaming.openStreamDialog}
-          onStopStreaming={streaming.stopStreaming}
+          onStopStreaming={(outputId) => streaming.stopStreaming(outputId)}
           recordingFinalizing={recording.recordingFinalizing}
           recordingStartedAt={recording.recordingStartedAt}
           recordingPausedAt={recording.recordingPausedAt}
@@ -626,41 +631,43 @@ export function App() {
           onStopReplayBuffer={replayBuffer.stopReplayBuffer}
           canSaveReplay={replayBuffer.canSaveReplay}
           onSaveReplay={() => void replayBuffer.saveReplay()}
-          streamStatus={streaming.streamStatus}
-          streamDuration={streamDuration}
           recordingDuration={duration}
-          onRemuxRecording={() => void recording.remuxRecording()}
-          onOpenSettings={openSettings}
         />}
+
+          </div>
+        </div>
 
         {workbench.dockDrag && <div className="dock-drop-indicator" style={{ left: workbench.dockDrag.left, top: workbench.dockDrag.top, height: workbench.dockDrag.height }} />}
       </section>
 
       <StatusBar label="Stream status">
         <StatusBar.Start>
-          <StatusBar.Item icon={<StatusDot tone="success" />}>Ready</StatusBar.Item>
+          {((actionError && !actionError.startsWith('Saved ')) || streaming.streamStatus.state === 'error') && <StatusBar.Item tone="error">Error</StatusBar.Item>}
           {working && <StatusBar.Item tone="warning">Working…</StatusBar.Item>}
+          {streaming.streamStatus.state === 'connecting' && <StatusBar.Item tone="warning">Connecting</StatusBar.Item>}
+          {streaming.streamStatus.state === 'live' && <StatusBar.Item>LIVE {streamDuration} · {streaming.streamStatus.bitrateKbps ?? 0} kb/s</StatusBar.Item>}
+          {streaming.reconnectCount > 0 && <StatusBar.Item>Reconnects: {streaming.reconnectCount}</StatusBar.Item>}
+          {recording.recordingFinalizing
+            ? <StatusBar.Item>REC Finalizing</StatusBar.Item>
+            : recording.recordingStartedAt !== null
+              ? <StatusBar.Item>{recording.recordingPausedAt === null ? 'REC' : 'REC Paused'} {duration}</StatusBar.Item>
+              : null}
+          {!working && streaming.streamStatus.state !== 'connecting' && streaming.streamStatus.state !== 'live'
+            && recording.recordingStartedAt === null && !recording.recordingFinalizing
+            && !(actionError && !actionError.startsWith('Saved ')) && streaming.streamStatus.state !== 'error'
+            && <StatusBar.Item icon={<StatusDot tone="success" />}>Ready</StatusBar.Item>}
         </StatusBar.Start>
         <StatusBar.Center>
           {actionError && <StatusBar.Item live tone={actionError.startsWith('Saved ') ? 'success' : 'error'} className="truncate">{actionError}</StatusBar.Item>}
         </StatusBar.Center>
         <StatusBar.End>
-          {streaming.streamStatus.state === 'live' && <>
-            <StatusBar.Item>LIVE {streamDuration} · {streaming.streamStatus.bitrateKbps ?? 0} kb/s</StatusBar.Item>
+          {project.output.baseWidth !== project.output.width || project.output.baseHeight !== project.output.height ? <>
+            <StatusBar.Item>Canvas {project.output.baseWidth} × {project.output.baseHeight}</StatusBar.Item>
             <StatusBar.Divider />
-          </>}
-          {(recording.recordingStartedAt !== null || recording.recordingFinalizing) && <>
-            <StatusBar.Item>REC {recording.recordingFinalizing ? 'Finalizing' : duration}</StatusBar.Item>
+            <StatusBar.Item>Output {project.output.width} × {project.output.height}</StatusBar.Item>
             <StatusBar.Divider />
-          </>}
-          {streaming.reconnectCount > 0 && <>
-            <StatusBar.Item>Reconnects: {streaming.reconnectCount}</StatusBar.Item>
-            <StatusBar.Divider />
-          </>}
-          <StatusBar.Item>Canvas {project.output.baseWidth} × {project.output.baseHeight}</StatusBar.Item>
-          <StatusBar.Divider />
-          <StatusBar.Item>Output {project.output.width} × {project.output.height}</StatusBar.Item>
-          <StatusBar.Divider />
+          </> : <StatusBar.Item>Canvas {project.output.width} × {project.output.height}</StatusBar.Item>}
+
           <StatusBar.Item>{project.output.frameRate} FPS</StatusBar.Item>
           {runtimeStats.runtimeStats && <>
             <StatusBar.Divider />

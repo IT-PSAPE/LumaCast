@@ -79,7 +79,8 @@ function makeContext(overrides: Partial<AppMenuContext> = {}): AppMenuContext {
     clipboardAvailable: false,
     docks: [
       { id: 'scenes', label: 'Scenes', visible: true },
-      { id: 'youtube', label: 'YouTube Live Control Panel', visible: false },
+      { id: 'youtube', label: 'YouTube Live', visible: false },
+      { id: 'zoom', label: 'Zoom', visible: false },
     ],
     collections: [
       { id: 'col-1', name: 'Default' },
@@ -108,13 +109,18 @@ describe('buildAppMenus', () => {
     const menus = buildAppMenus(context);
     const file = findMenu(menus, 'file');
     expect(file.entries.filter(isItem).map((item) => item.label)).toEqual([
-      'Import Scene Collection…', 'Export Scene Collection…', 'Show Recordings', 'Remux Recordings…', 'Settings…', 'Quit',
+      'Import Scene Collection…', 'Export Scene Collection…', 'Show Recordings', 'Convert to MP4…', 'Settings…', 'Quit',
     ]);
 
     const quit = findItem(file.entries, 'file.quit');
     expect(quit.shortcut).toBe('⌘Q');
     quit.onSelect?.();
     expect(context.actions.quit).toHaveBeenCalledTimes(1);
+
+    const convert = findItem(file.entries, 'file.remux');
+    expect(convert.label).toBe('Convert to MP4…');
+    convert.onSelect?.();
+    expect(context.actions.remux).toHaveBeenCalledTimes(1);
   });
 
   it('omits the Quit shortcut off darwin', () => {
@@ -207,10 +213,12 @@ describe('buildAppMenus', () => {
       const docks = findMenu(buildAppMenus(context), 'docks');
       const scenes = findItem(docks.entries, 'docks.scenes');
       const youtube = findItem(docks.entries, 'docks.youtube');
+      const zoom = findItem(docks.entries, 'docks.zoom');
       expect(scenes.label).toBe('Scenes');
       expect(scenes.checked).toBe(true);
-      expect(youtube.label).toBe('YouTube Live Control Panel');
+      expect(youtube.label).toBe('YouTube Live');
       expect(youtube.checked).toBe(false);
+      expect(zoom.label).toBe('Zoom');
 
       youtube.onSelect?.();
       expect(context.actions.toggleDock).toHaveBeenCalledWith('youtube');

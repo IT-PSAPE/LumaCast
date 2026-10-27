@@ -1,6 +1,6 @@
 /**
  * Resizable workbench geometry: the bottom docks (Scenes, Sources, Audio
- * Mixer, YouTube Live Control Panel, Controls, Zoom Meeting Control Panel) and the height of the bottom
+ * Mixer, YouTube Live, Controls, Zoom) and the height of the bottom
  * panel that holds them. Widths are kept as grid weights so the docks still
  * share any spare width when the window changes size; the panel height is a
  * fixed pixel value. Docks can be individually hidden; hidden docks keep
@@ -15,13 +15,13 @@ export const DOCK_LABELS: Record<DockId, string> = {
   scenes: 'Scenes',
   sources: 'Sources',
   mixer: 'Audio Mixer',
-  youtube: 'YouTube Live Control Panel',
-  zoom: 'Zoom Meeting Control Panel',
+  youtube: 'YouTube Live',
+  zoom: 'Zoom',
   controls: 'Controls',
 };
 
 export const DOCK_MIN_WIDTHS: Record<DockId, number> = {
-  scenes: 160,
+  scenes: 200,
   sources: 185,
   mixer: 225,
   youtube: 240,
@@ -217,6 +217,11 @@ export function dockColumnsTemplate(layout: WorkbenchLayout): string | null {
   if (layout.dockWeights === null && isDefaultVisibleSet) return null;
   const weights = layout.dockWeights;
   return visible.map((id) => `minmax(${DOCK_MIN_WIDTHS[id]}px, ${weights?.[id] ?? DEFAULT_DOCK_WEIGHTS[id]}fr)`).join(' ');
+}
+
+/** Minimum horizontal space needed to show every visible dock at its own minimum width. */
+export function dockColumnsMinWidth(layout: WorkbenchLayout): number {
+  return visibleDocks(layout).reduce((width, id) => width + DOCK_MIN_WIDTHS[id], 0);
 }
 
 /**

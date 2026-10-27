@@ -43,11 +43,26 @@ describe('ReacstButton', () => {
   });
 
   it('renders every variant without throwing and keeps the accessible label', () => {
-    for (const variant of ['default', 'take', 'danger', 'ghost'] as const) {
+    for (const variant of ['default', 'take', 'success', 'danger', 'ghost'] as const) {
       const { unmount } = render(<ReacstButton variant={variant} label={`Do ${variant}`}>{variant}</ReacstButton>);
       expect(screen.getByRole('button', { name: `Do ${variant}` })).not.toBeNull();
       unmount();
     }
+  });
+
+  it('success keeps the shared success styling for resting, active, and disabled buttons', () => {
+    const { rerender } = render(<ReacstButton variant="success" label="Transition">Transition</ReacstButton>);
+    const button = screen.getByRole('button', { name: 'Transition' });
+    expect(button.className).toContain('bg-success/15');
+    expect(button.className).toContain('hover:bg-success/25');
+
+    rerender(<ReacstButton variant="success" active label="Transition">Transition</ReacstButton>);
+    expect(button.className).toContain('bg-success/15');
+
+    rerender(<ReacstButton variant="success" disabled label="Transition">Transition</ReacstButton>);
+    expect(button).toBeDisabled();
+    expect(button.hasAttribute('data-disabled')).toBe(true);
+    expect(button.className).toContain('data-disabled:opacity-50');
   });
 
   it('forwards ref to the native button node', () => {

@@ -1,0 +1,26 @@
+.controls-dock { min-width: 0; container-type: inline-size; }
+.control-body { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.control-rows { display: grid; gap: var(--space-1); padding: var(--space-1-5) var(--space-2); }
+.control-row { width: 100%; min-width: 0; min-height: 30px; justify-content: flex-start; padding-inline: var(--space-1-5); }
+.control-row > svg { flex: 0 0 auto; }
+.control-output-row,
+.control-recording-row { min-width: 0; min-height: 34px; display: flex; align-items: center; gap: var(--space-1-5); padding: 0 var(--space-1-5); border: 1px solid var(--border-color-primary); border-radius: var(--radius-control); background: var(--background-color-secondary); }
+.control-output-state { min-width: 0; display: flex; align-items: center; gap: var(--space-1-5); flex: 1; overflow: hidden; color: var(--text-color-primary); font-size: var(--text-label-xs); text-overflow: ellipsis; white-space: nowrap; }
+.control-output-state > span:first-child { flex: 0 0 auto; }
+.control-duration { flex: 0 0 auto; color: var(--text-color-secondary); font-size: var(--text-label-xs); font-variant-numeric: tabular-nums; }
+.control-row-action { min-width: 0; min-height: 26px; flex: 0 0 auto; gap: var(--space-1); padding-inline: var(--space-1-5); }
+.control-output-error { min-width: 0; display: flex; align-items: flex-start; gap: var(--space-1-5); padding: var(--space-1-5); border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--border-color-primary)); border-radius: var(--radius-control); color: var(--text-color-secondary); background: color-mix(in srgb, var(--color-error) 8%, var(--background-color-secondary)); font-size: var(--text-label-xs); line-height: 1.35; overflow-wrap: anywhere; }
+.control-output-error > span:first-child { flex: 0 0 auto; margin-top: 2px; }
+.control-output-error strong { color: var(--text-color-primary); font-weight: 600; }
+
+@container (max-width: 220px) {
+  .control-output-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1); padding-block: var(--space-1); }
+  .control-output-row .control-output-state { grid-column: 1; grid-row: 1; }
+  .control-output-row .control-duration { grid-column: 2; grid-row: 1; }
+  .control-output-row .control-output-action { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; }
+  .control-recording-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--space-1); padding-block: var(--space-1); }
+  .control-recording-row .control-output-state { grid-column: 1; grid-row: 1; }
+  .control-recording-row .control-duration { grid-column: 2; grid-row: 1; }
+  .control-recording-row .control-recording-action { grid-column: 1; grid-row: 2; justify-self: stretch; }
+  .control-recording-row .control-recording-stop { grid-column: 2; grid-row: 2; justify-self: stretch; }
+}

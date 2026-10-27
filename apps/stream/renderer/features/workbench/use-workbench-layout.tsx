@@ -164,8 +164,12 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
   // can be rendered without a second DOM pass.
   const computeDockDropTarget = (clientX: number): { before: DockId | 'end'; left: number; top: number; height: number } => {
     const workbenchRect = workbenchRef.current?.getBoundingClientRect();
+    const dockViewportRect = workbenchRef.current?.querySelector<HTMLElement>('.workbench-docks')?.getBoundingClientRect();
+    const targetX = dockViewportRect
+      ? Math.min(Math.max(clientX, dockViewportRect.left), dockViewportRect.right)
+      : clientX;
     let before: DockId | 'end' = 'end';
-    let edgeX = workbenchRect?.right ?? 0;
+    let edgeX = dockViewportRect?.right ?? workbenchRect?.right ?? 0;
     let rowTop = workbenchRect?.top ?? 0;
     let rowHeight = 0;
     for (const id of visibleDocks(workbenchLayout)) {
@@ -173,9 +177,10 @@ export function useWorkbenchLayout(): UseWorkbenchLayoutResult {
       if (!rect) continue;
       rowTop = rect.top;
       rowHeight = rect.height;
-      if (clientX < rect.left + rect.width / 2) { before = id; edgeX = rect.left; break; }
+      if (targetX < rect.left + rect.width / 2) { before = id; edgeX = rect.left; break; }
       edgeX = rect.right;
     }
+    if (dockViewportRect) edgeX = Math.min(Math.max(edgeX, dockViewportRect.left), dockViewportRect.right);
     return { before, left: edgeX - (workbenchRect?.left ?? 0), top: rowTop - (workbenchRect?.top ?? 0), height: rowHeight };
   };
 

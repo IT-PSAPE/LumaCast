@@ -201,7 +201,7 @@ export function CreateYouTubeStreamDialog({ open, initialDraft, busy, error, onC
           {error && <Banner tone="error" size="sm">{error}</Banner>}
           <div className="youtube-dialog-footer">
             <ReacstButton variant="default" disabled={busy} onClick={onClose}>Cancel</ReacstButton>
-            <ReacstButton variant="take" type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create stream'}</ReacstButton>
+            <ReacstButton variant="success" type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create stream'}</ReacstButton>
           </div>
         </form>
       </div>

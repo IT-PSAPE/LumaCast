@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOTTOM_PANEL_MIN_HEIGHT, clampBottomPanelHeight, DEFAULT_DOCK_WEIGHTS, DEFAULT_HIDDEN_DOCKS, DEFAULT_WORKBENCH_LAYOUT,
-  DOCK_LABELS, DOCK_MIN_WIDTHS, DOCK_ORDER, dockColumnsTemplate, dockGridColumn, dockWeightsFromWidths, isDefaultWorkbenchLayout, MONITOR_MIN_HEIGHT,
+  DOCK_LABELS, DOCK_MIN_WIDTHS, DOCK_ORDER, dockColumnsMinWidth, dockColumnsTemplate, dockGridColumn, dockWeightsFromWidths, isDefaultWorkbenchLayout, MONITOR_MIN_HEIGHT,
   moveDock, parseWorkbenchLayout, reorderDockOnDrop, resetWorkbenchLayout, resizeDockWidths, serializeWorkbenchLayout, toggleDockVisibility,
   visibleDocks, workbenchRowsTemplate, type DockId, type WorkbenchLayout,
 } from '../../../../apps/stream/renderer/workbench-layout';
@@ -17,6 +17,15 @@ describe('dock registry', () => {
       expect(DOCK_MIN_WIDTHS[id]).toBeGreaterThan(0);
       expect(DEFAULT_DOCK_WEIGHTS[id]).toBeGreaterThan(0);
     }
+  });
+
+  it('uses concise provider labels and keeps all six docks reachable in the lower strip', () => {
+    const allDocks = { ...defaultLayout(), hiddenDocks: [] };
+    expect(DOCK_LABELS.youtube).toBe('YouTube Live');
+    expect(DOCK_LABELS.zoom).toBe('Zoom');
+    expect(DOCK_MIN_WIDTHS.scenes).toBe(200);
+    expect(dockColumnsMinWidth(allDocks)).toBe(1270);
+    expect(dockColumnsMinWidth(defaultLayout())).toBe(790);
   });
 });
 
@@ -165,7 +174,7 @@ describe('dock order', () => {
     expect(visibleDocks(layout)).toEqual(['controls', 'mixer', 'sources', 'scenes']);
     expect(dockGridColumn(layout, 'controls')).toBe(1);
     expect(dockGridColumn(layout, 'scenes')).toBe(4);
-    expect(dockColumnsTemplate(layout)).toBe('minmax(180px, 0.95fr) minmax(225px, 1.2fr) minmax(185px, 1fr) minmax(160px, 0.9fr)');
+    expect(dockColumnsTemplate(layout)).toBe('minmax(180px, 0.95fr) minmax(225px, 1.2fr) minmax(185px, 1fr) minmax(200px, 0.9fr)');
   });
 });
 
@@ -177,14 +186,14 @@ describe('dock column templates', () => {
   it('renders an explicit template for a non-default 3-dock visible set', () => {
     const layout: WorkbenchLayout = { dockWeights: null, bottomPanelHeight: null, hiddenDocks: ['mixer', 'youtube', 'zoom'], dockOrder: [...DOCK_ORDER] };
     expect(visibleDocks(layout)).toEqual(['scenes', 'sources', 'controls']);
-    expect(dockColumnsTemplate(layout)).toBe('minmax(160px, 0.9fr) minmax(185px, 1fr) minmax(180px, 0.95fr)');
+    expect(dockColumnsTemplate(layout)).toBe('minmax(200px, 0.9fr) minmax(185px, 1fr) minmax(180px, 0.95fr)');
   });
 
   it('renders an explicit template for all 6 docks visible', () => {
     const layout: WorkbenchLayout = { dockWeights: null, bottomPanelHeight: null, hiddenDocks: [], dockOrder: [...DOCK_ORDER] };
     expect(visibleDocks(layout)).toEqual([...DOCK_ORDER]);
     expect(dockColumnsTemplate(layout)).toBe(
-      'minmax(160px, 0.9fr) minmax(185px, 1fr) minmax(225px, 1.2fr) minmax(240px, 1fr) minmax(180px, 0.95fr) minmax(240px, 1fr)',
+      'minmax(200px, 0.9fr) minmax(185px, 1fr) minmax(225px, 1.2fr) minmax(240px, 1fr) minmax(180px, 0.95fr) minmax(240px, 1fr)',
     );
   });
 
@@ -195,12 +204,12 @@ describe('dock column templates', () => {
 
   it('renders custom weights for the default visible set instead of null', () => {
     const layout: WorkbenchLayout = { dockWeights: { scenes: 0.8, sources: 0.8, mixer: 1.6, controls: 0.8 }, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] };
-    expect(dockColumnsTemplate(layout)).toBe('minmax(160px, 0.8fr) minmax(185px, 0.8fr) minmax(225px, 1.6fr) minmax(180px, 0.8fr)');
+    expect(dockColumnsTemplate(layout)).toBe('minmax(200px, 0.8fr) minmax(185px, 0.8fr) minmax(225px, 1.6fr) minmax(180px, 0.8fr)');
   });
 
   it('falls back to the default weight for a visible dock missing from a custom record', () => {
     const layout: WorkbenchLayout = { dockWeights: { mixer: 1.5 }, bottomPanelHeight: null, hiddenDocks: ['youtube', 'zoom'], dockOrder: [...DOCK_ORDER] };
-    expect(dockColumnsTemplate(layout)).toBe('minmax(160px, 0.9fr) minmax(185px, 1fr) minmax(225px, 1.5fr) minmax(180px, 0.95fr)');
+    expect(dockColumnsTemplate(layout)).toBe('minmax(200px, 0.9fr) minmax(185px, 1fr) minmax(225px, 1.5fr) minmax(180px, 0.95fr)');
   });
 });
 
@@ -249,7 +258,7 @@ describe('workbench dock resizing', () => {
   it('resizes over a non-default 3-dock visible list', () => {
     const threeVisible: readonly DockId[] = ['scenes', 'sources', 'controls'];
     const threeMinWidths = minWidthsFor(threeVisible);
-    expect(threeMinWidths).toEqual([160, 185, 180]);
+    expect(threeMinWidths).toEqual([200, 185, 180]);
 
     const threeWidths = [200, 220, 200];
     expect(resizeDockWidths(threeWidths, 0, 30, threeMinWidths)).toEqual([230, 190, 200]);

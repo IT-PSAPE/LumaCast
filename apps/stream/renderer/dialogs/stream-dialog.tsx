@@ -1,5 +1,5 @@
 import { useId } from 'react';
-import { Banner, Checkbox, Modal, NumberField, Select, Slider, TextField } from '@lumacast/ui';
+import { Banner, Checkbox, Modal, NumberField, ReacstButton, Select, Slider, TextField } from '@lumacast/ui';
 import { StreamKeyField } from './stream-key-field';
 import { hardwareEncodingLabelForPlatform, type StreamPlatform } from '../../shared/platform-capabilities';
 import { getStreamService, STREAM_SERVICES, validateStreamServiceSettings, type StreamServiceId } from '../../shared/stream-services';
@@ -54,8 +54,8 @@ export function StreamDialog({ project, setProjectValue, platform, working, sett
       closeDisabled={working}
       footer={<>
         <span className="stream-footer-note">{project.output.width} × {project.output.height} · {project.output.frameRate} FPS</span>
-        <button className="secondary-button" type="button" disabled={working} onClick={onClose}>Cancel</button>
-        <button className="primary-button" type="submit" form={formId} disabled={working || validationMessage !== null}>{working ? 'Connecting…' : 'Start Streaming'}</button>
+        <ReacstButton size="sm" disabled={working} onClick={onClose}>Cancel</ReacstButton>
+        <ReacstButton size="sm" variant="primary" type="submit" form={formId} disabled={working || validationMessage !== null}>{working ? 'Connecting…' : 'Start Streaming'}</ReacstButton>
       </>}
     >
         <form id={formId} onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
