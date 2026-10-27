@@ -66,6 +66,8 @@
   white-space: nowrap;
 }
 
+.mixer-stage-badge { margin-left: var(--space-1); vertical-align: middle; }
+
 .mixer-strip--horizontal .mixer-strip-head { width: 100%; }
 .mixer-strip--horizontal .mixer-strip-db { flex: 0 0 auto; margin-left: auto; color: var(--text-color-secondary); }
 .mixer-strip--vertical .mixer-strip-head { width: 100%; gap: 4px; }

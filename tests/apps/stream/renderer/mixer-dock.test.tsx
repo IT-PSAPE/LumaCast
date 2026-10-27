@@ -55,6 +55,15 @@ async function openTitleMenu() {
 }
 
 describe('MixerDock', () => {
+  it('marks mixer changes as staged only in Preview mode', () => {
+    renderDock({ staged: true });
+    expect(screen.getByText('STAGED').closest('.mixer-stage-badge')).toHaveAttribute('title', 'Mixer changes are staged until this scene transitions to Program');
+
+    cleanup();
+    renderDock({ staged: false });
+    expect(screen.queryByText('STAGED')).toBeNull();
+  });
+
   it('renders an audio meter (role="meter") for each metered source', () => {
     renderDock();
     expect(screen.getAllByRole('meter')).toHaveLength(2);

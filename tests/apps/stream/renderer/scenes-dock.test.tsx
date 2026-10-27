@@ -78,6 +78,42 @@ describe('ScenesDock', () => {
     expect(remove.getAttribute('data-disabled')).toBe('');
   });
 
+  it('renders a decorative thumbnail and distinct visible Preview and Live status labels', () => {
+    renderDock({
+      studioMode: true,
+      activeSceneId: 'scene-2',
+      liveSceneId: 'scene-1',
+      renderThumbnail: (scene) => <div data-testid={`thumb-${scene.id}`} role="meter" aria-label={`${scene.name} audio activity`} />,
+    });
+
+    const previewRow = screen.getByRole('button', { name: 'Scene 2', description: 'PREVIEW' });
+    expect(previewRow.querySelector('.scene-thumbnail-slot')).toContainElement(screen.getByTestId('thumb-scene-2'));
+    expect(screen.getByRole('meter', { name: 'Scene 2 audio activity' })).toBeInTheDocument();
+    expect(previewRow.querySelector('.scene-thumbnail-slot')).toHaveAttribute('title', 'Preview of Scene 2');
+    expect(previewRow).toHaveAttribute('aria-current', 'true');
+    expect(previewRow).toHaveTextContent('PREVIEW');
+    expect(screen.getByRole('button', { name: 'Scene 1', description: 'LIVE' })).toHaveTextContent('LIVE');
+  });
+
+  it('renders an icon fallback when a thumbnail renderer is not provided', () => {
+    renderDock();
+
+    expect(rowFor('Scene 1').querySelector('.scene-thumbnail-fallback')).toBeInTheDocument();
+  });
+
+  it('can enable Transition to Program for a dirty current scene', async () => {
+    const onTransitionScene = vi.fn();
+    renderDock({ studioMode: true, canTransitionScene: (sceneId) => sceneId === 'scene-1', onTransitionScene });
+    fireEvent.contextMenu(rowFor('Scene 1'), { clientX: 10, clientY: 10 });
+    await settle();
+
+    const transition = screen.getByRole('menuitem', { name: 'Transition to Program' });
+    expect(transition.getAttribute('data-disabled')).toBeNull();
+    fireEvent.click(transition);
+    expect(onTransitionScene).toHaveBeenCalledOnce();
+    expect(onTransitionScene).toHaveBeenCalledWith();
+  });
+
   it('F2 shows an inline rename input, and Enter commits it via onRenameScene', () => {
     const onRenameScene = vi.fn();
     renderDock({ onRenameScene });

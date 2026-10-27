@@ -1,6 +1,6 @@
 import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { AudioLines, MoreHorizontal, Settings2, Volume2, VolumeX, X } from 'lucide-react';
-import { EmptyState, Meter, PointContextMenu, Panel, ReacstButton, Slider, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { Badge, EmptyState, Meter, PointContextMenu, Panel, ReacstButton, Slider, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { sourceIcon } from '../source-ui';
 import { METER_FLOOR_DB, METER_ZONES, linearToDb, updatePeakHold, type MeterZoneTone, type PeakHoldState } from '../audio-meter-model';
 import { AdvancedAudioDialog } from '../dialogs/advanced-audio-dialog';
@@ -35,6 +35,8 @@ export interface MixerDockProps {
   onOpenSourceProperties?: (sourceId: string) => void;
   /** Hides the source from the mixer (not the scene). When omitted, the per-channel menu's "Hide" item is left out. */
   onHideSource?: (sourceId: string) => void;
+  /** Marks mixer edits as staged until the Preview scene transitions to Program. */
+  staged?: boolean;
 }
 
 const CHANNEL_MONITORING_OPTIONS: ReadonlyArray<{ value: AudioMonitoring; label: string }> = [
@@ -107,6 +109,7 @@ export function MixerDock({
   onUpdateSourceAudio,
   onOpenSourceProperties,
   onHideSource,
+  staged = false,
 }: MixerDockProps) {
   const [layout, setLayout] = useState<MixerLayout>(readStoredLayout);
   const [advancedAudioOpen, setAdvancedAudioOpen] = useState(false);
@@ -182,7 +185,10 @@ export function MixerDock({
     <Panel density="compact" className="dock mixer-dock" style={style}>
       {resizer}
       <Panel.Header data-dock-handle className="cursor-grab select-none">
-        <Panel.HeaderTitle>Audio Mixer</Panel.HeaderTitle>
+        <Panel.HeaderTitle>
+          Audio Mixer
+          {staged && <span className="mixer-stage-badge" title="Mixer changes are staged until this scene transitions to Program"><Badge size="sm" tone="brand" shape="rounded">STAGED</Badge></span>}
+        </Panel.HeaderTitle>
         <Panel.HeaderActions>
           <button ref={titleMenuButtonRef} className="mini-icon" aria-label="Audio Mixer options" onClick={openTitleMenu}>
             <MoreHorizontal size={16} />

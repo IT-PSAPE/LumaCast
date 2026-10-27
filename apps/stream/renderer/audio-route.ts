@@ -1,3 +1,12 @@
+import type { AudioMonitoring } from '../shared/desktop-api';
+
+export function audioRouteOutputGains(programActive: boolean, audioMonitoring: AudioMonitoring): { program: number; monitor: number } {
+  return {
+    program: programActive && audioMonitoring !== 'monitor-only' ? 1 : 0,
+    monitor: programActive && audioMonitoring !== 'off' ? 1 : 0,
+  };
+}
+
 export function connectAudioInput(input: AudioNode, gain: AudioNode, noiseSuppression: AudioNode | null): void {
   if (noiseSuppression) {
     input.connect(noiseSuppression);

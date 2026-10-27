@@ -15,6 +15,7 @@ import { normalizeSourceRotation } from '../../../shared/source-geometry';
 import { AUDIO_TRACKS, type AudioFilters, type AudioMonitoring, type AudioTrack, type ChromaKeyFilter, type MediaKind, type SourceCrop, type SourceFilters, type StreamProject, type StreamScene, type StreamSource, type StreamTextStyle, createDefaultTextStyle } from '../../../shared/desktop-api';
 import type { StreamAPI } from '../../../shared/desktop-api';
 import { friendlyError } from '../shared/friendly-error';
+import { getOriginSourceId, toRuntimeSource } from '../../source-runtime';
 import { createSource, DEFAULT_AUDIO_FILTERS, DEFAULT_CHROMA_KEY, DEFAULT_SOURCE_CROP, DEFAULT_SOURCE_FILTERS, defaultTransform } from './helpers';
 
 export interface UseSourcesParams {
@@ -24,6 +25,8 @@ export interface UseSourcesParams {
   allSources: StreamSource[];
   activeScene: StreamScene | null;
   liveScene: StreamScene | null;
+  /** Runtime IDs visible in the committed Program snapshot. */
+  programSourceIds?: ReadonlySet<string>;
   setProjectValue: (update: (current: StreamProject) => StreamProject) => void;
   setActionError: (message: string) => void;
   working: boolean;
@@ -129,10 +132,10 @@ export interface UseSourcesResult {
  */
 export function useSources(params: UseSourcesParams): UseSourcesResult {
   const {
-    api, project, projectRef, allSources, activeScene, liveScene, setProjectValue, setActionError, working, setWorking,
+    api, project, projectRef, allSources, activeScene, setProjectValue, setActionError, working, setWorking,
     videoElements, imageElements, mediaElements,
-    runtimes, mixer, applicationAudioInputs, applicationAudioSessions, attachRuntime, stopRuntime,
-    startApplicationAudioRuntime, startSystemAudioRuntime, clearNoiseSuppressionPreference,
+    runtimes, applicationAudioInputs, applicationAudioSessions, attachRuntime, stopRuntime,
+    startApplicationAudioRuntime, startSystemAudioRuntime,
   } = params;
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -167,6 +170,13 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
 
   const selectedSource = activeScene ? flattenSourceNodes(activeScene.sources).find((source) => source.id === selectedSourceId) ?? null : null;
   const canGroupSelectedSources = activeScene ? canGroupSourceSiblings(activeScene.sources, selectedSourceIds) : false;
+
+  const isCurrentSourceProgram = (sourceId: string) => {
+    const source = projectRef.current?.scenes
+      .flatMap((scene) => flattenSourceNodes(scene.sources))
+      .find((candidate) => getOriginSourceId(candidate) === sourceId);
+    return source ? params.programSourceIds?.has(toRuntimeSource(source).id) === true : false;
+  };
 
   const addToActiveScene = (source: StreamSource) => {
     setProjectValue((current) => ({
@@ -363,14 +373,10 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
 
   const updateSourceSettings = (sourceId: string, settings: Pick<StreamSource, 'volume' | 'muted'>) => {
     updateSource(sourceId, (source) => ({ ...source, ...settings }));
-    const isProgramSource = liveScene?.sources.some((source) => source.id === sourceId && source.visible) ?? false;
-    mixer.current?.setSettings(sourceId, settings);
-    mixer.current?.setProgramActive(sourceId, isProgramSource);
   };
 
   const updateSourceMonitoring = (sourceId: string, audioMonitoring: AudioMonitoring) => {
     updateSource(sourceId, (source) => ({ ...source, audioMonitoring }));
-    mixer.current?.setAudioMonitoring(sourceId, audioMonitoring);
   };
 
   const updateSourceAudioTrack = (sourceId: string, track: AudioTrack, enabled: boolean) => {
@@ -380,7 +386,6 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     if (enabled) tracks.add(track); else tracks.delete(track);
     const next: AudioTrack[] = [...tracks].sort((left, right) => left - right);
     updateSource(sourceId, (current) => ({ ...current, audioTracks: next }));
-    mixer.current?.setAudioTracks(sourceId, next);
   };
 
   const updateSourceAudio = (sourceId: string, patch: Partial<Pick<StreamSource, 'volume' | 'muted' | 'balance' | 'audioMonitoring' | 'audioTracks'>>) => {
@@ -430,25 +435,12 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       nextFilters.noiseGateOpenThresholdDb = nextFilters.noiseGateCloseThresholdDb;
     }
     updateSource(sourceId, (current) => ({ ...current, audioFilters: nextFilters }));
-    if (mixer.current?.setAudioFilters(sourceId, nextFilters) === false && (nextFilters.noiseGate || nextFilters.expander)) {
-      setActionError('Audio filters are unavailable in this audio runtime.');
-    }
-    if ('noiseSuppression' in filters && source?.kind === 'microphone') {
-      const enabled = nextFilters.noiseSuppression;
-      void (async () => {
-        const ready = await mixer.current?.setNoiseSuppression(sourceId, enabled);
-        if (ready === true || !enabled) return;
-        const current = projectRef.current?.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)).find((item) => item.id === sourceId);
-        if (current?.audioFilters?.noiseSuppression !== true) return;
-        setActionError('Neural noise suppression could not be started for this microphone.');
-        clearNoiseSuppressionPreference(sourceId);
-      })();
-    }
   };
 
   const toggleMediaPlayback = (sourceId: string) => {
     const element = mediaElements.current.get(sourceId);
     if (!element) return;
+    if (!isCurrentSourceProgram(sourceId)) { element.pause(); return; }
     if (element.paused) void element.play().catch((error) => setActionError(`Media could not play: ${friendlyError(error)}`));
     else element.pause();
   };
@@ -456,6 +448,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   const restartMediaPlayback = (sourceId: string) => {
     const element = mediaElements.current.get(sourceId);
     if (!element) return;
+    if (!isCurrentSourceProgram(sourceId)) { element.pause(); return; }
     element.currentTime = 0;
     void element.play().catch((error) => setActionError(`Media could not restart: ${friendlyError(error)}`));
   };

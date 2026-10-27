@@ -1,6 +1,11 @@
 import type { SlideshowImage } from '../shared/desktop-api';
 
-const slideshowStartedAt = new Map<string, number>();
+interface SlideshowClock {
+  elapsedMs: number;
+  activeSince: number | null;
+}
+
+const slideshowClocks = new Map<string, SlideshowClock>();
 
 export function slideshowSlideIndex(elapsedMs: number, imageCount: number, intervalSeconds: number, loop: boolean): number {
   if (imageCount < 1) return -1;
@@ -21,11 +26,30 @@ export function currentSlideshowSlideIndex(
   loop: boolean,
   now = performance.now(),
 ): number {
-  const startedAt = slideshowStartedAt.get(sourceId) ?? now;
-  slideshowStartedAt.set(sourceId, startedAt);
-  return slideshowSlideIndex(now - startedAt, imageCount, intervalSeconds, loop);
+  return slideshowSlideIndex(currentSlideshowElapsedMs(sourceId, now), imageCount, intervalSeconds, loop);
+}
+
+/** Adds time only while this source is active in Program. Rendering a canvas never starts a clock. */
+export function setSlideshowActive(sourceId: string, active: boolean, now = performance.now()): void {
+  const existing = slideshowClocks.get(sourceId);
+  if (!existing) {
+    if (active) slideshowClocks.set(sourceId, { elapsedMs: 0, activeSince: now });
+    return;
+  }
+  if (active === (existing.activeSince !== null)) return;
+  if (active) existing.activeSince = now;
+  else {
+    existing.elapsedMs += Math.max(0, now - existing.activeSince!);
+    existing.activeSince = null;
+  }
+}
+
+export function currentSlideshowElapsedMs(sourceId: string, now = performance.now()): number {
+  const clock = slideshowClocks.get(sourceId);
+  if (!clock) return 0;
+  return clock.elapsedMs + (clock.activeSince === null ? 0 : Math.max(0, now - clock.activeSince));
 }
 
 export function forgetSlideshow(sourceId: string): void {
-  slideshowStartedAt.delete(sourceId);
+  slideshowClocks.delete(sourceId);
 }

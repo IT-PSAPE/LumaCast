@@ -37,6 +37,10 @@ export interface ScenesDockProps {
   studioMode?: boolean;
   /** Transitions the selected scene to program. */
   onTransitionScene?: () => void;
+  /** Allows transitioning scenes whose program state has changed, including the live scene. */
+  canTransitionScene?: (sceneId: string) => boolean;
+  /** Renders a decorative composition thumbnail for a scene. */
+  renderThumbnail?: (scene: StreamScene) => ReactNode;
   /** Opens a projector window of the given kind. Projector submenu is omitted when absent. */
   onOpenProjector?: (kind: 'preview' | 'program') => void;
   /** Commits an inline rename. Falls back to the rename dialog (setSceneDialog) when absent. */
@@ -76,6 +80,8 @@ export function ScenesDock({
   onDuplicateScene,
   studioMode = false,
   onTransitionScene,
+  canTransitionScene,
+  renderThumbnail,
   onOpenProjector,
   onRenameScene,
   onReorderScenes,
@@ -243,7 +249,7 @@ export function ScenesDock({
       entries.push({
         id: 'transition',
         label: 'Transition to Program',
-        disabled: scene.id === liveSceneId,
+        disabled: canTransitionScene ? !canTransitionScene(scene.id) : scene.id === liveSceneId,
         onSelect: () => onTransitionScene?.(),
       });
     }
@@ -361,6 +367,7 @@ export function ScenesDock({
         {scenes.map((scene, index) => {
           const isActive = scene.id === activeSceneId;
           const isLive = scene.id === liveSceneId;
+          const isPreview = scene.id === activeSceneId && (studioMode || !isLive);
           const isRenaming = scene.id === renamingId;
           const isLast = index === scenes.length - 1;
           const classNames = [
@@ -371,6 +378,10 @@ export function ScenesDock({
             dropBeforeId === scene.id ? 'drag-over-before' : '',
             isLast && dropAtEnd ? 'drag-over-after' : '',
           ].filter(Boolean).join(' ');
+          const statusIds = [
+            isPreview ? `scene-preview-status-${scene.id}` : null,
+            isLive ? `scene-live-status-${scene.id}` : null,
+          ].filter((id): id is string => id !== null);
 
           return (
             <button
@@ -378,6 +389,9 @@ export function ScenesDock({
               ref={(element) => registerRow(scene.id, element)}
               type="button"
               className={classNames}
+              aria-label={scene.name}
+              aria-describedby={statusIds.length > 0 ? statusIds.join(' ') : undefined}
+              aria-current={isActive ? 'true' : undefined}
               tabIndex={isActive ? 0 : -1}
               onClick={(event) => handleRowClick(event, scene)}
               onDoubleClick={() => startRename(scene)}
@@ -385,23 +399,31 @@ export function ScenesDock({
               onKeyDown={(event) => handleRowKeyDown(event, scene, index)}
               onPointerDown={(event) => handleRowPointerDown(event, scene)}
             >
-              <span className="scene-swatch"><Layers2 size={14} /></span>
-              {isRenaming ? (
-                <input
-                  className="scene-rename-input"
-                  value={renameDraft}
-                  autoFocus
-                  onChange={(event) => setRenameDraft(event.target.value)}
-                  onClick={(event) => event.stopPropagation()}
-                  onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key === 'Enter') { event.preventDefault(); commitRename(scene); }
-                    else if (event.key === 'Escape') { event.preventDefault(); cancelRename(); }
-                  }}
-                  onBlur={() => commitRename(scene)}
-                />
-              ) : <span className="scene-name">{scene.name}</span>}
-              {isLive && <Badge tone="error" shape="rounded">LIVE</Badge>}
+              <span className="scene-thumbnail-slot" title={`Preview of ${scene.name}`}>
+                {renderThumbnail?.(scene) ?? <span className="scene-thumbnail-fallback" aria-hidden="true"><Layers2 size={16} /></span>}
+              </span>
+              <span className="scene-row-details">
+                {isRenaming ? (
+                  <input
+                    className="scene-rename-input"
+                    aria-label={`Rename scene ${scene.name}`}
+                    value={renameDraft}
+                    autoFocus
+                    onChange={(event) => setRenameDraft(event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === 'Enter') { event.preventDefault(); commitRename(scene); }
+                      else if (event.key === 'Escape') { event.preventDefault(); cancelRename(); }
+                    }}
+                    onBlur={() => commitRename(scene)}
+                  />
+                ) : <span className="scene-name">{scene.name}</span>}
+                <span className="scene-row-status">
+                  {isPreview && <span id={`scene-preview-status-${scene.id}`}><Badge tone="brand" shape="rounded">PREVIEW</Badge></span>}
+                  {isLive && <span id={`scene-live-status-${scene.id}`}><Badge tone="error" shape="rounded">LIVE</Badge></span>}
+                </span>
+              </span>
             </button>
           );
         })}

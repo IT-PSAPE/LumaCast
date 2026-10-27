@@ -25,6 +25,37 @@
   border-bottom-color: var(--color-brand);
 }
 
+.sources-dock .source-availability {
+  min-width: 0;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-0-5);
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.sources-dock .source-availability svg {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 11px;
+}
+
+.sources-dock .source-availability > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sources-dock .source-availability--unavailable { color: var(--color-error); }
+.sources-dock .source-availability--starting { color: var(--color-warning); }
+
+.source-properties .media-playback-scope {
+  color: var(--text-color-secondary);
+  font-size: var(--text-sm);
+}
+
 /* A thin bar above the properties panel, holding only its close button — kept
    as a sibling of `.source-properties` rather than a wrapper around it so the
    panel's own `max-height: 62%` (style.css) still resolves against the dock's

@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted; thumbnail pacing and shared runtime ownership are extended by
+ADR-0118.
 
 ## Context
 
@@ -26,3 +27,6 @@ Multiview uses additional renderer and capture resources while active. Closing
 it stops camera and microphone captures opened only for multiview, including
 requests that finish after the mode closes. Stream remains responsible for
 starting and stopping those sources; no third-party engine is introduced.
+ADR-0118 requires scene thumbnails to reuse the shared compositor and media
+resources, render at reduced resolution and at most about 10 frames per second
+while visible, and avoid creating independent media players.

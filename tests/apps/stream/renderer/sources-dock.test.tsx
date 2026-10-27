@@ -113,6 +113,31 @@ function mockRowRect(row: HTMLElement, top: number, height = 30) {
 }
 
 describe('SourcesDock', () => {
+  it('shows a text and icon status for unavailable sources, including audio', () => {
+    const microphone = makeSource('mic-1', { name: 'Room mic', kind: 'microphone' });
+    renderDock({
+      sources: [microphone],
+      sourceStatuses: { 'mic-1': { state: 'unavailable', message: 'Device disconnected' } },
+    });
+
+    const status = rowFor('Room mic').querySelector('.source-availability');
+    expect(status).toHaveTextContent('Unavailable');
+    expect(status).toHaveAttribute('title', 'Room mic: Unavailable — Device disconnected');
+    expect(status?.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    expect(rowFor('Room mic')).toHaveAttribute('aria-description', 'Room mic: Unavailable — Device disconnected');
+  });
+
+  it('shows startup status and omits ready status', () => {
+    renderDock({
+      sourceStatuses: {
+        'src-1': { state: 'starting' },
+        'src-2': { state: 'ready' },
+      },
+    });
+
+    expect(rowFor('Display Capture').querySelector('.source-availability')).toHaveTextContent('Starting');
+    expect(rowFor('Webcam').querySelector('.source-availability')).toBeNull();
+  });
   it('right-click opens the menu and selects the row', async () => {
     const { onSelectSourceRow } = renderDock();
     fireEvent.contextMenu(rowFor('Webcam'), { clientX: 20, clientY: 30 });

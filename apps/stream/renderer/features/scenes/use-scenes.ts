@@ -14,7 +14,7 @@ export interface UseScenesParams {
   setWorking: Dispatch<SetStateAction<boolean>>;
   selectSource: (sourceId: string | null) => void;
 
-  // Capture primitives needed to carry a scene's live runtimes over to its duplicate, or tear them down on delete.
+  // Capture primitives needed to carry a scene's live runtimes over to its duplicate.
   runtimes: RefObject<Map<string, MediaStream>>;
   /** Only checked for key membership here (`.has(id)`) — the value type is capture's concern. */
   applicationAudioInputs: RefObject<Map<string, unknown>>;
@@ -23,6 +23,14 @@ export interface UseScenesParams {
   stopRuntime: (sourceId: string) => void;
   startApplicationAudioRuntime: (source: StreamSource, application: { pid: number; path: string; name: string }) => Promise<void>;
   startSystemAudioRuntime: (source: StreamSource) => Promise<void>;
+  /** Current immutable Program root, used as the outgoing transition scene. */
+  programSceneId?: string | null;
+  /** Runtime-aware gate that also permits a same-scene config commit. */
+  canTransition?: (sceneId: string) => boolean;
+  /** Commits the draft target into Program; false means the action is stale or blocked. */
+  commitProgram?: (sceneId: string) => boolean;
+  /** Releases the retained outgoing Program snapshot after Cut or transition completion. */
+  finishProgramTransition?: () => void;
 }
 
 export interface UseScenesResult {
@@ -46,7 +54,7 @@ export interface UseScenesResult {
   duplicateActiveScene: () => Promise<void>;
   deleteActiveScene: () => void;
   chooseScene: (sceneId: string) => void;
-  transitionScene: () => void;
+  transitionScene: (sceneId?: string) => void;
   toggleStudioMode: () => void;
   transitionToScene: (sceneId: string) => void;
 
@@ -73,7 +81,31 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
   const [transitionColor, setTransitionColor] = useState('#000000');
   const [transitionMs, setTransitionMs] = useState(350);
 
-  const finishTransition = () => setTransition(null);
+  const finishTransition = () => {
+    setTransition(null);
+    params.finishProgramTransition?.();
+  };
+
+  const canTransitionTo = (sceneId: string) => {
+    if (!project || !project.scenes.some((scene) => scene.id === sceneId)) return false;
+    return params.canTransition?.(sceneId) ?? sceneId !== (params.programSceneId ?? project.liveSceneId);
+  };
+
+  const commitProgram = (sceneId: string) => params.commitProgram?.(sceneId) ?? true;
+
+  const beginProgramTransition = (sceneId: string) => {
+    if (!project || !canTransitionTo(sceneId) || !commitProgram(sceneId)) return false;
+    const nextTransition = createSceneTransition(
+      transitionType,
+      params.programSceneId ?? project.liveSceneId,
+      performance.now(),
+      transitionMs,
+      transitionColor,
+    );
+    setTransition(nextTransition);
+    if (!nextTransition) params.finishProgramTransition?.();
+    return true;
+  };
 
   const addScene = () => {
     if (!project) return;
@@ -168,7 +200,6 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
       .filter((scene) => scene.id !== removed.id)
       .flatMap((scene) => flattenSourceNodes(scene.sources))
       .filter((source) => source.kind === 'scene' && source.referencedSceneId === removed.id);
-    for (const source of flattenSourceLeaves(removed.sources)) stopRuntime(source.id);
     setProjectValue((current) => {
       const scenes = current.scenes.filter((scene) => scene.id !== current.activeSceneId)
         .map((scene) => ({ ...scene, sources: removeSceneReferenceSources(scene.sources, removed.id) }));
@@ -182,7 +213,10 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
         sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [...removedNodes, ...removedReferenceNodes].map((source) => source.id)),
       };
     });
-    setTransition(null);
+    // In Studio Mode, deleting editable scene data must not change the
+    // immutable Program graph or interrupt its outgoing fade.
+    const removedProgramScene = removed.id === (params.programSceneId ?? project.liveSceneId);
+    if (removedProgramScene && (!project.studioMode || !params.commitProgram)) finishTransition();
     selectSource(null);
     setSceneDialog(null);
   };
@@ -195,38 +229,36 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
       return;
     }
     if (sceneId === project.liveSceneId) return;
-    const nextTransition = createSceneTransition(transitionType, project.liveSceneId, performance.now(), transitionMs, transitionColor);
-    setTransition(nextTransition);
+    if (!beginProgramTransition(sceneId)) return;
     setProjectValue((current) => ({ ...current, activeSceneId: sceneId, liveSceneId: sceneId }));
     selectSource(null);
   };
 
-  const transitionScene = () => {
-    if (!project || project.activeSceneId === project.liveSceneId) return;
-    const nextTransition = createSceneTransition(transitionType, project.liveSceneId, performance.now(), transitionMs, transitionColor);
-    setTransition(nextTransition);
-    setProjectValue((current) => ({ ...current, liveSceneId: current.activeSceneId }));
+  const transitionScene = (sceneId?: string) => {
+    if (!project) return;
+    const targetSceneId = sceneId ?? project.activeSceneId;
+    if (!beginProgramTransition(targetSceneId)) return;
+    setProjectValue((current) => ({ ...current, activeSceneId: targetSceneId, liveSceneId: targetSceneId }));
+    if (targetSceneId !== project.activeSceneId) selectSource(null);
   };
 
   const toggleStudioMode = () => {
-    if (!project) return;
+    if (!project || transition) return;
     setProjectValue((current) => ({ ...current, studioMode: !current.studioMode, activeSceneId: current.studioMode ? current.liveSceneId : current.activeSceneId }));
-    setTransition(null);
   };
 
   // Sets preview to `sceneId` and immediately transitions it to program — equivalent to
   // selecting the scene as preview then hitting Transition, done atomically so it works
   // the same whether or not Studio Mode is on.
   const transitionToScene = (sceneId: string) => {
-    if (!project || sceneId === project.liveSceneId) return;
-    const nextTransition = createSceneTransition(transitionType, project.liveSceneId, performance.now(), transitionMs, transitionColor);
-    setTransition(nextTransition);
+    if (!project || !beginProgramTransition(sceneId)) return;
     setProjectValue((current) => ({ ...current, activeSceneId: sceneId, liveSceneId: sceneId }));
     selectSource(null);
   };
 
   const resetForWorkspaceChange = () => {
     setTransition(null);
+    params.finishProgramTransition?.();
   };
 
   return {

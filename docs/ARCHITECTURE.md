@@ -60,6 +60,51 @@ named scene-collection persistence, media imports, and recording-file writes.
 The renderer uses a typed `window.streamApi` bridge and renders scene layers
 into a canvas for preview, program output, and recording.
 
+Studio Mode keeps the persisted project as the editable draft and renders
+Program from a separate, session-only snapshot of the selected root scene, its
+recursively referenced scenes, source/audio configuration, and output
+configuration. The snapshot is seeded from the loaded project and changes only
+through an explicit Transition; a changed configuration can be transitioned
+even when the scene ID is unchanged. Draft edits, undo, and redo do not alter
+the on-air snapshot. While an outgoing visual transition is running, its
+snapshot remains retained and another Transition is blocked until the fade
+finishes. Outside Studio Mode, Program follows the existing live-edit behavior.
+Program state is volatile and is rebuilt from the loaded project after restart
+because Stream outputs stop when the app closes.
+
+Runtime resources use session-local UUIDs mapped from the logical source ID and
+resource descriptor. Preview, Program, and an outgoing transition share an
+unchanged resource; a changed asset, device, browser URL, or slideshow list
+gets its own staged resource. Browser viewport dimensions are also part of
+browser resource identity. Sharing an unchanged media resource preserves its
+playback position across transitions. Runtime deduplication uses the Program
+snapshot's configuration when a resource is shared. Native capture tracks and
+their mixer routes stay warm while the source descriptor remains in any draft,
+Program, or outgoing graph, even when that source is not currently rendered.
+Camera and microphone capture is acquired only when the source enters an active
+view scope; moving between scenes or thumbnails does not tear down an existing
+capture, while deleting or replacing its last graph reference releases it.
+Browser pages are recreatable and are opened only while owned by Preview,
+Program, an outgoing transition, a visible thumbnail, or a mounted Multiview
+tile; they close when their last active view releases them. Runtime UUIDs and
+resource state are not persisted, so the native IPC UUID contract remains
+unchanged.
+
+Resource ownership is separate from render and playback activation. Live camera
+and browser frames draw in active Preview and thumbnail scopes. Only Program
+media playback and slideshow clocks advance; retained outgoing visuals may
+continue through the end of their transition. Browser page audio and every
+audio output sink, including the local monitor, are gated to Program. Source
+audio meters are pre-fader, so they show capture activity independently of
+staged mute, volume, and routing changes. Transition switches audio to the
+incoming Program when it begins. Unavailable cameras show standard color bars,
+missing images show a broken-image placeholder, and unavailable audio/source
+rows report their state; brief color-coded action notifications replace
+status-bar error text at the bottom right.
+Scene thumbnails draw through the shared compositor and resource bank at
+reduced resolution, at most about 10 frames per second while visible, without
+creating independent media players.
+
 On Windows, Desktop Audio Capture reuses the trusted display-media request
 handler for system loopback. The renderer requests a display after a user
 gesture, stops its video track, and routes the remaining audio track through
@@ -107,11 +152,13 @@ changed in the picker. Stream does not start desktop capture automatically on
 project load (ADR-0104).
 
 Media sources persist their loop, restart-on-activation, and end-frame settings
-with the scene. `RuntimeVideoBank` binds each asset for the source lifetime,
-then separately pauses/resumes it as the source becomes active or inactive;
-this keeps playback position when restart-on-activation is disabled. Canvas
-composition omits the last video frame when the source's end-frame setting is
-enabled.
+with the scene. `RuntimeVideoBank` binds each resource for its runtime lifetime
+and starts media video/audio playback only for Program and retained outgoing
+visuals. Staged Preview media remains paused; slideshow images stay on their
+current frame until Program advances the timer. Reusing the same source and
+resource keeps its playback position across transitions. Canvas composition
+omits the last video frame when the source's end-frame setting is enabled
+(ADR-0102, ADR-0118).
 
 The main process stores a validated collection index plus one project JSON file
 per collection under Stream app data. Profiles are stored separately in
@@ -147,7 +194,8 @@ remap its IDs on import (ADR-0094). Display/window selection is mediated by
 main and granted to the trusted renderer for a short-lived, one-use request.
 Camera and microphone sources enumerate devices after Chromium grants media
 permission, store the selected opaque device ID with the source, and request the
-saved device when that source is visible in preview or program. Display and
+saved device when that source is visible in Preview, Program, a thumbnail, or
+multiview. Display and
 window sources persist cursor capture as Always, Only when moving, or Never;
 older collections default to Only when moving, and live track changes use the
 screen-capture cursor constraint (ADR-0077). The trusted
@@ -155,10 +203,12 @@ renderer obtains the tracks through `getUserMedia`; labels remain presentation
 data. Camera, microphone, and Windows system-loopback tracks feed the renderer
 audio mixer. Each source can route to any of six independent program buses after
 its source fader, processing, and balance controls. The program bus then splits
-to the local monitor; Studio preview sources stay out of every program bus, and
-per-source monitoring can be Off, Monitor Only, or Monitor and Output. Older
-collections default source routing to Track 1 and monitoring to Off to avoid
-feeding microphone audio back to the speakers (ADR-0066, ADR-0087). Recording
+to the local monitor; Studio preview sources stay out of every program bus and
+the local monitor until transitioned. Per-source monitoring can be Off, Monitor
+Only, or Monitor and Output for Program sources. Meters read before source mute
+and volume. Older collections default source routing to Track 1 and monitoring
+to Off to avoid feeding microphone audio back to the speakers (ADR-0066,
+ADR-0087, ADR-0118). Recording
 uses one video-only WebM recorder and one audio-only recorder per selected track.
 Main writes each stream to its own temporary WebM file, then the pinned FFmpeg
 executable maps the streams into one selected WebM, Matroska, or MP4 file. This
@@ -196,8 +246,9 @@ and reset transform actions; Ctrl+C/V, Delete, and Ctrl+F/S/D/R mirror these
 operations (ADR-0093).
 
 Audio sources from the live/program scene feed their selected program tracks.
-Sources in the Studio Mode preview stay out of those buses until taken to program
-(ADR-0060). Streaming selects one of the six buses; recordings can mux any
+Sources in the Studio Mode preview stay out of those buses and local monitoring
+until transitioned to Program (ADR-0060, ADR-0118). Streaming selects one of
+the six buses; recordings can mux any
 combination of them into separate audio streams (ADR-0087).
 
 Per-source audio settings include a gain filter, optional microphone neural

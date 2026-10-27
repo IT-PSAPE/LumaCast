@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted; preview activation behavior is superseded by ADR-0118.
 
 ## Context
 
@@ -19,7 +19,8 @@ defaults on. Separate asset binding from activation so inactive media pauses
 without unloading. When restart-on-activation is off, activation resumes from
 the saved playback position. Canvas composition skips the final video frame
 when end-frame clearing is enabled. Source properties also provide Play/Pause,
-Restart, and Stop controls.
+Restart, and Stop controls. ADR-0118 narrows playback activation to Program and
+any retained outgoing visual; Preview activation does not start media playback.
 
 ## Consequences
 

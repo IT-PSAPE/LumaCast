@@ -2,10 +2,21 @@ import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanvasComposition, hitTestSource } from '../../../../apps/stream/renderer/canvas-composition';
 import { createDefaultProject, type SourceKind, type StreamScene } from '../../../../apps/stream/shared/desktop-api';
+import { getSourceRuntimeId } from '../../../../apps/stream/renderer/source-runtime';
 
 // Only the drawing calls the composition makes; cast to CanvasRenderingContext2D at the getContext mock boundary.
 interface FakeContext {
+  fillStyle: string;
+  fills: Array<{ style: string; rect: [number, number, number, number] }>;
   fillRect: ReturnType<typeof vi.fn>;
+  fillText: ReturnType<typeof vi.fn>;
+  strokeRect: ReturnType<typeof vi.fn>;
+  beginPath: ReturnType<typeof vi.fn>;
+  moveTo: ReturnType<typeof vi.fn>;
+  lineTo: ReturnType<typeof vi.fn>;
+  arc: ReturnType<typeof vi.fn>;
+  stroke: ReturnType<typeof vi.fn>;
+  fill: ReturnType<typeof vi.fn>;
   drawImage: ReturnType<typeof vi.fn>;
   clearRect: ReturnType<typeof vi.fn>;
   save: ReturnType<typeof vi.fn>;
@@ -18,7 +29,19 @@ interface FakeContext {
 
 function createContext(): FakeContext {
   return {
-    fillRect: vi.fn(),
+    fillStyle: '#000000',
+    fills: [],
+    fillRect: vi.fn(function (this: FakeContext, x: number, y: number, width: number, height: number) {
+      this.fills.push({ style: this.fillStyle, rect: [x, y, width, height] });
+    }),
+    fillText: vi.fn(),
+    strokeRect: vi.fn(),
+    beginPath: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    arc: vi.fn(),
+    stroke: vi.fn(),
+    fill: vi.fn(),
     drawImage: vi.fn(),
     clearRect: vi.fn(),
     save: vi.fn(),
@@ -55,7 +78,7 @@ describe('CanvasComposition Scene sources', () => {
   });
 
   function installCanvasMocks() {
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, contextId: string) {
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement, contextId: string) {
       if (contextId !== '2d') return null;
       let context = contexts.get(this);
       if (!context) {
@@ -68,7 +91,8 @@ describe('CanvasComposition Scene sources', () => {
       frames.push(callback);
       return frames.length;
     });
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    const cancelAnimationFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+    return { getContext, cancelAnimationFrame };
   }
 
   it('composites the referenced scene into the Scene source transform bounds', () => {
@@ -174,5 +198,171 @@ describe('CanvasComposition Scene sources', () => {
     expect(contexts.get(canvas)?.rotate).toHaveBeenCalledWith(Math.PI / 4);
     expect(hitTestSource(scene, 55, 5)?.id).toBe('rotated-color');
     expect(hitTestSource(scene, 12, 2)).toBeNull();
+  });
+
+  it('draws color bars when a camera has no live video track instead of reusing its stale frame', () => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    const camera = source('camera', 'camera', { x: 12, y: 20, width: 320, height: 180 });
+    project.scenes[0]!.sources.push(camera);
+    const endedTrack = { readyState: 'ended' };
+    const video = {
+      srcObject: { getVideoTracks: () => [endedTrack] },
+      readyState: HTMLMediaElement.HAVE_CURRENT_DATA,
+      videoWidth: 1280,
+      videoHeight: 720,
+      ended: false,
+    } as unknown as HTMLVideoElement;
+
+    render(<CanvasComposition
+      project={project}
+      scene={project.scenes[0]!}
+      videoElements={new Map([[getSourceRuntimeId(camera), video]])}
+      imageElements={new Map()}
+    />);
+    act(() => frames.shift()?.(0));
+
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    const context = contexts.get(canvas)!;
+    expect(context.drawImage).not.toHaveBeenCalled();
+    expect(context.fillText).toHaveBeenCalledWith('NO SIGNAL', 172, 183.8, 308);
+    expect(context.fills.some(({ style, rect }) => style === '#c0c0c0' && rect[0] === 12 && rect[1] === 20)).toBe(true);
+  });
+
+  it('draws an unavailable-asset tile inside an image source with no selected asset', () => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push(source('missing-image', 'image', { x: 40, y: 30, width: 200, height: 100 }));
+
+    render(<CanvasComposition project={project} scene={project.scenes[0]!} videoElements={new Map()} imageElements={new Map()} />);
+    act(() => frames.shift()?.(0));
+
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    expect(contexts.get(canvas)?.fillText).toHaveBeenCalledWith('Image unavailable', 140, 112, 188);
+  });
+
+  it('draws an unavailable-asset tile for a video source before its media element is available', () => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push(source('video', 'media', { x: 40, y: 30, width: 200, height: 100 }, { mediaKind: 'video', assetId: 'clip' }));
+
+    render(<CanvasComposition project={project} scene={project.scenes[0]!} videoElements={new Map()} imageElements={new Map()} />);
+    act(() => frames.shift()?.(0));
+
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    expect(contexts.get(canvas)?.fillText).toHaveBeenCalledWith('Media unavailable', 140, 112, 188);
+  });
+
+  it('renders the outgoing scene from its frozen nested project graph during a fade', () => {
+    installCanvasMocks();
+    vi.spyOn(performance, 'now').mockReturnValue(500);
+    const project = createDefaultProject();
+    const currentOwner: StreamScene = {
+      id: 'shared-owner',
+      name: 'Current owner',
+      sources: [source('current-ref', 'scene', { x: 0, y: 0, width: 400, height: 240 }, { referencedSceneId: 'shared-target' })],
+    };
+    const currentTarget: StreamScene = {
+      id: 'shared-target',
+      name: 'Current target',
+      sources: [source('current-color', 'color', { x: 10, y: 20, width: 50, height: 40 }, { color: '#123456' })],
+    };
+    const outgoingOwner: StreamScene = {
+      id: 'shared-owner',
+      name: 'Outgoing owner',
+      sources: [source('outgoing-ref', 'scene', { x: 0, y: 0, width: 400, height: 240 }, { referencedSceneId: 'shared-target' })],
+    };
+    const outgoingTarget: StreamScene = {
+      id: 'shared-target',
+      name: 'Outgoing target',
+      sources: [source('outgoing-color', 'color', { x: 10, y: 20, width: 50, height: 40 }, { color: '#abcdef' })],
+    };
+    project.scenes = [currentOwner, currentTarget];
+    const outgoingProject = { ...project, scenes: [outgoingOwner, outgoingTarget] };
+
+    render(<CanvasComposition
+      project={project}
+      scene={currentOwner}
+      outgoingProject={outgoingProject}
+      outgoingScene={outgoingOwner}
+      videoElements={new Map()}
+      imageElements={new Map()}
+      transition={{ type: 'Fade', fromSceneId: outgoingOwner.id, startedAt: 0, durationMs: 1_000 }}
+    />);
+    act(() => frames.shift()?.(0));
+
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    const nestedCanvases = contexts.get(canvas)!.drawImage.mock.calls.map(([nested]) => nested as HTMLCanvasElement);
+    expect(nestedCanvases).toHaveLength(2);
+    const nestedFills = nestedCanvases.map((nested) => contexts.get(nested)!.fills.map(({ style }) => style));
+    expect(nestedFills).toEqual(expect.arrayContaining([
+      expect.arrayContaining(['#abcdef']),
+      expect.arrayContaining(['#123456']),
+    ]));
+  });
+
+  it('does not allocate a drawing context while rendering is disabled', () => {
+    installCanvasMocks();
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
+    const project = createDefaultProject();
+
+    render(<CanvasComposition project={project} scene={project.scenes[0]!} videoElements={new Map()} imageElements={new Map()} renderEnabled={false} />);
+
+    expect(getContext).not.toHaveBeenCalled();
+    expect(frames).toHaveLength(0);
+  });
+
+  it('caps thumbnail redraws without slowing the default composition rate', () => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push(source('fill', 'color', { x: 0, y: 0, width: 100, height: 100 }));
+
+    render(<CanvasComposition project={project} scene={project.scenes[0]!} videoElements={new Map()} imageElements={new Map()} maxFrameRate={10} />);
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    const context = contexts.get(canvas)!;
+
+    act(() => frames.shift()?.(0));
+    const firstFrameFillCount = context.fillRect.mock.calls.length;
+    act(() => frames.shift()?.(30));
+    expect(context.fillRect).toHaveBeenCalledTimes(firstFrameFillCount);
+    act(() => frames.shift()?.(100));
+    expect(context.fillRect).toHaveBeenCalledTimes(firstFrameFillCount * 2);
+  });
+
+  it('keeps the animation loop and bitmap when the transition callback identity changes', () => {
+    const { getContext, cancelAnimationFrame } = installCanvasMocks();
+    vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    const project = createDefaultProject();
+    const scene = project.scenes[0]!;
+    const originalCallback = vi.fn();
+    const latestCallback = vi.fn();
+    const props = {
+      project,
+      scene,
+      videoElements: new Map<string, HTMLVideoElement>(),
+      imageElements: new Map<string, HTMLImageElement>(),
+      transition: { type: 'Fade' as const, fromSceneId: scene.id, startedAt: 0, durationMs: 1_000 },
+    };
+    const view = render(<CanvasComposition {...props} onTransitionEnd={originalCallback} />);
+    const canvas = document.querySelector<HTMLCanvasElement>('.composition-canvas')!;
+    const initialWidth = canvas.width;
+    const initialHeight = canvas.height;
+    const widthSetter = vi.spyOn(canvas, 'width', 'set');
+    const heightSetter = vi.spyOn(canvas, 'height', 'set');
+    const initialContextCalls = getContext.mock.calls.length;
+
+    view.rerender(<CanvasComposition {...props} onTransitionEnd={latestCallback} />);
+
+    expect(frames).toHaveLength(1);
+    expect(cancelAnimationFrame).not.toHaveBeenCalled();
+    expect(getContext).toHaveBeenCalledTimes(initialContextCalls);
+    expect(widthSetter).not.toHaveBeenCalled();
+    expect(heightSetter).not.toHaveBeenCalled();
+    expect([canvas.width, canvas.height]).toEqual([initialWidth, initialHeight]);
+
+    act(() => frames.shift()?.(1_000));
+    expect(originalCallback).not.toHaveBeenCalled();
+    expect(latestCallback).toHaveBeenCalledOnce();
+    expect(frames).toHaveLength(1);
   });
 });

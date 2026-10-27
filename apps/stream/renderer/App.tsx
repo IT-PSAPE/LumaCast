@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { Modal, NumberField, ReacstButton, Select, StatusBar, StatusDot, Toolbar, TooltipProvider } from '@lumacast/ui';
 import { Clapperboard, ExternalLink, Radio, Settings } from 'lucide-react';
 import { CanvasComposition, RuntimeVideoBank } from './canvas-composition';
@@ -21,8 +21,12 @@ import { outputRectFromCanvasRect } from './output-scaling';
 import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { multiviewTileCapacityFor } from './multiview-window';
-import { getRenderedSourceIds } from './scene-render-scope';
 import { canTransformSource } from './source-transform';
+import { ActionNotifications } from './action-notifications';
+import { SceneThumbnail } from './docks/scene-thumbnail';
+import { getSourceRuntimeId, mergeRuntimeSources, toRuntimeProject } from './source-runtime';
+import { projectRuntimeMap, projectRuntimeRecord } from './runtime-projection';
+import { mergeSourceStatuses, type SourceStatus } from './source-availability';
 import { formatElapsed } from './format-elapsed';
 import { recordingElapsedTime } from './recording-controls';
 import { flattenSourceNodes } from '../shared/source-tree';
@@ -40,6 +44,7 @@ import { useWorkspace } from './features/workspace/use-workspace';
 import { useCapture } from './features/capture/use-capture';
 import { useSources } from './features/sources/use-sources';
 import { useScenes } from './features/scenes/use-scenes';
+import { useProgram } from './features/scenes/use-program';
 import { useMultiview } from './features/multiview/use-multiview';
 import { useRecording } from './features/recording/use-recording';
 import { useStreaming } from './features/streaming/use-streaming';
@@ -72,7 +77,10 @@ export function App() {
   const videoEncoderOptions = VIDEO_ENCODER_OPTIONS.filter((option) => isVideoEncoderAvailableOnPlatform(platform, option.value));
   const monitorDeviceSelectionSupported = typeof AudioContext !== 'undefined' && supportsAudioOutputSelection(AudioContext.prototype);
 
-  const [actionError, setActionError] = useState('');
+  const [actionFeedback, setActionFeedback] = useState({ message: '', sequence: 0 });
+  const setActionError = useCallback((message: string) => {
+    setActionFeedback((current) => ({ message, sequence: current.sequence + 1 }));
+  }, []);
   const [working, setWorking] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -87,12 +95,21 @@ export function App() {
   const videoElements = useRef(new Map<string, HTMLVideoElement>());
   const mediaElements = useRef(new Map<string, HTMLMediaElement>());
   const imageElements = useRef(new Map<string, HTMLImageElement>());
-  // Mirrors `activeSourceIds` below every render, plus a temporary override
-  // while the Multiview window is opening/closing (see useMultiview) so
-  // runtime-restore logic always sees the current scope even mid-transition.
+  // Async capture restoration reads the latest owner scope before attaching.
   const activeSourceIdsRef = useRef<Set<string>>(new Set());
 
   const [multiviewWindowOpen, setMultiviewWindowOpen] = useState(false);
+  const [resourceStatuses, setResourceStatuses] = useState<Record<string, SourceStatus>>({});
+  const [visibleThumbnailSceneIds, setVisibleThumbnailSceneIds] = useState<ReadonlySet<string>>(new Set());
+  const reportThumbnailVisibility = useCallback((sceneId: string, visible: boolean) => {
+    setVisibleThumbnailSceneIds((current) => {
+      if (current.has(sceneId) === visible) return current;
+      const next = new Set(current);
+      if (visible) next.add(sceneId); else next.delete(sceneId);
+      return next;
+    });
+  }, []);
+  const workbench = useWorkbenchLayout();
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(Date.now()), 500);
@@ -107,15 +124,48 @@ export function App() {
     isOutputActive: () => recording.isActive() || streaming.isActive() || replayBuffer.isActive(),
     onWorkspaceChanging: () => {
       capture.resetForWorkspaceChange();
+      program.resetForWorkspaceChange();
+      setResourceStatuses({});
+      setVisibleThumbnailSceneIds(new Set());
       sources.resetForWorkspaceChange();
       scenes.resetForWorkspaceChange();
       streaming.setStreamDialogOpen(false);
     },
   });
-  const { project, setProjectValue, allSources, allSourcesRef, projectRef } = workspace;
+  const { project, setProjectValue, allSources, projectRef } = workspace;
 
   const activeScene = project?.scenes.find((scene) => scene.id === project.activeSceneId) ?? null;
-  const liveScene = project?.scenes.find((scene) => scene.id === project.liveSceneId) ?? null;
+  const program = useProgram({ project, workspaceKey: `${workspace.activeCollectionId ?? ''}:${workspace.activeProfileId ?? ''}` });
+  const liveScene = program.programScene;
+  const runtimeDraftProject = useMemo(() => project ? toRuntimeProject(project) : null, [project]);
+  const runtimeProgramProject = useMemo(() => program.programProject ? toRuntimeProject(program.programProject) : null, [program.programProject]);
+  const runtimeOutgoingProject = useMemo(() => program.outgoingProject ? toRuntimeProject(program.outgoingProject) : null, [program.outgoingProject]);
+  const runtimeSources = useMemo(() => mergeRuntimeSources({
+    draftScenes: runtimeDraftProject?.scenes ?? [], programScenes: runtimeProgramProject?.scenes ?? [], outgoingScenes: runtimeOutgoingProject?.scenes,
+  }), [runtimeDraftProject?.scenes, runtimeProgramProject?.scenes, runtimeOutgoingProject?.scenes]);
+  const editorRuntimeSources = useMemo(() => runtimeDraftProject?.scenes.flatMap((scene) => flattenSourceNodes(scene.sources)) ?? [], [runtimeDraftProject]);
+  const runtimeSourcesRef = useRef(runtimeSources);
+  runtimeSourcesRef.current = runtimeSources;
+  useEffect(() => {
+    const ownedIds = new Set(runtimeSources.map((source) => source.id));
+    setResourceStatuses((current) => Object.keys(current).some((id) => !ownedIds.has(id))
+      ? Object.fromEntries(Object.entries(current).filter(([id]) => ownedIds.has(id))) : current);
+  }, [runtimeSources]);
+  const runtimeProjectRef = useRef(runtimeDraftProject);
+  runtimeProjectRef.current = runtimeDraftProject;
+  const programSourceIds = useMemo(() => runtimeProgramProject && liveScene
+    ? getVisibleSourceIdsForScenes(runtimeProgramProject.scenes, [liveScene.id]) : new Set<string>(), [runtimeProgramProject, liveScene?.id]);
+  const retainedSourceIds = useMemo(() => {
+    const ids = new Set(programSourceIds);
+    if (runtimeOutgoingProject && program.outgoingScene) {
+      for (const id of getVisibleSourceIdsForScenes(runtimeOutgoingProject.scenes, [program.outgoingScene.id])) ids.add(id);
+    }
+    return ids;
+  }, [programSourceIds, runtimeOutgoingProject, program.outgoingScene?.id]);
+  const reportResourceStatus = useCallback((sourceId: string, status: SourceStatus) => {
+    setResourceStatuses((current) => current[sourceId]?.state === status.state && current[sourceId]?.message === status.message
+      ? current : { ...current, [sourceId]: status });
+  }, []);
 
   useEffect(() => {
     const monitorStage = monitorStageRef.current;
@@ -136,42 +186,71 @@ export function App() {
     return () => observer.disconnect();
   }, [project?.studioMode, project?.output.width, project?.output.height]);
 
-  // `activeSourceIds` must be computed before `useCapture` (it needs the
-  // widened-while-Multiview-is-open render scope), but `useMultiview` needs
-  // `useCapture`'s `runtimes`/`stopRuntime` — so `multiviewWindowOpen` is
-  // owned here rather than inside `useMultiview` to break the cycle.
-  const activeSourceIds = useMemo(
-    () => getRenderedSourceIds(project?.scenes ?? [], project?.activeSceneId ?? null, project?.liveSceneId ?? null, multiviewWindowOpen),
-    [project?.scenes, project?.activeSceneId, project?.liveSceneId, multiviewWindowOpen],
-  );
+  // Thumbnail capture, Program playback, and audio output have distinct scopes.
+  const activeSourceIds = useMemo(() => {
+    const ids = new Set(retainedSourceIds);
+    if (runtimeDraftProject) {
+      const sceneIds = [runtimeDraftProject.activeSceneId];
+      if (multiviewWindowOpen) sceneIds.push(...runtimeDraftProject.scenes.slice(0, multiviewTileCapacityFor(runtimeDraftProject.scenes.length)).map((scene) => scene.id));
+      if (workbench.visibleDockIds.includes('scenes')) sceneIds.push(...visibleThumbnailSceneIds);
+      for (const id of getVisibleSourceIdsForScenes(runtimeDraftProject.scenes, sceneIds)) ids.add(id);
+    }
+    return ids;
+  }, [runtimeDraftProject, retainedSourceIds, workbench.visibleDockIds, multiviewWindowOpen, visibleThumbnailSceneIds]);
   activeSourceIdsRef.current = activeSourceIds;
 
   const capture = useCapture({
-    api, project, projectRef, allSources, allSourcesRef, liveScene, activeSourceIds, activeSourceIdsRef,
+    api, project: runtimeDraftProject, projectRef: runtimeProjectRef,
+    allSources: runtimeSources, allSourcesRef: runtimeSourcesRef,
+    liveScene: runtimeProgramProject?.scenes.find((scene) => scene.id === liveScene?.id) ?? null,
+    programProject: runtimeProgramProject, programSourceIds, retainedSourceIds, activeSourceIds, activeSourceIdsRef,
     setActionError, working, setWorking, displayCaptureSystemAudio, imageElements,
     closeSourceMenu: () => sources.setSourceMenuOpen(false),
     addToActiveScene: (source) => sources.addToActiveScene(source),
-    updateSource: (sourceId, update) => sources.updateSource(sourceId, update),
+    updateSource: (sourceId, update) => {
+      const originId = runtimeSourcesRef.current.find((source) => source.id === sourceId)?.originSourceId ?? sourceId;
+      sources.updateSource(originId, (current) => {
+        const updated = { ...update(current) } as typeof current & { originSourceId?: string };
+        delete updated.originSourceId;
+        return { ...updated, id: originId };
+      });
+    },
   });
+  const editorRuntimes = useRef(capture.runtimes.current);
+  editorRuntimes.current = projectRuntimeMap(editorRuntimeSources, capture.runtimes.current);
+  const editorApplicationAudioInputs = useRef(capture.applicationAudioInputs.current);
+  editorApplicationAudioInputs.current = projectRuntimeMap(editorRuntimeSources, capture.applicationAudioInputs.current);
+  const editorApplicationAudioSessions = useRef(capture.applicationAudioSessions.current);
+  editorApplicationAudioSessions.current = projectRuntimeMap(editorRuntimeSources, capture.applicationAudioSessions.current);
+  const editorVideoElements = useRef(videoElements.current);
+  editorVideoElements.current = projectRuntimeMap(editorRuntimeSources, videoElements.current);
+  const editorImageElements = useRef(imageElements.current);
+  editorImageElements.current = projectRuntimeMap(editorRuntimeSources, imageElements.current);
+  const editorMediaElements = useRef(mediaElements.current);
+  editorMediaElements.current = projectRuntimeMap(editorRuntimeSources, mediaElements.current);
+  const editorMeterLevels = projectRuntimeRecord(editorRuntimeSources, capture.meterLevels);
+  const editorPlaybackStates = projectRuntimeRecord(editorRuntimeSources, capture.mediaPlaybackStates);
+  const editorSourceStatuses = projectRuntimeRecord(editorRuntimeSources, mergeSourceStatuses(editorRuntimeSources, capture.sourceStatuses, resourceStatuses));
 
   const sources = useSources({
     api, project, projectRef, allSources, activeScene, liveScene, setProjectValue, setActionError, working, setWorking,
-    videoElements, imageElements, mediaElements,
-    runtimes: capture.runtimes, mixer: capture.mixer, applicationAudioInputs: capture.applicationAudioInputs,
-    applicationAudioSessions: capture.applicationAudioSessions, attachRuntime: capture.attachRuntime, stopRuntime: capture.stopRuntime,
+    videoElements: editorVideoElements, imageElements: editorImageElements, mediaElements: editorMediaElements, programSourceIds,
+    runtimes: editorRuntimes, mixer: capture.mixer, applicationAudioInputs: editorApplicationAudioInputs,
+    applicationAudioSessions: editorApplicationAudioSessions, attachRuntime: capture.attachRuntime, stopRuntime: capture.stopRuntime,
     startApplicationAudioRuntime: capture.startApplicationAudioRuntime, startSystemAudioRuntime: capture.startSystemAudioRuntime,
     clearNoiseSuppressionPreference: capture.clearNoiseSuppressionPreference,
   });
 
   const scenes = useScenes({
     project, setProjectValue, setActionError, working, setWorking, selectSource: sources.selectSource,
-    runtimes: capture.runtimes, applicationAudioInputs: capture.applicationAudioInputs, applicationAudioSessions: capture.applicationAudioSessions,
+    programSceneId: program.programSceneId, canTransition: program.canTransition, commitProgram: program.commitProgram, finishProgramTransition: program.finishOutgoingProgram,
+    runtimes: editorRuntimes, applicationAudioInputs: editorApplicationAudioInputs, applicationAudioSessions: editorApplicationAudioSessions,
     attachRuntime: capture.attachRuntime, stopRuntime: capture.stopRuntime,
     startApplicationAudioRuntime: capture.startApplicationAudioRuntime, startSystemAudioRuntime: capture.startSystemAudioRuntime,
   });
 
   const multiview = useMultiview({
-    project, projectRef, allSourcesRef, activeSourceIdsRef, runtimes: capture.runtimes, stopRuntime: capture.stopRuntime,
+    project, projectRef, programSceneId: program.programSceneId, programFrameRate: program.programProject?.output.frameRate ?? null,
     previewCanvasRef, programCanvasRef, chooseScene: scenes.chooseScene, transitionToScene: scenes.transitionToScene, setActionError,
     multiviewWindowOpen, setMultiviewWindowOpen,
   });
@@ -180,11 +259,10 @@ export function App() {
     ? project.scenes.filter((scene) => canReferenceScene(project.scenes, activeScene.id, scene.id))
     : [], [project?.scenes, activeScene?.id]);
 
-  const recording = useRecording({ api, project, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
-  const streaming = useStreaming({ api, project, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError });
-  const replayBuffer = useReplayBuffer({ api, project, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
+  const recording = useRecording({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
+  const streaming = useStreaming({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError });
+  const replayBuffer = useReplayBuffer({ api, project: program.programProject, programCanvasRef, ensureMixer: capture.ensureMixer, setActionError, working, setWorking });
 
-  const workbench = useWorkbenchLayout();
   const runtimeStats = useRuntimeStats({ api });
 
   const openSettingsDialog = () => {
@@ -276,6 +354,10 @@ export function App() {
     { width: project.output.width, height: project.output.height },
   ) : null;
   const previewScene = activeScene;
+  const runtimePreviewScene = runtimeDraftProject!.scenes.find((scene) => scene.id === activeScene.id)!;
+  const runtimeProgramScene = runtimeProgramProject!.scenes.find((scene) => scene.id === liveScene.id)!;
+  const runtimeOutgoingScene = runtimeOutgoingProject?.scenes.find((scene) => scene.id === program.outgoingScene?.id);
+  const programPreviewSize = fitPreviewSize(previewSize.width, previewSize.height, runtimeProgramProject!.output.width, runtimeProgramProject!.output.height);
   const duration = formatElapsed(recording.recordingStartedAt === null ? 0 : recordingElapsedTime(clockNow, recording.recordingPausedAt, recording.recordingAccumulatedPauseMs) - recording.recordingStartedAt, 'full');
   const streamDuration = formatElapsed(streaming.streamingStartedAt === null ? 0 : clockNow - streaming.streamingStartedAt, 'full');
   const activeSceneVisibleSourceIds = getVisibleSourceIdsForScenes(project.scenes, [activeScene.id]);
@@ -310,7 +392,8 @@ export function App() {
   return (
     <TooltipProvider>
     <main className="app-shell">
-      <RuntimeVideoBank sources={allSources} runtimes={capture.runtimesSnapshot} elements={videoElements.current} mediaElements={mediaElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} onMediaElement={capture.connectMediaElement} onMediaPlaybackState={capture.onMediaPlaybackState} onBrowserElement={capture.onBrowserElement} />
+      <ActionNotifications message={actionFeedback.message} sequence={actionFeedback.sequence} />
+      <RuntimeVideoBank sources={runtimeSources} runtimes={capture.runtimesSnapshot} elements={videoElements.current} mediaElements={mediaElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} programSourceIds={programSourceIds} playbackSourceIds={retainedSourceIds} onSourceStatus={reportResourceStatus} onMediaElement={capture.connectMediaElement} onMediaPlaybackState={capture.onMediaPlaybackState} onBrowserElement={capture.onBrowserElement} />
       {multiviewWindowOpen && <div className="multiview-offscreen" aria-hidden="true">
         {project.scenes.slice(0, multiviewTileCapacityFor(project.scenes.length)).map((scene) => <CanvasComposition
           key={scene.id}
@@ -318,8 +401,9 @@ export function App() {
             if (canvas) multiview.multiviewCanvasesRef.current.set(scene.id, canvas);
             else multiview.multiviewCanvasesRef.current.delete(scene.id);
           }}
-          project={project}
-          scene={scene}
+          project={runtimeDraftProject!}
+          scene={runtimeDraftProject!.scenes.find((item) => item.id === scene.id)!}
+          maxFrameRate={10}
           videoElements={videoElements.current}
           imageElements={imageElements.current}
           renderScale={0.2}
@@ -399,14 +483,14 @@ export function App() {
             {project.studioMode && <div key="preview-panel" className="stage-panel">
               <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b><ReacstButton.Icon variant="ghost" size="xs" label="Open preview projector" tooltip="Open preview projector" onClick={() => multiview.openProjector('preview')}><ExternalLink /></ReacstButton.Icon></div>
               <div className="stage-surface" style={previewSize} onPointerDown={(event) => sources.handleStagePointerDown(event, previewScene)} onPointerMove={sources.handleStagePointerMove} onPointerUp={sources.handleStagePointerUp} onPointerCancel={sources.handleStagePointerUp}>
-                <CanvasComposition ref={previewCanvasRef} project={project} scene={previewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
+                <CanvasComposition ref={previewCanvasRef} project={runtimeDraftProject!} scene={runtimePreviewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
                 {previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
             </div>}
             <div key="program-panel" className="stage-panel program-panel">
               <div className="stage-label"><span><StatusDot tone="error" />PROGRAM</span><b>{liveScene.name}</b></div>
-              <div className="stage-surface" style={previewSize} onPointerDown={!project.studioMode ? (event) => sources.handleStagePointerDown(event, liveScene) : undefined} onPointerMove={!project.studioMode ? sources.handleStagePointerMove : undefined} onPointerUp={!project.studioMode ? sources.handleStagePointerUp : undefined} onPointerCancel={!project.studioMode ? sources.handleStagePointerUp : undefined}>
-                <CanvasComposition ref={programCanvasRef} project={project} scene={liveScene} videoElements={videoElements.current} imageElements={imageElements.current} transition={scenes.transition} onTransitionEnd={scenes.finishTransition} />
+              <div className="stage-surface" style={programPreviewSize} onPointerDown={!project.studioMode ? (event) => sources.handleStagePointerDown(event, liveScene) : undefined} onPointerMove={!project.studioMode ? sources.handleStagePointerMove : undefined} onPointerUp={!project.studioMode ? sources.handleStagePointerUp : undefined} onPointerCancel={!project.studioMode ? sources.handleStagePointerUp : undefined}>
+                <CanvasComposition ref={programCanvasRef} project={runtimeProgramProject!} scene={runtimeProgramScene} outgoingProject={runtimeOutgoingProject ?? undefined} outgoingScene={runtimeOutgoingScene} videoElements={videoElements.current} imageElements={imageElements.current} transition={scenes.transition} onTransitionEnd={scenes.finishTransition} />
                 {!project.studioMode && previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
               </div>
             </div>
@@ -421,11 +505,11 @@ export function App() {
                 </label>
               )}
               <NumberField size="sm" className="w-24" label="Transition duration in milliseconds" labelPlacement="hidden" suffix="ms" commitOn="change" min={50} max={5000} step={50} value={scenes.transitionMs} onValueChange={scenes.setTransitionMs} />
-              {project.studioMode && <ReacstButton variant="success" size="sm" aria-label="Transition scene" title="Transition scene" disabled={project.activeSceneId === project.liveSceneId} onClick={() => scenes.transitionScene()}>Transition <Clapperboard size={13} /></ReacstButton>}
+              {project.studioMode && <ReacstButton variant="success" size="sm" aria-label="Transition scene" title="Transition scene" disabled={!program.canTransition(project.activeSceneId)} onClick={() => scenes.transitionScene()}>Transition <Clapperboard size={13} /></ReacstButton>}
             </Toolbar.Group>
             <Toolbar.Spacer />
             <Toolbar.Group label="Program">
-              <ReacstButton size="sm" pressed={project.studioMode} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
+              <ReacstButton size="sm" pressed={project.studioMode} disabled={scenes.transition !== null} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
               <ReacstButton.Icon variant="ghost" size="sm" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
             </Toolbar.Group>
             <span className="shrink-0 rounded-xs bg-tertiary px-1.5 py-0.5">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
@@ -441,7 +525,7 @@ export function App() {
           platform={platform}
           scenes={project.scenes}
           activeSceneId={project.activeSceneId}
-          liveSceneId={project.liveSceneId}
+          liveSceneId={liveScene.id}
           undoAvailable={workspace.undoAvailable}
           redoAvailable={workspace.redoAvailable}
           onUndo={workspace.undoSceneEdit}
@@ -454,6 +538,15 @@ export function App() {
           onDuplicateScene={() => void scenes.duplicateActiveScene()}
           studioMode={project.studioMode}
           onTransitionScene={scenes.transitionScene}
+          canTransitionScene={program.canTransition}
+          renderThumbnail={(scene) => <SceneThumbnail
+            onVisibilityChange={reportThumbnailVisibility}
+            project={runtimeDraftProject!}
+            scene={runtimeDraftProject!.scenes.find((item) => item.id === scene.id)!}
+            videoElements={videoElements.current}
+            imageElements={imageElements.current}
+            meterLevels={capture.meterLevels}
+          />}
           onOpenProjector={multiview.openProjector}
           onRenameScene={scenes.renameScene}
           onReorderScenes={scenes.reorderScenes}
@@ -468,7 +561,8 @@ export function App() {
           selectedSourceIds={sources.selectedSourceIds}
           collapsedGroupIds={sources.collapsedGroupIds}
           setCollapsedGroupIds={sources.setCollapsedGroupIds}
-          meterLevels={capture.meterLevels}
+          meterLevels={editorMeterLevels}
+          sourceStatuses={editorSourceStatuses}
           onSelectSourceRow={sources.selectSourceRow}
           onToggleSourceLock={sources.toggleSourceLock}
           onMoveSource={sources.moveSource}
@@ -522,14 +616,15 @@ export function App() {
             working,
             desktopAudioMode,
             inputDeviceOptions: capture.inputDeviceOptions,
-            runtimesSnapshot: capture.runtimesSnapshot,
-            mediaElements: mediaElements.current,
-            mediaPlaybackStates: capture.mediaPlaybackStates,
+            runtimesSnapshot: editorRuntimes.current,
+            mediaElements: editorMediaElements.current,
+            mediaPlaybackStates: editorPlaybackStates,
+            playbackInProgram: sources.selectedSource !== null && programSourceIds.has(getSourceRuntimeId(sources.selectedSource)),
             textStyle: selectedTextStyle,
             filters: selectedFilters,
             crop: selectedCrop,
             chromaKey: selectedChromaKey,
-            hasAudioMeter: sources.selectedSource !== null && capture.meterLevels[sources.selectedSource.id] !== undefined,
+            hasAudioMeter: sources.selectedSource !== null && editorMeterLevels[sources.selectedSource.id] !== undefined,
             onRemove: sources.removeSelectedSource,
             onUpdateSource: sources.updateSource,
             onUpdateTextStyle: sources.updateTextStyle,
@@ -565,8 +660,9 @@ export function App() {
           resizer={workbench.resizerForDock('mixer')}
           onHide={() => workbench.toggleDock('mixer')}
           onOpenSettings={openSettings}
+          staged={project.studioMode}
           sources={activeSceneLeafSources}
-          meterLevels={capture.meterLevels}
+          meterLevels={editorMeterLevels}
           onUpdateSourceSettings={sources.updateSourceSettings}
           allAudioSources={allAudioSources}
           onUpdateSourceAudio={sources.updateSourceAudio}
@@ -642,7 +738,7 @@ export function App() {
 
       <StatusBar label="Stream status">
         <StatusBar.Start>
-          {((actionError && !actionError.startsWith('Saved ')) || streaming.streamStatus.state === 'error') && <StatusBar.Item tone="error">Error</StatusBar.Item>}
+          {streaming.streamStatus.state === 'error' && <StatusBar.Item tone="error">Error</StatusBar.Item>}
           {working && <StatusBar.Item tone="warning">Working…</StatusBar.Item>}
           {streaming.streamStatus.state === 'connecting' && <StatusBar.Item tone="warning">Connecting</StatusBar.Item>}
           {streaming.streamStatus.state === 'live' && <StatusBar.Item>LIVE {streamDuration} · {streaming.streamStatus.bitrateKbps ?? 0} kb/s</StatusBar.Item>}
@@ -654,12 +750,9 @@ export function App() {
               : null}
           {!working && streaming.streamStatus.state !== 'connecting' && streaming.streamStatus.state !== 'live'
             && recording.recordingStartedAt === null && !recording.recordingFinalizing
-            && !(actionError && !actionError.startsWith('Saved ')) && streaming.streamStatus.state !== 'error'
+            && streaming.streamStatus.state !== 'error'
             && <StatusBar.Item icon={<StatusDot tone="success" />}>Ready</StatusBar.Item>}
         </StatusBar.Start>
-        <StatusBar.Center>
-          {actionError && <StatusBar.Item live tone={actionError.startsWith('Saved ') ? 'success' : 'error'} className="truncate">{actionError}</StatusBar.Item>}
-        </StatusBar.Center>
         <StatusBar.End>
           {project.output.baseWidth !== project.output.width || project.output.baseHeight !== project.output.height ? <>
             <StatusBar.Item>Canvas {project.output.baseWidth} × {project.output.baseHeight}</StatusBar.Item>
@@ -739,7 +832,7 @@ export function App() {
         captureOptions={capture.captureOptions}
         captureKind={capture.captureKind}
         captureTargetSourceId={capture.captureTargetSourceId}
-        runtimesSnapshot={capture.runtimesSnapshot}
+        runtimesSnapshot={editorRuntimes.current}
         working={working}
         displayCaptureSystemAudio={displayCaptureSystemAudio}
         includeSystemAudio={capture.includeSystemAudio}
@@ -761,7 +854,7 @@ export function App() {
       {capture.applicationAudioOptions && <ApplicationAudioPicker
         options={capture.applicationAudioOptions}
         targetSourceId={capture.applicationAudioTargetSourceId}
-        runtimesSnapshot={capture.runtimesSnapshot}
+        runtimesSnapshot={editorRuntimes.current}
         working={working}
         onChoose={(application) => void capture.chooseAudioApplication(application)}
         onClose={() => { capture.setApplicationAudioOptions(null); capture.setApplicationAudioTargetSourceId(null); }}

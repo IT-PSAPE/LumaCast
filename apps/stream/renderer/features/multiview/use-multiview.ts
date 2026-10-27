@@ -1,27 +1,22 @@
 import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import { closeProjectorWindow, createProjectorWindowSession, openCanvasProjector } from '../../projector-window';
 import { multiviewTileCapacityFor, openMultiviewWindow, type MultiviewWindowControl } from '../../multiview-window';
-import { getRenderedSourceIds } from '../../scene-render-scope';
-import type { StreamProject, StreamSource } from '../../../shared/desktop-api';
+import type { StreamProject } from '../../../shared/desktop-api';
 import { friendlyError } from '../shared/friendly-error';
 
 export interface UseMultiviewParams {
   project: StreamProject | null;
   projectRef: RefObject<StreamProject | null>;
-  allSourcesRef: RefObject<StreamSource[]>;
-  activeSourceIdsRef: RefObject<Set<string>>;
-  runtimes: RefObject<Map<string, MediaStream>>;
-  stopRuntime: (sourceId: string) => void;
+  /** Actual on-air identity can differ from the draft after undo or deletion. */
+  programSceneId: string | null;
+  /** Frame rate of the committed Program canvas, which may differ from the draft. */
+  programFrameRate: StreamProject['output']['frameRate'] | null;
   previewCanvasRef: RefObject<HTMLCanvasElement | null>;
   programCanvasRef: RefObject<HTMLCanvasElement | null>;
   chooseScene: (sceneId: string) => void;
   transitionToScene: (sceneId: string) => void;
   setActionError: (message: string) => void;
-  /**
-   * Owned by App.tsx (not this hook) because the `activeSourceIds` memo feeding
-   * `useCapture` needs this value before `useCapture`'s result (`runtimes`,
-   * `stopRuntime`) is available to construct this hook.
-   */
+  /** App includes popup scene canvases in the shared capture/render scope. */
   multiviewWindowOpen: boolean;
   setMultiviewWindowOpen: Dispatch<SetStateAction<boolean>>;
 }
@@ -41,7 +36,7 @@ export interface UseMultiviewResult {
  */
 export function useMultiview(params: UseMultiviewParams): UseMultiviewResult {
   const {
-    project, projectRef, allSourcesRef, activeSourceIdsRef, runtimes, stopRuntime,
+    project, projectRef, programSceneId, programFrameRate,
     previewCanvasRef, programCanvasRef, chooseScene, transitionToScene, setActionError,
     multiviewWindowOpen, setMultiviewWindowOpen,
   } = params;
@@ -49,9 +44,10 @@ export function useMultiview(params: UseMultiviewParams): UseMultiviewResult {
   const projectorSessionsRef = useRef<{ preview: ReturnType<typeof createProjectorWindowSession>; program: ReturnType<typeof createProjectorWindowSession> } | null>(null);
   projectorSessionsRef.current ??= { preview: createProjectorWindowSession(), program: createProjectorWindowSession() };
   const projectorSessions = projectorSessionsRef.current;
-  const multiviewRuntimeBaseline = useRef<Set<string> | null>(null);
   const multiviewWindowRef = useRef<MultiviewWindowControl | null>(null);
   const multiviewCanvasesRef = useRef(new Map<string, HTMLCanvasElement>());
+  const programSceneIdRef = useRef(programSceneId);
+  programSceneIdRef.current = programSceneId;
 
   // Keeps `openMultiview`'s handlers (captured once, for the life of the popup
   // window) from going stale: they call through these refs instead of closing
@@ -74,49 +70,26 @@ export function useMultiview(params: UseMultiviewParams): UseMultiviewResult {
 
   const openProjector = (kind: 'preview' | 'program') => {
     const canvas = kind === 'preview' ? previewCanvasRef.current : programCanvasRef.current;
-    if (!canvas || !project || (kind === 'preview' && !project.studioMode)) {
+    const frameRate = kind === 'program' ? programFrameRate : project?.output.frameRate;
+    if (!canvas || !project || frameRate == null || (kind === 'preview' && !project.studioMode)) {
       setActionError(`The ${kind} output is not ready.`);
       return;
     }
     setActionError('');
-    openCanvasProjector(kind, canvas, project.output.frameRate, projectorSessions[kind], setActionError);
+    openCanvasProjector(kind, canvas, frameRate, projectorSessions[kind], setActionError);
   };
 
-  // Attaches (or tears back down) the runtime sources needed to render every
-  // scene at once while the Multiview window is open — the same scope widening
-  // the in-stage multiview toggle used to perform. Reads `projectRef` (not the
-  // render-scoped `project`) so the popup's long-lived `onClosed` handler always
-  // sees current state, not whatever was captured when the window was opened.
-  const setMultiviewRuntimeScope = (active: boolean) => {
-    const current = projectRef.current;
-    if (!current) return;
-    if (active) {
-      activeSourceIdsRef.current = getRenderedSourceIds(current.scenes, current.activeSceneId, current.liveSceneId, true);
-      multiviewRuntimeBaseline.current = new Set(runtimes.current.keys());
-      return;
-    }
-    const stillRendered = getRenderedSourceIds(current.scenes, current.activeSceneId, current.liveSceneId, false);
-    activeSourceIdsRef.current = stillRendered;
-    const baseline = multiviewRuntimeBaseline.current;
-    for (const sourceId of runtimes.current.keys()) {
-      const source = allSourcesRef.current.find((item) => item.id === sourceId);
-      if (baseline?.has(sourceId) || stillRendered.has(sourceId) || (source?.kind !== 'camera' && source?.kind !== 'microphone' && source?.kind !== 'desktop-audio' && source?.kind !== 'application-audio')) continue;
-      stopRuntime(sourceId);
-    }
-    multiviewRuntimeBaseline.current = null;
-  };
-
+  // App derives capture scope from popup/dock visibility. The capture owner
+  // retains Program/outgoing resources independently of this window's lifetime.
   const closeMultiview = () => {
     multiviewWindowRef.current?.close();
     multiviewWindowRef.current = null;
-    setMultiviewRuntimeScope(false);
     setMultiviewWindowOpen(false);
   };
 
   const openMultiview = () => {
     if (!project || multiviewWindowRef.current?.isOpen()) return;
     setActionError('');
-    setMultiviewRuntimeScope(true);
     try {
       const control = openMultiviewWindow(
         {
@@ -130,7 +103,7 @@ export function useMultiview(params: UseMultiviewParams): UseMultiviewResult {
             id: scene.id,
             name: scene.name,
             isPreview: scene.id === projectRef.current?.activeSceneId,
-            isProgram: scene.id === projectRef.current?.liveSceneId,
+            isProgram: scene.id === programSceneIdRef.current,
           })),
         },
         {
@@ -138,7 +111,6 @@ export function useMultiview(params: UseMultiviewParams): UseMultiviewResult {
           onTransitionToScene: (sceneId) => transitionToSceneRef.current(sceneId),
           onClosed: () => {
             multiviewWindowRef.current = null;
-            setMultiviewRuntimeScope(false);
             setMultiviewWindowOpen(false);
           },
         },
@@ -147,7 +119,6 @@ export function useMultiview(params: UseMultiviewParams): UseMultiviewResult {
       multiviewWindowRef.current = control;
       setMultiviewWindowOpen(true);
     } catch (error) {
-      setMultiviewRuntimeScope(false);
       setActionError(`The multiview window could not be opened: ${friendlyError(error)}`);
     }
   };

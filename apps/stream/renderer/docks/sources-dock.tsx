@@ -4,8 +4,8 @@ import {
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type SetStateAction,
 } from 'react';
 import {
-  ChevronDown, ChevronRight, Copy, Eye, EyeOff, FileAudio, FileVideo, Globe, Headphones, Image as ImageIcon,
-  Layers2, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Type, Webcam, X,
+  ChevronDown, ChevronRight, CircleAlert, Copy, Eye, EyeOff, FileAudio, FileVideo, Globe, Headphones, Image as ImageIcon,
+  Layers2, LoaderCircle, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Type, Webcam, X,
 } from 'lucide-react';
 import { EmptyState, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
 import { AnchoredPopover } from '../anchored-popover';
@@ -14,6 +14,7 @@ import { SourceProperties, type SourcePropertiesProps } from './source-propertie
 import { fallbackSourceMoveSteps, reorderSourceSiblingsOnDrop } from '../source-order';
 import { primaryShortcutLabel, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
 import type { MediaKind, StreamScene, StreamSource } from '../../shared/desktop-api';
+import { sourceAvailabilityDescription, sourceAvailabilityLabel, type SourceStatus } from '../source-availability';
 import './sources-dock.css';
 
 const RENAME_MIN_LENGTH = 1;
@@ -96,6 +97,8 @@ export interface SourcesDockProps {
   collapsedGroupIds: string[];
   setCollapsedGroupIds: Dispatch<SetStateAction<string[]>>;
   meterLevels: Record<string, number>;
+  /** Current capture/media readiness, keyed by stable source ID. Ready entries are not shown. */
+  sourceStatuses?: Readonly<Record<string, SourceStatus>>;
   onSelectSourceRow: (event: ReactMouseEvent<HTMLDivElement>, sourceId: string) => void;
   onToggleSourceLock: (sourceId: string) => void;
   onMoveSource: (sourceId: string, direction: -1 | 1) => void;
@@ -172,6 +175,7 @@ export function SourcesDock({
   collapsedGroupIds,
   setCollapsedGroupIds,
   meterLevels,
+  sourceStatuses,
   onSelectSourceRow,
   onToggleSourceLock,
   onMoveSource,
@@ -483,10 +487,14 @@ export function SourcesDock({
       const isGroup = source.kind === 'group';
       const collapsed = collapsedGroupIds.includes(source.id);
       const isLastDisplayed = displayIndex === rows.length - 1;
+      const sourceStatus = sourceStatuses?.[source.id];
+      const statusLabel = sourceStatus ? sourceAvailabilityLabel(sourceStatus) : null;
+      const statusDescription = sourceStatus ? sourceAvailabilityDescription(source.name, sourceStatus) : null;
       return <div className="source-tree-node" key={source.id}>
         <div
           ref={(el) => { if (el) rowRefs.current.set(source.id, el); else rowRefs.current.delete(source.id); }}
           className={`source-row ${selectedSourceIds.includes(source.id) ? 'selected' : ''} ${source.locked ? 'source-locked' : ''} ${isGroup ? 'source-group-row' : ''} ${dragId === source.id ? 'source-dragging' : ''} ${dropBeforeId === source.id ? 'drag-over-before' : ''} ${isLastDisplayed && dropAtEnd ? 'drag-over-after' : ''}`}
+          aria-description={statusDescription ?? undefined}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
           tabIndex={source.id === currentFocusId ? 0 : -1}
           onClick={(event) => {
@@ -525,6 +533,15 @@ export function SourcesDock({
                 }}
               />
             : <span className="source-label" onDoubleClick={(event) => { event.stopPropagation(); beginRename(source); }}>{source.name}</span>}
+          {statusLabel && sourceStatus && <span
+            className={`source-availability source-availability--${sourceStatus.state}`}
+            title={statusDescription ?? undefined}
+          >
+            {sourceStatus.state === 'starting'
+              ? <LoaderCircle aria-hidden="true" />
+              : <CircleAlert aria-hidden="true" />}
+            <span>{statusLabel}</span>
+          </span>}
           {meterLevels[source.id] !== undefined && <span className="source-level-mini"><i style={{ width: `${Math.round((meterLevels[source.id] ?? 0) * 100)}%` }} /></span>}
           <span className="source-actions"><ReacstButton.Icon variant="ghost" size="xs" label={`Lock ${source.name}`} tooltip={source.locked ? 'Unlock source' : 'Lock source'} pressed={!!source.locked} onClick={(event) => { event.stopPropagation(); onToggleSourceLock(source.id); }}>{source.locked ? <Lock /> : <LockOpen />}</ReacstButton.Icon></span>
         </div>

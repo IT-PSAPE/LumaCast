@@ -101,6 +101,13 @@ recording, a 5–60 second replay buffer, HTTP(S) browser sources, and multiple
   hotkey settings that can be imported and exported.
 Scene editing includes bounded undo/redo, source copy/paste, delete, and the
 common fit, stretch, center, and reset transform shortcuts.
+Scene thumbnails show the composed scene and a vertical input-activity meter.
+In Studio Mode, source and Mixer edits stay in Preview until Transition commits
+them to Program, including edits to the same scene already on air. Captures stay
+live, while Preview-only video, audio, and slideshow timers wait for Program.
+Unchanged shared sources keep their playback position across transitions.
+Disconnected cameras show color bars; unavailable assets and inputs have source
+indicators, and action notices appear at the bottom right.
 The app is Windows-first and is built independently from OBS. Per-source crop,
 color correction, opacity, blur, chroma key, audio monitoring, microphone noise
 suppression, gain, noise gate, expander, compressor, and limiter controls are available.

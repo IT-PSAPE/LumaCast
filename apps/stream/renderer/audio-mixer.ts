@@ -5,12 +5,13 @@ import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?inline
 import rnnoiseSimdWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?inline';
 import audioFiltersProcessorUrl from './audio-filters-processor.js?url';
 import applicationAudioInputProcessorUrl from './application-audio-input-processor.js?url';
-import { connectAudioInput, gainFromDecibels, replaceAudioInputConnection } from './audio-route';
+import { audioRouteOutputGains, connectAudioInput, gainFromDecibels, replaceAudioInputConnection } from './audio-route';
 import { audioTrackGainValues } from './audio-track-routing';
 import { routeMonitorToDevice } from './monitor-device-routing';
 
 interface AudioRoute {
   input: AudioNode;
+  inputGain: GainNode;
   gain: GainNode;
   gainFilter: GainNode;
   noiseSuppressionNode: RnnoiseWorkletNode | null;
@@ -31,18 +32,29 @@ interface AudioRoute {
 
 type AudioRouteSettings = Pick<StreamSource, 'volume' | 'muted' | 'balance' | 'audioFilters' | 'audioMonitoring' | 'audioTracks'> & { programActive?: boolean };
 
+export interface AudioMixerEngineOptions {
+  /** Injected contexts keep the routing graph testable with real WebAudio. */
+  context?: AudioContext;
+  /** A same-context sink used for monitoring; defaults to the real output. */
+  monitorDestination?: AudioNode;
+}
+
 export class AudioMixerEngine {
-  readonly context = new AudioContext({ sampleRate: 48_000 });
+  readonly context: AudioContext;
   readonly destinations: readonly MediaStreamAudioDestinationNode[];
   private readonly routes = new Map<string, AudioRoute>();
+  private readonly routeGenerations = new Map<string, number>();
   private monitorDeviceQueue: Promise<void> = Promise.resolve();
   private readonly mediaElementSources = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
   private readonly audioFiltersModuleReady: Promise<boolean>;
   private readonly applicationAudioInputReady: Promise<boolean>;
+  private readonly monitorDestination: AudioNode;
   private rnnoiseWorkletReady: Promise<void> | null = null;
   private rnnoiseWasmReady: Promise<ArrayBuffer> | null = null;
 
-  constructor() {
+  constructor(options: AudioMixerEngineOptions = {}) {
+    this.context = options.context ?? new AudioContext({ sampleRate: 48_000 });
+    this.monitorDestination = options.monitorDestination ?? this.context.destination;
     this.destinations = AUDIO_TRACKS.map(() => this.context.createMediaStreamDestination());
     this.audioFiltersModuleReady = this.context.audioWorklet
       ? this.context.audioWorklet.addModule(audioFiltersProcessorUrl).then(() => true).catch(() => false)
@@ -80,15 +92,25 @@ export class AudioMixerEngine {
   }
 
   async add(sourceId: string, stream: MediaStream, settings: AudioRouteSettings): Promise<boolean> {
-    this.remove(sourceId);
+    const generation = this.beginRouteReplacement(sourceId);
     const tracks = stream.getAudioTracks();
     if (tracks.length === 0) return true;
     const audioOnlyStream = new MediaStream(tracks);
     const input = this.context.createMediaStreamSource(audioOnlyStream);
+    const inputGain = this.context.createGain();
     const gain = this.context.createGain();
     const gainFilter = this.context.createGain();
     const noiseSuppressionNode = await this.createNoiseSuppressionNode(settings.audioFilters?.noiseSuppression === true);
     const filterProcessor = await this.createAudioFiltersProcessor(settings.audioFilters);
+    if (this.routeGenerations.get(sourceId) !== generation) {
+      noiseSuppressionNode?.destroy();
+      filterProcessor?.disconnect();
+      input.disconnect();
+      inputGain.disconnect();
+      gain.disconnect();
+      gainFilter.disconnect();
+      return false;
+    }
     const compressor = this.context.createDynamicsCompressor();
     const limiter = this.context.createDynamicsCompressor();
     const meter = this.context.createAnalyser();
@@ -98,26 +120,28 @@ export class AudioMixerEngine {
     meter.fftSize = 512;
     const samples = new Float32Array(meter.fftSize);
     const audioMonitoring = settings.audioMonitoring ?? 'off';
-    const programActive = settings.programActive !== false;
+    const programActive = settings.programActive === true;
     gain.gain.value = settings.muted ? 0 : settings.volume;
-    programGain.gain.value = !programActive || audioMonitoring === 'monitor-only' ? 0 : 1;
-    monitorGain.gain.value = audioMonitoring === 'off' ? 0 : 1;
+    const outputGains = audioRouteOutputGains(programActive, audioMonitoring);
+    programGain.gain.value = outputGains.program;
+    monitorGain.gain.value = outputGains.monitor;
     this.applyAudioFilters(gainFilter, compressor, limiter, settings.audioFilters);
     panner.pan.value = settings.balance ?? 0;
-    connectAudioInput(input, gain, noiseSuppressionNode);
+    connectAudioInput(input, inputGain, noiseSuppressionNode);
     if (filterProcessor) {
-      gain.connect(filterProcessor);
+      inputGain.connect(filterProcessor);
       filterProcessor.connect(gainFilter);
-    } else gain.connect(gainFilter);
+    } else inputGain.connect(gainFilter);
     gainFilter.connect(compressor);
     compressor.connect(limiter);
     limiter.connect(meter);
-    meter.connect(panner);
+    meter.connect(gain);
+    gain.connect(panner);
     panner.connect(programGain);
     const trackGains = this.createTrackGains(programGain, settings.audioTracks ?? [1]);
     panner.connect(monitorGain);
-    monitorGain.connect(this.context.destination);
-    this.routes.set(sourceId, { input, gain, gainFilter, noiseSuppressionNode, noiseSuppressionGeneration: 0, filterProcessor, compressor, limiter, meter, panner, programGain, trackGains, monitorGain, audioMonitoring, programActive, samples });
+    monitorGain.connect(this.monitorDestination);
+    this.routes.set(sourceId, { input, inputGain, gain, gainFilter, noiseSuppressionNode, noiseSuppressionGeneration: 0, filterProcessor, compressor, limiter, meter, panner, programGain, trackGains, monitorGain, audioMonitoring, programActive, samples });
     return settings.audioFilters?.noiseSuppression !== true || noiseSuppressionNode !== null;
   }
 
@@ -127,20 +151,32 @@ export class AudioMixerEngine {
       this.setSettings(sourceId, settings);
       this.setBalance(sourceId, settings.balance ?? 0);
       this.setAudioFilters(sourceId, settings.audioFilters);
-      this.setProgramActive(sourceId, settings.programActive !== false);
+      this.setProgramActive(sourceId, settings.programActive === true);
       this.setAudioMonitoring(sourceId, settings.audioMonitoring ?? 'off');
       return this.setNoiseSuppression(sourceId, settings.audioFilters?.noiseSuppression === true);
     }
-    this.remove(sourceId);
+    const generation = this.beginRouteReplacement(sourceId);
     let input = this.mediaElementSources.get(element);
     if (!input) {
       input = this.context.createMediaElementSource(element);
       this.mediaElementSources.set(element, input);
     }
+    const inputGain = this.context.createGain();
     const gain = this.context.createGain();
     const gainFilter = this.context.createGain();
     const noiseSuppressionNode = await this.createNoiseSuppressionNode(settings.audioFilters?.noiseSuppression === true);
     const filterProcessor = await this.createAudioFiltersProcessor(settings.audioFilters);
+    if (this.routeGenerations.get(sourceId) !== generation) {
+      noiseSuppressionNode?.destroy();
+      filterProcessor?.disconnect();
+      // MediaElementAudioSourceNode is cached per element and may already be
+      // serving a newer route for this source id. It was not connected by this
+      // stale operation, so leave the shared input alone.
+      inputGain.disconnect();
+      gain.disconnect();
+      gainFilter.disconnect();
+      return false;
+    }
     const compressor = this.context.createDynamicsCompressor();
     const limiter = this.context.createDynamicsCompressor();
     const meter = this.context.createAnalyser();
@@ -150,26 +186,28 @@ export class AudioMixerEngine {
     meter.fftSize = 512;
     const samples = new Float32Array(meter.fftSize);
     const audioMonitoring = settings.audioMonitoring ?? 'off';
-    const programActive = settings.programActive !== false;
+    const programActive = settings.programActive === true;
     gain.gain.value = settings.muted ? 0 : settings.volume;
-    programGain.gain.value = !programActive || audioMonitoring === 'monitor-only' ? 0 : 1;
-    monitorGain.gain.value = audioMonitoring === 'off' ? 0 : 1;
+    const outputGains = audioRouteOutputGains(programActive, audioMonitoring);
+    programGain.gain.value = outputGains.program;
+    monitorGain.gain.value = outputGains.monitor;
     this.applyAudioFilters(gainFilter, compressor, limiter, settings.audioFilters);
     panner.pan.value = settings.balance ?? 0;
-    connectAudioInput(input, gain, noiseSuppressionNode);
+    connectAudioInput(input, inputGain, noiseSuppressionNode);
     if (filterProcessor) {
-      gain.connect(filterProcessor);
+      inputGain.connect(filterProcessor);
       filterProcessor.connect(gainFilter);
-    } else gain.connect(gainFilter);
+    } else inputGain.connect(gainFilter);
     gainFilter.connect(compressor);
     compressor.connect(limiter);
     limiter.connect(meter);
-    meter.connect(panner);
+    meter.connect(gain);
+    gain.connect(panner);
     panner.connect(programGain);
     const trackGains = this.createTrackGains(programGain, settings.audioTracks ?? [1]);
     panner.connect(monitorGain);
-    monitorGain.connect(this.context.destination);
-    this.routes.set(sourceId, { input, gain, gainFilter, noiseSuppressionNode, noiseSuppressionGeneration: 0, filterProcessor, compressor, limiter, meter, panner, programGain, trackGains, monitorGain, audioMonitoring, programActive, samples, mediaElement: element });
+    monitorGain.connect(this.monitorDestination);
+    this.routes.set(sourceId, { input, inputGain, gain, gainFilter, noiseSuppressionNode, noiseSuppressionGeneration: 0, filterProcessor, compressor, limiter, meter, panner, programGain, trackGains, monitorGain, audioMonitoring, programActive, samples, mediaElement: element });
     return settings.audioFilters?.noiseSuppression !== true || noiseSuppressionNode !== null;
   }
 
@@ -211,7 +249,7 @@ export class AudioMixerEngine {
     if (!enabled) {
       const current = route.noiseSuppressionNode;
       if (!current) return true;
-      replaceAudioInputConnection(route.input, route.gain, current, null);
+      replaceAudioInputConnection(route.input, route.inputGain, current, null);
       current.destroy();
       route.noiseSuppressionNode = null;
       return true;
@@ -223,7 +261,7 @@ export class AudioMixerEngine {
       return this.routes.get(sourceId) === route;
     }
     if (!next) return false;
-    replaceAudioInputConnection(route.input, route.gain, null, next);
+    replaceAudioInputConnection(route.input, route.inputGain, null, next);
     route.noiseSuppressionNode = next;
     return true;
   }
@@ -232,16 +270,14 @@ export class AudioMixerEngine {
     const route = this.routes.get(sourceId);
     if (!route) return;
     route.programActive = active;
-    route.programGain.gain.setTargetAtTime(active && route.audioMonitoring !== 'monitor-only' ? 1 : 0, this.context.currentTime, 0.015);
+    this.applyOutputGains(route);
   }
 
   setAudioMonitoring(sourceId: string, audioMonitoring: AudioMonitoring): void {
     const route = this.routes.get(sourceId);
     if (!route) return;
     route.audioMonitoring = audioMonitoring;
-    const now = this.context.currentTime;
-    route.monitorGain.gain.setTargetAtTime(audioMonitoring === 'off' ? 0 : 1, now, 0.015);
-    route.programGain.gain.setTargetAtTime(route.programActive && audioMonitoring !== 'monitor-only' ? 1 : 0, now, 0.015);
+    this.applyOutputGains(route);
   }
 
   level(sourceId: string): number {
@@ -254,9 +290,22 @@ export class AudioMixerEngine {
   }
 
   remove(sourceId: string): void {
+    this.routeGenerations.set(sourceId, (this.routeGenerations.get(sourceId) ?? 0) + 1);
+    this.removeRoute(sourceId);
+  }
+
+  private beginRouteReplacement(sourceId: string): number {
+    const generation = (this.routeGenerations.get(sourceId) ?? 0) + 1;
+    this.routeGenerations.set(sourceId, generation);
+    this.removeRoute(sourceId);
+    return generation;
+  }
+
+  private removeRoute(sourceId: string): void {
     const route = this.routes.get(sourceId);
     if (!route) return;
     route.input.disconnect();
+    route.inputGain.disconnect();
     route.gain.disconnect();
     route.gainFilter.disconnect();
     route.noiseSuppressionNode?.disconnect();
@@ -315,6 +364,13 @@ export class AudioMixerEngine {
       gain.connect(destination);
       return gain;
     });
+  }
+
+  private applyOutputGains(route: AudioRoute): void {
+    const gains = audioRouteOutputGains(route.programActive, route.audioMonitoring);
+    const now = this.context.currentTime;
+    route.programGain.gain.setTargetAtTime(gains.program, now, 0.015);
+    route.monitorGain.gain.setTargetAtTime(gains.monitor, now, 0.015);
   }
 
   private async createAudioFiltersProcessor(filters: StreamSource['audioFilters']): Promise<AudioWorkletNode | null> {

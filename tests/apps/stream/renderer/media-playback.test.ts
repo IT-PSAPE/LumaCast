@@ -31,6 +31,29 @@ describe('media playback lifecycle', () => {
     expect(element.play).toHaveBeenCalledOnce();
   });
 
+  it('does not restart or issue another play call when the same resource remains active', () => {
+    const element = mediaElement({ currentTime: 13 });
+
+    setMediaPlaybackActive(element, true, true);
+    setMediaPlaybackActive(element, true, true);
+
+    expect(element.currentTime).toBe(0);
+    expect(element.play).toHaveBeenCalledOnce();
+  });
+
+  it('restarts only after the resource leaves and re-enters Program', () => {
+    const element = mediaElement({ currentTime: 13 });
+
+    setMediaPlaybackActive(element, true, true);
+    setMediaPlaybackActive(element, false, true);
+    element.currentTime = 19;
+    setMediaPlaybackActive(element, true, true);
+
+    expect(element.currentTime).toBe(0);
+    expect(element.play).toHaveBeenCalledTimes(2);
+    expect(element.pause).toHaveBeenCalledOnce();
+  });
+
   it('does not restart completed media when resume mode is selected', () => {
     const element = mediaElement({ ended: true });
     setMediaPlaybackActive(element, true, false);

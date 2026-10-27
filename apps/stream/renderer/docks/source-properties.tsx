@@ -69,6 +69,8 @@ export interface SourcePropertiesProps {
   runtimesSnapshot: ReadonlyMap<string, MediaStream>;
   mediaElements: ReadonlyMap<string, HTMLMediaElement>;
   mediaPlaybackStates: Record<string, { paused: boolean; ended: boolean }>;
+  /** True when media playback controls can affect the Program resource. Defaults to true. */
+  playbackInProgram?: boolean;
   textStyle: StreamTextStyle | null;
   filters: SourceFilters;
   crop: SourceCrop;
@@ -115,6 +117,7 @@ export function SourceProperties({
   runtimesSnapshot,
   mediaElements,
   mediaPlaybackStates,
+  playbackInProgram = true,
   textStyle: selectedTextStyle,
   filters: selectedFilters,
   crop: selectedCrop,
@@ -230,13 +233,16 @@ export function SourceProperties({
       </>}
       {selectedSource.kind === 'color' && <label className="color-property">Color<input type="color" value={selectedSource.color ?? '#ffffff'} onChange={(event) => patchSource({ color: event.target.value })} /></label>}
       {selectedSource.kind === 'media' && <>
+        <div className="media-playback-scope" role="status" aria-live="polite">
+          {playbackInProgram ? 'Program playback' : 'Starts in Program'}
+        </div>
         <div className="media-playback-controls">
-          <ReacstButton size="sm" disabled={!mediaElements.has(selectedSource.id)} onClick={() => onTogglePlayback(selectedSource.id)}>{mediaPlaybackStates[selectedSource.id]?.paused ? <Play size={12} /> : <Pause size={12} />}{mediaPlaybackStates[selectedSource.id]?.paused ? 'Play' : 'Pause'}</ReacstButton>
-          <ReacstButton size="sm" disabled={!mediaElements.has(selectedSource.id)} onClick={() => onRestartPlayback(selectedSource.id)}><Play size={12} />Restart</ReacstButton>
-          <ReacstButton size="sm" disabled={!mediaElements.has(selectedSource.id)} onClick={() => onStopPlayback(selectedSource.id)}><Square size={11} />Stop</ReacstButton>
+          <ReacstButton size="sm" disabled={!playbackInProgram || !mediaElements.has(selectedSource.id)} onClick={() => onTogglePlayback(selectedSource.id)}>{mediaPlaybackStates[selectedSource.id]?.paused ? <Play size={12} /> : <Pause size={12} />}{mediaPlaybackStates[selectedSource.id]?.paused ? 'Play' : 'Pause'}</ReacstButton>
+          <ReacstButton size="sm" disabled={!playbackInProgram || !mediaElements.has(selectedSource.id)} onClick={() => onRestartPlayback(selectedSource.id)}><Play size={12} />Restart</ReacstButton>
+          <ReacstButton size="sm" disabled={!playbackInProgram || !mediaElements.has(selectedSource.id)} onClick={() => onStopPlayback(selectedSource.id)}><Square size={11} />Stop</ReacstButton>
         </div>
         <Checkbox label="Loop" checked={selectedSource.loop ?? false} onCheckedChange={(loop) => patchSource({ loop })} />
-        <Checkbox label="Restart playback when source becomes active" checked={selectedSource.restartPlaybackWhenActive ?? true} onCheckedChange={(restartPlaybackWhenActive) => patchSource({ restartPlaybackWhenActive })} />
+        <Checkbox label="Restart when entering Program" checked={selectedSource.restartPlaybackWhenActive ?? true} onCheckedChange={(restartPlaybackWhenActive) => patchSource({ restartPlaybackWhenActive })} />
         <Checkbox label="Show nothing when playback ends" checked={selectedSource.showNothingWhenPlaybackEnds ?? true} onCheckedChange={(showNothingWhenPlaybackEnds) => patchSource({ showNothingWhenPlaybackEnds })} />
       </>}
       {selectedSource.kind === 'slideshow' && <div className="slideshow-properties">
