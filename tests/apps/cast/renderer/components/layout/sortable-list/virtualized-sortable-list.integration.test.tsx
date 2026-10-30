@@ -248,6 +248,8 @@ describe('virtualized sortable integration', () => {
       id: 'row-1',
       fromIndex: 1,
       toIndex: 12,
+      movedIds: ['row-1'],
+      previousIds: Array.from({ length: 20 }, (_, index) => `row-${index}`),
       orderedIds: [
         'row-0',
         'row-2',
@@ -316,7 +318,8 @@ describe('virtualized sortable integration', () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByText('row-5')).not.toBeNull();
+      expect(screen.getByText('row-1').closest('[data-index="5"]')).not.toBeNull();
+      expect(screen.getByText('row-6')).not.toBeNull();
     });
 
     expect(viewport.scrollTop).toBe(200);
@@ -333,6 +336,8 @@ describe('virtualized sortable integration', () => {
       id: 'row-1',
       fromIndex: 1,
       toIndex: 5,
+      movedIds: ['row-1'],
+      previousIds: Array.from({ length: 20 }, (_, index) => `row-${index}`),
       orderedIds: [
         'row-0',
         'row-2',

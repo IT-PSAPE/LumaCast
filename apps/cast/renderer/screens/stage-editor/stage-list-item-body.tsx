@@ -12,14 +12,17 @@ import { useStageEditorScreen } from './screen-context';
 
 export function StageListItemBody({
   stage,
-  index,
   isActive,
+  selection,
+  onSelect,
+  onContextMenu,
 }: {
   stage: ReturnType<typeof useStageEditorScreen>['state']['stages'][number];
-  index: number;
   isActive: boolean;
+  selection: ReturnType<typeof import('@lumacast/selection').useMultiSelection>;
+  onSelect: (event: ReactMouseEvent<HTMLElement>) => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
 }) {
-  const { actions } = useStageEditorScreen();
   const { duplicateStage, deleteStage, requestNameFocus } = useStageEditor();
   const confirm = useConfirm();
   const mediaProxyBySource = useMediaProxyMap();
@@ -35,24 +38,30 @@ export function StageListItemBody({
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
   const { containerRef, containerStyle, handleProps } = useSortableItem(stage.id);
 
-  function handleSelect() {
-    actions.selectStage(stage.id);
-  }
-
-  function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
-    if (!isActive) actions.selectStage(stage.id);
+  function handleContextMenuTrigger(event: ReactMouseEvent<HTMLElement>) {
+    onContextMenu(event);
     triggerContextMenu(event);
   }
 
   async function handleDelete() {
+    const selectedIds = selection.actionIds(stage.id);
+    const isBulk = selectedIds.length > 1;
     const ok = await confirm({
-      title: `Delete "${stage.name}"?`,
-      description: 'This stage will be permanently removed.',
+      title: isBulk ? `Delete ${selectedIds.length} stages?` : `Delete "${stage.name}"?`,
+      description: isBulk ? 'These stages will be permanently removed.' : 'This stage will be permanently removed.',
       confirmLabel: 'Delete',
       tone: 'danger',
     });
-    if (ok) await deleteStage(stage.id);
+    if (ok) {
+      for (const id of selectedIds) await deleteStage(id);
+    }
   }
+
+  function handleDuplicate() {
+    for (const id of selection.actionIds(stage.id)) duplicateStage(id);
+  }
+
+  const selectedCount = selection.actionIds(stage.id).length;
 
   return (
     <>
@@ -66,9 +75,10 @@ export function StageListItemBody({
         }}
         style={containerStyle}
         className="cursor-grab active:cursor-grabbing"
-        onContextMenu={handleContextMenu}
-        onClick={handleSelect}
-        selected={isActive}
+        onContextMenu={handleContextMenuTrigger}
+        onClick={onSelect}
+        aria-selected={selection.selectedIds.has(stage.id)}
+        selected={isActive || selection.selectedIds.has(stage.id)}
       >
         <Thumbnail.Body>
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
@@ -76,18 +86,15 @@ export function StageListItemBody({
           </SceneFrame>
         </Thumbnail.Body>
         <Thumbnail.Caption>
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
-            <span className="min-w-0 truncate text-sm text-tertiary">{stage.name}</span>
-          </div>
+          <span className="min-w-0 truncate text-sm text-tertiary">{stage.name}</span>
         </Thumbnail.Caption>
       </Thumbnail.Tile>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item onSelect={() => requestNameFocus(stage.id)}>Rename</ContextMenu.Item>
-          <ContextMenu.Item onSelect={() => duplicateStage(stage.id)}>Duplicate</ContextMenu.Item>
+          {selectedCount === 1 ? <ContextMenu.Item onSelect={() => requestNameFocus(stage.id)}>Rename</ContextMenu.Item> : null}
+          <ContextMenu.Item onSelect={handleDuplicate}>{selectedCount > 1 ? `Duplicate ${selectedCount} stages` : 'Duplicate'}</ContextMenu.Item>
           <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>{selectedCount > 1 ? `Delete ${selectedCount} stages` : 'Delete'}</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>

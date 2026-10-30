@@ -11,8 +11,9 @@ import { ThemeContextMenuItems } from './theme-context-menu-items';
 import { useDeleteTheme } from './use-delete-theme';
 import { useMediaProxyMap } from '../../../hooks/use-media-proxy-map';
 
-export function ThemeTileBody({ theme, index, themeType, onApply }: ThemeItemProps) {
-  const { renameTheme } = useThemeEditor();
+export function ThemeTileBody(props: ThemeItemProps) {
+  const { theme, themeType, onApply, isResourceSelected, onSelectionClick, onContextMenuTarget, onDeleteResource, onDuplicateResource } = props;
+  const { renameTheme, duplicateTheme } = useThemeEditor();
   const mediaProxyBySource = useMediaProxyMap();
   const scene = useMemo(
     () => buildRenderScene(
@@ -23,10 +24,18 @@ export function ThemeTileBody({ theme, index, themeType, onApply }: ThemeItemPro
     [mediaProxyBySource, theme.background, theme.elements, theme.height, theme.width],
   );
   const renameRef = useRef<RenameFieldHandle>(null);
-  const handleDelete = useDeleteTheme(theme);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const deleteTheme = useDeleteTheme(theme);
+  const handleDelete = () => onDeleteResource ? Promise.resolve(onDeleteResource(theme)) : deleteTheme();
+  const handleDuplicate = () => onDuplicateResource ? Promise.resolve(onDuplicateResource(theme)) : Promise.resolve(duplicateTheme(theme.id));
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
 
-  function handleClick() {
+  function handleClick(event: React.MouseEvent<HTMLDivElement>) {
+    const modifiers = { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
+    if (onSelectionClick?.(theme.id, modifiers)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     onApply(theme);
   }
 
@@ -36,22 +45,34 @@ export function ThemeTileBody({ theme, index, themeType, onApply }: ThemeItemPro
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
-        <Thumbnail.Tile onClick={handleClick}>
+      <div
+        {...triggerHandlers}
+        ref={triggerRef}
+        onContextMenuCapture={() => onContextMenuTarget?.(theme.id)}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) onContextMenuTarget?.(theme.id);
+        }}
+        onTouchStartCapture={() => onContextMenuTarget?.(theme.id)}
+        className="rounded-container focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        <Thumbnail.Tile onClick={handleClick} selected={Boolean(isResourceSelected)}>
           <Thumbnail.Body>
             <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
               <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
             </SceneFrame>
           </Thumbnail.Body>
           <Thumbnail.Caption>
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
-              <RenameField ref={renameRef} value={theme.name} onValueChange={handleRename} className="label-xs" />
-            </div>
+            <RenameField ref={renameRef} value={theme.name} onValueChange={handleRename} className="label-xs" />
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
-      <ThemeContextMenuItems theme={theme} themeType={themeType} renameRef={renameRef} onDelete={() => { void handleDelete(); }} />
+      <ThemeContextMenuItems
+        theme={theme}
+        themeType={themeType}
+        renameRef={renameRef}
+        onDelete={() => { void handleDelete().catch(() => undefined); }}
+        onDuplicate={() => { void handleDuplicate().catch(() => undefined); }}
+      />
     </>
   );
 }

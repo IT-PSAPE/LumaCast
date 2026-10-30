@@ -12,10 +12,12 @@ import { SlideGridTile } from './slide-grid-tile';
 import { SortableSlideGridTile } from './sortable-slide-grid-tile';
 import { useSlideReorder } from './use-slide-reorder';
 import { useSlideRangeSelection } from '../../hooks/use-slide-range-selection';
+import { useSlideSelectionKeyboard } from '../../hooks/use-slide-selection-keyboard';
+import { useSlideBulkActions } from './use-slide-bulk-actions';
 
 export function SingleSlideGrid() {
   const { currentItemRef, currentOutputItemRef, isDetachedDeckBrowser } = useNavigation();
-  const { slides: persistedSlides, currentSlideIndex, liveSlideIndex, slideElementsById, activateSlide, setCurrentSlideIndex, reorderSlide } = useSlides();
+  const { slides: persistedSlides, currentSlideIndex, liveSlideIndex, slideElementsById, activateSlide, setCurrentSlideIndex, reorderSlide, duplicateSlide, deleteSlide } = useSlides();
   const getThumbnailScene = useThumbnailScene();
   const { gridItemSize } = useDeckBrowser();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -25,12 +27,31 @@ export function SingleSlideGrid() {
     virtualScrollToRowIndexRef.current?.(Math.floor(index / gridItemSize));
   }, [gridItemSize]);
   const showLiveState = !isDetachedDeckBrowser && itemRefsEqual(currentItemRef, currentOutputItemRef);
-  const { items: slides, dnd } = useSlideReorder(persistedSlides, reorderSlide);
-  const slideIds = useMemo(() => slides.map((slide) => slide.id), [slides]);
+  const slideIds = useMemo(() => persistedSlides.map((slide) => slide.id), [persistedSlides]);
   const selection = useSlideRangeSelection(
     slideIds,
     currentSlideIndex,
     currentItemRef ? `${currentItemRef.type}:${currentItemRef.id}` : null,
+  );
+  const authoredSlideIds = useMemo(() => persistedSlides.filter((slide) => !slide.runtimeBlank).map((slide) => slide.id), [persistedSlides]);
+  const keyboardActionSlideIds = useMemo(() => selection.selectedSlideIds.size > 0
+    ? authoredSlideIds.filter((id) => selection.selectedSlideIds.has(id))
+    : persistedSlides[currentSlideIndex] && !persistedSlides[currentSlideIndex].runtimeBlank
+      ? [persistedSlides[currentSlideIndex].id]
+      : [], [authoredSlideIds, currentSlideIndex, persistedSlides, selection.selectedSlideIds]);
+  const bulkActions = useSlideBulkActions({ slides: persistedSlides, duplicateSlide, deleteSlide });
+  const handleSelectionKeys = useSlideSelectionKeyboard({
+    selectAll: () => selection.selectAll(authoredSlideIds),
+    clearSelection: selection.clearSelection,
+    duplicateSelected: () => bulkActions.duplicateSlides(keyboardActionSlideIds),
+    deleteSelected: () => bulkActions.deleteSlides(keyboardActionSlideIds),
+  });
+  const { items: slides, dnd } = useSlideReorder(
+    persistedSlides,
+    reorderSlide,
+    new Set(persistedSlides.filter((slide) => !slide.runtimeBlank && selection.selectedSlideIds.has(slide.id)).map((slide) => slide.id)),
+    persistedSlides[currentSlideIndex]?.id ?? null,
+    setCurrentSlideIndex,
   );
   const virtualizedGrid = useMemo(() => ({ columns: gridItemSize }), [gridItemSize]);
   const onKeyboardMoveToIndex = useCallback((index: number) => {
@@ -55,7 +76,7 @@ export function SingleSlideGrid() {
 
   return (
     <ScrollArea.Root scrollPadding={16}>
-      <ScrollArea.Viewport ref={viewportRef} className="p-2">
+      <ScrollArea.Viewport ref={viewportRef} className="p-2" onKeyDown={handleSelectionKeys}>
         <SortableList.Root
           {...dnd}
           layout="grid"

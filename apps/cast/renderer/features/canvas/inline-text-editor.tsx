@@ -713,10 +713,10 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
 
   const rangeStyle = useMemo(() => (range ? resolveRangeStyle(body, range, box) : null), [range, body, box]);
 
-  // The display value is rounded (a size is an integer px on the canvas); a
-  // fractional box size therefore shows a rounded number. We only compare the
+  // The display value is snapped (a size is an integer px on the canvas); a
+  // fractional box size therefore shows a snapped number. We only compare the
   // committed draft against the value it STARTED at, so merely focusing and
-  // blurring never writes the rounded display back onto the selection.
+  // blurring never writes the snapped display back onto the selection.
   const resolvedSize = rangeStyle?.fontSize.value ?? box.fontSize;
   const fontSizeDisplay = rangeStyle?.fontSize.mixed || !Number.isFinite(resolvedSize)
     ? ''

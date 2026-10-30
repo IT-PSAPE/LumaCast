@@ -72,7 +72,7 @@ const mocks = vi.hoisted(() => {
     mutatePatch: vi.fn(),
     selectionState: {
       primarySelectedElementId: null,
-      selectedElementIds: [],
+      selectedElementIds: [] as string[],
       selectedElement: null,
       selectElement: vi.fn(),
       selectElements: vi.fn(),
@@ -87,6 +87,7 @@ const mocks = vi.hoisted(() => {
       setElementPayloadDraft: vi.fn(),
       setLockAspectRatio: vi.fn(),
     },
+    inspectorInput: null as unknown,
     historyState: {
       commitElementUpdates: vi.fn().mockResolvedValue(undefined),
       nudgeSelection: vi.fn(),
@@ -200,7 +201,10 @@ vi.mock('../../../../../../apps/cast/renderer/contexts/element/use-element-histo
 }));
 
 vi.mock('../../../../../../apps/cast/renderer/contexts/element/use-element-inspector-sync', () => ({
-  useElementInspectorSync: () => mocks.inspectorState,
+  useElementInspectorSync: (input: unknown) => {
+    mocks.inspectorInput = input;
+    return mocks.inspectorState;
+  },
 }));
 
 vi.mock('@lumacast/canvas', () => ({
@@ -292,6 +296,9 @@ function ThumbnailHarness({ onReady }: { onReady: (value: ReturnType<typeof useT
 
 describe('CanvasProvider deck slide snapshots', () => {
   beforeEach(() => {
+    mocks.selectionState.primarySelectedElementId = null;
+    mocks.selectionState.selectedElementIds = [];
+    mocks.inspectorInput = null;
     mocks.activeEditorSource = {
       ...mocks.activeEditorSource,
       mode: 'item-editor',
@@ -352,6 +359,18 @@ describe('CanvasProvider deck slide snapshots', () => {
       'slide-a',
       [expect.objectContaining({ id: 'element-a', slideId: 'slide-a', x: 48 })],
     );
+  });
+
+  it('tells inspector sync when the primary element is part of a multi-selection', () => {
+    mocks.selectionState.primarySelectedElementId = 'element-a' as never;
+    mocks.selectionState.selectedElementIds = ['element-a', 'element-b'];
+
+    render(<Harness onReady={() => undefined} />);
+
+    expect(mocks.inspectorInput).toMatchObject({
+      selectedElementId: 'element-a',
+      isMultiSelection: true,
+    });
   });
 
   it('keeps the latest draft snapshot replay-safe under StrictMode', () => {

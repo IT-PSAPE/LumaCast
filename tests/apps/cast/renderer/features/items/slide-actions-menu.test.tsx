@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   duplicateSlide: vi.fn(),
   deleteSlide: vi.fn(),
   moveSlide: vi.fn(),
+  reorderSlide: vi.fn(),
+  setCurrentSlideIndex: vi.fn(),
+  currentSlideIndex: 0,
   setLyricBlankSlides: vi.fn(),
   confirm: vi.fn(),
   slides: [] as Array<{ id: string; runtimeBlank?: 'start' | 'end' }>,
@@ -30,9 +33,12 @@ vi.mock('@lumacast/ui', async () => {
 vi.mock('../../../../../../apps/cast/renderer/contexts/slide-context', () => ({
   useSlides: () => ({
     slides: mocks.slides,
+    currentSlideIndex: mocks.currentSlideIndex,
+    setCurrentSlideIndex: mocks.setCurrentSlideIndex,
     duplicateSlide: mocks.duplicateSlide,
     deleteSlide: mocks.deleteSlide,
     moveSlide: mocks.moveSlide,
+    reorderSlide: mocks.reorderSlide,
     setLyricBlankSlides: mocks.setLyricBlankSlides,
   }),
 }));
@@ -50,6 +56,7 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.slides = [];
   mocks.currentItemRef = null;
+  mocks.currentSlideIndex = 0;
 });
 
 describe('SlideActionsMenu — move up/down (single selection only)', () => {
@@ -83,12 +90,29 @@ describe('SlideActionsMenu — move up/down (single selection only)', () => {
     expect(screen.getByRole('button', { name: 'Move down' }).hasAttribute('disabled')).toBe(true);
   });
 
-  it('hides Move up/down for a multi-slide selection', () => {
-    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }];
-    render(<SlideActionsMenu slideIds={['slide-1', 'slide-2']} />);
+  it('moves a discontiguous selection as a stable block and restores the active slide', async () => {
+    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }, { id: 'slide-3' }, { id: 'slide-4' }, { id: 'slide-5' }];
+    mocks.currentSlideIndex = 2;
+    mocks.reorderSlide.mockResolvedValue(undefined);
+    render(<SlideActionsMenu slideIds={['slide-2', 'slide-4']} />);
 
-    expect(screen.queryByRole('button', { name: 'Move up' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Move down' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Move 2 slides up' }));
+
+    await waitFor(() => expect(mocks.reorderSlide).toHaveBeenCalledTimes(2));
+    expect(mocks.reorderSlide.mock.calls).toEqual([['slide-2', 0], ['slide-4', 1]]);
+    expect(mocks.setCurrentSlideIndex).toHaveBeenCalledWith(3);
+  });
+
+  it('respects first and last boundaries for a selected group', () => {
+    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }, { id: 'slide-3' }, { id: 'slide-4' }];
+    const { unmount } = render(<SlideActionsMenu slideIds={['slide-1', 'slide-3']} />);
+    expect(screen.getByRole('button', { name: 'Move 2 slides up' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Move 2 slides down' }).hasAttribute('disabled')).toBe(false);
+    unmount();
+
+    render(<SlideActionsMenu slideIds={['slide-2', 'slide-4']} />);
+    expect(screen.getByRole('button', { name: 'Move 2 slides up' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Move 2 slides down' }).hasAttribute('disabled')).toBe(true);
   });
 });
 
@@ -120,6 +144,7 @@ describe('SlideActionsMenu', () => {
   });
 
   it('duplicates every slide in the selected target range', async () => {
+    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }];
     mocks.duplicateSlide.mockResolvedValue(undefined);
     render(<SlideActionsMenu slideIds={['slide-1', 'slide-2']} />);
 
@@ -130,6 +155,7 @@ describe('SlideActionsMenu', () => {
   });
 
   it('confirms once and deletes the selected slides in reverse order', async () => {
+    mocks.slides = [{ id: 'slide-1' }, { id: 'slide-2' }, { id: 'slide-3' }];
     mocks.confirm.mockResolvedValue(true);
     mocks.deleteSlide.mockResolvedValue(undefined);
     render(<SlideActionsMenu slideIds={['slide-1', 'slide-2', 'slide-3']} />);

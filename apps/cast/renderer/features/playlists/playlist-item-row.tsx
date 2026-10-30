@@ -3,8 +3,9 @@ import { ContextMenu } from '@lumacast/ui';
 import { useSortableItem } from '../../components/layout/sortable-list';
 import { PlaylistItemRowBody } from './playlist-item-row-body';
 import type { RowDragProps } from './row-drag-props';
+import type { PlaylistRowSelectionProps } from './row-selection-props';
 
-interface PlaylistItemRowProps extends RowDragProps {
+interface PlaylistItemRowProps extends RowDragProps, PlaylistRowSelectionProps {
   row: PlaylistItemEntry;
   overlay?: boolean;
 }
@@ -14,7 +15,7 @@ export function PlaylistItemRow(props: PlaylistItemRowProps) {
   return <SortablePlaylistItemRow {...props} />;
 }
 
-function SortablePlaylistItemRow({ row, onDragOver, onDrop }: PlaylistItemRowProps) {
+function SortablePlaylistItemRow({ row, onDragOver, onDrop, isMultiSelected, actionRows, onSelectionClick, onRemoveRows, onMoveRows }: PlaylistItemRowProps) {
   const { containerRef, containerStyle, isDragging, handleProps } = useSortableItem(row.id);
 
   return (
@@ -27,6 +28,11 @@ function SortablePlaylistItemRow({ row, onDragOver, onDrop }: PlaylistItemRowPro
         containerStyle={containerStyle}
         dragging={isDragging}
         dragHandleProps={handleProps}
+        isMultiSelected={isMultiSelected}
+        actionRows={actionRows}
+        onSelectionClick={onSelectionClick}
+        onRemoveRows={onRemoveRows}
+        onMoveRows={onMoveRows}
       />
     </ContextMenu.Root>
   );

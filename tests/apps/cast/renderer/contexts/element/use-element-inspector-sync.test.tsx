@@ -1,4 +1,4 @@
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useElementInspectorSync } from '../../../../../../apps/cast/renderer/contexts/element/use-element-inspector-sync';
 
@@ -17,6 +17,9 @@ const ELEMENT = {
   payload: {
     fillEnabled: true,
     fillColor: '#FFFFFF',
+    borderColor: '#000000',
+    borderWidth: 0,
+    borderRadius: 0,
     strokeEnabled: false,
     locked: false,
     visible: true,
@@ -30,11 +33,13 @@ const ELEMENT = {
 describe('useElementInspectorSync identity', () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it('keeps its returned object stable when the inputs are unchanged', async () => {
     const props = {
       selectedElementId: 'el-1',
+      isMultiSelection: false,
       baseElements: [ELEMENT] as never,
       isCanvasInteracting: false,
       draftElements: {},
@@ -54,5 +59,46 @@ describe('useElementInspectorSync identity', () => {
     rerender(props);
 
     expect(result.current).toBe(first);
+  });
+
+  it('keeps pending single-element edits while a multi-selection move updates the primary position', async () => {
+    vi.useFakeTimers();
+    const saveElementUpdate = vi.fn(async () => undefined);
+    const props = {
+      selectedElementId: 'el-1',
+      isMultiSelection: false,
+      baseElements: [ELEMENT] as never,
+      isCanvasInteracting: false,
+      draftElements: {},
+      setDraftElements: vi.fn(),
+      saveElementUpdate,
+    };
+    const { result, rerender } = renderHook((input) => useElementInspectorSync(input), {
+      initialProps: props,
+    });
+
+    await act(async () => {
+      result.current.setElementDraft((current) => ({ ...current!, width: 420 }));
+      result.current.setElementPayloadDraft({ ...ELEMENT.payload, fillColor: '#FF0000' });
+    });
+
+    rerender({ ...props, isMultiSelection: true });
+    const movedPrimary = { ...ELEMENT, x: 48, y: 68 };
+    rerender({ ...props, isMultiSelection: true, baseElements: [movedPrimary] as never });
+
+    expect(result.current.elementDraft).toMatchObject({ x: 48, y: 68, width: 420 });
+    expect(result.current.elementPayloadDraft).toMatchObject({ fillColor: '#FF0000' });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120);
+    });
+
+    expect(saveElementUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'el-1',
+      x: 48,
+      y: 68,
+      width: 420,
+      payload: expect.objectContaining({ fillColor: '#FF0000' }),
+    }));
   });
 });

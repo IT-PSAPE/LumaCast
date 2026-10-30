@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SingleSlideGrid } from '../../../../../../apps/cast/renderer/features/items/single-slide-grid';
 
 const mocks = vi.hoisted(() => ({
@@ -13,7 +13,15 @@ const mocks = vi.hoisted(() => ({
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
   onKeyboardMoveToIndex: vi.fn(),
+  duplicateSlide: vi.fn(),
+  deleteSlide: vi.fn(),
+  confirm: vi.fn(),
 }));
+
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return { ...actual, useConfirm: () => mocks.confirm };
+});
 
 vi.mock('../../../../../../apps/cast/renderer/contexts/navigation-context', () => ({
   useNavigation: () => mocks.navigation.value,
@@ -84,7 +92,7 @@ vi.mock('../../../../../../apps/cast/renderer/features/items/sortable-slide-grid
     index: number;
     selected: boolean;
     isGenerated?: boolean;
-    onRangeSelect: (index: number, extend: boolean) => void;
+    onRangeSelect: (index: number, extend: boolean, toggle?: boolean) => void;
     onActivate: (index: number) => void;
   }) => (
     <button
@@ -92,8 +100,9 @@ vi.mock('../../../../../../apps/cast/renderer/features/items/sortable-slide-grid
       data-selected={selected ? 'true' : 'false'}
       data-generated={isGenerated ? 'true' : 'false'}
       onClick={(event) => {
-        onRangeSelect(index, event.shiftKey);
-        if (!event.shiftKey) onActivate(index);
+        const toggleSelection = event.metaKey || event.ctrlKey;
+        onRangeSelect(index, event.shiftKey, toggleSelection);
+        if (!event.shiftKey && !toggleSelection) onActivate(index);
       }}
     >
       {slideId}
@@ -111,6 +120,9 @@ afterEach(() => {
   mocks.measureElement.mockReset();
   mocks.scrollToIndex.mockReset();
   mocks.onKeyboardMoveToIndex.mockReset();
+  mocks.duplicateSlide.mockReset();
+  mocks.deleteSlide.mockReset();
+  mocks.confirm.mockReset().mockResolvedValue(true);
 });
 
 describe('SingleSlideGrid', () => {
@@ -198,5 +210,80 @@ describe('SingleSlideGrid', () => {
     expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
     expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('true');
     expect(screen.getByRole('button', { name: 'slide-2' }).getAttribute('data-selected')).toBe('true');
+  });
+
+  it('toggles a discontiguous slide without activating it', () => {
+    const activateSlide = vi.fn();
+    mocks.navigation.value = {
+      currentItemRef: { type: 'presentation', id: 'item-1' },
+      currentOutputItemRef: { type: 'presentation', id: 'item-1' },
+      isDetachedDeckBrowser: false,
+    };
+    mocks.slides.value = {
+      slides: Array.from({ length: 4 }, (_, index) => ({ id: `slide-${index}` })),
+      currentSlideIndex: 0,
+      liveSlideIndex: -1,
+      slideElementsById: new Map(),
+      activateSlide,
+      setCurrentSlideIndex: vi.fn(),
+      reorderSlide: vi.fn(),
+    };
+    mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
+    mocks.deckBrowser.value = { gridItemSize: 3 };
+
+    render(<SingleSlideGrid />);
+    fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { ctrlKey: true });
+
+    expect(activateSlide).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('false');
+    expect(screen.getByRole('button', { name: 'slide-2' }).getAttribute('data-selected')).toBe('true');
+  });
+
+  it('routes Delete and Ctrl+D to the selected slides and stops global keyboard handling', async () => {
+    const activateSlide = vi.fn();
+    mocks.navigation.value = {
+      currentItemRef: { type: 'presentation', id: 'item-1' },
+      currentOutputItemRef: { type: 'presentation', id: 'item-1' },
+      isDetachedDeckBrowser: false,
+    };
+    mocks.slides.value = {
+      slides: Array.from({ length: 3 }, (_, index) => ({ id: `slide-${index}` })),
+      currentSlideIndex: 0,
+      liveSlideIndex: -1,
+      slideElementsById: new Map(),
+      activateSlide,
+      setCurrentSlideIndex: vi.fn(),
+      reorderSlide: vi.fn(),
+      duplicateSlide: mocks.duplicateSlide,
+      deleteSlide: mocks.deleteSlide,
+    };
+    mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
+    mocks.deckBrowser.value = { gridItemSize: 3 };
+    mocks.confirm.mockResolvedValue(true);
+    mocks.duplicateSlide.mockResolvedValue(undefined);
+    mocks.deleteSlide.mockResolvedValue(undefined);
+    const globalKeyboard = vi.fn();
+    window.addEventListener('keydown', globalKeyboard);
+    const view = render(<SingleSlideGrid />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'Delete' });
+    await waitFor(() => expect(mocks.deleteSlide.mock.calls.map(([id]) => id)).toEqual(['slide-2', 'slide-0']));
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+    expect(globalKeyboard).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'd', ctrlKey: true });
+    await waitFor(() => expect(mocks.duplicateSlide.mock.calls.map(([id]) => id)).toEqual(['slide-0', 'slide-2']));
+    expect(globalKeyboard).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'a', ctrlKey: true });
+    expect(screen.getAllByRole('button').every((button) => button.getAttribute('data-selected') === 'true')).toBe(true);
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'Escape' });
+    expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('false');
+    expect(globalKeyboard).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', globalKeyboard);
+    view.unmount();
   });
 });

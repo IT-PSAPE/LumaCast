@@ -1,13 +1,15 @@
 import { ContextMenu } from '@lumacast/ui';
-import type { ThemeOwnerType } from '@lumacast/composition';
+import type { MouseEvent as ReactMouseEvent } from 'react';
+import type { useMultiSelection } from '@lumacast/selection';
 import { useThemeEditorScreen } from './screen-context';
 import { ThemeListItemBody } from './theme-list-item-body';
 
 export function ThemeListItem(props: {
   theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number];
-  themeType: ThemeOwnerType;
-  index: number;
   isActive: boolean;
+  selection: ReturnType<typeof useMultiSelection>;
+  onSelect: (event: ReactMouseEvent<HTMLElement>) => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
 }) {
   return (
     <ContextMenu.Root>

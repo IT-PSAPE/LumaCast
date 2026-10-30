@@ -20,7 +20,7 @@ export interface SlideTileProps {
   isLive: boolean;
   isEmpty: boolean;
   actionSlideIds: Id[];
-  onSelect: (extendRange: boolean) => void;
+  onSelect: (extendRange: boolean, toggleSelection?: boolean) => void;
   containerRef?: Ref<HTMLDivElement>;
   containerStyle?: CSSProperties;
   dragging?: boolean;
@@ -48,8 +48,8 @@ export function SlideTileBody({ slideId, scene, index, isActive, isSelected, isL
         }}
         style={containerStyle}
         className={dragging ? 'select-none cursor-grabbing shadow-lg' : 'select-none cursor-grab active:cursor-grabbing'}
-        onClick={overlay ? undefined : (event) => onSelect(event.shiftKey)}
-        onDoubleClick={overlay ? undefined : (event) => { if (!event.shiftKey) onSelect(false); }}
+        onClick={overlay ? undefined : (event) => onSelect(event.shiftKey, event.metaKey || event.ctrlKey)}
+        onDoubleClick={overlay ? undefined : (event) => { if (!event.shiftKey && !event.metaKey && !event.ctrlKey) onSelect(false); }}
         selected={isSelected}
       >
         <Thumbnail.Body>
@@ -60,7 +60,7 @@ export function SlideTileBody({ slideId, scene, index, isActive, isSelected, isL
         </Thumbnail.Body>
         {isLive ? (
           <Thumbnail.Overlay position="top-left">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-[2px] bg-brand text-white shadow-sm"><Play size={12} strokeWidth={1.9} /></span>
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-hairline bg-brand text-white shadow-sm"><Play size={12} strokeWidth={1.9} /></span>
           </Thumbnail.Overlay>
         ) : null}
         <Thumbnail.Caption style={tagColors ?? undefined}>

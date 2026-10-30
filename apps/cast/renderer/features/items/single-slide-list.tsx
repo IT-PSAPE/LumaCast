@@ -11,10 +11,12 @@ import { outlineRowId, useSlideReorderCommit } from './use-slide-reorder';
 import { VirtualizedList } from '@renderer/components/layout/virtualized-list';
 import { useNavigation } from '../../contexts/navigation-context';
 import { useSlideRangeSelection } from '../../hooks/use-slide-range-selection';
+import { useSlideSelectionKeyboard } from '../../hooks/use-slide-selection-keyboard';
+import { useSlideBulkActions } from './use-slide-bulk-actions';
 
 export function SingleSlideList() {
   const { rows: persistedRows, currentSlideIndex, selectSlide, openSlide } = useOutlineView();
-  const { reorderSlide } = useSlides();
+  const { reorderSlide, setCurrentSlideIndex, duplicateSlide, deleteSlide } = useSlides();
   const { currentItemRef } = useNavigation();
   const getThumbnailScene = useThumbnailScene();
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -23,17 +25,38 @@ export function SingleSlideList() {
   const scrollToIndex = useCallback((index: number) => {
     virtualScrollToIndexRef.current?.(index);
   }, []);
-  const { items: rows, dnd } = useSortableOrder({
-    items: persistedRows,
-    getId: outlineRowId,
-    commit: useSlideReorderCommit(reorderSlide),
-  });
-  const slideIds = useMemo(() => rows.map((row) => row.slide.id), [rows]);
+  const slideIds = useMemo(() => persistedRows.map((row) => row.slide.id), [persistedRows]);
   const selection = useSlideRangeSelection(
     slideIds,
     currentSlideIndex,
     currentItemRef ? `${currentItemRef.type}:${currentItemRef.id}` : null,
   );
+  const authoredSlideIds = useMemo(() => persistedRows
+    .filter((row) => !row.slide.runtimeBlank)
+    .map((row) => row.slide.id), [persistedRows]);
+  const slides = useMemo(() => persistedRows.map((row) => row.slide), [persistedRows]);
+  const keyboardActionSlideIds = useMemo(() => selection.selectedSlideIds.size > 0
+    ? authoredSlideIds.filter((id) => selection.selectedSlideIds.has(id))
+    : persistedRows[currentSlideIndex] && !persistedRows[currentSlideIndex].slide.runtimeBlank
+      ? [persistedRows[currentSlideIndex].slide.id]
+      : [], [authoredSlideIds, currentSlideIndex, persistedRows, selection.selectedSlideIds]);
+  const bulkActions = useSlideBulkActions({ slides, duplicateSlide, deleteSlide });
+  const handleSelectionKeys = useSlideSelectionKeyboard({
+    selectAll: () => selection.selectAll(authoredSlideIds),
+    clearSelection: selection.clearSelection,
+    duplicateSelected: () => bulkActions.duplicateSlides(keyboardActionSlideIds),
+    deleteSelected: () => bulkActions.deleteSlides(keyboardActionSlideIds),
+  });
+  const selectedIds = useMemo(() => new Set(persistedRows
+    .filter((row) => !row.slide.runtimeBlank && selection.selectedSlideIds.has(row.slide.id))
+    .map((row) => row.slide.id)), [persistedRows, selection.selectedSlideIds]);
+  const currentSlideId = persistedRows[currentSlideIndex]?.slide.id ?? null;
+  const { items: rows, dnd } = useSortableOrder({
+    items: persistedRows,
+    getId: outlineRowId,
+    commit: useSlideReorderCommit(slideIds, reorderSlide, currentSlideId, setCurrentSlideIndex),
+    selectedIds,
+  });
   const activeRowIndex = dnd.activeId ? rows.findIndex((row) => row.slide.id === dnd.activeId) : -1;
   const activeRow = activeRowIndex === -1 ? null : rows[activeRowIndex];
   const activeScene = activeRow ? getThumbnailScene(activeRow.slide.id, 'list') : null;
@@ -70,7 +93,7 @@ export function SingleSlideList() {
 
   return (
     <ScrollArea.Root>
-      <ScrollArea.Viewport ref={viewportRef} className="p-2">
+      <ScrollArea.Viewport ref={viewportRef} className="p-2" onKeyDown={handleSelectionKeys}>
         <SortableList.Root
           {...dnd}
           measuring={VIRTUALIZED_SORTABLE_MEASURING}

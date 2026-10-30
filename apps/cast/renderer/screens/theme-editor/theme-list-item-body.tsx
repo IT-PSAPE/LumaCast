@@ -1,5 +1,4 @@
 import { useMemo, type MouseEvent as ReactMouseEvent } from 'react';
-import type { ThemeOwnerType } from '@lumacast/composition';
 import { LazySceneStage } from '@renderer/components/display/lazy-scene-stage';
 import { SceneFrame } from '../../components/display/scene-frame';
 import { Thumbnail } from '../../components/display/thumbnail';
@@ -13,16 +12,17 @@ import { useThemeEditorScreen } from './screen-context';
 
 export function ThemeListItemBody({
   theme,
-  themeType,
-  index,
   isActive,
+  selection,
+  onSelect,
+  onContextMenu,
 }: {
   theme: ReturnType<typeof useThemeEditorScreen>['state']['themes'][number];
-  themeType: ThemeOwnerType;
-  index: number;
   isActive: boolean;
+  selection: ReturnType<typeof import('@lumacast/selection').useMultiSelection>;
+  onSelect: (event: ReactMouseEvent<HTMLElement>) => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
 }) {
-  const { actions } = useThemeEditorScreen();
   const { duplicateTheme, deleteTheme, requestNameFocus } = useThemeEditor();
   const confirm = useConfirm();
   const mediaProxyBySource = useMediaProxyMap();
@@ -38,29 +38,35 @@ export function ThemeListItemBody({
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
   const { containerRef, containerStyle, handleProps } = useSortableItem(theme.id);
 
-  function handleSelect() {
-    actions.selectTheme(themeType, theme.id);
-  }
-
   function handleCaptionDoubleClick(event: React.MouseEvent) {
     event.stopPropagation();
-    actions.requestThemeNameFocus(theme.id);
+    requestNameFocus(theme.id);
   }
 
-  function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
-    if (!isActive) actions.selectTheme(themeType, theme.id);
+  function handleContextMenuTrigger(event: ReactMouseEvent<HTMLElement>) {
+    onContextMenu(event);
     triggerContextMenu(event);
   }
 
   async function handleDelete() {
+    const selectedIds = selection.actionIds(theme.id);
+    const isBulk = selectedIds.length > 1;
     const ok = await confirm({
-      title: `Delete "${theme.name}"?`,
-      description: 'This theme will be permanently removed.',
+      title: isBulk ? `Delete ${selectedIds.length} themes?` : `Delete "${theme.name}"?`,
+      description: isBulk ? 'These themes will be permanently removed.' : 'This theme will be permanently removed.',
       confirmLabel: 'Delete',
       tone: 'danger',
     });
-    if (ok) deleteTheme(theme.id);
+    if (ok) {
+      for (const id of selectedIds) deleteTheme(id);
+    }
   }
+
+  function handleDuplicate() {
+    for (const id of selection.actionIds(theme.id)) duplicateTheme(id);
+  }
+
+  const selectedCount = selection.actionIds(theme.id).length;
 
   return (
     <>
@@ -74,9 +80,10 @@ export function ThemeListItemBody({
         }}
         style={containerStyle}
         className="cursor-grab active:cursor-grabbing"
-        onContextMenu={handleContextMenu}
-        onClick={handleSelect}
-        selected={isActive}
+        onContextMenu={handleContextMenuTrigger}
+        onClick={onSelect}
+        aria-selected={selection.selectedIds.has(theme.id)}
+        selected={isActive || selection.selectedIds.has(theme.id)}
       >
         <Thumbnail.Body>
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
@@ -84,18 +91,17 @@ export function ThemeListItemBody({
           </SceneFrame>
         </Thumbnail.Body>
         <Thumbnail.Caption>
-          <div className="flex items-center gap-2" onDoubleClick={handleCaptionDoubleClick}>
-            <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
+          <div onDoubleClick={handleCaptionDoubleClick}>
             <span className="min-w-0 truncate text-sm text-tertiary">{theme.name}</span>
           </div>
         </Thumbnail.Caption>
       </Thumbnail.Tile>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item onSelect={() => requestNameFocus(theme.id)}>Rename</ContextMenu.Item>
-          <ContextMenu.Item onSelect={() => duplicateTheme(theme.id)}>Duplicate</ContextMenu.Item>
+          {selectedCount === 1 ? <ContextMenu.Item onSelect={() => requestNameFocus(theme.id)}>Rename</ContextMenu.Item> : null}
+          <ContextMenu.Item onSelect={handleDuplicate}>{selectedCount > 1 ? `Duplicate ${selectedCount} themes` : 'Duplicate'}</ContextMenu.Item>
           <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>{selectedCount > 1 ? `Delete ${selectedCount} themes` : 'Delete'}</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>

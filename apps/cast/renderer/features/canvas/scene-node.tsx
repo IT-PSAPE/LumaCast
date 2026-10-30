@@ -31,8 +31,9 @@ const SceneNode = memo(function SceneNode({
   const frame = sceneNodeFrame(node);
 
   function handleClick(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
+    if ('button' in event.evt && event.evt.button !== 0) return;
     event.cancelBubble = true;
-    onSelect(node.id, event.evt.shiftKey);
+    onSelect(node.id, event.evt.shiftKey || event.evt.ctrlKey || event.evt.metaKey);
   }
 
   function handleDblClick(event: Konva.KonvaEventObject<MouseEvent | TouchEvent>) {
@@ -79,7 +80,7 @@ const SceneNode = memo(function SceneNode({
         offsetY={frame.offsetY}
         listening={listening}
         draggable={editable && !node.visual.locked && !isBeingEdited}
-        onMouseDown={editable ? handleClick : undefined}
+        onClick={editable ? handleClick : undefined}
         onTap={editable ? handleClick : undefined}
         onDblClick={editable ? handleDblClick : undefined}
         onDblTap={editable ? handleDblClick : undefined}

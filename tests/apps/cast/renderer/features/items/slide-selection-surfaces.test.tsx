@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RenderScene, Slide } from '@lumacast/composition';
 import { SlideGridTileBody } from '../../../../../../apps/cast/renderer/features/items/slide-grid-tile-body';
@@ -70,6 +70,47 @@ function slide(id: string): Slide {
 afterEach(cleanup);
 
 describe('slide selection surfaces', () => {
+  it('uses Ctrl/Cmd-click for selection toggling without activating or opening a slide', () => {
+    const onActivate = vi.fn();
+    const onFocus = vi.fn();
+    const onRangeSelect = vi.fn();
+    const grid = render(<SlideGridTileBody
+      slideId="slide-grid" index={1} scene={scene} selected={false} focused={false}
+      isLive={false} isEmpty={false} onActivate={onActivate} onFocus={onFocus}
+      onRangeSelect={onRangeSelect} actionSlideIds={['slide-grid']}
+    />);
+    fireEvent.click(grid.container.firstElementChild!, { ctrlKey: true });
+    expect(onRangeSelect).toHaveBeenCalledWith(1, false, true);
+    expect(onActivate).not.toHaveBeenCalled();
+    expect(onFocus).not.toHaveBeenCalled();
+    grid.unmount();
+
+    const onSelect = vi.fn();
+    const onOpen = vi.fn();
+    const onListRangeSelect = vi.fn();
+    const list = render(<SlideOutlineRowBody
+      row={{ slide: slide('slide-list'), elements: [], index: 2, state: 'queued' }}
+      scene={scene} isFocused={false} isSelected={false} onSelect={onSelect}
+      onOpen={onOpen} onRangeSelect={onListRangeSelect} actionSlideIds={['slide-list']}
+    />);
+    fireEvent.click(list.container.firstElementChild!, { metaKey: true });
+    expect(onListRangeSelect).toHaveBeenCalledWith(2, false, true);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+    list.unmount();
+
+    const onEditorSelect = vi.fn();
+    const editor = render(<SlideTileBody
+      slideId="slide-editor" scene={scene} index={3} isActive={false} isSelected={false}
+      isLive={false} isEmpty={false} actionSlideIds={['slide-editor']} onSelect={onEditorSelect}
+    />);
+    fireEvent.click(editor.container.firstElementChild!, { ctrlKey: true });
+    expect(onEditorSelect).toHaveBeenCalledWith(false, true);
+    onEditorSelect.mockClear();
+    fireEvent.doubleClick(editor.container.firstElementChild!, { ctrlKey: true });
+    expect(onEditorSelect).not.toHaveBeenCalled();
+  });
+
   it('labels a generated grid tile and leaves authored tiles unlabelled', () => {
     const props = {
       slideId: 'runtime:lyric:song:blank:start', index: 0, scene, selected: false,

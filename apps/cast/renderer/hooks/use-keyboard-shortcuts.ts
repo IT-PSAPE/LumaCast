@@ -29,7 +29,7 @@ export function useKeyboardShortcuts(): void {
   const { setStatusText, undo: globalUndoAction, redo: globalRedoAction } = useCast();
   const { open: openCommandPalette } = useCommandPalette();
   const { slides, currentSlide, activateSlide, takeSlide, goNext, goPrev, deleteSlide } = useSlides();
-  const { selectedElementId, clearSelection, deleteSelected, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, groupSelection, ungroupSelection, undo, redo } = useElements();
+  const { selectedElementId, effectiveElements, selectElements, clearSelection, deleteSelected, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, groupSelection, ungroupSelection, undo, redo } = useElements();
   const { setSlideBrowserMode } = useDeckBrowser();
   const { state: { workbenchMode }, overlayStack } = useWorkbench();
   const isEditSlideBrowser = workbenchMode === 'item-editor' || workbenchMode === 'overlay-editor' || workbenchMode === 'theme-editor' || workbenchMode === 'stage-editor';
@@ -52,7 +52,7 @@ export function useKeyboardShortcuts(): void {
         return;
       }
 
-      const target = event.target as HTMLElement | null;
+      const target = event.target instanceof HTMLElement ? event.target : null;
 
       // Editable surfaces, scope-ignored regions, and open modal overlays are
       // out of scope for the app-level dispatcher. The browser owns editing
@@ -64,6 +64,12 @@ export function useKeyboardShortcuts(): void {
       if (isInteractiveTarget(target) || overlayStack.stack.length > 0) {
         const menuCommand = menuCommandForEvent(event);
         if (menuCommand) menuCommandClaimRegistry.claim(menuCommand);
+        return;
+      }
+
+      if (isEditSlideBrowser && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'a') {
+        selectElements(effectiveElements.filter((element) => !element.payload.locked && element.payload.visible !== false).map((element) => element.id));
+        event.preventDefault();
         return;
       }
 
@@ -148,5 +154,5 @@ export function useKeyboardShortcuts(): void {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isEditSlideBrowser, isShowMode, workbenchMode, overlayStack, slides.length, selectedElementId, currentSlide, activateSlide, takeSlide, goNext, goPrev, clearSelection, deleteSelected, deleteSlide, setSlideBrowserMode, setStatusText, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, groupSelection, ungroupSelection, undo, redo, globalUndoAction, globalRedoAction, openCommandPalette]);
+  }, [isEditSlideBrowser, isShowMode, workbenchMode, overlayStack, slides.length, selectedElementId, effectiveElements, selectElements, currentSlide, activateSlide, takeSlide, goNext, goPrev, clearSelection, deleteSelected, deleteSlide, setSlideBrowserMode, setStatusText, nudgeSelection, copySelection, cutSelection, pasteSelection, duplicateSelection, groupSelection, ungroupSelection, undo, redo, globalUndoAction, globalRedoAction, openCommandPalette]);
 }

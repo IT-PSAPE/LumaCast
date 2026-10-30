@@ -7,13 +7,22 @@ import type { ThemeItemProps } from './theme-bin-types';
 import { ThemeContextMenuItems } from './theme-context-menu-items';
 import { useDeleteTheme } from './use-delete-theme';
 
-export function ThemeRowBody({ theme, index, themeType, onApply }: ThemeItemProps) {
-  const { renameTheme } = useThemeEditor();
+export function ThemeRowBody(props: ThemeItemProps) {
+  const { theme, themeType, onApply, isResourceSelected, onSelectionClick, onContextMenuTarget, onDeleteResource, onDuplicateResource } = props;
+  const { renameTheme, duplicateTheme } = useThemeEditor();
   const renameRef = useRef<RenameFieldHandle>(null);
-  const handleDelete = useDeleteTheme(theme);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const deleteTheme = useDeleteTheme(theme);
+  const handleDelete = () => onDeleteResource ? Promise.resolve(onDeleteResource(theme)) : deleteTheme();
+  const handleDuplicate = () => onDuplicateResource ? Promise.resolve(onDuplicateResource(theme)) : Promise.resolve(duplicateTheme(theme.id));
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
 
-  function handleClick() {
+  function handleClick(event: React.MouseEvent<HTMLButtonElement>) {
+    const modifiers = { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
+    if (onSelectionClick?.(theme.id, modifiers)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     onApply(theme);
   }
 
@@ -25,19 +34,27 @@ export function ThemeRowBody({ theme, index, themeType, onApply }: ThemeItemProp
     <>
       <SelectableRow.Root
         {...triggerHandlers}
+        onContextMenuCapture={() => onContextMenuTarget?.(theme.id)}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) onContextMenuTarget?.(theme.id);
+        }}
+        onTouchStartCapture={() => onContextMenuTarget?.(theme.id)}
         ref={triggerRef}
-        selected={false}
+        selected={Boolean(isResourceSelected)}
         onClick={handleClick}
         className="h-9 focus-visible:ring-2 focus-visible:ring-brand"
       >
-        <SelectableRow.Leading>
-          <span className="text-xs font-semibold tabular-nums text-tertiary">{index + 1}</span>
-        </SelectableRow.Leading>
         <SelectableRow.Label>
           <RenameField ref={renameRef} value={theme.name} onValueChange={handleRename} className="label-xs" />
         </SelectableRow.Label>
       </SelectableRow.Root>
-      <ThemeContextMenuItems theme={theme} themeType={themeType} renameRef={renameRef} onDelete={() => { void handleDelete(); }} />
+      <ThemeContextMenuItems
+        theme={theme}
+        themeType={themeType}
+        renameRef={renameRef}
+        onDelete={() => { void handleDelete().catch(() => undefined); }}
+        onDuplicate={() => { void handleDuplicate().catch(() => undefined); }}
+      />
     </>
   );
 }

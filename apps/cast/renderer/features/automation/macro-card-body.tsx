@@ -2,56 +2,75 @@ import { useRef } from 'react';
 import { Check, Play, Workflow } from 'lucide-react';
 import type { Id } from '@lumacast/kernel';
 import type { Macro } from '@lumacast/automation';
-import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
+import { ContextMenu, useContextMenuTrigger } from '@lumacast/ui';
 import { RenameField, type RenameFieldHandle } from '../../components/form/rename-field';
 import { Thumbnail } from '../../components/display/thumbnail';
+import type { SelectionModifiers } from '@lumacast/selection';
 
 export interface MacroCardProps {
   macro: Macro;
-  index: number;
   isSelected: boolean;
+  isResourceSelected?: boolean;
   runsOnStartup: boolean;
   onSelect: (id: Id | null) => void;
+  onSelectionClick?: (id: Id, modifiers: SelectionModifiers) => boolean;
+  onContextMenuTarget?: (id: Id) => void;
   onOpen: (id: Id) => void;
   onRunMacro: (id: Id) => Promise<void>;
   onDeleteMacro: (id: Id) => Promise<void>;
-  onDuplicateMacro: (id: Id) => Promise<Macro | null>;
+  onDuplicateMacro: (id: Id) => Promise<unknown> | unknown;
   onToggleRunOnStartup: (id: Id) => Promise<void>;
   onRename: (next: string) => void;
 }
 
-export function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelect, onOpen, onRunMacro, onDeleteMacro, onDuplicateMacro, onToggleRunOnStartup, onRename }: MacroCardProps) {
+export function MacroCardBody({ macro, isSelected, isResourceSelected, runsOnStartup, onSelect, onSelectionClick, onContextMenuTarget, onOpen, onRunMacro, onDeleteMacro, onDuplicateMacro, onToggleRunOnStartup, onRename }: MacroCardProps) {
   const renameRef = useRef<RenameFieldHandle>(null);
-  const confirm = useConfirm();
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
 
   async function handleDelete() {
-    const ok = await confirm({
-      title: `Delete "${macro.name}"?`,
-      description: 'This macro will be permanently removed. Existing slide bindings to it are also removed.',
-      confirmLabel: 'Delete',
-      tone: 'danger',
-    });
     // onDeleteMacro → deleteMacro rejects when the macro no longer exists
     // (#214), which a delete can race with a concurrent delete. mutatePatch has
     // already reported the failure, so absorb the rethrow here.
-    if (ok) await onDeleteMacro(macro.id).catch(() => undefined);
+    await onDeleteMacro(macro.id).catch(() => undefined);
+  }
+
+  function handleSelect(event: React.MouseEvent<HTMLDivElement>) {
+    const modifiers = { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
+    if (onSelectionClick?.(macro.id, modifiers)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onSelect(macro.id);
   }
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
-        <Thumbnail.Tile onClick={() => onSelect(macro.id)} onDoubleClick={() => onOpen(macro.id)} selected={isSelected}>
+      <div
+        {...triggerHandlers}
+        ref={triggerRef}
+        onContextMenuCapture={() => onContextMenuTarget?.(macro.id)}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) onContextMenuTarget?.(macro.id);
+        }}
+        onTouchStartCapture={() => onContextMenuTarget?.(macro.id)}
+        className="rounded-container focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        <Thumbnail.Tile
+          onClick={handleSelect}
+          onDoubleClick={(event) => {
+            if (event.shiftKey || event.metaKey || event.ctrlKey) return;
+            onOpen(macro.id);
+          }}
+          selected={isSelected || Boolean(isResourceSelected)}
+        >
           <Thumbnail.Body>
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-tertiary text-secondary">
               <Workflow className="size-7" strokeWidth={1.5} />
             </div>
           </Thumbnail.Body>
           <Thumbnail.Caption>
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
-              <RenameField ref={renameRef} value={macro.name} onValueChange={onRename} className="label-xs" />
-            </div>
+            <RenameField ref={renameRef} value={macro.name} onValueChange={onRename} className="label-xs" />
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
@@ -72,7 +91,7 @@ export function MacroCardBody({ macro, index, isSelected, runsOnStartup, onSelec
             </span>
           </ContextMenu.Item>
           <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete().catch(() => undefined); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>

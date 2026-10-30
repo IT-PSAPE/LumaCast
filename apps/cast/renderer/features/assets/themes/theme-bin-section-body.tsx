@@ -22,11 +22,10 @@ export function ThemeBinSectionBody({ section, gridSize, viewMode, onCreate, onA
         <CreateThemeDropZone themeType={section.type} onActivate={onCreate} />
       ) : (
         <BinPanelLayout gridItemSize={gridSize} mode={viewMode}>
-          {section.themes.map((theme, index) => (
+          {section.themes.map((theme) => (
             <ThemeBinItem
               key={theme.id}
               theme={theme}
-              index={index}
               mode={viewMode}
               themeType={section.type}
               onApply={onApply}

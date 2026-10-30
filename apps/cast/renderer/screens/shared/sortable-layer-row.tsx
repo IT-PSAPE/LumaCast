@@ -6,6 +6,7 @@ import { useSortableItem } from '@renderer/components/layout/sortable-list';
 import { cn } from '@lumacast/ui';
 import { compactText } from '@renderer/utils/slides';
 import { ElementTypeIcon } from './element-type-icon';
+import type { SelectionModifiers } from '@lumacast/selection';
 
 export function SortableLayerRow({
   element,
@@ -17,7 +18,7 @@ export function SortableLayerRow({
 }: {
   element: SlideElement;
   isSelected: boolean;
-  onSelect: (element: SlideElement) => void;
+  onSelect: (element: SlideElement, modifiers: SelectionModifiers) => void;
   onRename: (id: SlideElement['id'], name: string) => void | Promise<void>;
   onToggleVisibility: (id: SlideElement['id'], visible: boolean) => void | Promise<void>;
   onToggleLock: (id: SlideElement['id'], locked: boolean) => void | Promise<void>;
@@ -30,7 +31,7 @@ export function SortableLayerRow({
   const isLocked = element.payload.locked === true;
   // Editing suspends dragging outright: the name field lives inside the drag
   // activator, so a text selection would otherwise lift the row.
-  const { containerRef, containerStyle, handleProps } = useSortableItem(element.id, isEditing);
+  const { containerRef, containerStyle, handleProps, isDragging } = useSortableItem(element.id, isEditing);
 
   useEffect(() => {
     if (!isEditing) return;
@@ -58,12 +59,26 @@ export function SortableLayerRow({
       <div
         {...handleProps}
         aria-pressed={isSelected}
-        onClick={() => { if (!isEditing) onSelect(element); }}
+        onClick={(event) => { if (!isEditing) onSelect(element, event); }}
         onKeyDown={(event) => {
           if (isEditing) return;
+          const selectionModifier = event.shiftKey || event.metaKey || event.ctrlKey;
+          if (event.key === 'Enter' && !selectionModifier) {
+            // Enter activates the row; during a keyboard drag it belongs to
+            // the document-level sensor that drops the current selection.
+            if (!isDragging) {
+              event.preventDefault();
+              onSelect(element, event);
+            }
+            return;
+          }
+          if (!selectionModifier) {
+            if (typeof handleProps.onKeyDown === 'function') handleProps.onKeyDown(event);
+            if (event.defaultPrevented) return;
+          }
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            onSelect(element);
+            onSelect(element, event);
           }
         }}
         className={cn(

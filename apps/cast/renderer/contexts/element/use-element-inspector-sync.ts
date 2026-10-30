@@ -8,6 +8,7 @@ import { hasGeometryChange, payloadSignature } from '../../utils/element-context
 
 interface UseElementInspectorSyncInput {
   selectedElementId: Id | null;
+  isMultiSelection: boolean;
   baseElements: SlideElement[];
   isCanvasInteracting: boolean;
   draftElements: Record<Id, Partial<SlideElement>>;
@@ -48,8 +49,45 @@ function hasMatchingInspectorDraft(current: ElementInspectorDraft | null, select
   );
 }
 
+function inspectorDraftFromElement(element: SlideElement): ElementInspectorDraft {
+  return {
+    x: element.x,
+    y: element.y,
+    width: element.width,
+    height: element.height,
+    rotation: element.rotation,
+    opacity: element.opacity,
+    zIndex: element.zIndex,
+  };
+}
+
+function mergeInspectorDraftWithBase(
+  current: ElementInspectorDraft | null,
+  previousBase: SlideElement,
+  nextBase: SlideElement,
+  isMultiSelection: boolean,
+): ElementInspectorDraft {
+  if (!current) return inspectorDraftFromElement(nextBase);
+  const mergeValue = (currentValue: number, previousValue: number, nextValue: number): number =>
+    currentValue === previousValue ? nextValue : currentValue;
+
+  return {
+    // A batch position operation is authoritative while multiple elements
+    // are selected. Keeping the primary's pre-batch X/Y here would make its
+    // pending single-element autosave undo the selection move.
+    x: isMultiSelection ? nextBase.x : mergeValue(current.x, previousBase.x, nextBase.x),
+    y: isMultiSelection ? nextBase.y : mergeValue(current.y, previousBase.y, nextBase.y),
+    width: mergeValue(current.width, previousBase.width, nextBase.width),
+    height: mergeValue(current.height, previousBase.height, nextBase.height),
+    rotation: mergeValue(current.rotation, previousBase.rotation, nextBase.rotation),
+    opacity: mergeValue(current.opacity, previousBase.opacity, nextBase.opacity),
+    zIndex: mergeValue(current.zIndex, previousBase.zIndex, nextBase.zIndex),
+  };
+}
+
 export function useElementInspectorSync({
   selectedElementId,
+  isMultiSelection,
   baseElements,
   isCanvasInteracting,
   draftElements,
@@ -64,6 +102,7 @@ export function useElementInspectorSync({
   const lastAutoSaveKeyRef = useRef('');
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previousSelectedIdRef = useRef<Id | null>(null);
+  const previousSyncedBaseElementRef = useRef<SlideElement | null>(null);
   const lastSelectedSyncKeyRef = useRef('');
   const wasCanvasInteractingRef = useRef(false);
   const lastCanvasInteractionEndRef = useRef(0);
@@ -85,6 +124,7 @@ export function useElementInspectorSync({
       setElementPayloadDraft((current) => (current === null ? current : null));
       setDraftOwnerElementId((current) => (current === null ? current : null));
       previousSelectedIdRef.current = null;
+      previousSyncedBaseElementRef.current = null;
       lastSelectedSyncKeyRef.current = '';
       return;
     }
@@ -93,25 +133,27 @@ export function useElementInspectorSync({
     if (!selectionChanged && (isCanvasInteracting || nextSyncKey === lastSelectedSyncKeyRef.current)) return;
     previousSelectedIdRef.current = selectedBaseElement.id;
     lastSelectedSyncKeyRef.current = nextSyncKey;
+    const previousBase = previousSyncedBaseElementRef.current;
+    previousSyncedBaseElementRef.current = selectedBaseElement;
     setDraftOwnerElementId((current) => (current === selectedBaseElement.id ? current : selectedBaseElement.id));
-    setElementDraft((current) => {
-      if (hasMatchingInspectorDraft(current, selectedBaseElement)) return current;
-      return {
-        x: selectedBaseElement.x,
-        y: selectedBaseElement.y,
-        width: selectedBaseElement.width,
-        height: selectedBaseElement.height,
-        rotation: selectedBaseElement.rotation,
-        opacity: selectedBaseElement.opacity,
-        zIndex: selectedBaseElement.zIndex,
-      };
-    });
-    setElementPayloadDraft((current) => {
-      if (payloadSignature(current) === payloadSignature(selectedBaseElement.payload)) return current;
-      return JSON.parse(JSON.stringify(selectedBaseElement.payload)) as SlideElement['payload'];
-    });
+    if (!selectionChanged && previousBase?.id === selectedBaseElement.id) {
+      setElementDraft((current) => mergeInspectorDraftWithBase(current, previousBase, selectedBaseElement, isMultiSelection));
+      setElementPayloadDraft((current) => {
+        if (current && payloadSignature(current) !== payloadSignature(previousBase.payload)) return current;
+        return JSON.parse(JSON.stringify(selectedBaseElement.payload)) as SlideElement['payload'];
+      });
+    } else {
+      setElementDraft((current) => {
+        if (hasMatchingInspectorDraft(current, selectedBaseElement)) return current;
+        return inspectorDraftFromElement(selectedBaseElement);
+      });
+      setElementPayloadDraft((current) => {
+        if (payloadSignature(current) === payloadSignature(selectedBaseElement.payload)) return current;
+        return JSON.parse(JSON.stringify(selectedBaseElement.payload)) as SlideElement['payload'];
+      });
+    }
     if (selectionChanged) setLockAspectRatio(false);
-  }, [isCanvasInteracting, selectedBaseElement]);
+  }, [isCanvasInteracting, isMultiSelection, selectedBaseElement]);
 
   useEffect(() => {
     if (!selectedElementId || !elementDraft) return;

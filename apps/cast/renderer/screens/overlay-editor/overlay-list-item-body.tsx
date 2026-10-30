@@ -13,14 +13,17 @@ import { useOverlayEditorScreen } from './screen-context';
 
 export function OverlayListItemBody({
   overlay,
-  index,
   isActive,
+  selection,
+  onSelect,
+  onContextMenu,
 }: {
   overlay: ReturnType<typeof useOverlayEditorScreen>['state']['overlays'][number];
-  index: number;
   isActive: boolean;
+  selection: ReturnType<typeof import('@lumacast/selection').useMultiSelection>;
+  onSelect: (event: ReactMouseEvent<HTMLElement>) => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
 }) {
-  const { actions } = useOverlayEditorScreen();
   const { duplicateOverlay, deleteOverlay, requestNameFocus } = useOverlayEditor();
   const confirm = useConfirm();
   const mediaProxyBySource = useMediaProxyMap();
@@ -36,24 +39,30 @@ export function OverlayListItemBody({
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger();
   const { containerRef, containerStyle, handleProps } = useSortableItem(overlay.id);
 
-  function handleSelect() {
-    actions.selectOverlay(overlay.id);
-  }
-
-  function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
-    if (!isActive) actions.selectOverlay(overlay.id);
+  function handleContextMenuTrigger(event: ReactMouseEvent<HTMLElement>) {
+    onContextMenu(event);
     triggerContextMenu(event);
   }
 
   async function handleDelete() {
+    const selectedIds = selection.actionIds(overlay.id);
+    const isBulk = selectedIds.length > 1;
     const ok = await confirm({
-      title: `Delete "${overlay.name}"?`,
-      description: 'This overlay will be permanently removed.',
+      title: isBulk ? `Delete ${selectedIds.length} overlays?` : `Delete "${overlay.name}"?`,
+      description: isBulk ? 'These overlays will be permanently removed.' : 'This overlay will be permanently removed.',
       confirmLabel: 'Delete',
       tone: 'danger',
     });
-    if (ok) await deleteOverlay(overlay.id);
+    if (ok) {
+      for (const id of selectedIds) await deleteOverlay(id);
+    }
   }
+
+  function handleDuplicate() {
+    for (const id of selection.actionIds(overlay.id)) duplicateOverlay(id);
+  }
+
+  const selectedCount = selection.actionIds(overlay.id).length;
 
   return (
     <>
@@ -67,9 +76,10 @@ export function OverlayListItemBody({
         }}
         style={containerStyle}
         className="cursor-grab active:cursor-grabbing"
-        onContextMenu={handleContextMenu}
-        onClick={handleSelect}
-        selected={isActive}
+        onContextMenu={handleContextMenuTrigger}
+        onClick={onSelect}
+        aria-selected={selection.selectedIds.has(overlay.id)}
+        selected={isActive || selection.selectedIds.has(overlay.id)}
       >
         <Thumbnail.Body>
           <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
@@ -77,18 +87,15 @@ export function OverlayListItemBody({
           </SceneFrame>
         </Thumbnail.Body>
         <Thumbnail.Caption>
-          <div className="flex items-center gap-2">
-            <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
-            <span className="min-w-0 truncate text-sm text-tertiary">{overlay.name}</span>
-          </div>
+          <span className="min-w-0 truncate text-sm text-tertiary">{overlay.name}</span>
         </Thumbnail.Caption>
       </Thumbnail.Tile>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item onSelect={() => requestNameFocus(overlay.id)}>Rename</ContextMenu.Item>
-          <ContextMenu.Item onSelect={() => duplicateOverlay(overlay.id)}>Duplicate</ContextMenu.Item>
+          {selectedCount === 1 ? <ContextMenu.Item onSelect={() => requestNameFocus(overlay.id)}>Rename</ContextMenu.Item> : null}
+          <ContextMenu.Item onSelect={handleDuplicate}>{selectedCount > 1 ? `Duplicate ${selectedCount} overlays` : 'Duplicate'}</ContextMenu.Item>
           <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>{selectedCount > 1 ? `Delete ${selectedCount} overlays` : 'Delete'}</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>

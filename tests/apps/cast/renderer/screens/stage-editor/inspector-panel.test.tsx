@@ -6,10 +6,11 @@ const mocks = vi.hoisted(() => ({
   workbenchState: { inspectorTab: 'binding' as string },
   setInspectorTab: vi.fn(),
   selectedElement: { id: 'el-1', slideId: 'slide-1', type: 'text' } as SlideElement | null,
+  selectedElementIds: ['el-1'],
 }));
 
 vi.mock('@renderer/contexts/canvas/canvas-context', () => ({
-  useElements: () => ({ selectedElement: mocks.selectedElement }),
+  useElements: () => ({ selectedElement: mocks.selectedElement, selectedElementIds: mocks.selectedElementIds }),
 }));
 
 vi.mock('@renderer/contexts/workbench-context', () => ({
@@ -26,6 +27,7 @@ vi.mock('@renderer/screens/stage-editor/screen-context', () => ({
 
 vi.mock('@renderer/features/inspector/binding-inspector', () => ({ BindingInspector: () => <div data-testid="binding-inspector" /> }));
 vi.mock('@renderer/features/inspector/shape-element-inspector', () => ({ ShapeElementInspector: () => <div data-testid="shape-inspector" /> }));
+vi.mock('@renderer/features/inspector/multi-selection-inspector', () => ({ MultiSelectionInspector: () => <div data-testid="multi-selection-inspector" /> }));
 vi.mock('@renderer/features/inspector/stage-inspector', () => ({ StageInspector: () => <div data-testid="stage-inspector" /> }));
 vi.mock('@renderer/features/inspector/text-element-inspector', () => ({ TextElementInspector: () => <div data-testid="text-inspector" /> }));
 vi.mock('@renderer/features/inspector/video-element-inspector', () => ({ VideoElementInspector: () => <div data-testid="video-inspector" /> }));
@@ -36,6 +38,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.workbenchState.inspectorTab = 'binding';
   mocks.selectedElement = { id: 'el-1', slideId: 'slide-1', type: 'text' } as SlideElement;
+  mocks.selectedElementIds = ['el-1'];
 });
 
 afterEach(() => {
@@ -47,5 +50,16 @@ describe('StageEditorInspectorPanel tabs', () => {
     render(<StageEditorInspectorPanel />);
     expect(screen.getByRole('tab', { name: 'Text link' })).not.toBeNull();
     expect(screen.queryByRole('tab', { name: 'Binding' })).toBeNull();
+  });
+
+  it('routes a multi-selection to the shared inspector without primary-only text tabs', () => {
+    mocks.selectedElementIds = ['el-1', 'el-2'];
+    render(<StageEditorInspectorPanel />);
+
+    expect(screen.getByRole('tab', { name: 'Selection' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Text' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Text link' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('multi-selection-inspector')).toBeInTheDocument();
+    expect(screen.queryByTestId('shape-inspector')).not.toBeInTheDocument();
   });
 });

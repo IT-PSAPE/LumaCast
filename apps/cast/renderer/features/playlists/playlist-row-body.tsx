@@ -7,8 +7,21 @@ import { LumaCastPanel } from '@renderer/components/layout/panel';
 import { RenameField, type RenameFieldHandle } from '@renderer/components/form/rename-field';
 import { ContextMenu, useContextMenuTrigger, useConfirm } from '@lumacast/ui';
 import { useSortableItem } from '@renderer/components/layout/sortable-list';
+import type { PlaylistSelectionProps } from './row-selection-props';
 
-export function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
+export function PlaylistRowBody({
+  playlist,
+  isMultiSelected = false,
+  actionPlaylists,
+  onSelectionClick,
+  onDeletePlaylists,
+  onMovePlaylists,
+}: PlaylistSelectionProps & {
+  playlist: Playlist;
+  actionPlaylists?: Playlist[];
+  onDeletePlaylists?: (playlists: readonly Playlist[]) => void | Promise<void>;
+  onMovePlaylists?: (playlists: readonly Playlist[], direction: 'up' | 'down') => void | Promise<void>;
+}) {
   const { currentPlaylistId, setCurrentPlaylistId, renamePlaylist, recentlyCreatedId, clearRecentlyCreated } = useNavigation();
   const { deletePlaylist, movePlaylist } = usePlaylistPanelManagement();
   const confirm = useConfirm();
@@ -18,6 +31,8 @@ export function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
 
   const isSelected = playlist.id === currentPlaylistId;
   const isEditing = playlist.id === recentlyCreatedId;
+  const targets = actionPlaylists?.length ? actionPlaylists : [playlist];
+  const isGroup = targets.length > 1;
 
   useEffect(() => {
     if (isEditing) renameRef.current?.startEditing();
@@ -31,7 +46,10 @@ export function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
     clearRecentlyCreated();
   }
 
-  function handleSelect() { setCurrentPlaylistId(playlist.id); }
+  function handleSelect(event: React.MouseEvent<HTMLElement>) {
+    if (onSelectionClick?.(playlist.id, event)) return;
+    setCurrentPlaylistId(playlist.id);
+  }
 
   async function handleDelete() {
     const ok = await confirm({
@@ -50,7 +68,7 @@ export function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
           {...triggerHandlers}
           {...handleProps}
           ref={triggerRef}
-          active={isSelected}
+          active={isSelected || isMultiSelected}
           onClick={handleSelect}
           className="cursor-grab focus-visible:ring-2 focus-visible:ring-brand active:cursor-grabbing"
         >
@@ -60,11 +78,24 @@ export function PlaylistRowBody({ playlist }: { playlist: Playlist }) {
       </div>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item onSelect={() => { void movePlaylist(playlist.id, 'up'); }}>Move up</ContextMenu.Item>
-          <ContextMenu.Item onSelect={() => { void movePlaylist(playlist.id, 'down'); }}>Move down</ContextMenu.Item>
-          <ContextMenu.Separator />
-          <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          {isGroup ? (
+            <>
+              <ContextMenu.Item onSelect={() => { void onMovePlaylists?.(targets, 'up'); }}>Move up</ContextMenu.Item>
+              <ContextMenu.Item onSelect={() => { void onMovePlaylists?.(targets, 'down'); }}>Move down</ContextMenu.Item>
+              <ContextMenu.Separator />
+              <ContextMenu.Item variant="destructive" onSelect={() => { void onDeletePlaylists?.(targets); }}>
+                Delete {targets.length} playlists
+              </ContextMenu.Item>
+            </>
+          ) : (
+            <>
+              <ContextMenu.Item onSelect={() => { void movePlaylist(playlist.id, 'up'); }}>Move up</ContextMenu.Item>
+              <ContextMenu.Item onSelect={() => { void movePlaylist(playlist.id, 'down'); }}>Move down</ContextMenu.Item>
+              <ContextMenu.Separator />
+              <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
+              <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+            </>
+          )}
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>

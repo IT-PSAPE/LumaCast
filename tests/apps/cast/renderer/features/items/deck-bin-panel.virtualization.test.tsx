@@ -6,6 +6,7 @@ import { DeckBinPanel } from '../../../../../../apps/cast/renderer/features/item
 const mocks = vi.hoisted(() => ({
   deckBin: { value: null as unknown },
   createItem: { value: null as unknown },
+  navigation: { value: null as unknown },
   virtualItems: [
     { index: 0, key: 'row-0', start: 0 },
     { index: 1, key: 'row-1', start: 32 },
@@ -24,6 +25,15 @@ vi.mock('../../../../../../apps/cast/renderer/features/items/use-deck-bin', () =
 vi.mock('../../../../../../apps/cast/renderer/features/items/create-item', () => ({
   useCreateItem: () => mocks.createItem.value,
 }));
+
+vi.mock('../../../../../../apps/cast/renderer/contexts/navigation-context', () => ({
+  useNavigation: () => mocks.navigation.value,
+}));
+
+vi.mock('@lumacast/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lumacast/ui')>();
+  return { ...actual, useConfirm: () => vi.fn(async () => true) };
+});
 
 vi.mock('../../../../../../apps/cast/renderer/features/items/use-duplicate-item', () => ({
   useDuplicateItem: vi.fn(),
@@ -55,6 +65,7 @@ vi.mock('../../../../../../apps/cast/renderer/features/items/item-bin-tile', () 
 
 function renderPanel() {
   mocks.createItem.value = { open: vi.fn(), close: vi.fn() };
+  mocks.navigation.value = { deleteItem: vi.fn(), moveItem: vi.fn() };
   mocks.deckBin.value = {
     sections: [
       { type: 'lyric', label: 'Lyrics', items: [{ id: 'l-1', title: 'Song A' }, { id: 'l-2', title: 'Song B' }] },

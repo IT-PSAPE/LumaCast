@@ -7,7 +7,8 @@ import { MediaAssetIcon } from '../../../components/display/entity-icon';
 import { SelectableRow } from '../../../components/display/selectable-row';
 import type { AudioRowProps } from './audio-bin-types';
 
-export function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
+export function AudioRowBody(props: AudioRowProps) {
+  const { asset, isActive, onArm } = props;
   const [visible, setVisible] = useState(false);
   const rowRef = useRef<HTMLElement | null>(null);
   const scrollRootRef = useBinScrollRoot();
@@ -47,14 +48,11 @@ export function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
     };
   }, [scrollRootRef]);
 
-  function handleArm() {
-    onArm(asset.id);
-  }
-
-  // deleteMedia → deleteMediaAsset rejects when the asset no longer exists
-  // (#214); mutatePatch has already reported the failure (#221), so the
-  // rethrow is absorbed at the call sites below.
   async function handleDelete() {
+    if (props.onDeleteResource) {
+      await props.onDeleteResource(asset.id);
+      return;
+    }
     const ok = await confirm({
       title: `Delete "${asset.name}"?`,
       description: 'This audio will be permanently removed.',
@@ -64,12 +62,28 @@ export function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
     if (ok) await deleteMedia(asset.id);
   }
 
+  function handleArm(event: React.MouseEvent<HTMLButtonElement>) {
+    const modifiers = { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
+    const selectionOnly = props.onSelectionClick?.(asset.id, modifiers) ?? false;
+    if (selectionOnly) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    onArm(asset.id);
+  }
+
   return (
     <>
       <SelectableRow.Root
         {...triggerHandlers}
+        onContextMenuCapture={() => props.onContextMenuTarget?.(asset.id)}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) props.onContextMenuTarget?.(asset.id);
+        }}
+        onTouchStartCapture={() => props.onContextMenuTarget?.(asset.id)}
         ref={setRowHostRef}
-        selected={isActive}
+        selected={isActive || Boolean(props.isResourceSelected)}
         onClick={handleArm}
         className="h-9 focus-visible:ring-2 focus-visible:ring-brand"
       >

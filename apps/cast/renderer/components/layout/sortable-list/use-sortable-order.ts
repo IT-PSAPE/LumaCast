@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
 import type { Id } from '@lumacast/kernel';
+import { moveSelectedIds } from '@lumacast/selection';
 
 /**
  * What a drop resolved to. `toIndex` is the drop position in the *visible*
@@ -14,6 +15,10 @@ export interface SortableOrderCommit {
   toIndex: number;
   /** The full id list in its new order — for callers that persist a whole ordering at once. */
   orderedIds: Id[];
+  /** Dragged members in their existing relative order. */
+  movedIds: Id[];
+  /** Visible order at drop start, before the selected block is moved. */
+  previousIds?: Id[];
 }
 
 export interface SortableOrderOptions<T> {
@@ -28,6 +33,7 @@ export interface SortableOrderOptions<T> {
    */
   commit: (change: SortableOrderCommit) => Promise<unknown> | unknown;
   disabled?: boolean;
+  selectedIds?: ReadonlySet<Id>;
 }
 
 export interface SortableOrderResult<T> {
@@ -59,10 +65,8 @@ export interface SortableOrderResult<T> {
  * applied its patch, so the handoff is invisible. A rejected commit therefore
  * reverts by exactly the same path (see `commit` above).
  *
- * Ordering under concurrent drops: each drop computes its indices against the
- * currently *visible* order, and `mutatePatch` serializes the IPC calls in
- * submission order, so a second drag that starts before the first has
- * persisted still lands where the operator dropped it.
+ * Dragging is disabled while a drop is being persisted: grouped per-item APIs
+ * must finish before another gesture derives indices from their result.
  *
  * The override is also frozen for the duration of a drag, so a snapshot that
  * arrives mid-gesture (another window, an undo, a macro) cannot re-sort the
@@ -74,6 +78,7 @@ export function useSortableOrder<T>({
   getId,
   commit,
   disabled = false,
+  selectedIds,
 }: SortableOrderOptions<T>): SortableOrderResult<T> {
   const [overrideIds, setOverrideIds] = useState<Id[] | null>(null);
   const [activeId, setActiveId] = useState<Id | null>(null);
@@ -82,12 +87,15 @@ export function useSortableOrder<T>({
   // Frozen for the duration of a drag; a ref (not state) because the freeze is
   // taken during the drag-start event, before the next render.
   const frozenIdsRef = useRef<Id[] | null>(null);
+  const dragSourceIdsRef = useRef<Id[] | null>(null);
+  const blockedDragRef = useRef(false);
+  const draggedIdsRef = useRef<ReadonlySet<Id>>(new Set());
   const pendingCommitsRef = useRef(0);
-  const keyboardDropIndexRef = useRef<number | null>(null);
+  const keyboardOrderRef = useRef<Id[] | null>(null);
 
   const serverIds = useMemo(() => items.map(getId), [items, getId]);
 
-  const activeIds = isDragging ? frozenIdsRef.current ?? overrideIds : overrideIds;
+  const activeIds = isDragging ? keyboardOrderRef.current ?? frozenIdsRef.current ?? overrideIds : overrideIds;
 
   const orderedItems = useMemo(() => {
     if (!activeIds) return items;
@@ -114,52 +122,93 @@ export function useSortableOrder<T>({
   const visibleIds = useMemo(() => orderedItems.map(getId), [getId, orderedItems]);
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
+    blockedDragRef.current = pendingCommitsRef.current > 0;
+    if (blockedDragRef.current) return;
     frozenIdsRef.current = visibleIds;
-    keyboardDropIndexRef.current = null;
+    dragSourceIdsRef.current = serverIds;
+    const id = String(event.active.id);
+    draggedIdsRef.current = selectedIds?.has(id) ? new Set(selectedIds) : new Set([id]);
+    keyboardOrderRef.current = null;
     setActiveId(String(event.active.id));
     setIsDragging(true);
-  }, [visibleIds]);
+  }, [selectedIds, serverIds, visibleIds]);
 
   const endDrag = useCallback(() => {
     frozenIdsRef.current = null;
-    keyboardDropIndexRef.current = null;
+    dragSourceIdsRef.current = null;
+    keyboardOrderRef.current = null;
     setActiveId(null);
     setIsDragging(false);
   }, []);
 
+  const cancelDrag = useCallback(() => {
+    endDrag();
+    if (pendingCommitsRef.current === 0) setOverrideIds(null);
+  }, [endDrag]);
+
   const handleKeyboardMoveToIndex = useCallback((toIndex: number) => {
     if (activeId === null) return;
-    const currentIds = overrideIds ?? frozenIdsRef.current ?? visibleIds;
+    const currentIds = keyboardOrderRef.current ?? frozenIdsRef.current ?? visibleIds;
     const fromIndex = currentIds.indexOf(activeId);
 
     if (fromIndex === -1 || toIndex < 0 || toIndex >= currentIds.length || fromIndex === toIndex) return;
 
-    const nextIds = currentIds.slice();
-    nextIds.splice(fromIndex, 1);
-    nextIds.splice(toIndex, 0, activeId);
-    keyboardDropIndexRef.current = toIndex;
+    const direction = toIndex > fromIndex ? 1 : -1;
+    let targetIndex = toIndex;
+    while (targetIndex >= 0 && targetIndex < currentIds.length && draggedIdsRef.current.has(currentIds[targetIndex])) targetIndex += direction;
+    if (targetIndex < 0 || targetIndex >= currentIds.length) return;
+    const nextIds = moveSelectedIds(currentIds, activeId, targetIndex, draggedIdsRef.current);
+    keyboardOrderRef.current = nextIds;
     setOverrideIds(nextIds);
-  }, [activeId, overrideIds, visibleIds]);
+  }, [activeId, visibleIds]);
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
+    if (blockedDragRef.current) {
+      blockedDragRef.current = false;
+      return;
+    }
     const { active, over } = event;
-    const baseIds = frozenIdsRef.current ?? visibleIds;
-    const keyboardDropIndex = keyboardDropIndexRef.current;
+    const sourceIds = dragSourceIdsRef.current;
+    const frozenIds = frozenIdsRef.current ?? visibleIds;
+    const available = new Set(serverIds);
+    const baseIds = [...frozenIds.filter((id) => available.has(id)), ...serverIds.filter((id) => !frozenIds.includes(id))];
+    const keyboardOrder = keyboardOrderRef.current;
     endDrag();
+
+    // An external reorder invalidates absolute per-item destinations. Keep the
+    // authoritative order and let the operator start a new gesture.
+    if (sourceIds) {
+      const originalIds = new Set(sourceIds);
+      const survivingSource = sourceIds.filter((id) => available.has(id));
+      const survivingCurrent = serverIds.filter((id) => originalIds.has(id));
+      if (survivingSource.some((id, index) => id !== survivingCurrent[index])) {
+        if (pendingCommitsRef.current === 0) setOverrideIds(null);
+        return;
+      }
+    }
 
     const activeId = String(active.id);
     const fromIndex = baseIds.indexOf(activeId);
-    const toIndex = keyboardDropIndex ?? (over ? baseIds.indexOf(String(over.id)) : -1);
+    const toIndex = keyboardOrder ? keyboardOrder.filter((id) => available.has(id)).indexOf(activeId) : over ? baseIds.indexOf(String(over.id)) : -1;
     // The dragged row (or its target) was deleted mid-gesture: there is no
     // meaningful destination left, so the drop is dropped.
-    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+    if (fromIndex === -1 || toIndex === -1 || (!keyboardOrder && fromIndex === toIndex)) {
+      if (pendingCommitsRef.current === 0) setOverrideIds(null);
+      return;
+    }
     // Same guard against a row that survived the gesture visually but is gone
     // from the snapshot the commit would be computed against.
     if (!serverIds.includes(activeId)) return;
 
-    const nextIds = baseIds.slice();
-    nextIds.splice(fromIndex, 1);
-    nextIds.splice(toIndex, 0, activeId);
+    const moving = draggedIdsRef.current.has(activeId) ? draggedIdsRef.current : new Set([activeId]);
+    const nextIds = keyboardOrder
+      ? [...keyboardOrder.filter((id) => available.has(id)), ...baseIds.filter((id) => !keyboardOrder.includes(id))]
+      : moveSelectedIds(baseIds, activeId, toIndex, moving);
+    if (nextIds.length === baseIds.length && nextIds.every((id, index) => id === baseIds[index])) {
+      if (pendingCommitsRef.current === 0) setOverrideIds(null);
+      return;
+    }
+    const movedIds = baseIds.filter((id) => moving.has(id));
 
     setOverrideIds(nextIds);
     pendingCommitsRef.current += 1;
@@ -185,7 +234,7 @@ export function useSortableOrder<T>({
     // two quick drags then reach the store in the order they were made.
     let outcome: Promise<unknown> | unknown;
     try {
-      outcome = commit({ id: activeId, fromIndex, toIndex, orderedIds: nextIds });
+      outcome = commit({ id: activeId, fromIndex, toIndex, orderedIds: nextIds, movedIds, previousIds: baseIds });
     } catch (error) {
       failed(error);
       return;
@@ -196,12 +245,12 @@ export function useSortableOrder<T>({
   const dnd = useMemo(() => ({
     ids: visibleIds,
     activeId,
-    disabled: disabled || visibleIds.length < 2,
+    disabled: disabled || visibleIds.length < 2 || isCommitting,
     onKeyboardMoveToIndex: handleKeyboardMoveToIndex,
     onDragStart: handleDragStart,
     onDragEnd: handleDragEnd,
-    onDragCancel: endDrag,
-  }), [activeId, disabled, endDrag, handleDragEnd, handleDragStart, handleKeyboardMoveToIndex, visibleIds]);
+    onDragCancel: cancelDrag,
+  }), [activeId, cancelDrag, disabled, handleDragEnd, handleDragStart, handleKeyboardMoveToIndex, isCommitting, visibleIds]);
 
   return { items: orderedItems, isCommitting, dnd };
 }

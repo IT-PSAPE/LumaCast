@@ -5,6 +5,11 @@ import type { ThemeOwnerType } from '@lumacast/composition';
 import { BinControlsProvider } from '@renderer/components/controls/bin-controls';
 import { ThemeBinPanel } from '../../../../../../../apps/cast/renderer/features/assets/themes/theme-bin-panel';
 
+vi.mock('@lumacast/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lumacast/ui')>();
+  return { ...actual, useConfirm: () => vi.fn().mockResolvedValue(false) };
+});
+
 // Covers the sectioned theme bin: item theme families visible at once from
 // `themesByType`, no family selector, and an accessible create drop-zone in
 // each empty section that creates the theme and enters the theme editor.

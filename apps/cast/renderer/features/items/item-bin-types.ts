@@ -4,6 +4,7 @@ import type { ItemRef, Slide } from '@lumacast/composition';
 export interface ItemLike {
   id: Id;
   title: string;
+  order?: number;
 }
 
 export interface ItemProps<T extends ItemLike> {
@@ -14,7 +15,11 @@ export interface ItemProps<T extends ItemLike> {
   isEditing: boolean;
   isFirst: boolean;
   isLast: boolean;
-  onOpen: (itemRef: ItemRef) => void;
+  onOpen: (itemRef: ItemRef, event?: React.MouseEvent<HTMLElement>) => void;
   onRename: (itemRef: ItemRef, title: string) => void;
   onMove: (itemRef: ItemRef, direction: 'up' | 'down') => void;
+  isMultiSelected?: boolean;
+  actionItemRefs?: ItemRef[];
+  onDeleteItems?: (itemRefs: readonly ItemRef[]) => void | Promise<void>;
+  onMoveItems?: (itemRefs: readonly ItemRef[], direction: 'up' | 'down') => void | Promise<void>;
 }

@@ -2,6 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { StageBinPanel } from '../../../../../../../apps/cast/renderer/features/assets/stages/stage-bin-panel';
 
+vi.mock('@lumacast/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lumacast/ui')>();
+  return { ...actual, useConfirm: () => vi.fn().mockResolvedValue(false) };
+});
+
 const mocks = vi.hoisted(() => ({
   currentStageId: null as string | null,
   setCurrentStageId: vi.fn(),

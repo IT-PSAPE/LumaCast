@@ -9,18 +9,24 @@ import { ItemContextMenuItems } from './item-context-menu-items';
 import { useDeleteItem } from './use-delete-item';
 import { useDuplicateItem } from './use-duplicate-item';
 
-export function ItemBinRowBody<T extends ItemLike>({ item, itemRef, isSelected, isEditing, isFirst, isLast, onOpen, onRename, onMove }: ItemProps<T>) {
+export function ItemBinRowBody<T extends ItemLike>({ item, itemRef, isSelected, isMultiSelected = false, isEditing, isFirst, isLast, onOpen, onRename, onMove, actionItemRefs, onDeleteItems, onMoveItems }: ItemProps<T>) {
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteItem(itemRef, item.title);
   const handleDuplicate = useDuplicateItem(itemRef, item.title);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const targets = actionItemRefs?.length ? actionItemRefs : [itemRef];
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({
+    onDelete: () => {
+      if (targets.length > 1) void onDeleteItems?.(targets);
+      else void handleDelete();
+    },
+  });
 
   useEffect(() => {
     if (isEditing) renameRef.current?.startEditing();
   }, [isEditing]);
 
-  function handleOpen() {
-    onOpen(itemRef);
+  function handleOpen(event: React.MouseEvent<HTMLElement>) {
+    onOpen(itemRef, event);
   }
 
   function handleDragStart(event: React.DragEvent<HTMLElement>) {
@@ -36,7 +42,7 @@ export function ItemBinRowBody<T extends ItemLike>({ item, itemRef, isSelected, 
       <SelectableRow.Root
         {...triggerHandlers}
         ref={triggerRef}
-        selected={isSelected}
+        selected={isSelected || isMultiSelected}
         onClick={handleOpen}
         className="h-9 cursor-grab focus-visible:ring-2 focus-visible:ring-brand"
         draggable
@@ -57,6 +63,9 @@ export function ItemBinRowBody<T extends ItemLike>({ item, itemRef, isSelected, 
         onMove={onMove}
         onDelete={() => { void handleDelete(); }}
         onDuplicate={handleDuplicate ? () => { void handleDuplicate(); } : undefined}
+        actionItemRefs={actionItemRefs}
+        onDeleteItems={onDeleteItems}
+        onMoveItems={onMoveItems}
       />
     </>
   );

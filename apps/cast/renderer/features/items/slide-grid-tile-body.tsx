@@ -23,7 +23,7 @@ export interface SlideGridTileProps {
   isGenerated?: boolean;
   onActivate: (index: number) => void;
   onFocus: (index: number) => void;
-  onRangeSelect: (index: number, extendRange: boolean) => void;
+  onRangeSelect: (index: number, extendRange: boolean, toggleSelection?: boolean) => void;
   actionSlideIds: Id[];
   containerRef?: Ref<HTMLDivElement>;
   containerStyle?: CSSProperties;
@@ -58,13 +58,14 @@ export function SlideGridTileBody({
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: overlay });
 
   function handleClick(event: React.MouseEvent<HTMLElement>) {
-    onRangeSelect(index, event.shiftKey);
-    if (event.shiftKey) return;
+    const toggleSelection = event.metaKey || event.ctrlKey;
+    onRangeSelect(index, event.shiftKey, toggleSelection);
+    if (event.shiftKey || toggleSelection) return;
     onActivate(index);
   }
 
   function handleDoubleClick(event: React.MouseEvent<HTMLElement>) {
-    if (event.shiftKey) return;
+    if (event.shiftKey || event.metaKey || event.ctrlKey) return;
     onFocus(index);
   }
 
@@ -113,7 +114,7 @@ export function SlideGridTileBody({
         </Thumbnail.Body>
         {isLive ? (
           <Thumbnail.Overlay position="top-left">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-[2px] bg-brand text-white shadow-sm">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-hairline bg-brand text-white shadow-sm">
               <Play size={12} strokeWidth={1.9} />
             </span>
           </Thumbnail.Overlay>
@@ -124,7 +125,7 @@ export function SlideGridTileBody({
         <Thumbnail.Caption className="border-secondary py-0.5" style={tagColors ?? undefined}>
           <div className="flex min-w-0 items-center gap-2">
             <span className="shrink-0 text-sm font-normal tabular-nums text-tertiary">{index + 1}</span>
-            {isGenerated ? <span className="rounded-[2px] bg-secondary px-1.5 text-xs text-secondary">Auto-generated</span> : null}
+            {isGenerated ? <span className="rounded-control bg-secondary px-1.5 text-xs text-secondary">Auto-generated</span> : null}
           </div>
         </Thumbnail.Caption>
       </Thumbnail.Tile>

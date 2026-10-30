@@ -10,17 +10,22 @@ import { SceneFrame } from '../../../components/display/scene-frame';
 import { buildRenderScene } from '../../canvas/build-render-scene';
 import { useOverlayEditor } from '../../../contexts/asset-editor/asset-editor-context';
 import { useMediaProxyMap } from '../../../hooks/use-media-proxy-map';
+import type { SelectionModifiers } from '@lumacast/selection';
 
 export interface OverlayCardProps {
   overlay: Overlay;
-  index: number;
   isActive: boolean;
+  isResourceSelected?: boolean;
   onActivate: (id: Id) => void;
   onEdit: (id: Id) => void;
   setWorkbenchMode: (mode: 'overlay-editor') => void;
+  onSelectionClick?: (id: Id, modifiers: SelectionModifiers) => boolean;
+  onContextMenuTarget?: (id: Id) => void;
+  onDeleteResource?: (id: Id) => Promise<void> | void;
+  onDuplicateResource?: (id: Id) => Promise<void> | void;
 }
 
-export function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, setWorkbenchMode }: OverlayCardProps) {
+export function OverlayCardBody({ overlay, isActive, isResourceSelected, onActivate, onEdit, setWorkbenchMode, onSelectionClick, onContextMenuTarget, onDeleteResource, onDuplicateResource }: OverlayCardProps) {
   const { updateOverlayDraft, deleteOverlay, duplicateOverlay } = useOverlayEditor();
   const mediaProxyBySource = useMediaProxyMap();
   const scene = useMemo(
@@ -33,16 +38,31 @@ export function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, 
   );
   const renameRef = useRef<RenameFieldHandle>(null);
   const confirm = useConfirm();
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
 
-  function handleActivate() {
+  function handleActivate(event: React.MouseEvent<HTMLDivElement>) {
+    const modifiers = { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
+    if (onSelectionClick?.(overlay.id, modifiers)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     onEdit(overlay.id);
     onActivate(overlay.id);
   }
 
-  function handleEdit() {
+  function openEditor() {
     onEdit(overlay.id);
     setWorkbenchMode('overlay-editor');
+  }
+
+  function handleEdit(event: React.MouseEvent<HTMLDivElement>) {
+    if (event.shiftKey || event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    openEditor();
   }
 
   function handleRename(next: string) {
@@ -50,6 +70,10 @@ export function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, 
   }
 
   async function handleDelete() {
+    if (onDeleteResource) {
+      await onDeleteResource(overlay.id);
+      return;
+    }
     const ok = await confirm({
       title: `Delete "${overlay.name}"?`,
       description: 'This overlay will be permanently removed.',
@@ -59,30 +83,44 @@ export function OverlayCardBody({ overlay, index, isActive, onActivate, onEdit, 
     if (ok) await deleteOverlay(overlay.id);
   }
 
+  async function handleDuplicate() {
+    if (onDuplicateResource) {
+      await onDuplicateResource(overlay.id);
+      return;
+    }
+    await duplicateOverlay(overlay.id);
+  }
+
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
-        <Thumbnail.Tile onClick={handleActivate} onDoubleClick={handleEdit} selected={isActive}>
+      <div
+        {...triggerHandlers}
+        ref={triggerRef}
+        onContextMenuCapture={() => onContextMenuTarget?.(overlay.id)}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) onContextMenuTarget?.(overlay.id);
+        }}
+        onTouchStartCapture={() => onContextMenuTarget?.(overlay.id)}
+        className="rounded-container focus-visible:ring-2 focus-visible:ring-brand"
+      >
+        <Thumbnail.Tile onClick={handleActivate} onDoubleClick={handleEdit} selected={isActive || Boolean(isResourceSelected)}>
           <Thumbnail.Body>
             <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
               <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
             </SceneFrame>
           </Thumbnail.Body>
           <Thumbnail.Caption>
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-secondary">{index + 1}</span>
-              <RenameField ref={renameRef} value={overlay.name} onValueChange={handleRename} className="label-xs" />
-            </div>
+            <RenameField ref={renameRef} value={overlay.name} onValueChange={handleRename} className="label-xs" />
           </Thumbnail.Caption>
         </Thumbnail.Tile>
       </div>
       <ContextMenu.Portal>
         <ContextMenu.Menu>
-          <ContextMenu.Item onSelect={handleEdit}>Edit</ContextMenu.Item>
+          <ContextMenu.Item onSelect={openEditor}>Edit</ContextMenu.Item>
           <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
-          <ContextMenu.Item onSelect={() => { duplicateOverlay(overlay.id); }}>Duplicate</ContextMenu.Item>
+          <ContextMenu.Item onSelect={() => { void handleDuplicate().catch(() => undefined); }}>Duplicate</ContextMenu.Item>
           <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete(); }}>Delete</ContextMenu.Item>
+          <ContextMenu.Item variant="destructive" onSelect={() => { void handleDelete().catch(() => undefined); }}>Delete</ContextMenu.Item>
         </ContextMenu.Menu>
       </ContextMenu.Portal>
     </>

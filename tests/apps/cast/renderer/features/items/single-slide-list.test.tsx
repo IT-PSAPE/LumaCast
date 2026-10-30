@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SingleSlideList } from '../../../../../../apps/cast/renderer/features/items/single-slide-list';
 
 const mocks = vi.hoisted(() => ({
@@ -13,7 +13,15 @@ const mocks = vi.hoisted(() => ({
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
   onKeyboardMoveToIndex: vi.fn(),
+  duplicateSlide: vi.fn(),
+  deleteSlide: vi.fn(),
+  confirm: vi.fn(),
 }));
+
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return { ...actual, useConfirm: () => mocks.confirm };
+});
 
 vi.mock('../../../../../../apps/cast/renderer/features/items/use-slide-list-view', () => ({
   useOutlineView: () => mocks.outlineView.value,
@@ -72,15 +80,16 @@ vi.mock('../../../../../../apps/cast/renderer/features/items/sortable-slide-outl
   SortableSlideOutlineRow: ({ row, isSelected, onRangeSelect, onSelect }: {
     row: { slide: { id: string }; index: number };
     isSelected: boolean;
-    onRangeSelect: (index: number, extend: boolean) => void;
+    onRangeSelect: (index: number, extend: boolean, toggle?: boolean) => void;
     onSelect: (index: number) => void;
   }) => (
     <button
       type="button"
       data-selected={isSelected ? 'true' : 'false'}
       onClick={(event) => {
-        onRangeSelect(row.index, event.shiftKey);
-        if (!event.shiftKey) onSelect(row.index);
+        const toggleSelection = event.metaKey || event.ctrlKey;
+        onRangeSelect(row.index, event.shiftKey, toggleSelection);
+        if (!event.shiftKey && !toggleSelection) onSelect(row.index);
       }}
     >
       {row.slide.id}
@@ -99,6 +108,9 @@ afterEach(() => {
   mocks.scrollToIndex.mockReset();
   mocks.measureElement.mockReset();
   mocks.onKeyboardMoveToIndex.mockReset();
+  mocks.duplicateSlide.mockReset();
+  mocks.deleteSlide.mockReset();
+  mocks.confirm.mockReset().mockResolvedValue(true);
 });
 
 describe('SingleSlideList', () => {
@@ -174,5 +186,66 @@ describe('SingleSlideList', () => {
     expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
     expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('true');
     expect(screen.getByRole('button', { name: 'slide-2' }).getAttribute('data-selected')).toBe('true');
+  });
+
+  it('toggles a discontiguous slide without selecting it as the active slide', () => {
+    const selectSlide = vi.fn();
+    mocks.navigation.value = { currentItemRef: { type: 'presentation', id: 'item-1' } };
+    mocks.outlineView.value = {
+      rows: Array.from({ length: 4 }, (_, index) => ({ slide: { id: `slide-${index}` }, index })),
+      currentSlideIndex: 0,
+      selectSlide,
+      openSlide: vi.fn(),
+    };
+    mocks.slides.value = { reorderSlide: vi.fn(), setCurrentSlideIndex: vi.fn() };
+    mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
+    mocks.virtualItems = Array.from({ length: 4 }, (_, index) => ({ index, key: `row-${index}`, start: index * 56 }));
+
+    render(<SingleSlideList />);
+    fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { metaKey: true });
+
+    expect(selectSlide).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('false');
+    expect(screen.getByRole('button', { name: 'slide-2' }).getAttribute('data-selected')).toBe('true');
+  });
+
+  it('handles selected-slide keyboard actions locally instead of falling through to the canvas', async () => {
+    const slides = Array.from({ length: 3 }, (_, index) => ({ id: `slide-${index}` }));
+    const selectSlide = vi.fn();
+    mocks.navigation.value = { currentItemRef: { type: 'presentation', id: 'item-1' } };
+    mocks.outlineView.value = {
+      rows: slides.map((slide, index) => ({ slide, index })),
+      currentSlideIndex: 0,
+      selectSlide,
+      openSlide: vi.fn(),
+    };
+    mocks.slides.value = {
+      slides,
+      reorderSlide: vi.fn(),
+      setCurrentSlideIndex: vi.fn(),
+      duplicateSlide: mocks.duplicateSlide,
+      deleteSlide: mocks.deleteSlide,
+    };
+    mocks.scenes.value = { getThumbnailScene: vi.fn(() => ({ width: 1920, height: 1080 })) };
+    mocks.virtualItems = slides.map((_, index) => ({ index, key: `row-${index}`, start: index * 56 }));
+    mocks.confirm.mockResolvedValue(true);
+    mocks.duplicateSlide.mockResolvedValue(undefined);
+    mocks.deleteSlide.mockResolvedValue(undefined);
+    const globalKeyboard = vi.fn();
+    window.addEventListener('keydown', globalKeyboard);
+    const view = render(<SingleSlideList />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { metaKey: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'd', metaKey: true });
+    await waitFor(() => expect(mocks.duplicateSlide.mock.calls.map(([id]) => id)).toEqual(['slide-0', 'slide-2']));
+    expect(globalKeyboard).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'Delete' });
+    await waitFor(() => expect(mocks.deleteSlide.mock.calls.map(([id]) => id)).toEqual(['slide-2', 'slide-0']));
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+    expect(globalKeyboard).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', globalKeyboard);
+    view.unmount();
   });
 });

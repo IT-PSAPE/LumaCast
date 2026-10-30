@@ -14,7 +14,7 @@ export function ItemEditorSlideListItem({
   index: number;
   isSelected: boolean;
   actionSlideIds: Id[];
-  onSelect: (extendRange: boolean) => void;
+  onSelect: (extendRange: boolean, toggleSelection?: boolean) => void;
 }) {
   const { state, actions } = useItemEditorScreen();
   const elements = state.currentSlide?.id === slide.id ? state.effectiveElements : actions.getSlideElements(slide.id);

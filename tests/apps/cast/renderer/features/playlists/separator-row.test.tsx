@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import type { PlaylistSeparator } from '@lumacast/composition';
+import type { PlaylistRow, PlaylistSeparator } from '@lumacast/composition';
 import { SeparatorRow } from '../../../../../../apps/cast/renderer/features/playlists/separator-row';
 
 const mocks = vi.hoisted(() => ({
@@ -72,5 +72,25 @@ describe('SeparatorRow', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeTruthy();
     expect(screen.getByRole('menuitem', { name: 'Move up' }).getAttribute('data-disabled')).toBe('');
+  });
+
+  it('passes group selection through its sortable wrapper', () => {
+    const selectedRows = [row, { id: 'sep-2', kind: 'separator', label: 'Act Two', colorKey: null }] as PlaylistRow[];
+    render(
+      <SeparatorRow
+        row={row}
+        onDragOver={() => undefined}
+        onDrop={() => undefined}
+        isMultiSelected
+        actionRows={selectedRows}
+        onRemoveRows={vi.fn()}
+        onMoveRows={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByDisplayValue('Act One'));
+
+    expect(screen.getByRole('menuitem', { name: 'Remove 2 rows from playlist' })).toBeTruthy();
+    expect(screen.getByDisplayValue('Act One').closest('.ring-2')).toBeTruthy();
   });
 });

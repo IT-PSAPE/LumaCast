@@ -13,7 +13,7 @@ import { ScenePreview } from './scene-preview';
 import { useDeleteItem } from './use-delete-item';
 import { useDuplicateItem } from './use-duplicate-item';
 
-export function ItemBinTileBody<T extends ItemLike>({ item, itemRef, slides, isSelected, isEditing, isFirst, isLast, onOpen, onRename, onMove }: ItemProps<T>) {
+export function ItemBinTileBody<T extends ItemLike>({ item, itemRef, slides, isSelected, isMultiSelected = false, isEditing, isFirst, isLast, onOpen, onRename, onMove, actionItemRefs, onDeleteItems, onMoveItems }: ItemProps<T>) {
   const { slideElementsBySlideId } = useProjectContent();
   const mediaProxyBySource = useMediaProxyMap();
   const firstSlide = slides[0] ?? null;
@@ -22,14 +22,20 @@ export function ItemBinTileBody<T extends ItemLike>({ item, itemRef, slides, isS
   const renameRef = useRef<RenameFieldHandle>(null);
   const handleDelete = useDeleteItem(itemRef, item.title);
   const handleDuplicate = useDuplicateItem(itemRef, item.title);
-  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete(); } });
+  const targets = actionItemRefs?.length ? actionItemRefs : [itemRef];
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({
+    onDelete: () => {
+      if (targets.length > 1) void onDeleteItems?.(targets);
+      else void handleDelete();
+    },
+  });
 
   useEffect(() => {
     if (isEditing) renameRef.current?.startEditing();
   }, [isEditing]);
 
-  function handleOpen() {
-    onOpen(itemRef);
+  function handleOpen(event: React.MouseEvent<HTMLElement>) {
+    onOpen(itemRef, event);
   }
 
   function handleDragStart(event: React.DragEvent<HTMLElement>) {
@@ -49,7 +55,7 @@ export function ItemBinTileBody<T extends ItemLike>({ item, itemRef, slides, isS
         draggable
         onDragStart={handleDragStart}
       >
-        <Thumbnail.Tile onClick={handleOpen} selected={isSelected}>
+        <Thumbnail.Tile onClick={handleOpen} selected={isSelected || isMultiSelected}>
           <Thumbnail.Body>
             <ScenePreview scene={scene} />
           </Thumbnail.Body>
@@ -73,6 +79,9 @@ export function ItemBinTileBody<T extends ItemLike>({ item, itemRef, slides, isS
         onMove={onMove}
         onDelete={() => { void handleDelete(); }}
         onDuplicate={handleDuplicate ? () => { void handleDuplicate(); } : undefined}
+        actionItemRefs={actionItemRefs}
+        onDeleteItems={onDeleteItems}
+        onMoveItems={onMoveItems}
       />
     </>
   );

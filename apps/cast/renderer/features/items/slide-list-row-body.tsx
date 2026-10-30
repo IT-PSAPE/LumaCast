@@ -20,7 +20,7 @@ export interface SlideOutlineRowProps {
   isSelected: boolean;
   onSelect: (index: number) => void;
   onOpen: (index: number) => void;
-  onRangeSelect: (index: number, extendRange: boolean) => void;
+  onRangeSelect: (index: number, extendRange: boolean, toggleSelection?: boolean) => void;
   actionSlideIds: Id[];
   containerRef?: Ref<HTMLDivElement>;
   containerStyle?: CSSProperties;
@@ -37,8 +37,9 @@ export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelec
   const { ref: triggerRef, onContextMenu: triggerContextMenu, ...triggerHandlers } = useContextMenuTrigger({ disabled: overlay || !slideOwned });
 
   function handleSelect(event: React.MouseEvent<HTMLElement>) {
-    onRangeSelect(row.index, event.shiftKey);
-    if (!event.shiftKey) onSelect(row.index);
+    const toggleSelection = event.metaKey || event.ctrlKey;
+    onRangeSelect(row.index, event.shiftKey, toggleSelection);
+    if (!event.shiftKey && !toggleSelection) onSelect(row.index);
   }
 
   return (
@@ -55,7 +56,7 @@ export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelec
         style={containerStyle}
         onClick={overlay ? undefined : handleSelect}
         onContextMenu={overlay ? undefined : triggerContextMenu}
-        onDoubleClick={overlay ? undefined : (event) => { if (!event.shiftKey) onOpen(row.index); }}
+        onDoubleClick={overlay ? undefined : (event) => { if (!event.shiftKey && !event.metaKey && !event.ctrlKey) onOpen(row.index); }}
         variant="slide"
         selected={isSelected}
         className={cn('select-none bg-transparent', row.slide.runtimeBlank ? 'cursor-pointer' : dragging ? 'cursor-grabbing shadow-lg' : 'cursor-grab')}
@@ -70,11 +71,11 @@ export function SlideOutlineRowBody({ row, scene, isFocused, isSelected, onSelec
         </Thumbnail.Preview>
         <Thumbnail.Body className="content-center" style={tagColors ?? undefined}>
           <span className="shrink-0 text-sm font-normal tabular-nums text-tertiary">{row.index + 1}</span>
-          {row.slide.runtimeBlank ? <span className="ml-2 rounded-[2px] bg-secondary px-1.5 text-xs text-secondary">Auto-generated</span> : null}
+          {row.slide.runtimeBlank ? <span className="ml-2 rounded-control bg-secondary px-1.5 text-xs text-secondary">Auto-generated</span> : null}
         </Thumbnail.Body>
         {row.state === 'live' ? (
           <Thumbnail.Overlay position="top-right" className="right-2 top-2">
-            <span className="inline-flex h-5 w-5 items-center justify-center rounded-[2px] bg-brand text-white shadow-sm"><Play size={12} strokeWidth={1.9} /></span>
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-hairline bg-brand text-white shadow-sm"><Play size={12} strokeWidth={1.9} /></span>
           </Thumbnail.Overlay>
         ) : null}
         <Thumbnail.Overlay position="bottom-left" className="bottom-2 left-2"><SlideBindingsBadge slideId={row.slide.id} /></Thumbnail.Overlay>

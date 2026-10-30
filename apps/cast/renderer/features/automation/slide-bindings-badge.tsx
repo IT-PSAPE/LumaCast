@@ -19,7 +19,7 @@ export function SlideBindingsBadge({ slideId }: { slideId: Id }) {
   const macroIds = new Set(macros.map((macro) => macro.id));
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-[2px] bg-primary p-1 shadow-sm">
+    <span className="inline-flex items-center gap-1.5 rounded-hairline bg-primary p-1 shadow-sm">
       {bindings.map((binding) => (
         <SlideBindingBadgeIcon
           key={binding.id}

@@ -17,7 +17,6 @@ const iconGroupRootStyles = cv({
 interface IconGroupRootProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
   children: ReactNode;
   fill?: boolean;
-  rounded?: boolean;
 }
 
 export function IconGroupRoot({ children, className, fill = false, ...divProps }: IconGroupRootProps) {

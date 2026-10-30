@@ -10,8 +10,9 @@ import { RenameField, type RenameFieldHandle } from '../../components/form/renam
 import { ItemIcon } from '../../components/display/entity-icon';
 import { LumaCastPanel } from '@renderer/components/layout/panel';
 import type { RowDragProps } from './row-drag-props';
+import type { PlaylistRowSelectionProps } from './row-selection-props';
 
-interface PlaylistItemRowBodyProps extends RowDragProps {
+interface PlaylistItemRowBodyProps extends RowDragProps, PlaylistRowSelectionProps {
   row: PlaylistItemEntry;
   containerRef?: Ref<HTMLDivElement>;
   containerStyle?: CSSProperties;
@@ -29,6 +30,11 @@ export function PlaylistItemRowBody({
   dragging = false,
   dragHandleProps,
   overlay = false,
+  isMultiSelected = false,
+  actionRows,
+  onSelectionClick,
+  onRemoveRows,
+  onMoveRows,
 }: PlaylistItemRowBodyProps) {
   const { currentPlaylistRows, currentPlaylistEntryId, renameItem, movePlaylistRow, removePlaylistRow } = useNavigation();
   const { selectPlaylistEntry } = useSlides();
@@ -39,15 +45,23 @@ export function PlaylistItemRowBody({
   const item = resolveItemRef(itemRef);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({
     disabled: overlay,
-    onDelete: overlay ? undefined : () => { void handleRemove(); },
+    onDelete: overlay ? undefined : () => {
+      if (actionRows && actionRows.length > 1) void onRemoveRows?.(actionRows);
+      else void handleRemove();
+    },
   });
 
   const isSelected = row.id === currentPlaylistEntryId;
   const index = currentPlaylistRows.findIndex((candidate) => candidate.id === row.id);
   const isFirst = index <= 0;
   const isLast = index === -1 || index === currentPlaylistRows.length - 1;
+  const targets = actionRows?.length ? actionRows : [row];
+  const isGroup = targets.length > 1;
 
-  function handleSelect() { selectPlaylistEntry(row.id); }
+  function handleSelect(event: React.MouseEvent<HTMLElement>) {
+    if (onSelectionClick?.(row.id, event)) return;
+    selectPlaylistEntry(row.id);
+  }
 
   function handleRename(name: string) {
     // renameItem rejects when the item no longer exists (#214), which a
@@ -81,7 +95,7 @@ export function PlaylistItemRowBody({
           {...triggerHandlers}
           {...dragHandleProps}
           ref={triggerRef}
-          active={isSelected}
+          active={isSelected || isMultiSelected}
           onClick={overlay ? undefined : handleSelect}
           onDragOver={onDragOver}
           onDrop={onDrop}
@@ -96,20 +110,33 @@ export function PlaylistItemRowBody({
       {!overlay ? (
         <ContextMenu.Portal>
           <ContextMenu.Menu>
-            <ContextMenu.Item disabled={isFirst} onSelect={() => {
-              // movePlaylistRow rejects when the row no longer exists (#214),
-              // which a context-menu action can race with a concurrent delete.
-              // mutatePatch has already reported the failure, so absorb the
-              // rethrow here.
-              void movePlaylistRow(row.id, index - 1).catch(() => undefined);
-            }}>Move up</ContextMenu.Item>
-            <ContextMenu.Item disabled={isLast} onSelect={() => {
-              // See "Move up" above: same race, same absorption.
-              void movePlaylistRow(row.id, index + 1).catch(() => undefined);
-            }}>Move down</ContextMenu.Item>
-            <ContextMenu.Separator />
-            <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
-            <ContextMenu.Item variant="destructive" onSelect={() => { void handleRemove(); }}>Remove from playlist</ContextMenu.Item>
+            {isGroup ? (
+              <>
+                <ContextMenu.Item onSelect={() => { void onMoveRows?.(targets, 'up'); }}>Move up</ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => { void onMoveRows?.(targets, 'down'); }}>Move down</ContextMenu.Item>
+                <ContextMenu.Separator />
+                <ContextMenu.Item variant="destructive" onSelect={() => { void onRemoveRows?.(targets); }}>
+                  Remove {targets.length} rows from playlist
+                </ContextMenu.Item>
+              </>
+            ) : (
+              <>
+                <ContextMenu.Item disabled={isFirst} onSelect={() => {
+                  // movePlaylistRow rejects when the row no longer exists (#214),
+                  // which a context-menu action can race with a concurrent delete.
+                  // mutatePatch has already reported the failure, so absorb the
+                  // rethrow here.
+                  void movePlaylistRow(row.id, index - 1).catch(() => undefined);
+                }}>Move up</ContextMenu.Item>
+                <ContextMenu.Item disabled={isLast} onSelect={() => {
+                  // See "Move up" above: same race, same absorption.
+                  void movePlaylistRow(row.id, index + 1).catch(() => undefined);
+                }}>Move down</ContextMenu.Item>
+                <ContextMenu.Separator />
+                <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
+                <ContextMenu.Item variant="destructive" onSelect={() => { void handleRemove(); }}>Remove from playlist</ContextMenu.Item>
+              </>
+            )}
           </ContextMenu.Menu>
         </ContextMenu.Portal>
       ) : null}

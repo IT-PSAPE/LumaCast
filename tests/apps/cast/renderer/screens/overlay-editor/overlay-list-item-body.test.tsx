@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Id } from '@lumacast/kernel';
+import type { SelectionModifiers } from '@lumacast/selection';
 import { OverlayListItemBody } from '../../../../../../apps/cast/renderer/screens/overlay-editor/overlay-list-item-body';
+import type { useMultiSelection } from '@lumacast/selection';
 
 const mocks = vi.hoisted(() => ({
   buildRenderScene: vi.fn(),
@@ -123,37 +127,72 @@ function makeOverlay(overrides: Record<string, unknown> = {}) {
   } as never;
 }
 
+function makeSelection(ids: string[] = ['overlay-1']): ReturnType<typeof useMultiSelection> {
+  const selectedIds = ids as Id[];
+  const selection = {
+    selectedIds: new Set<Id>(selectedIds),
+    select: (_id: Id, _modifiers?: SelectionModifiers) => {},
+    actionIds: (id: Id) => selectedIds.includes(id) ? selectedIds : [id],
+    clearSelection: () => {},
+    selectAll: () => {},
+  };
+  return selection;
+}
+
+function renderOverlay(overrides: Partial<ComponentProps<typeof OverlayListItemBody>> = {}) {
+  return render(
+    <OverlayListItemBody
+      overlay={makeOverlay()}
+      isActive={false}
+      selection={makeSelection()}
+      onSelect={vi.fn()}
+      onContextMenu={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
+
 describe('OverlayListItemBody', () => {
   it('renders previews through LazySceneStage and keeps the row selectable/sortable', () => {
-    render(<OverlayListItemBody overlay={makeOverlay()} index={0} isActive={false} />);
+    const onSelect = vi.fn();
+    renderOverlay({ onSelect });
 
     const tile = screen.getByTestId('overlay-tile');
     expect(screen.getByTestId('lazy-scene-stage').getAttribute('data-surface')).toBe('list');
     expect(tile.getAttribute('data-sortable-handle')).toBe('overlay');
 
     fireEvent.click(tile);
-    expect(mocks.selectOverlay).toHaveBeenCalledWith('overlay-1');
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it('does not rebuild the scene when unrelated row state changes', () => {
     const elements: unknown[] = [];
     const background = null;
-    const { rerender } = render(
-      <OverlayListItemBody
-        overlay={makeOverlay({ name: 'Overlay 1', elements, background })}
-        index={0}
-        isActive={false}
-      />,
-    );
+    const { rerender } = renderOverlay({ overlay: makeOverlay({ name: 'Overlay 1', elements, background }) });
 
     rerender(
       <OverlayListItemBody
         overlay={makeOverlay({ name: 'Renamed Overlay', elements, background })}
-        index={0}
         isActive
+        selection={makeSelection()}
+        onSelect={vi.fn()}
+        onContextMenu={vi.fn()}
       />,
     );
 
     expect(mocks.buildRenderScene).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms a selected group once before deleting each overlay', async () => {
+    mocks.confirm.mockResolvedValue(true);
+    renderOverlay({ selection: makeSelection(['overlay-1', 'overlay-2']) });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 overlays' }));
+
+    await waitFor(() => {
+      expect(mocks.deleteOverlay).toHaveBeenNthCalledWith(1, 'overlay-1');
+      expect(mocks.deleteOverlay).toHaveBeenNthCalledWith(2, 'overlay-2');
+    });
+    expect(mocks.confirm).toHaveBeenCalledOnce();
   });
 });

@@ -3,6 +3,7 @@ import { Panel, ReacstButton, Tabs } from '@lumacast/ui';
 import { useElements } from '@renderer/contexts/canvas/canvas-context';
 import { useInspector } from '@renderer/features/inspector/inspector-context';
 import { ShapeElementInspector } from '@renderer/features/inspector/shape-element-inspector';
+import { MultiSelectionInspector } from '@renderer/features/inspector/multi-selection-inspector';
 import { StageInspector } from '@renderer/features/inspector/stage-inspector';
 import { TextElementInspector } from '@renderer/features/inspector/text-element-inspector';
 import { BindingInspector } from '@renderer/features/inspector/binding-inspector';
@@ -13,12 +14,18 @@ import { useStageEditorScreen } from './screen-context';
 export function StageEditorInspectorPanel() {
   const { state, actions } = useStageEditorScreen();
   const { inspectorTab, setInspectorTab } = useInspector();
-  const { selectedElement } = useElements();
+  const { selectedElement, selectedElementIds } = useElements();
+  const hasMultiSelection = selectedElementIds.length > 1;
   const hasSelection = Boolean(selectedElement);
-  const isTextSelected = selectedElement?.type === 'text';
-  const isVideoSelected = selectedElement?.type === 'video';
+  const isTextSelected = !hasMultiSelection && selectedElement?.type === 'text';
+  const isVideoSelected = !hasMultiSelection && selectedElement?.type === 'video';
+  const activeInspectorTab = hasMultiSelection ? 'shape' : inspectorTab;
 
   useEffect(() => {
+    if (hasMultiSelection) {
+      if (inspectorTab !== 'shape') setInspectorTab('shape');
+      return;
+    }
     if (!hasSelection) {
       if (inspectorTab !== 'stage') setInspectorTab('stage');
       return;
@@ -33,7 +40,7 @@ export function StageEditorInspectorPanel() {
       return;
     }
     if (inspectorTab !== 'shape') setInspectorTab('shape');
-  }, [hasSelection, inspectorTab, setInspectorTab, isTextSelected, isVideoSelected]);
+  }, [hasMultiSelection, hasSelection, inspectorTab, setInspectorTab, isTextSelected, isVideoSelected]);
 
   function handleTabChange(value: string) {
     setInspectorTab(value as InspectorTab);
@@ -42,23 +49,23 @@ export function StageEditorInspectorPanel() {
   return (
     <Panel className="border-l border-secondary" data-ui-region="inspector-panel">
       <Panel.Body scroll={false} className="flex flex-col">
-        <Tabs value={inspectorTab} variant="plain" className="contents" onValueChange={handleTabChange}>
+        <Tabs value={activeInspectorTab} variant="plain" className="contents" onValueChange={handleTabChange}>
           <section className="flex min-h-0 flex-1 flex-col">
             <div className="border-b border-primary">
               <Tabs.List aria-label="Inspector" className="min-w-0 overflow-x-auto [&>*]:shrink-0">
                 {!hasSelection && <Tabs.Tab value="stage">Stage</Tabs.Tab>}
-                {hasSelection && <Tabs.Tab value="shape">Shape</Tabs.Tab>}
+                {hasSelection && <Tabs.Tab value="shape">{hasMultiSelection ? 'Selection' : 'Shape'}</Tabs.Tab>}
                 {isTextSelected && <Tabs.Tab value="text">Text</Tabs.Tab>}
                 {isTextSelected && <Tabs.Tab value="binding">Text link</Tabs.Tab>}
                 {isVideoSelected && <Tabs.Tab value="video">Video</Tabs.Tab>}
               </Tabs.List>
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
-              {inspectorTab === 'stage' && <StageInspector />}
-              {inspectorTab === 'shape' && <ShapeElementInspector />}
-              {inspectorTab === 'text' && <TextElementInspector />}
-              {inspectorTab === 'binding' && <BindingInspector />}
-              {inspectorTab === 'video' && <VideoElementInspector />}
+              {activeInspectorTab === 'stage' && <StageInspector />}
+              {activeInspectorTab === 'shape' && (hasMultiSelection ? <MultiSelectionInspector /> : <ShapeElementInspector />)}
+              {activeInspectorTab === 'text' && <TextElementInspector />}
+              {activeInspectorTab === 'binding' && <BindingInspector />}
+              {activeInspectorTab === 'video' && <VideoElementInspector />}
             </div>
           </section>
         </Tabs>

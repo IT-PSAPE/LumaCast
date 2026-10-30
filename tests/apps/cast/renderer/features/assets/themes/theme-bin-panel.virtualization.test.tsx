@@ -3,6 +3,11 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { BinControlsProvider } from '@renderer/components/controls/bin-controls';
 import { ThemeBinPanel } from '../../../../../../../apps/cast/renderer/features/assets/themes/theme-bin-panel';
 
+vi.mock('@lumacast/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@lumacast/ui')>();
+  return { ...actual, useConfirm: () => vi.fn().mockResolvedValue(false) };
+});
+
 const mocks = vi.hoisted(() => ({
   themeBin: { value: null as unknown },
   themeEditor: { value: null as unknown },

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ItemEditorSlideList } from '../../../../../../apps/cast/renderer/screens/item-editor/item-editor-slide-list';
 
@@ -9,7 +9,15 @@ const mocks = vi.hoisted(() => ({
   totalSize: 640,
   measureElement: vi.fn(),
   scrollToIndex: vi.fn(),
+  duplicateSlide: vi.fn(),
+  deleteSlide: vi.fn(),
+  confirm: vi.fn(),
 }));
+
+vi.mock('@lumacast/ui', async () => {
+  const actual = await vi.importActual<typeof import('@lumacast/ui')>('@lumacast/ui');
+  return { ...actual, useConfirm: () => mocks.confirm };
+});
 
 vi.mock('../../../../../../apps/cast/renderer/screens/item-editor/screen-context', () => ({
   useItemEditorScreen: () => mocks.screen.value,
@@ -46,12 +54,12 @@ vi.mock('../../../../../../apps/cast/renderer/screens/item-editor/item-editor-sl
   ItemEditorSlideListItem: ({ slide, isSelected, onSelect }: {
     slide: { id: string };
     isSelected: boolean;
-    onSelect: (extend: boolean) => void;
+    onSelect: (extend: boolean, toggle?: boolean) => void;
   }) => (
     <button
       type="button"
       data-selected={isSelected ? 'true' : 'false'}
-      onClick={(event) => onSelect(event.shiftKey)}
+      onClick={(event) => onSelect(event.shiftKey, event.metaKey || event.ctrlKey)}
     >
       {slide.id}
     </button>
@@ -68,6 +76,9 @@ afterEach(() => {
   mocks.virtualItems = [{ index: 0, key: 'row-0', start: 0 }, { index: 1, key: 'row-1', start: 160 }];
   mocks.measureElement.mockReset();
   mocks.scrollToIndex.mockReset();
+  mocks.duplicateSlide.mockReset();
+  mocks.deleteSlide.mockReset();
+  mocks.confirm.mockReset().mockResolvedValue(true);
 });
 
 describe('ItemEditorSlideList', () => {
@@ -123,5 +134,68 @@ describe('ItemEditorSlideList', () => {
     expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
     expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('true');
     expect(screen.getByRole('button', { name: 'slide-2' }).getAttribute('data-selected')).toBe('true');
+  });
+
+  it('toggles a discontiguous slide without moving editor focus', () => {
+    const setCurrentSlideIndex = vi.fn();
+    mocks.virtualItems = Array.from({ length: 3 }, (_, index) => ({ index, key: `row-${index}`, start: index * 160 }));
+    mocks.screen.value = {
+      state: {
+        slides: Array.from({ length: 3 }, (_, index) => ({ id: `slide-${index}` })),
+        currentSlideIndex: 0,
+        currentItemRef: { type: 'presentation', id: 'item-1' },
+      },
+      actions: {
+        reorderSlide: vi.fn(),
+        setCurrentSlideIndex,
+      },
+    };
+
+    const scrollElement = document.createElement('div');
+    render(<ItemEditorSlideList getScrollElement={() => scrollElement} />);
+    fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { ctrlKey: true });
+
+    expect(setCurrentSlideIndex).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'slide-0' }).getAttribute('data-selected')).toBe('true');
+    expect(screen.getByRole('button', { name: 'slide-1' }).getAttribute('data-selected')).toBe('false');
+    expect(screen.getByRole('button', { name: 'slide-2' }).getAttribute('data-selected')).toBe('true');
+  });
+
+  it('routes selected-slide Delete and Ctrl+D locally instead of reaching canvas shortcuts', async () => {
+    const slides = Array.from({ length: 3 }, (_, index) => ({ id: `slide-${index}` }));
+    const setCurrentSlideIndex = vi.fn();
+    mocks.virtualItems = slides.map((_, index) => ({ index, key: `row-${index}`, start: index * 160 }));
+    mocks.screen.value = {
+      state: {
+        slides,
+        currentSlideIndex: 0,
+        currentItemRef: { type: 'presentation', id: 'item-1' },
+      },
+      actions: {
+        reorderSlide: vi.fn(),
+        setCurrentSlideIndex,
+        duplicateSlide: mocks.duplicateSlide,
+        deleteSlide: mocks.deleteSlide,
+      },
+    };
+    mocks.confirm.mockResolvedValue(true);
+    mocks.duplicateSlide.mockResolvedValue(undefined);
+    mocks.deleteSlide.mockResolvedValue(undefined);
+    const globalKeyboard = vi.fn();
+    window.addEventListener('keydown', globalKeyboard);
+    const scrollElement = document.createElement('div');
+    const view = render(<ItemEditorSlideList getScrollElement={() => scrollElement} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'slide-2' }), { ctrlKey: true });
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'Delete' });
+    await waitFor(() => expect(mocks.deleteSlide.mock.calls.map(([id]) => id)).toEqual(['slide-2', 'slide-0']));
+    expect(mocks.confirm).toHaveBeenCalledTimes(1);
+    expect(globalKeyboard).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'slide-2' }), { key: 'd', ctrlKey: true });
+    await waitFor(() => expect(mocks.duplicateSlide.mock.calls.map(([id]) => id)).toEqual(['slide-0', 'slide-2']));
+    expect(globalKeyboard).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', globalKeyboard);
+    view.unmount();
   });
 });

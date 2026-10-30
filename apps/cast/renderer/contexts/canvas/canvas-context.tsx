@@ -187,6 +187,7 @@ export function CanvasProvider({ children }: { children: ReactNode }) {
 
   const inspector = useElementInspectorSync({
     selectedElementId: selection.primarySelectedElementId,
+    isMultiSelection: selection.selectedElementIds.length > 1,
     baseElements,
     isCanvasInteracting,
     draftElements,

@@ -45,6 +45,83 @@ function setup(initial: Row[], commit: (change: SortableOrderCommit) => Promise<
 }
 
 describe('useSortableOrder', () => {
+  it('blocks another gesture until a pending reorder settles, including failure', async () => {
+    const pending = deferred();
+    const commit = vi.fn(() => pending.promise);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = setup(rows('a', 'b', 'c'), commit);
+    act(() => result.current.dnd.onDragStart(dragStart('a')));
+    act(() => result.current.dnd.onDragEnd(dragEnd('a', 'c')));
+    expect(result.current.dnd.disabled).toBe(true);
+    act(() => result.current.dnd.onDragStart(dragStart('b')));
+    act(() => result.current.dnd.onDragEnd(dragEnd('b', 'c')));
+    expect(commit).toHaveBeenCalledTimes(1);
+    await act(async () => { pending.reject(new Error('rejected')); await pending.promise.catch(() => {}); });
+    expect(result.current.dnd.disabled).toBe(false);
+    expect(result.current.items.map(rowId)).toEqual(['a', 'b', 'c']);
+    error.mockRestore();
+  });
+
+  it('cancels a stale drop if another window reordered the same rows during the gesture', () => {
+    const commit = vi.fn();
+    const { result, rerender } = setup(rows('a', 'b', 'c'), commit);
+    act(() => result.current.dnd.onDragStart(dragStart('a')));
+    rerender({ items: rows('c', 'b', 'a') });
+    act(() => result.current.dnd.onDragEnd(dragEnd('a', 'c')));
+    expect(commit).not.toHaveBeenCalled();
+    expect(result.current.items.map(rowId)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('moves a discontiguous selection as one ordered block and persists every member', async () => {
+    const pending = deferred();
+    const commit = vi.fn(() => pending.promise);
+    const { result } = renderHook(() => useSortableOrder({
+      items: rows('a', 'b', 'c', 'd', 'e'), getId: rowId, commit, selectedIds: new Set(['b', 'd']),
+    }));
+    act(() => result.current.dnd.onDragStart(dragStart('b')));
+    act(() => result.current.dnd.onDragEnd(dragEnd('b', 'e')));
+    expect(result.current.items.map(rowId)).toEqual(['a', 'c', 'e', 'b', 'd']);
+    expect(commit).toHaveBeenCalledWith({ id: 'b', fromIndex: 1, toIndex: 4, movedIds: ['b', 'd'], orderedIds: ['a', 'c', 'e', 'b', 'd'], previousIds: ['a', 'b', 'c', 'd', 'e'] });
+    await act(async () => { pending.resolve(); await pending.promise; });
+  });
+
+  it('moves only an unselected dragged row and treats a drop within the selected block as a no-op', () => {
+    const commit = vi.fn(() => new Promise(() => {}));
+    const { result } = renderHook(() => useSortableOrder({ items: rows('a', 'b', 'c', 'd'), getId: rowId, commit, selectedIds: new Set(['a', 'c']) }));
+    act(() => result.current.dnd.onDragStart(dragStart('a')));
+    act(() => result.current.dnd.onDragEnd(dragEnd('a', 'c')));
+    expect(commit).not.toHaveBeenCalled();
+    act(() => result.current.dnd.onDragStart(dragStart('b')));
+    act(() => result.current.dnd.onDragEnd(dragEnd('b', 'd')));
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({ movedIds: ['b'], orderedIds: ['a', 'c', 'd', 'b'] }));
+  });
+
+  it('keeps group keyboard previews consistent with the final drop and restores on cancel', () => {
+    const commit = vi.fn(() => new Promise(() => {}));
+    const { result } = renderHook(() => useSortableOrder({ items: rows('a', 'b', 'c', 'd', 'e'), getId: rowId, commit, selectedIds: new Set(['a', 'b']) }));
+    act(() => result.current.dnd.onDragStart(dragStart('a')));
+    act(() => result.current.dnd.onKeyboardMoveToIndex(2));
+    expect(result.current.items.map(rowId)).toEqual(['c', 'a', 'b', 'd', 'e']);
+    act(() => result.current.dnd.onKeyboardMoveToIndex(3));
+    expect(result.current.items.map(rowId)).toEqual(['c', 'd', 'a', 'b', 'e']);
+    act(() => result.current.dnd.onDragCancel());
+    expect(result.current.items.map(rowId)).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(commit).not.toHaveBeenCalled();
+    act(() => result.current.dnd.onDragStart(dragStart('a')));
+    act(() => result.current.dnd.onKeyboardMoveToIndex(4));
+    act(() => result.current.dnd.onDragEnd(dragEnd('a', null)));
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({ orderedIds: ['c', 'd', 'e', 'a', 'b'], movedIds: ['a', 'b'] }));
+  });
+
+  it('omits selected members removed mid-drag and retains newly arriving rows', () => {
+    const commit = vi.fn(() => new Promise(() => {}));
+    const { result, rerender } = renderHook(({ items }) => useSortableOrder({ items, getId: rowId, commit, selectedIds: new Set(['a', 'b']) }), { initialProps: { items: rows('a', 'b', 'c', 'd') } });
+    act(() => result.current.dnd.onDragStart(dragStart('a')));
+    rerender({ items: rows('a', 'c', 'd', 'e') });
+    act(() => result.current.dnd.onDragEnd(dragEnd('a', 'd')));
+    expect(commit).toHaveBeenCalledWith(expect.objectContaining({ orderedIds: ['c', 'd', 'a', 'e'], movedIds: ['a'] }));
+  });
+
   it('shows the dropped position immediately, before the commit resolves', async () => {
     const pending = deferred();
     const commit = vi.fn(() => pending.promise);
@@ -54,7 +131,7 @@ describe('useSortableOrder', () => {
 
     expect(result.current.items.map(rowId)).toEqual(['b', 'c', 'a']);
     expect(result.current.isCommitting).toBe(true);
-    expect(commit).toHaveBeenCalledWith({ id: 'a', fromIndex: 0, toIndex: 2, orderedIds: ['b', 'c', 'a'] });
+    expect(commit).toHaveBeenCalledWith({ id: 'a', fromIndex: 0, toIndex: 2, orderedIds: ['b', 'c', 'a'], movedIds: ['a'], previousIds: ['a', 'b', 'c'] });
 
     await act(async () => { pending.resolve(); await pending.promise; });
   });
@@ -106,7 +183,7 @@ describe('useSortableOrder', () => {
     // Second drag indices are computed against the visible (optimistic) order.
     act(() => { result.current.dnd.onDragEnd(dragEnd('c', 'b')); });
     expect(result.current.items.map(rowId)).toEqual(['c', 'b', 'a']);
-    expect(calls[1]).toEqual({ id: 'c', fromIndex: 2, toIndex: 0, orderedIds: ['c', 'b', 'a'] });
+    expect(calls[1]).toEqual({ id: 'c', fromIndex: 2, toIndex: 0, orderedIds: ['c', 'b', 'a'], movedIds: ['c'], previousIds: ['b', 'a', 'c'] });
 
     // The first commit landing must not drop the second drag's optimism.
     await act(async () => { first.resolve(); await first.promise; });
@@ -149,6 +226,8 @@ describe('useSortableOrder', () => {
       fromIndex: 0,
       toIndex: 2,
       orderedIds: ['b', 'c', 'a', 'd'],
+      movedIds: ['a'],
+      previousIds: ['a', 'b', 'c', 'd'],
     });
     expect(result.current.items.map(rowId)).toEqual(['b', 'c', 'a', 'd']);
   });

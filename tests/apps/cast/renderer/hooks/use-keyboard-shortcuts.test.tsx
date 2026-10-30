@@ -27,6 +27,12 @@ const fakes = vi.hoisted(() => {
     },
     elements: {
       selectedElementId: null as string | null,
+      effectiveElements: [
+        { id: 'visible', payload: {} },
+        { id: 'locked', payload: { locked: true } },
+        { id: 'hidden', payload: { visible: false } },
+      ],
+      selectElements: vi.fn(),
       clearSelection: vi.fn(),
       deleteSelected: vi.fn(),
       nudgeSelection: vi.fn(),
@@ -99,6 +105,26 @@ afterEach(() => {
 });
 
 describe('useKeyboardShortcuts — out-of-scope contexts', () => {
+  it('selects all movable canvas elements with either platform shortcut', () => {
+    fakes.workbench.state.workbenchMode = 'item-editor';
+    renderHook(() => useKeyboardShortcuts());
+    const event = keyDown('a', { ctrlKey: true });
+    dispatchOn(window, event);
+    expect(fakes.elements.selectElements).toHaveBeenCalledWith(['visible']);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('leaves select-all in a text field to the browser', () => {
+    fakes.workbench.state.workbenchMode = 'item-editor';
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    renderHook(() => useKeyboardShortcuts());
+    const event = keyDown('a', { metaKey: true });
+    dispatchOn(input, event);
+    expect(fakes.elements.selectElements).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('does not run the app copy on a focused editable input, lets the browser own the chord, and claims the parallel menu command', () => {
     const input = document.createElement('input');
     document.body.appendChild(input);

@@ -8,15 +8,31 @@ import { MediaContextMenuItems } from './media-context-menu-items';
 import { useWorkbench } from '../../../contexts/workbench-context';
 import { CheckerboardBackdrop } from '../../../components/display/checkerboard-backdrop';
 
-export function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo }: MediaItemProps) {
-  const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
+export function MediaTileBody(props: MediaItemProps) {
+  const { asset, isActive, onAssignLayer, onArmVideo } = props;
+  const { handleReplaceSource, handleDelete: handleDeleteSingle } = useMediaContextActions(asset);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
   const {
     state: { programMode, programSingleSurface },
     actions: { setProgramSingleSurface },
   } = useWorkbench();
 
-  function handleAssignLayer() {
+  async function handleDelete() {
+    if (props.onDeleteResource) {
+      await props.onDeleteResource(asset.id);
+      return;
+    }
+    await handleDeleteSingle();
+  }
+
+  function handleAssignLayer(event: React.MouseEvent<HTMLDivElement>) {
+    const modifiers = { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
+    const selectionOnly = props.onSelectionClick?.(asset.id, modifiers) ?? false;
+    if (selectionOnly) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if ((asset.type === 'video') && programMode === 'single' && programSingleSurface !== 'program') {
       setProgramSingleSurface('program');
     }
@@ -29,10 +45,19 @@ export function MediaTileBody({ asset, isActive, onAssignLayer, onArmVideo }: Me
 
   return (
     <>
-      <div {...triggerHandlers} ref={triggerRef} className="rounded-xs focus-visible:ring-2 focus-visible:ring-brand">
+      <div
+        {...triggerHandlers}
+        ref={triggerRef}
+        onContextMenuCapture={() => props.onContextMenuTarget?.(asset.id)}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) props.onContextMenuTarget?.(asset.id);
+        }}
+        onTouchStartCapture={() => props.onContextMenuTarget?.(asset.id)}
+        className="rounded-container focus-visible:ring-2 focus-visible:ring-brand"
+      >
         <Thumbnail.Tile
           onClick={handleAssignLayer}
-          selected={isActive}
+          selected={isActive || Boolean(props.isResourceSelected)}
           aspectRatio={asset.type === 'audio' ? 1 : undefined}
           className={cn(isActive ? 'ring-1 ring-brand/35' : '')}
         >

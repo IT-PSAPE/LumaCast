@@ -23,15 +23,15 @@ export function InspectorSlider({
   // Base UI only clamps to [min, max] for the underlying input's native
   // change event (keyboard/drag interactions already step correctly on their
   // own); snapping to `step` here keeps every path — typed, dragged, or
-  // keyboard-stepped — landing on the same rounded value.
+  // keyboard-stepped — landing on the same snapped value.
   function handleValueChange(next: number | number[]) {
     const raw = Array.isArray(next) ? next[0]! : next;
     const snapped = Math.round(raw / step) * step;
     const clamped = Math.min(Math.max(snapped, min), max);
-    const rounded = Number.isInteger(step)
+    const normalized = Number.isInteger(step)
       ? Math.round(clamped)
       : parseFloat(clamped.toFixed(countDecimals(step)));
-    onChange(rounded);
+    onChange(normalized);
   }
 
   // This control is designed to live inside a Dropdown menu, whose panel claims
@@ -79,7 +79,7 @@ export function InspectorSlider({
         </div>
       )}
       {/* Thumb visual. Travel is inset by the thumb's own width so it stays inside
-          the pill's rounded ends instead of clipping at 0% and 100%. */}
+          the pill's end caps instead of clipping at 0% and 100%. */}
       <div
         aria-hidden
         className="pointer-events-none absolute top-1/2 h-4 w-1 -translate-y-1/2 rounded-full bg-(--text-color-secondary)"

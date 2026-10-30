@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Id } from '@lumacast/kernel';
+import type { SelectionModifiers } from '@lumacast/selection';
 import { StageListItemBody } from '../../../../../../apps/cast/renderer/screens/stage-editor/stage-list-item-body';
+import type { useMultiSelection } from '@lumacast/selection';
 
 const mocks = vi.hoisted(() => ({
   buildRenderScene: vi.fn(),
@@ -119,37 +123,72 @@ function makeStage(overrides: Record<string, unknown> = {}) {
   } as never;
 }
 
+function makeSelection(ids: string[] = ['stage-1']): ReturnType<typeof useMultiSelection> {
+  const selectedIds = ids as Id[];
+  const selection = {
+    selectedIds: new Set<Id>(selectedIds),
+    select: (_id: Id, _modifiers?: SelectionModifiers) => {},
+    actionIds: (id: Id) => selectedIds.includes(id) ? selectedIds : [id],
+    clearSelection: () => {},
+    selectAll: () => {},
+  };
+  return selection;
+}
+
+function renderStage(overrides: Partial<ComponentProps<typeof StageListItemBody>> = {}) {
+  return render(
+    <StageListItemBody
+      stage={makeStage()}
+      isActive={false}
+      selection={makeSelection()}
+      onSelect={vi.fn()}
+      onContextMenu={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
+
 describe('StageListItemBody', () => {
   it('renders previews through LazySceneStage and keeps the row selectable/sortable', () => {
-    render(<StageListItemBody stage={makeStage()} index={0} isActive={false} />);
+    const onSelect = vi.fn();
+    renderStage({ onSelect });
 
     const tile = screen.getByTestId('stage-tile');
     expect(screen.getByTestId('lazy-scene-stage').getAttribute('data-surface')).toBe('list');
     expect(tile.getAttribute('data-sortable-handle')).toBe('stage');
 
     fireEvent.click(tile);
-    expect(mocks.selectStage).toHaveBeenCalledWith('stage-1');
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 
   it('does not rebuild the scene when unrelated row state changes', () => {
     const elements: unknown[] = [];
     const background = null;
-    const { rerender } = render(
-      <StageListItemBody
-        stage={makeStage({ name: 'Stage 1', elements, background })}
-        index={0}
-        isActive={false}
-      />,
-    );
+    const { rerender } = renderStage({ stage: makeStage({ name: 'Stage 1', elements, background }) });
 
     rerender(
       <StageListItemBody
         stage={makeStage({ name: 'Renamed Stage', elements, background })}
-        index={0}
         isActive
+        selection={makeSelection()}
+        onSelect={vi.fn()}
+        onContextMenu={vi.fn()}
       />,
     );
 
     expect(mocks.buildRenderScene).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms a selected group once before deleting each stage', async () => {
+    mocks.confirm.mockResolvedValue(true);
+    renderStage({ selection: makeSelection(['stage-1', 'stage-2']) });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 stages' }));
+
+    await waitFor(() => {
+      expect(mocks.deleteStage).toHaveBeenNthCalledWith(1, 'stage-1');
+      expect(mocks.deleteStage).toHaveBeenNthCalledWith(2, 'stage-2');
+    });
+    expect(mocks.confirm).toHaveBeenCalledOnce();
   });
 });

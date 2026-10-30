@@ -6,15 +6,31 @@ import { MediaThumbnail } from './media-thumbnail';
 import { MediaContextMenuItems } from './media-context-menu-items';
 import { useWorkbench } from '../../../contexts/workbench-context';
 
-export function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo }: MediaItemProps) {
-  const { handleReplaceSource, handleDelete } = useMediaContextActions(asset);
+export function MediaRowBody(props: MediaItemProps) {
+  const { asset, isActive, onAssignLayer, onArmVideo } = props;
+  const { handleReplaceSource, handleDelete: handleDeleteSingle } = useMediaContextActions(asset);
   const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: () => { void handleDelete().catch(() => undefined); } });
   const {
     state: { programMode, programSingleSurface },
     actions: { setProgramSingleSurface },
   } = useWorkbench();
 
-  function handleAssignLayer() {
+  async function handleDelete() {
+    if (props.onDeleteResource) {
+      await props.onDeleteResource(asset.id);
+      return;
+    }
+    await handleDeleteSingle();
+  }
+
+  function handleAssignLayer(event: React.MouseEvent<HTMLButtonElement>) {
+    const modifiers = { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey };
+    const selectionOnly = props.onSelectionClick?.(asset.id, modifiers) ?? false;
+    if (selectionOnly) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if ((asset.type === 'video') && programMode === 'single' && programSingleSurface !== 'program') {
       setProgramSingleSurface('program');
     }
@@ -29,8 +45,13 @@ export function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo }: Med
     <>
       <SelectableRow.Root
         {...triggerHandlers}
+        onContextMenuCapture={() => props.onContextMenuTarget?.(asset.id)}
+        onKeyDownCapture={(event) => {
+          if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) props.onContextMenuTarget?.(asset.id);
+        }}
+        onTouchStartCapture={() => props.onContextMenuTarget?.(asset.id)}
         ref={triggerRef}
-        selected={isActive}
+        selected={isActive || Boolean(props.isResourceSelected)}
         onClick={handleAssignLayer}
         className="h-12 focus-visible:ring-2 focus-visible:ring-brand"
       >

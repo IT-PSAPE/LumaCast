@@ -19,11 +19,13 @@ export function ThemeContextMenuItems({
   themeType,
   renameRef,
   onDelete,
+  onDuplicate,
 }: {
   theme: EditorThemeSource;
   themeType: ThemeOwnerType;
   renameRef: React.RefObject<RenameFieldHandle | null>;
   onDelete: () => void;
+  onDuplicate?: () => void;
 }) {
   const { applyThemeToTarget } = useThemeEditor();
   const { setStatusText } = useCast();
@@ -51,6 +53,7 @@ export function ThemeContextMenuItems({
     <ContextMenu.Portal>
       <ContextMenu.Menu>
         <ContextMenu.Item onSelect={() => { renameRef.current?.startEditing(); }}>Rename</ContextMenu.Item>
+        {onDuplicate ? <ContextMenu.Item onSelect={onDuplicate}>Duplicate</ContextMenu.Item> : null}
         <ContextMenu.Submenu label="Apply to" disabled={!hasTargets}>
           {!hasTargets ? (
             <ContextMenu.Item disabled onSelect={() => {}}>No compatible {targets.label}</ContextMenu.Item>
