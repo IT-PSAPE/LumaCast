@@ -28,7 +28,7 @@ export function SenderCard({
 }) {
   if (!sender) {
     return (
-      <div className="rounded border border-secondary px-3 py-2 text-sm text-tertiary">
+      <div className="rounded-control border border-secondary px-3 py-2 text-sm text-tertiary">
         {OUTPUT_TITLES[name]} sender: inactive
         <div className="pt-1">
           <span className="font-medium text-primary">Unavailable/disabled drops:</span> {formatAvailabilityDrops(availabilityDrops)}
@@ -43,7 +43,7 @@ export function SenderCard({
     ? ((performance.framesDroppedBackpressure / performance.framesCaptured) * 100)
     : 0;
   return (
-    <div className="rounded border border-secondary px-3 py-3">
+    <div className="rounded-control border border-secondary px-3 py-3">
       <div className="flex items-center justify-between gap-3 pb-2">
         <h3 className="text-sm font-semibold text-primary">{OUTPUT_TITLES[name]} · {sender.senderName}</h3>
         <span className="text-xs text-tertiary">

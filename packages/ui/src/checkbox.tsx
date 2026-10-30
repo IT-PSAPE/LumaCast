@@ -52,7 +52,7 @@ export function Checkbox({ checked, onCheckedChange, label, disabled, className 
         checked={checked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}
-        className="flex size-4 shrink-0 items-center justify-center rounded-sm border border-primary bg-tertiary text-transparent transition-colors data-[checked]:border-brand data-[checked]:bg-brand data-[checked]:text-white data-disabled:cursor-not-allowed"
+        className="flex size-4 shrink-0 items-center justify-center rounded-control border border-primary bg-tertiary text-transparent transition-colors data-[checked]:border-brand data-[checked]:bg-brand data-[checked]:text-white data-disabled:cursor-not-allowed"
       >
         <BaseCheckbox.Indicator keepMounted={false} className="flex items-center justify-center">
           <CheckIcon />

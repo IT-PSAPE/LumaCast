@@ -35,7 +35,7 @@ export function MediaRowBody({ asset, isActive, onAssignLayer, onArmVideo }: Med
         className="h-12 focus-visible:ring-2 focus-visible:ring-brand"
       >
         <SelectableRow.Leading>
-          <div className="relative h-10 w-10 overflow-hidden rounded bg-tertiary/40">
+          <div className="relative h-10 w-10 overflow-hidden rounded-control bg-tertiary/40">
             <MediaThumbnail asset={asset} />
           </div>
         </SelectableRow.Leading>

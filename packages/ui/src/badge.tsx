@@ -15,8 +15,8 @@ import { StatusDot, type StatusTone } from './status-dot';
 //
 // Standardised treatment: `soft` tints at 15% (matches Button `take`/`danger`
 // and cloud's StatusPill, replacing the 10/15/20% spread). Default shape is
-// `pill` (rounded-full); `rounded` is rounded-sm, the radius cast chips and
-// Select use. Colours come only from semantic tokens.
+// `pill` (rounded-full); `box` is the hairline radius a mark nested inside
+// another shape takes. Colours come only from semantic tokens.
 
 const badgeStyles = cv({
   base: 'inline-flex w-fit shrink-0 items-center whitespace-nowrap label-xs',
@@ -27,7 +27,7 @@ const badgeStyles = cv({
     },
     shape: {
       pill: 'rounded-full',
-      rounded: 'rounded-sm',
+      box: 'rounded-hairline',
     },
     tone: {
       neutral: '',
@@ -67,7 +67,7 @@ export interface BadgeProps {
   tone?: StatusTone;
   variant?: 'soft' | 'solid' | 'outline';
   size?: 'sm' | 'md';
-  shape?: 'pill' | 'rounded';
+  shape?: 'pill' | 'box';
   /** Leading StatusDot in the same tone. */
   dot?: boolean;
   /** Attention pulse on the leading dot. Requires `dot`; respects prefers-reduced-motion. */

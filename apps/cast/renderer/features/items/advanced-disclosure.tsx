@@ -13,7 +13,7 @@ export function AdvancedDisclosure({
   onChange: (flag: 'includeAllThemes' | 'includeOverlays' | 'includeStages', value: boolean) => void;
 }) {
   return (
-    <div className="rounded border border-primary bg-tertiary/15">
+    <div className="rounded-control border border-primary bg-tertiary/15">
       <button
         type="button"
         onClick={onToggle}

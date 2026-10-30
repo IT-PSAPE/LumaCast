@@ -21,13 +21,13 @@ export function MediaPickerAssetTile({
       pressed={isSelected}
       onPressedChange={() => onToggle(asset.id)}
       className={cn(
-        'group cursor-pointer rounded border bg-primary p-0 text-left transition-colors',
+        'group cursor-pointer rounded-container border bg-primary p-0 text-left transition-colors',
         'border-primary data-[pressed]:border-brand data-[pressed]:ring-1 data-[pressed]:ring-brand',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand',
       )}
     >
       <div
-        className="grid place-items-center overflow-hidden rounded-t bg-primary"
+        className="grid place-items-center overflow-hidden rounded-t-container bg-primary"
         style={{ aspectRatio: String(asset.type === 'audio' ? 1 : (asset.width && asset.height ? asset.width / asset.height : 1)) }}
       >
         <MediaThumbnail asset={asset} />

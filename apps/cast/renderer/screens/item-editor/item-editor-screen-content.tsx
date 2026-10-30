@@ -33,7 +33,7 @@ export function ItemEditorScreenContent() {
                     <DropdownMenu
                       align="end"
                       trigger={(
-                        <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                        <button type="button" aria-label="Add" className="cursor-pointer rounded-control bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
                           <Plus />
                         </button>
                       )}
@@ -94,7 +94,7 @@ export function ItemEditorScreenContent() {
           <SplitPanel.Segment id="edit-bottom" defaultSize={220} minSize={120} collapsible>
             <section data-ui-region="slide-notes-panel" className="relative h-full min-h-0 overflow-hidden border-t border-primary bg-secondary">
               {/* <div className="pointer-events-none absolute inset-x-3 top-3 z-10 flex justify-end">
-                <div className="pointer-events-auto flex items-center gap-2 rounded-md border border-primary bg-primary/95 p-1 shadow-sm backdrop-blur-sm">
+                <div className="pointer-events-auto flex items-center gap-2 rounded-surface border border-primary bg-primary/95 p-1 shadow-sm backdrop-blur-sm">
                   <ReacstButton onClick={state.notesPanel.handleResetNotes} disabled={!state.notesPanel.hasSlide || !state.notesPanel.isDirty} variant="ghost">
                     Reset
                   </ReacstButton>

@@ -785,7 +785,7 @@ export function InlineTextEditor({ editingTextId, effectiveElements, sceneOffset
       {!isBound ? (
         <div
           ref={toolbarRef}
-          className="absolute z-20 flex items-center gap-1.5 rounded-md border border-primary bg-primary px-1.5 py-1 shadow-lg"
+          className="absolute z-20 flex items-center gap-1.5 rounded-surface border border-primary bg-primary px-1.5 py-1 shadow-lg"
           style={{ left, top: Math.max(0, top + textOverflowTop - 46) }}
           onMouseDown={(event) => event.preventDefault()}
         >

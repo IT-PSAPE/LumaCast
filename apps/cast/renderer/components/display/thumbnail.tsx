@@ -2,7 +2,7 @@ import { Children, isValidElement, type CSSProperties, type HTMLAttributes, type
 import { cn, cv } from '@lumacast/ui';
 
 const thumbnailStyles = cv({
-  base: 'group relative w-full min-w-0 overflow-hidden rounded-xs border bg-primary text-left transition-colors',
+  base: 'group relative w-full min-w-0 overflow-hidden rounded-container border bg-primary text-left transition-colors',
   variants: {
     selected: {
       true: ['border-brand/70 bg-brand/15'],

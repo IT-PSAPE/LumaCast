@@ -24,7 +24,7 @@ const rootStyles = cv({
       plain: 'shrink-0 px-3',
       bordered: 'shrink-0 border-b border-primary bg-secondary px-3',
       surface: 'shrink-0 bg-secondary px-3',
-      floating: 'w-fit gap-0.5 rounded-lg border border-primary bg-tertiary/90 p-1 shadow-lg backdrop-blur-sm',
+      floating: 'w-fit gap-0.5 rounded-surface border border-primary bg-tertiary/90 p-1 shadow-lg backdrop-blur-sm',
     },
   },
   compoundVariants: [{ variant: 'floating', class: 'h-auto' }],

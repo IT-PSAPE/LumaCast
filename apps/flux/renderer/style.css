@@ -76,7 +76,7 @@ h2 {
 }
 h3 {
   font-size: 13px;
-  margin: 24px 0 8px;
+  margin: var(--space-6) 0 var(--space-2);
   font-weight: 550;
 }
 .muted {
@@ -91,7 +91,7 @@ h3 {
 }
 .inline {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 .app {
@@ -121,14 +121,14 @@ h3 {
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 14px 12px;
-  padding: 14px;
+  gap: var(--space-3) var(--space-3);
+  padding: var(--space-3);
 }
 .photo-tile {
   min-width: 0;
-  padding: 5px;
+  padding: var(--space-1);
   border: 1px solid var(--color-transparent);
-  border-radius: 4px;
+  border-radius: var(--radius-container);
 }
 .photo-tile.selected {
   background: color-mix(in oklab, var(--color-brand) 15%, transparent);
@@ -146,8 +146,8 @@ h3 {
   background: var(--color-black);
   width: 100%;
   border: 0;
-  padding: 9px;
-  border-radius: 2px;
+  padding: var(--space-2);
+  border-radius: var(--radius-hairline);
   overflow: hidden;
 }
 .photo-image img {
@@ -164,7 +164,7 @@ h3 {
   justify-content: center;
   width: 19px;
   height: 19px;
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--color-black);
   background: var(--color-brand);
 }
@@ -172,8 +172,8 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  margin: 9px 2px 5px;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--space-0-5) var(--space-1);
 }
 .tile-info > span {
   overflow: hidden;
@@ -195,11 +195,11 @@ h3 {
 .tile-bottom {
   display: flex;
   justify-content: flex-end;
-  margin: 0 2px 3px;
+  margin: 0 var(--space-0-5) var(--space-1);
 }
 .stars {
   display: flex;
-  gap: 2px;
+  gap: var(--space-0-5);
 }
 .stars button {
   color: var(--color-brand);
@@ -225,19 +225,19 @@ h3 {
   height: 32px;
   display: flex;
   align-items: center;
-  padding: 0 18px;
+  padding: 0 var(--space-4);
   border-top: 1px solid var(--border-color-primary);
   flex-shrink: 0;
 }
 /* Help prose sits inside an accordion panel that already owns the gutters, so
  * it adds only the closing gap. */
 .panel-help {
-  padding: 0 0 8px;
+  padding: 0 0 var(--space-2);
   font-size: 11px;
   line-height: 1.5;
 }
 .adjustment {
-  margin: 3px 0 5px;
+  margin: var(--space-1) 0 var(--space-1);
 }
 .slider-label {
   display: flex;
@@ -262,8 +262,8 @@ h3 {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: baseline;
-  gap: 4px 10px;
-  margin: 0 0 8px;
+  gap: var(--space-1) var(--space-2);
+  margin: 0 0 var(--space-2);
   font-size: 10px;
   line-height: 1.5;
 }
@@ -276,7 +276,7 @@ h3 {
   overflow-wrap: anywhere;
 }
 .lens-meta-empty {
-  margin: 0 0 8px;
+  margin: 0 0 var(--space-2);
   font-size: 10px;
 }
 /* Definition lists align their label column, including the grouped rows the
@@ -285,7 +285,7 @@ h3 {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
   align-items: baseline;
-  gap: 4px 10px;
+  gap: var(--space-1) var(--space-2);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -320,7 +320,7 @@ h3 {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: var(--space-6);
   cursor: grab;
   touch-action: none;
   /* Photography matte: a neutral display token, not part of the UI palette. */
@@ -385,13 +385,13 @@ h3 {
   position: absolute;
   bottom: 14px;
   right: 14px;
-  padding: 5px 9px;
+  padding: var(--space-1) var(--space-2);
   background: color-mix(
     in oklab,
     var(--background-color-secondary) 91%,
     transparent
   );
-  border-radius: 4px;
+  border-radius: var(--radius-control);
   font-size: 10px;
   pointer-events: none;
   color: var(--text-color-secondary);
@@ -400,8 +400,8 @@ h3 {
   display: flex;
   align-items: center;
   height: 72px;
-  gap: 5px;
-  padding: 7px 10px;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2);
   border-top: 1px solid var(--border-color-primary);
   overflow-x: auto;
   flex-shrink: 0;
@@ -410,10 +410,10 @@ h3 {
   height: 54px;
   width: 70px;
   flex-shrink: 0;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--color-black);
   border: 1px solid var(--border-color-primary);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
 }
 .filmstrip button.active {
   border-color: var(--color-brand);
@@ -428,26 +428,26 @@ h3 {
   color: color-mix(in oklab, var(--color-error) 70%, var(--text-color-primary));
   font-size: 12px;
   line-height: 1.6;
-  margin-top: 10px;
+  margin-top: var(--space-2);
   overflow-wrap: anywhere;
 }
 .agent-switch {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 22px;
-  padding: 17px 0;
+  margin-top: var(--space-5);
+  padding: var(--space-4) 0;
   border-top: 1px solid var(--border-color-primary);
   border-bottom: 1px solid var(--border-color-primary);
 }
 .root-list {
-  margin: 12px 0;
+  margin: var(--space-3) 0;
 }
 .root-list > div {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 0;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
 }
 .root-list span {
   overflow-wrap: anywhere;
@@ -456,30 +456,30 @@ h3 {
   color: var(--text-color-secondary);
 }
 .config {
-  padding: 13px;
+  padding: var(--space-3);
   background: var(--background-color-primary);
   border: 1px solid var(--border-color-primary);
-  border-radius: 5px;
+  border-radius: var(--radius-container);
   font-size: 10px;
   line-height: 1.6;
   overflow: auto;
   max-height: 240px;
-  margin: 12px 0;
+  margin: var(--space-3) 0;
   user-select: text;
 }
 .jobs-view {
-  padding: 26px;
+  padding: var(--space-6);
   overflow: auto;
 }
 .jobs-view > p {
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .empty-jobs {
-  padding: 60px 0;
+  padding: var(--space-12) 0;
   color: var(--text-color-tertiary);
 }
 .job {
-  padding: 20px 0;
+  padding: var(--space-5) 0;
   border-bottom: 1px solid var(--border-color-primary);
 }
 .job-status {
@@ -491,19 +491,19 @@ h3 {
   width: 100%;
   height: 5px;
   accent-color: var(--color-brand);
-  margin: 15px 0 7px;
+  margin: var(--space-4) 0 var(--space-2);
 }
 .output-path {
   font-size: 11px;
   overflow-wrap: anywhere;
   color: color-mix(in oklab, var(--color-success) 70%, var(--text-color-primary));
-  margin-top: 8px;
+  margin-top: var(--space-2);
 }
 .missing-label {
   position: absolute;
   background: color-mix(in oklab, var(--color-error) 20%, transparent);
   bottom: 5px;
-  padding: 3px 6px;
+  padding: var(--space-1) var(--space-1-5);
   font-size: 10px;
   color: var(--text-color-primary);
 }
@@ -571,7 +571,7 @@ h3 {
   cursor: nesw-resize;
 }
 .canvas.comparing {
-  gap: 20px;
+  gap: var(--space-5);
   align-items: stretch;
 }
 .compare-pane {
@@ -583,7 +583,7 @@ h3 {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: var(--space-3);
   overflow: hidden;
 }
 .compare-pane img {
@@ -598,10 +598,10 @@ h3 {
   color: var(--text-color-secondary);
 }
 .folder-explorer {
-  padding: 8px;
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1-5);
   min-height: 0;
 }
 .directory-entries {
@@ -610,7 +610,7 @@ h3 {
 }
 .folder-path {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   align-items: center;
 }
 .folder-path span {
@@ -621,7 +621,7 @@ h3 {
 }
 .histogram-panel {
   flex: none;
-  padding: 6px 10px 3px;
+  padding: var(--space-1-5) var(--space-2) var(--space-1);
   border-bottom: 1px solid var(--border-color-primary);
 }
 .histogram-heading {
@@ -705,7 +705,7 @@ h3 {
 }
 .rgb-readout {
   display: flex;
-  gap: 9px;
+  gap: var(--space-2);
 }
 .clipping-overlay {
   position: absolute;
@@ -717,10 +717,10 @@ h3 {
 }
 @media (max-width: 1200px) {
   .gallery {
-    padding: 12px;
-    gap: 10px;
+    padding: var(--space-3);
+    gap: var(--space-2);
   }
   .gallery-footer {
-    padding: 0 8px;
+    padding: 0 var(--space-2);
   }
 }

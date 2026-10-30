@@ -24,11 +24,11 @@ export function CanvasCueCard({ row, index, isSelected, onClick }: CanvasCueCard
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full items-center gap-3 rounded-md border bg-secondary/40 px-4 py-3 text-left transition-colors',
+        'flex w-full items-center gap-3 rounded-container border bg-secondary/40 px-4 py-3 text-left transition-colors',
         isSelected ? 'border-brand bg-tertiary' : 'border-primary hover:border-secondary',
       )}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded bg-tertiary text-secondary">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-control bg-tertiary text-secondary">
         <Workflow size={14} strokeWidth={1.75} />
       </span>
       <div className="flex min-w-0 flex-1 flex-col">

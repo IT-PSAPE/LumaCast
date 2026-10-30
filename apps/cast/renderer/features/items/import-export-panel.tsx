@@ -146,7 +146,7 @@ export function ImportExportPanel() {
           </div>
 
           {!hasInspection ? (
-            <EmptyState.Root className="rounded border border-dashed border-primary bg-tertiary/20 py-8">
+            <EmptyState.Root className="rounded-control border border-dashed border-primary bg-tertiary/20 py-8">
               <EmptyState.Title>No bundle loaded</EmptyState.Title>
               <EmptyState.Description>
                 Choose a .cst file to preview its items, themes, and media references before importing.
@@ -154,7 +154,7 @@ export function ImportExportPanel() {
             </EmptyState.Root>
           ) : (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1 rounded border border-primary bg-tertiary/25 p-3">
+              <div className="flex flex-col gap-1 rounded-control border border-primary bg-tertiary/25 p-3">
                 <div className="truncate text-sm font-medium text-primary">{state.importPath}</div>
                 <div className="text-xs text-tertiary">
                   {[
@@ -169,7 +169,7 @@ export function ImportExportPanel() {
               </div>
 
               {inspection.items.length > 0 ? (
-                <div className="flex flex-col rounded border border-primary bg-tertiary/25">
+                <div className="flex flex-col rounded-control border border-primary bg-tertiary/25">
                   {inspection.items.map((item) => (
                     <div key={item.id} className="flex items-center justify-between gap-3 border-b border-primary/60 px-3 py-1.5 text-sm last:border-b-0">
                       <span className="truncate text-primary">{item.title}</span>
@@ -182,7 +182,7 @@ export function ImportExportPanel() {
               ) : null}
 
               {inspection.playlists.length > 0 ? (
-                <div className="flex flex-col rounded border border-primary bg-tertiary/25">
+                <div className="flex flex-col rounded-control border border-primary bg-tertiary/25">
                   {inspection.playlists.map((playlist) => (
                     <div key={playlist.id} className="flex items-center justify-between gap-3 border-b border-primary/60 px-3 py-1.5 text-sm last:border-b-0">
                       <span className="flex items-center gap-2 truncate text-primary">
@@ -206,13 +206,13 @@ export function ImportExportPanel() {
                   onChooseReplacement={actions.chooseReplacementPath}
                 />
               ) : (
-                <EmptyState.Root className="rounded border border-primary bg-tertiary/20 py-4">
+                <EmptyState.Root className="rounded-control border border-primary bg-tertiary/20 py-4">
                   <EmptyState.Description>No broken local media references in this bundle.</EmptyState.Description>
                 </EmptyState.Root>
               )}
 
               {state.blockedImportReasons.length > 0 ? (
-                <ul className="flex flex-col gap-1 rounded border border-primary bg-tertiary/25 p-3 text-xs text-tertiary">
+                <ul className="flex flex-col gap-1 rounded-control border border-primary bg-tertiary/25 p-3 text-xs text-tertiary">
                   {state.blockedImportReasons.map((reason) => <li key={reason}>{reason}</li>)}
                 </ul>
               ) : null}
@@ -228,7 +228,7 @@ export function ImportExportPanel() {
       )}
 
       {state.message ? (
-        <div className="rounded border border-primary bg-tertiary/25 px-3 py-2 text-sm text-secondary">
+        <div className="rounded-control border border-primary bg-tertiary/25 px-3 py-2 text-sm text-secondary">
           {state.message}
         </div>
       ) : null}

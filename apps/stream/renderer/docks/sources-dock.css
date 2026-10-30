@@ -64,7 +64,7 @@
   display: flex;
   flex: 0 0 auto;
   justify-content: flex-end;
-  padding: 3px 6px 0;
+  padding: var(--space-1) var(--space-1-5) 0;
   border-top: 1px solid var(--border-color-secondary);
   background: var(--background-color-primary);
 }
@@ -72,9 +72,9 @@
 .source-rename-input {
   min-width: 0;
   flex: 1;
-  padding: 1px 5px;
+  padding: var(--space-0-5) var(--space-1);
   border: 1px solid var(--color-brand);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text-color-primary);
   background: var(--background-color-secondary);
   font: inherit;
@@ -90,6 +90,6 @@
    shared inline-label column so sliders and selects line up, and the volume
    slider filling the row beside its mute button. */
 :where(.source-properties) > :not(.property-heading),
-:where(.filter-details) > :not(summary) { margin-top: 5px; }
+:where(.filter-details) > :not(summary) { margin-top: var(--space-1); }
 .source-properties label[for] { min-width: 62px; }
 .volume-property > :first-child { min-width: 0; flex: 1; }

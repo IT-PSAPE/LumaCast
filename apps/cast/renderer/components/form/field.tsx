@@ -75,7 +75,7 @@ interface FieldInputProps {
 function FieldInput({ children, disabled = false, type = 'text', value, onChange, onBlur, onKeyDown, placeholder, min, max, step, label, wide, inputRef, wrapperClassName, iconClassName, inputClassName, ariaLabel }: FieldInputProps) {
   const icon = extractFieldIcon(children);
   const iconNode = icon ? <span className={cn('flex justify-center items-center shrink-0 size-6 ml-1 text-secondary', iconClassName)}>{icon}</span> : null;
-  const boxClassName = cn('flex min-w-0 w-full items-center min-h-8 rounded bg-tertiary text-sm text-primary transition-colors', FOCUS_RING, wrapperClassName);
+  const boxClassName = cn('flex min-w-0 w-full items-center min-h-8 rounded-control bg-tertiary text-sm text-primary transition-colors', FOCUS_RING, wrapperClassName);
   const controlClassName = cn('min-w-0 w-full bg-transparent py-1 pr-2 outline-none disabled:cursor-not-allowed disabled:opacity-50', icon ? 'pl-1' : 'pl-2', inputClassName);
 
   let control: ReactNode;
@@ -173,7 +173,7 @@ function FieldSelectOption({ value, children, style }: FieldSelectOptionProps) {
   return (
     <BaseSelect.Item
       value={value}
-      className="flex cursor-pointer select-none gap-2 rounded px-2 py-1.5 text-sm text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary"
+      className="flex cursor-pointer select-none gap-2 rounded-control px-2 py-1.5 text-sm text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary"
     >
       <BaseSelect.ItemText style={style}>{children}</BaseSelect.ItemText>
     </BaseSelect.Item>
@@ -228,7 +228,7 @@ function FieldSelectRoot({ children, value, onChange, onBlur, options, label, wi
     >
       <div className="flex min-w-0 w-full items-center">
         {icon ? <span className="flex justify-center items-center shrink-0 size-6 ml-1 text-secondary">{icon}</span> : null}
-        <BaseSelect.Trigger className="flex min-w-0 w-full items-center min-h-8 rounded bg-tertiary text-sm text-primary transition-colors focus:outline-none focus:ring-1 focus:ring-brand cursor-pointer">
+        <BaseSelect.Trigger className="flex min-w-0 w-full items-center min-h-8 rounded-control bg-tertiary text-sm text-primary transition-colors focus:outline-none focus:ring-1 focus:ring-brand cursor-pointer">
           <BaseSelect.Value className="truncate flex-1 px-1.5 text-left">{selectedLabel}</BaseSelect.Value>
           <BaseSelect.Icon className="shrink-0 mr-1.5 text-tertiary">
             <ChevronDown className="size-3.5" />
@@ -239,7 +239,7 @@ function FieldSelectRoot({ children, value, onChange, onBlur, options, label, wi
         <BaseSelect.Positioner sideOffset={4} className="pointer-events-auto outline-none select-none" style={{ zIndex }}>
           <BaseSelect.Popup
             data-popover-content="true"
-            className="min-w-[var(--anchor-width)] rounded-md border border-primary bg-primary p-1 shadow-lg max-h-[min(32rem,70vh)] overflow-y-auto"
+            className="min-w-[var(--anchor-width)] rounded-container border border-primary bg-primary p-1 shadow-lg max-h-[min(32rem,70vh)] overflow-y-auto"
           >
             <BaseSelect.List>
               {optionParts}
@@ -313,7 +313,7 @@ function FieldTextarea({ disabled = false, value, onChange, onFocus, onBlur, onK
       onBlur={onBlur}
       onKeyDown={onKeyDown}
       placeholder={placeholder}
-      className={cn(`min-w-0 w-full rounded border border-primary bg-primary px-1.5 py-1 text-primary min-h-[60px] focus:border-brand focus:outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50`, resizeClassName, className)}
+      className={cn(`min-w-0 w-full rounded-control border border-primary bg-primary px-1.5 py-1 text-primary min-h-[60px] focus:border-brand focus:outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-50`, resizeClassName, className)}
     />
   );
 
@@ -353,15 +353,15 @@ function FieldColor({ value, onChange, label, wide, mode = 'solid', onModeChange
   }
 
   const colorField = (
-    <div className={cn('flex min-w-0 w-full items-center gap-1.5 min-h-8 rounded bg-tertiary text-sm text-primary transition-colors', FOCUS_RING)}>
-      <button type="button" onClick={handleSwatchClick} aria-label="Choose colour" className="ml-1.5 size-5 shrink-0 rounded border border-primary cursor-pointer" style={{ backgroundColor: toPickerHex(safeValue) }} />
+    <div className={cn('flex min-w-0 w-full items-center gap-1.5 min-h-8 rounded-control bg-tertiary text-sm text-primary transition-colors', FOCUS_RING)}>
+      <button type="button" onClick={handleSwatchClick} aria-label="Choose colour" className="ml-1.5 size-5 shrink-0 rounded-control border border-primary cursor-pointer" style={{ backgroundColor: toPickerHex(safeValue) }} />
       <input ref={pickerRef} type="color" value={toPickerHex(safeValue)} onChange={handlePickerChange} className="sr-only" tabIndex={-1} aria-hidden="true" />
       <span className="text-tertiary text-sm select-none">#</span>
       <BaseInput type="text" value={displayHex(safeValue)} onChange={handleHexInput} maxLength={8} aria-label="Hex color" className="min-w-0 w-full bg-transparent py-1 pr-2 outline-none font-mono text-sm" />
       {onModeChange ? (
         <DropdownMenu
           trigger={(
-            <button type="button" className="flex shrink-0 items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
+            <button type="button" className="flex shrink-0 items-center py-1 rounded-control bg-tertiary text-sm text-primary cursor-pointer">
               <span className="truncate px-1.5">
                 {mode === 'solid' && 'Solid'}
                 {mode === 'gradient' && 'Gradient'}

@@ -216,7 +216,7 @@ export function ProgramPanel() {
                 </Tabs.Panel>
                 {bottomTab !== 'timers' && (
                   <Dropdown>
-                    <Dropdown.Trigger aria-label="More actions" className="cursor-pointer rounded-sm bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
+                    <Dropdown.Trigger aria-label="More actions" className="cursor-pointer rounded-control bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
                       <Ellipsis />
                     </Dropdown.Trigger>
                     <Dropdown.Panel placement="bottom-end" className="min-w-64">

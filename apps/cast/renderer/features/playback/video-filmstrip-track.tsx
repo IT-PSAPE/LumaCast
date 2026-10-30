@@ -29,7 +29,7 @@ export function VideoFilmstripTrack({
     <div className="relative">
       <div
         data-ui-region="video-filmstrip"
-        className="relative h-16 overflow-hidden rounded border border-brand_solid/30 bg-brand/10"
+        className="relative h-16 overflow-hidden rounded-control border border-brand_solid/30 bg-brand/10"
       >
         <div aria-hidden="true" className="absolute inset-0 flex">
           {Array.from({ length: 12 }, (_, index) => {
@@ -49,7 +49,7 @@ export function VideoFilmstripTrack({
         </div>
         <div className="pointer-events-none absolute inset-y-0 left-0 bg-brand/15" style={{ width: `${progress}%` }} />
         {src && filmstrip.status !== 'ready' ? (
-          <span className="pointer-events-none absolute bottom-1 left-2 rounded bg-primary/80 px-1 text-[10px] text-tertiary">
+          <span className="pointer-events-none absolute bottom-1 left-2 rounded-control bg-primary/80 px-1 text-[10px] text-tertiary">
             {filmstrip.status === 'loading' ? 'Loading preview…' : 'Preview unavailable'}
           </span>
         ) : null}

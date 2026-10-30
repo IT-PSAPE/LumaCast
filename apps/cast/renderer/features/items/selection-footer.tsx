@@ -16,7 +16,7 @@ export function SelectionFooter({
   inFlight: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded border border-primary bg-tertiary/25 px-3 py-2">
+    <div className="flex items-center justify-between gap-3 rounded-control border border-primary bg-tertiary/25 px-3 py-2">
       <div className="flex flex-col gap-0.5 text-xs text-tertiary">
         <span className="text-sm text-primary">
           {selectedCount === 0 ? 'Nothing selected' : `${selectedCount} selected`}

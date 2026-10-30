@@ -67,7 +67,7 @@ export function SeparatorRowBody({
           {...dragHandleProps}
           ref={triggerRef}
           className={dragging
-            ? 'flex h-7 shrink-0 cursor-grabbing items-center gap-1 rounded-xs px-2 shadow-lg'
+            ? 'flex h-7 shrink-0 cursor-grabbing items-center gap-1 rounded-control px-2 shadow-lg'
             : 'flex h-7 shrink-0 cursor-grab items-center gap-1 rounded-xs px-2 active:cursor-grabbing'}
           style={{ backgroundColor: colors.backgroundColor, color: colors.textColor }}
           onDragOver={overlay ? undefined : onDragOver}

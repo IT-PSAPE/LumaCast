@@ -99,7 +99,7 @@ function Root() {
       data-popover-content="true"
       data-shortcuts-scope="ignore"
       style={{ zIndex }}
-      className="pointer-events-auto fixed bottom-11 right-3 flex h-160 max-h-[calc(100vh-4.5rem)] w-105 min-w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-lg border border-primary bg-primary shadow-2xl"
+      className="pointer-events-auto fixed bottom-11 right-3 flex h-160 max-h-[calc(100vh-4.5rem)] w-105 min-w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-surface border border-primary bg-primary shadow-2xl"
     >
       <Header />
       {state.view === 'threads' ? (
@@ -172,7 +172,7 @@ function HeaderMenu({ threadId, title, onRequestRename }: { threadId: Id; title:
     <DropdownMenu
       align="end"
       trigger={(
-        <button type="button" aria-label="Thread options" className="cursor-pointer rounded-sm bg-transparent p-1.5 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
+        <button type="button" aria-label="Thread options" className="cursor-pointer rounded-control bg-transparent p-1.5 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
           <Ellipsis />
         </button>
       )}
@@ -266,7 +266,7 @@ function Transcript() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {state.modelValidation === 'not-found' ? (
-        <div className="mx-3 mt-3 shrink-0 rounded bg-tertiary px-3 py-2 text-xs text-secondary">
+        <div className="mx-3 mt-3 shrink-0 rounded-control bg-tertiary px-3 py-2 text-xs text-secondary">
           Model {state.activeThread?.model ?? state.config?.model} is no longer available.
         </div>
       ) : null}
@@ -340,7 +340,7 @@ function MessageRow({ message, isActiveRun }: { message: AgentMessage; isActiveR
           if (segment.part.text.length === 0) return null;
           if (isUser) {
             return (
-              <div key={index} className="max-w-[85%] whitespace-pre-wrap wrap-break-word rounded-2xl rounded-br-md bg-secondary px-3 py-2 text-sm">
+              <div key={index} className="max-w-[85%] whitespace-pre-wrap wrap-break-word rounded-surface rounded-br-hairline bg-secondary px-3 py-2 text-sm">
                 {segment.part.text}
               </div>
             );
@@ -363,7 +363,7 @@ function MessageRow({ message, isActiveRun }: { message: AgentMessage; isActiveR
         }
         if (segment.kind === 'error') {
           return (
-            <div key={index} className="max-w-[85%] rounded-md bg-error/10 px-3 py-2 text-sm text-error">
+            <div key={index} className="max-w-[85%] rounded-container bg-error/10 px-3 py-2 text-sm text-error">
               {segment.part.message}
             </div>
           );
@@ -403,12 +403,12 @@ const markdownComponents: Components = {
   // (which would recurse through the `code` component below and pick up its
   // inline pill styling) so a fenced block always gets plain block styling.
   pre: ({ node }) => (
-    <pre className="my-1.5 max-w-full overflow-x-auto rounded bg-tertiary px-2 py-1.5 font-mono text-xs text-primary">
+    <pre className="my-1.5 max-w-full overflow-x-auto rounded-control bg-tertiary px-2 py-1.5 font-mono text-xs text-primary">
       <code>{extractHastText(node)}</code>
     </pre>
   ),
   code: ({ className, children }) => (
-    <code className={cn('rounded bg-tertiary px-1 py-0.5 font-mono text-[0.85em]', className)}>{children}</code>
+    <code className={cn('rounded-control bg-tertiary px-1 py-0.5 font-mono text-[0.85em]', className)}>{children}</code>
   ),
   table: ({ children }) => (
     <div className="my-1.5 max-w-full overflow-x-auto">
@@ -590,7 +590,7 @@ function Composer() {
   const effectiveConfig = state.config ? { ...state.config, provider: state.activeThread?.provider ?? state.config.provider, model: state.activeThread?.model ?? state.config.model } : null;
   if (!isConfigured(effectiveConfig, state.credentialStatuses)) {
     return (
-      <div className="mx-3 mb-3 flex shrink-0 items-center justify-between gap-2 rounded-xl border border-primary bg-secondary/60 px-3 py-2 text-sm text-secondary">
+      <div className="mx-3 mb-3 flex shrink-0 items-center justify-between gap-2 rounded-container border border-primary bg-secondary/60 px-3 py-2 text-sm text-secondary">
         <span>Assistant isn&rsquo;t configured.</span>
         <ReacstButton
           variant="default"
@@ -637,7 +637,7 @@ function Composer() {
   }
 
   return (
-    <div className="mx-3 mb-3 shrink-0 rounded-xl border border-primary bg-secondary/60 transition-colors focus-within:border-brand">
+    <div className="mx-3 mb-3 shrink-0 rounded-container border border-primary bg-secondary/60 transition-colors focus-within:border-brand">
       <textarea
         ref={textareaRef}
         value={text}
@@ -722,7 +722,7 @@ function ModelPicker() {
       <Dropdown.Trigger disabled={running} aria-label="Model" className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs text-secondary hover:bg-tertiary cursor-pointer disabled:opacity-50">
         <ModelVendorLogo vendor={selectedModel?.vendor ?? null} className="size-3.5" />
         <span className="max-w-40 truncate">{label}</span>
-        {selectedModel?.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+        {selectedModel?.isFree ? <span className="rounded-control bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
         <ChevronDown size={12} className="shrink-0 text-tertiary" />
       </Dropdown.Trigger>
       <Dropdown.Panel placement="top-start" className="max-h-64 min-w-48 overflow-y-auto">
@@ -765,7 +765,7 @@ function ProviderModelGroup({ label, models, loading, error, onRetry, shortlist,
         <Dropdown.Item key={entry.id} disabled={disabled} onClick={() => onSelect(entry.id)}>
           <ModelVendorLogo vendor={entry.vendor} className="size-3.5" />
           <span className="flex-1 truncate">{entry.label}</span>
-          {entry.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+          {entry.isFree ? <span className="rounded-control bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
           {isOverride && activeModel === entry.id ? <Check size={14} /> : null}
         </Dropdown.Item>
       ))}

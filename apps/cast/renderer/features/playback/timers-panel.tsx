@@ -42,7 +42,7 @@ export function TimersPanel() {
     <BinShell>
       <div className="flex w-full shrink-0 items-center justify-end gap-1 border-b border-secondary px-1.5 py-1">
         <Dropdown>
-          <Dropdown.Trigger aria-label="More timer actions" className="cursor-pointer rounded-sm bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
+          <Dropdown.Trigger aria-label="More timer actions" className="cursor-pointer rounded-control bg-transparent p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary [&>svg]:size-4">
             <Ellipsis />
           </Dropdown.Trigger>
           <Dropdown.Panel placement="bottom-end">
@@ -118,7 +118,7 @@ function TimerRow({ timer, runStatus, reading, onToggle, onReset, onRename, onUp
         >
           <Accordion.Trigger
             aria-label="Toggle timer settings"
-            className="w-auto shrink-0 rounded-sm p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary"
+            className="w-auto shrink-0 rounded-control p-1 text-tertiary transition-colors hover:bg-tertiary hover:text-primary"
           >
             <DisclosureChevron />
           </Accordion.Trigger>
@@ -219,7 +219,7 @@ function TimerConfig({ timer, onUpdate }: { timer: Timer; onUpdate: (patch: Time
             step={1}
             value={timer.targetTime ?? ''}
             onChange={(event) => onUpdate({ targetTime: event.target.value === '' ? null : event.target.value })}
-            className="min-h-8 w-full min-w-0 rounded bg-tertiary px-2 text-sm text-primary outline-none transition-colors focus:ring-1 focus:ring-brand"
+            className="min-h-8 w-full min-w-0 rounded-control bg-tertiary px-2 text-sm text-primary outline-none transition-colors focus:ring-1 focus:ring-brand"
           />
         </label>
       )}

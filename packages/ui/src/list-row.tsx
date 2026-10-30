@@ -37,7 +37,7 @@ export interface ListRowPartProps {
 const DensityContext = createContext<Density>('comfortable');
 
 const rowStyles = cv({
-  base: 'group/row relative flex min-w-0 items-center gap-1 rounded border-l-2 transition-colors motion-reduce:transition-none',
+  base: 'group/row relative flex min-w-0 items-center gap-1 rounded-control border-l-2 transition-colors motion-reduce:transition-none',
   variants: {
     density: { compact: 'min-h-6 pr-1', comfortable: 'min-h-8 pr-1.5' },
     selected: {
@@ -50,7 +50,7 @@ const rowStyles = cv({
 });
 
 const surfaceStyles = cv({
-  base: 'flex min-w-0 flex-1 items-center gap-2 self-stretch rounded text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
+  base: 'flex min-w-0 flex-1 items-center gap-2 self-stretch rounded-control text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
   variants: {
     density: { compact: 'pl-1.5', comfortable: 'pl-2' },
     interactive: { true: 'cursor-pointer', false: '' },

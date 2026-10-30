@@ -138,7 +138,7 @@ export function AgentPermissionDialog() {
               <Dialog.Title>{prompt.title}</Dialog.Title>
               <span
                 className={cn(
-                  'shrink-0 rounded-sm bg-tertiary px-2 py-0.5 label-xs',
+                  'shrink-0 rounded-control bg-tertiary px-2 py-0.5 label-xs',
                   isSevere(prompt.risk) ? 'text-error' : 'text-secondary',
                 )}
               >

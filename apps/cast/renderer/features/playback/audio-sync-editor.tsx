@@ -472,7 +472,7 @@ export function MarkerRow({ marker, index, controller }: MarkerRowProps) {
   }
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5 rounded-sm bg-primary/60 px-1.5 py-1">
+    <div className="flex min-w-0 items-center gap-1.5 rounded-control bg-primary/60 px-1.5 py-1">
       <span className="w-4 shrink-0 text-right text-[10px] tabular-nums text-tertiary">{index + 1}</span>
       <FieldInput
         type="number"
@@ -497,7 +497,7 @@ export function MarkerRow({ marker, index, controller }: MarkerRowProps) {
               <button
                 type="button"
                 aria-label={`Marker ${index + 1} slide`}
-                className="flex h-7 w-full min-w-0 items-center gap-1 rounded bg-tertiary px-1.5 text-xs text-secondary"
+                className="flex h-7 w-full min-w-0 items-center gap-1 rounded-control bg-tertiary px-1.5 text-xs text-secondary"
               >
                 <span className="flex-1 truncate text-left">{label}</span>
                 <ChevronDown className="size-3 shrink-0 text-tertiary" />
@@ -510,7 +510,7 @@ export function MarkerRow({ marker, index, controller }: MarkerRowProps) {
             }))}
           />
         ) : (
-          <span className="flex h-7 w-full min-w-0 items-center rounded bg-tertiary px-1.5 text-xs text-tertiary">
+          <span className="flex h-7 w-full min-w-0 items-center rounded-control bg-tertiary px-1.5 text-xs text-tertiary">
             {label}
           </span>
         )}
@@ -581,7 +581,7 @@ export function AudioSyncEditor({ controller }: AudioSyncEditorProps) {
       </Switch.Root>
       <DropdownMenu
         trigger={(
-          <button type="button" aria-label="Bind item" className="flex h-7 w-44 min-w-0 shrink-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary">
+          <button type="button" aria-label="Bind item" className="flex h-7 w-44 min-w-0 shrink-0 items-center gap-1 rounded-control bg-tertiary px-2 text-xs text-primary">
             <span className="min-w-0 flex-1 truncate text-left">{itemTriggerLabel(controller)}</span>
             <ChevronDown className="size-3 shrink-0 text-tertiary" />
           </button>
@@ -602,7 +602,7 @@ export function AudioSyncEditor({ controller }: AudioSyncEditorProps) {
           <button
             type="button"
             aria-label="Export lyrics"
-            className="flex h-7 w-32 min-w-0 shrink-0 items-center gap-1 rounded bg-tertiary px-2 text-xs text-primary disabled:opacity-50"
+            className="flex h-7 w-32 min-w-0 shrink-0 items-center gap-1 rounded-control bg-tertiary px-2 text-xs text-primary disabled:opacity-50"
           >
             <span className="min-w-0 flex-1 truncate text-left">Export lyrics</span>
             <ChevronDown className="size-3 shrink-0 text-tertiary" />

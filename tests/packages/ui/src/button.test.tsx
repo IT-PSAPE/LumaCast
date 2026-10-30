@@ -74,13 +74,13 @@ describe('ReacstButton', () => {
     expect(iconRef.current).toBe(screen.getByRole('button', { name: 'Close' }));
   });
 
-  it('shape="pill" renders the pill radius; default stays rounded-sm', () => {
+  it('shape="pill" renders the pill radius; default stays rounded-control', () => {
     render(<ReacstButton shape="pill" label="Pill">Pill</ReacstButton>);
     const pill = screen.getByRole('button', { name: 'Pill' });
     expect(pill.className).toContain('rounded-full');
-    expect(pill.className).not.toContain('rounded-sm');
+    expect(pill.className).not.toContain('rounded-control');
     render(<ReacstButton label="Plain">Plain</ReacstButton>);
-    expect(screen.getByRole('button', { name: 'Plain' }).className).toContain('rounded-sm');
+    expect(screen.getByRole('button', { name: 'Plain' }).className).toContain('rounded-control');
   });
 
   it.each([

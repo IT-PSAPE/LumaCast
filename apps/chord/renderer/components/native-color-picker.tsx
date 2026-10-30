@@ -31,7 +31,7 @@ export function NativeColorPicker({ value, onValueChange }: NativeColorPickerPro
       aria-label="Choose colour"
       value={rgb}
       onChange={(event) => onValueChange(event.target.value + alpha)}
-      className="block h-8 w-24 cursor-pointer rounded-sm border border-primary bg-transparent p-0"
+      className="block h-8 w-24 cursor-pointer rounded-control border border-primary bg-transparent p-0"
     />
   );
 }

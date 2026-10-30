@@ -24,7 +24,7 @@ const outputDotStyles = cv({
 });
 
 const outputBorderStyles = cv({
-  base: 'flex items-center gap-1.5 rounded border bg-tertiary px-2 py-1 text-sm cursor-pointer transition-colors hover:border-text-muted',
+  base: 'flex items-center gap-1.5 rounded-control border bg-tertiary px-2 py-1 text-sm cursor-pointer transition-colors hover:border-text-muted',
   variants: {
     active: {
       true: ['border-error/40'],
@@ -79,11 +79,11 @@ export function AppToolbar() {
             onClick={openCommandPalette}
             aria-label="Open command palette"
             title={`Search commands (${isMac ? '⌘' : 'Ctrl+'}K)`}
-            className="group flex h-7 w-full min-w-0 items-center gap-2 rounded-md border border-primary bg-tertiary px-2 text-left text-sm text-tertiary transition-colors hover:border-secondary hover:bg-tertiary hover:text-secondary"
+            className="group flex h-7 w-full min-w-0 items-center gap-2 rounded-control border border-primary bg-tertiary px-2 text-left text-sm text-tertiary transition-colors hover:border-secondary hover:bg-tertiary hover:text-secondary"
           >
             <Search className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1 truncate">Search commands</span>
-            <kbd className="shrink-0 rounded border border-primary bg-primary px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-tertiary">
+            <kbd className="shrink-0 rounded-control border border-primary bg-primary px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-tertiary">
               {isMac ? '⌘K' : 'Ctrl+K'}
             </kbd>
           </button>

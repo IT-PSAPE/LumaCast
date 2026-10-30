@@ -37,39 +37,58 @@
     --font-paragraph: var(--font-sans);
 
     /* RADIUS
-       Five steps, named by role. There were no radius tokens at all before
-       this, which is why eight different radii were in use.
+       Four steps plus a pill, named by role. There were no radius tokens at
+       all before this, which is why eight different radii were in use.
+
+       `--radius-*: initial` deletes Tailwind's stock scale, so `rounded`,
+       `rounded-sm`, `-md`, `-lg`, `-xl` and `-2xl` no longer compile — they
+       emit nothing at all rather than erroring, which is why
+       tests/tool/design-tokens.test.ts exists to catch a straggler.
+
+       hairline  2px  a mark nested inside another shape (meter segment, a
+                      chip on a thumbnail, a badge, a kbd hint)
+       control   4px  every interactive atom — button, input, select trigger,
+                      tab, menu item, row. THE DEFAULT.
+       container 6px  INLINE chrome that holds controls and sits in the
+                      layout — panel, tile, section, drop zone, inline toolbar
+       surface   8px  anything that FLOATS above the layout — modal, select
+                      popup, context menu, floating toolbar, chat popup
+       full      pill circles and pills — switch, slider, status dot
+
+       Container vs surface is the float, not the size. That split is also
+       what makes the corners concentric: a floating panel wraps its 4px rows
+       in 4px of padding, and 4 + 4 = 8, so it has to be the larger step.
 
        Rule: a parent's radius must be >= its child's radius + the padding
-       between them, or the corners visibly disagree.
-
-       hairline  2px  marks nested inside another shape (meter segments, a
-                      chip on a thumbnail, a kbd hint)
-       control   4px  every interactive atom — button, input, select, tab,
-                      badge, menu item. THE DEFAULT.
-       container 6px  anything that holds controls — panel, popover, menu
-                      panel, toast, tile, drop zone
-       surface   8px  free-floating chrome above the app — modal, floating
-                      toolbar, chat popup
-       full      pill circles and pills — switch, slider, status dot */
+       between them, or the corners visibly disagree. */
+    --radius-*: initial;
     --radius-hairline: 2px;
     --radius-control: 4px;
     --radius-container: 6px;
     --radius-surface: 8px;
+    --radius-full: calc(infinity * 1px);
 
-    /* SPACING ALIASES
-       Tailwind utilities cover the Tailwind-authored apps, but stream, flux
-       and soundboard carry hand-written stylesheets that cannot use them —
-       which is how 5px, 7px, 9px, 11px and 19px got in. These give that CSS
-       the same grid. 4px base, matching `--spacing`. */
-    --space-0-5: calc(var(--spacing) * 0.5);
-    --space-1: calc(var(--spacing) * 1);
-    --space-1-5: calc(var(--spacing) * 1.5);
-    --space-2: calc(var(--spacing) * 2);
-    --space-3: calc(var(--spacing) * 3);
-    --space-4: calc(var(--spacing) * 4);
-    --space-6: calc(var(--spacing) * 6);
-    --space-8: calc(var(--spacing) * 8);
+    /* SPACING SCALE
+       Ten steps, and deliberately the same ten rungs Tailwind's own scale
+       uses, so `p-3` in a Tailwind-authored app and `var(--space-3)` in a
+       hand-written stylesheet are the same 12px and read as the same decision.
+       stream, flux and soundboard carry hand-written CSS that cannot reach the
+       utilities; without these they drifted onto a parallel 5px grid (47 uses
+       of 5px, 23 of 10px) alongside 7, 9, 11, 13, 15, 17, 18 and 19px.
+
+       Round to the nearest rung; on a tie round DOWN, which keeps dense chrome
+       dense. Spacing only — padding, margin, gap. Widths, heights and 1px
+       optical insets (a focus ring at `inset: -1px`) are not on this grid. */
+    --space-0-5: calc(var(--spacing) * 0.5);  /*  2px */
+    --space-1: calc(var(--spacing) * 1);      /*  4px */
+    --space-1-5: calc(var(--spacing) * 1.5);  /*  6px */
+    --space-2: calc(var(--spacing) * 2);      /*  8px */
+    --space-3: calc(var(--spacing) * 3);      /* 12px */
+    --space-4: calc(var(--spacing) * 4);      /* 16px */
+    --space-5: calc(var(--spacing) * 5);      /* 20px */
+    --space-6: calc(var(--spacing) * 6);      /* 24px */
+    --space-8: calc(var(--spacing) * 8);      /* 32px */
+    --space-12: calc(var(--spacing) * 12);    /* 48px */
 
     /* FONT SIZE */
     /* 12px. Was 2.875 (11.5px), which made `text-sm` SMALLER than Tailwind's
@@ -534,8 +553,8 @@ body,
     flex: none;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 12px 16px;
+    gap: var(--space-4);
+    padding: var(--space-3) var(--space-4);
     border-bottom: 1px solid var(--border-color-primary);
   }
 
@@ -554,8 +573,8 @@ body,
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: var(--space-1-5);
+    padding: var(--space-1-5) var(--space-3);
     border: 1px solid var(--border-color-primary);
     border-radius: var(--radius-control);
     background: var(--background-color-tertiary);
@@ -579,7 +598,7 @@ body,
   }
 
   .btn.icon {
-    padding: 6px;
+    padding: var(--space-1-5);
     border: 0;
     background: transparent;
     color: var(--text-color-tertiary);

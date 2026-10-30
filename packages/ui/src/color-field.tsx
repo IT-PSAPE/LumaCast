@@ -89,7 +89,7 @@ export function ColorField({
   }
 
   const swatchSize = size === 'sm' ? 'size-3.5' : 'size-4';
-  const swatchBase = cn('relative block shrink-0 overflow-hidden rounded-sm border border-primary', swatchSize);
+  const swatchBase = cn('relative block shrink-0 overflow-hidden rounded-control border border-primary', swatchSize);
   const fill = (
     <span aria-hidden="true" className="absolute inset-0" style={{ backgroundColor: rgb + (alphaSuffix || '') }} />
   );
@@ -117,7 +117,7 @@ export function ColorField({
   );
 
   const popover = picker ? (
-    <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} placement="bottom-start" className="rounded-md border border-primary bg-secondary p-2 shadow-lg">
+    <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} placement="bottom-start" className="rounded-container border border-primary bg-secondary p-2 shadow-lg">
       {picker}
     </Popover>
   ) : null;

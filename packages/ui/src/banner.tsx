@@ -30,7 +30,7 @@ export interface BannerProps {
 // Tints follow ReacstButton's take/danger variants (`bg-<tone>/15`).
 // Info uses the brand colour as its tone.
 const bannerVariants = cv({
-  base: 'flex w-full flex-wrap items-start rounded-sm text-primary',
+  base: 'flex w-full flex-wrap items-start rounded-container text-primary',
   variants: {
     variant: { soft: null, outline: 'border bg-transparent' },
     tone: { info: null, success: null, warning: null, error: null },
@@ -141,7 +141,7 @@ export function Banner({
           type="button"
           aria-label={dismissLabel}
           onClick={onDismiss}
-          className="flex size-5 shrink-0 cursor-pointer items-center justify-center self-center rounded-sm text-secondary transition-colors hover:bg-tertiary hover:text-primary focus-visible:outline-2 focus-visible:outline-brand"
+          className="flex size-5 shrink-0 cursor-pointer items-center justify-center self-center rounded-control text-secondary transition-colors hover:bg-tertiary hover:text-primary focus-visible:outline-2 focus-visible:outline-brand"
         >
           <svg viewBox="0 0 16 16" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
             <path d="m4 4 8 8M12 4l-8 8" />

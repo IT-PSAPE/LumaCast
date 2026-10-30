@@ -32,7 +32,7 @@ function PanelContent({ children, className, ...rest }: ComponentPropsWithoutRef
 function PanelFooter({ children, className, ...rest }: ComponentPropsWithoutRef<'div'>) {
     return (
         <div {...rest} className={cn('px-2 border-t border-secondary inline-flex justify-start items-center overflow-hidden', className)} >
-            <div className="flex-1 rounded-lg flex justify-start items-center gap-2">{children}</div>
+            <div className="flex-1 rounded-container flex justify-start items-center gap-2">{children}</div>
         </div>
     );
 }

@@ -39,11 +39,11 @@ const DEFAULT_VIEWPORT_PADDING = 8;
 const STANDALONE_PORTAL_Z_INDEX = STATIC_OVERLAY_Z_INDEX.popup;
 
 export const SURFACE_CLASSES = cn(
-  'pointer-events-auto min-w-30 max-w-64 max-h-80 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg outline-hidden',
+  'pointer-events-auto min-w-30 max-w-64 max-h-80 overflow-y-auto rounded-surface border border-primary bg-primary p-1 shadow-lg outline-hidden',
   HIDE_NATIVE_SCROLLBAR,
 );
 
-const ITEM_CLASSES = 'flex w-full min-w-0 select-none items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm outline-hidden';
+const ITEM_CLASSES = 'flex w-full min-w-0 select-none items-center gap-2 truncate rounded-control px-2 py-1.5 text-left text-sm outline-hidden';
 
 // Matches lucide's `ChevronRight` at 24x24 / stroke-width 2: @lumacast/ui may
 // depend only on `@lumacast/kernel`, so the glyph is inlined rather than

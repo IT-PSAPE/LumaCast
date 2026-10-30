@@ -51,7 +51,7 @@ function TitleControl() {
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1 hover:bg-tertiary"
+      className="flex cursor-pointer items-center gap-1.5 rounded-control px-2 py-1 hover:bg-tertiary"
     >
       <span className="label-sm max-w-40 truncate text-primary">{title}</span>
       {dirty ? <span aria-label="Unsaved changes" className="size-1.5 shrink-0 rounded-full bg-brand" /> : null}
@@ -143,7 +143,7 @@ function ProjectSettingsPopover() {
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex cursor-pointer items-center gap-1.5 rounded-sm px-2 py-1.5 text-secondary hover:bg-tertiary"
+        className="flex cursor-pointer items-center gap-1.5 rounded-control px-2 py-1.5 text-secondary hover:bg-tertiary"
       >
         <SlidersHorizontal size={14} />
         <span className="label-xs">Project</span>
@@ -155,7 +155,7 @@ function ProjectSettingsPopover() {
         onClose={() => setOpen(false)}
         placement="bottom-start"
         offset={6}
-        className="flex w-64 flex-col gap-3 rounded-md border border-primary bg-primary p-3 shadow-lg"
+        className="flex w-64 flex-col gap-3 rounded-container border border-primary bg-primary p-3 shadow-lg"
       >
         <CompositionFields />
         <div role="group" aria-label={`Theme preset, ${current?.label ?? 'Custom'}`} className="grid grid-cols-3 gap-2">
@@ -166,12 +166,12 @@ function ProjectSettingsPopover() {
               aria-pressed={presetId === preset.id}
               onClick={() => applyPreset(preset.id)}
               className={cn(
-                'flex cursor-pointer flex-col items-center gap-1 rounded-sm border p-1.5 transition-colors',
+                'flex cursor-pointer flex-col items-center gap-1 rounded-container border p-1.5 transition-colors',
                 presetId === preset.id ? 'border-brand bg-brand/10' : 'border-primary hover:bg-tertiary',
               )}
             >
               <span
-                className="flex h-6 w-full items-center justify-center rounded-sm text-[10px] font-semibold"
+                className="flex h-6 w-full items-center justify-center rounded-control text-[10px] font-semibold"
                 style={{ backgroundColor: preset.swatch.background, color: preset.swatch.text }}
               >
                 Aa

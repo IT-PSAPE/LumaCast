@@ -5,7 +5,7 @@ import { cv, DropdownMenu } from '@lumacast/ui';
 // Matches the SegmentedControl label-segment treatment so the overflow trigger
 // is indistinguishable from a real segment.
 const overflowTriggerStyles = cv({
-  base: 'inline-flex items-center justify-center rounded-sm transition-colors px-3 py-1 label-xs',
+  base: 'inline-flex items-center justify-center rounded-control transition-colors px-3 py-1 label-xs',
   variants: {
     active: {
       true: 'bg-primary text-primary',

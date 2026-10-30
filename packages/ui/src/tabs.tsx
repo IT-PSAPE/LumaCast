@@ -100,7 +100,7 @@ const tabStyles = cv({
     },
     variant: {
       underline: 'border-transparent data-[active]:border-brand data-[active]:text-brand',
-      pill: 'rounded-md hover:bg-tertiary data-[active]:bg-brand/10 data-[active]:text-brand',
+      pill: 'rounded-control hover:bg-tertiary data-[active]:bg-brand/10 data-[active]:text-brand',
       plain: 'data-[active]:text-primary',
     },
     size: {

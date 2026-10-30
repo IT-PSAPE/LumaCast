@@ -66,7 +66,7 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
     <div className="flex items-stretch gap-px">
       <DropdownMenu
         trigger={(
-          <button type="button" className="flex shrink-0 items-center py-1 rounded-sm bg-tertiary text-sm text-primary cursor-pointer">
+          <button type="button" className="flex shrink-0 items-center py-1 rounded-control bg-tertiary text-sm text-primary cursor-pointer">
             <span className="truncate px-1.5">
               {mode === 'hex' && 'Hex'}
               {mode === 'rgb' && 'RGB'}
@@ -108,7 +108,7 @@ export function ColorModeInputs({ hsb, alpha, mode, showAlpha, onHsbChange, onAl
       ) : null}
 
       {showAlpha ? (
-        <Field.Root className="flex shrink-0 items-center rounded-r bg-tertiary">
+        <Field.Root className="flex shrink-0 items-center rounded-r-control bg-tertiary">
           <Field.Label className="sr-only">Alpha percent</Field.Label>
           <NumberField.Root value={alpha} min={0} max={100} onValueChange={handleAlphaInput}>
             <NumberField.Input className="w-8 min-w-0 bg-transparent py-1 text-center text-sm text-primary outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" />

@@ -174,7 +174,7 @@ function ProviderModels({ provider, label, config, commit, onToggle }: {
     </FieldSelect>
     <div className="flex items-center justify-between gap-2"><Label.xs>Composer models</Label.xs><span className="text-xs text-tertiary">{shortlist.length ? `${shortlist.length} selected` : 'All models'}</span>{shortlist.length > 0 ? <ReacstButton variant="ghost" onClick={() => void commit({ composerModels: { ...config.composerModels, [provider]: [] } }).catch((failure) => setError(message(failure)))}>Clear</ReacstButton> : null}</div>
     <TextField value={filter} onValueChange={setFilter} placeholder="Filter models" label={`Filter ${label} models`} labelPlacement="hidden" className="w-full" />
-    <div className="max-h-64 overflow-y-auto rounded border border-secondary">
+    <div className="max-h-64 overflow-y-auto rounded-control border border-secondary">
       {filtered.map((entry) => <ComposerModelRow key={entry.id} model={entry} checked={shortlist.includes(entry.id)} onToggle={toggle} />)}
       {filtered.length === 0 ? <p className="px-2 py-1.5 text-sm text-tertiary">{filter ? 'No matches' : loading ? 'Loading…' : 'No models available.'}</p> : null}
     </div>
@@ -187,9 +187,9 @@ const ComposerModelRow = memo(function ComposerModelRow({ model, checked, onTogg
   const context = model.contextWindow === null ? null : model.contextWindow >= 1_000_000 ? `${Math.round(model.contextWindow / 10_000) / 100}M context` : model.contextWindow >= 1000 ? `${Math.round(model.contextWindow / 1000)}k context` : `${model.contextWindow} context`;
   return <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm hover:bg-tertiary/60">
     <input type="checkbox" checked={checked} onChange={(event) => onToggle(model.id, event.target.checked)} className="peer sr-only" />
-    <span aria-hidden="true" className="grid size-4 shrink-0 place-items-center rounded border border-primary bg-primary text-transparent peer-checked:border-brand peer-checked:bg-brand/15 peer-checked:text-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand"><Check size={11} strokeWidth={2.5} /></span>
+    <span aria-hidden="true" className="grid size-4 shrink-0 place-items-center rounded-control border border-primary bg-primary text-transparent peer-checked:border-brand peer-checked:bg-brand/15 peer-checked:text-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand"><Check size={11} strokeWidth={2.5} /></span>
     <ModelVendorLogo vendor={model.vendor} className="size-4" /><span className="min-w-0 flex-1 truncate text-primary">{model.label}</span>
-    {model.isFree ? <span className="rounded-sm bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
+    {model.isFree ? <span className="rounded-control bg-success/15 px-1 py-0.5 text-[10px] font-medium text-success">Free</span> : null}
     {context ? <span className="shrink-0 text-tertiary">{context}</span> : null}
   </label>;
 });

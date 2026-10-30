@@ -17,14 +17,14 @@ export function RowList({
 }) {
   if (rows.length === 0) {
     return (
-      <EmptyState.Root className="rounded border border-dashed border-primary bg-tertiary/15 py-8">
+      <EmptyState.Root className="rounded-control border border-dashed border-primary bg-tertiary/15 py-8">
         <EmptyState.Title>{emptyMessage}</EmptyState.Title>
       </EmptyState.Root>
     );
   }
 
   return (
-    <div className="flex max-h-96 flex-col gap-0.5 overflow-y-auto rounded border border-primary bg-tertiary/15 p-1">
+    <div className="flex max-h-96 flex-col gap-0.5 overflow-y-auto rounded-control border border-primary bg-tertiary/15 p-1">
       {rows.map((row) => (
         <SelectableRow.Root
           key={`${row.kind}:${row.id}`}

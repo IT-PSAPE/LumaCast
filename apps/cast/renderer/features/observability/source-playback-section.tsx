@@ -17,7 +17,7 @@ export function SourcePlaybackSection() {
     <SectionShell title="Source playback" subtitle="DOM video quality samples plus canvas video-pool counts from current APIs.">
       {list.length === 0 ? (
         <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded border border-secondary px-3 py-2 text-sm text-secondary md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-control border border-secondary px-3 py-2 text-sm text-secondary md:grid-cols-4">
             <Stat label="DOM videos mounted" value="0" />
             <Stat label="Canvas layer videos" value={formatNumber(videoPool.layerVideoCount)} />
             <Stat label="Canvas detached videos" value={formatNumber(videoPool.detachedVideoCount)} />
@@ -33,7 +33,7 @@ export function SourcePlaybackSection() {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded border border-secondary px-3 py-2 text-sm text-secondary md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-control border border-secondary px-3 py-2 text-sm text-secondary md:grid-cols-5">
             <Stat label="DOM videos mounted" value={formatNumber(mountedCount)} />
             <Stat label="DOM playing" value={formatNumber(playingCount)} />
             <Stat label="DOM resident" value={formatNumber(residentCount)} />
@@ -53,7 +53,7 @@ export function SourcePlaybackSection() {
               ? (video.droppedVideoFrames / video.totalVideoFrames) * 100
               : 0;
             return (
-              <div key={video.elementKey} className="rounded border border-secondary px-3 py-2">
+              <div key={video.elementKey} className="rounded-control border border-secondary px-3 py-2">
                 <div className="flex items-center justify-between gap-3 pb-1">
                   <span className="truncate text-sm font-medium text-primary">{video.label}</span>
                   <span className="text-xs text-tertiary">{video.isPlaying ? 'playing' : 'paused'}</span>

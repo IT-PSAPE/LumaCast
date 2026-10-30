@@ -27,9 +27,9 @@ export function CreateLyricDialog({ isBusy, isOpen, onClose, onCreateEditableLyr
       className="max-w-2xl"
     >
       <div data-ui-region="create-lyric-dialog" className="min-h-0 flex-1 overflow-y-auto bg-primary/95 px-6 py-6">
-        <LumaCastPanel.Root className="justify-between rounded-lg border border-primary bg-tertiary/20 p-6">
+        <LumaCastPanel.Root className="justify-between rounded-container border border-primary bg-tertiary/20 p-6">
           <div className="flex flex-col gap-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary bg-primary text-secondary">
+            <div className="flex h-12 w-12 items-center justify-center rounded-container border border-primary bg-primary text-secondary">
               <ItemIcon entity="lyric" size={22} strokeWidth={1.75} />
             </div>
             <div className="space-y-2">

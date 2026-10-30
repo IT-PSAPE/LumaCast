@@ -21,7 +21,7 @@ import { cv } from './cv';
 // triggers).
 
 const buttonGroupRootStyles = cv({
-  base: 'flex items-center gap-0.5 rounded-lg border border-primary bg-tertiary/90 p-1 shadow-lg backdrop-blur-sm',
+  base: 'flex items-center gap-0.5 rounded-surface border border-primary bg-tertiary/90 p-1 shadow-lg backdrop-blur-sm',
   variants: {
     fill: {
       true: 'w-full',
@@ -34,7 +34,7 @@ const buttonGroupRootStyles = cv({
 });
 
 const buttonGroupItemStyles = cv({
-  base: 'flex cursor-pointer items-center justify-center rounded-sm bg-transparent text-secondary transition-colors hover:bg-tertiary hover:text-primary data-disabled:pointer-events-none data-disabled:opacity-50',
+  base: 'flex cursor-pointer items-center justify-center rounded-control bg-transparent text-secondary transition-colors hover:bg-tertiary hover:text-primary data-disabled:pointer-events-none data-disabled:opacity-50',
   variants: {
     active: {
       true: 'bg-tertiary text-primary',

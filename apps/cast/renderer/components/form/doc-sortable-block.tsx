@@ -197,14 +197,14 @@ export function SortableBlock({ index, block, isSelected, rowRef, contentRef, ac
             ref={rowRef}
             data-selected={isSelected ? 'true' : undefined}
             className={cn(
-                'flex w-full items-start gap-2 rounded-md px-1 transition-colors',
+                'flex w-full items-start gap-2 rounded-container px-1 transition-colors',
                 isSelected && 'bg-brand/15',
             )}
         >
             <span className='w-3 pt-1 text-tertiary'>
                 <Label.xs className="sm">{index + 1}</Label.xs>
             </span>
-            <div className={cn('flex-1 group relative flex items-start rounded-md px-1 py-0.5 pt-1.25', !isSelected && 'hover:bg-tertiary')}>
+            <div className={cn('flex-1 group relative flex items-start rounded-control px-1 py-0.5 pt-1.25', !isSelected && 'hover:bg-tertiary')}>
                 <textarea
                     ref={setContentRef}
                     value={block.content}

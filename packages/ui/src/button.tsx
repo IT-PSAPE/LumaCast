@@ -6,7 +6,9 @@ import { Tooltip } from './tooltip';
 
 export type ButtonVariant = 'default' | 'take' | 'success' | 'danger' | 'ghost' | 'primary' | 'tinted' | 'outline' | 'link';
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
-export type ButtonShape = 'rounded' | 'pill';
+export type ButtonShape = 'box' | 'pill';
+
+const successActionStyles = 'bg-success/15 text-primary hover:bg-success/25';
 
 // One variant matrix drives both `ReacstButton` and `ReacstButton.Icon`. The
 // `kind` axis ('text' | 'icon') selects the geometry; variant colours, the
@@ -22,7 +24,7 @@ export type ButtonShape = 'rounded' | 'pill';
 // Non-md sizes use explicit heights so they are exact; md keeps its padding
 // metrics unchanged so existing call sites do not shift.
 const buttonVariants = cv({
-  base: 'relative cursor-pointer transition-colors rounded-sm data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50 data-loading:data-disabled:opacity-100',
+  base: 'relative cursor-pointer transition-colors rounded-control data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50 data-loading:data-disabled:opacity-100',
   variants: {
     kind: {
       text: 'inline-flex items-center gap-1.5 whitespace-nowrap',
@@ -30,8 +32,8 @@ const buttonVariants = cv({
     },
     variant: {
       default: 'bg-tertiary text-primary hover:bg-brand/10',
-      take: 'bg-success/15 text-primary hover:bg-success/25',
-      success: 'bg-success/15 text-primary hover:bg-success/25',
+      take: successActionStyles,
+      success: successActionStyles,
       danger: 'bg-error/15 text-primary hover:bg-error/25',
       ghost: 'bg-transparent hover:bg-tertiary hover:text-primary',
       primary: 'bg-brand text-white hover:bg-brand/90',
@@ -46,9 +48,11 @@ const buttonVariants = cv({
       lg: null,
       xl: null,
     },
-    // Public corner shape (Badge vocabulary). `rounded` is the base radius.
+    // Public corner shape (Badge vocabulary). `box` is the base radius.
+    // Named `box` rather than `rounded` so the value can never be mistaken for
+    // a utility class — the radius guard reads class strings, not prop types.
     shape: {
-      rounded: null,
+      box: null,
       pill: 'rounded-full',
     },
     // `on` is the visual pressed/active state (set from `pressed || active`).
@@ -71,7 +75,7 @@ const buttonVariants = cv({
   },
   defaultVariants: {
     kind: 'text',
-    shape: 'rounded',
+    shape: 'box',
     variant: 'default',
     size: 'md',
     on: false,
@@ -122,7 +126,7 @@ interface ButtonSharedProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>
   className?: string;
   /** Forwarded to the underlying `<button>` (React 19 ref prop). */
   ref?: Ref<HTMLButtonElement>;
-  /** Corner shape. `pill` is fully rounded. Default `rounded`. */
+  /** Corner shape. `pill` is fully round. Default `box`, the base radius. */
   shape?: ButtonShape;
   fullWidth?: boolean;
   /** Order of icon vs label when children are `[icon, label]`. Default `leading`. */
@@ -168,7 +172,7 @@ function renderButton(
     loading = false,
     pressed,
     ref,
-    shape = 'rounded',
+    shape = 'box',
     size = 'md',
     tooltip,
     type = 'button',

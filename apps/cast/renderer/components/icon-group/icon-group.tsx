@@ -2,7 +2,7 @@ import type { HTMLAttributes, ReactNode } from 'react';
 import { cn, cv } from '@lumacast/ui';
 
 const iconGroupRootStyles = cv({
-  base: 'flex items-stretch gap-px rounded-md rounded-l-md overflow-clip',
+  base: 'flex items-stretch gap-px rounded-container rounded-l-container overflow-clip',
   variants: {
     fill: {
       true: ['w-full'],

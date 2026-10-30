@@ -102,7 +102,7 @@ export function VideoElementInspector() {
           <Label.xs>Preview</Label.xs>
         </Section.Header>
         <Section.Body>
-          <div className="overflow-hidden rounded border border-primary bg-black">
+          <div className="overflow-hidden rounded-control border border-primary bg-black">
             <video
               ref={previewRef}
               src={payload.src}

@@ -499,9 +499,9 @@ export function App() {
             <Toolbar.Group label="Transition">
               <Select<SceneTransitionType> size="sm" className="w-28" label="Scene transition" labelPlacement="hidden" value={scenes.transitionType} onValueChange={scenes.setTransitionType} options={transitionOptions} />
               {scenes.transitionType === 'FadeToColor' && (
-                <label className="flex items-center gap-1.5 rounded-sm bg-tertiary px-2 py-1">
+                <label className="flex items-center gap-1.5 rounded-control bg-tertiary px-2 py-1">
                   <span>Color</span>
-                  <input aria-label="Transition color" type="color" className="h-[18px] w-[19px] cursor-pointer rounded-xs border border-primary bg-transparent p-px [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-xs [&::-webkit-color-swatch]:border-0" value={scenes.transitionColor} onChange={(event) => scenes.setTransitionColor(event.target.value)} />
+                  <input aria-label="Transition color" type="color" className="h-[18px] w-[19px] cursor-pointer rounded-hairline border border-primary bg-transparent p-px [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-hairline [&::-webkit-color-swatch]:border-0" value={scenes.transitionColor} onChange={(event) => scenes.setTransitionColor(event.target.value)} />
                 </label>
               )}
               <NumberField size="sm" className="w-24" label="Transition duration in milliseconds" labelPlacement="hidden" suffix="ms" commitOn="change" min={50} max={5000} step={50} value={scenes.transitionMs} onValueChange={scenes.setTransitionMs} />
@@ -512,7 +512,7 @@ export function App() {
               <ReacstButton size="sm" pressed={project.studioMode} disabled={scenes.transition !== null} onClick={scenes.toggleStudioMode}><Clapperboard size={14} />Studio Mode</ReacstButton>
               <ReacstButton.Icon variant="ghost" size="sm" label="Open program projector" tooltip="Open program projector" onClick={() => multiview.openProjector('program')}><ExternalLink /></ReacstButton.Icon>
             </Toolbar.Group>
-            <span className="shrink-0 rounded-xs bg-tertiary px-1.5 py-0.5">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
+            <span className="shrink-0 rounded-hairline bg-tertiary px-1.5 py-0.5">{project.output.width ? Math.round((previewSize.width / project.output.width) * 100) : 0}%</span>
           </Toolbar>
         </section>
 

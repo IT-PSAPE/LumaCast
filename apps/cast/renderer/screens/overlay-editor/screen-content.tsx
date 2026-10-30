@@ -25,7 +25,7 @@ export function OverlayEditorScreenContent() {
                     <DropdownMenu
                       align="end"
                       trigger={(
-                        <button type="button" aria-label="Add" className="cursor-pointer rounded-sm bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
+                        <button type="button" aria-label="Add" className="cursor-pointer rounded-control bg-tertiary p-1 text-primary transition-colors hover:text-primary [&>svg]:size-4">
                           <Plus />
                         </button>
                       )}

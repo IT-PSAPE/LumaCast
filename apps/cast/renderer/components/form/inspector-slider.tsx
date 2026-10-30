@@ -55,12 +55,12 @@ export function InspectorSlider({
       max={max}
       step={step}
       onValueChange={handleValueChange}
-      className="relative flex h-8 w-full items-center overflow-hidden rounded-lg bg-tertiary px-2.5 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-brand"
+      className="relative flex h-8 w-full items-center overflow-hidden rounded-control bg-tertiary px-2.5 has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-brand"
     >
       {/* filled portion */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 rounded-l-lg bg-tertiary"
+        className="pointer-events-none absolute inset-y-0 left-0 rounded-l-control bg-tertiary"
         style={{ width: `${percent}%` }}
       />
       {/* tick dots in unfilled region */}

@@ -15,7 +15,7 @@ export function WorkspaceCard({
   inFlight: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 rounded border border-primary bg-tertiary/25 p-3">
+    <div className="flex items-center justify-between gap-3 rounded-control border border-primary bg-tertiary/25 p-3">
       <div className="flex flex-col gap-0.5">
         <div className="text-sm font-medium text-primary">Export entire workspace</div>
         <div className="text-xs text-tertiary">

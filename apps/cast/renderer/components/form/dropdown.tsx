@@ -137,7 +137,7 @@ function Panel({ children, className, placement = 'bottom' }: PanelProps) {
           // Match the trigger's width. The `min-w-30` floor means a narrow trigger
           // still gets a usable panel: the used width is max(triggerWidth, 7.5rem).
           style={{ width: ctx.triggerWidth }}
-          className={cn('pointer-events-auto min-w-30 rounded-md border border-primary bg-primary shadow-lg max-h-[min(32rem,70vh)] overflow-y-auto p-1 outline-hidden', className)}
+          className={cn('pointer-events-auto min-w-30 rounded-container border border-primary bg-primary shadow-lg max-h-[min(32rem,70vh)] overflow-y-auto p-1 outline-hidden', className)}
         >
           {children}
         </Menu.Popup>
@@ -163,7 +163,7 @@ function Item({ children, onClick, disabled = false, className }: ItemProps) {
       disabled={disabled}
       data-dropdown-item=""
       onClick={() => onClick?.()}
-      className={cn('w-full flex gap-2 rounded px-2 py-1.5 text-sm text-left select-none outline-hidden text-secondary data-[highlighted]:bg-secondary hover:bg-tertiary data-[highlighted]:text-primary', disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer', className)}
+      className={cn('w-full flex gap-2 rounded-control px-2 py-1.5 text-sm text-left select-none outline-hidden text-secondary data-[highlighted]:bg-secondary hover:bg-tertiary data-[highlighted]:text-primary', disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer', className)}
     >
       {children}
     </Menu.Item>
@@ -185,14 +185,14 @@ function Submenu({ label, children }: { label: string; children: ReactNode }) {
       <Menu.SubmenuTrigger
         render={<button type="button" />}
         nativeButton
-        className="flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-secondary outline-hidden data-[highlighted]:bg-secondary data-[popup-open]:bg-tertiary"
+        className="flex w-full cursor-pointer items-center gap-2 rounded-control px-2 py-1.5 text-left text-sm text-secondary outline-hidden data-[highlighted]:bg-secondary data-[popup-open]:bg-tertiary"
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
         <ChevronRight className="size-3.5 shrink-0 text-tertiary" />
       </Menu.SubmenuTrigger>
       <Menu.Portal container={container} className="pointer-events-none fixed inset-0" style={{ zIndex: ctx.zIndex }}>
         <Menu.Positioner sideOffset={6} className="outline-hidden">
-          <Menu.Popup className="pointer-events-auto min-w-48 max-h-80 overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg outline-hidden">
+          <Menu.Popup className="pointer-events-auto min-w-48 max-h-80 overflow-y-auto rounded-container border border-primary bg-primary p-1 shadow-lg outline-hidden">
             {children}
           </Menu.Popup>
         </Menu.Positioner>

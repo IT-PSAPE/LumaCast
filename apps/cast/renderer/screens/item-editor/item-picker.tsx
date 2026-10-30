@@ -71,7 +71,7 @@ export function ItemPicker() {
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listboxId}
-        className="h-6.5 flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 py-0.5 text-left transition-colors hover:bg-tertiary"
+        className="h-6.5 flex min-w-0 flex-1 items-center gap-2 rounded-control px-1 py-0.5 text-left transition-colors hover:bg-tertiary"
         title={state.currentItem?.title ?? 'No item selected'}
       >
         {state.currentItemRef ? <ItemIcon entity={state.currentItemRef} className="shrink-0 text-tertiary" /> : null}
@@ -81,7 +81,7 @@ export function ItemPicker() {
         <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
       </button>
       <Popover anchor={triggerRef.current} open={open} onClose={handleClose} placement="bottom-start" offset={4} axisLock>
-        <div className="flex w-72 flex-col overflow-hidden rounded-md border border-primary bg-primary shadow-lg">
+        <div className="flex w-72 flex-col overflow-hidden rounded-container border border-primary bg-primary shadow-lg">
           <div className="flex items-center gap-1.5 border-b border-primary px-2 py-1.5">
             <Search className="size-3.5 shrink-0 text-tertiary" />
             <input

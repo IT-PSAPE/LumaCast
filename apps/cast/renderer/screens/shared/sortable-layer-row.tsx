@@ -89,7 +89,7 @@ export function SortableLayerRow({
               if (event.key === 'Enter') { event.preventDefault(); commitEditing(); }
               if (event.key === 'Escape') { event.preventDefault(); setEditing(false); }
             }}
-            className="min-w-0 flex-1 rounded bg-tertiary px-1 py-0.5 text-sm text-primary outline-none focus:ring-1 focus:ring-brand"
+            className="min-w-0 flex-1 rounded-control bg-tertiary px-1 py-0.5 text-sm text-primary outline-none focus:ring-1 focus:ring-brand"
           />
         ) : (
           <SelectableRow.Label onDoubleClick={startEditing}>{elementTitle(element)}</SelectableRow.Label>

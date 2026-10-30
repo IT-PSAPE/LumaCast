@@ -20,7 +20,7 @@ export function SurfaceFrame({ label, checkerboard = false, children }: { label?
         {children}
       </SceneFrame>
       {label ? (
-        <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded-sm bg-black/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white backdrop-blur-sm">
+        <span className="pointer-events-none absolute left-1.5 top-1.5 z-10 rounded-control bg-black/60 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white backdrop-blur-sm">
           {label}
         </span>
       ) : null}

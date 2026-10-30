@@ -102,7 +102,7 @@ export function TransportBar() {
 
       <button
         type="button"
-        className="ml-1 shrink-0 rounded-sm px-1.5 py-1 label-xs tabular-nums text-secondary hover:bg-tertiary hover:text-primary"
+        className="ml-1 shrink-0 rounded-control px-1.5 py-1 label-xs tabular-nums text-secondary hover:bg-tertiary hover:text-primary"
         onClick={() => setShowFrames((current) => !current)}
         title="Toggle timecode / clock"
       >

@@ -26,7 +26,7 @@ export function EventTimelineSection() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            className={`rounded border px-2 py-0.5 text-xs ${mirrorEventsToConsole ? 'border-success/60 text-success' : 'border-secondary text-secondary hover:bg-tertiary/40'}`}
+            className={`rounded-control border px-2 py-0.5 text-xs ${mirrorEventsToConsole ? 'border-success/60 text-success' : 'border-secondary text-secondary hover:bg-tertiary/40'}`}
             onClick={() => setMirrorEventsToConsole(!mirrorEventsToConsole)}
           >
             {mirrorEventsToConsole ? 'Mirror to logs: on' : 'Mirror to logs: off'}
@@ -47,7 +47,7 @@ export function EventTimelineSection() {
           </SegmentedControl>
           <button
             type="button"
-            className="rounded border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40"
+            className="rounded-control border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40"
             onClick={clearEvents}
           >
             Clear
@@ -58,7 +58,7 @@ export function EventTimelineSection() {
       {visible.length === 0 ? (
         <p className="text-sm text-tertiary">No events yet.</p>
       ) : (
-        <div className="max-h-72 overflow-y-auto rounded border border-secondary">
+        <div className="max-h-72 overflow-y-auto rounded-control border border-secondary">
           <table className="w-full text-left text-xs">
             <tbody>
               {visible.map((event) => (

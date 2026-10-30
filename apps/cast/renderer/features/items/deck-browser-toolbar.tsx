@@ -47,7 +47,7 @@ export function DeckBrowserToolbar({ items, showPlaylistTabs }: DeckBrowserToolb
           <Dropdown>
             <Dropdown.Trigger
               aria-label="View options"
-              className="cursor-pointer rounded-sm bg-tertiary p-1.5 text-secondary transition-colors hover:bg-tertiary hover:text-primary"
+              className="cursor-pointer rounded-control bg-tertiary p-1.5 text-secondary transition-colors hover:bg-tertiary hover:text-primary"
             >
               <SlidersHorizontal size={14} strokeWidth={1.75} />
             </Dropdown.Trigger>

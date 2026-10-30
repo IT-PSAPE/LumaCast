@@ -41,7 +41,7 @@ const itemStyles = cv({
       error: 'text-error',
     },
     interactive: {
-      true: 'cursor-pointer rounded-sm px-1.5 py-0.5 outline-none transition-colors hover:bg-tertiary focus-visible:ring-2 focus-visible:ring-brand',
+      true: 'cursor-pointer rounded-control px-1.5 py-0.5 outline-none transition-colors hover:bg-tertiary focus-visible:ring-2 focus-visible:ring-brand',
       false: '',
     },
   },

@@ -93,12 +93,12 @@ export function ThemeTab() {
                 type="button"
                 onClick={() => applyPreset(preset.id)}
                 className={cn(
-                  'flex cursor-pointer flex-col items-center gap-1 rounded-sm border p-1.5 transition-colors',
+                  'flex cursor-pointer flex-col items-center gap-1 rounded-container border p-1.5 transition-colors',
                   theme.presetId === preset.id ? 'border-brand bg-brand/10' : 'border-primary hover:bg-tertiary',
                 )}
               >
                 <span
-                  className="flex h-7 w-full items-center justify-center rounded-sm text-xs font-semibold"
+                  className="flex h-7 w-full items-center justify-center rounded-control text-xs font-semibold"
                   style={{ backgroundColor: preset.swatch.background, color: preset.swatch.text }}
                 >
                   Aa

@@ -45,7 +45,7 @@ export function ItemBinTileBody<T extends ItemLike>({ item, itemRef, slides, isS
       <div
         {...triggerHandlers}
         ref={triggerRef}
-        className="group cursor-grab rounded-xs focus-visible:ring-2 focus-visible:ring-brand"
+        className="group cursor-grab rounded-container focus-visible:ring-2 focus-visible:ring-brand"
         draggable
         onDragStart={handleDragStart}
       >

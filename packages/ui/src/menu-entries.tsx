@@ -57,7 +57,7 @@ function CheckIcon() {
 // checked entry has to render `Menu.CheckboxItem` directly (it supplies the
 // `menuitemcheckbox` role/`aria-checked` that `ContextMenu.Item` doesn't), so
 // its row classes are restated here to keep every entry's row identical.
-const ITEM_ROW_CLASSES = 'flex w-full min-w-0 select-none items-center gap-2 truncate rounded px-2 py-1.5 text-left text-sm outline-hidden';
+const ITEM_ROW_CLASSES = 'flex w-full min-w-0 select-none items-center gap-2 truncate rounded-control px-2 py-1.5 text-left text-sm outline-hidden';
 
 function entryRowClassName(danger: boolean | undefined, disabled: boolean | undefined) {
   return cn(

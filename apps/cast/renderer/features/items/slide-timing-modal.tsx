@@ -21,18 +21,18 @@ function TimingRow({ step, index, disabled, onChange }: {
   const getThumbnailScene = useThumbnailScene();
   const scene = getThumbnailScene(step.slideId, 'list');
   return (
-    <div ref={containerRef} style={containerStyle} className="flex items-center gap-3 rounded-md border border-secondary bg-primary p-3">
+    <div ref={containerRef} style={containerStyle} className="flex items-center gap-3 rounded-container border border-secondary bg-primary p-3">
       <button {...handleProps} type="button" disabled={disabled} aria-label={`Reorder slide ${index + 1}`} className="cursor-grab text-tertiary"><GripVertical size={16} /></button>
       <div className="w-28 shrink-0" aria-label={`Slide ${index + 1} thumbnail`}>
         {scene ? <SceneFrame width={scene.width} height={scene.height} className="bg-tertiary" stageClassName="absolute inset-0" checkerboard>
           <LazySceneStage scene={scene} surface="list" className="absolute inset-0" />
-        </SceneFrame> : <div className="aspect-video rounded bg-tertiary" />}
+        </SceneFrame> : <div className="aspect-video rounded-control bg-tertiary" />}
       </div>
       <span className="min-w-0 flex-1 text-sm">Slide {index + 1}</span>
       <label className="flex items-center gap-2 text-sm text-secondary">
         <input type="number" min="0.001" step="0.001" aria-label={`Slide ${index + 1} duration in seconds`} value={step.seconds}
           disabled={disabled} onChange={event => onChange(step.slideId, event.target.value)}
-          className="w-24 rounded border border-secondary bg-primary px-2 py-1 text-right tabular-nums" />
+          className="w-24 rounded-control border border-secondary bg-primary px-2 py-1 text-right tabular-nums" />
         <span>s</span>
       </label>
     </div>

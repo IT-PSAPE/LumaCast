@@ -39,7 +39,7 @@ export function TriggersInspector() {
             triggerLabel = binding.triggerType === 'slide.exit' ? 'on Exit' : binding.triggerType === 'slide.take' ? 'on Take' : 'on Activate';
           }
           return (
-            <div key={binding.id} className="flex items-center justify-between gap-2 rounded border border-primary bg-secondary/40 px-2 py-1.5 text-sm text-primary">
+            <div key={binding.id} className="flex items-center justify-between gap-2 rounded-control border border-primary bg-secondary/40 px-2 py-1.5 text-sm text-primary">
               <div className="min-w-0">
                 <div className="truncate font-medium">{label}</div>
                 <div className="text-xs text-tertiary">{triggerLabel}</div>
@@ -48,7 +48,7 @@ export function TriggersInspector() {
                 type="button"
                 aria-label="Remove trigger"
                 onClick={() => { void deleteBinding(binding.id); }}
-                className="shrink-0 rounded p-1 text-tertiary hover:bg-tertiary hover:text-primary"
+                className="shrink-0 rounded-control p-1 text-tertiary hover:bg-tertiary hover:text-primary"
               >
                 <X className="size-3.5" />
               </button>

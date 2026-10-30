@@ -29,7 +29,7 @@ export function ItemPickerOption({
       onClick={handleSelect}
       onMouseEnter={onHighlight}
       className={cn(
-        'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors',
+        'flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left text-sm transition-colors',
         isCurrent ? 'text-primary' : 'text-secondary',
         isHighlighted ? 'bg-tertiary text-primary' : 'hover:bg-tertiary hover:text-primary',
       )}

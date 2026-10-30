@@ -55,15 +55,15 @@ export function SaturationBrightnessArea({ hsb, onChange }: SaturationBrightness
       aria-valuemax={100}
       aria-valuenow={hsb.s}
       aria-valuetext={`Saturation ${hsb.s}%, brightness ${hsb.b}%`}
-      className="relative mb-2 h-36 w-full cursor-crosshair rounded select-none overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-brand"
+      className="relative mb-2 h-36 w-full cursor-crosshair rounded-control select-none overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-brand"
       style={{ backgroundColor: hueColor }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onKeyDown={handleKeyDown}
     >
-      <div className="pointer-events-none absolute inset-0 rounded" style={{ background: 'linear-gradient(to right, white, transparent)' }} />
-      <div className="pointer-events-none absolute inset-0 rounded" style={{ background: 'linear-gradient(to bottom, transparent, black)' }} />
+      <div className="pointer-events-none absolute inset-0 rounded-control" style={{ background: 'linear-gradient(to right, white, transparent)' }} />
+      <div className="pointer-events-none absolute inset-0 rounded-control" style={{ background: 'linear-gradient(to bottom, transparent, black)' }} />
       <div
         className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow"
         style={{ left: thumbX, top: thumbY, backgroundColor: hsbToHex(hsb) }}

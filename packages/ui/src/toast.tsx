@@ -126,7 +126,7 @@ function prefersReducedMotion(): boolean {
 
 const toastClass = cv({
   base: [
-    'pointer-events-auto flex items-start gap-2.5 rounded-md border bg-primary px-3 py-2.5 text-secondary shadow-lg',
+    'pointer-events-auto flex items-start gap-2.5 rounded-container border bg-primary px-3 py-2.5 text-secondary shadow-lg',
     'motion-safe:transition-[opacity,transform] motion-safe:duration-150 motion-safe:ease-out',
   ],
   variants: {
@@ -266,7 +266,7 @@ function ToastItem({ entry }: { entry: ToastEntry }): ReactElement {
               entry.action?.onClick();
               dismissToast(id);
             }}
-            className="label-sm mt-1.5 cursor-pointer rounded text-brand hover:underline focus-visible:outline-2 focus-visible:outline-brand"
+            className="label-sm mt-1.5 cursor-pointer rounded-control text-brand hover:underline focus-visible:outline-2 focus-visible:outline-brand"
           >
             {entry.action.label}
           </button>
@@ -276,7 +276,7 @@ function ToastItem({ entry }: { entry: ToastEntry }): ReactElement {
         type="button"
         aria-label="Dismiss"
         onClick={() => dismissToast(id)}
-        className="shrink-0 cursor-pointer rounded p-0.5 text-tertiary hover:bg-tertiary hover:text-primary focus-visible:outline-2 focus-visible:outline-brand"
+        className="shrink-0 cursor-pointer rounded-control p-0.5 text-tertiary hover:bg-tertiary hover:text-primary focus-visible:outline-2 focus-visible:outline-brand"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M18 6 6 18" />

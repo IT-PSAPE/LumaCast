@@ -113,20 +113,20 @@ export function LogViewerSection() {
       subtitle="Session log files written by the main process. The current session live-tails."
       headerExtra={(
         <div className="flex items-center gap-2">
-          <button type="button" className="rounded border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40" onClick={() => void refreshSessions()}>
+          <button type="button" className="rounded-control border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40" onClick={() => void refreshSessions()}>
             Refresh
           </button>
-          <button type="button" className="rounded border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40" onClick={handleOpenFolder}>
+          <button type="button" className="rounded-control border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40" onClick={handleOpenFolder}>
             Open folder
           </button>
-          <button type="button" className="rounded border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40 disabled:opacity-40" onClick={handleCopyPath} disabled={!selected}>
+          <button type="button" className="rounded-control border border-secondary px-2 py-0.5 text-xs text-secondary hover:bg-tertiary/40 disabled:opacity-40" onClick={handleCopyPath} disabled={!selected}>
             Copy path
           </button>
         </div>
       )}
     >
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <div className="flex max-h-72 flex-col overflow-y-auto rounded border border-secondary">
+        <div className="flex max-h-72 flex-col overflow-y-auto rounded-control border border-secondary">
           {sessions.length === 0 ? (
             <p className="p-3 text-sm text-tertiary">No log sessions found.</p>
           ) : (
@@ -142,7 +142,7 @@ export function LogViewerSection() {
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate font-medium">{session.fileName}</span>
                     {session.isCurrent ? (
-                      <span className="rounded bg-success/20 px-1 text-[10px] uppercase tracking-wide text-success">live</span>
+                      <span className="rounded-control bg-success/20 px-1 text-[10px] uppercase tracking-wide text-success">live</span>
                     ) : null}
                   </div>
                   <div className="text-tertiary">{formatBytes(session.sizeBytes)} · {new Date(session.modifiedAtMs).toLocaleString()}</div>
@@ -165,7 +165,7 @@ export function LogViewerSection() {
           <div
             ref={lineContainerRef}
             onScroll={handleScroll}
-            className="h-72 overflow-y-auto rounded border border-secondary bg-primary/40 p-2 font-mono text-[11px] leading-snug text-secondary"
+            className="h-72 overflow-y-auto rounded-control border border-secondary bg-primary/40 p-2 font-mono text-[11px] leading-snug text-secondary"
           >
             {loading && filteredLines.length === 0 ? (
               <div className="text-tertiary">Loading…</div>

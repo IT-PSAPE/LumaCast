@@ -8,7 +8,7 @@ type SelectionMode = 'single' | 'multiple';
 type Value = string | string[];
 
 const rootStyles = cv({
-  base: 'flex items-center gap-px rounded-md bg-tertiary/40 p-0.5',
+  base: 'flex items-center gap-px rounded-container bg-tertiary/40 p-0.5',
   variants: {
     fill: { true: 'w-full', false: 'w-fit' },
   },
@@ -16,7 +16,7 @@ const rootStyles = cv({
 });
 
 const itemStyles = cv({
-  base: 'inline-flex items-center justify-center rounded-sm transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+  base: 'inline-flex items-center justify-center rounded-control transition-colors data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
   variants: {
     active: {
       true: 'bg-primary text-primary',

@@ -224,7 +224,7 @@ export function LyricTrack() {
             <div
               key={cue.id}
               className={cn(
-                'absolute top-1 bottom-1 flex cursor-grab items-center overflow-hidden rounded-sm border px-1.5 label-xs text-primary',
+                'absolute top-1 bottom-1 flex cursor-grab items-center overflow-hidden rounded-control border px-1.5 label-xs text-primary',
                 selected ? 'border-brand bg-brand/25' : 'border-secondary bg-tertiary',
                 active ? 'ring-1 ring-brand' : null,
                 tapTarget ? 'outline outline-2 outline-offset-1 outline-warning' : null,

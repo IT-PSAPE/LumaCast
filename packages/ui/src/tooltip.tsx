@@ -70,7 +70,7 @@ export function Tooltip({ content, side = 'top', align = 'center', delay, disabl
         >
           <BaseTooltip.Popup
             className={cn(
-              'pointer-events-none max-w-64 select-none rounded border border-primary bg-primary px-2 py-1 text-xs font-medium text-primary shadow-md outline-hidden',
+              'pointer-events-none max-w-64 select-none rounded-container border border-primary bg-primary px-2 py-1 text-xs font-medium text-primary shadow-md outline-hidden',
               'origin-(--transform-origin) transition-opacity duration-100 data-starting-style:opacity-0 data-ending-style:opacity-0 motion-reduce:transition-none',
               className,
             )}

@@ -20,7 +20,7 @@ export function SingleSurfacePicker() {
     <DropdownMenu
       align="end"
       trigger={(
-        <button type="button" className="ml-auto flex min-w-0 items-center gap-1 rounded-sm bg-tertiary px-2 py-1 text-sm text-primary transition-colors hover:bg-tertiary">
+        <button type="button" className="ml-auto flex min-w-0 items-center gap-1 rounded-control bg-tertiary px-2 py-1 text-sm text-primary transition-colors hover:bg-tertiary">
           <span className="truncate">{SURFACE_LABELS[programSingleSurface]}</span>
           <ChevronDown className="size-3.5 shrink-0 text-tertiary" />
         </button>

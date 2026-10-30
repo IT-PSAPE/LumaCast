@@ -6,7 +6,7 @@ import { Field, useFieldIds, type FieldLabelPlacement } from './field';
 // `label-xs` carries a 1.1 line-height that is too tight for multiple lines,
 // so it is overridden here; autoResize reads the computed value back.
 const textareaVariants = cv({
-  base: 'block w-full min-w-0 rounded-sm bg-tertiary px-3 py-1.5 text-primary label-xs leading-[1.4]! transition-colors placeholder:text-tertiary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50',
+  base: 'block w-full min-w-0 rounded-control bg-tertiary px-3 py-1.5 text-primary label-xs leading-[1.4]! transition-colors placeholder:text-tertiary focus:outline-none disabled:cursor-not-allowed disabled:opacity-50',
   variants: {
     invalid: {
       true: 'ring-1 ring-error',

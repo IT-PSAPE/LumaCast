@@ -185,7 +185,7 @@ export const Meter = memo(function Meter({
       blocks.push(
         <div
           key={i}
-          className={cn('min-h-0 min-w-0 flex-1 rounded-[1px]', i < lit ? TONE_BG[toneAt(zones, at)] : 'bg-tertiary')}
+          className={cn('min-h-0 min-w-0 flex-1 rounded-hairline', i < lit ? TONE_BG[toneAt(zones, at)] : 'bg-tertiary')}
         />,
       );
     }
@@ -228,7 +228,7 @@ export const Meter = memo(function Meter({
       aria-valuemax={max}
       aria-valuenow={clamped}
       className={cn(
-        'relative overflow-hidden rounded-[2px]',
+        'relative overflow-hidden rounded-hairline',
         segments ? null : 'bg-tertiary',
         THICKNESS[orientation][size],
         className,

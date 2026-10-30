@@ -3,13 +3,13 @@ import { cv } from './cv';
 import { Field, useFieldIds, type FieldLabelPlacement } from './field';
 
 // Box metrics and focus treatment mirror `Select`'s trigger literally (sm: px-2
-// py-1, md: px-3 py-1.5, label-xs, rounded-sm, bg-tertiary, 1px brand focus
+// py-1, md: px-3 py-1.5, label-xs, rounded-control, bg-tertiary, 1px brand focus
 // ring) so a text field and a select line up in a form row. Horizontal padding
 // sits on the box and vertical padding on the input, so icon/trailing slots
 // share the same metrics. `invalid` draws a persistent 1px `error` ring that
 // also replaces the brand ring while focused.
 const boxVariants = cv({
-  base: 'flex min-w-0 items-center gap-2 rounded-sm bg-tertiary text-primary label-xs transition-colors',
+  base: 'flex min-w-0 items-center gap-2 rounded-control bg-tertiary text-primary label-xs transition-colors',
   variants: {
     size: {
       sm: 'px-2',

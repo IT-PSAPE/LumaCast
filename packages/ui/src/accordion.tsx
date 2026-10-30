@@ -51,7 +51,7 @@ const itemStyles = cv({
     variant: {
       plain: '',
       bordered: 'border-b border-secondary first:border-t',
-      panel: 'overflow-hidden rounded-md border border-primary bg-secondary',
+      panel: 'overflow-hidden rounded-container border border-primary bg-secondary',
     },
   },
 });

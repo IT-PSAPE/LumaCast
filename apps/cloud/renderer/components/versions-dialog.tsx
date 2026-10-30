@@ -61,7 +61,7 @@ export function VersionsDialog({
             return (
               <li
                 key={release.tag}
-                className="flex items-center justify-between gap-3 rounded-md px-2 py-2 hover:bg-secondary"
+                className="flex items-center justify-between gap-3 rounded-control px-2 py-2 hover:bg-secondary"
               >
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <div className="flex items-center gap-2">

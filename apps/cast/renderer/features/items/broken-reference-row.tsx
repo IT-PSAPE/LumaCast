@@ -30,7 +30,7 @@ export function BrokenReferenceRow({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded border border-primary bg-tertiary/25 p-3">
+    <div className="flex flex-col gap-3 rounded-control border border-primary bg-tertiary/25 p-3">
       <div className="flex flex-col gap-1">
         <div className="text-sm font-medium text-primary">{reference.source}</div>
         <div className="text-xs text-tertiary">

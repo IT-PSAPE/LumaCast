@@ -75,9 +75,9 @@
 .scene-rename-input {
   min-width: 0;
   flex: 1;
-  padding: 2px 5px;
+  padding: var(--space-0-5) var(--space-1);
   border: 1px solid var(--color-brand);
-  border-radius: 3px;
+  border-radius: var(--radius-control);
   color: var(--text-color-primary);
   background: var(--background-color-secondary);
   font: inherit;

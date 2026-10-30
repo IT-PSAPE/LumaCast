@@ -776,7 +776,7 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
             {findOpen && (
                 <div
                     data-testid="doc-find-bar"
-                    className="mx-auto mb-2 flex w-full max-w-[680px] items-center gap-1 rounded-md border border-secondary bg-primary px-2 py-1"
+                    className="mx-auto mb-2 flex w-full max-w-[680px] items-center gap-1 rounded-container border border-secondary bg-primary px-2 py-1"
                 >
                     <input
                         ref={findInputRef}
@@ -790,32 +790,32 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
                         }}
                         placeholder="Find"
                         data-testid="doc-find-input"
-                        className="w-32 rounded-sm bg-tertiary px-1.5 py-0.5 text-paragraph-sm text-primary outline-none placeholder:text-tertiary"
+                        className="w-32 rounded-control bg-tertiary px-1.5 py-0.5 text-paragraph-sm text-primary outline-none placeholder:text-tertiary"
                     />
                     <input
                         value={replaceText}
                         onChange={e => setReplaceText(e.target.value)}
                         placeholder="Replace"
                         data-testid="doc-replace-input"
-                        className="w-32 rounded-sm bg-tertiary px-1.5 py-0.5 text-paragraph-sm text-primary outline-none placeholder:text-tertiary"
+                        className="w-32 rounded-control bg-tertiary px-1.5 py-0.5 text-paragraph-sm text-primary outline-none placeholder:text-tertiary"
                     />
                     <button
                         type="button"
                         aria-pressed={matchCase}
                         data-testid="doc-find-match-case"
                         onClick={() => setMatchCase(v => !v)}
-                        className={cn('rounded-sm px-1.5 py-0.5 text-paragraph-sm', matchCase ? 'bg-brand/25 text-primary' : 'text-secondary hover:bg-tertiary')}
+                        className={cn('rounded-control px-1.5 py-0.5 text-paragraph-sm', matchCase ? 'bg-brand/25 text-primary' : 'text-secondary hover:bg-tertiary')}
                     >
                         Aa
                     </button>
-                    <button type="button" aria-label="Previous match" data-testid="doc-find-prev" onClick={findPrev} className="rounded-sm px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">↑</button>
-                    <button type="button" aria-label="Next match" data-testid="doc-find-next" onClick={findNext} className="rounded-sm px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">↓</button>
+                    <button type="button" aria-label="Previous match" data-testid="doc-find-prev" onClick={findPrev} className="rounded-control px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">↑</button>
+                    <button type="button" aria-label="Next match" data-testid="doc-find-next" onClick={findNext} className="rounded-control px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">↓</button>
                     <span data-testid="doc-find-count" className="min-w-10 text-center text-tertiary">
                         {findText && matches.length > 0 ? `${Math.max(activeMatchIdx + 1, 0)}/${matches.length}` : ''}
                     </span>
-                    <button type="button" data-testid="doc-find-replace" onClick={replaceCurrent} className="rounded-sm px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">Replace</button>
-                    <button type="button" data-testid="doc-find-replace-all" onClick={replaceAll} className="rounded-sm px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">All</button>
-                    <button type="button" aria-label="Close find" data-testid="doc-find-close" onClick={closeFind} className="rounded-sm px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">×</button>
+                    <button type="button" data-testid="doc-find-replace" onClick={replaceCurrent} className="rounded-control px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">Replace</button>
+                    <button type="button" data-testid="doc-find-replace-all" onClick={replaceAll} className="rounded-control px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">All</button>
+                    <button type="button" aria-label="Close find" data-testid="doc-find-close" onClick={closeFind} className="rounded-control px-1.5 py-0.5 text-paragraph-sm text-secondary hover:bg-tertiary">×</button>
                 </div>
             )}
             <div className="mx-auto w-full max-w-[680px] space-y-0.5">
@@ -842,7 +842,7 @@ const DocEditor = forwardRef<DocEditorHandle, DocEditorProps>(function DocEditor
             </div>
             {marquee && (
                 <div
-                    className="pointer-events-none absolute z-10 rounded-sm border border-brand_solid bg-brand/10"
+                    className="pointer-events-none absolute z-10 rounded-control border border-brand_solid bg-brand/10"
                     style={{
                         left: marquee.left,
                         top: marquee.top,

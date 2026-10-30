@@ -10,7 +10,7 @@ import { Field, useFieldIds, type FieldLabelPlacement } from './field';
 
 // Box metrics match Select's trigger: sm = px-2 py-1, md = px-3 py-1.5, label-xs.
 const boxVariants = cv({
-  base: 'flex min-w-0 items-center gap-1.5 rounded-sm bg-tertiary text-primary label-xs transition-colors focus-within:ring-1 focus-within:ring-brand',
+  base: 'flex min-w-0 items-center gap-1.5 rounded-control bg-tertiary text-primary label-xs transition-colors focus-within:ring-1 focus-within:ring-brand',
   variants: {
     size: {
       sm: 'px-2 py-1',

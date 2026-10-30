@@ -31,7 +31,7 @@ describe('Toolbar', () => {
   it('floating reproduces the button-group pill and drops the fixed height', () => {
     render(<Toolbar label="t" variant="floating" size="lg">x</Toolbar>);
     const cls = screen.getByRole('toolbar').className;
-    for (const c of ['p-1', 'gap-0.5', 'rounded-lg', 'border', 'bg-tertiary/90', 'backdrop-blur-sm', 'shadow-lg']) {
+    for (const c of ['p-1', 'gap-0.5', 'rounded-surface', 'border', 'bg-tertiary/90', 'backdrop-blur-sm', 'shadow-lg']) {
       expect(cls).toContain(c);
     }
     expect(cls).not.toContain('h-16');

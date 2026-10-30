@@ -41,7 +41,7 @@ export function VideoTransportControls() {
   }
 
   return (
-    <div className="flex flex-col gap-1.5 rounded-md bg-secondary/40 p-2 mt-2">
+    <div className="flex flex-col gap-1.5 rounded-container bg-secondary/40 p-2 mt-2">
       <div className="flex min-w-0 items-center gap-1">
         <ReacstButton.Icon variant="ghost" label="Previous video" disabled={!hasVideo} onClick={video.playPrevious}>
           <SkipBack />

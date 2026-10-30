@@ -127,7 +127,7 @@ function Content({ children, className, ...props }: HTMLAttributes<HTMLDivElemen
       // still treats the surface as modal.
       aria-modal="true"
       data-shortcuts-scope="ignore"
-      className={cn('pointer-events-auto flex w-full max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-lg border border-primary bg-primary shadow-2xl outline-none', className)}
+      className={cn('pointer-events-auto flex w-full max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-surface border border-primary bg-primary shadow-2xl outline-none', className)}
     >
       {children}
     </BaseDialog.Popup>

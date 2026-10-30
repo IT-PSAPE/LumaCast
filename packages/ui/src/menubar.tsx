@@ -13,7 +13,7 @@ export interface MenubarMenu {
 }
 
 const TRIGGER_CLASSES = cn(
-  'flex h-full cursor-default select-none items-center rounded px-2.5 text-[13px] font-medium text-secondary outline-hidden',
+  'flex h-full cursor-default select-none items-center rounded-control px-2.5 text-[13px] font-medium text-secondary outline-hidden',
   'data-popup-open:bg-tertiary data-popup-open:text-primary',
   'data-highlighted:bg-tertiary data-highlighted:text-primary',
   'data-disabled:cursor-not-allowed data-disabled:opacity-50',

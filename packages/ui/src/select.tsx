@@ -50,7 +50,7 @@ function CheckIcon() {
 }
 
 const triggerVariants = cv({
-  base: 'inline-flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-sm bg-tertiary text-primary label-xs transition-colors focus:outline-none data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
+  base: 'inline-flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-control bg-tertiary text-primary label-xs transition-colors focus:outline-none data-disabled:cursor-not-allowed data-disabled:pointer-events-none data-disabled:opacity-50',
   variants: {
     size: {
       sm: 'px-2 py-1',
@@ -66,7 +66,7 @@ const triggerVariants = cv({
   defaultVariants: { size: 'md', invalid: false },
 });
 
-const itemStyles = 'flex cursor-pointer select-none items-center justify-between gap-2 rounded label-xs px-2 py-1.5 text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary data-[selected]:text-brand data-disabled:cursor-not-allowed data-disabled:opacity-50';
+const itemStyles = 'flex cursor-pointer select-none items-center justify-between gap-2 rounded-control label-xs px-2 py-1.5 text-secondary outline-none data-[highlighted]:bg-secondary data-[highlighted]:text-primary data-[selected]:text-brand data-disabled:cursor-not-allowed data-disabled:opacity-50';
 
 /**
  * A plain-string label needs nothing more. A rich (non-string) label must also
@@ -151,7 +151,7 @@ export function Select<T = string>({ value, onValueChange, options, placeholder,
         </BaseSelect.Trigger>
         <BaseSelect.Portal container={container}>
           <BaseSelect.Positioner sideOffset={4} className="outline-none" style={{ zIndex }}>
-            <BaseSelect.Popup className="max-h-80 min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-primary bg-primary p-1 shadow-lg">
+            <BaseSelect.Popup className="max-h-80 min-w-[var(--anchor-width)] overflow-y-auto rounded-surface border border-primary bg-primary p-1 shadow-lg">
               {groups.map((group, groupIndex) => {
                 const items = group.options.map((option) => {
                   const index = cursor++;

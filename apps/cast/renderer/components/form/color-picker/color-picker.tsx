@@ -61,7 +61,7 @@ export function ColorPicker({ value, onChange, showAlpha = true }: ColorPickerPr
   const displayHexValue = withAlpha(previewHex, displayAlpha);
 
   return (
-    <div className="flex min-w-0 w-full items-center gap-1.5 min-h-8 rounded bg-tertiary text-sm text-primary transition-colors focus-within:border-brand">
+    <div className="flex min-w-0 w-full items-center gap-1.5 min-h-8 rounded-control bg-tertiary text-sm text-primary transition-colors focus-within:border-brand">
       <button
         ref={triggerRef}
         type="button"
@@ -69,7 +69,7 @@ export function ColorPicker({ value, onChange, showAlpha = true }: ColorPickerPr
         aria-label="Open color picker"
         aria-haspopup="dialog"
         aria-expanded={isOpen}
-        className="ml-1.5 size-5 shrink-0 overflow-hidden rounded border border-primary cursor-pointer"
+        className="ml-1.5 size-5 shrink-0 overflow-hidden rounded-control border border-primary cursor-pointer"
         style={{
           backgroundImage: 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%)',
           backgroundSize: '8px 8px',
@@ -80,7 +80,7 @@ export function ColorPicker({ value, onChange, showAlpha = true }: ColorPickerPr
       <span className="text-tertiary text-sm select-none">#</span>
       <HexInput value={displayHexValue} onChange={onChange} />
 
-      <Popover anchor={triggerRef.current} open={isOpen} onClose={handleClose} placement="bottom" className="w-56 rounded-lg border border-primary bg-primary p-2.5 shadow-lg">
+      <Popover anchor={triggerRef.current} open={isOpen} onClose={handleClose} placement="bottom" className="w-56 rounded-container border border-primary bg-primary p-2.5 shadow-lg">
         <SaturationBrightnessArea hsb={hsb} onChange={handleHsbChange} />
         <HueSlider hue={hsb.h} onChange={(h) => handleHsbChange({ ...hsb, h })} />
         {showAlpha ? <AlphaSlider hsb={hsb} alpha={alpha} onChange={handleAlphaChange} /> : null}

@@ -75,7 +75,7 @@ export function AudioRowBody({ asset, isActive, onArm }: AudioRowProps) {
       >
         <SelectableRow.Leading>
           {displaySrc ? (
-            <img src={displaySrc} alt="" className="h-6 w-6 rounded object-cover" />
+            <img src={displaySrc} alt="" className="h-6 w-6 rounded-control object-cover" />
           ) : (
             <MediaAssetIcon
               asset={resolvedAsset}

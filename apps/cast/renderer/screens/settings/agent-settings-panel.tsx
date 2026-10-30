@@ -356,7 +356,7 @@ export function AgentSettingsPanel() {
           ) : null}
 
           {revealedClient ? (
-            <div className="flex flex-col gap-2 rounded border border-primary p-3">
+            <div className="flex flex-col gap-2 rounded-control border border-primary p-3">
               <TextField label="Token" value={revealedClient.token} onValueChange={() => undefined} disabled />
               <p className="text-sm text-tertiary">This token won&apos;t be shown again.</p>
               <div className="flex items-center gap-2">

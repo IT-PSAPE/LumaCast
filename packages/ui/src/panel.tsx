@@ -12,7 +12,7 @@ const rootStyles = cv({
     variant: {
       plain: 'bg-primary',
       bordered: 'border border-secondary bg-primary',
-      raised: 'rounded-md border border-secondary bg-secondary',
+      raised: 'rounded-container border border-secondary bg-secondary',
     },
   },
   defaultVariants: { variant: 'plain', fill: true },
