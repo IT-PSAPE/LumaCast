@@ -14,7 +14,8 @@ import {
   Volume2,
   Ellipsis,
 } from "lucide-react";
-import { Banner, DropdownMenu, EmptyState, ListRow, Panel, RangeSlider, ReacstButton as Button, Sidebar, StatusBar, StatusDot, TextField, WindowChrome, type MenuEntry } from "@lumacast/ui";
+import { Banner, ContextMenu, DropdownMenu, EmptyState, ListRow, Panel, RangeSlider, ReacstButton as Button, Sidebar, StatusBar, StatusDot, TextField, WindowChrome, useConfirm, useContextMenuTrigger, type MenuEntry } from "@lumacast/ui";
+import { useMultiSelection, useMultiSelectionKeyHandler } from "@lumacast/selection";
 import type { Sound, SoundBoard, SoundLibrary, SoundboardAPI, SoundPlaybackSettings, SoundShortcut } from "../shared/desktop-api";
 import { defaultPlaybackSettings } from "../shared/desktop-api";
 import { soundUrl } from "../shared/desktop-api";
@@ -91,6 +92,7 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
   const [newBoardName, setNewBoardName] = useState("");
   const [renameValue, setRenameValue] = useState<string | null>(null);
   const [recordingShortcutId, setRecordingShortcutId] = useState<string | null>(null);
+  const confirm = useConfirm();
   const controls = useRef(new Map<string, TileControls>());
   const busyRef = useRef(false);
   const loadRequest = useRef(0);
@@ -155,6 +157,96 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
   };
 
   const activeBoard = library?.boards.find((board) => board.id === activeBoardId) ?? null;
+  const boardSelection = useMultiSelection(library?.boards.map((board) => board.id) ?? [], "soundboard:boards");
+  const soundSelection = useMultiSelection(activeBoard?.sounds.map((sound) => sound.id) ?? [], activeBoard ? `soundboard:sounds:${activeBoard.id}` : null);
+  const boardSelectionKeys = useMultiSelectionKeyHandler({ selectedCount: boardSelection.selectedIds.size, selectAll: boardSelection.selectAll, clearSelection: boardSelection.clearSelection });
+  const soundSelectionKeys = useMultiSelectionKeyHandler({ selectedCount: soundSelection.selectedIds.size, selectAll: soundSelection.selectAll, clearSelection: soundSelection.clearSelection });
+
+  const handleBoardClick = (boardId: string, modifiers: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => {
+    const selectionOnly = Boolean(modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey);
+    if (selectionOnly) {
+      boardSelection.select(boardId, modifiers);
+      return true;
+    }
+    boardSelection.clearSelection();
+    switchBoard(boardId);
+    return false;
+  };
+
+  const handleBoardSelectionToggle = (boardId: string, checked: boolean) => {
+    if (boardSelection.selectedIds.has(boardId) !== checked) boardSelection.select(boardId, { ctrlKey: true });
+  };
+
+  const handleSoundClick = (soundId: string, modifiers: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => {
+    soundSelection.select(soundId, modifiers);
+  };
+
+  const handleSoundSelectionToggle = (soundId: string, checked: boolean) => {
+    if (soundSelection.selectedIds.has(soundId) !== checked) soundSelection.select(soundId, { ctrlKey: true });
+  };
+
+  const handleBoardContextMenuTarget = (boardId: string) => {
+    if (!boardSelection.selectedIds.has(boardId)) boardSelection.select(boardId);
+  };
+
+  const handleSoundContextMenuTarget = (soundId: string) => {
+    if (!soundSelection.selectedIds.has(soundId)) soundSelection.select(soundId);
+  };
+
+  const removeBoards = async (clickedId: string) => {
+    const ids = boardSelection.actionIds(clickedId);
+    const targets = ids.map((id) => library?.boards.find((board) => board.id === id)).filter((board): board is SoundBoard => Boolean(board));
+    if (targets.length === 0 || busyRef.current) return;
+    const confirmed = await confirm({
+      title: targets.length === 1 ? `Remove “${targets[0]!.name}”?` : `Remove ${targets.length} boards?`,
+      description: targets.length === 1 ? "This also removes the sounds stored in this board." : "This also removes the sounds stored in these boards.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    for (const board of targets) {
+      board.sounds.forEach((sound) => controls.current.get(sound.id)?.stop());
+      if (!await mutate(() => api.removeBoard(board.id))) break;
+    }
+  };
+
+  const removeSounds = async (clickedId: string) => {
+    const boardId = activeBoard?.id;
+    if (!boardId) return;
+    const ids = soundSelection.actionIds(clickedId);
+    const targets = ids.map((id) => activeBoard.sounds.find((sound) => sound.id === id)).filter((sound): sound is Sound => Boolean(sound));
+    if (targets.length === 0 || busyRef.current) return;
+    const confirmed = await confirm({
+      title: targets.length === 1 ? `Remove “${targets[0]!.name}”?` : `Remove ${targets.length} sounds?`,
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    for (const sound of targets) {
+      controls.current.get(sound.id)?.stop();
+      if (!await mutate(() => api.removeSound(boardId, sound.id))) break;
+    }
+  };
+
+  const onBoardCollectionKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    boardSelectionKeys(event);
+    if (event.defaultPrevented || event.repeat || isTextEntryTarget(event.target) || (event.key !== "Delete" && event.key !== "Backspace")) return;
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-board-id]") : null;
+    if (!target?.dataset.boardId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void removeBoards(target.dataset.boardId);
+  };
+
+  const onSoundCollectionKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    soundSelectionKeys(event);
+    if (event.defaultPrevented || event.repeat || isTextEntryTarget(event.target) || (event.key !== "Delete" && event.key !== "Backspace")) return;
+    const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-sound-id]") : null;
+    if (!target?.dataset.soundId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void removeSounds(target.dataset.soundId);
+  };
 
   const updateSound = async (soundId: string, settings: SoundPlaybackSettings) => {
     if (!activeBoard) return false;
@@ -208,12 +300,6 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
     void mutate(() => api.importSounds(activeBoard.id));
   };
 
-  const removeSound = (sound: Sound) => {
-    if (!activeBoard || busy) return;
-    controls.current.get(sound.id)?.stop();
-    void mutate(() => api.removeSound(activeBoard.id, sound.id));
-  };
-
   const stopAll = () => activeBoard?.sounds.forEach((sound) => controls.current.get(sound.id)?.stop());
 
   // The window has no native title bar, so the chrome (the only drag region)
@@ -233,10 +319,8 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
     <div className="app-shell">
       <Sidebar width={258} className="board-rail">
         <Sidebar.Group label="Your boards">
-          <Sidebar.Nav aria-label="Sound boards">
-            {library?.boards.map((board) => <ListRow key={board.id} as="button" selected={board.id === activeBoardId} disabled={busy} onClick={() => switchBoard(board.id)} aria-label={board.name}>
-              <ListRow.Leading><Disc3 size={17} /></ListRow.Leading><ListRow.Label>{board.name}</ListRow.Label>
-            </ListRow>)}
+          <Sidebar.Nav aria-label="Sound boards" data-shortcuts-scope="ignore" onKeyDown={onBoardCollectionKeyDown}>
+            {library?.boards.map((board) => <SoundBoardRow key={board.id} board={board} busy={busy} active={board.id === activeBoardId} selected={boardSelection.selectedIds.has(board.id)} onClick={handleBoardClick} onSelectionToggle={handleBoardSelectionToggle} onContextMenuTarget={handleBoardContextMenuTarget} onRemove={removeBoards} />)}
           </Sidebar.Nav>
           <form className="mt-2" onSubmit={(event) => { event.preventDefault(); createBoard(); }}>
             <TextField label="New board name" labelPlacement="hidden" value={newBoardName} onValueChange={setNewBoardName} placeholder="Name a new board" maxLength={48} disabled={busy} trailing={<Button.Icon type="submit" label="Create board" variant="ghost" size="sm" disabled={busy || !newBoardName.trim()}><Plus size={17} /></Button.Icon>} />
@@ -254,7 +338,7 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
         <div className="content">
           {actionError && <Banner tone="error" size="sm" className="mb-6" onDismiss={() => setActionError("")}>{actionError}</Banner>}
           {library?.boards.length === 0 ? <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>Your soundboard begins here</EmptyState.Title><EmptyState.Description>Create a board to keep your sounds organized and ready to play.</EmptyState.Description><EmptyState.Action><form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); createBoard(); }}><TextField label="Board name" labelPlacement="hidden" value={newBoardName} onValueChange={setNewBoardName} placeholder="e.g. Studio cues" maxLength={48} disabled={busy} className="w-52" /><Button variant="primary" size="xl" label="Create board" type="submit" disabled={busy || !newBoardName.trim()}><FolderPlus size={16} /> Create board</Button></form></EmptyState.Action></EmptyState.Root>
-          : activeBoard ? <BoardContent key={activeBoard.id} board={activeBoard} busy={busy} renameValue={renameValue} setRenameValue={setRenameValue} onRename={renameBoard} onImport={importSounds} onRemove={removeSound} onUpdateSound={updateSound} recordingShortcutId={recordingShortcutId} setRecordingShortcutId={setRecordingShortcutId} audioFactory={audioFactory} register={registerTile} /> : <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>No board selected</EmptyState.Title></EmptyState.Root>}
+          : activeBoard ? <BoardContent key={activeBoard.id} board={activeBoard} busy={busy} renameValue={renameValue} setRenameValue={setRenameValue} onRename={renameBoard} onImport={importSounds} onRemove={(sound) => { void removeSounds(sound.id); }} onUpdateSound={updateSound} recordingShortcutId={recordingShortcutId} setRecordingShortcutId={setRecordingShortcutId} audioFactory={audioFactory} register={registerTile} selectedSoundIds={soundSelection.selectedIds} onSoundSelectionClick={handleSoundClick} onSoundSelectionToggle={handleSoundSelectionToggle} onSoundContextMenuTarget={handleSoundContextMenuTarget} onSoundCollectionKeyDown={onSoundCollectionKeyDown} /> : <EmptyState.Root className="min-h-[calc(100vh-196px)]"><EmptyState.Icon><AudioLines size={32} /></EmptyState.Icon><EmptyState.Title>No board selected</EmptyState.Title></EmptyState.Root>}
         </div>
         </Panel.Body>
       </Panel>
@@ -264,18 +348,66 @@ export function App({ api = window.soundboard, audioFactory = browserAudio }: { 
   );
 }
 
-function BoardContent({ board, busy, renameValue, setRenameValue, onRename, onImport, onRemove, onUpdateSound, recordingShortcutId, setRecordingShortcutId, audioFactory, register }: {
-  board: SoundBoard; busy: boolean; renameValue: string | null; setRenameValue: (value: string | null) => void; onRename: (event: FormEvent) => void; onImport: () => void; onRemove: (sound: Sound) => void; onUpdateSound: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recordingShortcutId: string | null; setRecordingShortcutId: (soundId: string | null) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void;
+type SoundBoardRowProps = {
+  board: SoundBoard; busy: boolean; active: boolean; selected: boolean;
+  onClick: (id: string, modifiers: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => boolean;
+  onSelectionToggle: (id: string, checked: boolean) => void;
+  onContextMenuTarget: (id: string) => void; onRemove: (id: string) => void;
+};
+
+function SoundBoardRow(props: SoundBoardRowProps) {
+  return <ContextMenu.Root><SoundBoardRowBody {...props} /></ContextMenu.Root>;
+}
+
+function SoundBoardRowBody({ board, busy, active, selected, onClick, onSelectionToggle, onContextMenuTarget, onRemove }: SoundBoardRowProps) {
+  const { ref, ...triggerHandlers } = useContextMenuTrigger();
+  const selectionModifiers = (event: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => ({ shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey });
+  return <div {...triggerHandlers} ref={ref} data-board-id={board.id} data-multi-selected={selected ? "true" : undefined} onContextMenuCapture={() => onContextMenuTarget(board.id)} onTouchStartCapture={() => onContextMenuTarget(board.id)} onClickCapture={(event) => {
+    if (!(event.target instanceof Element) || !event.target.closest("[data-board-selection]")) return;
+    if (!event.shiftKey && !event.metaKey && !event.ctrlKey) return;
+    onClick(board.id, selectionModifiers(event));
+    event.preventDefault();
+    event.stopPropagation();
+  }} onKeyDownCapture={(event) => {
+      if (event.target instanceof Element && event.target.closest("[data-board-selection]") && (event.key === " " || event.key === "Enter") && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+        onClick(board.id, selectionModifiers(event));
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) onContextMenuTarget(board.id);
+    }}>
+      <ListRow as="button" selected={active} className={selected ? "outline outline-1 outline-brand" : undefined} disabled={busy} onClick={(event) => {
+        const selectionOnly = onClick(board.id, { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey });
+        if (selectionOnly) { event.preventDefault(); event.stopPropagation(); }
+      }} aria-label={board.name}>
+        <ListRow.Leading><Disc3 size={17} /></ListRow.Leading><ListRow.Label>{board.name}</ListRow.Label>
+        <ListRow.Actions><input data-board-selection="" type="checkbox" className="size-4 accent-brand focus-visible:outline-2 focus-visible:outline-brand" aria-label={`Select board ${board.name}`} checked={selected} disabled={busy} onChange={(event) => onSelectionToggle(board.id, event.currentTarget.checked)} /></ListRow.Actions>
+      </ListRow>
+    <ContextMenu.Portal><ContextMenu.Menu aria-label={`Actions for ${board.name}`}>
+      <ContextMenu.Item variant="destructive" onSelect={() => onRemove(board.id)}>{selected ? "Remove selected boards" : "Remove board"}</ContextMenu.Item>
+    </ContextMenu.Menu></ContextMenu.Portal>
+  </div>;
+}
+
+function BoardContent({ board, busy, renameValue, setRenameValue, onRename, onImport, onRemove, onUpdateSound, recordingShortcutId, setRecordingShortcutId, audioFactory, register, selectedSoundIds, onSoundSelectionClick, onSoundSelectionToggle, onSoundContextMenuTarget, onSoundCollectionKeyDown }: {
+  board: SoundBoard; busy: boolean; renameValue: string | null; setRenameValue: (value: string | null) => void; onRename: (event: FormEvent) => void; onImport: () => void; onRemove: (sound: Sound) => void; onUpdateSound: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recordingShortcutId: string | null; setRecordingShortcutId: (soundId: string | null) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void; selectedSoundIds: ReadonlySet<string>; onSoundSelectionClick: (id: string, modifiers: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => void; onSoundSelectionToggle: (id: string, checked: boolean) => void; onSoundContextMenuTarget: (id: string) => void; onSoundCollectionKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => void;
 }) {
   return <>
       <div className="board-heading"><div><form className="title-form" onSubmit={onRename}><TextField label="Board name" labelPlacement="hidden" value={renameValue ?? board.name} onValueChange={setRenameValue} maxLength={48} disabled={busy} className="w-[min(100%,360px)]" /><Button variant="take" size="sm" label="Save" type="submit" disabled={busy || !renameValue?.trim() || renameValue.trim() === board.name}>Save</Button></form></div></div>
     {board.sounds.length === 0 ? <EmptyState.Root className="min-h-[375px] rounded-surface border border-dashed border-primary"><EmptyState.Icon><Volume2 size={22} /></EmptyState.Icon><EmptyState.Title>No sounds in this board</EmptyState.Title><EmptyState.Description>Add audio files to start building your collection.</EmptyState.Description><EmptyState.Action><Button variant="primary" size="xl" label="Add sounds" onClick={onImport} disabled={busy}><Plus size={16} /> Add sounds</Button></EmptyState.Action></EmptyState.Root>
-      : <div className="sound-grid">{board.sounds.map((sound, index) => <SoundTile key={sound.id} sound={sound} index={index} busy={busy} onRemove={() => onRemove(sound)} onUpdate={onUpdateSound} recording={recordingShortcutId === sound.id} onRecordingChange={(isRecording) => setRecordingShortcutId(isRecording ? sound.id : null)} audioFactory={audioFactory} register={register} />)}</div>}
+      : <div className="sound-grid" data-shortcuts-scope="ignore" onKeyDown={onSoundCollectionKeyDown}>{board.sounds.map((sound, index) => <SoundTile key={sound.id} sound={sound} index={index} busy={busy} selected={selectedSoundIds.has(sound.id)} onSelectionClick={onSoundSelectionClick} onSelectionToggle={onSoundSelectionToggle} onContextMenuTarget={onSoundContextMenuTarget} onRemove={() => onRemove(sound)} onUpdate={onUpdateSound} recording={recordingShortcutId === sound.id} onRecordingChange={(isRecording) => setRecordingShortcutId(isRecording ? sound.id : null)} audioFactory={audioFactory} register={register} />)}</div>}
   </>;
 }
 
-function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecordingChange, audioFactory, register }: {
-  sound: Sound; index: number; busy: boolean; onRemove: () => void; onUpdate: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recording: boolean; onRecordingChange: (recording: boolean) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void;
+function SoundTile(props: {
+  sound: Sound; index: number; busy: boolean; selected: boolean; onSelectionClick: (id: string, modifiers: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => void; onSelectionToggle: (id: string, checked: boolean) => void; onContextMenuTarget: (id: string) => void; onRemove: () => void; onUpdate: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recording: boolean; onRecordingChange: (recording: boolean) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void;
+}) {
+  return <ContextMenu.Root><SoundTileBody {...props} /></ContextMenu.Root>;
+}
+
+function SoundTileBody({ sound, index, busy, selected, onSelectionClick, onSelectionToggle, onContextMenuTarget, onRemove, onUpdate, recording, onRecordingChange, audioFactory, register }: {
+  sound: Sound; index: number; busy: boolean; selected: boolean; onSelectionClick: (id: string, modifiers: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => void; onSelectionToggle: (id: string, checked: boolean) => void; onContextMenuTarget: (id: string) => void; onRemove: () => void; onUpdate: (soundId: string, settings: SoundPlaybackSettings) => Promise<boolean>; recording: boolean; onRecordingChange: (recording: boolean) => void; audioFactory: AudioFactory; register: (id: string, controls: TileControls | null) => void;
 }) {
   const audio = useRef<AudioPort | null>(null);
   const alive = useRef(true);
@@ -622,6 +754,8 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
   const canEdit = duration > 0;
   const shortcutText = settings.shortcut ? shortcutLabel(settings.shortcut) : null;
 
+  const { ref: triggerRef, ...triggerHandlers } = useContextMenuTrigger({ onDelete: onRemove });
+
   const menuEntries: MenuEntry[] = [
     { id: "in", label: "Set in at playhead", shortcut: "I", onSelect: markIn, disabled: !canEdit },
     { id: "out", label: "Set out at playhead", shortcut: "O", onSelect: markOut, disabled: !canEdit },
@@ -632,13 +766,28 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
     { id: "record", label: recording ? "Cancel shortcut recording" : shortcutText ? `Change shortcut (${shortcutText})` : "Record shortcut", onSelect: () => onRecordingChange(!recording), disabled: busy },
     { id: "clear", label: "Clear shortcut", onSelect: clearShortcut, disabled: busy || !settings.shortcut },
     { separator: true },
-    { id: "remove", label: "Remove sound", danger: true, onSelect: onRemove, disabled: busy },
+    { id: "remove", label: selected ? "Remove selected sounds" : "Remove sound", danger: true, onSelect: onRemove, disabled: busy },
   ];
 
   const reveal = "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100";
 
-  return <article className={`sound-card group ${playing ? "is-playing" : ""}`} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }} onKeyDown={onCardKeyDown}>
+  return <>
+    <article {...triggerHandlers} ref={triggerRef} role="group" data-sound-id={sound.id} data-multi-selected={selected ? "true" : undefined} aria-label={`Sound ${sound.name}${selected ? ", selected for group actions" : ""}`} className={`sound-card group ${playing ? "is-playing" : ""} ${selected ? "is-multi-selected" : ""}`} style={{ animationDelay: `${Math.min(index, 8) * 45}ms` }} onContextMenuCapture={() => onContextMenuTarget(sound.id)} onTouchStartCapture={() => onContextMenuTarget(sound.id)} onKeyDownCapture={(event) => {
+      if (event.target instanceof Element && event.target.closest("[data-sound-selection]") && (event.key === " " || event.key === "Enter") && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+        onSelectionClick(sound.id, { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey });
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) onContextMenuTarget(sound.id);
+    }} onClickCapture={(event) => {
+      if (!event.shiftKey && !event.metaKey && !event.ctrlKey) return;
+      onSelectionClick(sound.id, { shiftKey: event.shiftKey, metaKey: event.metaKey, ctrlKey: event.ctrlKey });
+      event.preventDefault();
+      event.stopPropagation();
+    }} onKeyDown={(event) => { triggerHandlers.onKeyDown?.(event); onCardKeyDown(event); }}>
     <div className="card-head">
+      <input data-sound-selection="" type="checkbox" className="size-4 shrink-0 accent-brand focus-visible:outline-2 focus-visible:outline-brand" aria-label={`Select sound ${sound.name}`} checked={selected} disabled={busy} onChange={(event) => onSelectionToggle(sound.id, event.currentTarget.checked)} />
       <div className={`sound-art art-${index % 5}`}><AudioLines size={16} /></div>
       <div className="sound-copy"><h2 title={sound.name}>{sound.name}</h2><p>{recording
         ? <Button size="xs" variant="take" label={`Cancel shortcut recording for ${sound.name}`} onClick={() => onRecordingChange(false)}>Press a key · Esc</Button>
@@ -659,7 +808,11 @@ function SoundTile({ sound, index, busy, onRemove, onUpdate, recording, onRecord
       </div>
     </div>
     {error && <Banner tone="error" size="sm" icon={null} className="mt-2.5">{error}</Banner>}
-  </article>;
+    </article>
+    <ContextMenu.Portal><ContextMenu.Menu aria-label={`Actions for ${sound.name}`}>
+      <ContextMenu.Item variant="destructive" onSelect={onRemove}>{selected ? "Remove selected sounds" : "Remove sound"}</ContextMenu.Item>
+    </ContextMenu.Menu></ContextMenu.Portal>
+  </>;
 }
 
 function audioType(fileName: string) {

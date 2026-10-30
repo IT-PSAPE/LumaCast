@@ -6,6 +6,7 @@ const api: SoundboardAPI = {
   load: () => ipcRenderer.invoke(IPC_CHANNELS.load),
   createBoard: (name) => ipcRenderer.invoke(IPC_CHANNELS.createBoard, name),
   renameBoard: (boardId, name) => ipcRenderer.invoke(IPC_CHANNELS.renameBoard, boardId, name),
+  removeBoard: (boardId) => ipcRenderer.invoke(IPC_CHANNELS.removeBoard, boardId),
   importSounds: (boardId) => ipcRenderer.invoke(IPC_CHANNELS.importSounds, boardId),
   removeSound: (boardId, soundId) => ipcRenderer.invoke(IPC_CHANNELS.removeSound, boardId, soundId),
   updateSound: (boardId, soundId, settings) => ipcRenderer.invoke(IPC_CHANNELS.updateSound, boardId, soundId, settings),

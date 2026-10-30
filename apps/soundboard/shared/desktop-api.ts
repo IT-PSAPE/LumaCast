@@ -39,6 +39,7 @@ export interface SoundboardAPI {
   load(): Promise<SoundLibrary>;
   createBoard(name: string): Promise<SoundLibrary>;
   renameBoard(boardId: string, name: string): Promise<SoundLibrary>;
+  removeBoard(boardId: string): Promise<SoundLibrary>;
   importSounds(boardId: string): Promise<SoundLibrary>;
   removeSound(boardId: string, soundId: string): Promise<SoundLibrary>;
   updateSound(boardId: string, soundId: string, settings: SoundPlaybackSettings): Promise<SoundLibrary>;

@@ -30,6 +30,10 @@ export function registerSoundboardIpc(store: LibraryStore, dialogs: IpcDialogs, 
       assertTrusted(event);
       return store.renameBoard(boardId, name);
     }],
+    [IPC_CHANNELS.removeBoard, async (event, boardId) => {
+      assertTrusted(event);
+      return store.removeBoard(boardId);
+    }],
     [IPC_CHANNELS.importSounds, async (event, boardId) => {
       assertTrusted(event);
       const library = await store.load();

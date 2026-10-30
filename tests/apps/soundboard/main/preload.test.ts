@@ -10,8 +10,10 @@ describe("preload", () => {
     await import("../../../../apps/soundboard/main/preload");
     expect(exposeInMainWorld).toHaveBeenCalledWith("soundboard", expect.any(Object));
     const api = exposeInMainWorld.mock.calls[0][1];
-    expect(Object.keys(api).sort()).toEqual(["createBoard", "importSounds", "load", "removeSound", "renameBoard", "updateSound"]);
+    expect(Object.keys(api).sort()).toEqual(["createBoard", "importSounds", "load", "removeBoard", "removeSound", "renameBoard", "updateSound"]);
     api.load();
     expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.load);
+    api.removeBoard("board-id");
+    expect(invoke).toHaveBeenLastCalledWith(IPC_CHANNELS.removeBoard, "board-id");
   });
 });

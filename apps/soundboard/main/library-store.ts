@@ -167,6 +167,20 @@ export class LibraryStore {
     });
   }
 
+  removeBoard(boardId: string): Promise<SoundLibrary> {
+    if (!ID_PATTERN.test(boardId)) return Promise.reject(new Error('Board ID is invalid.'));
+    return this.mutate(async (library) => {
+      const index = library.boards.findIndex((item) => item.id === boardId);
+      if (index < 0) throw new Error('Board was not found.');
+      const [removed] = library.boards.splice(index, 1);
+      await this.save(library);
+      await Promise.all(removed.sounds.map((sound) => this.removeManagedFile(path.join(this.audioDirectory, sound.fileName)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') console.warn('[soundboard] removed board metadata but could not delete managed audio', error);
+      })));
+      return structuredClone(library);
+    });
+  }
+
   importSounds(boardId: string, sourcePaths: string[]): Promise<SoundLibrary> {
     if (!ID_PATTERN.test(boardId)) return Promise.reject(new Error('Board ID is invalid.'));
     return this.mutate(async (library) => {

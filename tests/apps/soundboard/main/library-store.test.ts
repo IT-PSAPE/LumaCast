@@ -50,6 +50,22 @@ describe('soundboard library store', () => {
     await expect(lstat(path.join(root, 'audio', sound.fileName))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
+  it('removes a board and all of its managed sounds, including the last board', async () => {
+    const { root, store } = await setup();
+    const first = (await store.createBoard('Effects')).boards[0];
+    const second = (await store.createBoard('Music')).boards[1];
+    const source = path.join(root, 'door.wav');
+    await writeFile(source, 'audio');
+    const sound = (await store.importSounds(first.id, [source])).boards[0].sounds[0];
+
+    const afterFirstRemoval = await store.removeBoard(first.id);
+
+    expect(afterFirstRemoval.boards.map((board) => board.id)).toEqual([second.id]);
+    await expect(lstat(path.join(root, 'audio', sound.fileName))).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await lstat(source)).toMatchObject({ size: 5 });
+    await expect(store.removeBoard(second.id)).resolves.toEqual({ version: 2, boards: [] });
+  });
+
   it('leaves the library untouched if a batch import contains an unsupported file', async () => {
     const { root, store } = await setup();
     const board = (await store.createBoard('Effects')).boards[0];

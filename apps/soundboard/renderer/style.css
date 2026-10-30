@@ -25,6 +25,7 @@ button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2p
 .sound-card { position: relative; min-width: 0; overflow: hidden; padding: var(--space-4) var(--space-4) var(--space-3); border: 1px solid var(--border-color-secondary); border-radius: var(--radius-container); background: var(--background-color-secondary); animation: card-in .42s both cubic-bezier(.2,.75,.3,1); transition: border-color .2s, transform .2s; }
 .sound-card:hover { transform: translateY(-3px); border-color: var(--border-color-primary); }
 .sound-card.is-playing { border-color: var(--color-brand); }
+.sound-card.is-multi-selected { outline: 2px solid var(--color-brand); outline-offset: 2px; }
 @keyframes card-in { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
 /* Cover tile uses one-off purple/teal/amber hues; none are ui tokens. */
 .sound-art { position: relative; flex: 0 0 auto; width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid #383442; border-radius: var(--radius-container); color: #c0adff; background: radial-gradient(circle at 50% 45%, #342b46, #25212f); }
@@ -54,7 +55,7 @@ button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2p
 
 @media (max-width: 1050px) {
   .board-rail { width: 224px !important; }
-  .content { padding-inline: 30px; }
+  .content { padding-inline: var(--space-8); }
   .sound-grid { grid-template-columns: repeat(auto-fill, minmax(205px, 1fr)); gap: var(--space-3); }
 }
 @media (max-width: 820px) {

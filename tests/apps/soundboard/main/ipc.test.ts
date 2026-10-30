@@ -18,6 +18,7 @@ function makeHarness(boards: SoundLibrary = library) {
     load: vi.fn().mockResolvedValue(boards),
     createBoard: vi.fn().mockResolvedValue(boards),
     renameBoard: vi.fn().mockResolvedValue(boards),
+    removeBoard: vi.fn().mockResolvedValue(boards),
     importSounds: vi.fn().mockResolvedValue(boards),
     removeSound: vi.fn().mockResolvedValue(boards),
     updateSound: vi.fn().mockResolvedValue(boards),
@@ -54,6 +55,7 @@ describe('soundboard IPC trust boundary', () => {
     expect(store.load).not.toHaveBeenCalled();
     expect(store.createBoard).not.toHaveBeenCalled();
     expect(store.renameBoard).not.toHaveBeenCalled();
+    expect(store.removeBoard).not.toHaveBeenCalled();
     expect(store.importSounds).not.toHaveBeenCalled();
     expect(store.removeSound).not.toHaveBeenCalled();
     expect(store.updateSound).not.toHaveBeenCalled();
@@ -65,12 +67,14 @@ describe('soundboard IPC trust boundary', () => {
     await handlers.get(IPC_CHANNELS.load)!(event);
     await handlers.get(IPC_CHANNELS.createBoard)!(event, 'New board');
     await handlers.get(IPC_CHANNELS.renameBoard)!(event, BOARD_ID, 'Renamed');
+    await handlers.get(IPC_CHANNELS.removeBoard)!(event, BOARD_ID);
     await handlers.get(IPC_CHANNELS.removeSound)!(event, BOARD_ID, SOUND_ID);
     const playback = { startTime: 1, endTime: 3, loop: true, shortcut: null };
     await handlers.get(IPC_CHANNELS.updateSound)!(event, BOARD_ID, SOUND_ID, playback);
     expect(store.load).toHaveBeenCalledOnce();
     expect(store.createBoard).toHaveBeenCalledWith('New board');
     expect(store.renameBoard).toHaveBeenCalledWith(BOARD_ID, 'Renamed');
+    expect(store.removeBoard).toHaveBeenCalledWith(BOARD_ID);
     expect(store.removeSound).toHaveBeenCalledWith(BOARD_ID, SOUND_ID);
     expect(store.updateSound).toHaveBeenCalledWith(BOARD_ID, SOUND_ID, playback);
   });
