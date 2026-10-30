@@ -63,13 +63,13 @@ describe('audio gain conversion', () => {
 
 describe('Program audio output policy', () => {
   it('keeps both Program and monitor outputs closed unless the source is explicitly in Program', () => {
-    expect(audioRouteOutputGains(false, 'both')).toEqual({ program: 0, monitor: 0 });
+    expect(audioRouteOutputGains(false, 'monitor-and-output')).toEqual({ program: 0, monitor: 0 });
     expect(audioRouteOutputGains(false, 'monitor-only')).toEqual({ program: 0, monitor: 0 });
   });
 
   it('routes only the configured output for an active Program source', () => {
     expect(audioRouteOutputGains(true, 'off')).toEqual({ program: 1, monitor: 0 });
-    expect(audioRouteOutputGains(true, 'both')).toEqual({ program: 1, monitor: 1 });
+    expect(audioRouteOutputGains(true, 'monitor-and-output')).toEqual({ program: 1, monitor: 1 });
     expect(audioRouteOutputGains(true, 'monitor-only')).toEqual({ program: 0, monitor: 1 });
   });
 });

@@ -47,6 +47,7 @@
     "apps/soundboard/main/**/*.ts",
     "apps/soundboard/shared/**/*.ts",
     "apps/soundboard/renderer/env.d.ts",
+    "apps/stream/renderer/env.d.ts",
     "packages/**/*.ts",
     "packages/**/*.tsx",
     "tests/**/*.ts",

@@ -232,10 +232,11 @@ describe('useCapture runtime ownership and Program audio routing', () => {
     const runtimeId = params.allSources[0]!.id;
     const track = new FakeTrack('video');
     const stream = fakeStream(track);
-    mediaDevices = installMediaDevices(() => pending.promise);
+    const installedMediaDevices = installMediaDevices(() => pending.promise);
+    mediaDevices = installedMediaDevices;
     const { result } = renderHook(() => useCapture(params));
 
-    await waitFor(() => expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce());
+    await waitFor(() => expect(installedMediaDevices.getUserMedia).toHaveBeenCalledOnce());
     act(() => result.current.resetForWorkspaceChange());
     await act(async () => { pending.resolve(stream); await pending.promise; });
 

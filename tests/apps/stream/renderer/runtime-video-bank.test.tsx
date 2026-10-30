@@ -59,8 +59,8 @@ describe('RuntimeVideoBank media ownership', () => {
     const runtime = toRuntimeSource(mediaSource());
     const elements = new Map<string, HTMLVideoElement>();
     const mediaElements = new Map<string, HTMLMediaElement>();
-    const previewRoute = vi.fn(() => Promise.resolve());
-    const updatedRoute = vi.fn(() => Promise.resolve());
+    const previewRoute = vi.fn((_source: ReturnType<typeof toRuntimeSource>, _element: HTMLMediaElement, _programActive: boolean) => Promise.resolve());
+    const updatedRoute = vi.fn((_source: ReturnType<typeof toRuntimeSource>, _element: HTMLMediaElement, _programActive: boolean) => Promise.resolve());
     const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
@@ -124,7 +124,7 @@ describe('RuntimeVideoBank media ownership', () => {
     const program = toRuntimeSource(mediaSource('shared-origin', 'program-asset'));
     const elements = new Map<string, HTMLVideoElement>();
     const mediaElements = new Map<string, HTMLMediaElement>();
-    const onMediaElement = vi.fn(() => Promise.resolve());
+    const onMediaElement = vi.fn((_source: ReturnType<typeof toRuntimeSource>, _element: HTMLMediaElement, _programActive: boolean) => Promise.resolve());
     const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined);
     vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => undefined);
