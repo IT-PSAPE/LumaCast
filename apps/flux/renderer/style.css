@@ -20,9 +20,17 @@
 @source "../../../../packages/ui/src/*.{ts,tsx}";
 
 /* The shared theme's base type is sized for the suite's app shell; Flux is a
- * dense editor, so its compact base is scoped to the three elements that
- * establish it, using the shared type tokens. Everything else inherits. */
-html,
+ * dense editor, so its compact base is set on `body` and `#root`.
+ *
+ * `html` deliberately keeps the browser's 16px font-size. `--spacing` is
+ * 0.25rem, so every --space-* token and every Tailwind size utility is
+ * rem-based: setting 12px on `html` here silently rendered the whole app — and
+ * every shared @lumacast/ui component in it — at 75% of the size it has in the
+ * other five apps (--space-1 measured 3px, not 4px). Set the base type, not
+ * the rem unit. */
+html {
+  font-family: var(--font-body);
+}
 body,
 #root {
   font-family: var(--font-body);
@@ -415,8 +423,11 @@ h3 {
   border: 1px solid var(--border-color-primary);
   border-radius: var(--radius-control);
 }
-.filmstrip button.active {
+.filmstrip button.active,
+.filmstrip button.selected {
   border-color: var(--color-brand);
+}
+.filmstrip button.active {
   background: color-mix(in oklab, var(--color-brand) 18%, transparent);
 }
 .filmstrip img {

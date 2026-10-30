@@ -305,6 +305,24 @@ export class PhotoService extends EventEmitter {
       next.selection = [...new Set(ids)];
     });
   }
+  async removeFromLibrary(ids: string[], source = "UI") {
+    const requested = [...new Set(z.array(idSchema).min(1).max(10000).parse(ids))];
+    return this.mutate(
+      `Remove ${requested.length} photo(s) from library`,
+      source,
+      (next) => {
+        const available = new Set(next.photos.map((photo) => photo.id));
+        const missing = requested.filter((id) => !available.has(id));
+        if (missing.length) {
+          throw new Error(`NOT_FOUND: Photo ${missing[0]}`);
+        }
+        const removed = new Set(requested);
+        next.photos = next.photos.filter((photo) => !removed.has(photo.id));
+        next.selection = next.selection.filter((id) => !removed.has(id));
+        return requested;
+      },
+    );
+  }
   async relink(id: string, newPath: string) {
     const canonical = await realpath(newPath);
     const info = await inspectImage(canonical);

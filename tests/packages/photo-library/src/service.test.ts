@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
+import { Commands } from '../../../../packages/photo-library/src/commands';
 import { PhotoService } from '../../../../packages/photo-library/src/service';
 
 describe('PhotoService catalog', () => {
@@ -78,6 +79,37 @@ describe('PhotoService catalog', () => {
     await s.edit([{ id, expectedRevision: 1, patch: { rotation: 1 } }]);
     expect(s.photo(id).recipe.exposure).toBe(1.5);
     expect(s.photo(id).recipe.rotation).toBe(1);
+  });
+
+  it('removes selected catalog records as one atomic operation while preserving original files', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'lumaflux-remove-'));
+    const sourcePaths = ['one.png', 'two.png', 'three.png'].map((name) => path.join(dir, name));
+    for (const [index, source] of sourcePaths.entries()) {
+      await sharp({
+        create: { width: 8, height: 8, channels: 3, background: index ? 'blue' : 'red' },
+      }).png().toFile(source);
+    }
+    const originals = await Promise.all(sourcePaths.map((source) => readFile(source)));
+    const service = await PhotoService.open(path.join(dir, 'catalog.json'));
+    const commands = new Commands(service, async () => Buffer.from('rendered'));
+    const imported = await service.importPaths(sourcePaths);
+    await service.select(imported.imported);
+
+    await expect(commands.run('remove_photos_from_library', { ids: [imported.imported[0], 'missing'] }))
+      .rejects.toThrow(/NOT_FOUND/);
+    expect(service.state().photos).toHaveLength(3);
+
+    await expect(commands.run('remove_photos_from_library', { ids: [imported.imported[0], imported.imported[1]] }))
+      .resolves.toEqual([imported.imported[0], imported.imported[1]]);
+
+    expect(service.state().photos.map((photo) => photo.id)).toEqual([imported.imported[2]]);
+    expect(service.state().selection).toEqual([imported.imported[2]]);
+    expect(() => service.photo(imported.imported[0])).toThrow(/NOT_FOUND/);
+    expect(await Promise.all(sourcePaths.map((source) => readFile(source)))).toEqual(originals);
+
+    const reopened = await PhotoService.open(path.join(dir, 'catalog.json'));
+    expect(reopened.state().photos.map((photo) => photo.id)).toEqual([imported.imported[2]]);
+    expect(reopened.state().selection).toEqual([imported.imported[2]]);
   });
 
   it('failed catalog replacement leaves in-memory edits and prior catalog intact', async () => {

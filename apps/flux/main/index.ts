@@ -196,6 +196,15 @@ if (!app.requestSingleInstanceLock()) {
 
       const thumbs = new Map<string, Buffer>();
       const pending = new Map<string, Promise<Buffer>>();
+      service.on('change', () => {
+        const livePhotoIds = new Set(service.state().photos.map((photo) => photo.id));
+        for (const key of thumbs.keys()) {
+          if (!livePhotoIds.has(key.slice(0, key.indexOf(':')))) thumbs.delete(key);
+        }
+        for (const key of pending.keys()) {
+          if (!livePhotoIds.has(key.slice(0, key.indexOf(':')))) pending.delete(key);
+        }
+      });
       protocol.handle('lumaflux', async (request) => {
         try {
           const url = new URL(request.url);
@@ -213,6 +222,9 @@ if (!app.requestSingleInstanceLock()) {
             pending.set(key, work);
             try {
               const rendered: Buffer = await work;
+              // A photo can leave the library while its thumbnail is rendering.
+              // Never repopulate the derived cache for a removed record.
+              service.photo(id);
               thumbs.set(key, rendered);
               // Bounded cache: the filmstrip can ask for hundreds of
               // thumbnails and a byte cache with no cap would grow without

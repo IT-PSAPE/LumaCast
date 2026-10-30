@@ -37,6 +37,7 @@ export function resolveShortcut(
   view: "gallery" | "editor",
 ): AppCommand | null {
   if (isTypingTarget(event.target)) return null;
+  if (event.target instanceof Element && event.target.closest('[data-shortcuts-scope="ignore"]')) return null;
   const key = event.key.toLowerCase();
   const primary = event.metaKey || event.ctrlKey;
   if (primary && !event.altKey && !event.shiftKey && key === "a") return "select-all";

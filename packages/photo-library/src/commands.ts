@@ -184,6 +184,14 @@ export class Commands {
             .parse(args).ids,
           source,
         );
+      case "remove_photos_from_library":
+        return this.service.removeFromLibrary(
+          z
+            .object({ ids: z.array(id).min(1).max(10000) })
+            .strict()
+            .parse(args).ids,
+          source,
+        );
       case "update_metadata": {
         const a = z
           .object({

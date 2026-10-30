@@ -14,7 +14,9 @@ import {
   Check,
   Link,
   ArrowDownToLine,
+  Trash2,
 } from "lucide-react";
+import { resolveActionIds, resolveSelection } from "@lumacast/selection";
 import type { AppState, Photo, Recipe } from "@lumacast/photo-model";
 import type { DesktopAPI } from "../shared/desktop-api";
 import { adjustmentControls } from "@lumacast/photo-model";
@@ -32,6 +34,7 @@ import {
   TextField,
   Toolbar,
   WindowChrome,
+  useConfirm,
 } from "@lumacast/ui";
 import type { HistogramData, PixelReadout } from "./histogram-data";
 import { Adjustments } from "./Adjustments";
@@ -49,6 +52,7 @@ const api = window.lumaflux;
 const empty: AppState = { photos: [], selection: [], jobs: [], activity: [] };
 export function App() {
   const [state, setState] = useState<AppState>(empty);
+  const confirm = useConfirm();
   const [activeId, setActiveId] = useState<string>();
   const [view, setView] = useState<"gallery" | "editor">("gallery");
   const [histogramFrame, setHistogramFrame] = useState<{
@@ -105,10 +109,15 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [minRating, setMinRating] = useState(0);
   const [ready, setReady] = useState(false);
+  const selectionRef = useRef<string[]>(state.selection);
+  const selectionAnchorRef = useRef<string | null>(null);
+  const expectedSelectionRef = useRef<string[] | null>(null);
+  const selectionIntentRef = useRef(0);
   const refresh = useCallback(async () => {
     const next = (await api.command("get_app_state")) as AppState;
     setState(next);
     setReady(true);
+    return next;
   }, []);
   useEffect(() => {
     refresh().catch((e) => setNotice(e.message));
@@ -116,6 +125,18 @@ export function App() {
       refresh().catch((e) => setNotice(e.message));
     });
   }, [refresh]);
+  useEffect(() => {
+    const expected = expectedSelectionRef.current;
+    const matchesExpected = expected !== null && expected.length === state.selection.length &&
+      expected.every((id, index) => state.selection[index] === id);
+    if (expected !== null && !matchesExpected) return;
+    if (!matchesExpected && (state.selection.some((id, index) => selectionRef.current[index] !== id) || state.selection.length !== selectionRef.current.length)) {
+      selectionAnchorRef.current = null;
+    } else if (matchesExpected) {
+      expectedSelectionRef.current = null;
+    }
+    selectionRef.current = state.selection;
+  }, [state.selection]);
   const run = async (name: string, args?: unknown) => {
     const result = await api.command(name, args);
     await refresh();
@@ -169,23 +190,117 @@ export function App() {
   const folders = [...new Set(state.photos.map((p) => p.folder))].sort();
   const selected = new Set(state.selection);
   const activeIndex = photos.findIndex((p) => p.id === activeId);
+  const selectedVisibleIds = photos.filter((p) => selected.has(p.id)).map((p) => p.id);
+  const selectableIds = state.photos.map((p) => p.id);
+  const selectAllVisible = () => {
+    const visibleIds = photos.map((p) => p.id);
+    const visible = new Set(visibleIds);
+    const hiddenSelection = selectableIds.filter(
+      (id) => !visible.has(id) && selectionRef.current.includes(id),
+    );
+    persistSelection([...visibleIds, ...hiddenSelection], visibleIds[0] ?? null);
+  };
+  const persistSelection = (ids: string[], anchorId: string | null = null) => {
+    const nextIds = [...ids];
+    const intent = ++selectionIntentRef.current;
+    selectionRef.current = nextIds;
+    selectionAnchorRef.current = anchorId;
+    expectedSelectionRef.current = nextIds;
+    return safe(async () => {
+      try {
+        await run("set_selection", { ids: nextIds });
+      } catch (error) {
+        if (intent === selectionIntentRef.current) {
+          const latest = await refresh().catch(() => state);
+          selectionRef.current = latest.selection;
+          selectionAnchorRef.current = null;
+          expectedSelectionRef.current = null;
+        }
+        throw error;
+      }
+      if (intent === selectionIntentRef.current) expectedSelectionRef.current = null;
+    });
+  };
   const select = (
     p: Photo,
     event: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {},
   ) => {
-    let ids = [p.id];
-    if (event.shiftKey && activeIndex >= 0) {
-      const index = photos.findIndex((q) => q.id === p.id);
-      ids = photos
-        .slice(Math.min(index, activeIndex), Math.max(index, activeIndex) + 1)
-        .map((q) => q.id);
-    } else if (event.metaKey || event.ctrlKey) {
-      ids = selected.has(p.id)
-        ? state.selection.filter((id) => id !== p.id)
-        : [...state.selection, p.id];
+    const result = resolveSelection(
+      photos.map((photo) => photo.id),
+      selectionRef.current,
+      selectionAnchorRef.current,
+      p.id,
+      event,
+      selectableIds,
+    );
+    persistSelection(result.selectedIds, result.anchorId);
+    if (!(event.shiftKey || event.metaKey || event.ctrlKey)) setActiveId(p.id);
+  };
+  const removePhotosFromLibrary = async (requestedIds?: string[]) => {
+    const selectedTargets = selectedVisibleIds.length
+      ? resolveActionIds(photos.map((p) => p.id), state.selection, selectedVisibleIds[0], selectableIds)
+      : [];
+    const requested = requestedIds ?? selectedTargets;
+    const availableIds = new Set(selectableIds);
+    const ids = [...new Set(requested)].filter((id) => availableIds.has(id));
+    if (!ids.length) return;
+    const names = new Map(state.photos.map((p) => [p.id, p.name]));
+    const approved = await confirm({
+      title: ids.length === 1
+        ? `Remove "${names.get(ids[0]) ?? 'photo'}" from the library?`
+        : `Remove ${ids.length} photos from the library?`,
+      description: "This removes the photos and their saved edits from Flux. Original files on disk are not deleted.",
+      confirmLabel: "Remove from library",
+      tone: "danger",
+    });
+    if (!approved) return;
+    const removed = new Set(ids);
+    setBusy(true);
+    try {
+      await run("remove_photos_from_library", { ids });
+      selectionRef.current = selectionRef.current.filter((id) => !removed.has(id));
+      selectionAnchorRef.current = null;
+      expectedSelectionRef.current = null;
+      if (activeId && removed.has(activeId)) {
+        setActiveId(photos.find((p) => !removed.has(p.id))?.id);
+        if (view === "editor") setView("gallery");
+      }
+      setNotice(`${ids.length} photo${ids.length === 1 ? "" : "s"} removed from the library. Original files were not deleted.`);
+    } catch (error) {
+      setNotice((error as Error).message);
+    } finally {
+      setBusy(false);
     }
-    setActiveId(p.id);
-    void safe(() => run("set_selection", { ids }));
+  };
+  const handlePhotoCollectionKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (isTypingTarget(event.target)) return;
+    const primary = event.metaKey || event.ctrlKey;
+    if (primary && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      event.stopPropagation();
+      selectAllVisible();
+      return;
+    }
+    if (event.key === "Escape" && selectionRef.current.length) {
+      event.preventDefault();
+      event.stopPropagation();
+      persistSelection([], null);
+      return;
+    }
+    if (event.key === "Delete" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const target = event.target instanceof Element ? event.target : null;
+      const clickedId = target?.closest<HTMLElement>("[data-photo-id]")?.dataset.photoId;
+      const targets = clickedId
+        ? resolveActionIds(photos.map((p) => p.id), state.selection, clickedId, selectableIds)
+        : selectedVisibleIds.length
+          ? resolveActionIds(photos.map((p) => p.id), state.selection, selectedVisibleIds[0], selectableIds)
+          : [];
+      if (targets.length) {
+        event.preventDefault();
+        event.stopPropagation();
+        void removePhotosFromLibrary(targets);
+      }
+    }
   };
   const importPaths = async (paths: string[]) => {
     if (!paths.length) return;
@@ -194,7 +309,7 @@ export function App() {
       const result = await run("import_photos", { paths });
       if (result.imported.length) {
         setActiveId(result.imported[0]);
-        await run("set_selection", { ids: result.imported });
+        await persistSelection(result.imported, result.imported[0] ?? null);
         setSection("all");
       }
       setNotice(
@@ -306,7 +421,7 @@ export function App() {
   };
   const runCommand = (command: AppCommand) => {
     if (command === "select-all") {
-      void safe(() => run("set_selection", { ids: photos.map((p) => p.id) }));
+      selectAllVisible();
     } else if (command === "undo" || command === "redo") {
       if (isTypingTarget(document.activeElement)) {
         document.execCommand(command);
@@ -430,11 +545,11 @@ export function App() {
                 <Sidebar.Nav aria-label="Library">
                   {(
                     [
-                      ["all", Images, "All photos", state.photos.length],
-                      ["favorites", Heart, "Favorites", state.photos.filter((p) => p.favorite).length],
-                      ["jobs", ArrowDownToLine, "Exports", state.jobs.length],
+                      ["all", Images, "All photos"],
+                      ["favorites", Heart, "Favorites"],
+                      ["jobs", ArrowDownToLine, "Exports"],
                     ] as const
-                  ).map(([id, Icon, label, count]) => (
+                  ).map(([id, Icon, label]) => (
                     <ListRow
                       key={id}
                       as="button"
@@ -449,7 +564,6 @@ export function App() {
                         <Icon size={13} />
                       </ListRow.Leading>
                       <ListRow.Label>{label}</ListRow.Label>
-                      <ListRow.Meta>{count}</ListRow.Meta>
                     </ListRow>
                   ))}
                 </Sidebar.Nav>
@@ -661,12 +775,14 @@ export function App() {
                       Relink original
                     </ReacstButton>
                   )}
-                  <div className="filmstrip">
+                  <div className="filmstrip" data-shortcuts-scope="ignore" onKeyDown={handlePhotoCollectionKeyDown}>
                     {photos.map((p) => (
                       <button
                         key={p.id}
+                        data-photo-id={p.id}
+                        aria-pressed={selected.has(p.id)}
                         title={p.name}
-                        className={p.id === activeId ? "active" : ""}
+                        className={`${p.id === activeId ? "active" : ""} ${selected.has(p.id) ? "selected" : ""}`.trim()}
                         onClick={(e) => select(p, e)}
                       >
                         <img
@@ -682,6 +798,8 @@ export function App() {
                 <>
                   <div
                     className="gallery"
+                    data-shortcuts-scope="ignore"
+                    onKeyDown={handlePhotoCollectionKeyDown}
                     style={{
                       gridTemplateColumns: `repeat(auto-fill,minmax(${thumbSize}px,1fr))`,
                     }}
@@ -689,13 +807,16 @@ export function App() {
                     {photos.map((p) => (
                       <div
                         key={p.id}
+                        data-photo-id={p.id}
                         className={`photo-tile ${selected.has(p.id) ? "selected" : ""} ${p.id === activeId ? "focused" : ""}`}
                       >
                         <button
                           className="photo-image"
                           aria-label={`Select ${p.name}`}
+                          aria-pressed={selected.has(p.id)}
                           onClick={(e) => select(p, e)}
-                          onDoubleClick={() => {
+                          onDoubleClick={(event) => {
+                            if (event.shiftKey || event.metaKey || event.ctrlKey) return;
                             setActiveId(p.id);
                             setView("editor");
                           }}
@@ -773,26 +894,29 @@ export function App() {
                         <ReacstButton
                           size="sm"
                           variant="ghost"
-                          onClick={() =>
-                            safe(() =>
-                              run("set_selection", {
-                                ids: photos.map((p) => p.id),
-                              }),
-                            )
-                          }
+                          onClick={selectAllVisible}
                         >
                           Select all
                         </ReacstButton>
                         <ReacstButton
                           size="sm"
                           variant="ghost"
-                          onClick={() =>
-                            safe(() => run("set_selection", { ids: [] }))
-                          }
+                          onClick={() => persistSelection([], null)}
                         >
                           Clear selection
                         </ReacstButton>
                       </>
+                    )}
+                    {selectedVisibleIds.length > 0 && (
+                      <ReacstButton
+                        size="sm"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => void removePhotosFromLibrary()}
+                      >
+                        <Trash2 size={13} />
+                        Remove from library
+                      </ReacstButton>
                     )}
                     <span className="spacer" />
                     <Slider
