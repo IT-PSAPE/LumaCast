@@ -129,8 +129,6 @@ const api = {
     ipcRenderer.invoke(IPC.popupInlineWindowMenu, menuId, bounds) as Promise<void>,
   updateAppMenuState: (state: import('@lumacast/commands').AppMenuState) =>
     ipcRenderer.invoke(IPC.updateAppMenuState, state) as Promise<void>,
-  checkForAppUpdates: (manual = false) =>
-    ipcRenderer.invoke(IPC.checkForAppUpdates, manual) as Promise<void>,
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot),
   applySnapshotPatch: (patch: SnapshotPatch) => ipcRenderer.invoke(IPC.applySnapshotPatch, patch) as Promise<void>,
   restoreFromSnapshot: (snapshot: AppSnapshot) => ipcRenderer.invoke(IPC.restoreFromSnapshot, snapshot) as Promise<AppSnapshot>,

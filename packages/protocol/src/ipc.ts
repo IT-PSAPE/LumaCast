@@ -133,7 +133,6 @@ interface RpcMethodSignatures {
   getInlineWindowMenuItems: () => Promise<InlineWindowMenuItem[]>;
   popupInlineWindowMenu: (menuId: string, bounds: InlineWindowMenuBounds) => Promise<void>;
   updateAppMenuState: (state: AppMenuState) => Promise<void>;
-  checkForAppUpdates: (manual?: boolean) => Promise<void>;
   getSnapshot: () => Promise<AppSnapshot>;
   applySnapshotPatch: (patch: SnapshotPatch) => Promise<void>;
   restoreFromSnapshot: (snapshot: AppSnapshot) => Promise<AppSnapshot>;
@@ -594,7 +593,6 @@ export const IPC = {
   getInlineWindowMenuItems: 'cast:getInlineWindowMenuItems',
   popupInlineWindowMenu: 'cast:popupInlineWindowMenu',
   updateAppMenuState: 'cast:updateAppMenuState',
-  checkForAppUpdates: 'cast:checkForAppUpdates',
   getSnapshot: 'cast:getSnapshot',
   applySnapshotPatch: 'cast:applySnapshotPatch',
   restoreFromSnapshot: 'cast:restoreFromSnapshot',

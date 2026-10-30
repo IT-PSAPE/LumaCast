@@ -15,7 +15,6 @@ export type AppMenuCommandId =
   | 'file.exportCurrentItem'
   | 'file.exportWorkspace'
   | 'app.openSettings'
-  | 'app.checkForUpdates'
   | 'edit.undo'
   | 'edit.redo'
   | 'edit.cut'

@@ -464,10 +464,7 @@ describe('updateApplicationMenu', () => {
     expect(window.webContents.send).toHaveBeenCalledWith('app-menu:command', 'file.newPresentation');
   });
 
-  it('dispatches the help check-for-updates item to the focused window', () => {
-    const focusedWindow = makeWindow(9);
-    vi.mocked(BrowserWindow.getFocusedWindow).mockReturnValue(focusedWindow);
-
+  it('keeps the learn-more item opening the external website', () => {
     updateApplicationMenu(makeWindow(7), makeState());
 
     const template = lastTemplate();
@@ -475,18 +472,17 @@ describe('updateApplicationMenu', () => {
     const helpSubmenu = helpMenu.submenu as MenuItemConstructorOptions[];
     invokeClick(helpSubmenu[0]);
 
-    expect(focusedWindow.webContents.send).toHaveBeenCalledWith('app-menu:command', 'app.checkForUpdates');
+    expect(shell.openExternal).toHaveBeenCalledWith('https://github.com/IT-PSAPE/LumaCast');
   });
 
-  it('keeps the learn-more item opening the external website', () => {
+  it('does not expose a Cast self-update action in the application menus', () => {
     updateApplicationMenu(makeWindow(7), makeState());
 
-    const template = lastTemplate();
-    const helpMenu = template.find((item) => item.id === 'help')!;
-    const helpSubmenu = helpMenu.submenu as MenuItemConstructorOptions[];
-    invokeClick(helpSubmenu[2]);
+    const menuItems = flattenMenuItems(lastTemplate());
+    const labels = menuItems.map((item) => item.label);
 
-    expect(shell.openExternal).toHaveBeenCalledWith('https://github.com/IT-PSAPE/LumaCast');
+    expect(labels).not.toContain('Check for Updates…');
+    expect(menuItems.some((item) => item.id === 'help.checkForUpdates')).toBe(false);
   });
 
   it('preserves dynamic enabled state in the built template', () => {

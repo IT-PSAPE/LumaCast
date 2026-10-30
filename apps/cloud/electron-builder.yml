@@ -18,6 +18,8 @@ publish:
 # package name from productName (LumaCloud), which is invalid for deb.
 deb:
   packageName: lumacloud
+  depends:
+    - libnotify4
 
 electronUpdaterCompatibility: ">=2.16"
 
@@ -25,6 +27,12 @@ electronUpdaterCompatibility: ">=2.16"
 # Electron icon rather than copying LumaCast brand assets.
 files:
   - out/**/*
+
+extraResources:
+  - from: resources/tray-icon.png
+    to: tray-icon.png
+  - from: resources/tray-iconTemplate.png
+    to: tray-iconTemplate.png
 
 mac:
   category: public.app-category.productivity

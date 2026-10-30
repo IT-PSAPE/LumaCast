@@ -143,6 +143,7 @@ export function createMockApi(): CloudDesktopAPI {
     settings: {
       installScope: "user",
       checkOnLaunch: true,
+      checkInBackground: true,
       grants: [],
     },
     catalog: {

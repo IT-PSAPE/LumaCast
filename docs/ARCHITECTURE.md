@@ -1413,7 +1413,11 @@ Audio and layer-video volume are independent session controls applied to their m
 
 Linux validation runs Electron end-to-end tests under Xvfb and configures the installed `chrome-sandbox` helper with root ownership and mode `4755`. Playwright browser diagnostics expose Electron startup failures in the CI log.
 
-Cast's main process initializes `electron-updater` only in packaged builds. Unpackaged development and end-to-end launches retain the manual update-check explanation but never construct the platform updater, because Electron's development version can be `0.0` on Linux and is not valid updater semver. Cloud initializes `electron-updater` the same way against its own `cloud-feed` (ADR-0044) and surfaces the updater's state in its UI instead of dialogs; Flux has no runtime updater, menu, or startup checks implemented yet.
+Cast has no runtime updater or update-check IPC/menu. Cloud alone initializes
+`electron-updater` in packaged builds against `cloud-feed`, with automatic
+downloading and installation disabled. Managed-app update discovery remains in
+Cloud's release catalog (ADR-0116); app-isolated release feeds remain published
+for metadata and existing shipped clients.
 
 `.github/workflows/ci-release.yml` is the single validation and release pipeline
 (ADR-0043, which supersedes ADR-0035's single-release decision). It is called
@@ -1481,6 +1485,13 @@ below (ADR-0044).
 
 LumaCloud (`apps/cloud`) is the hub that installs, updates, downgrades,
 removes, and launches the suite's apps (ADR-0044). Its layers, top to bottom:
+
+Cloud keeps running after its window closes, with a tray menu for reopening,
+checking, and quitting. Its background monitor refreshes availability every six
+hours when enabled, avoids overlapping monitor checks, and deduplicates native
+notifications by app/version during the session. Launch checks and background
+checks have independent settings. Background work never downloads or installs;
+those remain explicit operations. See ADR-0116.
 
 - **`@lumacast/suite`** (`packages/suite`) is the renderer-safe suite model:
   the registry of managed apps and their identities (`com.lumacast.*`, plus

@@ -22,7 +22,7 @@ void _metadataCoversEveryActionId;
 // array of its members — this local, exhaustively-typed list is the
 // independent source of truth this file checks `APP_MENU_COMMAND_TO_ACTION_ID`
 // against. Compile-time exhaustiveness of the map itself is separately
-// guaranteed by its `Record<AppMenuCommandId, ActionId | null>` annotation in
+// guaranteed by its `Record<AppMenuCommandId, ActionId>` annotation in
 // `action-registry.ts` (an omitted or misspelled key fails `npm run
 // typecheck` there, independent of this list).
 const ALL_APP_MENU_COMMAND_IDS: readonly AppMenuCommandId[] = [
@@ -34,7 +34,6 @@ const ALL_APP_MENU_COMMAND_IDS: readonly AppMenuCommandId[] = [
   'file.exportCurrentItem',
   'file.exportWorkspace',
   'app.openSettings',
-  'app.checkForUpdates',
   'edit.undo',
   'edit.redo',
   'edit.cut',
@@ -115,7 +114,7 @@ describe('SHORTCUT_ACTION_TO_ACTION_ID', () => {
     }
   });
 
-  it('every non-null mapped id exists in ACTION_METADATA', () => {
+  it('every mapped id exists in ACTION_METADATA', () => {
     for (const [shortcutId, actionId] of Object.entries(SHORTCUT_ACTION_TO_ACTION_ID)) {
       if (actionId === null) continue;
       expect(ACTION_IDS, `"${shortcutId}" maps to unknown action "${actionId}"`).toContain(actionId);
@@ -136,16 +135,8 @@ describe('APP_MENU_COMMAND_TO_ACTION_ID', () => {
 
   it('every non-null mapped id exists in ACTION_METADATA', () => {
     for (const [commandId, actionId] of Object.entries(APP_MENU_COMMAND_TO_ACTION_ID)) {
-      if (actionId === null) continue;
       expect(ACTION_IDS, `"${commandId}" maps to unknown action "${actionId}"`).toContain(actionId);
     }
-  });
-
-  it('only app.checkForUpdates is null (every other legacy command has an agent-meaningful action)', () => {
-    const nullKeys = Object.entries(APP_MENU_COMMAND_TO_ACTION_ID)
-      .filter(([, actionId]) => actionId === null)
-      .map(([commandId]) => commandId);
-    expect(nullKeys).toEqual(['app.checkForUpdates']);
   });
 });
 

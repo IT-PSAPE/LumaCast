@@ -34,7 +34,6 @@ Windows/Linux.
 | Export Current Item… | — | enabled only with a current item |
 | Export Workspace… | — | enabled only when export is available |
 | Settings | CmdOrCtrl+, | |
-| Check for Updates… | — | |
 | Close (macOS) / Quit (Windows, Linux) | native role default | |
 
 ### Edit
@@ -81,7 +80,7 @@ list (macOS); Minimize, Close (Windows/Linux).
 
 ### Help
 
-Check for Updates…, and an external website link.
+An external website link. Update checks are owned by LumaCloud.
 
 ## Multiple selection
 

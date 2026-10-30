@@ -1,4 +1,4 @@
-// Persists CloudSettings (install scope, launch-check preference, and the
+// Persists CloudSettings (install scope, update-check preferences, and the
 // per-app permission grants) at <userData>/settings.json. Reads are
 // zod-validated so a corrupted or hand-edited file degrades to defaults
 // instead of crashing the app; writes are atomic (tmp file + rename) with
@@ -11,7 +11,7 @@ import { isManagedIdentity, isSuiteAppId, suiteApp, type SuiteAppId } from '@lum
 import type { CloudSettings, CloudSettingsPatch, PermissionGrant } from '../../shared/desktop-api';
 
 function defaultSettings(): CloudSettings {
-  return { installScope: 'user', checkOnLaunch: true, grants: [] };
+  return { installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] };
 }
 
 // Structural validation only: a grant's `app` is checked against the live
@@ -27,6 +27,7 @@ const grantShapeSchema = z.object({
 const settingsShapeSchema = z.object({
   installScope: z.enum(['user', 'system']),
   checkOnLaunch: z.boolean(),
+  checkInBackground: z.boolean().default(true),
   grants: z.array(grantShapeSchema),
 });
 
@@ -38,7 +39,12 @@ function parseCloudSettings(raw: unknown): CloudSettings {
     }
     return { bundleId: grant.bundleId, app: grant.app, grantedAt: grant.grantedAt };
   });
-  return { installScope: shape.installScope, checkOnLaunch: shape.checkOnLaunch, grants };
+  return {
+    installScope: shape.installScope,
+    checkOnLaunch: shape.checkOnLaunch,
+    checkInBackground: shape.checkInBackground,
+    grants,
+  };
 }
 
 function cloneSettings(settings: CloudSettings): CloudSettings {
@@ -87,6 +93,7 @@ export class SettingsStore {
       ...current,
       ...(patch.installScope !== undefined ? { installScope: patch.installScope } : {}),
       ...(patch.checkOnLaunch !== undefined ? { checkOnLaunch: patch.checkOnLaunch } : {}),
+      ...(patch.checkInBackground !== undefined ? { checkInBackground: patch.checkInBackground } : {}),
     }));
   }
 

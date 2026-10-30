@@ -76,6 +76,7 @@ const operationIdSchema = z.string().min(1).max(128);
 const settingsPatchSchema = z.object({
   installScope: z.enum(['user', 'system']).optional(),
   checkOnLaunch: z.boolean().optional(),
+  checkInBackground: z.boolean().optional(),
 });
 
 const uninstallOptionsSchema = z.object({

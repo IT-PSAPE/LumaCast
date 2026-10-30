@@ -1579,9 +1579,7 @@ export const SHORTCUT_ACTION_TO_ACTION_ID: Readonly<Record<ShortcutActionId, Act
 // `AppMenuCommandId` predates this registry too (same TODO). `edit.delete`
 // mirrors the `deleteSelected` shortcut judgment call above (they are
 // literally the same dispatch, see `use-app-menu.ts`'s `edit.delete` case).
-// The only genuinely agent-meaningless legacy id is `app.checkForUpdates`
-// (an app self-update check, excluded from the RPC coverage above too).
-export const APP_MENU_COMMAND_TO_ACTION_ID: Readonly<Record<AppMenuCommandId, ActionId | null>> = {
+export const APP_MENU_COMMAND_TO_ACTION_ID: Readonly<Record<AppMenuCommandId, ActionId>> = {
   'file.newPresentation': 'item.create',
   'file.newLyric': 'item.create',
   'file.newPlaylist': 'playlist.create',
@@ -1590,7 +1588,6 @@ export const APP_MENU_COMMAND_TO_ACTION_ID: Readonly<Record<AppMenuCommandId, Ac
   'file.exportCurrentItem': 'project.exportBundle',
   'file.exportWorkspace': 'project.exportBundle',
   'app.openSettings': 'workbench.openSettings',
-  'app.checkForUpdates': null,
   'edit.undo': 'edit.undo',
   'edit.redo': 'edit.redo',
   'edit.cut': 'element.cut',

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, Notification, shell, type Tray } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { HostArch, HostPlatform } from '@lumacast/suite';
@@ -7,6 +7,9 @@ import { createMainWindow } from './window';
 import { installApplicationMenu } from './application-menu';
 import { registerIpc } from './ipc';
 import { SelfUpdater } from './self-updater';
+import { BackgroundUpdateMonitor } from './background-updates';
+import { createWindowLifecycle } from './window-lifecycle';
+import { createCloudTray } from './tray';
 import { createPlatformAdapter } from './platform';
 import { createNodePlatformDeps } from './platform/node-deps';
 import type { PlatformEnv } from './platform/adapter';
@@ -61,19 +64,23 @@ if (!app.requestSingleInstanceLock()) {
   let mainWindow: BrowserWindow | null = null;
   let manager: SuiteManager | undefined;
   let selfUpdater: SelfUpdater | undefined;
+  let backgroundUpdates: BackgroundUpdateMonitor | undefined;
+  let tray: Tray | null = null;
   let quitting = false;
 
-  function openMainWindow(): void {
+  function openMainWindow(): BrowserWindow {
     mainWindow = createMainWindow();
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
+    return mainWindow;
   }
 
-  app.on('second-instance', () => {
-    mainWindow?.show();
-    mainWindow?.focus();
+  const windowLifecycle = createWindowLifecycle({
+    getWindow: () => mainWindow,
+    openWindow: () => openMainWindow(),
   });
+  app.on('second-instance', windowLifecycle.onSecondInstance);
 
   app
     .whenReady()
@@ -125,7 +132,36 @@ if (!app.requestSingleInstanceLock()) {
         selfUpdate: () => selfUpdater!.state(),
         downloadsDir,
       });
-      await manager.initialize();
+      const initialOverview = await manager.initialize();
+
+      backgroundUpdates = new BackgroundUpdateMonitor({
+        initialOverview,
+        refresh: () => manager!.refresh(),
+        checkSelfUpdate: () => selfUpdater!.check(),
+        notify: ({ appName, version }) => {
+          if (!Notification.isSupported()) return;
+          const notification = new Notification({
+            title: `${appName} update available`,
+            body: `Version ${version} is available in LumaCloud.`,
+          });
+          notification.on('click', windowLifecycle.showWindow);
+          notification.show();
+        },
+      });
+
+      let backgroundChecking = false;
+      const applyBackgroundSetting = (enabled: boolean): void => {
+        backgroundUpdates?.setEnabled(enabled);
+        if (enabled && !backgroundChecking) selfUpdater?.scheduleStartupCheck();
+        backgroundChecking = enabled;
+      };
+
+      manager.on('overview-change', (overview) => {
+        backgroundUpdates?.observeOverview(overview);
+        applyBackgroundSetting(overview.settings.checkInBackground);
+      });
+      selfUpdater.on('change', (state) => backgroundUpdates?.observeSelfUpdate(state));
+      applyBackgroundSetting(settings.get().checkInBackground);
 
       registerIpc({ manager, selfUpdater, getWindow: () => mainWindow });
 
@@ -140,19 +176,22 @@ if (!app.requestSingleInstanceLock()) {
 
       openMainWindow();
 
-      // macOS keeps the process alive with no windows; clicking the dock icon
-      // reopens the shell rather than doing nothing.
-      app.on('activate', () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-          openMainWindow();
-        }
+      tray = createCloudTray({
+        onOpen: windowLifecycle.showWindow,
+        onCheckForUpdates: () => {
+          void backgroundUpdates?.checkNow();
+          void selfUpdater?.check();
+        },
+        onQuit: () => app.quit(),
       });
 
-      selfUpdater.scheduleStartupCheck();
+      app.on('activate', windowLifecycle.onActivate);
+      app.on('window-all-closed', windowLifecycle.onAllWindowsClosed);
+
       if (settings.get().checkOnLaunch) {
         // Fire-and-forget: the window must not wait on a network round trip,
         // and the cached catalog already gave the UI something to render.
-        void manager.refresh();
+        void backgroundUpdates.checkNow();
       }
     })
     .catch((error: unknown) => {
@@ -160,17 +199,14 @@ if (!app.requestSingleInstanceLock()) {
       app.exit(1);
     });
 
-  app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
-      app.quit();
-    }
-  });
-
   // Quit is deferred once so an in-flight download/queue can drain: any
   // operation that has not reached the point of no return (actually
   // installing/removing) is cancelled, rather than left to write a
   // half-downloaded artifact after the process is gone.
   app.on('before-quit', (event) => {
+    backgroundUpdates?.stop();
+    tray?.destroy();
+    tray = null;
     if (quitting || !manager) return;
     event.preventDefault();
     quitting = true;

@@ -55,7 +55,6 @@ import { IPC } from '@lumacast/protocol';
 import { registerIpcHandlers } from '../../../../apps/cast/main/ipc';
 import type { PersistenceServiceLike } from '../../../../apps/cast/main/persistence/persistence-service-proxy';
 import type { NdiServiceLike } from '@lumacast/engine';
-import type { AppUpdater } from '../../../../apps/cast/main/app-updater';
 
 function fakeEvent(): IpcMainInvokeEvent {
   return {} as IpcMainInvokeEvent;
@@ -87,7 +86,6 @@ describe('getAudioCoverArt IPC handler', () => {
       {} as unknown as PersistenceServiceLike,
       makeFakeNdiService(),
       () => null,
-      {} as unknown as AppUpdater,
     );
   });
 

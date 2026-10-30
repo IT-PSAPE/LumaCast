@@ -22,7 +22,7 @@ function fakeOverview(): SuiteOverview {
       installLocations: { user: '/u', system: '/s' },
       systemScopeWritable: true,
     },
-    settings: { installScope: 'user', checkOnLaunch: true, grants: [] },
+    settings: { installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] },
     catalog: { status: 'ready', fetchedAt: null, error: null },
     apps: [],
     selfUpdate: { status: 'idle', availableVersion: null, percent: null, error: null, checkedAt: null },
@@ -44,7 +44,7 @@ function fakeOperation(): OperationSnapshot {
 }
 
 function fakeSettings(): CloudSettings {
-  return { installScope: 'user', checkOnLaunch: true, grants: [] };
+  return { installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] };
 }
 
 function makeManager(overrides: Partial<IpcSuiteManager> = {}): IpcSuiteManager {
@@ -151,6 +151,7 @@ describe('apps/cloud createIpcHandlers delegation', () => {
     await handlers[IPC_CHANNELS.grant]('cast');
     await handlers[IPC_CHANNELS.revoke]('cast');
     await handlers[IPC_CHANNELS.updateSettings]({ checkOnLaunch: false });
+    await handlers[IPC_CHANNELS.updateSettings]({ checkInBackground: false });
     await handlers[IPC_CHANNELS.install]('cast', '1.0.0');
     await handlers[IPC_CHANNELS.uninstall]('cast', { removeUserData: true });
     await handlers[IPC_CHANNELS.cancel]('op-1');
@@ -163,6 +164,7 @@ describe('apps/cloud createIpcHandlers delegation', () => {
     expect(manager.grant).toHaveBeenCalledWith('cast');
     expect(manager.revoke).toHaveBeenCalledWith('cast');
     expect(manager.updateSettings).toHaveBeenCalledWith({ checkOnLaunch: false });
+    expect(manager.updateSettings).toHaveBeenCalledWith({ checkInBackground: false });
     expect(manager.install).toHaveBeenCalledWith('cast', '1.0.0');
     expect(manager.uninstall).toHaveBeenCalledWith('cast', { removeUserData: true });
     expect(manager.cancel).toHaveBeenCalledWith('op-1');

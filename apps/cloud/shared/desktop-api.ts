@@ -45,10 +45,12 @@ export interface CloudSettings {
   installScope: InstallScope;
   /** Refresh the catalog when the window opens. */
   checkOnLaunch: boolean;
+  /** Continue checking for updates and notifying while the window is closed. */
+  checkInBackground: boolean;
   grants: PermissionGrant[];
 }
 
-export type CloudSettingsPatch = Partial<Pick<CloudSettings, 'installScope' | 'checkOnLaunch'>>;
+export type CloudSettingsPatch = Partial<Pick<CloudSettings, 'installScope' | 'checkOnLaunch' | 'checkInBackground'>>;
 
 export type CatalogStatus = 'idle' | 'loading' | 'ready' | 'error';
 

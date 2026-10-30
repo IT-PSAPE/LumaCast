@@ -69,7 +69,6 @@ import { AgentConfigStore } from '../../../../../apps/cast/main/agent/agent-conf
 import { hashMcpToken, verifyMcpToken } from '../../../../../apps/cast/main/agent/permission-policy';
 import type { PersistenceServiceLike } from '../../../../../apps/cast/main/persistence/persistence-service-proxy';
 import type { NdiServiceLike } from '@lumacast/engine';
-import type { AppUpdater } from '../../../../../apps/cast/main/app-updater';
 
 const PNG_BYTES = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 0)]);
 
@@ -165,7 +164,6 @@ beforeEach(() => {
     repositoryMethods as unknown as PersistenceServiceLike,
     makeFakeNdiService(),
     () => null,
-    {} as unknown as AppUpdater,
     {},
   );
 });

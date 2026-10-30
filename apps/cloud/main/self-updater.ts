@@ -26,6 +26,7 @@ export class SelfUpdater extends EventEmitter {
   private checkedAt: string | null = null;
   private initialized = false;
   private installPromise: Promise<void> | null = null;
+  private startupCheckScheduled = false;
   private readonly now: () => Date;
 
   constructor(options: SelfUpdaterOptions = {}) {
@@ -39,7 +40,7 @@ export class SelfUpdater extends EventEmitter {
     this.initialized = true;
 
     autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.autoInstallOnAppQuit = false;
 
     autoUpdater.on('checking-for-update', () => {
       this.apply({ status: 'checking', error: null });
@@ -130,9 +131,10 @@ export class SelfUpdater extends EventEmitter {
     autoUpdater.quitAndInstall();
   }
 
-  /** Called once from main/index.ts after `app.whenReady()`. */
+  /** Schedules one availability check after background checking is enabled. */
   scheduleStartupCheck(): void {
-    if (!app.isPackaged) return;
+    if (!app.isPackaged || this.startupCheckScheduled) return;
+    this.startupCheckScheduled = true;
     setTimeout(() => {
       void this.check();
     }, 1500).unref();

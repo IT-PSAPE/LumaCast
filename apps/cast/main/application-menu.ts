@@ -113,9 +113,6 @@ function buildFileMenu(state: AppMenuState): SerializableMenuItem[] {
       label: 'Settings',
       accelerator: 'CmdOrCtrl+,',
     }),
-    commandDescriptor('app.checkForUpdates', {
-      label: 'Check for Updates…',
-    }),
     { type: 'separator' },
     process.platform === 'darwin'
       ? { role: 'close' }
@@ -342,8 +339,6 @@ function buildWindowMenu(): SerializableMenuItem[] {
 
 function buildHelpMenu(): SerializableMenuItem[] {
   return [
-    { id: 'help.checkForUpdates', label: 'Check for Updates…' },
-    { type: 'separator' },
     { id: 'learn-more', label: 'LumaCast Website' },
   ];
 }
@@ -452,15 +447,6 @@ function toMenuTemplateItem(item: SerializableMenuItem, browserWindow: BrowserWi
 
   if (item.commandId) {
     return { ...base, click: () => { sendMenuCommand(browserWindow, item.commandId!); } };
-  }
-
-  if (item.id === 'help.checkForUpdates') {
-    return {
-      ...base,
-      click: () => {
-        sendMenuCommand(BrowserWindow.getFocusedWindow(), 'app.checkForUpdates');
-      },
-    };
   }
 
   if (item.id === 'learn-more') {

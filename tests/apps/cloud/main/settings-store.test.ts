@@ -19,18 +19,19 @@ afterEach(async () => {
 describe('apps/cloud SettingsStore', () => {
   it('starts from defaults when no file exists', async () => {
     const store = await SettingsStore.open(filePath);
-    expect(store.get()).toEqual({ installScope: 'user', checkOnLaunch: true, grants: [] });
+    expect(store.get()).toEqual({ installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] });
   });
 
   it('round-trips a write through a fresh SettingsStore.open', async () => {
     const store = await SettingsStore.open(filePath);
-    await store.update({ installScope: 'system', checkOnLaunch: false });
+    await store.update({ installScope: 'system', checkOnLaunch: false, checkInBackground: false });
     await store.grant('cast', 'com.lumacast.app');
 
     const reopened = await SettingsStore.open(filePath);
     const settings = reopened.get();
     expect(settings.installScope).toBe('system');
     expect(settings.checkOnLaunch).toBe(false);
+    expect(settings.checkInBackground).toBe(false);
     expect(settings.grants).toEqual([
       { app: 'cast', bundleId: 'com.lumacast.app', grantedAt: expect.any(String) },
     ]);
@@ -49,7 +50,7 @@ describe('apps/cloud SettingsStore', () => {
 
     const store = await SettingsStore.open(filePath);
 
-    expect(store.get()).toEqual({ installScope: 'user', checkOnLaunch: true, grants: [] });
+    expect(store.get()).toEqual({ installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] });
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
@@ -60,7 +61,7 @@ describe('apps/cloud SettingsStore', () => {
 
     const store = await SettingsStore.open(filePath);
 
-    expect(store.get()).toEqual({ installScope: 'user', checkOnLaunch: true, grants: [] });
+    expect(store.get()).toEqual({ installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] });
     consoleError.mockRestore();
   });
 
@@ -80,6 +81,23 @@ describe('apps/cloud SettingsStore', () => {
 
     expect(store.get().grants).toEqual([]);
     consoleError.mockRestore();
+  });
+
+  it('defaults background checking on when reading settings saved by an older version', async () => {
+    await writeFile(filePath, JSON.stringify({
+      installScope: 'user',
+      checkOnLaunch: false,
+      grants: [{ app: 'cast', bundleId: 'com.lumacast.app', grantedAt: '2026-01-01T00:00:00.000Z' }],
+    }), 'utf8');
+
+    const store = await SettingsStore.open(filePath);
+
+    expect(store.get()).toEqual({
+      installScope: 'user',
+      checkOnLaunch: false,
+      checkInBackground: true,
+      grants: [{ app: 'cast', bundleId: 'com.lumacast.app', grantedAt: '2026-01-01T00:00:00.000Z' }],
+    });
   });
 
   it('grants idempotently: granting an already-granted app does not duplicate it', async () => {
@@ -137,10 +155,11 @@ describe('apps/cloud SettingsStore', () => {
     await Promise.all([
       store.grant('cast', 'com.lumacast.app'),
       store.grant('flux', 'app.lumaflux.desktop'),
-      store.update({ checkOnLaunch: false }),
+      store.update({ checkOnLaunch: false, checkInBackground: false }),
     ]);
     const settings = store.get();
     expect(settings.checkOnLaunch).toBe(false);
+    expect(settings.checkInBackground).toBe(false);
     expect(settings.grants.map((g) => g.app).sort()).toEqual(['cast', 'flux']);
 
     const onDisk = JSON.parse(await readFile(filePath, 'utf8'));

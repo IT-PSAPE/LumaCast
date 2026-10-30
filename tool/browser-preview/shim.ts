@@ -176,7 +176,6 @@ const castApi = {
   writeClipboardText: noop,
   getInlineWindowMenuItems: noop,
   popupInlineWindowMenu: noop,
-  checkForAppUpdates: noop,
   applySnapshotPatch: noop,
   restoreFromSnapshot: noop,
   chooseBundleExportPath: noop,

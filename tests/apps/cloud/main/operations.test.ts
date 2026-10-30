@@ -158,7 +158,7 @@ function baseDeps(overrides: Partial<OperationQueueDeps> = {}): OperationQueueDe
   return {
     catalog: fakeCatalog([]),
     adapter: fakeAdapter(),
-    settings: { get: () => ({ installScope: 'user', checkOnLaunch: true, grants: [] }) },
+    settings: { get: () => ({ installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] }) },
     discover: async () => null,
     platform: 'darwin',
     arch: 'arm64',

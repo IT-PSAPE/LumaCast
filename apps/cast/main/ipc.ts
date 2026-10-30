@@ -169,7 +169,6 @@ import { createProviderAdapter } from './agent/providers';
 import type { AgentMcpServiceLike } from './mcp/mcp-service';
 import { McpService } from './mcp/mcp-service-proxy';
 import { getInlineWindowMenuItems, popupInlineWindowMenu, updateApplicationMenu } from './application-menu';
-import type { AppUpdater } from './app-updater';
 import { readDeckBundleArchive, writeDeckBundleArchive } from './deck-bundle-archive';
 import {
   getLogFilePath,
@@ -459,7 +458,6 @@ export const registerIpcHandlers = (
   repo: PersistenceServiceLike,
   ndiService: NdiServiceLike,
   getMainWindow: () => BrowserWindow | null,
-  appUpdater: AppUpdater,
   options: {
     onPersistenceProgress?: (progress: PersistenceProgress) => void;
     getLatestPersistenceProgress?: () => PersistenceProgress | null;
@@ -734,11 +732,6 @@ export const registerIpcHandlers = (
     updateAppMenuState: (event, state: AppMenuState) => {
       const browserWindow = getDialogWindow(event);
       updateApplicationMenu(browserWindow, state);
-    },
-    checkForAppUpdates: async (event, manual?: boolean) => {
-      expectRpcPrimitiveArgs([manual], [{ name: 'manual', kind: 'optionalBoolean' }], rpcContext('checkForAppUpdates'));
-      const browserWindow = getDialogWindow(event);
-      await appUpdater.checkForUpdates(Boolean(manual), browserWindow);
     },
     getSnapshot: () => getSnapshotWithHeartbeat(),
     applySnapshotPatch: async (_event, patch: import('@lumacast/protocol').SnapshotPatch) => {

@@ -103,7 +103,6 @@ import { MediaLibraryService } from '../../../../apps/cast/main/media-library';
 import { maskManagedMediaSource, revokeManagedMediaSource } from '../../../../apps/cast/main/media-capability';
 import type { PersistenceServiceLike } from '../../../../apps/cast/main/persistence/persistence-service-proxy';
 import type { NdiServiceLike } from '@lumacast/engine';
-import type { AppUpdater } from '../../../../apps/cast/main/app-updater';
 
 const FRAME_CHANNEL_NAME_SET = new Set<string>(NDI_FRAME_CHANNEL_NAMES);
 let repositoryMethods: Record<string, ReturnType<typeof vi.fn>>;
@@ -185,9 +184,7 @@ describe('main IPC registration (issue #152)', () => {
     createNdiAudioTransport = vi.fn<(name: NdiOutputName) => MessagePortMain | null>(() => null);
     const repo = repositoryMethods as unknown as PersistenceServiceLike;
     ndiService = makeFakeNdiService();
-    const appUpdater = {} as unknown as AppUpdater;
-
-    registerIpcHandlers(repo, ndiService, () => null, appUpdater, {
+    registerIpcHandlers(repo, ndiService, () => null, {
       onPersistenceProgress: (progress) => reportedPersistenceProgress.push(progress),
       getLatestPersistenceProgress: () => latestPersistenceProgress,
       createNdiFrameTransport,
@@ -199,10 +196,8 @@ describe('main IPC registration (issue #152)', () => {
     const missing = RPC_CHANNEL_NAMES.filter((name) => !handleRegistrations.has(IPC[name]));
     expect(missing, `missing ipcMain.handle registration for: ${missing.join(', ')}`).toEqual([]);
     // Sanity: this is the full operation surface, not a partial list.
-    // 109 content operations (105 + createTimer/updateTimer/deleteTimer +
-    // exportTextFile) + 11 read projections + `agentRespondAction` + the 25
-    // `agent:*` runtime operations.
-    expect(RPC_CHANNEL_NAMES.length).toBe(146);
+    // The exact operation count is pinned to catch accidental contract drift.
+    expect(RPC_CHANNEL_NAMES.length).toBe(145);
   });
 
   it('registers nothing outside the canonical map (extra-registration regression)', () => {
@@ -522,7 +517,6 @@ describe('main IPC registration (issue #152)', () => {
         isDestroyed: () => false,
         webContents: { send },
       }) as never,
-      {} as unknown as AppUpdater,
       { getLatestPersistenceProgress: () => latestPersistenceProgress },
     );
 
@@ -589,7 +583,6 @@ describe('main IPC registration (issue #152)', () => {
       repositoryMethods as unknown as PersistenceServiceLike,
       ndiService,
       () => null,
-      {} as unknown as AppUpdater,
       { getLatestPersistenceProgress: () => latestPersistenceProgress },
     );
 
@@ -656,7 +649,6 @@ describe('main IPC registration (issue #152)', () => {
       repositoryMethods as unknown as PersistenceServiceLike,
       ndiService,
       () => mainWindow as never,
-      {} as unknown as AppUpdater,
       { getLatestPersistenceProgress: () => latestPersistenceProgress },
     );
 
@@ -702,7 +694,6 @@ describe('main IPC registration (issue #152)', () => {
       repositoryMethods as unknown as PersistenceServiceLike,
       ndiService,
       () => mainWindow as never,
-      {} as unknown as AppUpdater,
     );
     onRegistrations.get(PERSISTENCE_CHANNELS.subscribe)!({ sender: { isDestroyed: () => false, send: vi.fn() } });
 
@@ -725,7 +716,6 @@ describe('main IPC registration (issue #152)', () => {
       repositoryMethods as unknown as PersistenceServiceLike,
       ndiService,
       () => mainWindow as never,
-      {} as unknown as AppUpdater,
     );
     onRegistrations.get(PERSISTENCE_CHANNELS.subscribe)!({ sender: { isDestroyed: () => false, send: vi.fn() } });
     destroyed = true;
@@ -753,7 +743,6 @@ describe('main IPC registration (issue #152)', () => {
         isDestroyed: () => false,
         webContents: { send },
       }) as never,
-      {} as unknown as AppUpdater,
       { getLatestPersistenceProgress: () => latestPersistenceProgress },
     );
 

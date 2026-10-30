@@ -3,7 +3,7 @@ import { assertGranted, assertManaged, PermissionError } from '../../../../apps/
 import type { CloudSettings } from '../../../../apps/cloud/shared/desktop-api';
 
 function settingsWith(grants: CloudSettings['grants']): CloudSettings {
-  return { installScope: 'user', checkOnLaunch: true, grants };
+  return { installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants };
 }
 
 describe('apps/cloud assertManaged', () => {

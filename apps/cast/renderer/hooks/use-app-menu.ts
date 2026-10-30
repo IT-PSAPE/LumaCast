@@ -175,9 +175,6 @@ export function useAppMenu(): void {
       case 'view.mode.settings':
         workbench.actions.setWorkbenchMode('settings');
         return;
-      case 'app.checkForUpdates':
-        await window.castApi.checkForAppUpdates(true);
-        return;
       case 'edit.undo':
         // An editable target owns undo even when native execCommand fails:
         // falling through would replay global history behind the field's

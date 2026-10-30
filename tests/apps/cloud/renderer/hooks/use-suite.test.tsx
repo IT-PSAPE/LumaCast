@@ -17,7 +17,7 @@ function makeOverview(overrides: Partial<SuiteOverview> = {}): SuiteOverview {
       installLocations: { user: '/Users/mock/Applications', system: '/Applications' },
       systemScopeWritable: true,
     },
-    settings: { installScope: 'user', checkOnLaunch: true, grants: [] },
+    settings: { installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] },
     catalog: { status: 'ready', fetchedAt: '2026-09-26T00:00:00.000Z', error: null },
     apps: [],
     selfUpdate: { status: 'up-to-date', availableVersion: null, percent: null, error: null, checkedAt: null },

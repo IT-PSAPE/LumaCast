@@ -55,6 +55,17 @@ export function SettingsScreen({ overview, api }: SettingsScreenProps) {
         />
       </section>
 
+      <section className="flex items-center justify-between gap-4">
+        <Title.h6>Check for updates in background</Title.h6>
+        <Switch
+          label="Check for updates in background"
+          checked={settings.checkInBackground}
+          onCheckedChange={(checked) => {
+            void api.updateSettings({ checkInBackground: checked });
+          }}
+        />
+      </section>
+
       <section className="flex flex-col gap-3">
         <Title.h6>Permissions</Title.h6>
         {settings.grants.length === 0 ? (

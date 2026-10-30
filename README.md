@@ -277,7 +277,7 @@ Flux's **Remove from library** preserves original files. Soundboard removal dele
 
 ## Updater status
 
-Installed Cast builds check for updates on startup and expose a manual `Check for Updates…` action from the native application menu, wired through `electron-updater`. New builds of every app resolve updates from their own app-isolated `<app>-feed` release via `provider: generic`, so a Cloud or Flux update can never resolve against a Cast release; only legacy shipped Cast versions read the repository's latest release directly. Cloud updates itself the same way from `cloud-feed` and shows the updater's state in its own UI; it also installs, updates, downgrades, and removes Cast and Flux from the repository's releases after a per-app permission grant (see [docs/adr/0044-lumacloud-suite-manager.md](docs/adr/0044-lumacloud-suite-manager.md)). Flux has no runtime updater, menu, or startup checks implemented yet.
+LumaCloud owns update checks and notifications. Cast has no runtime updater or update-check menu. Cloud remains available in the system tray after its window closes and checks for newer installed-app versions every six hours when **Check for updates in background** is enabled. Notifications open Cloud; downloading and installing require an explicit action. **Check for updates on launch** independently controls the startup catalog check. Cloud's own updater uses `cloud-feed` with automatic downloading and installation disabled. It also installs, updates, downgrades, and removes managed apps after a per-app permission grant (see [ADR-0116](docs/adr/0116-cloud-update-supervision.md)). Existing app-isolated release feeds remain available for release metadata and older shipped clients.
 
 ## Architecture
 

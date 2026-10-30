@@ -8,7 +8,7 @@ import type { CloudSettings, OperationSnapshot, SelfUpdateState } from '../../..
 class FakeSettingsStore implements SuiteSettingsStore {
   private state: CloudSettings;
 
-  constructor(initial: CloudSettings = { installScope: 'user', checkOnLaunch: true, grants: [] }) {
+  constructor(initial: CloudSettings = { installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] }) {
     this.state = initial;
   }
 
@@ -16,7 +16,7 @@ class FakeSettingsStore implements SuiteSettingsStore {
     return this.state;
   }
 
-  async update(patch: Partial<Pick<CloudSettings, 'installScope' | 'checkOnLaunch'>>): Promise<CloudSettings> {
+  async update(patch: Partial<Pick<CloudSettings, 'installScope' | 'checkOnLaunch' | 'checkInBackground'>>): Promise<CloudSettings> {
     this.state = { ...this.state, ...patch };
     return this.state;
   }
@@ -182,7 +182,7 @@ describe('apps/cloud SuiteManager overview', () => {
     expect(overview.host.installLocations).toEqual({ user: '/Users/test/Applications', system: '/Applications' });
     expect(overview.host.systemScopeWritable).toBe(true);
 
-    expect(overview.settings).toEqual({ installScope: 'user', checkOnLaunch: true, grants: [] });
+    expect(overview.settings).toEqual({ installScope: 'user', checkOnLaunch: true, checkInBackground: true, grants: [] });
     expect(overview.catalog).toEqual({ status: 'ready', fetchedAt: '2026-01-01T00:00:00.000Z', error: null });
 
     const castState = overview.apps.find((a) => a.app === 'cast');

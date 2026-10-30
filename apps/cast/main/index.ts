@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { applyTitleBarOverlay, windowChromeOptions } from '@lumacast/desktop';
 import { PERSISTENCE_EVENTS, type PersistenceProgress } from '@lumacast/protocol';
-import { AppUpdater } from './app-updater';
 import { createApplicationMenu } from './application-menu';
 import { registerIpcHandlers } from './ipc';
 import { initializeLogger, getLogFilePath } from './logger';
@@ -70,10 +69,6 @@ let latestPersistenceProgress: PersistenceProgress | null = null;
 let persistenceShutdownPromise: Promise<void> | null = null;
 let persistenceShutdownComplete = false;
 let isShuttingDown = false;
-const appUpdater = new AppUpdater({
-  getMainWindow: () => mainWindow,
-});
-
 function resetGpuOutput(): Promise<void> {
   if (ndiGpuResetPromise) return ndiGpuResetPromise;
   const output = ndiGpuOutput;
@@ -378,7 +373,6 @@ app.whenReady().then(() => {
       service,
       ndiService!,
       () => mainWindow,
-      appUpdater,
       {
         onPersistenceProgress: reportPersistenceProgress,
         getLatestPersistenceProgress: () => latestPersistenceProgress,
@@ -397,9 +391,6 @@ app.whenReady().then(() => {
     ),
     createWindow: createMainWindow,
   });
-  appUpdater.initialize();
-  appUpdater.scheduleStartupCheck();
-
   app.on('activate', () => {
     if (!mainWindow || mainWindow.isDestroyed()) {
       void (ndiGpuResetPromise ?? Promise.resolve()).then(() => {

@@ -108,7 +108,6 @@ function setCastApi(): void {
     readClipboardText,
     chooseBundleExportPath: vi.fn(),
     exportBundle: vi.fn(),
-    checkForAppUpdates: vi.fn(),
   } as unknown as Record<string, unknown>;
 }
 

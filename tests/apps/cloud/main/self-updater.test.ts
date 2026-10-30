@@ -43,6 +43,8 @@ import { SelfUpdater } from '../../../../apps/cloud/main/self-updater';
 beforeEach(() => {
   appState.isPackaged = true;
   updater.listeners.clear();
+  updater.autoUpdater.autoDownload = true;
+  updater.autoUpdater.autoInstallOnAppQuit = true;
   updater.autoUpdater.checkForUpdates.mockClear();
   updater.autoUpdater.downloadUpdate.mockClear();
   updater.autoUpdater.quitAndInstall.mockClear();
@@ -58,6 +60,14 @@ async function makeAvailable(self: SelfUpdater): Promise<void> {
 }
 
 describe('apps/cloud SelfUpdater install', () => {
+  it('disables automatic downloads and quit-time installation', async () => {
+    const self = new SelfUpdater();
+    await self.check();
+
+    expect(updater.autoUpdater.autoDownload).toBe(false);
+    expect(updater.autoUpdater.autoInstallOnAppQuit).toBe(false);
+  });
+
   it('downloads an available update, then quits into it once ready', async () => {
     const self = new SelfUpdater();
     await makeAvailable(self);

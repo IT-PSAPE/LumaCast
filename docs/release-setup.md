@@ -155,9 +155,10 @@ version; it only heals the `<app>-feed` from the published release.
 
 ## Auto-update
 
-Packaged builds use `electron-updater` against their app's `<app>-feed`
-metadata. Cast wires the runtime updater end to end: installed builds check for
-updates after launch and expose `Check for Updates…` in the native application
-menu, and macOS auto-update requires a properly signed build. Cloud and Flux are
-blank shells: only generic packaging and feeds are configured for them, with no
-runtime updater yet.
+LumaCloud owns runtime update checks. Cast has no updater, startup check, or
+manual update-check menu. Cloud discovers managed-app versions through the
+release catalog and uses `electron-updater` against `cloud-feed` for itself.
+Its background checks only notify; downloads and installations require explicit
+user action. Cloud self-updates on macOS require a properly signed build.
+Keep each app's `<app>-feed` metadata publishing: release discovery and older
+shipped clients still use it. See [ADR-0116](adr/0116-cloud-update-supervision.md).
