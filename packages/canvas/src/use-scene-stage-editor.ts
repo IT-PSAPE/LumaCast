@@ -6,7 +6,7 @@ import type { ElementUpdateInput } from '@lumacast/protocol';
 import { resolveSnap, resolveTransformSnap } from './snap-guides';
 import { type RichBody, richBodyToText, isRichBody, type GuideLine, type RenderScene } from '@lumacast/composition';
 import { createDragSession, type DragSession } from './scene-stage-drag-session';
-import { mapSnapBoxes, scaleGroupChildren } from './scene-stage-editor-utils';
+import { isCanvasElementMovable, mapSnapBoxes, scaleGroupChildren } from './scene-stage-editor-utils';
 import { useSceneStageShift } from './use-scene-stage-shift';
 import { useSceneStageMarquee } from './use-scene-stage-marquee';
 import { useSceneStageDraftBuffer } from './use-scene-stage-draft-buffer';
@@ -67,6 +67,14 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   const [editingTextId, setEditingTextId] = useState<Id | null>(null);
   const shiftPressed = useSceneStageShift(editable);
   const selectedIdsSet = useMemo(() => new Set(selectedElementIds), [selectedElementIds]);
+  const movableElementIds = useMemo(
+    () => new Set(effectiveElements.filter(isCanvasElementMovable).map((element) => element.id)),
+    [effectiveElements],
+  );
+  const movableSelectionIds = useMemo(
+    () => selectedElementIds.filter((id) => movableElementIds.has(id)),
+    [movableElementIds, selectedElementIds],
+  );
   const { applyDraftPatch, flushDraftBuffer } = useSceneStageDraftBuffer({ setDraftElements });
   const mediaCrop = useSceneStageMediaCrop({
     editable, stageRef, transformerRef, nodeRefs, effectiveElementsRef, baseElementsRef,
@@ -78,6 +86,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     stageRef,
     nodeRefs,
     selectedElementIds,
+    movableElementIds,
     selectElements,
     clearSelection,
   });
@@ -95,13 +104,13 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     if (!editable) return;
     const transformer = transformerRef.current;
     if (!transformer) return;
-    const nodes = selectedElementIds
+    const nodes = movableSelectionIds
       .map((id) => nodeRefs.current.get(id))
       .filter((node): node is Konva.Group => Boolean(node));
     transformer.nodes(nodes);
     transformer.forceUpdate();
     transformer.getLayer()?.batchDraw();
-  }, [editable, selectedElementIds]);
+  }, [editable, movableSelectionIds]);
 
   // Group resize (#111 group rendering): a group's live transform never
   // touches its Konva children or the draft state (see handleNodeTransform
@@ -145,10 +154,10 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     };
   }, [readGroupNodeUpdate]);
 
-  const commitSelectionFromNodes = useCallback(async () => {
+  const commitSelectionFromNodes = useCallback(async (elementIds: Id[] = movableSelectionIds) => {
     flushDraftBuffer();
     try {
-      const updates = selectedElementIdsRef.current
+      const updates = elementIds
         .map((id) => readNodeUpdate(id))
         .filter((update): update is ElementUpdateInput => Boolean(update));
       // commitElementUpdates → updateElementsBatch rejects when an element no
@@ -159,12 +168,12 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     } finally {
       setCanvasInteracting(false);
     }
-  }, [readNodeUpdate, commitElementUpdates, flushDraftBuffer, setCanvasInteracting]);
+  }, [readNodeUpdate, commitElementUpdates, flushDraftBuffer, movableSelectionIds, setCanvasInteracting]);
 
   const handleNodeSelect = useCallback((id: Id, toggle: boolean) => {
     if (!editable) return;
     if (toggle) toggleElementSelection(id);
-    else selectElement(id);
+    else if (!selectedElementIdsRef.current.includes(id)) selectElement(id);
   }, [editable, selectElement, toggleElementSelection]);
 
   const handleNodeDoubleClick = useCallback((id: Id) => {
@@ -245,21 +254,22 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
   }, [editingTextId, clearTextDraft]);
 
   const handleNodeDragStart = useCallback((id: Id) => {
-    if (!editable) return;
+    if (!editable || !movableElementIds.has(id)) return;
     setCanvasInteracting(true);
     const selectedIds = selectedElementIdsRef.current;
     const selectedIdsSet = new Set(selectedIds);
     const nextSelection = selectedIdsSet.has(id) ? selectedIds : [id];
-    const session = createDragSession(effectiveElementsRef.current, nextSelection);
+    const movingIds = nextSelection.filter((selectedId) => movableElementIds.has(selectedId));
+    const session = createDragSession(effectiveElementsRef.current, movingIds);
     selectElements(nextSelection);
     dragStartByIdRef.current.clear();
-    for (const selectedId of nextSelection) {
+    for (const selectedId of movingIds) {
       const element = session.elementById.get(selectedId);
       if (!element) continue;
       dragStartByIdRef.current.set(selectedId, { x: element.x, y: element.y });
     }
     dragSessionRef.current = session;
-  }, [editable, selectElements, setCanvasInteracting]);
+  }, [editable, movableElementIds, selectElements, setCanvasInteracting]);
 
   const handleNodeDragMove = useCallback((id: Id) => {
     if (!editable) return;
@@ -291,14 +301,18 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     for (const selectedId of selectedIds) {
       const start = dragStartByIdRef.current.get(selectedId);
       if (!start) continue;
+      const selectedNode = nodeRefs.current.get(selectedId);
+      selectedNode?.position({ x: start.x + dx, y: start.y + dy });
       applyDraftPatch(selectedId, { x: start.x + dx, y: start.y + dy });
     }
   }, [applyDraftPatch, editable, scene.height, scene.width]);
 
   const handleNodeDragEnd = useCallback(async () => {
     setGuideLines([]);
+    const movedIds = dragSessionRef.current?.selectedIds ?? [];
     dragSessionRef.current = null;
-    await commitSelectionFromNodes();
+    if (movedIds.length > 0) await commitSelectionFromNodes(movedIds);
+    else setCanvasInteracting(false);
   }, [commitSelectionFromNodes]);
 
   const handleNodeTransform = useCallback(() => {
@@ -307,7 +321,7 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
     let nextGuides: GuideLine[] = [];
     const activeAnchor = transformerRef.current?.getActiveAnchor() ?? null;
     const canSnapTransform = activeAnchor !== null && activeAnchor !== 'rotater';
-    const selectedIds = selectedElementIdsRef.current;
+    const selectedIds = movableSelectionIds;
 
     for (const id of selectedIds) {
       const node = nodeRefs.current.get(id);
@@ -378,13 +392,13 @@ export function useSceneStageEditor({ scene, editable, elements }: UseSceneStage
       });
     }
     setGuideLines(nextGuides);
-  }, [applyDraftPatch, scene.height, scene.width, setCanvasInteracting, mediaCrop.handleTransform]);
+  }, [applyDraftPatch, movableSelectionIds, scene.height, scene.width, setCanvasInteracting, mediaCrop.handleTransform]);
 
   const handleNodeTransformEnd = useCallback(async () => {
     setGuideLines([]);
     if (await mediaCrop.handleTransformEnd()) return;
-    await commitSelectionFromNodes();
-  }, [commitSelectionFromNodes, mediaCrop.handleTransformEnd]);
+    await commitSelectionFromNodes(movableSelectionIds);
+  }, [commitSelectionFromNodes, mediaCrop.handleTransformEnd, movableSelectionIds]);
 
   return {
     stageRef,

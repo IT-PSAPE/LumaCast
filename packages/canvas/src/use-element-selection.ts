@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Id } from '@lumacast/kernel';
 import type { SlideElement } from '@lumacast/composition';
+import { filterSelectionIds, toggleSelectionId } from '@lumacast/selection';
 
 interface UseElementSelectionInput {
   effectiveElements: SlideElement[];
@@ -15,7 +16,7 @@ function hasSameIds(a: Id[], b: Id[]): boolean {
 }
 
 export function filterAllowedSelection(current: Id[], allowed: Set<Id>): Id[] {
-  const filtered = current.filter((id) => allowed.has(id));
+  const filtered = filterSelectionIds(current, allowed);
   if (hasSameIds(current, filtered)) return current;
   return filtered;
 }
@@ -52,10 +53,7 @@ export function useElementSelection({ effectiveElements }: UseElementSelectionIn
   }, []);
 
   const toggleElementSelection = useCallback((id: Id) => {
-    setSelectedElementIds((current) => {
-      if (current.includes(id)) return current.filter((item) => item !== id);
-      return [id, ...current];
-    });
+    setSelectedElementIds((current) => toggleSelectionId(current, id, 'front'));
   }, []);
 
   const clearSelection = useCallback(() => {

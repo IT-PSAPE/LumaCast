@@ -36,9 +36,13 @@ vi.mock('../../../../packages/canvas/src/scene-node-bounds', () => ({
   bindFixedClientRect: vi.fn(),
 }));
 
-function createElement(x: number) {
+function createElement(
+  x: number,
+  id = 'el-1',
+  visualOverrides: { locked?: boolean; visible?: boolean } = {},
+) {
   return {
-    id: 'el-1',
+    id,
     slideId: 'slide-1',
     type: 'shape',
     x,
@@ -55,6 +59,7 @@ function createElement(x: number) {
       strokeEnabled: false,
       locked: false,
       visible: true,
+      ...visualOverrides,
       flipX: false,
       flipY: false,
     },
@@ -153,6 +158,226 @@ describe('useSceneStageEditor drag freshness', () => {
 
     expect(selectElements).toHaveBeenCalledWith(['el-1']);
     expect(mocks.applyDraftPatch).toHaveBeenCalledWith('el-1', { x: 32, y: 20 });
+  });
+});
+
+describe('useSceneStageEditor multi-selection movement', () => {
+  const scene = {
+    width: 1920,
+    height: 1080,
+    slide: { background: null },
+    nodes: [],
+  } as never;
+
+  beforeEach(() => {
+    mocks.applyDraftPatch.mockReset();
+    mocks.flushDraftBuffer.mockReset();
+  });
+
+  afterEach(() => {
+    cleanup();
+  });
+
+  it('preserves and moves a selected group when drag starts on one of its members', async () => {
+    const first = createElement(100, 'el-1');
+    const second = { ...createElement(600, 'el-2'), y: 500 };
+    const selectedElementIds = ['el-1', 'el-2'];
+    const selectElement = vi.fn();
+    const selectElements = vi.fn();
+    const commitElementUpdates = vi.fn(async () => undefined);
+    const nodeA = createNode(first.x, first.y);
+    const nodeB = createNode(second.x, second.y);
+
+    const { result } = renderHook(() => useSceneStageEditor({
+      scene,
+      editable: true,
+      elements: {
+        effectiveElements: [first, second] as never,
+        baseElements: [first, second] as never,
+        selectedElementIds,
+        selectElements,
+        toggleElementSelection: vi.fn(),
+        selectElement,
+        clearSelection: vi.fn(),
+        setDraftElements: vi.fn(),
+        commitElementUpdates,
+        setCanvasInteracting: vi.fn(),
+      },
+    }));
+
+    act(() => {
+      result.current.setNodeRef('el-1', nodeA as never);
+      result.current.setNodeRef('el-2', nodeB as never);
+    });
+
+    expect(selectElement).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.handleNodeDragStart('el-1');
+      nodeA.setPosition(151, 153);
+      result.current.handleNodeDragMove('el-1');
+    });
+
+    expect(nodeA.x()).toBe(151);
+    expect(nodeA.y()).toBe(153);
+    expect(nodeB.x()).toBe(651);
+    expect(nodeB.y()).toBe(633);
+    expect(mocks.applyDraftPatch).toHaveBeenCalledWith('el-1', { x: 151, y: 153 });
+    expect(mocks.applyDraftPatch).toHaveBeenCalledWith('el-2', { x: 651, y: 633 });
+
+    await act(async () => {
+      await result.current.handleNodeDragEnd();
+    });
+
+    expect(commitElementUpdates).toHaveBeenCalledTimes(1);
+    expect(commitElementUpdates).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'el-1', x: 151, y: 153 }),
+      expect.objectContaining({ id: 'el-2', x: 651, y: 633 }),
+    ]);
+  });
+
+  it('keeps a multi-selection when a selected member is clicked and toggles on modifier selection', () => {
+    const selectElement = vi.fn();
+    const toggleElementSelection = vi.fn();
+    const { result } = renderHook(() => useSceneStageEditor({
+      scene,
+      editable: true,
+      elements: {
+        effectiveElements: [createElement(100, 'el-1'), createElement(600, 'el-2')] as never,
+        baseElements: [],
+        selectedElementIds: ['el-1', 'el-2'],
+        selectElements: vi.fn(),
+        toggleElementSelection,
+        selectElement,
+        clearSelection: vi.fn(),
+        setDraftElements: vi.fn(),
+        commitElementUpdates: vi.fn(async () => undefined),
+        setCanvasInteracting: vi.fn(),
+      },
+    }));
+
+    act(() => {
+      result.current.handleNodeSelect('el-1', false);
+      result.current.handleNodeSelect('el-2', true);
+      result.current.handleNodeSelect('el-3', false);
+    });
+
+    expect(selectElement).toHaveBeenCalledWith('el-3');
+    expect(selectElement).toHaveBeenCalledTimes(1);
+    expect(toggleElementSelection).toHaveBeenCalledWith('el-2');
+  });
+
+  it('attaches only movable selected nodes to the canvas transformer', () => {
+    const first = createElement(100, 'el-1');
+    const locked = createElement(600, 'el-locked', { locked: true });
+    const hidden = createElement(900, 'el-hidden', { visible: false });
+    const nodeA = createNode(first.x, first.y);
+    const lockedNode = createNode(locked.x, locked.y);
+    const hiddenNode = createNode(hidden.x, hidden.y);
+    const transformer = {
+      nodes: vi.fn(),
+      forceUpdate: vi.fn(),
+      getLayer: () => ({ batchDraw: vi.fn() }),
+    };
+
+    const { result, rerender } = renderHook(
+      ({ selectedElementIds }: { selectedElementIds: string[] }) => useSceneStageEditor({
+        scene,
+        editable: true,
+        elements: {
+          effectiveElements: [first, locked, hidden] as never,
+          baseElements: [first, locked, hidden] as never,
+          selectedElementIds,
+          selectElements: vi.fn(),
+          toggleElementSelection: vi.fn(),
+          selectElement: vi.fn(),
+          clearSelection: vi.fn(),
+          setDraftElements: vi.fn(),
+          commitElementUpdates: vi.fn(async () => undefined),
+          setCanvasInteracting: vi.fn(),
+        },
+      }),
+      { initialProps: { selectedElementIds: [] as string[] } },
+    );
+
+    act(() => {
+      result.current.transformerRef.current = transformer as never;
+      result.current.setNodeRef('el-1', nodeA as never);
+      result.current.setNodeRef('el-locked', lockedNode as never);
+      result.current.setNodeRef('el-hidden', hiddenNode as never);
+    });
+    rerender({ selectedElementIds: ['el-1', 'el-locked', 'el-hidden'] });
+
+    expect(transformer.nodes).toHaveBeenCalledWith([nodeA]);
+    expect(transformer.nodes).not.toHaveBeenCalledWith([nodeA, lockedNode, hiddenNode]);
+  });
+
+  it('does not drag, transform, or commit locked and hidden selected elements', async () => {
+    const first = createElement(100, 'el-1');
+    const locked = createElement(600, 'el-locked', { locked: true });
+    const hidden = createElement(900, 'el-hidden', { visible: false });
+    const selectedElementIds = ['el-1', 'el-locked', 'el-hidden'];
+    const selectElements = vi.fn();
+    const commitElementUpdates = vi.fn(async () => undefined);
+    const setCanvasInteracting = vi.fn();
+    const nodeA = createNode(first.x, first.y);
+    const lockedNode = createNode(locked.x, locked.y);
+    const hiddenNode = createNode(hidden.x, hidden.y);
+
+    const { result } = renderHook(() => useSceneStageEditor({
+      scene,
+      editable: true,
+      elements: {
+        effectiveElements: [first, locked, hidden] as never,
+        baseElements: [first, locked, hidden] as never,
+        selectedElementIds,
+        selectElements,
+        toggleElementSelection: vi.fn(),
+        selectElement: vi.fn(),
+        clearSelection: vi.fn(),
+        setDraftElements: vi.fn(),
+        commitElementUpdates,
+        setCanvasInteracting,
+      },
+    }));
+
+    act(() => {
+      result.current.setNodeRef('el-1', nodeA as never);
+      result.current.setNodeRef('el-locked', lockedNode as never);
+      result.current.setNodeRef('el-hidden', hiddenNode as never);
+      result.current.handleNodeDragStart('el-locked');
+    });
+    expect(setCanvasInteracting).not.toHaveBeenCalledWith(true);
+
+    act(() => {
+      result.current.handleNodeDragStart('el-1');
+      nodeA.setPosition(151, 153);
+      result.current.handleNodeDragMove('el-1');
+    });
+
+    expect(lockedNode.x()).toBe(600);
+    expect(lockedNode.y()).toBe(20);
+    expect(hiddenNode.x()).toBe(900);
+    expect(hiddenNode.y()).toBe(20);
+    expect(mocks.applyDraftPatch).not.toHaveBeenCalledWith('el-locked', expect.anything());
+    expect(mocks.applyDraftPatch).not.toHaveBeenCalledWith('el-hidden', expect.anything());
+
+    await act(async () => {
+      await result.current.handleNodeDragEnd();
+    });
+    expect(commitElementUpdates).toHaveBeenCalledTimes(1);
+    expect(commitElementUpdates).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: 'el-1', x: 151, y: 153 }),
+    ]);
+
+    mocks.applyDraftPatch.mockClear();
+    await act(async () => {
+      result.current.handleNodeTransform();
+      await result.current.handleNodeTransformEnd();
+    });
+
+    expect(mocks.applyDraftPatch.mock.calls.every(([id]) => id === 'el-1')).toBe(true);
+    expect(commitElementUpdates).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -19,6 +19,7 @@ import { build as viteBuild, type Plugin } from 'vite';
 const BUNDLED_WORKSPACE_PACKAGES = [
   '@lumacast/ui',
   '@lumacast/kernel',
+  '@lumacast/selection',
   '@lumacast/desktop',
   '@lumacast/photo-model',
   '@lumacast/photo-imaging',

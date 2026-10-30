@@ -55,10 +55,11 @@ const NDI_HOST_COMMAND_EXPORTS = new Set(['NdiHostCommand', 'NdiHostEvent']);
 
 // Packages allowed to import react/react-dom under package-purity (issue
 // #219, W9). @lumacast/canvas renders the Konva scene; @lumacast/ui holds
-// generic React controls and styling; every other package stays headless.
+// generic React controls and styling; @lumacast/selection holds shared React
+// selection hooks and domain-agnostic selection primitives.
 // konva/react-konva stays exclusive to @lumacast/canvas, and Electron stays
 // banned for every package regardless of membership here.
-const REACT_ALLOWED_PACKAGES = new Set(['canvas', 'ui']);
+const REACT_ALLOWED_PACKAGES = new Set(['canvas', 'selection', 'ui']);
 const KONVA_ALLOWED_PACKAGES = new Set(['canvas']);
 // @lumacast/desktop is the main-process window helper package; it is the one
 // package that may import Electron.
@@ -85,9 +86,7 @@ const NODE_BUILTIN_FREE_PACKAGES = new Set([...PHOTO_RENDERER_SAFE_PACKAGES]);
 
 // ---------------------------------------------------------------------------
 // Package graph (issue #223, parent #219). npm workspace packages live under
-// packages/*. No packages exist yet beyond packages/ndi-native (a native
-// addon, exempt from this table — it never imports anything these rules
-// govern). The table below is the dependency direction #219 recorded for the
+// packages/*. The table below is the dependency direction #219 recorded for the
 // packages planned in the sweep; it is deliberately a default-deny allow
 // list so a new package name with no entry starts with zero permitted
 // dependencies rather than silently inheriting access.
@@ -96,7 +95,9 @@ const PACKAGE_DEPENDENCY_DIRECTIONS = {
   // Everything may depend on kernel; it depends on nothing.
   kernel: [],
   composition: ['kernel'],
-  canvas: ['kernel', 'composition', 'protocol'],
+  canvas: ['kernel', 'composition', 'protocol', 'selection'],
+  // Shared collection-selection primitives and React hooks are domain-agnostic.
+  selection: [],
   // Commands stays platform-independent at its core.
   commands: ['kernel'],
   automation: ['kernel', 'composition'],
@@ -177,7 +178,7 @@ const RULE_TITLES = {
   'package-app-boundary':
     'No package under packages/* may import application code under apps/* or the legacy app/ root; packages may not depend on any app.',
   'package-purity':
-    'A package must not import React, React DOM, Konva, React-Konva, or Electron; packages are headless domain/platform code, except @lumacast/canvas, which may import react/react-dom/konva/react-konva, and @lumacast/ui, which may import react/react-dom but never konva/react-konva (Electron stays banned for both).',
+    'A package must not import React, React DOM, Konva, React-Konva, or Electron; packages are headless domain/platform code, except @lumacast/canvas, which may import react/react-dom/konva/react-konva, and @lumacast/ui and @lumacast/selection, which may import react/react-dom but never konva/react-konva (Electron stays banned for all three).',
   'persistence-purity':
     'A persistence package must not import renderer code; persistence is process/storage logic and must not depend on the renderer.',
   'package-public-entry':

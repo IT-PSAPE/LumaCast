@@ -48,6 +48,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       dedupe: ['react', 'react-dom', '@base-ui/react'],
       alias: [
+        { find: '@lumacast/selection', replacement: path.resolve(__dirname, '../../packages/selection/src/index.ts') },
         { find: '@lumacast/ui/theme.css', replacement: path.resolve(__dirname, '../../packages/ui/src/theme.css') },
         { find: '@lumacast/ui', replacement: path.resolve(__dirname, '../../packages/ui/src/index.ts') },
       ],

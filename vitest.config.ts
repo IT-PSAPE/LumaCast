@@ -16,6 +16,7 @@ export default defineConfig({
       '@lumacast/composition': path.resolve(__dirname, 'packages/composition/src/index.ts'),
       '@lumacast/automation': path.resolve(__dirname, 'packages/automation/src/index.ts'),
       '@lumacast/commands': path.resolve(__dirname, 'packages/commands/src/index.ts'),
+      '@lumacast/selection': path.resolve(__dirname, 'packages/selection/src/index.ts'),
       '@lumacast/protocol': path.resolve(__dirname, 'packages/protocol/src/index.ts'),
       '@lumacast/persistence-sqlite': path.resolve(__dirname, 'packages/persistence-sqlite/src/index.ts'),
       '@lumacast/engine': path.resolve(__dirname, 'packages/engine/src/index.ts'),

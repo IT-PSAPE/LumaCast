@@ -4,6 +4,15 @@ This document describes the actual implemented architecture for theme lifecycle,
 
 ## Dependency Boundaries
 
+`@lumacast/selection` supplies domain-independent selection behavior to every
+app (ADR-0117). Pure string-ID transitions support controlled stores, while
+React hooks manage transient collection selection. The same package resolves
+context-menu targets, range anchors, group order, and sequential bulk actions.
+Apps own persistence, confirmations, permissions, undo, playback, and locks.
+Flux library removal, for example, removes catalog references atomically and
+preserves original photo files; Cloud's selected-app actions remain explicit
+management operations with per-app grants.
+
 The repository is an npm workspace of six self-contained apps under `apps/*`
 — `cast` (LumaCast), `cloud` (LumaCloud), `flux` (LumaFlux), `chord`
 (LumaChord), `soundboard` (LumaSoundboard), and `stream` (LumaStream) — built on the
@@ -533,6 +542,16 @@ Grid/List value from the retired `lumacast.deck-browser-preferences.v1` JSON
 record when needed and then deletes that legacy key. See ADR-0030.
 
 Renderer playback/rendering splits responsibility at two narrow seams:
+
+Canvas selection is shared between the editable stage and layer list and uses
+the existing batch element/history commands. Collection multi-selection is
+transient renderer state, scoped to its list independently of the active
+editor item or live output. Modifier clicks select without taking content.
+Group reorders preserve selected members' relative order and use existing
+per-item persistence APIs; a failed operation stops the batch. Dragging pauses
+while a reorder persists, and an external reorder invalidates a pending drag.
+The multi-selection inspector exposes common operations instead of editing
+only the primary object's text or video properties.
 
 - `SceneStage` has separate editable and read-only variants. Only the editable
   variant subscribes to the element-editing context and `useSceneStageEditor`;

@@ -34,6 +34,7 @@
     "@lumacast/photo-imaging": "file:../../packages/photo-imaging",
     "@lumacast/photo-library": "file:../../packages/photo-library",
     "@lumacast/photo-model": "file:../../packages/photo-model",
+    "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
     "@modelcontextprotocol/sdk": "1.30.0",
     "exif-reader": "^2.0.3",

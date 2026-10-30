@@ -28,6 +28,7 @@ const BUNDLED_WORKSPACE_PACKAGES = [
   '@lumacast/engine',
   '@lumacast/playback',
   '@lumacast/canvas',
+  '@lumacast/selection',
   '@lumacast/ui',
   '@lumacast/desktop',
 ] as const;

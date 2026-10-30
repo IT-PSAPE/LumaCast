@@ -10,6 +10,10 @@ export interface SelectionBox {
   height: number;
 }
 
+export function isCanvasElementMovable(element: SlideElement): boolean {
+  return element.payload.locked !== true && element.payload.visible !== false;
+}
+
 export function normalizeRect(rect: SelectionBox): SelectionBox {
   const x = rect.width < 0 ? rect.x + rect.width : rect.x;
   const y = rect.height < 0 ? rect.y + rect.height : rect.y;
@@ -18,7 +22,7 @@ export function normalizeRect(rect: SelectionBox): SelectionBox {
 
 export function mapSnapBoxes(elements: SlideElement[], excludedIds: Set<Id>): SnapBox[] {
   return elements
-    .filter((element) => !excludedIds.has(element.id))
+    .filter((element) => !excludedIds.has(element.id) && element.payload.visible !== false)
     .map((element) => ({ id: element.id, x: element.x, y: element.y, width: element.width, height: element.height }));
 }
 

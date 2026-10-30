@@ -28,6 +28,7 @@
     "@lumacast/desktop": "file:../../packages/desktop",
     "@lumacast/kernel": "file:../../packages/kernel",
     "@lumacast/markers": "file:../../packages/markers",
+    "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
     "@mediabunny/aac-encoder": "^1.60.0",
     "@mediabunny/mp3-encoder": "^1.60.0",

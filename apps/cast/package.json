@@ -52,6 +52,7 @@
     "@lumacast/persistence-sqlite": "file:../../packages/persistence-sqlite",
     "@lumacast/playback": "file:../../packages/playback",
     "@lumacast/protocol": "file:../../packages/protocol",
+    "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@tanstack/react-virtual": "^3.13.24",

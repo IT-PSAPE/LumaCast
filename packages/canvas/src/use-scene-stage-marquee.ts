@@ -8,25 +8,31 @@ interface UseSceneStageMarqueeParams {
   stageRef: React.RefObject<Konva.Stage | null>;
   nodeRefs: React.RefObject<Map<Id, Konva.Group>>;
   selectedElementIds: Id[];
+  movableElementIds: ReadonlySet<Id>;
   selectElements: (ids: Id[]) => void;
   clearSelection: () => void;
 }
 
-export function useSceneStageMarquee({ editable, stageRef, nodeRefs, selectedElementIds, selectElements, clearSelection }: UseSceneStageMarqueeParams) {
+export function useSceneStageMarquee({ editable, stageRef, nodeRefs, selectedElementIds, movableElementIds, selectElements, clearSelection }: UseSceneStageMarqueeParams) {
   const marqueeStartRef = useRef<{ x: number; y: number; additive: boolean } | null>(null);
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
 
   const handleStageMouseDown = useCallback((event: Konva.KonvaEventObject<MouseEvent>) => {
     if (!editable) return;
+    if (event.evt.button !== 0) return;
     const isStageTarget = event.target === event.target.getStage();
     const isLayerTarget = event.target.getClassName() === 'Layer';
     const isRootGroupTarget = event.target.hasName('scene-root');
     if (!isStageTarget && !isLayerTarget && !isRootGroupTarget) return;
     const point = event.target.getStage()?.getPointerPosition();
     if (!point) return;
-    marqueeStartRef.current = { x: point.x, y: point.y, additive: event.evt.shiftKey };
+    marqueeStartRef.current = {
+      x: point.x,
+      y: point.y,
+      additive: event.evt.shiftKey || event.evt.ctrlKey || event.evt.metaKey,
+    };
     setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
-    if (!event.evt.shiftKey) clearSelection();
+    if (!marqueeStartRef.current.additive) clearSelection();
   }, [clearSelection, editable]);
 
   const handleStageMouseMove = useCallback(() => {
@@ -47,14 +53,14 @@ export function useSceneStageMarquee({ editable, stageRef, nodeRefs, selectedEle
 
     if (!stage || !rect || rect.width < 4 || rect.height < 4) return;
 
-    const hitIds = collectMarqueeHits(nodeRefs.current, rect);
+    const hitIds = collectMarqueeHits(nodeRefs.current, rect).filter((id) => movableElementIds.has(id));
     if (start.additive) {
       selectElements(Array.from(new Set([...selectedElementIds, ...hitIds])));
       return;
     }
 
     selectElements(hitIds);
-  }, [editable, nodeRefs, selectElements, selectedElementIds, selectionBox, stageRef]);
+  }, [editable, movableElementIds, nodeRefs, selectElements, selectedElementIds, selectionBox, stageRef]);
 
   return {
     selectionBox,

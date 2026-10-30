@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // Workspace packages whose package.json "main" is raw TypeScript; they stay
 // bundled via alias because Node's CJS loader cannot parse them externally.
-const BUNDLED_WORKSPACE_PACKAGES = ['@lumacast/ui', '@lumacast/kernel', '@lumacast/desktop'] as const;
+const BUNDLED_WORKSPACE_PACKAGES = ['@lumacast/ui', '@lumacast/kernel', '@lumacast/desktop', '@lumacast/selection'] as const;
 
 function workspaceAlias(): Record<string, string> {
   return Object.fromEntries(
@@ -40,6 +40,7 @@ export default defineConfig({
       alias: [
         { find: '@lumacast/ui/theme.css', replacement: path.resolve(__dirname, '../../packages/ui/src/theme.css') },
         { find: '@lumacast/kernel', replacement: path.resolve(__dirname, '../../packages/kernel/src/index.ts') },
+        { find: '@lumacast/selection', replacement: path.resolve(__dirname, '../../packages/selection/src/index.ts') },
         { find: '@lumacast/ui', replacement: path.resolve(__dirname, '../../packages/ui/src/index.ts') },
       ],
     },

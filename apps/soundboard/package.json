@@ -22,6 +22,7 @@
     "@base-ui/react": "^1.8.0",
     "@lumacast/desktop": "file:../../packages/desktop",
     "@lumacast/kernel": "file:../../packages/kernel",
+    "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",

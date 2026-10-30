@@ -269,6 +269,12 @@ If the addon is missing or the runtime library cannot be found, the app falls ba
 
 See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release conventions, and [docs/release-setup.md](docs/release-setup.md) for signing, packaging, and platform-support detail.
 
+## Multiple selection
+
+The suite shares selection behavior through [`@lumacast/selection`](packages/selection/README.md): Ctrl/Cmd-click toggles entries, Shift-click selects list ranges, and selection stays separate from playback or the active editor item. Select several entries and use one bulk action or Delete where supported. Canvas and timeline movement preserves the selected items' offsets; reorderable lists preserve their relative order. Each app keeps its own permissions, confirmations, undo, and lock rules.
+
+Flux's **Remove from library** preserves original files. Soundboard removal deletes managed audio copies. Cloud's selected-app actions require explicit management actions and retain its per-app grants; selecting cards never downloads or installs anything.
+
 ## Updater status
 
 Installed Cast builds check for updates on startup and expose a manual `Check for Updates…` action from the native application menu, wired through `electron-updater`. New builds of every app resolve updates from their own app-isolated `<app>-feed` release via `provider: generic`, so a Cloud or Flux update can never resolve against a Cast release; only legacy shipped Cast versions read the repository's latest release directly. Cloud updates itself the same way from `cloud-feed` and shows the updater's state in its own UI; it also installs, updates, downgrades, and removes Cast and Flux from the repository's releases after a per-app permission grant (see [docs/adr/0044-lumacloud-suite-manager.md](docs/adr/0044-lumacloud-suite-manager.md)). Flux has no runtime updater, menu, or startup checks implemented yet.
@@ -286,6 +292,7 @@ Installed Cast builds check for updates on startup and expose a manual `Check fo
 - `packages/engine/`: the NDI output-engine runtime and diagnostics
 - `packages/playback/`: headless playback decisions
 - `packages/canvas/`: the Konva render/editing layer
+- `packages/selection/`: shared selection transitions, React hooks, group ordering, and bulk-action helpers used across the suite
 - `packages/ui/`: shared, domain-agnostic React UI primitives and the Tailwind theme (`@lumacast/ui/theme.css`)
 - `packages/suite/`: the renderer-safe LumaCast suite model (app registry, version rules, release-catalog and updater-metadata parsing, app-state derivation) that LumaCloud renders
 - `packages/markers/`: timed lyric cues (CSV/LRC/SRT parsing and formatting, timestamp helpers, format detection) shared by LumaCast's audio-sync markers and LumaChord's lyric-video import/export
