@@ -150,7 +150,7 @@ export function Select<T = string>({ value, onValueChange, options, placeholder,
           </BaseSelect.Icon>
         </BaseSelect.Trigger>
         <BaseSelect.Portal container={container}>
-          <BaseSelect.Positioner sideOffset={4} className="outline-none" style={{ zIndex }}>
+          <BaseSelect.Positioner sideOffset={4} className="pointer-events-auto outline-none" style={{ zIndex }}>
             <BaseSelect.Popup className="max-h-80 min-w-[var(--anchor-width)] overflow-y-auto rounded-surface border border-primary bg-primary p-1 shadow-lg">
               {groups.map((group, groupIndex) => {
                 const items = group.options.map((option) => {

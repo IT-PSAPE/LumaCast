@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Select } from '@lumacast/ui';
+import { OverlayStackProvider, Select } from '@lumacast/ui';
 
 afterEach(cleanup);
 
@@ -20,6 +20,23 @@ async function settle() {
 }
 
 describe('Select', () => {
+  it('restores pointer interaction when portalled into the non-interactive overlay root', async () => {
+    const onValueChange = vi.fn();
+    render(<OverlayStackProvider><Select value="a" onValueChange={onValueChange} options={OPTIONS} label="Letter" /></OverlayStackProvider>);
+    const trigger = screen.getByRole('combobox', { name: 'Letter' });
+    trigger.focus();
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    await settle();
+    const option = screen.getByRole('option', { name: 'Beta' });
+    expect(document.getElementById('overlay-root')).toContainElement(option);
+    expect(option.closest('.pointer-events-auto')).not.toBeNull();
+    fireEvent.pointerDown(option, { pointerType: 'mouse', button: 0 });
+    fireEvent.pointerUp(option, { pointerType: 'mouse', button: 0 });
+    fireEvent.click(option);
+    await settle();
+    expect(onValueChange).toHaveBeenCalledWith('b');
+  });
+
   it('renders the selected option label in the trigger', () => {
     render(<Select value="b" onValueChange={vi.fn()} options={OPTIONS} label="Letter" />);
     expect(screen.getByRole('combobox', { name: 'Letter' })).toHaveTextContent('Beta');
