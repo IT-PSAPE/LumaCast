@@ -1,22 +1,205 @@
-.zoom-dock { overflow: visible; }
-.zoom-dock-body { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-2) var(--space-3); overflow-y: auto; }
-.zoom-dock-body > .zoom-disconnected { align-self: center; }
-.zoom-loading { padding: var(--space-3) 0; color: var(--text-color-secondary); text-align: center; font-size: var(--text-label-xs); }
-.zoom-meeting-summary { display: flex; flex-direction: column; gap: var(--space-0-5); min-width: 0; }
-.zoom-meeting-summary strong { overflow: hidden; color: var(--text-color-primary); font-size: var(--text-label-xs); text-overflow: ellipsis; white-space: nowrap; }
-.zoom-meeting-summary span, .zoom-stale-selection { margin: 0; color: var(--text-color-tertiary); font-size: var(--text-sm); line-height: 1.45; }
-.zoom-status-row { display: flex; align-items: center; gap: var(--space-1-5); padding: var(--space-2) var(--space-3) 0; color: var(--text-color-secondary); font-size: var(--text-label-xs); }
-.zoom-live-controls { display: grid; gap: var(--space-2); padding: var(--space-1) var(--space-3) var(--space-3); }
-.zoom-live-controls > span { color: var(--text-color-tertiary); font-size: var(--text-sm); line-height: 1.4; }
-.zoom-dialog { display: flex; flex-direction: column; gap: var(--space-3); min-width: min(360px, 70vw); padding: var(--space-3); }
-.zoom-dialog-account { display: flex; align-items: center; gap: var(--space-2); justify-content: space-between; }
-.zoom-dialog-account > div { display: flex; flex-direction: column; min-width: 0; gap: var(--space-0-5); }
-.zoom-dialog-account strong, .zoom-dialog-account span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zoom-dock {
+  min-width: 0;
+  overflow: hidden;
+  container-name: zoom-dock;
+  container-type: inline-size;
+}
+
+.zoom-provider-row {
+  min-width: 0;
+  min-height: 41px;
+  flex: 0 0 41px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--border-color-secondary);
+}
+
+.zoom-provider-mark {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-container);
+  color: white;
+  background: #2d8cff;
+}
+
+.zoom-provider-mark svg { width: 14px; height: 14px; stroke-width: 2.2; }
+
+.zoom-provider-wordmark {
+  flex: 0 0 auto;
+  color: #2d8cff;
+  font-size: var(--text-label-md);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+}
+
+.zoom-provider-account {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--text-color-tertiary);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoom-dock-body {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.zoom-dock-body > * { min-width: 0; max-width: 100%; }
+
+.zoom-panel-notice {
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--text-color-secondary);
+  text-align: center;
+}
+
+.zoom-panel-notice[data-tone='error'] { color: var(--text-color-secondary); }
+
+.zoom-panel-notice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-0-5);
+}
+
+.zoom-meeting-summary {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding: var(--space-2);
+  border: 1px solid var(--border-color-secondary);
+  border-radius: var(--radius-control);
+  background: var(--background-color-secondary);
+}
+
+.zoom-meeting-summary strong {
+  overflow: hidden;
+  color: var(--text-color-primary);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoom-meeting-summary span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-color-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  text-overflow: ellipsis;
+}
+
+.zoom-meeting-summary .zoom-meeting-summary__eyebrow {
+  color: var(--text-color-tertiary);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.zoom-dock-footer {
+  min-width: 0;
+  min-height: 34px;
+  flex: 0 0 34px;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-top: 1px solid var(--border-color-secondary);
+}
+
+.zoom-footer-row {
+  min-width: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.zoom-status-row {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  overflow: hidden;
+  color: var(--text-color-tertiary);
+  font-size: var(--text-label-xs);
+}
+
+.zoom-status-text {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-color-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zoom-footer-action {
+  height: 24px;
+  min-width: 0;
+  flex: 0 1 auto;
+  padding-inline: var(--space-2);
+  overflow: hidden;
+  font-size: var(--text-label-xs);
+  white-space: nowrap;
+}
+
+.zoom-dialog {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.zoom-dialog-account { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.zoom-dialog-account > div { min-width: 0; display: flex; flex-direction: column; gap: var(--space-0-5); }
+.zoom-dialog-account strong,
+.zoom-dialog-account span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .zoom-dialog-account strong { color: var(--text-color-primary); font-size: var(--text-label-xs); }
 .zoom-dialog-account span { color: var(--text-color-tertiary); font-size: var(--text-sm); }
 .zoom-dialog-form { display: flex; flex-direction: column; gap: var(--space-2); }
 .zoom-dialog-field { display: flex; flex-direction: column; gap: var(--space-1); color: var(--text-color-secondary); font-size: var(--text-label-xs); font-weight: 600; }
-.zoom-dialog-field input { width: 100%; padding: var(--space-1-5) var(--space-2); border: 1px solid var(--border-color-secondary); border-radius: var(--radius-control); color: var(--text-color-primary); background: var(--background-color-secondary); font: inherit; font-size: var(--text-label-xs); font-weight: 400; }
+.zoom-dialog-field input { width: 100%; min-width: 0; padding: var(--space-1-5) var(--space-2); border: 1px solid var(--border-color-secondary); border-radius: var(--radius-control); color: var(--text-color-primary); background: var(--background-color-secondary); font: inherit; font-size: var(--text-label-xs); font-weight: 400; }
 .zoom-dialog-field input:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 1px; }
 .zoom-dialog-error { color: var(--color-error); font-size: var(--text-sm); }
 .zoom-dialog-footer { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-1); padding-top: var(--space-2); border-top: 1px solid var(--border-color-secondary); }
+
+.modal:has(.zoom-dialog) { width: min(440px, 95vw); max-height: min(620px, 88vh); }
+
+@container zoom-dock (max-width: 280px) {
+  .zoom-provider-account { display: none; }
+}
+
+@container zoom-dock (max-width: 180px) {
+  .zoom-dock-footer:has(.zoom-footer-action) { min-height: 0; flex-basis: auto; padding-block: var(--space-2); }
+  .zoom-dock-footer:has(.zoom-footer-action) .zoom-footer-row { align-items: stretch; flex-direction: column; }
+  .zoom-footer-action { width: 100%; }
+}

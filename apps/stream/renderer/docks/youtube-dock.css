@@ -306,11 +306,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding-inline: 16px;
+  padding-inline: var(--space-4);
 }
 
-.youtube-stream-metric:first-child { padding-inline: 0 16px; }
-.youtube-stream-metric:last-child { padding-inline: 16px 0; }
+.youtube-stream-metric:first-child { padding-inline: 0 var(--space-4); }
+.youtube-stream-metric:last-child { padding-inline: var(--space-4) 0; }
 
 .youtube-stream-metric__label {
   overflow: hidden;
@@ -467,7 +467,7 @@
 }
 
 @container youtube-dock (max-width: 220px) {
-  .youtube-dock-footer { gap: 4px; padding-inline: 6px; }
+  .youtube-dock-footer { gap: var(--space-1); padding-inline: var(--space-1-5); }
 }
 
 @container youtube-dock (max-width: 360px) {

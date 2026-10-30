@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { RefreshCw, X } from 'lucide-react';
+import { MoreHorizontal, RefreshCw, X } from 'lucide-react';
 import { Banner, EmptyState, Panel, ReacstButton, StatusDot, type StatusTone } from '@lumacast/ui';
 import type {
   StreamAPI,
@@ -13,7 +13,7 @@ import type {
 } from '../../shared/desktop-api';
 import { validateStreamServiceSettings } from '../../shared/stream-services';
 import { formatElapsed } from '../format-elapsed';
-import { friendlyError } from '../features/shared/friendly-error';
+import { providerErrorMessage } from '../features/shared/provider-error';
 import { YouTubeSettingsDialog, CreateYouTubeStreamDialog, EndYouTubeStreamDialog } from './youtube-dialogs';
 import { YouTubeStreamDetails } from './youtube-stream-details';
 import { YouTubeStreamRow } from './youtube-stream-row';
@@ -133,7 +133,7 @@ export function YouTubeDock({
       if (requestId === broadcastRequestId.current) setBroadcasts(nextBroadcasts);
     } catch (error) {
       if (requestId === broadcastRequestId.current) {
-        const message = friendlyError(error);
+        const message = providerErrorMessage('YouTube', error, 'Could not load YouTube streams.');
         setBroadcastsError(message);
         setSettingsError(message);
       }
@@ -196,7 +196,7 @@ export function YouTubeDock({
           setDetailsError('');
         }
       } catch (error) {
-        if (active) setDetailsError(friendlyError(error));
+        if (active) setDetailsError(providerErrorMessage('YouTube', error, 'Could not load YouTube live details.'));
       } finally {
         detailsRequestInFlight.current = false;
         if (active) {
@@ -232,7 +232,7 @@ export function YouTubeDock({
       setBroadcasts(nextBroadcasts);
       setBroadcastsError('');
     } catch (error) {
-      setSettingsError(friendlyError(error));
+      setSettingsError(providerErrorMessage('YouTube', error, 'Could not connect YouTube account.'));
     } finally {
       setAccountBusy(false);
       setAccountLoading(false);
@@ -250,7 +250,7 @@ export function YouTubeDock({
       setBroadcastsError('');
       updateYoutubeDraft({ broadcastId: '' });
     } catch (error) {
-      setSettingsError(friendlyError(error));
+      setSettingsError(providerErrorMessage('YouTube', error, 'Could not disconnect YouTube account.'));
     } finally {
       setAccountBusy(false);
     }
@@ -272,7 +272,7 @@ export function YouTubeDock({
       setCreateOpen(false);
       setChooserOpen(false);
     } catch (error) {
-      setCreateError(friendlyError(error));
+      setCreateError(providerErrorMessage('YouTube', error, 'Could not create YouTube stream.'));
     } finally {
       setCreateBusy(false);
     }
@@ -354,7 +354,7 @@ export function YouTubeDock({
         {detailsError && account && settings.youtube.broadcastId && (
           <Banner tone="error" size="sm" action={<ReacstButton size="xs" onClick={() => setDetailsReload((current) => current + 1)}>Retry details</ReacstButton>}>Stream details could not be refreshed: {detailsError}</Banner>
         )}
-        {status.state === 'error' && status.message && <Banner tone="error" size="sm">{status.message}</Banner>}
+        {status.state === 'error' && status.message && <Banner tone="error" size="sm">{providerErrorMessage('YouTube', status.message, 'YouTube streaming failed.')}</Banner>}
       </>
     );
   } else if (accountLoading) {
@@ -426,7 +426,7 @@ export function YouTubeDock({
               <RefreshCw />
             </ReacstButton.Icon>
           )}
-          {!outputIsRunning && !youtubeOutputStillActive && <ReacstButton variant="ghost" size="sm" onClick={() => { setSettingsError(''); setSettingsOpen(true); }}>Settings</ReacstButton>}
+          {!outputIsRunning && !youtubeOutputStillActive && <ReacstButton.Icon variant="ghost" size="sm" label="YouTube settings" onClick={() => { setSettingsError(''); setSettingsOpen(true); }}><MoreHorizontal /></ReacstButton.Icon>}
 
           <ReacstButton.Icon variant="ghost" size="sm" label="Hide YouTube Live" onClick={onHide}><X /></ReacstButton.Icon>
         </Panel.HeaderActions>

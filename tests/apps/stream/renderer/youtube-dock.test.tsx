@@ -215,7 +215,8 @@ describe('YouTubeDock', () => {
     });
 
     expect(await screen.findByRole('button', { name: 'Go live' })).toBeEnabled();
-    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'YouTube settings' }));
     const dialog = await screen.findByRole('dialog', { name: 'YouTube settings' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Connect YouTube' }));
     expect(within(dialog).getByRole('button', { name: 'Connecting…' })).toBeDisabled();
@@ -405,7 +406,7 @@ describe('YouTubeDock', () => {
     const onGoLive = vi.fn();
     const { setRuntimeState } = renderDock({
       settings: { youtube: { ...createDefaultStreamServiceSettings().youtube, broadcastId: BROADCAST.id } },
-      status: { state: 'error', outputId: 'youtube', message: 'Encoder stopped unexpectedly.' },
+      status: { state: 'error', outputId: 'youtube', message: 'HTTP 403 access_token=private-provider-detail' },
       activeOutputs: [
         { id: 'youtube', status: { state: 'error', outputId: 'youtube' } },
         { id: 'twitch', status: { state: 'live', outputId: 'twitch' } },
@@ -414,11 +415,12 @@ describe('YouTubeDock', () => {
     });
 
     expect(await screen.findByText('Launch stream')).toBeInTheDocument();
-    expect(screen.getByText('Encoder stopped unexpectedly.')).toBeInTheDocument();
+    expect(screen.getByText('YouTube streaming failed.')).toBeInTheDocument();
+    expect(screen.queryByText(/private-provider-detail/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
 
     act(() => setRuntimeState(
-      { state: 'error', outputId: 'youtube', message: 'Encoder stopped unexpectedly.' },
+      { state: 'error', outputId: 'youtube', message: 'HTTP 403 access_token=private-provider-detail' },
       [{ id: 'twitch', status: { state: 'live', outputId: 'twitch' } }],
     ));
 
@@ -438,7 +440,8 @@ describe('YouTubeDock', () => {
       api: { getYouTubeLiveDetails: getLiveDetails },
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary YouTube details failure.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load YouTube live details.');
+    expect(screen.queryByText('Temporary YouTube details failure.')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry details' }));
 
     expect(await screen.findByRole('status', { name: 'Stream health: Excellent' })).toBeInTheDocument();
@@ -455,7 +458,7 @@ describe('YouTubeDock', () => {
       api: { listYouTubeBroadcasts: listBroadcasts },
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(PROVIDER_FAILURE);
+    expect(await screen.findByRole('alert')).toHaveTextContent('YouTube denied access. Reconnect your account or check that the channel is eligible for live streaming.');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
     expect(await screen.findByText('No stream selected')).toBeInTheDocument();
@@ -474,7 +477,7 @@ describe('YouTubeDock', () => {
 
     expect(await screen.findByText('37')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Refresh streams' }));
-    expect(await screen.findByText('Streams could not be refreshed: YouTube stream list is temporarily unavailable.')).toBeInTheDocument();
+    expect(await screen.findByText('Streams could not be refreshed: Could not load YouTube streams.')).toBeInTheDocument();
     expect(screen.getByLabelText('Current stream details')).toBeInTheDocument();
     expect(screen.getByText('37')).toBeInTheDocument();
     expect(screen.getByText('82')).toBeInTheDocument();
@@ -484,6 +487,22 @@ describe('YouTubeDock', () => {
     await waitFor(() => expect(screen.queryByText(/Streams could not be refreshed:/)).not.toBeInTheDocument());
     expect(screen.getByLabelText('Current stream details')).toBeInTheDocument();
     expect(screen.getByText('37')).toBeInTheDocument();
+  });
+
+  it('shows a safe fallback when YouTube account connection fails', async () => {
+    renderDock({
+      api: {
+        getYouTubeAccount: vi.fn().mockResolvedValue(null),
+        connectYouTubeAccount: vi.fn().mockRejectedValue(new Error('OAuth token endpoint returned access_token=private-provider-detail')),
+      },
+    });
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect YouTube' }));
+    const dialog = await screen.findByRole('dialog', { name: 'YouTube settings' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Connect YouTube' }));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Could not connect YouTube account.');
+    expect(within(dialog).queryByText(/private-provider-detail/)).not.toBeInTheDocument();
   });
 
   it('does not schedule another details poll when an in-flight request resolves after unmount', async () => {

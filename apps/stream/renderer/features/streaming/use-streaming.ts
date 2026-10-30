@@ -9,6 +9,7 @@ import {
   type StreamAPI, type StreamOutputSettings, type StreamProject, type StreamRuntimeStatus, type StreamServiceSettings,
 } from '../../../shared/desktop-api';
 import { friendlyError } from '../shared/friendly-error';
+import { providerErrorMessage } from '../shared/provider-error';
 
 interface ActiveStreaming {
   id: string;
@@ -67,6 +68,12 @@ function aggregateOutputStatuses(statuses: Record<string, StreamRuntimeStatus>):
     ?? values.find((value) => value.state === 'connecting')
     ?? values.find((value) => value.state === 'error')
     ?? { state: 'stopped' };
+}
+
+function outputFailureMessage(outputId: string, error: unknown, fallback: string): string {
+  if (outputId === 'youtube') return providerErrorMessage('YouTube', error, fallback);
+  if (outputId === 'zoom') return providerErrorMessage('Zoom', error, fallback);
+  return friendlyError(error);
 }
 
 export interface UseStreamingParams {
@@ -150,10 +157,11 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
 
   const failZoomStreaming = (active: ActiveZoomStreaming, message: string) => {
     if (active.stopped) return;
-    const failed = { state: 'error' as const, outputId: 'zoom', message };
+    const safeMessage = providerErrorMessage('Zoom', message, 'Zoom output failed. Check the meeting and output settings, then try again.');
+    const failed = { state: 'error' as const, outputId: 'zoom', message: safeMessage };
     outputStatusRef.current.zoom = failed;
     setOutputStatuses((previous) => ({ ...previous, zoom: failed }));
-    setActionError(message);
+    setActionError(`Zoom output failed: ${safeMessage}`);
     disposeZoomStreaming(active, true);
   };
 
@@ -256,16 +264,30 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
 
   useEffect(() => api.onStreamStatus((status) => {
     const outputId = status.outputId ?? 'primary';
+    const visibleStatus: StreamRuntimeStatus = status.state === 'error' && (outputId === 'youtube' || outputId === 'zoom')
+      ? {
+        ...status,
+        message: outputFailureMessage(
+          outputId,
+          status.message,
+          outputId === 'youtube'
+            ? 'YouTube output failed. Check the stream settings and try again.'
+            : 'Zoom output failed. Check the meeting and output settings, then try again.',
+        ),
+      }
+      : outputId === 'zoom' && status.state === 'connecting'
+        ? { ...status, message: 'Connecting to Zoom.' }
+        : status;
     const previousState = outputStatusRef.current[outputId]?.state ?? 'stopped';
-    outputStatusRef.current[outputId] = status;
-    setOutputStatuses((previous) => ({ ...previous, [outputId]: status }));
-    if (status.state === 'live') {
+    outputStatusRef.current[outputId] = visibleStatus;
+    setOutputStatuses((previous) => ({ ...previous, [outputId]: visibleStatus }));
+    if (visibleStatus.state === 'live') {
       // Count reconnects independently so one destination cannot affect another.
       if (previousState === 'connecting' && outputsEverLive.current.has(outputId)) {
         setReconnectCounts((counts) => ({ ...counts, [outputId]: (counts[outputId] ?? 0) + 1 }));
       }
       outputsEverLive.current.add(outputId);
-    } else if (status.state === 'stopped') {
+    } else if (visibleStatus.state === 'stopped') {
       outputsEverLive.current.delete(outputId);
       setReconnectCounts((counts) => {
         if (!(outputId in counts)) return counts;
@@ -274,17 +296,17 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
         return next;
       });
     }
-    if (status.state === 'error') {
-      if (status.message) setActionError(status.message);
+    if (visibleStatus.state === 'error') {
+      if (visibleStatus.message) setActionError(visibleStatus.message);
       if (outputId === 'zoom' && zoomStreaming.current) disposeZoomStreaming(zoomStreaming.current, false);
       else {
         const active = streaming.current.get(outputId);
         if (active?.recorder.state === 'recording') active.recorder.stop();
       }
-    } else if (status.state === 'live' && outputId === 'zoom') {
+    } else if (visibleStatus.state === 'live' && outputId === 'zoom') {
       const active = zoomStreaming.current;
       if (active) startZoomMediaRef.current(active);
-    } else if (status.state === 'stopped' && outputId === 'zoom' && zoomStreaming.current) {
+    } else if (visibleStatus.state === 'stopped' && outputId === 'zoom' && zoomStreaming.current) {
       disposeZoomStreaming(zoomStreaming.current, false);
     }
   }), [api, setActionError]);
@@ -356,7 +378,8 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
           await api.writeStreamingChunk(active.id, await event.data.arrayBuffer());
         }).catch((error) => {
           active.failure = error;
-          setActionError(`Stream output failed: ${friendlyError(error)}`);
+          const message = outputFailureMessage(outputId, error, `${outputId === 'youtube' ? 'YouTube' : 'Stream'} output failed. Check the connection and try again.`);
+          setActionError(`Stream output failed: ${message}`);
           if (recorder.state === 'recording') recorder.stop();
         });
       });
@@ -366,7 +389,8 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
             await active.writeQueue;
             await api.stopStreaming(active.id);
           } catch (error) {
-            setActionError(`Stream could not stop cleanly: ${friendlyError(active.failure ?? error)}`);
+            const message = outputFailureMessage(outputId, active.failure ?? error, `${outputId === 'youtube' ? 'YouTube' : 'Stream'} output could not stop cleanly. Try again.`);
+            setActionError(`Stream could not stop cleanly: ${message}`);
           } finally {
             active.captureStream.getTracks().forEach((track) => track.stop());
             if (streaming.current.get(outputId) === active) streaming.current.delete(outputId);
@@ -388,11 +412,14 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
         }
         return;
       }
-      const failed = { state: 'error' as const, outputId, message: friendlyError(error) };
+      const failureMessage = outputFailureMessage(outputId, error, outputId === 'youtube'
+        ? 'YouTube output could not start. Check the stream details and try again.'
+        : 'Stream output could not start. Check the destination settings and try again.');
+      const failed = { state: 'error' as const, outputId, message: failureMessage };
       outputStatusRef.current[outputId] = failed;
       if (mountedRef.current) {
         setOutputStatuses((previous) => ({ ...previous, [outputId]: failed }));
-        setActionError(`Could not start streaming: ${friendlyError(error)}`);
+        setActionError(outputId === 'youtube' ? `Could not start YouTube output: ${failureMessage}` : `Could not start streaming: ${failureMessage}`);
       }
     } finally {
       startingOutputs.current.delete(outputId);
@@ -418,7 +445,7 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
       return next;
     });
     setActionError('');
-    const connecting = { state: 'connecting' as const, outputId, message: 'Connecting to Zoom Meeting SDK.' };
+    const connecting = { state: 'connecting' as const, outputId, message: 'Connecting to Zoom.' };
     outputStatusRef.current[outputId] = connecting;
     setOutputStatuses((previous) => ({ ...previous, [outputId]: connecting }));
     let audioTrack: MediaStreamTrack | null = null;
@@ -493,11 +520,12 @@ export function useStreaming(params: UseStreamingParams): UseStreamingResult {
         }
         return;
       }
-      const failed = { state: 'error' as const, outputId, message: friendlyError(error) };
+      const failureMessage = providerErrorMessage('Zoom', error, 'Zoom output could not start. Check the meeting and output settings, then try again.');
+      const failed = { state: 'error' as const, outputId, message: failureMessage };
       outputStatusRef.current[outputId] = failed;
       if (mountedRef.current) {
         setOutputStatuses((previous) => ({ ...previous, [outputId]: failed }));
-        setActionError(`Could not start Zoom output: ${friendlyError(error)}`);
+        setActionError(`Could not start Zoom output: ${failureMessage}`);
       }
     } finally {
       startingOutputs.current.delete(outputId);

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createDefaultStreamServiceSettings, type StreamAPI, type StreamServiceSettings } from '../../../../apps/stream/shared/desktop-api';
+import { createDefaultStreamServiceSettings, type StreamAPI, type StreamRuntimeStatus, type StreamServiceSettings, type ZoomAccount } from '../../../../apps/stream/shared/desktop-api';
 import { ZoomDock } from '../../../../apps/stream/renderer/docks/zoom-dock';
 
 afterEach(cleanup);
@@ -12,7 +12,12 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function renderDock({ settings: patch, getZoomAccount = () => Promise.resolve(account), listZoomMeetings = () => Promise.resolve([meeting]), status = { state: 'stopped' as const } } = {}) {
+function renderDock({ settings: patch, getZoomAccount = () => Promise.resolve(account), listZoomMeetings = () => Promise.resolve([meeting]), status = { state: 'stopped' } }: {
+  settings?: Partial<StreamServiceSettings>;
+  getZoomAccount?: () => Promise<ZoomAccount | null>;
+  listZoomMeetings?: () => Promise<typeof meeting[]>;
+  status?: StreamRuntimeStatus;
+} = {}) {
   const settings: StreamServiceSettings = { ...createDefaultStreamServiceSettings(), ...patch };
   const onChange = vi.fn(); const onGoLive = vi.fn(); const onStopStreaming = vi.fn();
   const api = {
@@ -61,7 +66,7 @@ describe('ZoomDock', () => {
     expect(await screen.findByText('Choose a future start time.')).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Start time'), { target: { value: '2030-10-20T14:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create meeting' }));
-    expect(await screen.findByText('Zoom rejected the meeting')).toBeInTheDocument();
+    expect(await screen.findByText('Could not create the Zoom meeting. Check the details and try again.')).toBeInTheDocument();
   });
 
   it('keeps output stop and cancel available while disconnected or meetings fail', async () => {
@@ -73,7 +78,7 @@ describe('ZoomDock', () => {
 
   it('keeps cancel available during a meeting-list failure while connecting', async () => {
     const { onStopStreaming } = renderDock({ listZoomMeetings: () => Promise.reject(new Error('Network unavailable')), status: { state: 'connecting' } });
-    expect(await screen.findByText('Couldn’t load meetings')).toBeInTheDocument();
+    expect(await screen.findByText(/Could not load meetings:/)).toBeInTheDocument();
     const cancel = screen.getByRole('button', { name: 'Cancel Zoom output' });
     expect(cancel).toBeEnabled();
     fireEvent.click(cancel);
@@ -87,10 +92,11 @@ describe('ZoomDock', () => {
       listZoomMeetings: vi.fn().mockResolvedValue([meeting, { ...meeting, id: 'meeting-2', topic: 'Another meeting' }]), createZoomMeeting: vi.fn(),
     } as unknown as StreamAPI, settings, onChange: vi.fn(), status: { state: 'live' as const }, onGoLive: vi.fn(), onStopStreaming: vi.fn(), onHide: vi.fn() };
     const view = render(<ZoomDock {...props} />);
-    await screen.findByText('Output active for Town hall');
+    await screen.findByText('Output meeting');
     view.rerender(<ZoomDock {...props} settings={{ ...settings, zoom: { ...settings.zoom, selectedMeetingId: 'meeting-2' } }} />);
-    expect(screen.getByText('Output active for Town hall')).toBeInTheDocument();
-    expect(screen.queryByText('Output active for Another meeting')).not.toBeInTheDocument();
+    const outputMeeting = screen.getByText('Output meeting').parentElement;
+    expect(outputMeeting).toHaveTextContent('Town hall');
+    expect(outputMeeting).not.toHaveTextContent('Another meeting');
     fireEvent.click(screen.getByRole('button', { name: 'Zoom settings' }));
     expect(screen.getByRole('button', { name: 'Disconnect' })).toBeDisabled();
   });
@@ -98,7 +104,7 @@ describe('ZoomDock', () => {
   it('shows a retry path on meeting-list failure and recovers', async () => {
     const list = vi.fn().mockRejectedValueOnce(new Error('Network unavailable')).mockResolvedValueOnce([meeting]);
     const { api } = renderDock({ listZoomMeetings: list });
-    expect(await screen.findByText('Couldn’t load meetings')).toBeInTheDocument();
+    expect(await screen.findByText(/Could not load meetings:/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await screen.findByRole('combobox', { name: 'Scheduled meeting' });
     expect(api.listZoomMeetings).toHaveBeenCalledTimes(2);
@@ -126,5 +132,20 @@ describe('ZoomDock', () => {
     await act(async () => { pending.resolve([{ ...meeting, id: 'stale-meeting', topic: 'Stale meeting' }]); await pending.promise; });
     expect(screen.queryByRole('option', { name: /stale meeting/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh meetings' })).toBeEnabled();
+  });
+
+  it('replaces raw Zoom IPC setup errors with concise account guidance', async () => {
+    renderDock({ getZoomAccount: () => Promise.reject(new Error("Error invoking remote method 'stream:connect-zoom-account': Error: Zoom account connection is not configured. Set LUMASTREAM_ZOOM_PUBLIC_CLIENT_ID and rebuild LumaStream.")) });
+
+    expect(await screen.findByText('Zoom sign-in is not available in this version of LumaStream. Contact your administrator to enable it.')).toBeInTheDocument();
+    expect(screen.queryByText(/Error invoking|LUMASTREAM|rebuild LumaStream/)).not.toBeInTheDocument();
+  });
+
+  it('shows sanitized output failures and uses an ellipsis for Zoom settings', async () => {
+    renderDock({ status: { state: 'error', outputId: 'zoom', message: 'Zoom Meeting SDK reported an error (code 100). /private/path' } });
+
+    expect(await screen.findByText('Zoom output could not start on this device. Check the selected meeting and permissions, then try again.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Zoom settings' }).querySelector('.lucide-ellipsis')).toBeInTheDocument();
+    expect(screen.queryByText(/SDK reported|private\/path/)).not.toBeInTheDocument();
   });
 });
