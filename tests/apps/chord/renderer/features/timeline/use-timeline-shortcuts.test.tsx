@@ -86,11 +86,22 @@ describe('useTimelineShortcuts: Undo, Redo and Delete ownership', () => {
     expect(testStore.trimCue).not.toHaveBeenCalled();
   });
 
-  it('Delete removes the selection exactly once per keypress', () => {
+  it('Delete removes five selected cues through one batch action per keypress', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    testStore = cueStore({
+      selection: ids,
+      document: {
+        project: createTestProject({
+          cues: ids.map((id, index) => ({ id, startMs: index * 1000, endMs: null, text: id, override: null })),
+        }),
+        path: null,
+      },
+    });
+
     render(<Harness />);
     fireEvent.keyDown(window, { key: 'Delete' });
     expect(testStore.deleteCues).toHaveBeenCalledTimes(1);
-    expect(testStore.deleteCues).toHaveBeenCalledWith(['a']);
+    expect(testStore.deleteCues).toHaveBeenCalledWith(ids);
   });
 
   it('Delete with no selection does nothing', () => {

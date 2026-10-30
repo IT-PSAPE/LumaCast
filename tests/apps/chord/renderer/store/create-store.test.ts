@@ -330,6 +330,19 @@ describe('createChordStore', () => {
       expect(state()._undoStack.at(-1)?.label).toBe('Move cues');
     });
 
+    it('moves selected cues by one shared delta while preserving their timing offsets', () => {
+      setCues([makeCue('a', 1000), makeCue('b', 2200), makeCue('c', 5000)]);
+
+      state().moveCues(['a', 'c'], 750);
+
+      expect(state().document.project.cues.map((cue) => [cue.id, cue.startMs])).toEqual([
+        ['a', 1750],
+        ['b', 2200],
+        ['c', 5750],
+      ]);
+      expect(5750 - 1750).toBe(5000 - 1000);
+    });
+
     it('trimCue and splitCueAt delegate to the pure helpers', () => {
       setCues([makeCue('a', 0)]);
       state().trimCue('a', 'end', 4000);
@@ -357,6 +370,21 @@ describe('createChordStore', () => {
       setCues([makeCue('d', 0)]);
       state().deleteCues(['d']);
       expect(state()._undoStack.at(-1)?.label).toBe('Delete cue');
+    });
+
+    it('deletes five selected cues in one undo step', () => {
+      const ids = ['a', 'b', 'c', 'd', 'e'];
+      setCues(ids.map((id, index) => makeCue(id, index * 1000)));
+      state().select(ids);
+      const before = state()._undoStack.length;
+
+      state().deleteCues(state().selection);
+
+      expect(state().document.project.cues).toEqual([]);
+      expect(state().selection).toEqual([]);
+      expect(state().selectionAnchorId).toBeNull();
+      expect(state()._undoStack).toHaveLength(before + 1);
+      expect(state()._undoStack.at(-1)?.label).toBe('Delete 5 cues');
     });
 
     it('detachCue/relinkCue toggle the override', () => {
@@ -485,6 +513,17 @@ describe('createChordStore', () => {
     expect(state().selection).toEqual(['a', 'b']);
     state().select(['a'], 'toggle');
     expect(state().selection).toEqual(['b']);
+  });
+
+  it('selectFromInteraction resolves stable inclusive ranges and modifier toggles in cue order', () => {
+    setCues(['a', 'b', 'c', 'd', 'e'].map((id, index) => makeCue(id, index * 1000)));
+
+    expect(state().selectFromInteraction(['a', 'b', 'c', 'd', 'e'], 'b')).toEqual(['b']);
+    expect(state().selectionAnchorId).toBe('b');
+    expect(state().selectFromInteraction(['a', 'b', 'c', 'd', 'e'], 'd', { shiftKey: true })).toEqual(['b', 'c', 'd']);
+    expect(state().selectFromInteraction(['a', 'b', 'c', 'd', 'e'], 'c', { metaKey: true })).toEqual(['b', 'd']);
+    expect(state().selectFromInteraction(['a', 'b', 'c', 'd', 'e'], 'e', { shiftKey: true })).toEqual(['c', 'd', 'e']);
+    expect(state().selectionAnchorId).toBe('c');
   });
 
   // ── Zoom ─────────────────────────────────────────────────────────────

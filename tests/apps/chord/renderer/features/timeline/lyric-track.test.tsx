@@ -105,7 +105,7 @@ describe('LyricTrack', () => {
     expect(detachedClip.querySelector('[aria-label="Detached from theme"]')).not.toBeNull();
   });
 
-  it('clicking a clip replaces the selection with just that cue', () => {
+  it('clicking a clip resolves selection through the shared controlled transition', () => {
     const a = cue({ id: 'a', startMs: 0, endMs: 1000, text: 'First' });
     const b = cue({ id: 'b', startMs: 1000, endMs: 2000, text: 'Second' });
     const store = setStore({
@@ -117,22 +117,34 @@ describe('LyricTrack', () => {
     render(<LyricTrack />);
     fireEvent.pointerDown(screen.getByText('First'), { pointerId: 1, clientX: 10 });
 
-    expect(store.select).toHaveBeenCalledWith(['a'], 'replace');
+    expect(store.selectFromInteraction).toHaveBeenCalledWith(['a', 'b'], 'a', {
+      shiftKey: false,
+      metaKey: false,
+      ctrlKey: false,
+    });
   });
 
-  it('shift-clicking a clip adds it to the selection', () => {
+  it('shift-clicking a clip resolves an inclusive range from the anchor', () => {
     const a = cue({ id: 'a', startMs: 0, endMs: 1000, text: 'First' });
     const b = cue({ id: 'b', startMs: 1000, endMs: 2000, text: 'Second' });
     const store = setStore({
       document: { project: createTestProject({ cues: [a, b] }), path: null },
       timeline: { zoom: 100, scrollMs: 0, viewportWidth: 800 },
       selection: ['b'],
+      tool: 'tap',
     });
 
     render(<LyricTrack />);
     fireEvent.pointerDown(screen.getByText('First'), { pointerId: 1, clientX: 10, shiftKey: true });
 
-    expect(store.select).toHaveBeenCalledWith(['a'], 'add');
+    expect(store.selectFromInteraction).toHaveBeenCalledWith(['a', 'b'], 'a', {
+      shiftKey: true,
+      metaKey: false,
+      ctrlKey: false,
+    });
+    expect(store.seek).not.toHaveBeenCalled();
+    expect(store.tapMark).not.toHaveBeenCalled();
+    expect(store.togglePlay).not.toHaveBeenCalled();
   });
 
   it('cmd/ctrl-clicking a clip toggles it in the selection', () => {
@@ -146,7 +158,54 @@ describe('LyricTrack', () => {
     render(<LyricTrack />);
     fireEvent.pointerDown(screen.getByText('First'), { pointerId: 1, clientX: 10, metaKey: true });
 
-    expect(store.select).toHaveBeenCalledWith(['a'], 'toggle');
+    expect(store.selectFromInteraction).toHaveBeenCalledWith(['a'], 'a', {
+      shiftKey: false,
+      metaKey: true,
+      ctrlKey: false,
+    });
+  });
+
+  it('dragging a selected group moves all cues with one shared delta', () => {
+    const a = cue({ id: 'a', startMs: 0, endMs: 1000, text: 'First' });
+    const b = cue({ id: 'b', startMs: 3000, endMs: 4000, text: 'Second' });
+    const store = setStore({
+      document: { project: createTestProject({ cues: [a, b] }), path: null },
+      timeline: { zoom: 100, scrollMs: 0, viewportWidth: 800 },
+      selection: ['a', 'b'],
+    });
+
+    render(<LyricTrack />);
+    fireEvent.pointerDown(screen.getByText('First'), { pointerId: 1, clientX: 10 });
+    const content = document.querySelector('[data-ui-region="lyric-track"]')?.children[1] as HTMLElement;
+    fireEvent.pointerMove(content, { pointerId: 1, clientX: 110 });
+    fireEvent.pointerUp(content, { pointerId: 1, clientX: 110 });
+
+    expect(store.moveCues).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(store.moveCues).mock.calls[0]?.[0]).toEqual(['a', 'b']);
+    expect(vi.mocked(store.moveCues).mock.calls[0]?.[1]).toBeCloseTo(1000);
+    expect(store.beginTransaction).toHaveBeenCalledWith('Move 2 cues');
+    expect(store.endTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not move a cue that a modifier-click just removed from the selection', () => {
+    const a = cue({ id: 'a', startMs: 0, endMs: 1000, text: 'First' });
+    const b = cue({ id: 'b', startMs: 3000, endMs: 4000, text: 'Second' });
+    const store = setStore({
+      document: { project: createTestProject({ cues: [a, b] }), path: null },
+      timeline: { zoom: 100, scrollMs: 0, viewportWidth: 800 },
+      selection: ['a', 'b'],
+      selectFromInteraction: vi.fn(() => ['a']),
+    });
+
+    render(<LyricTrack />);
+    fireEvent.pointerDown(screen.getByText('Second'), { pointerId: 1, clientX: 310, ctrlKey: true });
+    const content = document.querySelector('[data-ui-region="lyric-track"]')?.children[1] as HTMLElement;
+    fireEvent.pointerMove(content, { pointerId: 1, clientX: 410 });
+    fireEvent.pointerUp(content, { pointerId: 1, clientX: 410 });
+
+    expect(store.moveCues).not.toHaveBeenCalled();
+    expect(store.beginTransaction).not.toHaveBeenCalled();
+    expect(store.endTransaction).not.toHaveBeenCalled();
   });
 
   it('double-clicking a clip selects it and switches the inspector to the cue tab', () => {
@@ -159,7 +218,7 @@ describe('LyricTrack', () => {
     render(<LyricTrack />);
     fireEvent.doubleClick(screen.getByText('First'));
 
-    expect(store.select).toHaveBeenCalledWith(['a'], 'replace');
+    expect(store.selectFromInteraction).toHaveBeenCalledWith(['a'], 'a');
     expect(store.setInspectorTab).toHaveBeenCalledWith('cue');
   });
 

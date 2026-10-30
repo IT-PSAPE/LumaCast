@@ -183,7 +183,7 @@ export function PreviewCanvas({ showGuides = false }: PreviewCanvasProps) {
   });
 
   const editable: EditableCue | null = useMemo(() => {
-    if (!scene.cue || !selection.includes(scene.cue.cueId)) return null;
+    if (!scene.cue || selection.length !== 1 || selection[0] !== scene.cue.cueId) return null;
     const element = scene.cue.node.element;
     return {
       cueId: scene.cue.cueId,

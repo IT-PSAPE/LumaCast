@@ -71,6 +71,7 @@ export function createTestStore(overrides: Partial<TestChordStore> = {}): TestCh
     document: createTestDocument(),
     dirty: false,
     selection: [],
+    selectionAnchorId: null,
     playback: { playing: false, timeMs: 0, loop: false },
     timeline: { zoom: 80, scrollMs: 0, viewportWidth: 800 },
     tool: 'select',
@@ -111,6 +112,7 @@ export function createTestStore(overrides: Partial<TestChordStore> = {}): TestCh
     setTitle: vi.fn(),
 
     select: vi.fn(),
+    selectFromInteraction: vi.fn(() => []),
     clearSelection: vi.fn(),
     setTool: vi.fn(),
     setInspectorTab: vi.fn(),

@@ -65,6 +65,28 @@ describe('Inspector', () => {
     expect(testStore.relinkCue).toHaveBeenCalledWith('a');
   });
 
+  it('the multi-cue inspector deletes five selected cues through one batch action', () => {
+    const project = createTestStore().document.project;
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+    testStore = createTestStore({
+      inspectorTab: 'cue',
+      selection: ids,
+      document: {
+        project: {
+          ...project,
+          cues: ids.map((id, index) => ({ id, startMs: index * 1000, endMs: null, text: id, override: null })),
+        },
+        path: null,
+      },
+    });
+
+    render(<Inspector />);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 5 cues' }));
+
+    expect(testStore.deleteCues).toHaveBeenCalledTimes(1);
+    expect(testStore.deleteCues).toHaveBeenCalledWith(ids);
+  });
+
   it('theme tab edits (font size) call setTheme with the merged text style', () => {
     testStore = createTestStore({ inspectorTab: 'theme' });
     render(<Inspector />);

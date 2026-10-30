@@ -14,6 +14,7 @@ import type {
   ProjectDocument,
 } from '../../shared/project';
 import type { RichBody } from '@lumacast/composition';
+import type { SelectionModifiers } from '@lumacast/selection';
 
 export type Tool = 'select' | 'tap';
 export type InspectorTab = 'cue' | 'theme';
@@ -56,6 +57,8 @@ export interface ChordState {
   dirty: boolean;
   /** Selected cue ids, in selection order. */
   selection: string[];
+  /** Anchor for Shift-range selection; transient editor state, not document data. */
+  selectionAnchorId: string | null;
   playback: PlaybackState;
   timeline: TimelineView;
   tool: Tool;
@@ -113,6 +116,8 @@ export interface ChordActions {
 
   // Selection, tools, view
   select: (ids: readonly string[], mode?: SelectMode) => void;
+  /** Resolves an ordered cue click through the shared controlled selection transition. */
+  selectFromInteraction: (orderedIds: readonly string[], clickedId: string, modifiers?: SelectionModifiers) => string[];
   clearSelection: () => void;
   setTool: (tool: Tool) => void;
   setInspectorTab: (tab: InspectorTab) => void;

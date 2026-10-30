@@ -10,6 +10,7 @@
 import { create } from 'zustand';
 import { createId, nowIso } from '@lumacast/kernel';
 import { formatCues } from '@lumacast/markers';
+import { resolveSelection } from '@lumacast/selection';
 import { createEmptyProject } from '../../shared/project-schema';
 import { findPreset, scaleThemeToComposition } from '../../shared/theme-presets';
 import {
@@ -90,6 +91,7 @@ export function createChordStore(api: ChordDesktopAPI) {
       document: { project: createEmptyProject(nowIso(), createId()), path: null },
       dirty: false,
       selection: [],
+      selectionAnchorId: null,
       playback: { playing: false, timeMs: 0, loop: false },
       timeline: { zoom: 80, scrollMs: 0, viewportWidth: 0 },
       tool: 'select',
@@ -114,6 +116,7 @@ export function createChordStore(api: ChordDesktopAPI) {
           document,
           dirty: false,
           selection: [],
+          selectionAnchorId: null,
           tool: 'select',
           tapIndex: null,
           tapOrder: null,
@@ -278,14 +281,22 @@ export function createChordStore(api: ChordDesktopAPI) {
           draft.cues = result.cues;
           if (result.newId !== id) newId = result.newId;
         });
-        if (newId) set({ selection: [newId] });
+        if (newId) set({ selection: [newId], selectionAnchorId: newId });
       },
 
       deleteCues: (ids) => {
         get().updateProject(ids.length > 1 ? `Delete ${ids.length} cues` : 'Delete cue', (draft) => {
           draft.cues = deleteCuesPure(draft.cues, ids);
         });
-        set((state) => ({ selection: state.selection.filter((id) => !ids.includes(id)) }));
+        set((state) => {
+          const selection = state.selection.filter((id) => !ids.includes(id));
+          return {
+            selection,
+            selectionAnchorId: state.selectionAnchorId && selection.includes(state.selectionAnchorId)
+              ? state.selectionAnchorId
+              : selection.at(-1) ?? null,
+          };
+        });
       },
 
       duplicateCue: (id, startMs) => {
@@ -335,7 +346,7 @@ export function createChordStore(api: ChordDesktopAPI) {
         get().updateProject('Import cues', (draft) => {
           draft.cues = cues;
         });
-        set({ selection: [] });
+        set({ selection: [], selectionAnchorId: null });
       },
 
       // ── Look ─────────────────────────────────────────────────────────
@@ -388,18 +399,45 @@ export function createChordStore(api: ChordDesktopAPI) {
       // ── Selection, tools, view ──────────────────────────────────────
       select: (ids, mode = 'replace') => {
         set((state) => {
-          if (mode === 'replace') return { selection: [...ids] };
-          if (mode === 'add') return { selection: Array.from(new Set([...state.selection, ...ids])) };
+          if (mode === 'replace') {
+            const selection = [...ids];
+            return { selection, selectionAnchorId: selection.at(-1) ?? null };
+          }
+          if (mode === 'add') {
+            const selection = Array.from(new Set([...state.selection, ...ids]));
+            return {
+              selection,
+              selectionAnchorId: state.selectionAnchorId && selection.includes(state.selectionAnchorId)
+                ? state.selectionAnchorId
+                : selection.at(-1) ?? null,
+            };
+          }
           const next = new Set(state.selection);
           for (const id of ids) {
             if (next.has(id)) next.delete(id);
             else next.add(id);
           }
-          return { selection: Array.from(next) };
+          const selection = Array.from(next);
+          return {
+            selection,
+            selectionAnchorId: state.selectionAnchorId && selection.includes(state.selectionAnchorId)
+              ? state.selectionAnchorId
+              : selection.at(-1) ?? null,
+          };
         });
       },
 
-      clearSelection: () => set({ selection: [] }),
+      selectFromInteraction: (orderedIds, clickedId, modifiers = {}) => {
+        let selectedIds: string[] = [];
+        set((state) => {
+          const resolved = resolveSelection(orderedIds, state.selection, state.selectionAnchorId, clickedId, modifiers);
+          selectedIds = resolved.selectedIds;
+          return { selection: resolved.selectedIds, selectionAnchorId: resolved.anchorId };
+        });
+        return selectedIds;
+      },
+
+      clearSelection: () => set({ selection: [], selectionAnchorId: null }),
 
       setTool: (tool) =>
         set({
@@ -472,13 +510,13 @@ export function createChordStore(api: ChordDesktopAPI) {
           get().updateProject('Time cue', (draft) => {
             draft.cues = draft.cues.map((cue) => (cue.id === targetId ? { ...cue, startMs: quantized } : cue));
           });
-          set({ tapIndex: index + 1, tapOrder: order, selection: [targetId] });
+          set({ tapIndex: index + 1, tapOrder: order, selection: [targetId], selectionAnchorId: targetId });
         } else {
           const id = createId();
           get().updateProject('Add cue', (draft) => {
             draft.cues = insertCue(draft.cues, { id, startMs: quantized, endMs: null, text: 'New line', override: null });
           });
-          set({ tapIndex: index + 1, tapOrder: [...order, id], selection: [id] });
+          set({ tapIndex: index + 1, tapOrder: [...order, id], selection: [id], selectionAnchorId: id });
         }
       },
 

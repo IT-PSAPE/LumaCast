@@ -41,6 +41,7 @@ export function LyricTrack() {
   const tapIndex = useChordStore((state) => state.tapIndex);
   const tapOrder = useChordStore((state) => state.tapOrder);
   const select = useChordStore((state) => state.select);
+  const selectFromInteraction = useChordStore((state) => state.selectFromInteraction);
   const clearSelection = useChordStore((state) => state.clearSelection);
   const seek = useChordStore((state) => state.seek);
   const moveCues = useChordStore((state) => state.moveCues);
@@ -69,24 +70,32 @@ export function LyricTrack() {
 
   function handleClipPointerDown(event: ReactPointerEvent<HTMLDivElement>, cue: ChordCue) {
     event.stopPropagation();
-    const mode = selectModeFromEvent(event);
     const alreadySelected = selection.includes(cue.id);
-    if (mode !== 'replace' || !alreadySelected) select([cue.id], mode);
+    const hasModifier = event.shiftKey || event.metaKey || event.ctrlKey;
 
     // A drag always carries the resulting selection: the clicked cue plus
     // whatever else was already selected, so dragging one clip in a
     // multi-selection moves the whole group.
-    const ids = mode === 'replace'
-      ? (alreadySelected ? selection : [cue.id])
-      : (selection.includes(cue.id) ? selection : [...selection, cue.id]);
+    const ids = !hasModifier && alreadySelected
+      ? selection.filter((id) => cues.some((entry) => entry.id === id))
+      : selectFromInteraction(cues.map((entry) => entry.id), cue.id, {
+        shiftKey: event.shiftKey,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+      });
+    // A modifier-click that removes this cue changes selection only; dragging
+    // the now-deselected cue must not move it or the remaining selection.
+    const dragIds = ids.includes(cue.id) ? ids : [];
 
     event.currentTarget.setPointerCapture(event.pointerId);
     // One undo step per drag, however many pointer moves it takes.
-    useChordStore.getState().beginTransaction(ids.length > 1 ? `Move ${ids.length} cues` : 'Move cue');
+    if (dragIds.length > 0) {
+      useChordStore.getState().beginTransaction(dragIds.length > 1 ? `Move ${dragIds.length} cues` : 'Move cue');
+    }
     dragRef.current = {
       kind: 'move',
       pointerId: event.pointerId,
-      ids,
+      ids: dragIds,
       anchorStartMs: cue.startMs,
       pointerStartMs: msAtClientX(event.clientX),
       lastDeltaMs: 0,
@@ -94,13 +103,13 @@ export function LyricTrack() {
   }
 
   function handleClipDoubleClick(cue: ChordCue) {
-    select([cue.id], 'replace');
+    selectFromInteraction(cues.map((entry) => entry.id), cue.id);
     setInspectorTab('cue');
   }
 
   function handleHandlePointerDown(event: ReactPointerEvent<HTMLDivElement>, cue: ChordCue, edge: 'start' | 'end') {
     event.stopPropagation();
-    select([cue.id], 'replace');
+    selectFromInteraction(cues.map((entry) => entry.id), cue.id);
     event.currentTarget.setPointerCapture(event.pointerId);
     useChordStore.getState().beginTransaction('Trim cue');
     dragRef.current = { kind: 'trim', pointerId: event.pointerId, id: cue.id, edge };
@@ -123,6 +132,7 @@ export function LyricTrack() {
     if (!drag || drag.pointerId !== event.pointerId) return;
 
     if (drag.kind === 'move') {
+      if (drag.ids.length === 0) return;
       const currentMs = msAtClientX(event.clientX);
       const rawCandidate = drag.anchorStartMs + (currentMs - drag.pointerStartMs);
       let candidate = rawCandidate;
@@ -183,7 +193,7 @@ export function LyricTrack() {
       }
     }
 
-    if (drag.kind === 'move' || drag.kind === 'trim') {
+    if ((drag.kind === 'move' && drag.ids.length > 0) || drag.kind === 'trim') {
       useChordStore.getState().endTransaction();
     }
 
