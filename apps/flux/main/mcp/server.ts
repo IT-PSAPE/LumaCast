@@ -29,6 +29,8 @@ import { Commands, exportSchema } from "@lumacast/photo-library";
 import {
   patchSchema,
   adjustmentControls,
+  metadataPatchSchema,
+  MAX_PHOTO_BATCH_SIZE,
   neutralRecipe,
 } from "@lumacast/photo-model";
 
@@ -150,7 +152,7 @@ export function createMcpServer(commands: Commands, roots: string[]) {
         atomicBatch: true,
         mutations:
           "Supply current expectedRevision. Undo/redo also increment revision.",
-        maxBatch: 500,
+        maxBatch: MAX_PHOTO_BATCH_SIZE,
       }),
   );
   tool(
@@ -304,16 +306,17 @@ export function createMcpServer(commands: Commands, roots: string[]) {
     [
       "set_selection",
       "Select photo IDs in the desktop gallery.",
-      { ids: z.array(id).max(10000) },
+      { ids: z.array(id).max(MAX_PHOTO_BATCH_SIZE) },
     ],
     [
       "update_metadata",
       "Set a photo rating or favorite status.",
-      {
-        id,
-        rating: z.number().int().min(0).max(5).optional(),
-        favorite: z.boolean().optional(),
-      },
+      { id, ...metadataPatchSchema.shape },
+    ],
+    [
+      "update_photos_metadata",
+      "Set a rating or favorite status for photos atomically.",
+      { ids: z.array(id).min(1).max(MAX_PHOTO_BATCH_SIZE), ...metadataPatchSchema.shape },
     ],
     [
       "apply_edits",
@@ -329,7 +332,7 @@ export function createMcpServer(commands: Commands, roots: string[]) {
             z.object({ id, expectedRevision, patch: patchSchema }).strict(),
           )
           .min(1)
-          .max(500),
+          .max(MAX_PHOTO_BATCH_SIZE),
       },
     ],
     [

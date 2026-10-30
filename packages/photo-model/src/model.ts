@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { lensProfileSchema } from "./lens-profile.js";
 
+export const MAX_PHOTO_BATCH_SIZE = 10_000;
+
 export const adjustmentControls = [
   ["exposure", "Exposure", -5, 5, 0.05, "Light"],
   ["brightness", "Brightness", -100, 100, 1, "Light"],
@@ -79,7 +81,14 @@ const patchShape = Object.fromEntries(
   ]),
 ) as PatchShape;
 export const patchSchema = z.object(patchShape).strict();
+export const metadataPatchSchema = z
+  .object({
+    rating: z.number().int().min(0).max(5).optional(),
+    favorite: z.boolean().optional(),
+  })
+  .strict();
 export type Recipe = z.infer<typeof recipeSchema>;
+export type MetadataPatch = z.infer<typeof metadataPatchSchema>;
 export const neutralRecipe = (): Recipe => recipeSchema.parse({});
 export type AdjustmentKey = (typeof adjustmentControls)[number][0];
 export type ImageInfo = {

@@ -7,7 +7,13 @@ import { imageExtensions } from "@lumacast/photo-model";
 import { z } from "zod";
 import { PhotoService } from "./service.js";
 import { ExportManager, type Renderer } from "./export.js";
-import { neutralRecipe, recipeSchema, patchSchema } from "@lumacast/photo-model";
+import {
+  neutralRecipe,
+  recipeSchema,
+  patchSchema,
+  metadataPatchSchema,
+  MAX_PHOTO_BATCH_SIZE,
+} from "@lumacast/photo-model";
 const id = z.string().min(1);
 const rev = z.number().int().nonnegative();
 export class Commands {
@@ -179,7 +185,7 @@ export class Commands {
       case "set_selection":
         return this.service.select(
           z
-            .object({ ids: z.array(id) })
+            .object({ ids: z.array(id).max(MAX_PHOTO_BATCH_SIZE) })
             .strict()
             .parse(args).ids,
           source,
@@ -187,22 +193,28 @@ export class Commands {
       case "remove_photos_from_library":
         return this.service.removeFromLibrary(
           z
-            .object({ ids: z.array(id).min(1).max(10000) })
+            .object({ ids: z.array(id).min(1).max(MAX_PHOTO_BATCH_SIZE) })
             .strict()
             .parse(args).ids,
           source,
         );
       case "update_metadata": {
         const a = z
-          .object({
-            id,
-            rating: z.number().int().min(0).max(5).optional(),
-            favorite: z.boolean().optional(),
-          })
+          .object({ id })
+          .extend(metadataPatchSchema.shape)
           .strict()
           .parse(args);
         const { id: photoId, ...patch } = a;
         return this.service.metadata(photoId, patch, source);
+      }
+      case "update_photos_metadata": {
+        const a = z
+          .object({ ids: z.array(id).min(1).max(MAX_PHOTO_BATCH_SIZE) })
+          .extend(metadataPatchSchema.shape)
+          .strict()
+          .parse(args);
+        const { ids, ...patch } = a;
+        return this.service.metadataMany(ids, patch, source);
       }
       case "apply_edits": {
         const a = z
@@ -221,7 +233,7 @@ export class Commands {
                   .strict(),
               )
               .min(1)
-              .max(500),
+              .max(MAX_PHOTO_BATCH_SIZE),
           })
           .strict()
           .parse(args);

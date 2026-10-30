@@ -20,6 +20,8 @@ import { resolveImagingResources } from './imaging/paths';
 import { CATALOG_CHANGE_CHANNEL, IPC_CHANNELS, MENU_COMMAND_CHANNEL } from './ipc-channels';
 import { installApplicationMenu } from './application-menu';
 import { startMcp } from './mcp/server';
+import { assetCacheKey } from './asset-cache-key';
+import { createCoalescedNotifier } from './coalesced-notifier';
 
 // The `lumaflux:` scheme serves photo thumbnails to <img> elements. It is
 // registered before `app.whenReady()` because privileges cannot be granted
@@ -67,6 +69,7 @@ if (!app.requestSingleInstanceLock()) {
   let pool: RenderPool;
   let commands: Commands | undefined;
   let quitting = false;
+  let jobChangeNotifier: ReturnType<typeof createCoalescedNotifier> | undefined;
   let settingsTail: Promise<unknown> = Promise.resolve();
   let mcp: Awaited<ReturnType<typeof startMcp>> | undefined;
   let settings = { enabled: false, roots: [] as string[] };
@@ -196,14 +199,23 @@ if (!app.requestSingleInstanceLock()) {
 
       const thumbs = new Map<string, Buffer>();
       const pending = new Map<string, Promise<Buffer>>();
-      service.on('change', () => {
-        const livePhotoIds = new Set(service.state().photos.map((photo) => photo.id));
+      const notifyCatalogChange = () => {
+        if (window && !window.isDestroyed()) window.webContents.send(CATALOG_CHANGE_CHANNEL);
+      };
+      jobChangeNotifier = createCoalescedNotifier(notifyCatalogChange);
+      service.on('change', (change?: { kind?: string }) => {
+        if (change?.kind === 'jobs') {
+          jobChangeNotifier?.schedule();
+          return;
+        }
+        const livePhotoIds = new Set(service.photoIds());
         for (const key of thumbs.keys()) {
           if (!livePhotoIds.has(key.slice(0, key.indexOf(':')))) thumbs.delete(key);
         }
         for (const key of pending.keys()) {
           if (!livePhotoIds.has(key.slice(0, key.indexOf(':')))) pending.delete(key);
         }
+        if (!jobChangeNotifier?.flush()) notifyCatalogChange();
       });
       protocol.handle('lumaflux', async (request) => {
         try {
@@ -211,9 +223,10 @@ if (!app.requestSingleInstanceLock()) {
           if (url.hostname !== 'asset') return new Response(null, { status: 404 });
           const id = decodeURIComponent(url.pathname.slice(1));
           const photo = service.photo(id);
-          // The cache key includes the revision and path, so an edit or a relink
-          // can never serve a stale thumbnail.
-          const key = `${id}:${photo.revision}:${photo.path}`;
+          // Also stamp the source file: another app may replace its contents
+          // without changing this catalog record or its recipe revision.
+          const sourceStat = await stat(photo.path);
+          const key = assetCacheKey(photo, sourceStat);
           let bytes = thumbs.get(key);
           if (!bytes) {
             // One render per key even under concurrent <img> requests; the
@@ -347,6 +360,7 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
+    jobChangeNotifier?.dispose();
     void (async () => {
       try {
         for (const job of commands?.service.jobs ?? []) {

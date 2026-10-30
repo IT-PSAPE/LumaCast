@@ -1586,6 +1586,13 @@ histogram's RGB channel fills and clipping masks retain data-specific colours;
 its neutral indicators and grid use themed tokens. Lens facts use compact
 label/value columns rather than a helper paragraph.
 
+Flux validates rating and adjustment batches before one serialized catalog
+replacement, with a shared 10,000-photo limit for selection, batch edits, and
+exports. Export jobs snapshot their source records and recipes when queued.
+Catalog change notifications remain immediate; job-only progress notifications
+are coalesced in the desktop process and do not trigger catalog cache pruning.
+Thumbnail pruning reads a detached ID list rather than cloning photo histories.
+
 `packages/photo-imaging/src/auto-tone.ts` implements Auto Light as a two-stage
 guardrail search: preserve plausible measured tone, or propose a capped lift
 when midtones and the upper body are dark with unclipped headroom. Reference

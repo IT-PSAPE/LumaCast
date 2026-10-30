@@ -17,10 +17,13 @@ import {
   neutralRecipe,
   recipeSchema,
   patchSchema,
+  metadataPatchSchema,
+  MAX_PHOTO_BATCH_SIZE,
   type Photo,
   type AppState,
   type EditRequest,
   type Recipe,
+  type MetadataPatch,
   type ExportJob,
 } from "@lumacast/photo-model";
 import { inspectImage } from "@lumacast/photo-imaging";
@@ -28,6 +31,14 @@ import { inspectImage } from "@lumacast/photo-imaging";
 import { imageExtensions } from "@lumacast/photo-model";
 const extensions = new Set(imageExtensions.map((ext) => `.${ext}`));
 const idSchema = z.string().min(1).max(100);
+const activitySchema = z
+  .object({
+    id: idSchema,
+    time: z.string().datetime(),
+    source: z.string(),
+    action: z.string(),
+  })
+  .strict();
 const editSchema = z
   .array(
     z
@@ -39,7 +50,7 @@ const editSchema = z
       .strict(),
   )
   .min(1)
-  .max(500);
+  .max(MAX_PHOTO_BATCH_SIZE);
 const photoSchema = z.object({
   id: idSchema,
   path: z.string(),
@@ -84,11 +95,19 @@ export class PhotoService extends EventEmitter {
     try {
       const raw = JSON.parse(await readFile(catalogPath, "utf8"));
       if (raw.version !== 1) throw new Error("Unsupported catalog version");
+      const photos = z.array(photoSchema).parse(raw.photos);
+      const photoIds = new Set<string>();
+      for (const photo of photos) {
+        if (photoIds.has(photo.id))
+          throw new Error(`Duplicate photo ID: ${photo.id}`);
+        photoIds.add(photo.id);
+      }
+      const selection = z.array(idSchema).parse(raw.selection ?? []);
       s.data = {
         version: 1,
-        photos: z.array(photoSchema).parse(raw.photos),
-        selection: z.array(idSchema).parse(raw.selection ?? []),
-        activity: raw.activity ?? [],
+        photos,
+        selection: [...new Set(selection)].filter((id) => photoIds.has(id)),
+        activity: z.array(activitySchema).max(200).parse(raw.activity ?? []),
       };
       await Promise.all(
         s.data.photos.map(async (p) => {
@@ -114,6 +133,9 @@ export class PhotoService extends EventEmitter {
     const p = this.data.photos.find((p) => p.id === id);
     if (!p) throw new Error(`NOT_FOUND: Photo ${id}`);
     return structuredClone(p);
+  }
+  photoIds(): string[] {
+    return this.data.photos.map((photo) => photo.id);
   }
   private mutate<T>(
     action: string,
@@ -163,9 +185,9 @@ export class PhotoService extends EventEmitter {
             await walk(path.join(canonical, item.name));
           }
         } else if (extensions.has(path.extname(canonical).toLowerCase())) {
-          if (candidates.length >= 10000)
+          if (candidates.length >= MAX_PHOTO_BATCH_SIZE)
             throw new Error(
-              "Import limit: choose at most 10,000 photos at a time",
+              `Import limit: choose at most ${MAX_PHOTO_BATCH_SIZE.toLocaleString("en-US")} photos at a time`,
             );
           candidates.push(canonical);
         } else if (explicit)
@@ -217,8 +239,9 @@ export class PhotoService extends EventEmitter {
     if (new Set(edits.map((e) => e.id)).size !== edits.length)
       throw new Error("INVALID_ARGUMENT: Duplicate photo IDs");
     return this.mutate(`Edit ${edits.length} photo(s)`, source, (next) => {
+      const photosById = new Map(next.photos.map((photo) => [photo.id, photo]));
       const targets = edits.map((e) => {
-        const p = next.photos.find((p) => p.id === e.id);
+        const p = photosById.get(e.id);
         if (!p) throw new Error(`NOT_FOUND: Photo ${e.id}`);
         if (p.revision !== e.expectedRevision)
           throw new Error(
@@ -279,34 +302,40 @@ export class PhotoService extends EventEmitter {
       return { id, revision: p.revision };
     });
   }
-  async metadata(
-    id: string,
-    patch: { rating?: number; favorite?: boolean },
-    source = "UI",
-  ) {
-    const valid = z
-      .object({
-        rating: z.number().int().min(0).max(5).optional(),
-        favorite: z.boolean().optional(),
-      })
-      .strict()
-      .parse(patch);
+  async metadata(id: string, patch: MetadataPatch, source = "UI") {
+    await this.metadataMany([id], patch, source);
+  }
+  async metadataMany(ids: string[], patch: MetadataPatch, source = "UI") {
+    const requested = z
+      .array(idSchema)
+      .min(1)
+      .max(MAX_PHOTO_BATCH_SIZE)
+      .parse(ids);
+    if (new Set(requested).size !== requested.length)
+      throw new Error("INVALID_ARGUMENT: Duplicate photo IDs");
+    const valid = metadataPatchSchema.parse(patch);
     return this.mutate("Update photo metadata", source, (next) => {
-      const p = next.photos.find((p) => p.id === id);
-      if (!p) throw new Error("NOT_FOUND: Photo");
-      Object.assign(p, valid);
+      const photosById = new Map(next.photos.map((photo) => [photo.id, photo]));
+      const missing = requested.find((photoId) => !photosById.has(photoId));
+      if (missing) throw new Error(`NOT_FOUND: Photo ${missing}`);
+      for (const photoId of requested)
+        Object.assign(photosById.get(photoId)!, valid);
+      return requested;
     });
   }
   async select(ids: string[], source = "UI") {
-    z.array(idSchema).max(10000).parse(ids);
+    z.array(idSchema).max(MAX_PHOTO_BATCH_SIZE).parse(ids);
     return this.mutate("Change selection", source, (next) => {
-      if (ids.some((id) => !next.photos.some((p) => p.id === id)))
+      const availableIds = new Set(next.photos.map((photo) => photo.id));
+      if (ids.some((id) => !availableIds.has(id)))
         throw new Error("NOT_FOUND: Selection contains missing photo");
       next.selection = [...new Set(ids)];
     });
   }
   async removeFromLibrary(ids: string[], source = "UI") {
-    const requested = [...new Set(z.array(idSchema).min(1).max(10000).parse(ids))];
+    const requested = [
+      ...new Set(z.array(idSchema).min(1).max(MAX_PHOTO_BATCH_SIZE).parse(ids)),
+    ];
     return this.mutate(
       `Remove ${requested.length} photo(s) from library`,
       source,
@@ -323,9 +352,25 @@ export class PhotoService extends EventEmitter {
       },
     );
   }
+  photosByIds(ids: string[]): Photo[] {
+    const requested = z
+      .array(idSchema)
+      .min(1)
+      .max(MAX_PHOTO_BATCH_SIZE)
+      .parse(ids);
+    const photosById = new Map(
+      this.data.photos.map((photo) => [photo.id, photo]),
+    );
+    return requested.map((id) => {
+      const photo = photosById.get(id);
+      if (!photo) throw new Error(`NOT_FOUND: Photo ${id}`);
+      return structuredClone(photo);
+    });
+  }
   async relink(id: string, newPath: string) {
     const canonical = await realpath(newPath);
     const info = await inspectImage(canonical);
+    const fileStat = await stat(canonical);
     return this.mutate("Relink original", "UI", (next) => {
       const p = next.photos.find((p) => p.id === id);
       if (!p) throw new Error("NOT_FOUND: Photo");
@@ -337,9 +382,11 @@ export class PhotoService extends EventEmitter {
         path: canonical,
         name: path.basename(canonical),
         folder: path.dirname(canonical),
+        modifiedAt: fileStat.mtime.toISOString(),
         missing: false,
       });
       p.history.push(p.recipe);
+      p.history = p.history.slice(-100);
       p.recipe = { ...p.recipe, crop: null };
       p.future = [];
       p.revision++;

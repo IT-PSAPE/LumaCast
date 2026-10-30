@@ -60,12 +60,20 @@ test('MCP authenticates, discovers, edits, previews and rejects stale/out-of-roo
     await client.subscribeResource({ uri: 'lumaflux://app/state' });
     const tools = await client.listTools();
     expect(tools.tools.some((t) => t.name === 'apply_batch_edits')).toBe(true);
+    expect(tools.tools.some((t) => t.name === 'update_photos_metadata')).toBe(true);
     const imported = await client.callTool({
       name: 'import_photos',
       arguments: { paths: [source] },
     });
     expect(imported.isError).toBeFalsy();
     const p = s.state().photos[0];
+    const metadata = await client.callTool({
+      name: 'update_photos_metadata',
+      arguments: { ids: [p.id], rating: 3, favorite: true },
+    });
+    expect(metadata.isError).toBeFalsy();
+    expect(s.photo(p.id).rating).toBe(3);
+    expect(s.photo(p.id).favorite).toBe(true);
     expect(tools.tools.some((t) => t.name === 'suggest_adjustments')).toBe(true);
     const guide = await client.callTool({
       name: 'get_editing_guide',
@@ -181,10 +189,11 @@ test('allowed-root validation resolves symlinks and rejects sibling-prefix paths
   await mkdir(sibling);
   const file = path.join(sibling, 'private.txt');
   await writeFile(file, 'private');
-  await symlink(file, path.join(allowed, 'escape.txt'));
+  const escapeDirectory = path.join(allowed, 'escape');
+  await symlink(sibling, escapeDirectory, process.platform === 'win32' ? 'junction' : 'dir');
   await expect(assertAllowed(file, [allowed])).rejects.toThrow(/PATH_DENIED/);
   await expect(
-    assertAllowed(path.join(allowed, 'escape.txt'), [allowed]),
+    assertAllowed(path.join(escapeDirectory, 'private.txt'), [allowed]),
   ).rejects.toThrow(/PATH_DENIED/);
   expect(await assertAllowed(allowed, [allowed])).toBe(await realpath(allowed));
 });
