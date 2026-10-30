@@ -1,13 +1,14 @@
 import {
-  useEffect, useRef, useState,
+  useEffect, useMemo, useRef, useState,
   type CSSProperties, type Dispatch, type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
   type ReactNode, type SetStateAction,
 } from 'react';
-import { Layers2, Plus, Redo2, Undo2, X } from 'lucide-react';
-import { Badge, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry, type PointContextMenuTrigger } from '@lumacast/ui';
-import { moveSceneBy, moveSceneTo, reorderOnDrop } from '../scene-order';
-import { primaryShortcutLabel, type StreamPlatform } from '../../shared/platform-capabilities';
+import { Layers2, Plus, Trash2, X } from 'lucide-react';
+import { Badge, Modal, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry, type PointContextMenuTrigger } from '@lumacast/ui';
+import { moveSelectedIds, useMultiSelection, useMultiSelectionKeyHandler, type SelectionModifiers } from '@lumacast/selection';
+import { reorderSelectionOnDrop } from '../scene-order';
+import type { StreamPlatform } from '../../shared/platform-capabilities';
 import type { StreamScene } from '../../shared/desktop-api';
 import './scenes-dock.css';
 
@@ -21,25 +22,23 @@ export interface ScenesDockProps {
   onHide: () => void;
   platform: StreamPlatform;
   scenes: StreamScene[];
+  /** Resets transient scene selection when the active collection changes. */
+  selectionScopeKey: string | null;
   activeSceneId: string;
   liveSceneId: string;
-  undoAvailable: boolean;
-  redoAvailable: boolean;
-  onUndo: () => void;
-  onRedo: () => void;
   onAddScene: () => void;
   onChooseScene: (sceneId: string) => void;
   setSceneNameDraft: Dispatch<SetStateAction<string>>;
   setSceneDialog: Dispatch<SetStateAction<'rename' | 'delete' | null>>;
   working: boolean;
-  onDuplicateScene: () => void;
+  onDuplicateScene: (sceneId?: string) => void;
   /** Enables the "Transition to Program" context-menu action. */
   studioMode?: boolean;
-  /** Transitions the selected scene to program. */
-  onTransitionScene?: () => void;
-  /** Allows transitioning scenes whose program state has changed, including the live scene. */
+  /** Transitions the active scene, or the supplied scene, to program. */
+  onTransitionScene?: (sceneId?: string) => void;
+  /** Allows a dirty current scene to be committed to Program without changing scene ID. */
   canTransitionScene?: (sceneId: string) => boolean;
-  /** Renders a decorative composition thumbnail for a scene. */
+  /** Renders the decorative composition thumbnail and audio meter for a scene. */
   renderThumbnail?: (scene: StreamScene) => ReactNode;
   /** Opens a projector window of the given kind. Projector submenu is omitted when absent. */
   onOpenProjector?: (kind: 'preview' | 'program') => void;
@@ -47,6 +46,8 @@ export interface ScenesDockProps {
   onRenameScene?: (sceneId: string, name: string) => void;
   /** Persists a new scene order, from the Order submenu, Ctrl/Cmd+Arrow, or a row drag. */
   onReorderScenes?: (sceneIds: string[]) => void;
+  /** Removes the supplied scenes after the Scenes dock's one-confirm group-delete dialog. */
+  onRequestDeleteScenes: (sceneIds: string[]) => void;
 }
 
 function deleteShortcutLabel(platform: StreamPlatform): string {
@@ -66,12 +67,9 @@ export function ScenesDock({
   onHide,
   platform,
   scenes,
+  selectionScopeKey,
   activeSceneId,
   liveSceneId,
-  undoAvailable,
-  redoAvailable,
-  onUndo,
-  onRedo,
   onAddScene,
   onChooseScene,
   setSceneNameDraft,
@@ -85,6 +83,7 @@ export function ScenesDock({
   onOpenProjector,
   onRenameScene,
   onReorderScenes,
+  onRequestDeleteScenes,
 }: ScenesDockProps) {
   const contextMenu = usePointContextMenu();
   const [menuSceneId, setMenuSceneId] = useState<string | null>(null);
@@ -92,6 +91,19 @@ export function ScenesDock({
   const [renameDraft, setRenameDraft] = useState('');
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<string[] | null>(null);
+  const sceneIds = useMemo(() => scenes.map((scene) => scene.id), [scenes]);
+  const selection = useMultiSelection(sceneIds, selectionScopeKey);
+  const selectionCount = selection.selectedIds.size;
+  const handleSelectionKeys = useMultiSelectionKeyHandler({
+    selectedCount: selectionCount,
+    selectAll: selection.selectAll,
+    clearSelection: selection.clearSelection,
+  });
+
+  useEffect(() => {
+    setPendingDeleteIds(null);
+  }, [selectionScopeKey]);
 
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const dragStateRef = useRef<DragState | null>(null);
@@ -109,14 +121,13 @@ export function ScenesDock({
 
   useEffect(() => {
     function computeDropIndex(clientY: number): number {
-      const ids = scenes.map((scene) => scene.id);
-      for (let index = 0; index < ids.length; index += 1) {
-        const row = rowRefs.current.get(ids[index]!);
+      for (let index = 0; index < sceneIds.length; index += 1) {
+        const row = rowRefs.current.get(sceneIds[index]!);
         if (!row) continue;
         const rect = row.getBoundingClientRect();
         if (clientY < rect.top + rect.height / 2) return index;
       }
-      return ids.length;
+      return sceneIds.length;
     }
 
     function handlePointerMove(event: PointerEvent) {
@@ -137,7 +148,7 @@ export function ScenesDock({
       if (state?.active) {
         const currentDropIndex = dropIndexRef.current;
         if (currentDropIndex !== null) {
-          const next = reorderOnDrop(scenes.map((scene) => scene.id), state.id, currentDropIndex);
+          const next = reorderSelectionOnDrop(sceneIds, state.id, currentDropIndex, selection.selectedIds);
           onReorderScenes?.(next);
         }
         setDropIndex(null);
@@ -165,7 +176,7 @@ export function ScenesDock({
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [scenes, onReorderScenes]);
+  }, [sceneIds, onReorderScenes, selection.selectedIds]);
 
   function registerRow(sceneId: string, element: HTMLButtonElement | null) {
     if (element) rowRefs.current.set(sceneId, element);
@@ -207,25 +218,58 @@ export function ScenesDock({
 
   function requestRemove(scene: StreamScene) {
     if (scenes.length <= 1) return;
+    const selectedIds = selection.actionIds(scene.id);
+    if (selectedIds.length > 1) {
+      const removableIds = selectedIds.length === scenes.length
+        ? selectedIds.filter((sceneId) => sceneId !== activeSceneId)
+        : selectedIds;
+      setPendingDeleteIds(removableIds);
+      return;
+    }
     if (scene.id !== activeSceneId) onChooseScene(scene.id);
     setSceneDialog('delete');
   }
 
+  function confirmRemoveSelected() {
+    if (!pendingDeleteIds) return;
+    onRequestDeleteScenes(pendingDeleteIds);
+    setPendingDeleteIds(null);
+    selection.clearSelection();
+  }
+
   function openSceneMenu(scene: StreamScene, trigger: PointContextMenuTrigger) {
-    if (scene.id !== activeSceneId) onChooseScene(scene.id);
+    if (!selection.selectedIds.has(scene.id)) {
+      selection.select(scene.id);
+      if (scene.id !== activeSceneId) onChooseScene(scene.id);
+    }
     setMenuSceneId(scene.id);
     contextMenu.show(trigger);
   }
 
-  function buildMenuEntries(scene: StreamScene, index: number): MenuEntry[] {
-    const ids = scenes.map((candidate) => candidate.id);
+  function buildMenuEntries(scene: StreamScene): MenuEntry[] {
+    const ids = sceneIds;
+    const selectedIds = selection.actionIds(scene.id);
+    const movingIds = selection.selectedIds.has(scene.id) ? selection.selectedIds : new Set([scene.id]);
+    const movingIndexes = ids.flatMap((id, idIndex) => movingIds.has(id) ? [idIndex] : []);
+    const movingStart = movingIndexes[0] ?? ids.indexOf(scene.id);
+    const movingEnd = movingIndexes.at(-1) ?? ids.indexOf(scene.id);
+    const moveSelectionBy = (delta: -1 | 1) => {
+      const targetIndex = delta < 0 ? movingStart - 1 : movingEnd + 1;
+      if (targetIndex < 0 || targetIndex >= ids.length) return [...ids];
+      return moveSelectedIds(ids, scene.id, targetIndex, movingIds);
+    };
+    const moveSelectionToEdge = (edge: 'top' | 'bottom') => {
+      const moving = ids.filter((id) => movingIds.has(id));
+      const remaining = ids.filter((id) => !movingIds.has(id));
+      return edge === 'top' ? [...moving, ...remaining] : [...remaining, ...moving];
+    };
     const entries: MenuEntry[] = [
       { id: 'add', label: 'Add Scene', onSelect: onAddScene },
-      { id: 'duplicate', label: 'Duplicate', disabled: working, onSelect: onDuplicateScene },
+      { id: 'duplicate', label: 'Duplicate', disabled: working, onSelect: () => onDuplicateScene(scene.id) },
       { id: 'rename', label: 'Rename', shortcut: 'F2', onSelect: () => startRename(scene) },
       {
         id: 'remove',
-        label: 'Remove',
+        label: selectedIds.length > 1 ? `Remove ${selectedIds.length} Selected` : 'Remove',
         danger: true,
         disabled: scenes.length <= 1,
         shortcut: deleteShortcutLabel(platform),
@@ -236,10 +280,10 @@ export function ScenesDock({
         id: 'order',
         label: 'Order',
         children: [
-          { id: 'move-up', label: 'Move Up', disabled: index === 0, onSelect: () => onReorderScenes?.(moveSceneBy(ids, scene.id, -1)) },
-          { id: 'move-down', label: 'Move Down', disabled: index === scenes.length - 1, onSelect: () => onReorderScenes?.(moveSceneBy(ids, scene.id, 1)) },
-          { id: 'move-top', label: 'Move to Top', disabled: index === 0, onSelect: () => onReorderScenes?.(moveSceneTo(ids, scene.id, 0)) },
-          { id: 'move-bottom', label: 'Move to Bottom', disabled: index === scenes.length - 1, onSelect: () => onReorderScenes?.(moveSceneTo(ids, scene.id, scenes.length - 1)) },
+          { id: 'move-up', label: 'Move Up', disabled: movingStart === 0, onSelect: () => onReorderScenes?.(moveSelectionBy(-1)) },
+          { id: 'move-down', label: 'Move Down', disabled: movingEnd === scenes.length - 1, onSelect: () => onReorderScenes?.(moveSelectionBy(1)) },
+          { id: 'move-top', label: 'Move to Top', disabled: movingStart === 0, onSelect: () => onReorderScenes?.(moveSelectionToEdge('top')) },
+          { id: 'move-bottom', label: 'Move to Bottom', disabled: movingEnd === scenes.length - 1, onSelect: () => onReorderScenes?.(moveSelectionToEdge('bottom')) },
         ],
       },
     ];
@@ -250,7 +294,7 @@ export function ScenesDock({
         id: 'transition',
         label: 'Transition to Program',
         disabled: canTransitionScene ? !canTransitionScene(scene.id) : scene.id === liveSceneId,
-        onSelect: () => onTransitionScene?.(),
+        onSelect: () => onTransitionScene?.(scene.id),
       });
     }
 
@@ -275,6 +319,16 @@ export function ScenesDock({
       event.preventDefault();
       return;
     }
+    const modifiers: SelectionModifiers = {
+      shiftKey: event.shiftKey,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+    };
+    if (modifiers.shiftKey || modifiers.metaKey || modifiers.ctrlKey) {
+      selection.select(scene.id, modifiers);
+      return;
+    }
+    selection.select(scene.id);
     onChooseScene(scene.id);
   }
 
@@ -319,7 +373,12 @@ export function ScenesDock({
       event.preventDefault();
       event.stopPropagation();
       const delta = event.key === 'ArrowUp' ? -1 : 1;
-      onReorderScenes?.(moveSceneBy(scenes.map((candidate) => candidate.id), scene.id, delta));
+      const moving = selection.selectedIds.has(scene.id) ? selection.selectedIds : new Set([scene.id]);
+      const indexes = sceneIds.flatMap((id, idIndex) => moving.has(id) ? [idIndex] : []);
+      const targetIndex = delta < 0 ? Math.min(...indexes) - 1 : Math.max(...indexes) + 1;
+      if (targetIndex >= 0 && targetIndex < sceneIds.length) {
+        onReorderScenes?.(moveSelectedIds(sceneIds, scene.id, targetIndex, moving));
+      }
       return;
     }
 
@@ -327,7 +386,11 @@ export function ScenesDock({
       event.preventDefault();
       event.stopPropagation();
       const delta = event.key === 'ArrowUp' ? -1 : 1;
-      focusScene(scenes[Math.max(0, Math.min(scenes.length - 1, index + delta))]);
+      const target = scenes[Math.max(0, Math.min(scenes.length - 1, index + delta))];
+      if (event.shiftKey && target) {
+        selection.select(target.id, { shiftKey: true });
+        rowRefs.current.get(target.id)?.focus();
+      } else focusScene(target);
       return;
     }
 
@@ -346,7 +409,6 @@ export function ScenesDock({
   }
 
   const menuScene = scenes.find((scene) => scene.id === menuSceneId) ?? null;
-  const menuIndex = menuScene ? scenes.indexOf(menuScene) : -1;
   const dropBeforeId = dropIndex !== null && dropIndex < scenes.length ? (scenes[dropIndex]?.id ?? null) : null;
   const dropAtEnd = dropIndex !== null && dropIndex === scenes.length && scenes.length > 0;
 
@@ -356,16 +418,19 @@ export function ScenesDock({
       <Panel.Header data-dock-handle className="cursor-grab select-none">
         <Panel.HeaderTitle>Scenes</Panel.HeaderTitle>
         <Panel.HeaderActions>
-          <ReacstButton.Icon variant="ghost" size="sm" label="Undo" tooltip={`Undo (${primaryShortcutLabel(platform, 'Z')})`} disabled={!undoAvailable} onClick={onUndo}><Undo2 /></ReacstButton.Icon>
-          <ReacstButton.Icon variant="ghost" size="sm" label="Redo" tooltip={`Redo (${primaryShortcutLabel(platform, 'Z', true)})`} disabled={!redoAvailable} onClick={onRedo}><Redo2 /></ReacstButton.Icon>
           <ReacstButton.Icon variant="ghost" size="sm" label="Add scene" onClick={onAddScene}><Plus /></ReacstButton.Icon>
+          {selectionCount > 1 && <ReacstButton.Icon variant="ghost" size="sm" label={`Delete ${selectionCount} selected scenes`} tooltip={`Delete ${selectionCount} selected scenes`} onClick={() => {
+            const firstSelected = scenes.find((scene) => selection.selectedIds.has(scene.id));
+            if (firstSelected) requestRemove(firstSelected);
+          }}><Trash2 /></ReacstButton.Icon>}
 
           <ReacstButton.Icon variant="ghost" size="sm" label="Hide Scenes" onClick={onHide}><X /></ReacstButton.Icon>
         </Panel.HeaderActions>
       </Panel.Header>
-      <div className="scene-list">
+      <div className="scene-list" onKeyDown={handleSelectionKeys}>
         {scenes.map((scene, index) => {
           const isActive = scene.id === activeSceneId;
+          const isMultiSelected = selection.selectedIds.has(scene.id);
           const isLive = scene.id === liveSceneId;
           const isPreview = scene.id === activeSceneId && (studioMode || !isLive);
           const isRenaming = scene.id === renamingId;
@@ -373,6 +438,7 @@ export function ScenesDock({
           const classNames = [
             'scene-row',
             isActive ? 'selected' : '',
+            isMultiSelected ? 'multi-selected' : '',
             isLive ? 'live' : '',
             dragId === scene.id ? 'dragging' : '',
             dropBeforeId === scene.id ? 'drag-over-before' : '',
@@ -391,6 +457,7 @@ export function ScenesDock({
               className={classNames}
               aria-label={scene.name}
               aria-describedby={statusIds.length > 0 ? statusIds.join(' ') : undefined}
+              aria-pressed={isMultiSelected}
               aria-current={isActive ? 'true' : undefined}
               tabIndex={isActive ? 0 : -1}
               onClick={(event) => handleRowClick(event, scene)}
@@ -420,8 +487,8 @@ export function ScenesDock({
                   />
                 ) : <span className="scene-name">{scene.name}</span>}
                 <span className="scene-row-status">
-                  {isPreview && <span id={`scene-preview-status-${scene.id}`}><Badge tone="brand" shape="rounded">PREVIEW</Badge></span>}
-                  {isLive && <span id={`scene-live-status-${scene.id}`}><Badge tone="error" shape="rounded">LIVE</Badge></span>}
+                  {isPreview && <span id={`scene-preview-status-${scene.id}`}><Badge tone="brand" shape="box">PREVIEW</Badge></span>}
+                  {isLive && <span id={`scene-live-status-${scene.id}`}><Badge tone="error" shape="box">LIVE</Badge></span>}
                 </span>
               </span>
             </button>
@@ -431,10 +498,25 @@ export function ScenesDock({
       <PointContextMenu
         open={contextMenu.open}
         position={contextMenu.position}
-        entries={menuScene ? buildMenuEntries(menuScene, menuIndex) : []}
+        entries={menuScene ? buildMenuEntries(menuScene) : []}
         label={menuScene ? `${menuScene.name} options` : 'Scene options'}
         onClose={contextMenu.close}
       />
+      <Modal
+        open={pendingDeleteIds !== null}
+        onClose={() => setPendingDeleteIds(null)}
+        title={`Delete ${pendingDeleteIds?.length ?? 0} scenes?`}
+        className="scene-modal"
+        footer={<>
+          <button className="secondary-button" type="button" onClick={() => setPendingDeleteIds(null)}>Cancel</button>
+          <button className="primary-button danger-button" type="button" onClick={confirmRemoveSelected}>Delete {pendingDeleteIds?.length ?? 0} scenes</button>
+        </>}
+      >
+        <div className="scene-delete-copy">
+          Delete {pendingDeleteIds?.length ?? 0} selected scenes and remove their sources and scene references from this collection?
+          {pendingDeleteIds?.length === scenes.length - 1 ? ' One scene will remain in the collection.' : ''}
+        </div>
+      </Modal>
     </Panel>
   );
 }

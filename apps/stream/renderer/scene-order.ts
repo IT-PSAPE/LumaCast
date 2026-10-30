@@ -2,6 +2,7 @@
 // scene ids only (not `StreamScene` objects) so the dock can derive the next
 // `project.scenes` order — via the Order submenu, Ctrl/Cmd+Arrow, or a pointer
 // drag — without this module knowing the scene shape.
+import { moveSelectionToGap } from '@lumacast/selection';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -49,4 +50,16 @@ export function reorderOnDrop(ids: readonly string[], draggedId: string, targetI
   const next = ids.filter((candidate) => candidate !== draggedId);
   next.splice(insertAt, 0, draggedId);
   return next;
+}
+
+/** Reorders the selected rows as a stable block at a gap in the original list. */
+export function reorderSelectionOnDrop(
+  ids: readonly string[],
+  draggedId: string,
+  targetIndex: number,
+  selectedIds: ReadonlySet<string>,
+): string[] {
+  if (!ids.includes(draggedId)) return [...ids];
+  const moving = selectedIds.has(draggedId) ? selectedIds : new Set([draggedId]);
+  return moveSelectionToGap(ids.slice(), moving, targetIndex);
 }

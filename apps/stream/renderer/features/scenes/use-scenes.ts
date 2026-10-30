@@ -51,8 +51,9 @@ export interface UseScenesResult {
   renameActiveScene: () => void;
   renameScene: (sceneId: string, name: string) => void;
   reorderScenes: (sceneIds: string[]) => void;
-  duplicateActiveScene: () => Promise<void>;
+  duplicateActiveScene: (sceneId?: string) => Promise<void>;
   deleteActiveScene: () => void;
+  deleteScenes: (sceneIds: string[]) => void;
   chooseScene: (sceneId: string) => void;
   transitionScene: (sceneId?: string) => void;
   toggleStudioMode: () => void;
@@ -151,9 +152,9 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
     });
   };
 
-  const duplicateActiveScene = async () => {
+  const duplicateActiveScene = async (sceneId?: string) => {
     if (!project || working) return;
-    const original = project.scenes.find((scene) => scene.id === project.activeSceneId);
+    const original = project.scenes.find((scene) => scene.id === (sceneId ?? project.activeSceneId));
     if (!original) return;
     setWorking(true);
     setActionError('');
@@ -191,34 +192,60 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
     } finally { setWorking(false); }
   };
 
-  const deleteActiveScene = () => {
+  const deleteScenes = (sceneIds: string[]) => {
     if (!project || project.scenes.length <= 1) return;
-    const removed = project.scenes.find((scene) => scene.id === project.activeSceneId);
-    if (!removed) return;
-    const removedNodes = flattenSourceNodes(removed.sources);
-    const removedReferenceNodes = project.scenes
-      .filter((scene) => scene.id !== removed.id)
-      .flatMap((scene) => flattenSourceNodes(scene.sources))
-      .filter((source) => source.kind === 'scene' && source.referencedSceneId === removed.id);
+    const requestedIds = new Set(sceneIds);
+    const existingIds = new Set(project.scenes.map((scene) => scene.id));
+    const removedIds = new Set(Array.from(requestedIds).filter((sceneId) => existingIds.has(sceneId)));
+    if (removedIds.size === 0) return;
+
+    // A scene collection must always retain one scene. When every scene is
+    // selected, keep the active scene so the preview remains valid.
+    if (removedIds.size >= project.scenes.length) removedIds.delete(project.activeSceneId);
+    if (removedIds.size === 0) return;
+
+    const removesActiveScene = removedIds.has(project.activeSceneId);
+    const removesLiveScene = removedIds.has(project.liveSceneId);
     setProjectValue((current) => {
-      const scenes = current.scenes.filter((scene) => scene.id !== current.activeSceneId)
-        .map((scene) => ({ ...scene, sources: removeSceneReferenceSources(scene.sources, removed.id) }));
-      const replacement = scenes[0]!;
+      // Reconcile against the latest persisted project in case another edit
+      // changed the scene list while the action was being dispatched.
+      const currentRemovedIds = new Set(Array.from(removedIds).filter((sceneId) => current.scenes.some((scene) => scene.id === sceneId)));
+      if (currentRemovedIds.size >= current.scenes.length) currentRemovedIds.delete(current.activeSceneId);
+      const remaining = current.scenes.filter((scene) => !currentRemovedIds.has(scene.id));
+      const replacement = remaining[0]!;
+      const removedNodeIds = current.scenes
+        .filter((scene) => currentRemovedIds.has(scene.id))
+        .flatMap((scene) => flattenSourceNodes(scene.sources));
+      const removedReferenceNodeIds = remaining
+        .flatMap((scene) => flattenSourceNodes(scene.sources))
+        .filter((source) => source.kind === 'scene' && source.referencedSceneId && currentRemovedIds.has(source.referencedSceneId));
+      const removeReferences = (sources: StreamScene['sources']) => Array.from(currentRemovedIds)
+        .reduce((next, sceneId) => removeSceneReferenceSources(next, sceneId), sources);
+      const scenes = remaining.map((scene) => ({ ...scene, sources: removeReferences(scene.sources) }));
+      const removedActive = currentRemovedIds.has(current.activeSceneId);
+      const removedLive = currentRemovedIds.has(current.liveSceneId);
       return {
         ...current,
         scenes,
-        activeSceneId: replacement.id,
-        liveSceneId: current.liveSceneId === removed.id ? replacement.id : current.liveSceneId,
-        sceneSwitchHotkeys: Object.fromEntries(Object.entries(current.sceneSwitchHotkeys).filter(([sceneId]) => sceneId !== removed.id)),
-        sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [...removedNodes, ...removedReferenceNodes].map((source) => source.id)),
+        activeSceneId: removedActive ? replacement.id : current.activeSceneId,
+        liveSceneId: removedLive ? replacement.id : current.liveSceneId,
+        sceneSwitchHotkeys: Object.fromEntries(Object.entries(current.sceneSwitchHotkeys).filter(([sceneId]) => !currentRemovedIds.has(sceneId))),
+        sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(
+          current.sourceVisibilityHotkeys,
+          [...removedNodeIds, ...removedReferenceNodeIds].map((source) => source.id),
+        ),
       };
     });
     // In Studio Mode, deleting editable scene data must not change the
     // immutable Program graph or interrupt its outgoing fade.
-    const removedProgramScene = removed.id === (params.programSceneId ?? project.liveSceneId);
-    if (removedProgramScene && (!project.studioMode || !params.commitProgram)) finishTransition();
-    selectSource(null);
+    if ((removesActiveScene || removesLiveScene) && (!project.studioMode || !params.commitProgram)) finishTransition();
+    if (removesActiveScene) selectSource(null);
     setSceneDialog(null);
+  };
+
+  const deleteActiveScene = () => {
+    if (!project) return;
+    deleteScenes([project.activeSceneId]);
   };
 
   const chooseScene = (sceneId: string) => {
@@ -247,8 +274,7 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
     setProjectValue((current) => ({ ...current, studioMode: !current.studioMode, activeSceneId: current.studioMode ? current.liveSceneId : current.activeSceneId }));
   };
 
-  // Sets preview to `sceneId` and immediately transitions it to program — equivalent to
-  // selecting the scene as preview then hitting Transition, done atomically so it works
+  // Sets preview to `sceneId` and immediately transitions it to program, atomically so it works
   // the same whether or not Studio Mode is on.
   const transitionToScene = (sceneId: string) => {
     if (!project || !beginProgramTransition(sceneId)) return;
@@ -265,7 +291,7 @@ export function useScenes(params: UseScenesParams): UseScenesResult {
     sceneDialog, setSceneDialog, sceneNameDraft, setSceneNameDraft,
     transition, transitionType, setTransitionType, transitionColor, setTransitionColor, transitionMs, setTransitionMs,
     finishTransition,
-    addScene, renameActiveScene, renameScene, reorderScenes, duplicateActiveScene, deleteActiveScene,
+    addScene, renameActiveScene, renameScene, reorderScenes, duplicateActiveScene, deleteActiveScene, deleteScenes,
     chooseScene, transitionScene, toggleStudioMode, transitionToScene,
     resetForWorkspaceChange,
   };

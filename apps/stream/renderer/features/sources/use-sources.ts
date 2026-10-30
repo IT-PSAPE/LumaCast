@@ -1,4 +1,5 @@
-import { useRef, useState, type Dispatch, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type PointerEvent as ReactPointerEvent, type RefObject, type SetStateAction } from 'react';
+import { resolveSelection, type SelectionModifiers } from '@lumacast/selection';
 import { hitTestSource } from '../../canvas-composition';
 import { canvasPointFromOutputPoint } from '../../output-scaling';
 import { canTransformSource, fitSourceToCanvas, resizeSourceFromPointer, sourceContainsPoint } from '../../source-transform';
@@ -17,6 +18,28 @@ import type { StreamAPI } from '../../../shared/desktop-api';
 import { friendlyError } from '../shared/friendly-error';
 import { getOriginSourceId, toRuntimeSource } from '../../source-runtime';
 import { createSource, DEFAULT_AUDIO_FILTERS, DEFAULT_CHROMA_KEY, DEFAULT_SOURCE_CROP, DEFAULT_SOURCE_FILTERS, defaultTransform } from './helpers';
+import { canResizeSourceTree, isSourceTransformableInTree, selectedSourceRoots, sourceCanvasSelectionOrder, sourceRowOrder, translateSourceSelection } from '../../source-selection';
+
+export type SourceSelectionEvent = Pick<SelectionModifiers, 'shiftKey' | 'metaKey' | 'ctrlKey'> & { type?: string };
+
+interface SourceCanvasDrag {
+  pointerId: number;
+  sourceId: string;
+  sourceIds: string[];
+  movableSourceIds: string[];
+  sceneId: string;
+  startX: number;
+  startY: number;
+  appliedMoveX: number;
+  appliedMoveY: number;
+  originX: number;
+  originY: number;
+  originWidth: number;
+  originHeight: number;
+  originRotation: number;
+  originIsGroup: boolean;
+  resizeHandle: string | null;
+}
 
 export interface UseSourcesParams {
   api: StreamAPI;
@@ -55,7 +78,9 @@ export interface UseSourcesResult {
   selectedSourceIds: string[];
   selectedSource: StreamSource | null;
   selectSource: (sourceId: string | null) => void;
-  selectSourceRow: (event: ReactMouseEvent<HTMLDivElement>, sourceId: string) => void;
+  selectSourceRow: (event: SourceSelectionEvent, sourceId: string) => void;
+  selectAllSources: () => void;
+  clearSourceSelection: () => void;
   collapsedGroupIds: string[];
   setCollapsedGroupIds: Dispatch<SetStateAction<string[]>>;
   canGroupSelectedSources: boolean;
@@ -108,13 +133,14 @@ export interface UseSourcesResult {
   stopMediaPlayback: (sourceId: string) => void;
 
   removeSelectedSource: () => void;
-  copySelectedSource: () => void;
+  nudgeSelectedSources: (dx: number, dy: number) => void;
+  copySelectedSource: (sourceId?: string) => void;
   pasteSource: () => Promise<void>;
   moveSource: (sourceId: string, direction: -1 | 1) => void;
   moveSourceTo: (sourceId: string, position: 'top' | 'bottom') => void;
   onReorderSources: (parentId: string | null, orderedIds: string[]) => void;
   groupSelectedSources: () => void;
-  ungroupSelectedSource: () => void;
+  ungroupSelectedSource: (sourceId?: string) => void;
 
   handleStagePointerDown: (event: ReactPointerEvent<HTMLDivElement>, scene: StreamScene) => void;
   handleStagePointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -140,6 +166,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
 
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
   const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
+  const selectionAnchorId = useRef<string | null>(null);
   const [collapsedGroupIds, setCollapsedGroupIds] = useState<string[]>([]);
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false);
   const [sourceActionsMenuOpen, setSourceActionsMenuOpen] = useState(false);
@@ -149,24 +176,38 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   const sourceMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const sourceActionsTriggerRef = useRef<HTMLButtonElement>(null);
   const sourceClipboardRef = useRef<StreamSource | null>(null);
-  const dragging = useRef<{ pointerId: number; sourceId: string; startX: number; startY: number; originX: number; originY: number; originWidth: number; originHeight: number; originRotation: number; originIsGroup: boolean; resizeHandle: string | null } | null>(null);
+  const dragging = useRef<SourceCanvasDrag | null>(null);
+
+  const commitSelection = (ids: string[], primaryId: string | null, anchorId: string | null) => {
+    setSelectedSourceIds(ids);
+    setSelectedSourceId(primaryId && ids.includes(primaryId) ? primaryId : ids.at(-1) ?? null);
+    selectionAnchorId.current = anchorId;
+  };
 
   const selectSource = (sourceId: string | null) => {
-    setSelectedSourceId(sourceId);
-    setSelectedSourceIds(sourceId ? [sourceId] : []);
+    commitSelection(sourceId ? [sourceId] : [], sourceId, sourceId);
   };
 
-  const selectSourceRow = (event: ReactMouseEvent<HTMLDivElement>, sourceId: string) => {
-    if (!event.ctrlKey && !event.metaKey) {
-      selectSource(sourceId);
-      return;
-    }
-    const next = selectedSourceIds.includes(sourceId)
-      ? selectedSourceIds.filter((id) => id !== sourceId)
-      : [...selectedSourceIds, sourceId];
-    setSelectedSourceIds(next);
-    setSelectedSourceId(next.at(-1) ?? null);
+  const selectSourceRow = (event: SourceSelectionEvent, sourceId: string) => {
+    if (!activeScene) return;
+    const visibleIds = sourceRowOrder(activeScene.sources, collapsedGroupIds);
+    const selectableIds = sourceRowOrder(activeScene.sources);
+    const next = resolveSelection(visibleIds, selectedSourceIds, selectionAnchorId.current, sourceId,
+      event.type === 'contextmenu' ? {} : event, selectableIds);
+    commitSelection(next.selectedIds, next.selectedIds.includes(sourceId) ? sourceId : null, next.anchorId);
   };
+
+  const selectAllSources = () => {
+    if (!activeScene) return;
+    const visibleIds = sourceRowOrder(activeScene.sources, collapsedGroupIds);
+    const visible = new Set(visibleIds);
+    const selectableIds = new Set(sourceRowOrder(activeScene.sources));
+    const hiddenSelected = selectedSourceIds.filter((id) => !visible.has(id) && selectableIds.has(id));
+    const next = [...visibleIds, ...hiddenSelected];
+    commitSelection(next, visibleIds.at(-1) ?? hiddenSelected.at(-1) ?? null, visibleIds[0] ?? null);
+  };
+
+  const clearSourceSelection = () => selectSource(null);
 
   const selectedSource = activeScene ? flattenSourceNodes(activeScene.sources).find((source) => source.id === selectedSourceId) ?? null : null;
   const canGroupSelectedSources = activeScene ? canGroupSourceSiblings(activeScene.sources, selectedSourceIds) : false;
@@ -461,20 +502,43 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   };
 
   const removeSelectedSource = () => {
-    if (!selectedSource || !activeScene) return;
-    const removedIds = flattenSourceNodes([selectedSource]).map((source) => source.id);
-    for (const source of flattenSourceLeaves([selectedSource])) stopRuntime(source.id);
+    if (selectedSourceIds.length === 0 || !activeScene) return;
+    const roots = selectedSourceRoots(activeScene.sources, selectedSourceIds);
+    if (roots.length === 0) return;
+    const removedIds = roots.flatMap((source) => flattenSourceNodes([source]).map((node) => node.id));
+    for (const source of roots.flatMap((root) => flattenSourceLeaves([root]))) stopRuntime(source.id);
     setProjectValue((current) => ({
       ...current,
-      scenes: current.scenes.map((scene) => scene.id === activeScene.id ? { ...scene, sources: removeSourceTreeById(scene.sources, selectedSource.id) } : scene),
+      scenes: current.scenes.map((scene) => scene.id === activeScene.id ? {
+        ...scene,
+        sources: roots.reduce((sources, source) => removeSourceTreeById(sources, source.id), scene.sources),
+      } : scene),
       sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, removedIds),
     }));
     selectSource(null);
   };
 
-  const copySelectedSource = () => {
-    if (!selectedSource) return;
-    sourceClipboardRef.current = structuredClone(selectedSource);
+  const nudgeSelectedSources = (dx: number, dy: number) => {
+    if (!activeScene || selectedSourceIds.length === 0 || (dx === 0 && dy === 0)) return;
+    setProjectValue((current) => {
+      let changed = false;
+      const scenes = current.scenes.map((scene) => {
+        if (scene.id !== activeScene.id) return scene;
+        const sources = translateSourceSelection(scene.sources, selectedSourceIds, dx, dy);
+        if (sources.every((source, index) => source === scene.sources[index])) return scene;
+        changed = true;
+        return { ...scene, sources };
+      });
+      return changed ? { ...current, scenes } : current;
+    });
+  };
+
+  const copySelectedSource = (sourceId?: string) => {
+    const source = sourceId
+      ? flattenSourceNodes(activeScene?.sources ?? []).find((item) => item.id === sourceId) ?? null
+      : selectedSource;
+    if (!source) return;
+    sourceClipboardRef.current = structuredClone(source);
     setSourceClipboardAvailable(true);
     setSourceActionsMenuOpen(false);
   };
@@ -579,25 +643,27 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     setSourceActionsMenuOpen(false);
   };
 
-  const ungroupSelectedSource = () => {
-    if (!selectedSource || selectedSource.kind !== 'group' || !activeScene) return;
-    const children = selectedSource.children ?? [];
+  const ungroupSelectedSource = (sourceId?: string) => {
+    const source = sourceId
+      ? flattenSourceNodes(activeScene?.sources ?? []).find((item) => item.id === sourceId) ?? null
+      : selectedSource;
+    if (!source || source.kind !== 'group' || !activeScene) return;
+    const children = source.children ?? [];
     setProjectValue((current) => ({
       ...current,
       scenes: current.scenes.map((scene) => {
         if (scene.id !== current.activeSceneId) return scene;
-        const sources = ungroupSourceNode(scene.sources, selectedSource.id);
+        const sources = ungroupSourceNode(scene.sources, source.id);
         return sources ? { ...scene, sources } : scene;
       }),
-      sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [selectedSource.id]),
+      sourceVisibilityHotkeys: removeSourceVisibilityHotkeys(current.sourceVisibilityHotkeys, [source.id]),
     }));
-    selectSource(null);
-    setSelectedSourceIds(children.map((source) => source.id));
-    setSelectedSourceId(children.at(-1)?.id ?? null);
+    commitSelection(children.map((source) => source.id), children.at(-1)?.id ?? null, children[0]?.id ?? null);
     setSourceActionsMenuOpen(false);
   };
 
   const handleStagePointerDown = (event: ReactPointerEvent<HTMLDivElement>, scene: StreamScene) => {
+    if (event.button !== 0) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const output = { width: project?.output.width ?? 1920, height: project?.output.height ?? 1080 };
     const canvas = { width: project?.output.baseWidth ?? 1920, height: project?.output.baseHeight ?? 1080 };
@@ -618,20 +684,68 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       ? x >= selectedBounds.x && x <= selectedBounds.x + selectedBounds.width
         && y >= selectedBounds.y && y <= selectedBounds.y + selectedBounds.height
       : sourceContainsPoint(selectedBounds, x, y));
-    const source = resizeHandle ? selected : selectedIsGroupedChild && pointInsideSelected ? selected : withinCanvas ? hitTestSource(scene, x, y) : null;
-    selectSource(source?.id ?? null);
+    const source = resizeHandle ? selected
+      : selected && pointInsideSelected && (selected.kind === 'group' || selectedIsGroupedChild)
+        ? selected
+        : withinCanvas ? hitTestSource(scene, x, y) : null;
+    if (!source) {
+      if (!event.shiftKey && !event.ctrlKey && !event.metaKey) selectSource(null);
+      dragging.current = null;
+      return;
+    }
+
+    const modifiers: SelectionModifiers = { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey };
+    const currentSelected = selectedSourceIds;
+    let nextSelected = currentSelected;
+    let nextAnchor = selectionAnchorId.current;
+    const clickedAlreadySelected = currentSelected.includes(source.id);
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      const selectableIds = sourceRowOrder(scene.sources);
+      const next = resolveSelection(sourceCanvasSelectionOrder(scene.sources), currentSelected, selectionAnchorId.current, source.id, modifiers, selectableIds);
+      nextSelected = next.selectedIds;
+      nextAnchor = next.anchorId;
+      commitSelection(nextSelected, nextSelected.includes(source.id) ? source.id : null, nextAnchor);
+    } else if (!clickedAlreadySelected) {
+      nextSelected = [source.id];
+      nextAnchor = source.id;
+      commitSelection(nextSelected, source.id, nextAnchor);
+    } else {
+      // A plain press on any selected member starts a group drag without
+      // collapsing the selection. Make that member the active inspector target.
+      commitSelection(currentSelected, source.id, nextAnchor);
+    }
+
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
-    if (!source || !canTransformSource(source.locked)) {
+    // Toggling an already selected item off must not immediately re-add it by
+    // starting a drag that would implicitly select it again.
+    if (!nextSelected.includes(source.id) || !canTransformSource(source.locked) || !isSourceTransformableInTree(scene.sources, source.id)) {
+      dragging.current = null;
+      return;
+    }
+    const canResize = resizeHandle !== null && nextSelected.length === 1
+      && isSourceTransformableInTree(scene.sources, source.id) && canResizeSourceTree(source);
+    const transformSource = source;
+    if (!transformSource || !canTransformSource(transformSource.locked)) {
       dragging.current = null;
       return;
     }
     dragging.current = {
-      pointerId: event.pointerId, sourceId: source.id, startX: x, startY: y,
-      originX: source.transform.x, originY: source.transform.y,
-      originWidth: source.transform.width, originHeight: source.transform.height,
+      pointerId: event.pointerId,
+      sourceId: source.id,
+      sourceIds: nextSelected,
+      movableSourceIds: flatSources.filter((item) => isSourceTransformableInTree(scene.sources, item.id)).map((item) => item.id),
+      sceneId: scene.id,
+      startX: x,
+      startY: y,
+      appliedMoveX: 0,
+      appliedMoveY: 0,
+      originX: source.transform.x,
+      originY: source.transform.y,
+      originWidth: source.transform.width,
+      originHeight: source.transform.height,
       originRotation: source.transform.rotation ?? 0,
       originIsGroup: source.kind === 'group',
-      resizeHandle: source.id === selectedSourceId ? resizeHandle : null,
+      resizeHandle: canResize ? resizeHandle : null,
     };
   };
 
@@ -648,10 +762,24 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     const dx = x - activeDrag.startX;
     const dy = y - activeDrag.startY;
     if (!activeDrag.resizeHandle) {
-      updateSource(activeDrag.sourceId, (source) => ({
-        ...source,
-        transform: { ...source.transform, x: Math.round(activeDrag.originX + dx), y: Math.round(activeDrag.originY + dy) },
-      }));
+      const totalMoveX = Math.round(dx);
+      const totalMoveY = Math.round(dy);
+      const moveX = totalMoveX - activeDrag.appliedMoveX;
+      const moveY = totalMoveY - activeDrag.appliedMoveY;
+      if (moveX === 0 && moveY === 0) return;
+      activeDrag.appliedMoveX = totalMoveX;
+      activeDrag.appliedMoveY = totalMoveY;
+      setProjectValue((current) => {
+        let changed = false;
+        const scenes = current.scenes.map((scene) => {
+          if (scene.id !== activeDrag.sceneId) return scene;
+          const sources = translateSourceSelection(scene.sources, activeDrag.sourceIds, moveX, moveY, activeDrag.movableSourceIds);
+          if (sources.every((source, index) => source === scene.sources[index])) return scene;
+          changed = true;
+          return { ...scene, sources };
+        });
+        return changed ? { ...current, scenes } : current;
+      });
       return;
     }
     const resized = resizeSourceFromPointer({
@@ -662,7 +790,12 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
       rotation: activeDrag.originIsGroup ? 0 : activeDrag.originRotation,
     }, activeDrag.resizeHandle, dx, dy);
     resized.rotation = activeDrag.originRotation;
-    updateSource(activeDrag.sourceId, (source) => ({ ...source, transform: resized }));
+    setProjectValue((current) => ({
+      ...current,
+      scenes: current.scenes.map((scene) => scene.id === activeDrag.sceneId
+        ? { ...scene, sources: mapSourceTreeById(scene.sources, activeDrag.sourceId, (source) => ({ ...source, transform: resized })) }
+        : scene),
+    }));
   };
 
   const handleStagePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -680,7 +813,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
   };
 
   return {
-    selectedSourceId, selectedSourceIds, selectedSource, selectSource, selectSourceRow,
+    selectedSourceId, selectedSourceIds, selectedSource, selectSource, selectSourceRow, selectAllSources, clearSourceSelection,
     collapsedGroupIds, setCollapsedGroupIds, canGroupSelectedSources,
     sourceMenuOpen, setSourceMenuOpen, sourceActionsMenuOpen, setSourceActionsMenuOpen,
     sourceMenuTriggerRef, sourceActionsTriggerRef, sourceClipboardAvailable,
@@ -692,7 +825,7 @@ export function useSources(params: UseSourcesParams): UseSourcesResult {
     updateSourceAudioTrack, updateSourceAudio, updateBrowserAudio, updateSourceFilters, updateSourceChromaKey,
     updateSourceCrop, updateSourceAudioFilters,
     toggleMediaPlayback, restartMediaPlayback, stopMediaPlayback,
-    removeSelectedSource, copySelectedSource, pasteSource, moveSource, moveSourceTo, onReorderSources,
+    removeSelectedSource, nudgeSelectedSources, copySelectedSource, pasteSource, moveSource, moveSourceTo, onReorderSources,
     groupSelectedSources, ungroupSelectedSource,
     handleStagePointerDown, handleStagePointerMove, handleStagePointerUp,
     resetForWorkspaceChange,

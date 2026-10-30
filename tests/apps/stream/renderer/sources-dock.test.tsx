@@ -113,6 +113,23 @@ function mockRowRect(row: HTMLElement, top: number, height = 30) {
 }
 
 describe('SourcesDock', () => {
+  it('exposes multi-selection and hierarchy through tree accessibility state', () => {
+    const group = makeSource('group-1', {
+      name: 'Group',
+      kind: 'group',
+      children: [makeSource('child-1', { name: 'Child' })],
+    });
+    renderDock({ sources: [group], selectedSourceIds: ['child-1'] });
+
+    expect(screen.getByRole('tree', { name: 'Sources' })).toHaveAttribute('aria-multiselectable', 'true');
+    expect(rowFor('Group')).toHaveAttribute('role', 'treeitem');
+    expect(rowFor('Group')).toHaveAttribute('aria-level', '1');
+    expect(rowFor('Group')).toHaveAttribute('aria-expanded', 'true');
+    expect(rowFor('Child')).toHaveAttribute('role', 'treeitem');
+    expect(rowFor('Child')).toHaveAttribute('aria-level', '2');
+    expect(rowFor('Child')).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('shows a text and icon status for unavailable sources, including audio', () => {
     const microphone = makeSource('mic-1', { name: 'Room mic', kind: 'microphone' });
     renderDock({
@@ -138,6 +155,7 @@ describe('SourcesDock', () => {
     expect(rowFor('Display Capture').querySelector('.source-availability')).toHaveTextContent('Starting');
     expect(rowFor('Webcam').querySelector('.source-availability')).toBeNull();
   });
+
   it('right-click opens the menu and selects the row', async () => {
     const { onSelectSourceRow } = renderDock();
     fireEvent.contextMenu(rowFor('Webcam'), { clientX: 20, clientY: 30 });
@@ -155,6 +173,46 @@ describe('SourcesDock', () => {
 
     expect(onSelectSourceRow).not.toHaveBeenCalled();
     expect(screen.getByRole('menu')).toBeInTheDocument();
+  });
+
+  it('passes the clicked selected row to its context Copy and Ungroup actions', async () => {
+    const groupA = makeSource('group-a', { name: 'Group A', kind: 'group', children: [makeSource('child-a')] });
+    const groupB = makeSource('group-b', { name: 'Group B', kind: 'group', children: [makeSource('child-b')] });
+    const onCopySource = vi.fn();
+    const onUngroupSource = vi.fn();
+    renderDock({
+      sources: [groupA, groupB],
+      selectedSource: groupA,
+      selectedSourceIds: ['group-a', 'group-b'],
+      sourceActions: {
+        sourceClipboardAvailable: false,
+        working: false,
+        canGroupSelectedSources: false,
+        onCopySource,
+        onPasteSource: vi.fn(),
+        onGroupSources: vi.fn(),
+        onUngroupSource,
+        onFitSource: vi.fn(),
+        onCenterSource: vi.fn(),
+        onStretchSource: vi.fn(),
+        onResetTransform: vi.fn(),
+        onRemoveSelectedSource: vi.fn(),
+      },
+    });
+
+    fireEvent.contextMenu(rowFor('Group B'), { clientX: 20, clientY: 30 });
+    await settle();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Copy/ }));
+    await settle();
+
+    expect(onCopySource).toHaveBeenCalledWith('group-b');
+
+    fireEvent.contextMenu(rowFor('Group B'), { clientX: 20, clientY: 30 });
+    await settle();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ungroup' }));
+    await settle();
+
+    expect(onUngroupSource).toHaveBeenCalledWith('group-b');
   });
 
   it('Remove calls the remove handler', async () => {
@@ -222,12 +280,45 @@ describe('SourcesDock', () => {
     expect(onMoveSource).toHaveBeenCalledWith('src-1', 1);
   });
 
+  it('Ctrl+Arrow moves selected siblings together', () => {
+    const onReorderSources = vi.fn();
+    renderDock({
+      sources: [makeSource('src-1'), makeSource('src-2'), makeSource('src-3')],
+      selectedSourceIds: ['src-1', 'src-2'],
+      onReorderSources,
+    });
+    fireEvent.keyDown(rowFor('src-1'), { key: 'ArrowUp', ctrlKey: true });
+
+    expect(onReorderSources).toHaveBeenCalledWith(null, ['src-3', 'src-1', 'src-2']);
+  });
+
   it('plain ArrowDown moves focus/selection to the row below', () => {
     const { onSelectSourceRow } = renderDock();
     // Display order reverses the source array, so "Webcam" (src-2) renders above "Display Capture" (src-1).
     fireEvent.keyDown(rowFor('Webcam'), { key: 'ArrowDown' });
 
     expect(onSelectSourceRow).toHaveBeenCalledWith(expect.anything(), 'src-1');
+  });
+
+  it('Shift+Arrow extends selection without activating source properties', () => {
+    const { onSelectSourceRow, onOpenSourceProperties } = renderDock({ onOpenSourceProperties: vi.fn() });
+    fireEvent.keyDown(rowFor('Webcam'), { key: 'ArrowDown', shiftKey: true });
+    fireEvent.doubleClick(rowFor('Webcam'), { shiftKey: true });
+
+    expect(onSelectSourceRow).toHaveBeenCalledWith(expect.objectContaining({ shiftKey: true }), 'src-1');
+    expect(onOpenSourceProperties).not.toHaveBeenCalled();
+  });
+
+  it('Ctrl+A selects all visible source rows and Escape clears the selection', () => {
+    const onSelectAllSources = vi.fn();
+    const onClearSourceSelection = vi.fn();
+    renderDock({ selectedSourceIds: ['src-1'], onSelectAllSources, onClearSourceSelection });
+
+    fireEvent.keyDown(rowFor('Webcam'), { key: 'a', ctrlKey: true });
+    fireEvent.keyDown(rowFor('Webcam'), { key: 'Escape' });
+
+    expect(onSelectAllSources).toHaveBeenCalledTimes(1);
+    expect(onClearSourceSelection).toHaveBeenCalledTimes(1);
   });
 
   it('disables the Transform submenu for a microphone source', async () => {
@@ -365,6 +456,27 @@ describe('SourcesDock', () => {
       expect(onReorderSources).not.toHaveBeenCalled();
     });
 
+    it('reorders selected sibling rows as one block', () => {
+      const onReorderSources = vi.fn();
+      renderDock({
+        sources: [makeSource('src-1'), makeSource('src-2'), makeSource('src-3')],
+        selectedSourceIds: ['src-1', 'src-2'],
+        onReorderSources,
+      });
+      const first = rowFor('src-3');
+      const second = rowFor('src-2');
+      const third = rowFor('src-1');
+      mockRowRect(first, 0);
+      mockRowRect(second, 30);
+      mockRowRect(third, 60);
+
+      fireEvent.pointerDown(second, { clientX: 10, clientY: 45 });
+      fireEvent.pointerMove(second, { clientX: 10, clientY: 5 });
+      fireEvent.pointerUp(second, { clientX: 10, clientY: 5 });
+
+      expect(onReorderSources).toHaveBeenCalledWith(null, ['src-3', 'src-1', 'src-2']);
+    });
+
     it('falls back to repeated onMoveSource calls when onReorderSources is absent', () => {
       const { onMoveSource } = renderDock();
       const webcamRow = rowFor('Webcam');
@@ -419,6 +531,26 @@ describe('SourcesDock', () => {
       fireEvent.pointerUp(childOneRow, { clientX: 10, clientY: 35 });
 
       expect(onReorderSources).toHaveBeenCalledWith('group-1', ['child-2', 'child-1']);
+    });
+
+    it('leaves a selected block in place when dropped at the gap before its next row', () => {
+      const onReorderSources = vi.fn();
+      renderDock({
+        sources: [makeSource('D'), makeSource('C'), makeSource('B'), makeSource('A')],
+        selectedSourceIds: ['B', 'C'],
+        onReorderSources,
+      });
+      const rows = ['A', 'B', 'C', 'D'].map((name, index) => {
+        const row = rowFor(name);
+        mockRowRect(row, index * 30);
+        return row;
+      });
+
+      fireEvent.pointerDown(rows[1], { clientX: 10, clientY: 45 });
+      fireEvent.pointerMove(rows[1], { clientX: 10, clientY: 90 });
+      fireEvent.pointerUp(rows[1], { clientX: 10, clientY: 90 });
+
+      expect(onReorderSources).not.toHaveBeenCalled();
     });
 
     it('shows no indicator and does not reorder when the nearest row belongs to a different parent', () => {

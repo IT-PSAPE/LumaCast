@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { classifyHotkeyCapture } from '../../hotkey-capture';
-import { canTransformSource } from '../../source-transform';
 import type {
   StreamAPI, StreamGlobalHotkeys, StreamHotkeyAction, StreamProject, StreamSource,
 } from '../../../shared/desktop-api';
@@ -13,6 +12,7 @@ export interface UseHotkeysParams {
   setProjectValue: (update: (current: StreamProject) => StreamProject) => void;
   setActionError: (message: string) => void;
   selectedSource: StreamSource | null;
+  nudgeSelectedSources: (dx: number, dy: number) => void;
   updateSource: (sourceId: string, update: (source: StreamSource) => StreamSource) => void;
   fitSource: (source: StreamSource) => void;
   stretchSource: (source: StreamSource) => void;
@@ -61,7 +61,7 @@ export interface UseHotkeysResult {
  */
 export function useHotkeys(params: UseHotkeysParams): UseHotkeysResult {
   const {
-    api, project, setProjectValue, setActionError, selectedSource, updateSource, fitSource, stretchSource, centerSource,
+    api, project, setProjectValue, setActionError, selectedSource, nudgeSelectedSources, updateSource, fitSource, stretchSource, centerSource,
     undoSceneEdit, redoSceneEdit, pasteSource, removeSelectedSource, copySelectedSource,
     sourceClipboardAvailable, chooseScene, startRecording, stopRecording, isRecording, isActivelyRecording, stopStreaming,
     isStreaming, openStreamDialog, startReplayBuffer, stopReplayBuffer, saveReplay, isReplayBufferActive, openSettings,
@@ -199,12 +199,12 @@ export function useHotkeys(params: UseHotkeysParams): UseHotkeysResult {
   // the effect register its window listener once with a stable `[]`
   // dependency array instead of tearing it down and re-attaching it on every render.
   const globalKeydownRef = useRef({
-    selectedSource, project, redoSceneEdit, undoSceneEdit, pasteSource,
+    selectedSource, project, redoSceneEdit, undoSceneEdit, pasteSource, nudgeSelectedSources,
     removeSelectedSource, stopRecording, startRecording, fitSource, stretchSource,
     centerSource, updateSource, copySelectedSource, isActivelyRecording, openSettings,
   });
   globalKeydownRef.current = {
-    selectedSource, project, redoSceneEdit, undoSceneEdit, pasteSource,
+    selectedSource, project, redoSceneEdit, undoSceneEdit, pasteSource, nudgeSelectedSources,
     removeSelectedSource, stopRecording, startRecording, fitSource, stretchSource,
     centerSource, updateSource, copySelectedSource, isActivelyRecording, openSettings,
   };
@@ -268,8 +268,7 @@ export function useHotkeys(params: UseHotkeysParams): UseHotkeysResult {
       const shift = shifts[event.code];
       if (shift) {
         event.preventDefault();
-        if (!canTransformSource(selected.locked)) return;
-        context.updateSource(selected.id, (source) => ({ ...source, transform: { ...source.transform, x: source.transform.x + shift[0], y: source.transform.y + shift[1] } }));
+        context.nudgeSelectedSources(shift[0], shift[1]);
       }
     };
     window.addEventListener('keydown', onKeyDown);

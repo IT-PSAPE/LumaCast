@@ -31,7 +31,7 @@ export function CapturePicker({ captureOptions, captureKind, captureTargetSource
         <div className="capture-grid">{captureOptions.length === 0 ? <div className="capture-empty">No {captureKind === 'window' ? 'windows' : 'displays'} are available.</div> : captureOptions.map((option) => <button key={option.id} className="capture-option" disabled={working} onClick={() => onSelect(option)}>
           <img src={option.thumbnail} alt="" /><span className="capture-option-name">{option.name}</span>
         </button>)}</div>
-        {captureKind !== 'audio' && displayCaptureSystemAudio && <div className="flex min-h-[38px] items-center gap-2 border-t border-[var(--border-color-secondary)] px-[19px]"><Checkbox label="Capture system audio" checked={includeSystemAudio} onCheckedChange={setIncludeSystemAudio} /><Headphones size={15} className="ml-auto text-tertiary" /></div>}
+        {captureKind !== 'audio' && displayCaptureSystemAudio && <div className="flex min-h-[38px] items-center gap-2 border-t border-[var(--border-color-secondary)] px-5"><Checkbox label="Capture system audio" checked={includeSystemAudio} onCheckedChange={setIncludeSystemAudio} /><Headphones size={15} className="ml-auto text-tertiary" /></div>}
         {captureKind !== 'audio' && <div className="capture-cursor-option"><span>Capture Cursor</span><Select label="Capture cursor" labelPlacement="hidden" className="w-[180px]" size="sm" value={captureCursorMode} onValueChange={setCaptureCursorMode} options={CURSOR_MODE_OPTIONS} /></div>}
     </Modal>
   );

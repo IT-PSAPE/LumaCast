@@ -20,23 +20,21 @@ function renderDock(overrides: Partial<ScenesDockProps> = {}) {
   const props: ScenesDockProps = {
     platform: 'darwin',
     scenes,
+    selectionScopeKey: 'collection-1',
     activeSceneId: scenes[0]!.id,
     liveSceneId: scenes[0]!.id,
-    undoAvailable: false,
-    redoAvailable: false,
-    onUndo: vi.fn(),
-    onRedo: vi.fn(),
     onAddScene: vi.fn(),
     onChooseScene,
     setSceneNameDraft: vi.fn(),
     setSceneDialog: vi.fn(),
     working: false,
     onDuplicateScene: vi.fn(),
+    onRequestDeleteScenes: vi.fn(),
     onHide: vi.fn(),
     ...overrides,
   };
-  render(<ScenesDock {...props} />);
-  return { ...props, onChooseScene };
+  const view = render(<ScenesDock {...props} />);
+  return { ...props, onChooseScene, rerender: view.rerender };
 }
 
 function rowFor(name: string): HTMLButtonElement {
@@ -48,6 +46,8 @@ describe('ScenesDock', () => {
     renderDock();
     expect(document.querySelector('.scene-dock-footer')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Scene options' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Redo' })).toBeNull();
   });
 
   it('selects a right-clicked, not-yet-active scene and opens its context menu', async () => {
@@ -78,27 +78,33 @@ describe('ScenesDock', () => {
     expect(remove.getAttribute('data-disabled')).toBe('');
   });
 
+  it('offers Transition to Program in Studio Mode and disables it for the live scene', async () => {
+    renderDock({ studioMode: true });
+    fireEvent.contextMenu(rowFor('Scene 1'), { clientX: 10, clientY: 10 });
+    await settle();
+    expect(screen.getByRole('menuitem', { name: 'Transition to Program' }).getAttribute('data-disabled')).toBe('');
+
+    cleanup();
+    renderDock({ studioMode: true });
+    fireEvent.contextMenu(rowFor('Scene 2'), { clientX: 10, clientY: 10 });
+    await settle();
+    expect(screen.getByRole('menuitem', { name: 'Transition to Program' }).getAttribute('data-disabled')).toBeNull();
+  });
+
   it('renders a decorative thumbnail and distinct visible Preview and Live status labels', () => {
     renderDock({
       studioMode: true,
       activeSceneId: 'scene-2',
       liveSceneId: 'scene-1',
-      renderThumbnail: (scene) => <div data-testid={`thumb-${scene.id}`} role="meter" aria-label={`${scene.name} audio activity`} />,
+      renderThumbnail: (scene) => <div data-testid={`thumb-${scene.id}`} />,
     });
 
     const previewRow = screen.getByRole('button', { name: 'Scene 2', description: 'PREVIEW' });
     expect(previewRow.querySelector('.scene-thumbnail-slot')).toContainElement(screen.getByTestId('thumb-scene-2'));
-    expect(screen.getByRole('meter', { name: 'Scene 2 audio activity' })).toBeInTheDocument();
     expect(previewRow.querySelector('.scene-thumbnail-slot')).toHaveAttribute('title', 'Preview of Scene 2');
     expect(previewRow).toHaveAttribute('aria-current', 'true');
     expect(previewRow).toHaveTextContent('PREVIEW');
     expect(screen.getByRole('button', { name: 'Scene 1', description: 'LIVE' })).toHaveTextContent('LIVE');
-  });
-
-  it('renders an icon fallback when a thumbnail renderer is not provided', () => {
-    renderDock();
-
-    expect(rowFor('Scene 1').querySelector('.scene-thumbnail-fallback')).toBeInTheDocument();
   });
 
   it('can enable Transition to Program for a dirty current scene', async () => {
@@ -110,8 +116,31 @@ describe('ScenesDock', () => {
     const transition = screen.getByRole('menuitem', { name: 'Transition to Program' });
     expect(transition.getAttribute('data-disabled')).toBeNull();
     fireEvent.click(transition);
-    expect(onTransitionScene).toHaveBeenCalledOnce();
-    expect(onTransitionScene).toHaveBeenCalledWith();
+    expect(onTransitionScene).toHaveBeenCalledWith('scene-1');
+  });
+
+  it('invokes the transition callback from the scene context menu', async () => {
+    const onTransitionScene = vi.fn();
+    const { onChooseScene } = renderDock({ studioMode: true, onTransitionScene });
+    fireEvent.click(rowFor('Scene 2'), { ctrlKey: true });
+    fireEvent.contextMenu(rowFor('Scene 2'), { clientX: 10, clientY: 10 });
+    await settle();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Transition to Program' }));
+    expect(onTransitionScene).toHaveBeenCalledWith('scene-2');
+    expect(onChooseScene).not.toHaveBeenCalled();
+  });
+
+  it('duplicates the scene whose context menu was opened without changing the preview first', async () => {
+    const onDuplicateScene = vi.fn();
+    const { onChooseScene } = renderDock({ onDuplicateScene });
+    fireEvent.click(rowFor('Scene 2'), { ctrlKey: true });
+    fireEvent.contextMenu(rowFor('Scene 2'), { clientX: 10, clientY: 10 });
+    await settle();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Duplicate' }));
+    expect(onDuplicateScene).toHaveBeenCalledWith('scene-2');
+    expect(onChooseScene).not.toHaveBeenCalled();
   });
 
   it('F2 shows an inline rename input, and Enter commits it via onRenameScene', () => {
@@ -159,6 +188,93 @@ describe('ScenesDock', () => {
     fireEvent.keyDown(rowFor('Scene 1'), { key: 'ArrowDown', ctrlKey: true });
 
     expect(onReorderScenes).toHaveBeenCalledWith(['scene-2', 'scene-1']);
+  });
+
+  it('uses Ctrl/Cmd toggles and Shift ranges without choosing a preview or live scene', () => {
+    const scenes = ['scene-1', 'scene-2', 'scene-3', 'scene-4'].map((id, index) => makeScene(id, `Scene ${index + 1}`));
+    const onChooseScene = vi.fn();
+    renderDock({ scenes, onChooseScene });
+
+    fireEvent.click(rowFor('Scene 2'), { ctrlKey: true });
+    fireEvent.click(rowFor('Scene 4'), { shiftKey: true });
+
+    expect(rowFor('Scene 2')).toHaveClass('multi-selected');
+    expect(rowFor('Scene 3')).toHaveClass('multi-selected');
+    expect(rowFor('Scene 4')).toHaveClass('multi-selected');
+    expect(rowFor('Scene 1')).toHaveAttribute('aria-current', 'true');
+    expect(rowFor('Scene 1')).toHaveAttribute('aria-pressed', 'false');
+    expect(rowFor('Scene 2')).toHaveAttribute('aria-pressed', 'true');
+    expect(onChooseScene).not.toHaveBeenCalled();
+  });
+
+  it('keeps ordinary scene clicks choosing the scene', () => {
+    const onChooseScene = vi.fn();
+    renderDock({ onChooseScene });
+
+    fireEvent.click(rowFor('Scene 2'));
+
+    expect(onChooseScene).toHaveBeenCalledOnce();
+    expect(onChooseScene).toHaveBeenCalledWith('scene-2');
+  });
+
+  it('clears transient selection and a pending group delete when the scene collection changes', () => {
+    const rendered = renderDock({ scenes: ['scene-1', 'scene-2', 'scene-3'].map((id, index) => makeScene(id, `Scene ${index + 1}`)) });
+    const { rerender, ...props } = rendered;
+    fireEvent.click(rowFor('Scene 2'), { ctrlKey: true });
+    fireEvent.click(rowFor('Scene 3'), { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 selected scenes' }));
+
+    rerender(<ScenesDock {...props} selectionScopeKey="collection-2" />);
+
+    expect(rowFor('Scene 2')).not.toHaveClass('multi-selected');
+    expect(screen.queryByRole('dialog', { name: 'Delete 2 scenes?' })).toBeNull();
+  });
+
+  it('confirms one group delete and submits selected scenes in visible order', () => {
+    const scenes = ['scene-1', 'scene-2', 'scene-3', 'scene-4'].map((id, index) => makeScene(id, `Scene ${index + 1}`));
+    const onRequestDeleteScenes = vi.fn();
+    const onChooseScene = vi.fn();
+    renderDock({ scenes, onChooseScene, onRequestDeleteScenes });
+
+    fireEvent.click(rowFor('Scene 2'), { ctrlKey: true });
+    fireEvent.click(rowFor('Scene 3'), { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 selected scenes' }));
+
+    expect(screen.getByRole('dialog', { name: 'Delete 2 scenes?' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 scenes' }));
+
+    expect(onRequestDeleteScenes).toHaveBeenCalledOnce();
+    expect(onRequestDeleteScenes).toHaveBeenCalledWith(['scene-2', 'scene-3']);
+    expect(onChooseScene).not.toHaveBeenCalled();
+  });
+
+  it('keeps the active scene out of a delete-all request', () => {
+    const scenes = ['scene-1', 'scene-2', 'scene-3'].map((id, index) => makeScene(id, `Scene ${index + 1}`));
+    const onRequestDeleteScenes = vi.fn();
+    renderDock({ scenes, activeSceneId: 'scene-2', onRequestDeleteScenes });
+
+    for (const scene of scenes) fireEvent.click(rowFor(scene.name), { ctrlKey: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 3 selected scenes' }));
+
+    expect(screen.getByRole('dialog', { name: 'Delete 2 scenes?' })).toBeInTheDocument();
+    expect(screen.getByText(/One scene will remain/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete 2 scenes' }));
+
+    expect(onRequestDeleteScenes).toHaveBeenCalledOnce();
+    expect(onRequestDeleteScenes).toHaveBeenCalledWith(['scene-1', 'scene-3']);
+  });
+
+  it('reorders the selected group and sends the complete new scene order for persistence', () => {
+    const scenes = ['scene-1', 'scene-2', 'scene-3', 'scene-4'].map((id, index) => makeScene(id, `Scene ${index + 1}`));
+    const onReorderScenes = vi.fn();
+    renderDock({ scenes, onReorderScenes });
+
+    fireEvent.click(rowFor('Scene 2'), { ctrlKey: true });
+    fireEvent.click(rowFor('Scene 3'), { ctrlKey: true });
+    fireEvent.keyDown(rowFor('Scene 3'), { key: 'ArrowUp', ctrlKey: true });
+
+    expect(onReorderScenes).toHaveBeenCalledOnce();
+    expect(onReorderScenes).toHaveBeenCalledWith(['scene-2', 'scene-3', 'scene-1', 'scene-4']);
   });
 
   it('Delete asks to remove the focused scene via the existing dialog flow', () => {

@@ -8,6 +8,7 @@ import {
   Layers2, LoaderCircle, Lock, LockOpen, Mic, Monitor, MoreHorizontal, Move, Grid2X2, PanelsTopLeft, Plus, Type, Webcam, X,
 } from 'lucide-react';
 import { EmptyState, PointContextMenu, Panel, ReacstButton, usePointContextMenu, type MenuEntry } from '@lumacast/ui';
+import { moveSelectedIds, moveSelectionToGap, useMultiSelectionKeyHandler, type SelectionModifiers } from '@lumacast/selection';
 import { AnchoredPopover } from '../anchored-popover';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
 import { SourceProperties, type SourcePropertiesProps } from './source-properties';
@@ -61,6 +62,7 @@ interface SourceDragState {
   storageIds: string[];
   /** The same siblings in display order (top-to-bottom, front-most first). */
   displayIds: string[];
+  movingIds: string[];
 }
 
 interface SourceDropIndicator {
@@ -99,7 +101,9 @@ export interface SourcesDockProps {
   meterLevels: Record<string, number>;
   /** Current capture/media readiness, keyed by stable source ID. Ready entries are not shown. */
   sourceStatuses?: Readonly<Record<string, SourceStatus>>;
-  onSelectSourceRow: (event: ReactMouseEvent<HTMLDivElement>, sourceId: string) => void;
+  onSelectSourceRow: (event: SelectionModifiers & { type?: string }, sourceId: string) => void;
+  onSelectAllSources?: () => void;
+  onClearSourceSelection?: () => void;
   onToggleSourceLock: (sourceId: string) => void;
   onMoveSource: (sourceId: string, direction: -1 | 1) => void;
   onUpdateSource: (sourceId: string, update: (source: StreamSource) => StreamSource) => void;
@@ -134,10 +138,10 @@ export interface SourcesDockProps {
     sourceClipboardAvailable: boolean;
     working: boolean;
     canGroupSelectedSources: boolean;
-    onCopySource: () => void;
+    onCopySource: (sourceId?: string) => void;
     onPasteSource: () => void;
     onGroupSources: () => void;
-    onUngroupSource: () => void;
+    onUngroupSource: (sourceId?: string) => void;
     onFitSource: (source: StreamSource) => void;
     onCenterSource: (source: StreamSource) => void;
     onStretchSource: (source: StreamSource) => void;
@@ -177,6 +181,8 @@ export function SourcesDock({
   meterLevels,
   sourceStatuses,
   onSelectSourceRow,
+  onSelectAllSources,
+  onClearSourceSelection,
   onToggleSourceLock,
   onMoveSource,
   onUpdateSource,
@@ -217,6 +223,11 @@ export function SourcesDock({
 
   const shortcutPlatform: StreamPlatform = platform ?? 'win32';
   const orderedVisibleIds = visibleSourceIds(sources, collapsedGroupIds);
+  const handleSelectionKeys = useMultiSelectionKeyHandler({
+    selectedCount: selectedSourceIds.length,
+    selectAll: onSelectAllSources ?? (() => {}),
+    clearSelection: onClearSourceSelection ?? (() => {}),
+  });
   const currentFocusId = focusedId && orderedVisibleIds.includes(focusedId)
     ? focusedId
     : (selectedSource && orderedVisibleIds.includes(selectedSource.id) ? selectedSource.id : (orderedVisibleIds[0] ?? null));
@@ -235,9 +246,7 @@ export function SourcesDock({
   const propertiesOpen = selectedSource !== null && propertiesOpenForId === selectedSource.id;
 
   const selectPlain = (sourceId: string) => {
-    // Keyboard-driven selection (Arrow navigation, menu Properties/Filters) has no real pointer
-    // event to hand `onSelectSourceRow`; it only ever reads `ctrlKey`/`metaKey` off the event.
-    const fakeEvent = { ctrlKey: false, metaKey: false, preventDefault: () => {} } as unknown as ReactMouseEvent<HTMLDivElement>;
+    const fakeEvent = { ctrlKey: false, metaKey: false, shiftKey: false, type: 'keyboard' };
     onSelectSourceRow(fakeEvent, sourceId);
   };
 
@@ -279,6 +288,14 @@ export function SourcesDock({
 
   const handleRowKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>, source: StreamSource) => {
     if (renamingId) return;
+    if (event.key === 'Escape' && dragStateRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      dragStateRef.current = null;
+      setDragId(null);
+      setDropIndicator(null);
+      return;
+    }
     if (event.key === 'F2') {
       event.preventDefault();
       event.stopPropagation();
@@ -289,10 +306,24 @@ export function SourcesDock({
     if (modifier && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       event.preventDefault();
       event.stopPropagation();
-      // `sources` is stored back-to-front, and this list renders it reversed
-      // (front-most first), so moving up the displayed rows means moving to a
-      // higher index in the underlying array.
-      onMoveSource(source.id, event.key === 'ArrowUp' ? 1 : -1);
+      const location = locateSource(sources, source.id);
+      const displayIds = location ? [...location.siblings].reverse().map((sibling) => sibling.id) : [];
+      const at = displayIds.indexOf(source.id);
+      if (location && at >= 0) {
+        const movingIds = selectedSourceIds.includes(source.id)
+          ? selectedSourceIds.filter((id) => displayIds.includes(id))
+          : [source.id];
+        const movingPositions = displayIds.flatMap((id, index) => movingIds.includes(id) ? [index] : []);
+        const edge = event.key === 'ArrowUp' ? Math.min(...movingPositions) : Math.max(...movingPositions);
+        const targetAt = edge + (event.key === 'ArrowUp' ? -1 : 1);
+        const nextDisplayIds = targetAt < 0 || targetAt >= displayIds.length
+          ? displayIds
+          : moveSelectedIds(displayIds, source.id, targetAt, new Set(movingIds));
+        if (nextDisplayIds.join('|') !== displayIds.join('|')) {
+          if (onReorderSources) onReorderSources(location.parentId, [...nextDisplayIds].reverse());
+          else onMoveSource(source.id, event.key === 'ArrowUp' ? 1 : -1);
+        }
+      }
       return;
     }
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
@@ -304,7 +335,8 @@ export function SourcesDock({
       const nextId = orderedVisibleIds[nextAt];
       if (nextId && nextId !== source.id) {
         setFocusedId(nextId);
-        selectPlain(nextId);
+        if (event.shiftKey) onSelectSourceRow(event, nextId);
+        else selectPlain(nextId);
         rowRefs.current.get(nextId)?.focus();
       }
     }
@@ -323,11 +355,14 @@ export function SourcesDock({
       parentId: location.parentId,
       storageIds,
       displayIds: [...storageIds].reverse(),
+      movingIds: selectedSourceIds.includes(source.id)
+        ? selectedSourceIds.filter((id) => storageIds.includes(id))
+        : [source.id],
     };
   };
 
   const handleRowDoubleClick = (event: ReactMouseEvent<HTMLDivElement>, source: StreamSource) => {
-    if (renamingId || isInteractiveTarget(event.target)) return;
+    if (renamingId || isInteractiveTarget(event.target) || event.shiftKey || event.metaKey || event.ctrlKey) return;
     showSourceProperties(source.id);
   };
 
@@ -384,7 +419,12 @@ export function SourcesDock({
       if (state?.active) {
         const indicator = dropIndicatorRef.current;
         if (indicator && indicator.parentId === state.parentId) {
-          const nextStorageIds = reorderSourceSiblingsOnDrop(state.storageIds, state.id, indicator.displayIndex);
+          let nextStorageIds: string[];
+          if (state.movingIds.length > 1) {
+            nextStorageIds = [...moveSelectionToGap(state.displayIds, new Set(state.movingIds), indicator.displayIndex)].reverse();
+          } else {
+            nextStorageIds = reorderSourceSiblingsOnDrop(state.storageIds, state.id, indicator.displayIndex);
+          }
           if (nextStorageIds.join('|') !== state.storageIds.join('|')) {
             if (onReorderSources) {
               onReorderSources(state.parentId, nextStorageIds);
@@ -463,11 +503,11 @@ export function SourcesDock({
         ],
       },
       { separator: true },
-      { id: 'copy', label: 'Copy', shortcut: primaryShortcutLabel(shortcutPlatform, 'C'), onSelect: sourceActions.onCopySource },
+      { id: 'copy', label: 'Copy', shortcut: primaryShortcutLabel(shortcutPlatform, 'C'), onSelect: () => sourceActions.onCopySource(source.id) },
       { id: 'paste', label: 'Paste', shortcut: primaryShortcutLabel(shortcutPlatform, 'V'), disabled: !sourceActions.sourceClipboardAvailable || sourceActions.working, onSelect: sourceActions.onPasteSource },
       { separator: true },
       source.kind === 'group'
-        ? { id: 'ungroup', label: 'Ungroup', onSelect: sourceActions.onUngroupSource }
+        ? { id: 'ungroup', label: 'Ungroup', onSelect: () => sourceActions.onUngroupSource(source.id) }
         : { id: 'group', label: 'Group Selected', disabled: !sourceActions.canGroupSelectedSources, onSelect: sourceActions.onGroupSources },
       { separator: true },
       { id: 'lock', label: source.locked ? 'Unlock' : 'Lock', checked: !!source.locked, onSelect: () => onToggleSourceLock(source.id) },
@@ -494,6 +534,10 @@ export function SourcesDock({
         <div
           ref={(el) => { if (el) rowRefs.current.set(source.id, el); else rowRefs.current.delete(source.id); }}
           className={`source-row ${selectedSourceIds.includes(source.id) ? 'selected' : ''} ${source.locked ? 'source-locked' : ''} ${isGroup ? 'source-group-row' : ''} ${dragId === source.id ? 'source-dragging' : ''} ${dropBeforeId === source.id ? 'drag-over-before' : ''} ${isLastDisplayed && dropAtEnd ? 'drag-over-after' : ''}`}
+          role="treeitem"
+          aria-selected={selectedSourceIds.includes(source.id)}
+          aria-level={depth + 1}
+          aria-expanded={isGroup ? !collapsed : undefined}
           aria-description={statusDescription ?? undefined}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
           tabIndex={source.id === currentFocusId ? 0 : -1}
@@ -545,7 +589,7 @@ export function SourcesDock({
           {meterLevels[source.id] !== undefined && <span className="source-level-mini"><i style={{ width: `${Math.round((meterLevels[source.id] ?? 0) * 100)}%` }} /></span>}
           <span className="source-actions"><ReacstButton.Icon variant="ghost" size="xs" label={`Lock ${source.name}`} tooltip={source.locked ? 'Unlock source' : 'Lock source'} pressed={!!source.locked} onClick={(event) => { event.stopPropagation(); onToggleSourceLock(source.id); }}>{source.locked ? <Lock /> : <LockOpen />}</ReacstButton.Icon></span>
         </div>
-        {isGroup && !collapsed && <div className="source-children">{renderSourceRows(source.children ?? [], depth + 1, source.id)}</div>}
+        {isGroup && !collapsed && <div className="source-children" role="group">{renderSourceRows(source.children ?? [], depth + 1, source.id)}</div>}
       </div>;
     });
   };
@@ -563,11 +607,11 @@ export function SourcesDock({
         </Panel.HeaderActions>
       </Panel.Header>
       <AnchoredPopover open={sourceActionsMenuOpen} anchor={sourceActionsTriggerRef.current} className="source-menu" side="top" alignment="end" role="menu" label="Source actions" onClose={() => setSourceActionsMenuOpen(false)}>
-        <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onCopySource}><Copy size={14} />Copy Source</button>
+        <button role="menuitem" disabled={!selectedSource} onClick={() => sourceActions.onCopySource()}><Copy size={14} />Copy Source</button>
         <button role="menuitem" disabled={!sourceActions.sourceClipboardAvailable || sourceActions.working} onClick={sourceActions.onPasteSource}><Plus size={14} />Paste Source</button>
         <div className="source-menu-separator" />
         {selectedSource?.kind === 'group'
-          ? <button role="menuitem" onClick={sourceActions.onUngroupSource}><Layers2 size={14} />Ungroup</button>
+          ? <button role="menuitem" onClick={() => sourceActions.onUngroupSource()}><Layers2 size={14} />Ungroup</button>
           : <button role="menuitem" disabled={!sourceActions.canGroupSelectedSources} onClick={sourceActions.onGroupSources}><Layers2 size={14} />Group Sources</button>}
         <div className="source-menu-separator" />
         <button role="menuitem" disabled={!selectedSource || selectedSource.locked || !supportsSourceTransform(selectedSource)} onClick={() => selectedSource && sourceActions.onFitSource(selectedSource)}><Move size={14} />Fit to Canvas</button>
@@ -577,7 +621,7 @@ export function SourcesDock({
         <div className="source-menu-separator" />
         <button role="menuitem" disabled={!selectedSource} onClick={sourceActions.onRemoveSelectedSource}><X size={14} />Delete Source</button>
       </AnchoredPopover>
-      <div className="source-list">
+      <div className="source-list" role="tree" aria-label="Sources" aria-multiselectable="true" onKeyDown={handleSelectionKeys}>
         {sources.length === 0 && (
           <EmptyState.Root>
             <EmptyState.Icon><Layers2 size={18} /></EmptyState.Icon>

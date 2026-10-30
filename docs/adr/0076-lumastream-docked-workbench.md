@@ -14,7 +14,8 @@ live session.
 
 Place the program preview across the top of the workbench. Place Scenes,
 Sources, Audio Mixer, and Controls in four dock panels below it. Keep transition
-type, duration, Studio Mode, and the Studio Mode take action beside the preview.
+type, duration, Studio Mode, and the Studio Mode transition action beside the
+preview.
 Keep streaming, recording, replay, and Studio Mode actions in Controls.
 Fit the preview canvas inside the remaining work area using the configured
 output dimensions as its aspect ratio. Recompute the fit when the window, Studio

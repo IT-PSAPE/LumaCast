@@ -21,7 +21,6 @@ import { outputRectFromCanvasRect } from './output-scaling';
 import { supportsAudioOutputSelection } from './monitor-device-routing';
 import { fitPreviewSize } from './preview-layout';
 import { multiviewTileCapacityFor } from './multiview-window';
-import { canTransformSource } from './source-transform';
 import { ActionNotifications } from './action-notifications';
 import { SceneThumbnail } from './docks/scene-thumbnail';
 import { getSourceRuntimeId, mergeRuntimeSources, toRuntimeProject } from './source-runtime';
@@ -31,6 +30,7 @@ import { formatElapsed } from './format-elapsed';
 import { recordingElapsedTime } from './recording-controls';
 import { flattenSourceNodes } from '../shared/source-tree';
 import { canReferenceScene, getVisibleSourceIdsForScenes } from '../shared/scene-reference-graph';
+import { canResizeSourceTree, isSourceTransformableInTree, visibleSelectedSourceRoots } from './source-selection';
 import { dockColumnsMinWidth, dockColumnsTemplate, dockGridColumn, workbenchRowsTemplate } from './workbench-layout';
 import {
   desktopAudioCaptureModeForPlatform, isVideoEncoderAvailableOnPlatform, primaryShortcutLabel,
@@ -285,7 +285,8 @@ export function App() {
 
   const hotkeys = useHotkeys({
     api, project, setProjectValue, setActionError,
-    selectedSource: sources.selectedSource, updateSource: sources.updateSource, fitSource: sources.fitSource,
+    selectedSource: sources.selectedSource, nudgeSelectedSources: sources.nudgeSelectedSources,
+    updateSource: sources.updateSource, fitSource: sources.fitSource,
     stretchSource: sources.stretchSource, centerSource: sources.centerSource,
     undoSceneEdit: workspace.undoSceneEdit, redoSceneEdit: workspace.redoSceneEdit,
     pasteSource: sources.pasteSource, removeSelectedSource: sources.removeSelectedSource, copySelectedSource: sources.copySelectedSource,
@@ -346,13 +347,18 @@ export function App() {
   if (workspace.loadingError) return <main className="fatal"><div className="fatal-mark"><Radio size={24} /></div><h1>Stream could not start</h1><p>{workspace.loadingError}</p></main>;
   if (!project || !activeScene || !liveScene) return <main className="loading"><div className="brand-pulse"><Radio size={22} /></div><span>Starting Stream</span></main>;
 
-  const sourceInScene = flattenSourceNodes(activeScene.sources).find((source) => source.id === sources.selectedSourceId);
-  const previewTransform = sourceInScene?.transform;
-  const previewOutputRect = previewTransform ? outputRectFromCanvasRect(
-    previewTransform,
-    { width: project.output.baseWidth, height: project.output.baseHeight },
-    { width: project.output.width, height: project.output.height },
-  ) : null;
+  const selectedSourceFrames = visibleSelectedSourceRoots(activeScene.sources, sources.selectedSourceIds).map((source) => ({
+    source,
+    rect: outputRectFromCanvasRect(
+      source.transform,
+      { width: project.output.baseWidth, height: project.output.baseHeight },
+      { width: project.output.width, height: project.output.height },
+    ),
+  }));
+  const canResizeSelectedSource = sources.selectedSourceIds.length === 1
+    && selectedSourceFrames.length === 1
+    && isSourceTransformableInTree(activeScene.sources, selectedSourceFrames[0]!.source.id)
+    && canResizeSourceTree(selectedSourceFrames[0]!.source);
   const previewScene = activeScene;
   const runtimePreviewScene = runtimeDraftProject!.scenes.find((scene) => scene.id === activeScene.id)!;
   const runtimeProgramScene = runtimeProgramProject!.scenes.find((scene) => scene.id === liveScene.id)!;
@@ -484,14 +490,14 @@ export function App() {
               <div className="stage-label"><span>PREVIEW</span><b>{activeScene.name}</b><ReacstButton.Icon variant="ghost" size="xs" label="Open preview projector" tooltip="Open preview projector" onClick={() => multiview.openProjector('preview')}><ExternalLink /></ReacstButton.Icon></div>
               <div className="stage-surface" style={previewSize} onPointerDown={(event) => sources.handleStagePointerDown(event, previewScene)} onPointerMove={sources.handleStagePointerMove} onPointerUp={sources.handleStagePointerUp} onPointerCancel={sources.handleStagePointerUp}>
                 <CanvasComposition ref={previewCanvasRef} project={runtimeDraftProject!} scene={runtimePreviewScene} videoElements={videoElements.current} imageElements={imageElements.current} />
-                {previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
+                {selectedSourceFrames.map(({ source, rect }) => <div key={source.id} className={`selection-frame ${source.locked ? 'locked' : ''}`} style={{ left: `${(rect.x / project.output.width) * 100}%`, top: `${(rect.y / project.output.height) * 100}%`, width: `${(rect.width / project.output.width) * 100}%`, height: `${(rect.height / project.output.height) * 100}%`, transform: source.kind === 'group' ? undefined : `rotate(${source.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canResizeSelectedSource && source.id === sources.selectedSourceId && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>)}
               </div>
             </div>}
             <div key="program-panel" className="stage-panel program-panel">
               <div className="stage-label"><span><StatusDot tone="error" />PROGRAM</span><b>{liveScene.name}</b></div>
               <div className="stage-surface" style={programPreviewSize} onPointerDown={!project.studioMode ? (event) => sources.handleStagePointerDown(event, liveScene) : undefined} onPointerMove={!project.studioMode ? sources.handleStagePointerMove : undefined} onPointerUp={!project.studioMode ? sources.handleStagePointerUp : undefined} onPointerCancel={!project.studioMode ? sources.handleStagePointerUp : undefined}>
                 <CanvasComposition ref={programCanvasRef} project={runtimeProgramProject!} scene={runtimeProgramScene} outgoingProject={runtimeOutgoingProject ?? undefined} outgoingScene={runtimeOutgoingScene} videoElements={videoElements.current} imageElements={imageElements.current} transition={scenes.transition} onTransitionEnd={scenes.finishTransition} />
-                {!project.studioMode && previewOutputRect && <div className={`selection-frame ${sourceInScene?.locked ? 'locked' : ''}`} style={{ left: `${(previewOutputRect.x / project.output.width) * 100}%`, top: `${(previewOutputRect.y / project.output.height) * 100}%`, width: `${(previewOutputRect.width / project.output.width) * 100}%`, height: `${(previewOutputRect.height / project.output.height) * 100}%`, transform: sourceInScene?.kind === 'group' ? undefined : `rotate(${sourceInScene?.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canTransformSource(sourceInScene?.locked) && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>}
+                {!project.studioMode && selectedSourceFrames.map(({ source, rect }) => <div key={source.id} className={`selection-frame ${source.locked ? 'locked' : ''}`} style={{ left: `${(rect.x / project.output.width) * 100}%`, top: `${(rect.y / project.output.height) * 100}%`, width: `${(rect.width / project.output.width) * 100}%`, height: `${(rect.height / project.output.height) * 100}%`, transform: source.kind === 'group' ? undefined : `rotate(${source.transform.rotation ?? 0}deg)`, transformOrigin: 'center' }}>{canResizeSelectedSource && source.id === sources.selectedSourceId && selectionHandles.map((handle) => <span key={handle} className={`resize-handle resize-${handle}`} data-resize-handle={handle} />)}</div>)}
               </div>
             </div>
           </div>
@@ -526,16 +532,13 @@ export function App() {
           scenes={project.scenes}
           activeSceneId={project.activeSceneId}
           liveSceneId={liveScene.id}
-          undoAvailable={workspace.undoAvailable}
-          redoAvailable={workspace.redoAvailable}
-          onUndo={workspace.undoSceneEdit}
-          onRedo={workspace.redoSceneEdit}
+          selectionScopeKey={workspace.activeCollectionId}
           onAddScene={scenes.addScene}
           onChooseScene={scenes.chooseScene}
           setSceneNameDraft={scenes.setSceneNameDraft}
           setSceneDialog={scenes.setSceneDialog}
           working={working}
-          onDuplicateScene={() => void scenes.duplicateActiveScene()}
+          onDuplicateScene={(sceneId) => void scenes.duplicateActiveScene(sceneId)}
           studioMode={project.studioMode}
           onTransitionScene={scenes.transitionScene}
           canTransitionScene={program.canTransition}
@@ -550,6 +553,7 @@ export function App() {
           onOpenProjector={multiview.openProjector}
           onRenameScene={scenes.renameScene}
           onReorderScenes={scenes.reorderScenes}
+          onRequestDeleteScenes={scenes.deleteScenes}
         />}
 
         {visibleDockIds.includes('sources') && <SourcesDock
@@ -564,6 +568,8 @@ export function App() {
           meterLevels={editorMeterLevels}
           sourceStatuses={editorSourceStatuses}
           onSelectSourceRow={sources.selectSourceRow}
+          onSelectAllSources={sources.selectAllSources}
+          onClearSourceSelection={sources.clearSourceSelection}
           onToggleSourceLock={sources.toggleSourceLock}
           onMoveSource={sources.moveSource}
           onUpdateSource={sources.updateSource}

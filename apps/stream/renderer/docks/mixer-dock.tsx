@@ -187,7 +187,7 @@ export function MixerDock({
       <Panel.Header data-dock-handle className="cursor-grab select-none">
         <Panel.HeaderTitle>
           Audio Mixer
-          {staged && <span className="mixer-stage-badge" title="Mixer changes are staged until this scene transitions to Program"><Badge size="sm" tone="brand" shape="rounded">STAGED</Badge></span>}
+          {staged && <span className="mixer-stage-badge" title="Mixer changes are staged until this scene transitions to Program"><Badge size="sm" tone="brand" shape="box">STAGED</Badge></span>}
         </Panel.HeaderTitle>
         <Panel.HeaderActions>
           <button ref={titleMenuButtonRef} className="mini-icon" aria-label="Audio Mixer options" onClick={openTitleMenu}>

@@ -393,7 +393,8 @@ outside the managed-product catalog (ADR-0090).
 
 The production workbench places the program/preview canvas across the top and
 keeps Scenes, Sources, Audio Mixer, and Controls in dock panels along the bottom.
-Scene transition selection and duration sit beside the preview; stream,
+Scene transition selection and duration sit beside the preview. Studio Mode's
+Transition action sends the preview scene to program; stream,
 recording, and replay actions stay in Controls (ADR-0076). The preview measures
 its available work area and contains the output canvas at the configured output
 aspect ratio, including in Studio Mode; pointer-based source editing uses that

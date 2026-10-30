@@ -1,7 +1,7 @@
 /**
  * OBS-style "Horizontal, Top" multiview layout: a Preview/Program strip across
  * the top half, and a grid of scene thumbnails across the bottom half. All
- * geometry is computed deterministically with integer-rounded rects so the
+ * geometry is computed deterministically with integer-snapped rects so the
  * same (width, height, sceneIds) always produces the same tiles.
  */
 

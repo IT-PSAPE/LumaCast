@@ -59,6 +59,11 @@
 
 .scene-row-status > span { display: inline-flex; }
 
+.scenes-dock .scene-row.multi-selected {
+  border-color: var(--color-brand);
+  color: var(--text-color-primary);
+}
+
 .scenes-dock .scene-row.dragging {
   cursor: grabbing;
   opacity: .45;

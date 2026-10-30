@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { moveSceneBy, moveSceneTo, reorderOnDrop } from '../../../../apps/stream/renderer/scene-order';
+import { moveSceneBy, moveSceneTo, reorderOnDrop, reorderSelectionOnDrop } from '../../../../apps/stream/renderer/scene-order';
 
 const ids = ['a', 'b', 'c', 'd'];
 
@@ -62,5 +62,26 @@ describe('reorderOnDrop', () => {
 
   it('is a no-op for an id that is not in the list', () => {
     expect(reorderOnDrop(ids, 'z', 2)).toEqual(ids);
+  });
+});
+
+describe('reorderSelectionOnDrop', () => {
+  it('moves a selected group as one stable block to the requested drop gap', () => {
+    expect(reorderSelectionOnDrop(['a', 'b', 'c', 'd', 'e'], 'b', 5, new Set(['b', 'd'])))
+      .toEqual(['a', 'c', 'e', 'b', 'd']);
+  });
+
+  it('keeps the order unchanged when dropped within the selected block', () => {
+    expect(reorderSelectionOnDrop(['a', 'b', 'c', 'd'], 'b', 2, new Set(['b', 'c'])))
+      .toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('moves only the dragged row when it is outside the selected set', () => {
+    expect(reorderSelectionOnDrop(['a', 'b', 'c', 'd'], 'a', 4, new Set(['b', 'c'])))
+      .toEqual(['b', 'c', 'd', 'a']);
+  });
+
+  it('leaves the order unchanged when the dragged id is not present', () => {
+    expect(reorderSelectionOnDrop(ids, 'missing', 2, new Set(['b', 'c']))).toEqual(ids);
   });
 });
