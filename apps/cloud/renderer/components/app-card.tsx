@@ -1,4 +1,5 @@
-import { MoreHorizontal } from "lucide-react";
+import { Check, MoreHorizontal } from "lucide-react";
+import type { SelectionModifiers } from "@lumacast/selection";
 import {
   Badge,
   Panel,
@@ -44,6 +45,10 @@ interface AppCardProps {
   selfUpdate?: SelfUpdateState;
   activeOperation?: OperationSnapshot;
   platform: HostPlatform;
+  selected: boolean;
+  selectionDisabled?: boolean;
+  onSelect: (modifiers: SelectionModifiers) => void;
+  onToggleSelect: (modifiers: SelectionModifiers) => void;
   onPrimaryAction: (action: PrimaryActionKind) => void;
   onOpen: () => void;
   onReveal: () => void;
@@ -60,6 +65,10 @@ export function AppCard({
   selfUpdate,
   activeOperation,
   platform,
+  selected,
+  selectionDisabled = false,
+  onSelect,
+  onToggleSelect,
   onPrimaryAction,
   onOpen,
   onReveal,
@@ -97,38 +106,96 @@ export function AppCard({
         ]
       : []),
   ];
+  const selectionModifiers = (event: {
+    shiftKey: boolean;
+    metaKey: boolean;
+    ctrlKey: boolean;
+  }): SelectionModifiers => ({
+    shiftKey: event.shiftKey,
+    metaKey: event.metaKey,
+    ctrlKey: event.ctrlKey,
+  });
 
   return (
-    <Panel variant="raised" fill={false}>
+    <Panel
+      variant="raised"
+      fill={false}
+      role="group"
+      aria-label={`${descriptor.productName}${selected ? ", selected" : ""}`}
+      tabIndex={0}
+      data-selected={selected ? "true" : undefined}
+      className={`cursor-pointer ${selected ? "ring-2 ring-brand ring-inset" : ""} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand`}
+      onClick={(event) => {
+        if (selectionDisabled) return;
+        if (
+          event.target instanceof Element &&
+          event.target.closest("button, a, input, select, textarea")
+        )
+          return;
+        onSelect(selectionModifiers(event));
+      }}
+      onKeyDown={(event) => {
+        if (selectionDisabled) return;
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect(selectionModifiers(event));
+      }}
+    >
       <Panel.Header divided={false}>
         <Panel.HeaderTitle>{descriptor.productName}</Panel.HeaderTitle>
-        {!isSelf ? (
-          <Panel.HeaderActions>
-            <button
-              type="button"
-              aria-label="More actions"
-              aria-haspopup="menu"
-              className="shrink-0 rounded-sm p-1.5 text-tertiary outline-hidden hover:bg-tertiary hover:text-primary"
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                menu.show({
-                  clientX: rect.left,
-                  clientY: rect.bottom + 4,
-                  preventDefault: () => event.preventDefault(),
-                });
-              }}
-            >
-              <MoreHorizontal size={16} />
-            </button>
-            <PointContextMenu
-              open={menu.open}
-              position={menu.position}
-              entries={menuEntries}
-              label="More actions"
-              onClose={menu.close}
-            />
-          </Panel.HeaderActions>
-        ) : null}
+        <Panel.HeaderActions>
+          <button
+            type="button"
+            aria-label={`${selected ? "Deselect" : "Select"} ${descriptor.productName}`}
+            aria-pressed={selected}
+            disabled={selectionDisabled}
+            className={`shrink-0 rounded-control p-1.5 outline-hidden ${selected ? "text-brand" : "text-tertiary hover:bg-tertiary hover:text-primary"}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              const modifiers = selectionModifiers(event);
+              if (
+                !modifiers.shiftKey &&
+                !modifiers.metaKey &&
+                !modifiers.ctrlKey
+              ) {
+                modifiers.ctrlKey = true;
+              }
+              onToggleSelect(modifiers);
+            }}
+          >
+            <Check size={16} aria-hidden="true" />
+          </button>
+          {!isSelf ? (
+            <>
+              <button
+                type="button"
+                aria-label="More actions"
+                aria-haspopup="menu"
+                className="shrink-0 rounded-control p-1.5 text-tertiary outline-hidden hover:bg-tertiary hover:text-primary"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  menu.show({
+                    clientX: rect.left,
+                    clientY: rect.bottom + 4,
+                    preventDefault: () => event.preventDefault(),
+                  });
+                }}
+              >
+                <MoreHorizontal size={16} />
+              </button>
+              <PointContextMenu
+                open={menu.open}
+                position={menu.position}
+                entries={menuEntries}
+                label="More actions"
+                onClose={menu.close}
+              />
+            </>
+          ) : null}
+        </Panel.HeaderActions>
       </Panel.Header>
       <Panel.Body scroll={false} padded className="flex flex-col gap-3 pt-0">
         <Paragraph.xs className="text-tertiary">
@@ -154,7 +221,16 @@ export function AppCard({
                 {operationStatusLabel(activeOperation)}
               </span>
               {isCancellable(activeOperation) ? (
-                <ReacstButton variant="ghost" size="xs" onClick={onCancel}>
+                <ReacstButton
+                  variant="ghost"
+                  size="xs"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (event.metaKey || event.ctrlKey || event.shiftKey)
+                      return;
+                    onCancel();
+                  }}
+                >
                   Cancel
                 </ReacstButton>
               ) : null}
@@ -165,7 +241,11 @@ export function AppCard({
             variant="tinted"
             fullWidth
             disabled={primary.action === "none"}
-            onClick={() => onPrimaryAction(primary.action)}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+              onPrimaryAction(primary.action);
+            }}
           >
             {primary.label}
           </ReacstButton>
