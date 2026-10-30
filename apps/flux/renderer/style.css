@@ -30,6 +30,9 @@
  * the rem unit. */
 html {
   font-family: var(--font-body);
+  /* Scrolling belongs to the gallery, filmstrip, and inspector, not the
+   * desktop viewport. Keep focused offscreen controls from moving the chrome. */
+  overflow: clip;
 }
 body,
 #root {
@@ -47,6 +50,9 @@ body,
 }
 body {
   margin: 0;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
 }
 /* Raw buttons (photo tiles, stars, filmstrip, histogram zones) still need the
  * pointer; @lumacast/ui buttons carry their own cursor and disabled styling. */

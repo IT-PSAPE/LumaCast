@@ -40,8 +40,10 @@ import type { HistogramData, PixelReadout } from "./histogram-data";
 import { Adjustments } from "./Adjustments";
 import { FolderBrowser } from "./FolderBrowser";
 import { Viewer } from "./Viewer";
+import { PhotoFilmstrip } from "./PhotoFilmstrip";
 import { AgentDialog, ExportDialog } from "./Dialogs";
 import type { AppCommand } from "../shared/app-command";
+import { recipeForPhoto, type PhotoDraft } from "./photo-draft";
 import { isTypingTarget, primaryShortcutLabel, resolveShortcut } from "./shortcuts";
 declare global {
   interface Window {
@@ -54,6 +56,8 @@ export function App() {
   const [state, setState] = useState<AppState>(empty);
   const confirm = useConfirm();
   const [activeId, setActiveId] = useState<string>();
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
   const [view, setView] = useState<"gallery" | "editor">("gallery");
   const [histogramFrame, setHistogramFrame] = useState<{
     id: string;
@@ -101,27 +105,42 @@ export function App() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("name");
   const [thumbSize, setThumbSize] = useState(190);
-  const [draft, setDraft] = useState<Recipe | null>(null);
+  const [draft, setDraft] = useState<PhotoDraft | null>(null);
   const [clipboard, setClipboard] = useState<Partial<Recipe>>();
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportIds, setExportIds] = useState<string[]>([]);
   const [agentOpen, setAgentOpen] = useState(false);
   const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pendingWork, setPendingWork] = useState(0);
+  const busy = pendingWork > 0;
+  const beginWork = () => setPendingWork((count) => count + 1);
+  const endWork = () => setPendingWork((count) => count - 1);
+  const importPendingRef = useRef(false);
+  const metadataPendingRef = useRef(false);
+  const relinkPendingRef = useRef(false);
+  const localCommandsRef = useRef(0);
   const [minRating, setMinRating] = useState(0);
   const [ready, setReady] = useState(false);
   const selectionRef = useRef<string[]>(state.selection);
   const selectionAnchorRef = useRef<string | null>(null);
   const expectedSelectionRef = useRef<string[] | null>(null);
   const selectionIntentRef = useRef(0);
+  const refreshSequenceRef = useRef(0);
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequenceRef.current;
     const next = (await api.command("get_app_state")) as AppState;
-    setState(next);
-    setReady(true);
+    if (sequence === refreshSequenceRef.current) {
+      setState(next);
+      setReady(true);
+    }
     return next;
   }, []);
   useEffect(() => {
     refresh().catch((e) => setNotice(e.message));
     return api.onChange(() => {
+      // Local commands refresh after completion; avoid transferring the full
+      // catalog twice for the same mutation. External updates still refresh.
+      if (localCommandsRef.current > 0) return;
       refresh().catch((e) => setNotice(e.message));
     });
   }, [refresh]);
@@ -138,9 +157,13 @@ export function App() {
     selectionRef.current = state.selection;
   }, [state.selection]);
   const run = async (name: string, args?: unknown) => {
-    const result = await api.command(name, args);
-    await refresh();
-    return result;
+    localCommandsRef.current++;
+    try {
+      return await api.command(name, args);
+    } finally {
+      localCommandsRef.current--;
+      await refresh().catch((e) => setNotice((e as Error).message));
+    }
   };
   const safe = async (fn: () => Promise<unknown>) => {
     try {
@@ -149,8 +172,12 @@ export function App() {
       setNotice((e as Error).message);
     }
   };
-  const photo = state.photos.find((p) => p.id === activeId);
-  const recipe = photo ? (draft ?? photo.recipe) : undefined;
+  const photosById = useMemo(
+    () => new Map(state.photos.map((p) => [p.id, p])),
+    [state.photos],
+  );
+  const photo = activeId ? photosById.get(activeId) : undefined;
+  const recipe = recipeForPhoto(photo, draft);
   useEffect(() => {
     setAspect("free");
   }, [
@@ -165,7 +192,12 @@ export function App() {
     photo?.recipe.lensBlue,
   ]);
   useEffect(() => {
-    setDraft(null);
+    setDraft((current) =>
+      current &&
+      (current.photoId !== activeId || current.revision !== photo?.revision)
+        ? null
+        : current,
+    );
   }, [activeId, photo?.revision]);
   const photos = useMemo(
     () =>
@@ -187,16 +219,23 @@ export function App() {
         ),
     [state.photos, query, sort, section, minRating],
   );
-  const folders = [...new Set(state.photos.map((p) => p.folder))].sort();
-  const selected = new Set(state.selection);
+  const folders = useMemo(
+    () => [...new Set(state.photos.map((p) => p.folder))].sort(),
+    [state.photos],
+  );
+  const selected = useMemo(() => new Set(state.selection), [state.selection]);
   const activeIndex = photos.findIndex((p) => p.id === activeId);
-  const selectedVisibleIds = photos.filter((p) => selected.has(p.id)).map((p) => p.id);
-  const selectableIds = state.photos.map((p) => p.id);
+  const selectedVisibleIds = useMemo(
+    () => photos.filter((p) => selected.has(p.id)).map((p) => p.id),
+    [photos, selected],
+  );
+  const selectableIds = useMemo(() => state.photos.map((p) => p.id), [state.photos]);
   const selectAllVisible = () => {
     const visibleIds = photos.map((p) => p.id);
     const visible = new Set(visibleIds);
+    const selection = new Set(selectionRef.current);
     const hiddenSelection = selectableIds.filter(
-      (id) => !visible.has(id) && selectionRef.current.includes(id),
+      (id) => !visible.has(id) && selection.has(id),
     );
     persistSelection([...visibleIds, ...hiddenSelection], visibleIds[0] ?? null);
   };
@@ -222,20 +261,32 @@ export function App() {
     });
   };
   const select = (
-    p: Photo,
+    photoId: string,
     event: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {},
   ) => {
     const result = resolveSelection(
       photos.map((photo) => photo.id),
       selectionRef.current,
       selectionAnchorRef.current,
-      p.id,
+      photoId,
       event,
       selectableIds,
     );
     persistSelection(result.selectedIds, result.anchorId);
-    if (!(event.shiftKey || event.metaKey || event.ctrlKey)) setActiveId(p.id);
+    if (!(event.shiftKey || event.metaKey || event.ctrlKey)) setActiveId(photoId);
   };
+  const selectRef = useRef(select);
+  selectRef.current = select;
+  const selectFilmstripPhoto = useCallback(
+    (photoId: string, event: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) => {
+      selectRef.current(photoId, event);
+    },
+    [],
+  );
+  const assetUrl = useCallback(
+    (photoId: string, revision: number) => api.assetUrl(photoId, revision),
+    [],
+  );
   const removePhotosFromLibrary = async (requestedIds?: string[]) => {
     const selectedTargets = selectedVisibleIds.length
       ? resolveActionIds(photos.map((p) => p.id), state.selection, selectedVisibleIds[0], selectableIds)
@@ -255,7 +306,7 @@ export function App() {
     });
     if (!approved) return;
     const removed = new Set(ids);
-    setBusy(true);
+    beginWork();
     try {
       await run("remove_photos_from_library", { ids });
       selectionRef.current = selectionRef.current.filter((id) => !removed.has(id));
@@ -269,7 +320,7 @@ export function App() {
     } catch (error) {
       setNotice((error as Error).message);
     } finally {
-      setBusy(false);
+      endWork();
     }
   };
   const handlePhotoCollectionKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -302,29 +353,52 @@ export function App() {
       }
     }
   };
-  const importPaths = async (paths: string[]) => {
-    if (!paths.length) return;
-    setBusy(true);
+  const collectionKeyDownRef = useRef(handlePhotoCollectionKeyDown);
+  collectionKeyDownRef.current = handlePhotoCollectionKeyDown;
+  const handleFilmstripKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => collectionKeyDownRef.current(event),
+    [],
+  );
+  const performImport = async (getPaths: () => Promise<string[]>) => {
+    if (importPendingRef.current) return;
+    importPendingRef.current = true;
+    beginWork();
     try {
+      const paths = await getPaths();
+      if (!paths.length) return;
       const result = await run("import_photos", { paths });
       if (result.imported.length) {
         setActiveId(result.imported[0]);
         await persistSelection(result.imported, result.imported[0] ?? null);
         setSection("all");
+        setQuery("");
+        setMinRating(0);
       }
       setNotice(
         `${result.imported.length} photo(s) imported.${result.errors.length ? " " + result.errors.map((e: any) => `${e.path.split("/").pop()}: ${e.message}`).join("\n") : ""}`,
       );
     } finally {
-      setBusy(false);
+      importPendingRef.current = false;
+      endWork();
     }
   };
-  const commit = async (patch: Partial<Recipe>, revision = photo?.revision) => {
-    if (!photo || revision === undefined) return;
-    setBusy(true);
+  const importPaths = (paths: string[]) => performImport(async () => paths);
+  const requestImport = (folder = false) => performImport(() => api.chooseImport(folder));
+  const commit = async (
+    patch: Partial<Recipe>,
+    revision = photo?.revision,
+    photoId = photo?.id,
+  ) => {
+    if (
+      !photoId ||
+      revision === undefined ||
+      photoId !== activeIdRef.current
+    )
+      return;
+    beginWork();
     try {
       await run("apply_edits", {
-        id: photo.id,
+        id: photoId,
         expectedRevision: revision,
         patch,
       });
@@ -332,14 +406,30 @@ export function App() {
       setNotice((e as Error).message);
       await refresh();
     } finally {
-      setDraft(null);
-      setBusy(false);
+      setDraft((current) => (current?.photoId === photoId ? null : current));
+      endWork();
+    }
+  };
+  const updateDraft = (
+    next: Recipe | null,
+    photoId = photo?.id,
+    revision = photo?.revision,
+  ) => {
+    if (!photoId || revision === undefined) return;
+    if (next) {
+      setDraft({ photoId, revision, recipe: next });
+    } else {
+      setDraft((current) =>
+        current?.photoId === photoId && current.revision === revision
+          ? null
+          : current,
+      );
     }
   };
   const action = async (name: string) => {
     if (!photo) return;
     if (name === "auto_adjust" || name === "auto_lens_correction") {
-      setBusy(true);
+      beginWork();
       try {
         const result = await run(name, {
           id: photo.id,
@@ -353,14 +443,22 @@ export function App() {
           ].join(" "),
         );
       } finally {
-        setDraft(null);
-        setBusy(false);
+        setDraft((current) => (current?.photoId === photo.id ? null : current));
+        endWork();
       }
       return;
     }
     if (name === "relink") {
-      const file = await api.chooseRelink();
-      if (file) await run("relink", { id: photo.id, path: file });
+      if (relinkPendingRef.current) return;
+      relinkPendingRef.current = true;
+      beginWork();
+      try {
+        const file = await api.chooseRelink();
+        if (file) await run("relink", { id: photo.id, path: file });
+      } finally {
+        relinkPendingRef.current = false;
+        endWork();
+      }
       return;
     }
     const colors = Object.fromEntries(
@@ -385,32 +483,32 @@ export function App() {
         setNotice("Select more than one photo to apply these adjustments.");
         return;
       }
-      setBusy(true);
+      beginWork();
       try {
         await run("apply_batch_edits", {
           edits: ids.map((id) => ({
             id,
-            expectedRevision: state.photos.find((p) => p.id === id)!.revision,
+            expectedRevision: photosById.get(id)!.revision,
             patch: colors,
           })),
         });
         setNotice(`Adjustments applied to ${ids.length} photo(s).`);
       } finally {
-        setBusy(false);
+        endWork();
       }
       return;
     }
-    setBusy(true);
+    beginWork();
     try {
       await run(name, { id: photo.id, expectedRevision: photo.revision });
     } finally {
-      setBusy(false);
+      endWork();
     }
   };
   const navigate = (direction: number) => {
     const next =
       photos[Math.max(0, Math.min(photos.length - 1, activeIndex + direction))];
-    if (next) select(next);
+    if (next) select(next.id);
   };
   // The ids a rating or favourite key applies to: the active photo in the
   // editor; in the gallery the visible selection, else the focused photo.
@@ -418,6 +516,20 @@ export function App() {
     if (view === "editor") return photo ? [photo] : [];
     const chosen = photos.filter((p) => selected.has(p.id));
     return chosen.length ? chosen : photo ? [photo] : [];
+  };
+  const updateMetadata = async (
+    targets: Photo[],
+    patch: { rating?: number; favorite?: boolean },
+  ) => {
+    if (!targets.length || metadataPendingRef.current) return;
+    metadataPendingRef.current = true;
+    beginWork();
+    try {
+      await run("update_photos_metadata", { ids: targets.map((p) => p.id), ...patch });
+    } finally {
+      metadataPendingRef.current = false;
+      endWork();
+    }
   };
   const runCommand = (command: AppCommand) => {
     if (command === "select-all") {
@@ -441,23 +553,20 @@ export function App() {
     } else if (command === "favorite") {
       const targets = keyTargets();
       const favorite = !targets.every((p) => p.favorite);
-      void safe(async () => {
-        for (const p of targets) await api.command("update_metadata", { id: p.id, favorite });
-        await refresh();
-      });
+      void safe(() => updateMetadata(targets, { favorite }));
     } else if (command.startsWith("rate-")) {
       const rating = Number(command.slice(5));
       const targets = keyTargets();
-      void safe(async () => {
-        for (const p of targets) await api.command("update_metadata", { id: p.id, rating });
-        await refresh();
-      });
+      void safe(() => updateMetadata(targets, { rating }));
     } else if (command === "import-photos") {
-      if (!busy) void safe(async () => importPaths(await api.chooseImport()));
+      if (!busy) void safe(() => requestImport());
     } else if (command === "import-folder") {
-      if (!busy) void safe(async () => importPaths(await api.chooseImport(true)));
+      if (!busy) void safe(() => requestImport(true));
     } else if (command === "export") {
-      if (state.selection.length) setExportOpen(true);
+      if (state.selection.length) {
+        setExportIds([...state.selection]);
+        setExportOpen(true);
+      }
     }
   };
   const commandRef = useRef(runCommand);
@@ -529,7 +638,10 @@ export function App() {
             size="sm"
             variant="primary"
             disabled={!state.selection.length}
-            onClick={() => setExportOpen(true)}
+            onClick={() => {
+              setExportIds([...state.selection]);
+              setExportOpen(true);
+            }}
           >
             <Download size={13} />
             Export
@@ -600,7 +712,7 @@ export function App() {
                   fullWidth
                   disabled={busy}
                   onClick={() =>
-                    safe(async () => importPaths(await api.chooseImport()))
+                    safe(() => requestImport())
                   }
                 >
                   <Plus size={13} />
@@ -611,7 +723,7 @@ export function App() {
                   fullWidth variant="ghost"
                   disabled={busy}
                   onClick={() =>
-                    safe(async () => importPaths(await api.chooseImport(true)))
+                    safe(() => requestImport(true))
                   }
                 >
                   <FolderOpen size={13} />
@@ -758,47 +870,34 @@ export function App() {
                     canNext={activeIndex < photos.length - 1}
                     recipe={recipe}
                     preview={api.preview}
-                    onCrop={(crop) => void commit({ crop })}
+                    onCrop={(crop, photoId, revision) =>
+                      void commit({ crop }, revision, photoId)
+                    }
                     onError={setNotice}
                   />
                   {photo.missing && (
                     <ReacstButton
                       size="sm"
-                      onClick={() =>
-                        safe(async () => {
-                          const p = await api.chooseRelink();
-                          if (p) await run("relink", { id: photo.id, path: p });
-                        })
-                      }
+                      disabled={busy}
+                      onClick={() => safe(() => action("relink"))}
                     >
                       <Link size={13} />
                       Relink original
                     </ReacstButton>
                   )}
-                  <div className="filmstrip" data-shortcuts-scope="ignore" onKeyDown={handlePhotoCollectionKeyDown}>
-                    {photos.map((p) => (
-                      <button
-                        key={p.id}
-                        data-photo-id={p.id}
-                        aria-pressed={selected.has(p.id)}
-                        title={p.name}
-                        className={`${p.id === activeId ? "active" : ""} ${selected.has(p.id) ? "selected" : ""}`.trim()}
-                        onClick={(e) => select(p, e)}
-                      >
-                        <img
-                          src={api.assetUrl(p.id, p.revision)}
-                          alt={p.name}
-                          loading="lazy"
-                        />
-                      </button>
-                    ))}
-                  </div>
+                  <PhotoFilmstrip
+                    photos={photos}
+                    selected={selected}
+                    activeId={activeId}
+                    onSelect={selectFilmstripPhoto}
+                    assetUrl={assetUrl}
+                    onKeyDown={handleFilmstripKeyDown}
+                  />
                 </>
               ) : photos.length ? (
                 <>
                   <div
                     className="gallery"
-                    data-shortcuts-scope="ignore"
                     onKeyDown={handlePhotoCollectionKeyDown}
                     style={{
                       gridTemplateColumns: `repeat(auto-fill,minmax(${thumbSize}px,1fr))`,
@@ -814,7 +913,7 @@ export function App() {
                           className="photo-image"
                           aria-label={`Select ${p.name}`}
                           aria-pressed={selected.has(p.id)}
-                          onClick={(e) => select(p, e)}
+                          onClick={(e) => select(p.id, e)}
                           onDoubleClick={(event) => {
                             if (event.shiftKey || event.metaKey || event.ctrlKey) return;
                             setActiveId(p.id);
@@ -844,10 +943,10 @@ export function App() {
                           <button
                             aria-label={`Favorite ${p.name}`}
                             aria-pressed={p.favorite}
+                            disabled={busy}
                             onClick={() =>
                               safe(() =>
-                                run("update_metadata", {
-                                  id: p.id,
+                                updateMetadata([p], {
                                   favorite: !p.favorite,
                                 }),
                               )
@@ -868,10 +967,10 @@ export function App() {
                                 key={n}
                                 aria-label={`Rate ${p.name} ${n}`}
                                 aria-pressed={p.rating === n}
+                                disabled={busy}
                                 onClick={() =>
                                   safe(() =>
-                                    run("update_metadata", {
-                                      id: p.id,
+                                    updateMetadata([p], {
                                       rating: p.rating === n ? 0 : n,
                                     }),
                                   )
@@ -953,9 +1052,7 @@ export function App() {
                         variant="primary"
                         disabled={busy}
                         onClick={() =>
-                          safe(async () =>
-                            importPaths(await api.chooseImport()),
-                          )
+                            safe(() => requestImport())
                         }
                       >
                         <Plus size={13} />
@@ -1005,8 +1102,12 @@ export function App() {
                 onLocked={setLocked}
                 photo={photo}
                 recipe={recipe}
-                onDraft={setDraft}
-                onCommit={(patch, revision) => void commit(patch, revision)}
+                onDraft={(next, photoId, revision) =>
+                  updateDraft(next, photoId, revision)
+                }
+                onCommit={(patch, revision, photoId) =>
+                  void commit(patch, revision, photoId)
+                }
                 onAction={(name) => void safe(() => action(name))}
                 copied={!!clipboard}
                 busy={busy}
@@ -1040,11 +1141,14 @@ export function App() {
       )}
       <ExportDialog
         open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        count={state.selection.length}
+        onClose={() => {
+          setExportOpen(false);
+          setExportIds([]);
+        }}
+        count={exportIds.length}
         api={api}
         onExport={async (options) => {
-          await run("export_photos", { ...options, ids: state.selection });
+          await run("export_photos", { ...options, ids: exportIds });
           setSection("jobs");
           setView("gallery");
         }}

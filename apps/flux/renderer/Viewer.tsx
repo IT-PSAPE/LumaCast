@@ -50,7 +50,11 @@ export function Viewer({
   photo: Photo;
   recipe: Recipe;
   preview: (id: string, recipe: Recipe, max?: number) => Promise<string>;
-  onCrop: (crop: Recipe["crop"]) => void;
+  onCrop: (
+    crop: Recipe["crop"],
+    photoId?: string,
+    revision?: number,
+  ) => void;
   onError: (message: string) => void;
   composition: boolean;
   aspect: string;
@@ -60,10 +64,21 @@ export function Viewer({
   canPrevious: boolean;
   canNext: boolean;
 }) {
-  const [src, setSrc] = useState(""),
-    [original, setOriginal] = useState(""),
+  const [frame, setFrame] = useState<{
+    source: string;
+    src: string;
+  } | null>(null),
+    [original, setOriginal] = useState<{
+      source: string;
+      src: string;
+    } | null>(null),
     [compare, setCompare] = useState(false),
     [loading, setLoading] = useState(false);
+  const [previewFailure, setPreviewFailure] = useState<{
+    requestKey: string;
+    message: string;
+  } | null>(null);
+  const [retry, setRetry] = useState(0);
   const [zoom, setZoom] = useState(1),
     [pan, setPan] = useState({ x: 0, y: 0 }),
     [full, setFull] = useState(false);
@@ -89,6 +104,8 @@ export function Viewer({
     serial = useRef(0),
     pixelFit = useRef(false);
   const drag = useRef<{
+    photoId: string;
+    revision: number;
     x: number;
     y: number;
     rect: DOMRect;
@@ -108,7 +125,7 @@ export function Viewer({
     setPan({ x: 0, y: 0 });
     setCompare(false);
     setFull(false);
-    setOriginal("");
+    setOriginal(null);
   }, [photo.id, composition]);
   useEffect(() => {
     if (lastAspect.current === aspect) return;
@@ -128,15 +145,23 @@ export function Viewer({
   const renderRecipe =
     composition && !compare ? { ...recipe, crop: null } : recipe;
   const recipeKey = JSON.stringify(renderRecipe);
+  const sourceKey = `${photo.id}:${photo.path}:${photo.size}`;
   const context = JSON.stringify([
-    photo.id,
-    photo.path,
+    sourceKey,
     composition,
     compare,
     full,
   ]);
+  const requestKey = JSON.stringify([context, recipeKey, retry]);
   const activeContext = useRef(context);
   activeContext.current = context;
+  const activeRequest = useRef(requestKey);
+  activeRequest.current = requestKey;
+  const currentSrc = frame?.source === sourceKey ? frame.src : "";
+  const currentOriginal =
+    original?.source === sourceKey ? original.src : "";
+  const currentFailure =
+    previewFailure?.requestKey === requestKey ? previewFailure : null;
   const originalCache = useRef<{ key: string; src: string } | undefined>(
     undefined,
   );
@@ -172,10 +197,11 @@ export function Viewer({
   useEffect(() => {
     const id = ++serial.current;
     setLoading(true);
+    setPreviewFailure(null);
     void queue
       .current!.request({
         id: photo.id,
-        source: `${photo.id}:${photo.path}:${photo.size}`,
+        source: sourceKey,
         recipe: renderRecipe,
         compare,
         full,
@@ -184,21 +210,25 @@ export function Viewer({
         // Show completed frames while dragging; coalesce waiting work, not visible feedback.
         // A different photo or viewing mode must never receive a stale frame.
         if (activeContext.current === context) {
-          setOriginal(before);
-          setSrc(after);
+          setOriginal({ source: sourceKey, src: before });
+          setFrame({ source: sourceKey, src: after });
         }
       })
       .catch((e) => {
         if (
+          serial.current === id &&
           activeContext.current === context &&
+          activeRequest.current === requestKey &&
           !String(e).includes("SUPERSEDED")
-        )
+        ) {
+          setPreviewFailure({ requestKey, message: String(e) });
           onError(String(e));
+        }
       })
       .finally(() => {
         if (serial.current === id) setLoading(false);
       });
-  }, [context, recipeKey]);
+  }, [requestKey]);
   useEffect(
     () => () => {
       activeContext.current = "";
@@ -206,9 +236,6 @@ export function Viewer({
     },
     [],
   );
-  useEffect(() => {
-    setSrc("");
-  }, [photo.id, photo.path]);
   useEffect(() => {
     rasterPhoto.current = "";
     setRaster(null);
@@ -263,6 +290,8 @@ export function Viewer({
     if (composition && !compare && !handle) return;
     const box = cropRef.current;
     drag.current = {
+      photoId: photo.id,
+      revision: photo.revision,
       x: e.clientX,
       y: e.clientY,
       rect: img.current.getBoundingClientRect(),
@@ -289,6 +318,7 @@ export function Viewer({
     }
     const d = drag.current;
     if (!d) return;
+    if (d.photoId !== photo.id) return;
     if (d.handle === "pan")
       setPan({ x: d.pan.x + e.clientX - d.x, y: d.pan.y + e.clientY - d.y });
     else {
@@ -356,6 +386,12 @@ export function Viewer({
           size="sm"
           pressed={compare}
           onClick={() => {
+            if (!compare) {
+              // An explicit comparison starts with a fresh read of the source;
+              // it may have been replaced outside Flux since the last session.
+              originalCache.current = undefined;
+              setOriginal(null);
+            }
             setCompare(!compare);
             fit();
           }}
@@ -408,12 +444,24 @@ export function Viewer({
         onPointerMove={move}
         onPointerLeave={() => onSample(null)}
         onPointerUp={() => {
+          const currentDrag = drag.current;
           if (
-            drag.current &&
-            drag.current.handle !== "pan" &&
-            JSON.stringify(drag.current.box) !== JSON.stringify(cropRef.current)
-          )
-            onCrop(cropRef.current);
+            currentDrag &&
+            currentDrag.photoId === photo.id &&
+            currentDrag.revision === photo.revision &&
+            currentDrag.handle !== "pan" &&
+            JSON.stringify(currentDrag.box) !== JSON.stringify(cropRef.current)
+          ) {
+            onCrop(cropRef.current, currentDrag.photoId, currentDrag.revision);
+          } else if (
+            currentDrag &&
+            (currentDrag.photoId !== photo.id ||
+              currentDrag.revision !== photo.revision)
+          ) {
+            const currentCrop = recipe.crop ?? fullCrop;
+            cropRef.current = currentCrop;
+            setCrop(currentCrop);
+          }
           drag.current = null;
         }}
         onPointerCancel={() => {
@@ -427,17 +475,17 @@ export function Viewer({
             );
         }}
       >
-        {compare && original && (
+        {compare && currentOriginal && (
           <figure className="compare-pane">
             <figcaption>Original</figcaption>
             <img
-              src={original}
+              src={currentOriginal}
               alt={`Original ${photo.name}`}
               draggable={false}
             />
           </figure>
         )}
-        {src ? (
+        {currentSrc ? (
           <div
             className={compare ? "compare-pane" : "image-wrap"}
             style={
@@ -451,7 +499,7 @@ export function Viewer({
             {compare && <div className="compare-label">Edited</div>}
             <img
               ref={img}
-              src={src}
+              src={currentSrc}
               alt={compare ? `Edited ${photo.name}` : photo.name}
               draggable={false}
               onLoad={(e) => {
@@ -515,6 +563,8 @@ export function Viewer({
                             dy,
                             locked ? crop.width / crop.height : 0,
                           ),
+                          photo.id,
+                          photo.revision,
                         );
                       }
                     }}
@@ -527,10 +577,42 @@ export function Viewer({
           <p className="muted">
             {photo.missing
               ? "Original file is missing. Relink it to continue."
-              : "Loading photo…"}
+              : loading
+                ? "Rendering preview…"
+                : "Preview unavailable."}
           </p>
         )}
-        {loading && <span className="canvas-status">Rendering…</span>}
+        {loading && currentSrc && (
+          <span className="canvas-status">Rendering…</span>
+        )}
+        {currentFailure && (
+          <div
+            role="alert"
+            className="absolute inset-x-4 top-4 z-10 flex items-center justify-between gap-3 rounded-control border border-primary bg-secondary px-3 py-2 text-sm text-primary shadow-md"
+            title={currentFailure.message}
+          >
+            <span className="min-w-0 truncate">
+              {currentSrc
+                ? "Preview update failed."
+                : "Couldn’t render this preview."}
+            </span>
+            <ReacstButton
+              size="sm"
+              onClick={() => {
+                originalCache.current = undefined;
+                setPreviewFailure(null);
+                setRetry((value) => value + 1);
+              }}
+            >
+              Retry preview
+            </ReacstButton>
+            {!photo.missing && (
+              <ReacstButton size="sm" disabled={busy} onClick={() => onAction("relink")}>
+                Relink original
+              </ReacstButton>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FolderOpen, Plus, Trash2, Copy, Check } from "lucide-react";
 import type { AgentSettings, ExportOptions } from "@lumacast/photo-model";
 import type { DesktopAPI } from "../shared/desktop-api";
@@ -10,6 +10,36 @@ import {
   Select,
   TextField,
 } from "@lumacast/ui";
+
+function useDialogTask() {
+  const pending = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function run(task: () => Promise<void>) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await task();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+  return {
+    busy,
+    error,
+    setError,
+    run,
+    close: (onClose: () => void) => {
+      if (!pending.current) onClose();
+    },
+  };
+}
+
 export function ExportDialog({
   open,
   onClose,
@@ -29,41 +59,36 @@ export function ExportDialog({
   const [resize, setResize] = useState(false);
   const [size, setSize] = useState(2400);
   const [suffix, setSuffix] = useState("-edited");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, error, setError, run, close } = useDialogTask();
+  useEffect(() => {
+    if (open) setError("");
+  }, [open, setError]);
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={() => close(onClose)}
+      closeDisabled={busy}
       title={`Export ${count} photo${count === 1 ? "" : "s"}`}
       className="w-[min(520px,95vw)]"
       footer={
         <>
-          <ReacstButton size="sm" onClick={onClose}>
+          <ReacstButton size="sm" disabled={busy} onClick={() => close(onClose)}>
             Cancel
           </ReacstButton>
           <ReacstButton
             size="sm"
             variant="primary"
             disabled={!directory || !count || busy}
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                await onExport({
-                  directory,
-                  format,
-                  quality,
-                  maxDimension: resize ? size : undefined,
-                  suffix,
-                });
-                onClose();
-              } catch (e) {
-                setError((e as Error).message);
-              } finally {
-                setBusy(false);
-              }
-            }}
+            onClick={() => void run(async () => {
+              await onExport({
+                directory,
+                format,
+                quality,
+                maxDimension: resize ? size : undefined,
+                suffix,
+              });
+              onClose();
+            })}
           >
             {busy ? "Starting…" : "Export photos"}
           </ReacstButton>
@@ -80,14 +105,16 @@ export function ExportDialog({
             label="Export destination"
             placeholder="Choose a folder"
             value={directory}
+            disabled={busy}
             onValueChange={setDirectory}
           />
           <ReacstButton.Icon
             aria-label="Choose export folder"
-            onClick={async () => {
+            disabled={busy}
+            onClick={() => void run(async () => {
               const p = await api.chooseDirectory();
               if (p) setDirectory(p);
-            }}
+            })}
           >
             <FolderOpen size={16} />
           </ReacstButton.Icon>
@@ -95,6 +122,7 @@ export function ExportDialog({
         <div className="grid grid-cols-2 gap-4">
           <Select
             label="Format"
+            disabled={busy}
             value={format}
             onValueChange={setFormat}
             options={[
@@ -107,24 +135,27 @@ export function ExportDialog({
             label="Quality"
             min={1}
             max={100}
-            disabled={format === "png"}
+            disabled={busy || format === "png"}
             value={quality}
             onValueChange={setQuality}
           />
         </div>
         <TextField
           label="Filename suffix"
+          disabled={busy}
           value={suffix}
           onValueChange={setSuffix}
         />
         <Checkbox
           label="Resize to maximum dimension"
+          disabled={busy}
           checked={resize}
           onCheckedChange={setResize}
         />
         {resize && (
           <NumberField
             label="Longest edge (pixels)"
+            disabled={busy}
             min={16}
             max={20000}
             value={size}
@@ -154,34 +185,36 @@ export function AgentDialog({
   api: DesktopAPI;
 }) {
   const [settings, setSettings] = useState<AgentSettings>();
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const { busy, error, setError, run, close } = useDialogTask();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
+    let cancelled = false;
     if (open) {
+      setSettings(undefined);
       setError("");
+      setCopied(false);
       api
         .settings()
-        .then(setSettings)
-        .catch((e) => setError(e.message));
+        .then((next) => { if (!cancelled) setSettings(next); })
+        .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
     }
-  }, [open]);
+    return () => { cancelled = true; };
+  }, [open, api, setError]);
   const save = async (roots: string[]) => {
-    setBusy(true);
-    setError("");
     try {
       setSettings(await api.updateSettings(true, roots));
     } catch (e) {
-      setError((e as Error).message);
-      setSettings(await api.settings());
-    } finally {
-      setBusy(false);
+      // Recover the actual grants if an update partially succeeded, preserving
+      // the primary error even when refreshing settings also fails.
+      try { setSettings(await api.settings()); } catch { /* Keep the previous grants. */ }
+      throw e;
     }
   };
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={() => close(onClose)}
+      closeDisabled={busy}
       title="Local agent access"
       className="w-[min(520px,95vw)]"
     >
@@ -214,7 +247,7 @@ export function AgentDialog({
                   size="sm"
                   aria-label={`Remove ${root}`}
                   disabled={busy}
-                  onClick={() => save(settings.roots.filter((r) => r !== root))}
+                  onClick={() => void run(() => save(settings.roots.filter((r) => r !== root)))}
                 >
                   <Trash2 size={14} />
                 </ReacstButton.Icon>
@@ -224,11 +257,11 @@ export function AgentDialog({
           <ReacstButton
             size="sm"
             disabled={busy}
-            onClick={async () => {
+            onClick={() => void run(async () => {
               const p = await api.chooseDirectory();
               if (p && !settings.roots.includes(p))
                 await save([...settings.roots, p]);
-            }}
+            })}
           >
             <Plus size={13} />
             Add folder

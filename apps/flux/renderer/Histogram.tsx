@@ -33,8 +33,12 @@ export function Histogram({
   photo?: Photo;
   recipe?: Recipe;
   busy: boolean;
-  onDraft: (r: Recipe | null) => void;
-  onCommit: (patch: Partial<Recipe>, revision?: number) => void;
+  onDraft: (r: Recipe | null, photoId?: string, revision?: number) => void;
+  onCommit: (
+    patch: Partial<Recipe>,
+    revision?: number,
+    photoId?: string,
+  ) => void;
   clipping: { shadows: boolean; highlights: boolean };
   onClipping: (kind: "shadows" | "highlights") => void;
   onHover: (kind: "shadows" | "highlights" | null) => void;
@@ -44,6 +48,7 @@ export function Histogram({
     x: number;
     width: number;
     index: number;
+    photoId: string;
     recipe: Recipe;
     revision: number;
     value: number;
@@ -158,6 +163,7 @@ export function Histogram({
                 x: e.clientX,
                 width: e.currentTarget.parentElement!.clientWidth,
                 index,
+                photoId: photo.id,
                 recipe: { ...recipe },
                 revision: photo.revision,
                 value: recipe[key],
@@ -166,6 +172,7 @@ export function Histogram({
             onPointerMove={(e) => {
               const d = drag.current;
               if (!d || d.index !== index) return;
+              if (!photo || d.photoId !== photo.id) return;
               const value = Math.max(
                 min,
                 Math.min(
@@ -178,21 +185,28 @@ export function Histogram({
                 ),
               );
               d.value = Number(value.toFixed(2));
-              onDraft({ ...d.recipe, [key]: d.value });
+              onDraft({ ...d.recipe, [key]: d.value }, d.photoId, d.revision);
             }}
             onPointerUp={() => {
               const d = drag.current;
               if (!d || d.index !== index) return;
               drag.current = null;
+              if (!photo || d.photoId !== photo.id) {
+                onDraft(null, d.photoId, d.revision);
+                return;
+              }
               if (d.value !== d.recipe[key])
-                onCommit({ [key]: d.value }, d.revision);
-              else onDraft(null);
+                onCommit({ [key]: d.value }, d.revision, d.photoId);
+              else onDraft(null, d.photoId, d.revision);
             }}
             onPointerCancel={() => {
+              const d = drag.current;
               drag.current = null;
-              onDraft(null);
+              onDraft(null, d?.photoId ?? photo?.id, d?.revision ?? photo?.revision);
             }}
-            onDoubleClick={() => onCommit({ [key]: 0 })}
+            onDoubleClick={() =>
+              photo && onCommit({ [key]: 0 }, photo.revision, photo.id)
+            }
             onKeyDown={(e) => {
               if (!recipe) return;
               const direction = ["ArrowRight", "ArrowUp"].includes(e.key)
@@ -202,17 +216,21 @@ export function Histogram({
                   : 0;
               if (direction) {
                 e.preventDefault();
-                onCommit({
-                  [key]: Number(
-                    Math.max(
-                      min,
-                      Math.min(
-                        max,
-                        recipe[key] + direction * step * (e.shiftKey ? 10 : 1),
-                      ),
-                    ).toFixed(2),
-                  ),
-                });
+                onCommit(
+                  {
+                    [key]: Number(
+                      Math.max(
+                        min,
+                        Math.min(
+                          max,
+                          recipe[key] + direction * step * (e.shiftKey ? 10 : 1),
+                        ),
+                      ).toFixed(2),
+                    ),
+                  },
+                  photo?.revision,
+                  photo?.id,
+                );
               }
             }}
           />

@@ -57,26 +57,52 @@ export function Adjustments({
   onLocked: (value: boolean) => void;
   photo?: Photo;
   recipe?: Recipe;
-  onDraft: (r: Recipe | null) => void;
-  onCommit: (patch: Partial<Recipe>, revision?: number) => void;
+  onDraft: (r: Recipe | null, photoId?: string, revision?: number) => void;
+  onCommit: (
+    patch: Partial<Recipe>,
+    revision?: number,
+    photoId?: string,
+  ) => void;
   onAction: (name: string) => void;
   copied: boolean;
   busy: boolean;
 }) {
   const off = !photo || busy;
-  const gesture = useRef<{ revision: number; recipe: Recipe } | null>(null);
+  const gesture = useRef<{
+    photoId: string;
+    revision: number;
+    recipe: Recipe;
+  } | null>(null);
   function change(key: keyof Recipe, value: number) {
     if (!photo || !recipe) return;
-    if (!gesture.current)
-      gesture.current = { revision: photo.revision, recipe: { ...recipe } };
+    if (gesture.current && gesture.current.photoId !== photo.id) return;
+    if (!gesture.current) {
+      gesture.current = {
+        photoId: photo.id,
+        revision: photo.revision,
+        recipe: { ...recipe },
+      };
+    }
     gesture.current.recipe = { ...gesture.current.recipe, [key]: value };
-    onDraft(gesture.current.recipe);
+    onDraft(
+      gesture.current.recipe,
+      gesture.current.photoId,
+      gesture.current.revision,
+    );
   }
   function commit(key: keyof Recipe, value: number) {
     if (!photo) return;
-    const revision = gesture.current?.revision ?? photo.revision;
+    const activeGesture = gesture.current;
     gesture.current = null;
-    onCommit({ [key]: value }, revision);
+    if (activeGesture && activeGesture.photoId !== photo.id) {
+      onDraft(null, activeGesture.photoId, activeGesture.revision);
+      return;
+    }
+    onCommit(
+      { [key]: value },
+      activeGesture?.revision ?? photo.revision,
+      activeGesture?.photoId ?? photo.id,
+    );
   }
   const groups =
     tab === "Composition"
@@ -92,7 +118,9 @@ export function Adjustments({
         photo={photo}
         recipe={recipe}
         busy={busy}
-        onDraft={onDraft}
+        onDraft={(next, photoId, revision) =>
+          onDraft(next, photoId ?? photo?.id, revision ?? photo?.revision)
+        }
         onCommit={onCommit}
         clipping={clipping}
         onClipping={onClipping}

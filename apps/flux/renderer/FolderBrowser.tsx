@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FolderOpen, ChevronUp, FileImage } from "lucide-react";
 import { ListRow, ReacstButton } from "@lumacast/ui";
 type Listing = {
@@ -16,19 +16,33 @@ export function FolderBrowser({
 }) {
   const [listing, setListing] = useState<Listing | null>(null),
     [loading, setLoading] = useState(false);
-  async function browse(path?: string) {
+  const pending = useRef(false);
+  async function perform(operation: () => Promise<void>) {
+    if (pending.current) return;
+    pending.current = true;
     setLoading(true);
     try {
+      await operation();
+    } catch (e) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      pending.current = false;
+      setLoading(false);
+    }
+  }
+  async function browse(path?: string) {
+    await perform(async () => {
       const root = path ?? (await window.lumaflux.chooseDirectory());
       if (root)
         setListing(
           await window.lumaflux.command("browse_folder", { path: root }),
         );
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setLoading(false);
-    }
+    });
+  }
+  async function importPaths(paths: string[]) {
+    await perform(async () => {
+      await onImport(paths);
+    });
   }
   return (
     <div className="folder-explorer">
@@ -69,8 +83,9 @@ export function FolderBrowser({
                 as="button"
                 density="compact"
                 key={f.path}
+                disabled={loading}
                 onClick={() =>
-                  void onImport([f.path]).catch((e) => onError(String(e)))
+                  void importPaths([f.path])
                 }
               >
                 <ListRow.Leading>
@@ -90,7 +105,7 @@ export function FolderBrowser({
             fullWidth
             disabled={loading}
             onClick={() =>
-              void onImport([listing.path]).catch((e) => onError(String(e)))
+              void importPaths([listing.path])
             }
           >
             Import this folder
