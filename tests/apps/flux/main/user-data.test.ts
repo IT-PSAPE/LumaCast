@@ -6,7 +6,7 @@ import {
   resolveUserData,
 } from '../../../../apps/flux/main/user-data';
 
-const APP_DATA = path.join(path.sep, 'Users', 'tester', 'Library', 'Application Support');
+const APP_DATA = path.resolve(path.sep, 'Users', 'tester', 'Library', 'Application Support');
 
 describe('apps/flux user data resolution', () => {
   it('keeps the packaged directory that existing installs already use', () => {
@@ -52,14 +52,14 @@ describe('apps/flux user data resolution', () => {
   });
 
   it('lets LUMAFLUX_DATA_DIR win outright, in both modes', () => {
-    const override = path.join(path.sep, 'tmp', 'lumaflux-e2e', 'data');
+    const override = path.resolve(path.sep, 'tmp', 'lumaflux-e2e', 'data');
 
     expect(resolveUserData({ packaged: true, appData: APP_DATA, override }).dir).toBe(override);
     expect(resolveUserData({ packaged: false, appData: APP_DATA, override }).dir).toBe(override);
   });
 
   it('keeps the app name following the packaged/dev rule even under an override', () => {
-    const override = path.join(path.sep, 'tmp', 'lumaflux-e2e', 'data');
+    const override = path.resolve(path.sep, 'tmp', 'lumaflux-e2e', 'data');
 
     expect(resolveUserData({ packaged: false, appData: APP_DATA, override }).name).toBe('lumaflux');
     expect(resolveUserData({ packaged: true, appData: APP_DATA, override }).name).toBe('Lumaflux');

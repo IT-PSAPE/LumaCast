@@ -220,6 +220,15 @@ Run end-to-end tests:
 npm run test:e2e
 ```
 
+For Flux's real desktop interaction suite, including an isolated 1,000-photo library:
+
+```bash
+npm run build:flux
+npm run e2e --workspace apps/flux
+```
+
+It creates temporary photos and catalogs, preserves source files, and writes screenshots and timing results to `apps/flux/output/playwright/`. Use Node.js 22.13 or newer, as required by the workspace.
+
 Check the architecture rules against the working tree:
 
 ```bash
@@ -274,6 +283,10 @@ See [docs/ai-agent-commits.md](docs/ai-agent-commits.md) for commit and release 
 The suite shares selection behavior through [`@lumacast/selection`](packages/selection/README.md): Ctrl/Cmd-click toggles entries, Shift-click selects list ranges, and selection stays separate from playback or the active editor item. Select several entries and use one bulk action or Delete where supported. Canvas and timeline movement preserves the selected items' offsets; reorderable lists preserve their relative order. Each app keeps its own permissions, confirmations, undo, and lock rules.
 
 Flux's **Remove from library** preserves original files. Soundboard removal deletes managed audio copies. Cloud's selected-app actions require explicit management actions and retain its per-app grants; selecting cards never downloads or installs anything.
+
+In Flux, opening Export fixes the batch to the photos selected at that moment. Later selection changes do not change that batch. Failed editor previews offer **Retry preview**; edits and export copies preserve the original files.
+
+Photo selection, ratings, batch adjustments, and exports support up to 10,000 photos per operation. Rating and adjustment batches validate every target before saving; a missing target leaves the entire batch unchanged. Successful imports clear search and rating filters so the new photos are visible.
 
 ## Updater status
 

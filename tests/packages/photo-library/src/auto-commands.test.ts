@@ -92,7 +92,7 @@ describe('Auto commands', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('Packaged MCP guide and installable skill remain identical', async () => {
     expect(

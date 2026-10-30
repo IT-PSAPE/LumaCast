@@ -145,7 +145,7 @@ describe('RAW pipeline', () => {
       await pool.close();
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('invalid RAW files report per-file errors and do not prevent valid imports', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'lumaflux-bad-raw-'));

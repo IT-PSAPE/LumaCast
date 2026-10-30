@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   createSecureWebPreferences,
   describeUrlSchemeForLogging,
@@ -7,8 +9,17 @@ import {
   resolveDevServerOrigin,
 } from '../../../../apps/flux/main/navigation-policy';
 
-const PACKAGED_RENDERER = '/build/apps/flux/out/renderer/index.html';
+const PACKAGED_RENDERER = path.resolve(
+  path.sep,
+  'build',
+  'apps',
+  'flux',
+  'out',
+  'renderer',
+  'index.html',
+);
 const DEV_ORIGIN = 'http://localhost:5173';
+const fileUrl = (file: string) => pathToFileURL(file).href;
 
 function trustOptions(devServerOrigin: string | null = DEV_ORIGIN) {
   return { packagedRendererFile: PACKAGED_RENDERER, devServerOrigin };
@@ -17,13 +28,23 @@ function trustOptions(devServerOrigin: string | null = DEV_ORIGIN) {
 describe('apps/flux isTrustedRendererUrl', () => {
   it('allows the exact packaged renderer file', () => {
     expect(
-      isTrustedRendererUrl('file:///build/apps/flux/out/renderer/index.html', trustOptions(null)),
+      isTrustedRendererUrl(fileUrl(PACKAGED_RENDERER), trustOptions(null)),
     ).toBe(true);
   });
 
   it('denies any other local file, even one under a mimicking path', () => {
-    expect(isTrustedRendererUrl('file:///tmp/attacker/renderer/index.html', trustOptions(null))).toBe(false);
-    expect(isTrustedRendererUrl('file:///build/apps/flux/out/other/index.html', trustOptions(null))).toBe(false);
+    expect(
+      isTrustedRendererUrl(
+        fileUrl(path.join(path.dirname(PACKAGED_RENDERER), '..', 'attacker', 'renderer', 'index.html')),
+        trustOptions(null),
+      ),
+    ).toBe(false);
+    expect(
+      isTrustedRendererUrl(
+        fileUrl(path.join(path.dirname(path.dirname(PACKAGED_RENDERER)), 'other', 'index.html')),
+        trustOptions(null),
+      ),
+    ).toBe(false);
   });
 
   it('denies file URLs carrying credentials', () => {
@@ -107,8 +128,9 @@ describe('apps/flux describeUrlSchemeForLogging', () => {
 
 describe('apps/flux createSecureWebPreferences', () => {
   it('returns a locked-down renderer configuration', () => {
-    const prefs = createSecureWebPreferences('/build/apps/flux/out/preload/preload.js');
-    expect(prefs.preload).toBe('/build/apps/flux/out/preload/preload.js');
+    const preload = path.resolve(path.sep, 'build', 'apps', 'flux', 'out', 'preload', 'preload.js');
+    const prefs = createSecureWebPreferences(preload);
+    expect(prefs.preload).toBe(preload);
     expect(prefs.sandbox).toBe(true);
     expect(prefs.contextIsolation).toBe(true);
     expect(prefs.nodeIntegration).toBe(false);

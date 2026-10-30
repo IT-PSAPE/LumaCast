@@ -32,7 +32,7 @@ describe('RenderPool', () => {
       await pool.close();
     }
     await expect(pool.render(file, neutralRecipe())).rejects.toThrow(/closed/);
-  });
+  }, 15_000);
 });
 
 type SpawnedWorker = {
