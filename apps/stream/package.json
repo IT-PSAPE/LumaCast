@@ -14,6 +14,7 @@
     "prepare:application-audio": "node script/prepare-application-audio.mjs",
     "prepare:zoom-native": "node script/prepare-zoom-native.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:ui": "node ../../tests/apps/stream/e2e/camera.smoke.mjs && node ../../tests/apps/stream/e2e/ndi.smoke.mjs",
     "pack": "npm run prepare:media-engine && npm run prepare:application-audio && npm run prepare:zoom-native && electron-vite build && electron-builder --dir",
     "dist:win": "npm run prepare:media-engine && npm run prepare:application-audio && npm run prepare:zoom-native && electron-vite build && electron-builder --win",
     "dist:mac": "npm run prepare:media-engine && npm run prepare:application-audio && npm run prepare:zoom-native && electron-vite build && electron-builder --mac"
@@ -21,6 +22,7 @@
   "dependencies": {
     "@base-ui/react": "^1.8.0",
     "@lumacast/desktop": "file:../../packages/desktop",
+    "@lumacast/ndi-native": "file:../../packages/ndi-native",
     "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",

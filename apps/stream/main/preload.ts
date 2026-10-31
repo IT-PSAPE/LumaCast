@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { StreamAPI } from '../shared/desktop-api';
+import type { NdiSendSettings, NdiSource } from '../shared/ndi';
 import { IPC_CHANNELS } from './ipc-channels';
 import { toStreamPlatform } from '../shared/platform-capabilities';
 
@@ -112,6 +113,16 @@ const api: StreamAPI = {
     const handler = (_event: Electron.IpcRendererEvent, id: string) => listener(id);
     ipcRenderer.on(IPC_CHANNELS.menuAction, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.menuAction, handler);
+  },
+  ndi: {
+    discover: () => ipcRenderer.invoke(IPC_CHANNELS.ndiDiscover),
+    startReceive: (source: NdiSource, includeAudio?: boolean) => ipcRenderer.invoke(IPC_CHANNELS.ndiStartReceive, source, includeAudio),
+    readFrame: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.ndiReadFrame, id),
+    stopReceive: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.ndiStopReceive, id),
+    startSend: (settings: NdiSendSettings) => ipcRenderer.invoke(IPC_CHANNELS.ndiStartSend, settings),
+    sendVideo: (id, frame) => ipcRenderer.invoke(IPC_CHANNELS.ndiSendVideo, id, frame),
+    sendAudio: (id, frame) => ipcRenderer.invoke(IPC_CHANNELS.ndiSendAudio, id, frame),
+    stopSend: (id: string) => ipcRenderer.invoke(IPC_CHANNELS.ndiStopSend, id),
   },
 };
 

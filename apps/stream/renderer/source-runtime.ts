@@ -43,6 +43,8 @@ function resourceDescriptor(source: StreamSource, browserViewport?: RuntimeViewp
     assetId: source.assetId ?? null,
     assetExtension: source.assetExtension ?? null,
     captureId: source.captureId ?? null,
+    ndiSourceName: source.ndiSourceName ?? null,
+    ndiUrlAddress: source.ndiUrlAddress ?? null,
     applicationPath: source.applicationPath ?? null,
     cursorMode: source.cursorMode ?? null,
     deviceId: source.deviceId ?? null,

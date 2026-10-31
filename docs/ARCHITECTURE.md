@@ -69,6 +69,20 @@ named scene-collection persistence, media imports, and recording-file writes.
 The renderer uses a typed `window.streamApi` bridge and renders scene layers
 into a canvas for preview, program output, and recording.
 
+NDI discovery, receive, and Program output use the optional `@lumacast/ndi-native`
+bridge through a dedicated Electron utility process (ADR-0119). Trusted-renderer
+IPC validates bounded frames and opaque session IDs; native failures reject
+pending calls without taking down the main process. NDI input becomes a canvas
+capture stream plus a Web Audio destination in the existing resource bank, so
+composition and Program audio gating use the same paths as other captures.
+Receive loops read one frame at a time. Program output serializes video sends,
+allows one audio packet in flight, and downsizes to fit 1080p. The utility host
+caps sessions and main caps queued video payloads. Outputs are session-only and
+start explicitly; no saved project can start a network broadcast automatically.
+The main production window disables background throttling so its composition
+and capture timers continue when covered or minimized. Neutral canvas filters
+use the unfiltered drawing path to avoid unnecessary video readback.
+
 Capture audio enablement and the selected camera audio device are part of
 resource identity. Staged audio-input changes therefore preserve Program's
 current capture until Transition. Camera video and audio are acquired separately;
@@ -480,12 +494,13 @@ per app.
 - Observability is consumed through a port; only screens, the shell, and the
   observability feature itself may reference
   `apps/<app>/renderer/features/observability` directly.
-- The NDI engine-session boundary is `apps/cast/main/ndi` and
-  `packages/engine`: only they touch `@lumacast/ndi-native` and the raw NDI
-  host command protocol. The rest of the app reaches NDI through
-  `NdiServiceLike`, and `ndi-service-proxy.ts` is the sole writer of host
-  commands. No other app owns an NDI engine session: a `main/ndi/` directory
-  in Cloud or Flux is ordinary main code.
+- Cast's NDI engine-session boundary is `apps/cast/main/ndi` and
+  `packages/engine`. The rest of Cast reaches NDI through `NdiServiceLike`,
+  and `ndi-service-proxy.ts` is its sole writer of host commands. Stream has
+  an independent adapter: only `apps/stream/main/ndi-host-runtime.ts` imports
+  `@lumacast/ndi-native`; it runs behind `ndi-host.ts` in a utility process
+  (ADR-0119). These two files are the only Stream native-host boundary.
+  A `main/ndi/` directory in Cloud or Flux remains ordinary main code.
 - An app-scoped alias (`@renderer/…`, `@rendering/…`) resolves inside the
   importing app only. An alias that resolves in no app is a violation, not a
   fallback into a sibling app or a package.
@@ -530,7 +545,7 @@ TypeScript file in the export map does not publish it.
 | `@lumacast/playback` | Headless playback decisions: overlay lifecycle, presentation-layer transitions, playlist adjacency, and deterministic media-residency prediction (`resolveMediaResidencyPlan`). DOM media-element lifecycle, cache execution, and IPC/NDI wiring stay in the app-side provider. |
 | `@lumacast/canvas` | The Konva render/editing layer: scene-node components, stage editing/marquee/viewport interaction, image/video resolution, inline text editing, and the shared image-cache / video-pool residency mechanisms consumed by renderer surfaces. The only package permitted to import react/react-dom/konva/react-konva. |
 | `@lumacast/ui` | Shared, domain-agnostic UI primitives every app may reuse (class-name helpers, buttons, segmented control, typography, empty state) plus the shared Tailwind theme at `@lumacast/ui/theme.css`. React and React DOM are in bounds; Konva, React-Konva, and Electron are not, and it depends only on `kernel`. |
-| `@lumacast/ndi-native` | The native NDI sender bridge (native addon), governed by the engine-session rule above rather than the headless-source rules below. |
+| `@lumacast/ndi-native` | The native NDI sender/receiver bridge (native addon), governed by the engine-session rule above rather than the headless-source rules below. |
 
 Rich text rendering inside `@lumacast/canvas` keeps Konva `sceneFunc`s paint-only.
 `SceneNodeText` precomputes wrapped lines, per-piece advances, and baseline

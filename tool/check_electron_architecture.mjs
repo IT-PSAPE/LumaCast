@@ -37,14 +37,25 @@ const APP_SCOPED_ALIASES = {
   '@rendering': 'rendering',
 };
 
-// The NDI engine session belongs to the cast app alone. A different app may
-// ship a `main/ndi/` directory, but that is ordinary main code: it may not
-// touch the native module or the raw host command protocol. The legacy root
-// app keeps its own session so migration-time and fixture trees stay covered.
+// Cast owns its NDI engine session under the existing directory boundary. The
+// Stream app has a separate UtilityProcess adapter, so only its host and host
+// runtime files are NDI boundary code. The main proxy may name host commands,
+// but only the runtime wrapper loads the native package. The legacy root app
+// keeps its own session so migration-time and fixture trees stay covered.
 const NDI_ENGINE_SESSION_ROOTS = ['apps/cast/main/ndi', 'app/main/ndi'];
 const NDI_PROTOCOL_FILES = new Set([
   'apps/cast/main/ndi/ndi-protocol.ts',
   'app/main/ndi/ndi-protocol.ts',
+  'apps/stream/main/ndi-host-protocol.ts',
+]);
+const NDI_STREAM_HOST_FILES = new Set([
+  'apps/stream/main/ndi-host.ts',
+  'apps/stream/main/ndi-host-runtime.ts',
+]);
+const NDI_STREAM_NATIVE_FILES = new Set(['apps/stream/main/ndi-host-runtime.ts']);
+const NDI_STREAM_COMMAND_FILES = new Set([
+  ...NDI_STREAM_HOST_FILES,
+  'apps/stream/main/ndi-bridge.ts',
 ]);
 
 // Never walked: build output, installed dependencies, and the Playwright
@@ -166,7 +177,7 @@ const RULE_TITLES = {
   'observability-port':
     'Observability is consumed through a port; only screens, the shell, and the observability feature itself may reference it directly.',
   'engine-session':
-    'Only the NDI engine-session boundary (apps/cast/main/ndi and packages/engine) may touch the native module or reference raw NDI host commands; ndi-service-proxy.ts is the sole command writer. No other app has an NDI engine session.',
+    'Only the NDI engine-session boundaries may touch the native module or reference raw NDI host commands: apps/cast/main/ndi and packages/engine, plus Stream’s exact utility host files and main proxy. Stream’s ndi-host-runtime.ts alone may load the native module; other Stream main code may not.',
   'public-entry':
     'Feature imports must go through the feature public entry point when one exists; deep internal imports fail.',
   'allow-list':
@@ -271,7 +282,18 @@ function isRendererZone(zone) {
 }
 
 function isNdiSessionPath(rel) {
-  return NDI_ENGINE_SESSION_ROOTS.some((root) => rel === root || rel.startsWith(root + '/'));
+  return NDI_ENGINE_SESSION_ROOTS.some((root) => rel === root || rel.startsWith(root + '/'))
+    || NDI_STREAM_HOST_FILES.has(rel);
+}
+
+function canImportNdiNative(rel, zone) {
+  if (zone === 'pkg:engine') return true;
+  if (rel.startsWith('apps/stream/main/')) return NDI_STREAM_NATIVE_FILES.has(rel);
+  return zone === 'mainNdi';
+}
+
+function canReferenceNdiHostCommands(rel, zone) {
+  return zone === 'mainNdi' || zone === 'pkg:engine' || NDI_STREAM_COMMAND_FILES.has(rel);
 }
 
 // `apps/<name>/…` -> { dir: 'apps/<name>', id: '<name>' }; `app/…` -> the
@@ -1040,8 +1062,8 @@ export function check(options = {}) {
       if (isRendererZone(fromZone) && k === 'electron') {
         add('renderer-isolation', `imports ${e.specifier}`);
       }
-      if (k === 'native' && fromZone !== 'mainNdi' && fromZone !== 'pkg:engine') {
-        add('engine-session', `imports native module ${e.specifier} outside the NDI engine-session boundary (apps/cast/main/ndi or packages/engine)`);
+      if (k === 'native' && !canImportNdiNative(fromRel, fromZone)) {
+        add('engine-session', `imports native module ${e.specifier} outside the NDI native boundary`);
       }
       if (fromZone?.startsWith('pkg:')) {
         const fromPkg = fromZone.slice(4);
@@ -1132,19 +1154,13 @@ export function check(options = {}) {
       }
     }
     // NdiHostCommand/NdiHostEvent are the main<->utility-process wire
-    // protocol. Historically this checked only the literal pre-extraction
-    // protocol path; now that the types live in packages/engine
-    // (re-exported from its public index.ts), also catch any import whose
-    // resolved target is inside that package — covering both a deep import
-    // (blocked separately by package-public-entry) and the normal barrel
-    // import `from '@lumacast/engine'`. Only the engine session that owns NDI
-    // (apps/cast/main/ndi, and the legacy root app's copy) and the package's
-    // own internals may reference these names; another app's main/ndi
-    // directory has no NDI session of its own.
+    // protocol. Types also live in packages/engine (re-exported from its
+    // public index.ts), so catch both deep imports and the normal barrel. The
+    // Stream UtilityProcess host has its own exact host/protocol boundary;
+    // another Stream main file still cannot reference these raw commands.
     if (
       (toRel != null && NDI_PROTOCOL_FILES.has(toRel) || toZone === 'pkg:engine') &&
-      fromZone !== 'mainNdi' &&
-      fromZone !== 'pkg:engine'
+      !canReferenceNdiHostCommands(fromRel, fromZone)
     ) {
       const cmdNames = e.names.filter((n) => NDI_HOST_COMMAND_EXPORTS.has(n));
       if (cmdNames.length > 0) {
@@ -1420,12 +1436,15 @@ function runSelfTests() {
     scenario('js-is-code', 'scenarios/js-is-code', 'fail', {
       rules: ['renderer-isolation', 'package-purity'],
     }),
-    // Only cast owns an NDI engine session: another app's main/ndi is ordinary
-    // main code, and main may not import the renderer.
+    // Cast owns its NDI engine session; Stream has only the exact UtilityProcess
+    // host files. Another app's main/ndi is ordinary main code.
     scenario('monorepo/noncast-main-renderer', 'scenarios/monorepo/noncast-main-renderer', 'fail', {
       rules: ['main-boundary'],
     }),
     scenario('monorepo/noncast-ndi-forbidden', 'scenarios/monorepo/noncast-ndi-forbidden', 'fail', {
+      rules: ['engine-session'],
+    }),
+    scenario('monorepo/stream-ndi-host-policy', 'scenarios/monorepo/stream-ndi-host-policy', 'fail', {
       rules: ['engine-session'],
     }),
     // Feature graphs are per app: opposite one-way edges in two apps are not a

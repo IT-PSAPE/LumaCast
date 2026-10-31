@@ -150,6 +150,7 @@ export interface SourcesDockProps {
   };
 
   addSourceMenu: {
+    onAddNdi?: () => void;
     desktopAudioMode: DesktopAudioCaptureMode;
     applicationAudioSupported: boolean;
     onOpenCapturePicker: (kind: 'screen' | 'window' | 'audio', targetSourceId?: string) => void;
@@ -646,6 +647,7 @@ export function SourcesDock({
         {addSourceMenu.applicationAudioSupported && <button role="menuitem" onClick={() => addSourceMenu.onOpenApplicationAudioPicker()}><Headphones size={15} />Application Audio Capture</button>}
         <button role="menuitem" onClick={addSourceMenu.onAddCamera}><Webcam size={15} />Video Capture Device</button>
         <button role="menuitem" onClick={addSourceMenu.onAddMicrophone}><Mic size={15} />Audio Input Capture</button>
+        {addSourceMenu.onAddNdi && <button role="menuitem" onClick={addSourceMenu.onAddNdi}><Globe size={15} />NDI Source</button>}
         <div className="menu-label menu-label-separator">Media</div>
         <button role="menuitem" onClick={() => addSourceMenu.onAddMedia('image')}><ImageIcon size={15} />Image</button>
         <button role="menuitem" onClick={addSourceMenu.onAddSlideshow}><ImageIcon size={15} />Image Slideshow</button>

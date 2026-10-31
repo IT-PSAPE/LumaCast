@@ -25,6 +25,9 @@ export function createMainWindow(): BrowserWindow {
     ...windowChromeOptions(toStreamPlatform(process.platform)),
     webPreferences: {
       preload,
+      // Program composition and capture polling must keep running when covered
+      // or minimized; this renderer also supplies recording and live outputs.
+      backgroundThrottling: false,
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,

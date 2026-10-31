@@ -52,7 +52,7 @@ export function createSource(kind: SourceKind, output: StreamProject['output'], 
   const labels: Record<SourceKind, string> = {
     display: 'Display Capture', window: 'Window Capture', camera: 'Video Capture Device',
     microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', 'application-audio': 'Application Audio Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text', color: 'Color Source',
-    group: 'Group', scene: 'Scene',
+    group: 'Group', scene: 'Scene', ndi: 'NDI Source',
   };
   return {
     id: crypto.randomUUID(),

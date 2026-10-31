@@ -68,13 +68,14 @@ function drawSources(
     const runtimeSourceId = getSourceRuntimeId(source);
     context.save();
     const filters = source.filters;
-    const filterOperations = [
-      'brightness(' + (filters?.brightness ?? 100) + '%)',
-      'contrast(' + (filters?.contrast ?? 100) + '%)',
-      'saturate(' + (filters?.saturation ?? 100) + '%)',
-      'blur(' + (filters?.blur ?? 0) + 'px)',
-    ];
-    context.filter = filterOperations.join(' ');
+    // Neutral canvas filters still force expensive filtered video readback on
+    // some GPUs. Keep ordinary captures on the unfiltered drawing path.
+    const filterOperations: string[] = [];
+    if ((filters?.brightness ?? 100) !== 100) filterOperations.push(`brightness(${filters!.brightness}%)`);
+    if ((filters?.contrast ?? 100) !== 100) filterOperations.push(`contrast(${filters!.contrast}%)`);
+    if ((filters?.saturation ?? 100) !== 100) filterOperations.push(`saturate(${filters!.saturation}%)`);
+    if ((filters?.blur ?? 0) !== 0) filterOperations.push(`blur(${filters!.blur}px)`);
+    context.filter = filterOperations.join(' ') || 'none';
     context.globalAlpha *= (filters?.opacity ?? 100) / 100;
     const { x, y, width: boxWidth, height: boxHeight } = source.transform;
     if (source.kind === 'scene') {
@@ -148,7 +149,7 @@ function drawSources(
       }
     } else {
       const video = videos.get(runtimeSourceId);
-      const isCaptureSource = source.kind === 'camera' || source.kind === 'display' || source.kind === 'window';
+      const isCaptureSource = source.kind === 'camera' || source.kind === 'display' || source.kind === 'window' || source.kind === 'ndi';
       const hasLiveCaptureTrack = isCaptureSource && hasLiveVideoTrack(video);
       const hasVideoFrame = video
         && (!isCaptureSource || hasLiveCaptureTrack)
@@ -355,7 +356,7 @@ export function RuntimeVideoBank({ sources, runtimes, elements, mediaElements, i
     {sourceList.filter((source) => source.kind === 'image').map((source) => <StageImage key={source.id} sourceId={source.id} assetId={source.assetId} assetExtension={source.assetExtension} elements={images} onSourceStatus={onSourceStatus} />)}
     {sourceList.filter((source) => source.kind === 'slideshow').map((source) => <StageSlideshow key={source.id} source={source} elements={images} isPlaybackActive={includes(playbackSourceIds, source)} onSourceStatus={onSourceStatus} />)}
     {sourceList.filter((source) => source.kind === 'browser').map((source) => <StageBrowser key={source.id} source={source} elements={images} onBrowserElement={onBrowserElement} onSourceStatus={onSourceStatus} />)}
-    {sourceList.filter((source) => ['display', 'window', 'camera'].includes(source.kind) || (source.kind === 'media' && source.mediaKind === 'video')).map((source) => (
+    {sourceList.filter((source) => ['display', 'window', 'camera', 'ndi'].includes(source.kind) || (source.kind === 'media' && source.mediaKind === 'video')).map((source) => (
       <StageVideo key={source.id} source={source} stream={runtimes.get(source.id)} elements={elements} mediaElements={mediaElements} isActive={includes(activeSourceIds, source)} isPlaybackActive={includes(playbackSourceIds, source)} programActive={includes(programSourceIds, source)} onMediaElement={onMediaElement} onMediaPlaybackState={onMediaPlaybackState} onSourceStatus={onSourceStatus} />
     ))}
     {sourceList.filter((source) => source.kind === 'media' && source.mediaKind === 'audio').map((source) => (

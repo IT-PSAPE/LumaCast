@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { loadEnv } from 'vite';
+import { build as viteBuild, type Plugin } from 'vite';
 
 // Workspace packages whose package.json "main" is raw TypeScript. They must be
 // bundled (aliased) rather than externalized, or the main bundle would
@@ -26,11 +27,47 @@ function inlineWasmDataUris() {
   };
 }
 
+function buildNdiHostBundlePlugin(): Plugin {
+  let inProgress = false;
+  return {
+    name: 'lumastream-ndi-host-bundle',
+    enforce: 'post',
+    async closeBundle() {
+      if (inProgress) return;
+      inProgress = true;
+      try {
+        await viteBuild({
+          configFile: false,
+          logLevel: 'warn',
+          build: {
+            outDir: path.resolve(__dirname, 'out/main'),
+            emptyOutDir: false,
+            ssr: true,
+            target: 'node22',
+            sourcemap: true,
+            lib: {
+              entry: path.resolve(__dirname, 'main/ndi-host.ts'),
+              fileName: () => 'ndi-host.js',
+              formats: ['cjs'],
+            },
+            rollupOptions: { external: ['electron', /^node:/, '@lumacast/ndi-native'] },
+          },
+        });
+      } finally {
+        inProgress = false;
+      }
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const appEnvironment = loadEnv(mode, path.resolve(__dirname, '../..'), '');
   return {
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: Object.keys(BUNDLED_MAIN_PACKAGES) })],
+    plugins: [
+      externalizeDepsPlugin({ exclude: Object.keys(BUNDLED_MAIN_PACKAGES) }),
+      buildNdiHostBundlePlugin(),
+    ],
     resolve: { alias: BUNDLED_MAIN_PACKAGES },
     define: {
       'process.env.LUMASTREAM_GOOGLE_CLIENT_ID': JSON.stringify(appEnvironment.LUMASTREAM_GOOGLE_CLIENT_ID ?? process.env.LUMASTREAM_GOOGLE_CLIENT_ID ?? ''),

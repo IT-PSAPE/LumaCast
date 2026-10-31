@@ -120,6 +120,24 @@ input automatically only when the device reports one unambiguous matching input.
 If audio cannot start, video stays available and the source reports the audio
 problem. Existing camera sources remain video-only until audio is enabled.
 
+NDI sources are available from **Add source > NDI Source**. Refresh the source
+list, choose a sender, and use its source properties to toggle audio or reconnect.
+**Controls > NDI output** broadcasts the current Program canvas and a selected
+mixer track independently of RTMP streaming and recording. Output is stereo and
+scales to fit 1920 × 1080 at up to 60 FPS; input supports BGRA video up to
+3840 × 2160 pixels.
+NDI sessions stop when Stream closes and must be started again explicitly.
+Live composition and capture continue while Stream is covered or minimized.
+Install the NDI Runtime on each machine using NDI. Development requires
+`npm run build:ndi-native`; the platform addon must also be built before packaging
+Stream. The runtime is loaded only when NDI is used, so missing NDI support does
+not prevent other Stream features from running. See the
+[native bridge setup](packages/ndi-native/README.md).
+After building Stream, `npm run test:ui --workspace apps/stream` exercises the
+camera sound controls with generated devices in an isolated scene collection.
+Set `NDI_LOCAL_LOOPBACK_TEST=1` to also run the NDI input/output smoke test with
+a generated pattern and tone. NDI tests require the built addon and local runtime;
+they publish only synthetic test media.
 YouTube account connection uses a Google OAuth Desktop app client ID supplied
 as `LUMASTREAM_GOOGLE_CLIENT_ID` when building LumaStream. Connected accounts
 can select or create upcoming streams and stream to YouTube over RTMPS; OAuth

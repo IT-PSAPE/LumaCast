@@ -11,7 +11,7 @@ export function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
   if (kind === 'image') return <ImageIcon size={15} />;
   if (kind === 'slideshow') return <ImageIcon size={15} />;
   if (kind === 'media') return mediaKind === 'audio' ? <FileAudio size={15} /> : <FileVideo size={15} />;
-  if (kind === 'browser') return <Globe size={15} />;
+  if (kind === 'browser' || kind === 'ndi') return <Globe size={15} />;
   if (kind === 'text') return <Type size={15} />;
   if (kind === 'scene') return <PanelsTopLeft size={15} />;
   return <Layers2 size={15} />;

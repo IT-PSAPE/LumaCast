@@ -6,6 +6,7 @@ import { getSourceRuntimeId } from '../../../../apps/stream/renderer/source-runt
 
 // Only the drawing calls the composition makes; cast to CanvasRenderingContext2D at the getContext mock boundary.
 interface FakeContext {
+  filter: string;
   fillStyle: string;
   fills: Array<{ style: string; rect: [number, number, number, number] }>;
   fillRect: ReturnType<typeof vi.fn>;
@@ -29,6 +30,7 @@ interface FakeContext {
 
 function createContext(): FakeContext {
   return {
+    filter: 'none',
     fillStyle: '#000000',
     fills: [],
     fillRect: vi.fn(function (this: FakeContext, x: number, y: number, width: number, height: number) {
@@ -94,6 +96,24 @@ describe('CanvasComposition Scene sources', () => {
     const cancelAnimationFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
     return { getContext, cancelAnimationFrame };
   }
+
+  it('skips neutral capture filters while retaining configured corrections', () => {
+    installCanvasMocks();
+    const project = createDefaultProject();
+    const scene = project.scenes[0]!;
+    const picture = source('picture', 'color', { x: 0, y: 0, width: 1920, height: 1080 }, {
+      filters: { brightness: 100, contrast: 100, saturation: 100, blur: 0, opacity: 100 },
+    });
+    scene.sources = [picture];
+    const { rerender } = render(<CanvasComposition project={project} scene={scene} videoElements={new Map()} imageElements={new Map()} />);
+    act(() => frames.shift()?.(0));
+    const context = contexts.get(document.querySelector<HTMLCanvasElement>('.composition-canvas')!)!;
+    expect(context.filter).toBe('none');
+    const editedScene = { ...scene, sources: [{ ...picture, filters: { ...picture.filters!, brightness: 120, blur: 2 } }] };
+    rerender(<CanvasComposition project={project} scene={editedScene} videoElements={new Map()} imageElements={new Map()} />);
+    act(() => { const pending = frames; frames = []; pending.forEach((frame) => frame(100)); });
+    expect(context.filter).toBe('brightness(120%) blur(2px)');
+  });
 
   it('composites the referenced scene into the Scene source transform bounds', () => {
     installCanvasMocks();

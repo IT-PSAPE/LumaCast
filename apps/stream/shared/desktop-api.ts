@@ -1,5 +1,6 @@
 import { defaultTextFontFamilyForPlatform, defaultVideoEncoderForPlatform, type StreamPlatform } from './platform-capabilities';
 import type { StreamServiceId } from './stream-services';
+import type { StreamNdiAPI } from './ndi';
 // Type-only: `SerializedMenuItem` is the renderer's own menu-template shape
 // (produced by `chrome/app-menu.ts`'s `serializeAppMenus`); referencing it
 // here only shapes the `StreamAPI` contract below and is erased at build time,
@@ -7,7 +8,7 @@ import type { StreamServiceId } from './stream-services';
 import type { SerializedMenuItem } from './application-menu';
 export type CaptureKind = 'screen' | 'window';
 export type CaptureCursorMode = 'never' | 'motion' | 'always';
-export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color' | 'group' | 'scene';
+export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color' | 'group' | 'scene' | 'ndi';
 export type MediaKind = 'image' | 'video' | 'audio';
 export type RecordingContainer = 'webm' | 'mkv' | 'mp4';
 export type AudioMonitoring = 'off' | 'monitor-only' | 'monitor-and-output';
@@ -218,6 +219,8 @@ export interface StreamSource {
   audioMonitoring?: AudioMonitoring;
   audioTracks?: AudioTrack[];
   captureId?: string;
+  ndiSourceName?: string;
+  ndiUrlAddress?: string;
   applicationPath?: string;
   cursorMode?: CaptureCursorMode;
   deviceId?: string;
@@ -377,6 +380,7 @@ export interface StreamRuntimeStats {
 }
 
 export interface StreamAPI {
+  ndi?: StreamNdiAPI;
   /** Host operating system, so the renderer can offer only the capture and encoder paths that exist there. */
   readonly platform: StreamPlatform;
   loadProject(): Promise<StreamWorkspace>;

@@ -5,6 +5,7 @@ import type { StreamRuntimeStatus } from '../../shared/desktop-api';
 import './controls-dock.css';
 
 export interface ControlsDockProps {
+  ndiControl?: ReactNode;
   style?: CSSProperties;
   resizer?: ReactNode;
   onHide: () => void;
@@ -28,6 +29,7 @@ export interface ControlsDockProps {
 }
 
 export function ControlsDock({
+  ndiControl,
   style,
   resizer,
   onHide,
@@ -63,6 +65,7 @@ export function ControlsDock({
       </Panel.Header>
 
       <div className="control-body">
+        {ndiControl}
         <div className="control-rows">
           {activeOutputs.length === 0
             ? <ReacstButton className="control-row control-action" variant="success" disabled={working} onClick={onGoLive}><Radio size={13} />Go Live</ReacstButton>

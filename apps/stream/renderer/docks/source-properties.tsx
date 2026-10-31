@@ -58,6 +58,7 @@ function supportsChromaKey(source: StreamSource): boolean {
 }
 
 export interface SourcePropertiesProps {
+  onReconnectNdi?: (source: StreamSource) => void;
   source: StreamSource;
   project: StreamProject;
   activeSceneId: string;
@@ -108,6 +109,7 @@ export interface SourcePropertiesProps {
 }
 
 export function SourceProperties({
+  onReconnectNdi,
   source: selectedSource,
   project,
   activeSceneId,
@@ -196,6 +198,11 @@ export function SourceProperties({
           { value: '', label: 'Device Default' },
           ...CAMERA_FRAME_RATE_OPTIONS.map((rate) => ({ value: String(rate), label: `${rate} FPS` })),
         ]} />
+      </>}
+      {selectedSource.kind === 'ndi' && <>
+        <TextField label="NDI source" value={selectedSource.ndiSourceName ?? ''} readOnly onValueChange={() => undefined} />
+        <Checkbox label="Capture audio" checked={selectedSource.captureAudioEnabled !== false} onCheckedChange={(enabled) => updateSource(selectedSource.id, (current) => ({ ...current, captureAudioEnabled: enabled }))} />
+        <ReacstButton onClick={() => onReconnectNdi?.(selectedSource)}>Reconnect NDI source</ReacstButton>
       </>}
       {selectedSource.kind === 'desktop-audio' && !runtimesSnapshot.has(selectedSource.id) && desktopAudioMode !== 'unavailable' && <ReacstButton size="sm" disabled={working} onClick={() => desktopAudioMode === 'system-tap' ? onAddSystemAudioCapture(selectedSource.id) : onOpenCapturePicker('audio', selectedSource.id)}>Start Capture</ReacstButton>}
       {selectedSource.kind === 'application-audio' && <>

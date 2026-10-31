@@ -6,6 +6,9 @@ import type { SceneTransitionType } from './scene-transition';
 import { TitleBar } from './chrome/title-bar';
 import { buildAppMenus } from './chrome/app-menu';
 import { StreamDialog } from './dialogs/stream-dialog';
+import { NdiDialog } from './dialogs/ndi-dialog';
+import { useNdi } from './use-ndi';
+import { createSource } from './features/sources/helpers';
 import { BrowserSourceDialog } from './dialogs/workspace-dialogs';
 import { NameDialog } from './dialogs/name-dialog';
 import { ApplicationAudioPicker, CapturePicker, InputDevicePicker } from './dialogs/pickers';
@@ -23,7 +26,7 @@ import { fitPreviewSize } from './preview-layout';
 import { multiviewTileCapacityFor } from './multiview-window';
 import { ActionNotifications } from './action-notifications';
 import { SceneThumbnail } from './docks/scene-thumbnail';
-import { getSourceRuntimeId, mergeRuntimeSources, toRuntimeProject } from './source-runtime';
+import { getSourceRuntimeId, mergeRuntimeSources, toRuntimeProject, toRuntimeSource } from './source-runtime';
 import { projectRuntimeMap, projectRuntimeRecord } from './runtime-projection';
 import { mergeSourceStatuses, type SourceStatus } from './source-availability';
 import { formatElapsed } from './format-elapsed';
@@ -86,6 +89,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shortcutsDialogOpen, setShortcutsDialogOpen] = useState(false);
   const [aboutDialogOpen, setAboutDialogOpen] = useState(false);
+  const [ndiDialog, setNdiDialog] = useState<'input' | 'output' | null>(null);
   const [previewSize, setPreviewSize] = useState({ width: 0, height: 0 });
 
   const monitorStageRef = useRef<HTMLDivElement>(null);
@@ -216,6 +220,9 @@ export function App() {
       });
     },
   });
+  const ndiActiveIds = useMemo(() => new Set([...activeSourceIds, ...retainedSourceIds]), [activeSourceIds, retainedSourceIds]);
+  const ndi = useNdi({ api: api.ndi, sources: runtimeSources, activeIds: ndiActiveIds, capture,
+    programCanvas: programCanvasRef, project: program.programProject, onError: setActionError });
   const editorRuntimes = useRef(capture.runtimes.current);
   editorRuntimes.current = projectRuntimeMap(editorRuntimeSources, capture.runtimes.current);
   const editorApplicationAudioInputs = useRef(capture.applicationAudioInputs.current);
@@ -230,7 +237,8 @@ export function App() {
   editorMediaElements.current = projectRuntimeMap(editorRuntimeSources, mediaElements.current);
   const editorMeterLevels = projectRuntimeRecord(editorRuntimeSources, capture.meterLevels);
   const editorPlaybackStates = projectRuntimeRecord(editorRuntimeSources, capture.mediaPlaybackStates);
-  const editorSourceStatuses = projectRuntimeRecord(editorRuntimeSources, mergeSourceStatuses(editorRuntimeSources, capture.sourceStatuses, resourceStatuses));
+  const ndiSourceStatuses = Object.fromEntries(Object.entries(ndi.sourceErrors).map(([id, message]) => [id, { state: 'unavailable' as const, message }]));
+  const editorSourceStatuses = projectRuntimeRecord(editorRuntimeSources, mergeSourceStatuses(editorRuntimeSources, capture.sourceStatuses, { ...resourceStatuses, ...ndiSourceStatuses }));
 
   const sources = useSources({
     api, project, projectRef, allSources, activeScene, liveScene, setProjectValue, setActionError, working, setWorking,
@@ -398,6 +406,14 @@ export function App() {
   return (
     <TooltipProvider>
     <main className="app-shell">
+      {ndiDialog && <NdiDialog api={api.ndi} mode={ndiDialog} onClose={() => setNdiDialog(null)}
+        sending={ndi.sending} starting={ndi.starting} stopping={ndi.stopping} onStart={ndi.startSending} onStop={ndi.stopSending}
+        output={program.programProject?.output} onSelect={(choice) => {
+          if (!project) return;
+          sources.addToActiveScene(createSource('ndi', project.output, choice.name.slice(0, 120),
+            { ndiSourceName: choice.name, ndiUrlAddress: choice.urlAddress, captureAudioEnabled: true }));
+          setNdiDialog(null);
+        }} />}
       <ActionNotifications message={actionFeedback.message} sequence={actionFeedback.sequence} />
       <RuntimeVideoBank sources={runtimeSources} runtimes={capture.runtimesSnapshot} elements={videoElements.current} mediaElements={mediaElements.current} images={imageElements.current} activeSourceIds={activeSourceIds} programSourceIds={programSourceIds} playbackSourceIds={retainedSourceIds} onSourceStatus={reportResourceStatus} onMediaElement={capture.connectMediaElement} onMediaPlaybackState={capture.onMediaPlaybackState} onBrowserElement={capture.onBrowserElement} />
       {multiviewWindowOpen && <div className="multiview-offscreen" aria-hidden="true">
@@ -599,6 +615,7 @@ export function App() {
             onRemoveSelectedSource: sources.removeSelectedSource,
           }}
           addSourceMenu={{
+            onAddNdi: () => { sources.setSourceMenuOpen(false); setNdiDialog('input'); },
             desktopAudioMode,
             applicationAudioSupported,
             onOpenCapturePicker: (kind, targetSourceId) => void capture.openCapturePicker(kind, targetSourceId),
@@ -615,6 +632,7 @@ export function App() {
             onAddSceneReference: sources.addSceneReference,
           }}
           properties={{
+            onReconnectNdi: (source) => ndi.retrySource(getSourceRuntimeId(toRuntimeSource(source))),
             project,
             activeSceneId: activeScene.id,
             referenceableScenes,
@@ -709,6 +727,7 @@ export function App() {
         />}
 
         {visibleDockIds.includes('controls') && <ControlsDock
+          ndiControl={<ReacstButton size="sm" onClick={() => setNdiDialog('output')}>NDI output{ndi.sending ? ' · Active' : ''}</ReacstButton>}
           style={{ gridColumn: dockGridColumn(workbench.workbenchLayout, 'controls') ?? undefined, opacity: workbench.dockDragOpacity('controls'), borderRight: lastDockId === 'controls' ? 0 : undefined }}
           resizer={workbench.resizerForDock('controls')}
           onHide={() => workbench.toggleDock('controls')}

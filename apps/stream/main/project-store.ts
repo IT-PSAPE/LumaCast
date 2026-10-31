@@ -9,7 +9,7 @@ import { normalizeSourceRotation } from '../shared/source-geometry';
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
 const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color', 'group', 'scene']);
+const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color', 'group', 'scene', 'ndi']);
 const MEDIA_KINDS = new Set(['image', 'video', 'audio']);
 const MEDIA_EXTENSIONS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'],
@@ -75,7 +75,7 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     || (value.kind !== 'display' && value.kind !== 'window'))) throw new Error('Project contains invalid cursor capture settings.');
   if (value.deviceId !== undefined && (typeof value.deviceId !== 'string' || value.deviceId.length > 512)) throw new Error('Project contains an invalid media device.');
   if (value.captureAudioEnabled !== undefined && (typeof value.captureAudioEnabled !== 'boolean'
-    || (value.kind !== 'display' && value.kind !== 'window' && value.kind !== 'camera'))) {
+    || (value.kind !== 'display' && value.kind !== 'window' && value.kind !== 'camera' && value.kind !== 'ndi'))) {
     throw new Error('Project contains invalid capture audio settings.');
   }
   if (value.audioDeviceId !== undefined && (value.kind !== 'camera' || typeof value.audioDeviceId !== 'string'
@@ -263,6 +263,12 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     throw new Error('Project contains invalid audio monitoring settings.');
   }
   if (value.audioTracks !== undefined && !isAudioTrackList(value.audioTracks)) throw new Error('Project contains invalid audio track routing.');
+  if (value.kind === 'ndi' && (typeof value.ndiSourceName !== 'string' || !value.ndiSourceName.trim()
+    || value.ndiSourceName.length > 1024 || /[\u0000-\u001f\u007f]/.test(value.ndiSourceName)
+    || (value.ndiUrlAddress !== undefined && (typeof value.ndiUrlAddress !== 'string'
+      || value.ndiUrlAddress.length > 2048 || /[\u0000-\u001f\u007f]/.test(value.ndiUrlAddress))))) {
+    throw new Error('Project contains an invalid NDI source.');
+  }
   let children: StreamSource[] | undefined;
   if (value.kind === 'group') {
     if (!Array.isArray(value.children) || value.children.length > 10000) throw new Error('Project contains an invalid source group.');
@@ -297,6 +303,8 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     audioMonitoring: (value.audioMonitoring as AudioMonitoring | undefined) ?? 'off',
     audioTracks: value.audioTracks === undefined ? [1] : normalizeAudioTracks(value.audioTracks),
     ...(typeof value.captureId === 'string' ? { captureId: value.captureId } : {}),
+    ...(value.kind === 'ndi' ? { ndiSourceName: value.ndiSourceName as string,
+      ...(typeof value.ndiUrlAddress === 'string' ? { ndiUrlAddress: value.ndiUrlAddress } : {}) } : {}),
     ...(value.kind === 'application-audio' && typeof value.applicationPath === 'string' ? { applicationPath: value.applicationPath } : {}),
     ...((value.kind === 'display' || value.kind === 'window') ? { cursorMode: (value.cursorMode as CaptureCursorMode | undefined) ?? 'motion' } : {}),
     ...(typeof value.deviceId === 'string' ? { deviceId: value.deviceId } : {}),

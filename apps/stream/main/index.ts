@@ -23,6 +23,7 @@ import { allowsSpeakerSelection } from './audio-output-permissions';
 import { applyApplicationMenu } from './application-menu';
 import { createMainWindow } from './window';
 import { applicationAudioHelperFilename, toStreamPlatform } from '../shared/platform-capabilities';
+import { registerNdiIpc } from './ndi-bridge';
 
 protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: MEDIA_SCHEME_PRIVILEGES }]);
 app.setName('LumaStream');
@@ -65,6 +66,11 @@ const rendererFile = path.join(__dirname, '../renderer/index.html');
 const devServerOrigin = resolveDevServerOrigin(process.env.ELECTRON_RENDERER_URL);
 const isTrustedUrl = (url: string) => isTrustedRendererUrl(url, { packagedRendererFile: rendererFile, devServerOrigin });
 const unregisterIpc = registerStreamIpc(projectStore, audioSettings, recordingPreferences, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, streamSettings, youtubeLive, zoomLive, zoomStreaming, () => mainWindow?.webContents ?? null, isTrustedUrl);
+const ndiIpc = registerNdiIpc(
+  () => mainWindow?.webContents ?? null,
+  isTrustedUrl,
+  path.join(__dirname, 'ndi-host.js'),
+);
 
 let shutdownComplete = false;
 app.on('before-quit', (event) => {
@@ -72,7 +78,7 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   browserSources.closeAll();
   applicationAudio.stopAll();
-  void Promise.all([youtubeLive.stopAll(), streamOutput.stopAll(), recordings.closeAll()]).finally(() => {
+  void Promise.all([youtubeLive.stopAll(), streamOutput.stopAll(), recordings.closeAll(), ndiIpc.close()]).finally(() => {
     zoomStreaming.stopAll();
     shutdownComplete = true;
     app.quit();
@@ -133,6 +139,7 @@ if (app.requestSingleInstanceLock()) {
 
 app.on('will-quit', () => {
   unregisterIpc();
+  ndiIpc.unregister();
   browserSources.closeAll();
   applicationAudio.stopAll();
   globalHotkeys.unregisterAll();

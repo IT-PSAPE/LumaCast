@@ -64,4 +64,12 @@ export const IPC_CHANNELS = {
   runtimeStats: 'stream:runtime-stats',
   setApplicationMenu: 'stream:set-application-menu',
   menuAction: 'stream:menu-action',
+  ndiDiscover: 'stream:ndi-discover',
+  ndiStartReceive: 'stream:ndi-start-receive',
+  ndiReadFrame: 'stream:ndi-read-frame',
+  ndiStopReceive: 'stream:ndi-stop-receive',
+  ndiStartSend: 'stream:ndi-start-send',
+  ndiSendVideo: 'stream:ndi-send-video',
+  ndiSendAudio: 'stream:ndi-send-audio',
+  ndiStopSend: 'stream:ndi-stop-send',
 } as const;

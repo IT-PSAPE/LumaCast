@@ -10,6 +10,7 @@ directories:
   output: dist
 files:
   - out/**/*
+  - "!node_modules/@lumacast/ndi-native/{src,binding.gyp}"
 # Licensing notices ship on every platform; the media engine and audio helper
 # are platform specific and are listed under `win:` and `mac:` below.
 extraResources:
