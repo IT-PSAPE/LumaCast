@@ -208,6 +208,10 @@ export class StreamOutput {
   }
 
   private watchProcess(session: StreamingSession, child: OutputProcess): void {
+    // Writable errors are separate from the write callback result. A child can
+    // close stdin while a WriteWrap is pending, causing the callback to reject
+    // and the stream to emit an asynchronous `error` event as well.
+    child.stdin.on('error', () => this.scheduleReconnect(session, child));
     child.stderr.on('data', (chunk: Buffer) => {
       if (!this.isActive(session) || session.child !== child) return;
       session.progressBuffer += chunk.toString('utf8');

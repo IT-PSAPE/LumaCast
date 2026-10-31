@@ -25,11 +25,18 @@ const settings: StreamOutputSettings = {
 
 class FakeOutputProcess extends EventEmitter {
   readonly writtenChunks: Buffer[] = [];
+  failNextWrite = false;
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
   readonly stderr = new PassThrough();
   readonly stdin = new Writable({
     write: (chunk, _encoding, callback) => {
+      if (this.failNextWrite) {
+        this.failNextWrite = false;
+        const error = Object.assign(new Error('write EOF'), { code: 'EPIPE' });
+        queueMicrotask(() => callback(error));
+        return;
+      }
       this.writtenChunks.push(Buffer.from(chunk));
       callback();
     },
@@ -152,6 +159,17 @@ describe('Stream output destination and reconnect', () => {
       'webm-header',
       'media-during-reconnect',
     ]);
+    await output.stop(id);
+  });
+
+  it('handles an asynchronous stdin EPIPE event and reconnects without an uncaught error', async () => {
+    const { output, id, children } = harness();
+    children[0]!.failNextWrite = true;
+
+    await expect(output.write(id, chunk('webm-header'))).resolves.toBeUndefined();
+    await waitFor(() => children.length === 2 && children[1]!.writtenChunks.length === 1);
+
+    expect(children[1]!.writtenChunks[0]?.toString()).toBe('webm-header');
     await output.stop(id);
   });
 
