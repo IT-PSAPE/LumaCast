@@ -22,8 +22,8 @@ describe('YouTubeStreamDetails', () => {
   it('formats real viewer and view counts', () => {
     renderDetails(baseDetails);
 
-    expect(screen.getByText(new Intl.NumberFormat().format(42))).toBeInTheDocument();
-    expect(screen.getByText(new Intl.NumberFormat().format(1_234))).toBeInTheDocument();
+    expect(screen.getByText(new Intl.NumberFormat().format(42), { normalizer: (text) => text })).toBeInTheDocument();
+    expect(screen.getByText(new Intl.NumberFormat().format(1_234), { normalizer: (text) => text })).toBeInTheDocument();
   });
 
   it('keeps the title as plain text unless a stream chooser action is supplied', () => {
@@ -98,7 +98,7 @@ describe('YouTubeStreamDetails', () => {
     expect(copyrightNotice).toHaveAttribute('aria-atomic', 'true');
     expect(interruptionNotice).toHaveAttribute('aria-atomic', 'true');
     for (const value of [42, 1_234]) {
-      expect(screen.getByText(new Intl.NumberFormat().format(value)).closest('[role="status"], [role="alert"]')).toBeNull();
+      expect(screen.getByText(new Intl.NumberFormat().format(value), { normalizer: (text) => text }).closest('[role="status"], [role="alert"]')).toBeNull();
     }
   });
 });
