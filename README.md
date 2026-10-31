@@ -113,6 +113,13 @@ color correction, opacity, blur, chroma key, audio monitoring, microphone noise
 suppression, gain, noise gate, expander, compressor, and limiter controls are available.
 Global hotkeys can toggle streaming controls, recording, and replay capture.
 Browser sources can route page audio through the per-source mixer.
+Window/display sources have a **Capture system audio** toggle. On Windows this
+captures the desktop mix, including other applications. Video devices have a
+**Capture audio** toggle and a separate audio-input selector; Stream selects an
+input automatically only when the device reports one unambiguous matching input.
+If audio cannot start, video stays available and the source reports the audio
+problem. Existing camera sources remain video-only until audio is enabled.
+
 YouTube account connection uses a Google OAuth Desktop app client ID supplied
 as `LUMASTREAM_GOOGLE_CLIENT_ID` when building LumaStream. Connected accounts
 can select or create upcoming streams and stream to YouTube over RTMPS; OAuth

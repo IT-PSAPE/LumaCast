@@ -74,6 +74,14 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
   if (value.cursorMode !== undefined && (!CAPTURE_CURSOR_MODES.has(value.cursorMode as CaptureCursorMode)
     || (value.kind !== 'display' && value.kind !== 'window'))) throw new Error('Project contains invalid cursor capture settings.');
   if (value.deviceId !== undefined && (typeof value.deviceId !== 'string' || value.deviceId.length > 512)) throw new Error('Project contains an invalid media device.');
+  if (value.captureAudioEnabled !== undefined && (typeof value.captureAudioEnabled !== 'boolean'
+    || (value.kind !== 'display' && value.kind !== 'window' && value.kind !== 'camera'))) {
+    throw new Error('Project contains invalid capture audio settings.');
+  }
+  if (value.audioDeviceId !== undefined && (value.kind !== 'camera' || typeof value.audioDeviceId !== 'string'
+    || value.audioDeviceId.length === 0 || value.audioDeviceId === 'default' || value.audioDeviceId.length > 512)) {
+    throw new Error('Project contains an invalid camera audio device.');
+  }
   if (value.cameraResolution !== undefined && (value.kind !== 'camera' || typeof value.cameraResolution !== 'string' || !CAMERA_RESOLUTIONS.has(value.cameraResolution))) {
     throw new Error('Project contains invalid camera resolution settings.');
   }
@@ -292,6 +300,8 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     ...(value.kind === 'application-audio' && typeof value.applicationPath === 'string' ? { applicationPath: value.applicationPath } : {}),
     ...((value.kind === 'display' || value.kind === 'window') ? { cursorMode: (value.cursorMode as CaptureCursorMode | undefined) ?? 'motion' } : {}),
     ...(typeof value.deviceId === 'string' ? { deviceId: value.deviceId } : {}),
+    ...(typeof value.captureAudioEnabled === 'boolean' ? { captureAudioEnabled: value.captureAudioEnabled } : {}),
+    ...(typeof value.audioDeviceId === 'string' ? { audioDeviceId: value.audioDeviceId } : {}),
     ...(typeof value.cameraResolution === 'string' ? { cameraResolution: value.cameraResolution as CameraResolutionPreset } : {}),
     ...(typeof value.cameraFrameRate === 'number' ? { cameraFrameRate: value.cameraFrameRate as CameraFrameRatePreset } : {}),
     ...(typeof value.url === 'string' ? { url: value.url } : {}),

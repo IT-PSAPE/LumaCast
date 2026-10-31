@@ -211,6 +211,54 @@ describe('LumaStream desktop audio persistence', () => {
     expect(source?.captureId).toBe('screen:1');
     expect(source?.audioTracks).toEqual([1]);
   });
+
+  it('round-trips explicit capture audio settings and preserves legacy sources without them', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-capture-audio-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithDisplaySource();
+    const display = project.scenes[0]!.sources.find((source) => source.kind === 'display')!;
+    display.captureAudioEnabled = false;
+    project.scenes[0]!.sources.push({
+      id: 'camera-source', name: 'Camera', kind: 'camera', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 320, height: 240 },
+      captureAudioEnabled: true, audioDeviceId: 'explicit-audio-input',
+    });
+    project.scenes[0]!.sources.push({
+      id: 'legacy-camera-source', name: 'Legacy Camera', kind: 'camera', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 320, height: 240 },
+    });
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    const restored = await new ProjectStore(directory).load();
+    const sources = restored.project.scenes[0]!.sources;
+    expect(sources.find((source) => source.id === 'display-source')?.captureAudioEnabled).toBe(false);
+    expect(sources.find((source) => source.id === 'camera-source')).toMatchObject({ captureAudioEnabled: true, audioDeviceId: 'explicit-audio-input' });
+    expect(sources.find((source) => source.id === 'display-source')).not.toHaveProperty('audioDeviceId');
+    expect(sources.find((source) => source.id === 'legacy-camera-source')).not.toHaveProperty('captureAudioEnabled');
+  });
+
+  it('rejects an audio input device on a non-camera source', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-capture-audio-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithDisplaySource();
+    (project.scenes[0]!.sources[0] as unknown as Record<string, unknown>).audioDeviceId = 'explicit-audio-input';
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid camera audio device');
+  });
+
+  it('rejects a camera audio input that would select the implicit default microphone', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-capture-audio-default-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithDisplaySource();
+    project.scenes[0]!.sources.push({
+      id: 'camera-source', name: 'Camera', kind: 'camera', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 320, height: 240 }, audioDeviceId: 'default',
+    });
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid camera audio device');
+  });
 });
 
 describe('LumaStream application audio persistence', () => {

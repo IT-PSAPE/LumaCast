@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCapture, type UseCaptureParams } from '../../../../apps/stream/renderer/features/capture/use-capture';
-import { createDefaultProject, type StreamAPI, type StreamProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
+import { createDefaultProject, type DesktopSourceOption, type StreamAPI, type StreamProject, type StreamSource } from '../../../../apps/stream/shared/desktop-api';
 import { toRuntimeProject } from '../../../../apps/stream/renderer/source-runtime';
 import type { RuntimeSource } from '../../../../apps/stream/renderer/source-runtime';
 
@@ -40,8 +40,16 @@ class FakeTrack extends EventTarget {
     this.readyState = 'ended';
     this.dispatchEvent(new Event('ended'));
   });
+  readonly clone = vi.fn(() => new FakeTrack(this.kind, this.label));
 
   constructor(readonly kind: 'audio' | 'video', readonly label = `${kind} track`) { super(); }
+}
+
+class FakeMediaStream {
+  constructor(private readonly tracks: FakeTrack[]) {}
+  getTracks() { return this.tracks; }
+  getVideoTracks() { return this.tracks.filter((track) => track.kind === 'video'); }
+  getAudioTracks() { return this.tracks.filter((track) => track.kind === 'audio'); }
 }
 
 function fakeStream(...tracks: FakeTrack[]): MediaStream {
@@ -110,12 +118,12 @@ function makeApi(): StreamAPI {
   } as unknown as StreamAPI;
 }
 
-function installMediaDevices(getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>) {
+function installMediaDevices(getUserMedia: (constraints: MediaStreamConstraints) => Promise<MediaStream>, devices: MediaDeviceInfo[] = []) {
   const mediaDevices = new EventTarget() as EventTarget & {
     enumerateDevices: ReturnType<typeof vi.fn>;
     getUserMedia: ReturnType<typeof vi.fn>;
   };
-  mediaDevices.enumerateDevices = vi.fn(async () => []);
+  mediaDevices.enumerateDevices = vi.fn(async () => devices);
   mediaDevices.getUserMedia = vi.fn(getUserMedia);
   Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: mediaDevices });
   return mediaDevices;
@@ -169,6 +177,7 @@ describe('useCapture runtime ownership and Program audio routing', () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     if (originalMediaDevices) Object.defineProperty(navigator, 'mediaDevices', originalMediaDevices);
     else Reflect.deleteProperty(navigator, 'mediaDevices');
     mediaDevices = null;
@@ -188,6 +197,215 @@ describe('useCapture runtime ownership and Program audio routing', () => {
     expect(result.current.sourceStatuses[runtimeSource.id]).toEqual({ state: 'ready' });
     expect(mixerMock.instances).toHaveLength(0);
     expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();
+  });
+
+  it('restores a camera with its explicitly selected audio input and registers the combined route', async () => {
+    vi.stubGlobal('MediaStream', FakeMediaStream);
+    const source = makeSource('camera', { captureAudioEnabled: true, audioDeviceId: 'audio-usb-1' });
+    const params = makeHookParams(source);
+    const runtimeSource = params.allSources[0]!;
+    const video = fakeStream(new FakeTrack('video', 'Webcam'));
+    const audio = fakeStream(new FakeTrack('audio', 'Webcam microphone'));
+    mediaDevices = installMediaDevices(async () => mediaDevices!.getUserMedia.mock.calls.length === 1 ? video : audio);
+    const { result } = renderHook(() => useCapture(params));
+
+    await waitFor(() => expect(result.current.runtimes.current.get(runtimeSource.id)?.getAudioTracks()).toHaveLength(1));
+    const stream = result.current.runtimes.current.get(runtimeSource.id)!;
+    expect(stream.getVideoTracks()).toHaveLength(1);
+    expect(mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+    expect(mediaDevices.getUserMedia.mock.calls[1]?.[0]).toEqual({
+      video: false,
+      audio: { deviceId: { exact: 'audio-usb-1' }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    expect(mixerMock.instances[0]?.add).toHaveBeenCalledWith(runtimeSource.id, stream, expect.objectContaining({ programActive: false }));
+    await waitFor(() => expect(mixerMock.instances[0]?.setProgramActive).toHaveBeenCalledWith(runtimeSource.id, true));
+  });
+
+  it('keeps camera video ready and reports a denied audio input without creating an audio route', async () => {
+    const source = makeSource('camera', { captureAudioEnabled: true, audioDeviceId: 'audio-usb-1' });
+    const setActionError = vi.fn();
+    const params = { ...makeHookParams(source), setActionError };
+    const runtimeSource = params.allSources[0]!;
+    const video = fakeStream(new FakeTrack('video', 'Webcam'));
+    mediaDevices = installMediaDevices(async () => video);
+    mediaDevices.getUserMedia.mockResolvedValueOnce(video).mockRejectedValueOnce(new Error('Audio input permission denied'));
+    const { result } = renderHook(() => useCapture(params));
+
+    await waitFor(() => expect(result.current.runtimes.current.get(runtimeSource.id)).toBe(video));
+    expect(result.current.sourceStatuses[runtimeSource.id]).toEqual({ state: 'ready' });
+    expect(mixerMock.instances).toHaveLength(0);
+    await waitFor(() => expect(setActionError).toHaveBeenCalledWith(expect.stringContaining('Video remains active')));
+  });
+
+  it('drops the camera audio route when audio is disabled while keeping the video runtime', async () => {
+    vi.stubGlobal('MediaStream', FakeMediaStream);
+    const source = makeSource('camera', { captureAudioEnabled: true, audioDeviceId: 'audio-usb-1' });
+    const api = makeApi();
+    const params = makeHookParams(source, { api, programSourceIds: new Set<string>() });
+    const oldRuntimeSource = params.allSources[0]!;
+    const video = fakeStream(new FakeTrack('video', 'Webcam'));
+    const audio = fakeStream(new FakeTrack('audio', 'Webcam microphone'));
+    mediaDevices = installMediaDevices(async () => mediaDevices!.getUserMedia.mock.calls.length === 1 ? video : audio);
+    const { result, rerender } = renderHook(({ current }: { current: UseCaptureParams }) => useCapture(current), { initialProps: { current: params } });
+
+    await waitFor(() => expect(result.current.runtimes.current.get(oldRuntimeSource.id)?.getAudioTracks()).toHaveLength(1));
+    const oldStream = result.current.runtimes.current.get(oldRuntimeSource.id)!;
+    const audioTrack = oldStream.getAudioTracks()[0] as unknown as FakeTrack;
+    const editedSource = { ...source, captureAudioEnabled: false };
+    await act(async () => {
+      await result.current.updateCameraAudioSettings(oldRuntimeSource, { captureAudioEnabled: false, audioDeviceId: source.audioDeviceId });
+    });
+    const nextParams = makeHookParams(editedSource, { api, programSourceIds: new Set<string>() });
+    const nextRuntimeSource = nextParams.allSources[0]!;
+    expect(result.current.runtimes.current.get(nextRuntimeSource.id)?.getVideoTracks()).toHaveLength(1);
+    expect(mixerMock.instances[0]?.sourceIds()).toContain(oldRuntimeSource.id);
+
+    rerender({ current: nextParams });
+    await waitFor(() => expect(audioTrack.stop).toHaveBeenCalledOnce());
+    expect(result.current.runtimes.current.get(nextRuntimeSource.id)?.getAudioTracks()).toHaveLength(0);
+    expect(mixerMock.instances[0]?.sourceIds()).not.toContain(oldRuntimeSource.id);
+  });
+
+  it('disables window system audio by cloning its video track and removing the route after commit', async () => {
+    vi.stubGlobal('MediaStream', FakeMediaStream);
+    const source: StreamSource = {
+      id: 'window-source', name: 'Window', kind: 'window', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 320, height: 240 }, captureId: 'window:1', cursorMode: 'motion', captureAudioEnabled: true,
+    };
+    const api = makeApi();
+    const params = makeHookParams(source, { api, programSourceIds: new Set<string>() });
+    const oldRuntimeSource = params.allSources[0]!;
+    const videoTrack = new FakeTrack('video', 'Window video');
+    const audioTrack = new FakeTrack('audio', 'System audio');
+    const stream = fakeStream(videoTrack, audioTrack);
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const { result, rerender } = renderHook(({ current }: { current: UseCaptureParams }) => useCapture(current), { initialProps: { current: params } });
+
+    await act(async () => { await result.current.attachRuntime(oldRuntimeSource, stream); });
+    await act(async () => { await result.current.toggleDesktopCaptureAudio(oldRuntimeSource, false); });
+    const nextSource = { ...source, captureAudioEnabled: false };
+    const nextParams = makeHookParams(nextSource, { api, programSourceIds: new Set<string>() });
+    const nextRuntimeSource = nextParams.allSources[0]!;
+    expect(result.current.runtimes.current.get(nextRuntimeSource.id)?.getVideoTracks()).toHaveLength(1);
+    expect(result.current.runtimes.current.get(nextRuntimeSource.id)?.getAudioTracks()).toHaveLength(0);
+
+    rerender({ current: nextParams });
+    await waitFor(() => expect(audioTrack.stop).toHaveBeenCalledOnce());
+    expect(mixerMock.instances[0]?.sourceIds()).not.toContain(oldRuntimeSource.id);
+    expect(result.current.runtimes.current.get(nextRuntimeSource.id)?.getVideoTracks()).toHaveLength(1);
+  });
+
+  it('requests system audio by default for a new window capture', async () => {
+    const option: DesktopSourceOption = { id: 'window:1', name: 'Editor', kind: 'window', thumbnail: '' };
+    const api = {
+      ...makeApi(),
+      listDesktopSources: vi.fn(async () => [option]),
+      prepareDesktopCapture: vi.fn(async () => undefined),
+    } as unknown as StreamAPI;
+    const params = { ...makeHookParams(makeSource('media'), { api }), displayCaptureSystemAudio: true };
+    const videoTrack = new FakeTrack('video', 'Editor');
+    const audioTrack = new FakeTrack('audio', 'System audio');
+    const stream = fakeStream(videoTrack, audioTrack);
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    const getDisplayMedia = vi.fn(async () => stream);
+    Object.assign(mediaDevices, { getDisplayMedia });
+    const { result } = renderHook(() => useCapture(params));
+
+    await act(async () => { await result.current.openCapturePicker('window'); });
+    await act(async () => { await result.current.addDesktopCapture(option); });
+
+    expect(getDisplayMedia).toHaveBeenCalledWith(expect.objectContaining({ audio: true }));
+    expect(api.prepareDesktopCapture).toHaveBeenCalledWith(option.id, true);
+    const capturedSource = (params.addToActiveScene as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as StreamSource;
+    expect(capturedSource).toMatchObject({ kind: 'window', captureAudioEnabled: true });
+    expect(mixerMock.instances[0]?.add).toHaveBeenCalledWith(expect.any(String), stream, expect.any(Object));
+  });
+
+  it('requires an explicit audio input when no unique camera pair exists', async () => {
+    vi.stubGlobal('MediaStream', FakeMediaStream);
+    const source = makeSource('media');
+    const params = makeHookParams(source);
+    const permissionStream = fakeStream(new FakeTrack('video', 'Permission camera'));
+    const cameraStream = fakeStream(new FakeTrack('video', 'Webcam'));
+    const audioStream = fakeStream(new FakeTrack('audio', 'USB microphone'));
+    const devices = [
+      { kind: 'videoinput', deviceId: 'video-usb-1', label: 'Webcam', groupId: 'video-group' },
+      { kind: 'audioinput', deviceId: 'default', label: 'Default microphone', groupId: '' },
+      { kind: 'audioinput', deviceId: 'audio-usb-1', label: 'USB microphone', groupId: 'audio-group' },
+    ] as MediaDeviceInfo[];
+    mediaDevices = installMediaDevices(async () => permissionStream, devices);
+    mediaDevices.getUserMedia.mockResolvedValueOnce(permissionStream)
+      .mockResolvedValueOnce(cameraStream)
+      .mockResolvedValueOnce(audioStream);
+    const { result } = renderHook(() => useCapture(params));
+
+    await act(async () => { await result.current.openInputDevicePicker('camera'); });
+    expect(result.current.cameraAudioEnabled).toBe(true);
+    const camera = result.current.inputDeviceOptions.camera[0]!;
+    await act(async () => { await result.current.chooseInputDevice(camera); });
+    expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();
+    expect(params.addToActiveScene).not.toHaveBeenCalled();
+
+    act(() => result.current.setCameraAudioDeviceId('audio-usb-1'));
+    await act(async () => { await result.current.chooseInputDevice(camera); });
+    expect(mediaDevices.getUserMedia).toHaveBeenCalledTimes(3);
+    expect(mediaDevices.getUserMedia.mock.calls[2]?.[0]).toEqual({
+      video: false,
+      audio: { deviceId: { exact: 'audio-usb-1' }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    expect((params.addToActiveScene as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({
+      captureAudioEnabled: true,
+      audioDeviceId: 'audio-usb-1',
+    });
+  });
+
+  it('keeps the camera picker usable when audio input enumeration fails', async () => {
+    const params = makeHookParams(makeSource('media'));
+    const permissionStream = fakeStream(new FakeTrack('video', 'Permission camera'));
+    const cameraStream = fakeStream(new FakeTrack('video', 'Webcam'));
+    const devices = [{ kind: 'videoinput', deviceId: 'video-usb-1', label: 'Webcam', groupId: 'video-group' }] as MediaDeviceInfo[];
+    mediaDevices = installMediaDevices(async () => permissionStream, devices);
+    mediaDevices.enumerateDevices.mockResolvedValueOnce([])
+      .mockResolvedValueOnce(devices)
+      .mockRejectedValueOnce(new Error('Audio input enumeration failed'));
+    mediaDevices.getUserMedia.mockResolvedValueOnce(permissionStream).mockResolvedValueOnce(cameraStream);
+    const { result } = renderHook(() => useCapture(params));
+
+    await act(async () => { await result.current.openInputDevicePicker('camera'); });
+    expect(result.current.inputDevicePicker).toBe('camera');
+    expect(result.current.inputDeviceOptions.camera).toHaveLength(1);
+    await act(async () => { await result.current.chooseInputDevice(result.current.inputDeviceOptions.camera[0]!); });
+    expect(mediaDevices.getUserMedia).toHaveBeenCalledOnce();
+
+    act(() => result.current.setCameraAudioEnabled(false));
+    await act(async () => { await result.current.chooseInputDevice(result.current.inputDeviceOptions.camera[0]!); });
+    expect((params.addToActiveScene as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toMatchObject({ captureAudioEnabled: false });
+  });
+
+  it('keeps a window video capture active and reports when requested system audio is missing', async () => {
+    const option: DesktopSourceOption = { id: 'window:1', name: 'Editor', kind: 'window', thumbnail: '' };
+    const api = {
+      ...makeApi(),
+      listDesktopSources: vi.fn(async () => [option]),
+      prepareDesktopCapture: vi.fn(async () => undefined),
+    } as unknown as StreamAPI;
+    const setActionError = vi.fn();
+    const params = { ...makeHookParams(makeSource('media'), { api }), displayCaptureSystemAudio: true, setActionError };
+    const videoTrack = new FakeTrack('video', 'Editor');
+    const stream = fakeStream(videoTrack);
+    mediaDevices = installMediaDevices(async () => fakeStream());
+    Object.assign(mediaDevices, { getDisplayMedia: vi.fn(async () => stream) });
+    const { result } = renderHook(() => useCapture(params));
+
+    await act(async () => { await result.current.openCapturePicker('window'); });
+    await act(async () => { await result.current.addDesktopCapture(option); });
+
+    const capturedSource = (params.addToActiveScene as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as StreamSource;
+    expect(capturedSource).toMatchObject({ kind: 'window', captureAudioEnabled: true });
+    expect(capturedSource).toBeDefined();
+    expect(videoTrack.stop).not.toHaveBeenCalled();
+    expect(result.current.runtimes.current.has(toRuntimeProject(makeProject(capturedSource)).scenes[0]!.sources[0]!.id)).toBe(true);
+    expect(setActionError).toHaveBeenCalledWith('System audio was not provided. Video capture is still active.');
   });
 
   it('keeps an owned camera warm when hidden, then stops it after its final owner is removed', async () => {

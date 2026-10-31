@@ -46,6 +46,8 @@ function resourceDescriptor(source: StreamSource, browserViewport?: RuntimeViewp
     applicationPath: source.applicationPath ?? null,
     cursorMode: source.cursorMode ?? null,
     deviceId: source.deviceId ?? null,
+    captureAudioEnabled: source.captureAudioEnabled ?? null,
+    audioDeviceId: source.captureAudioEnabled === true ? source.audioDeviceId ?? null : null,
     cameraResolution: source.cameraResolution ?? null,
     cameraFrameRate: source.cameraFrameRate ?? null,
     url: source.url ?? null,

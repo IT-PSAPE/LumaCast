@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { ChevronDown, Headphones } from 'lucide-react';
 import { Checkbox, Modal, Select } from '@lumacast/ui';
 import type { AudioApplicationOption, CaptureCursorMode, DesktopSourceOption } from '../../shared/desktop-api';
-import type { InputCaptureKind, InputDeviceOption } from '../features/capture/helpers';
+import { explicitAudioInputDevices, type InputCaptureKind, type InputDeviceOption } from '../features/capture/helpers';
 
 const CURSOR_MODE_OPTIONS: ReadonlyArray<{ value: CaptureCursorMode; label: string }> = [
   { value: 'always', label: 'Always' },
@@ -40,17 +40,29 @@ export function CapturePicker({ captureOptions, captureKind, captureTargetSource
 export interface InputDevicePickerProps {
   kind: InputCaptureKind;
   devices: InputDeviceOption[];
+  audioDevices: InputDeviceOption[];
+  captureAudioEnabled: boolean;
+  setCaptureAudioEnabled: Dispatch<SetStateAction<boolean>>;
+  audioDeviceId: string;
+  setAudioDeviceId: Dispatch<SetStateAction<string>>;
   working: boolean;
   onChoose: (device: InputDeviceOption) => void;
   onClose: () => void;
 }
 
-export function InputDevicePicker({ kind, devices, working, onChoose, onClose }: InputDevicePickerProps) {
+export function InputDevicePicker({ kind, devices, audioDevices, captureAudioEnabled, setCaptureAudioEnabled, audioDeviceId, setAudioDeviceId, working, onChoose, onClose }: InputDevicePickerProps) {
   return (
     <Modal open title={`Select a ${kind === 'camera' ? 'camera' : 'microphone'}`} className="capture-modal device-modal" onClose={onClose} closeDisabled={working} footer={<button className="secondary-button" disabled={working} onClick={onClose}>Cancel</button>}>
         <div className="device-picker-list">{devices.length === 0
           ? <div className="capture-empty">No devices are available.</div>
           : devices.map((device) => <button key={device.deviceId || device.label} disabled={working} onClick={() => onChoose(device)}><span>{device.label}</span><ChevronDown size={14} /></button>)}</div>
+        {kind === 'camera' && <div className="flex flex-col gap-3 border-t border-[var(--border-color-secondary)] px-5 py-4">
+          <Checkbox label="Capture audio" checked={captureAudioEnabled} disabled={working} onCheckedChange={setCaptureAudioEnabled} />
+          {captureAudioEnabled && <Select size="sm" label="Audio input" labelPlacement="inline" disabled={working} value={audioDeviceId} onValueChange={setAudioDeviceId} options={[
+            { value: '', label: 'Select an audio input' },
+            ...explicitAudioInputDevices(audioDevices).map((device) => ({ value: device.deviceId, label: device.label })),
+          ]} />}
+        </div>}
     </Modal>
   );
 }

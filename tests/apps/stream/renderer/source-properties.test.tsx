@@ -18,12 +18,13 @@ function mediaSource(): StreamSource {
   };
 }
 
-function renderProperties(playbackInProgram: boolean) {
+function renderProperties(playbackInProgram: boolean, source: StreamSource = mediaSource()) {
   const onTogglePlayback = vi.fn();
   const onRestartPlayback = vi.fn();
   const onStopPlayback = vi.fn();
+  const onUpdateCameraAudioSettings = vi.fn();
+  const onToggleDesktopCaptureAudio = vi.fn();
   const noOp = vi.fn();
-  const source = mediaSource();
   const props: SourcePropertiesProps = {
     source,
     project: { scenes: [] } as unknown as StreamProject,
@@ -32,7 +33,7 @@ function renderProperties(playbackInProgram: boolean) {
     platform: 'win32',
     working: false,
     desktopAudioMode: 'unavailable',
-    inputDeviceOptions: { camera: [], microphone: [] },
+    inputDeviceOptions: { camera: [], microphone: [{ deviceId: 'mic-1', label: 'Webcam Microphone' }] },
     runtimesSnapshot: new Map(),
     mediaElements: new Map([['media-1', {} as HTMLMediaElement]]),
     mediaPlaybackStates: { 'media-1': { paused: false, ended: false } },
@@ -46,6 +47,8 @@ function renderProperties(playbackInProgram: boolean) {
     onUpdateSource: noOp,
     onUpdateTextStyle: noOp,
     onSwitchInputDevice: noOp,
+    onUpdateCameraAudioSettings,
+    onToggleDesktopCaptureAudio,
     onUpdateCameraCaptureSettings: noOp,
     onAddSystemAudioCapture: noOp,
     onOpenApplicationAudioPicker: noOp,
@@ -71,7 +74,7 @@ function renderProperties(playbackInProgram: boolean) {
     onUpdateSourceChromaKey: noOp,
   };
   render(<SourceProperties {...props} />);
-  return { onTogglePlayback, onRestartPlayback, onStopPlayback };
+  return { onTogglePlayback, onRestartPlayback, onStopPlayback, onUpdateCameraAudioSettings, onToggleDesktopCaptureAudio, source };
 }
 
 describe('SourceProperties media playback', () => {
@@ -96,5 +99,32 @@ describe('SourceProperties media playback', () => {
     expect(restart).toBeEnabled();
     fireEvent.click(restart);
     expect(onRestartPlayback).toHaveBeenCalledWith('media-1');
+  });
+});
+
+describe('SourceProperties camera audio', () => {
+  it('exposes an explicit audio input and updates the audio toggle without choosing a default microphone', () => {
+    const source: StreamSource = {
+      id: 'camera-1', name: 'Webcam', kind: 'camera', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 320, height: 240 }, captureAudioEnabled: true,
+    };
+    const handlers = renderProperties(false, source);
+    expect(screen.getByRole('combobox', { name: 'Audio input' })).toBeInTheDocument();
+    expect(screen.getByText('Select an audio input')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Capture audio' }));
+    expect(handlers.onUpdateCameraAudioSettings).toHaveBeenCalledWith(source, { captureAudioEnabled: false, audioDeviceId: undefined });
+  });
+
+  it('shows a truthful system-audio toggle for a window source', () => {
+    const source: StreamSource = {
+      id: 'window-1', name: 'Window', kind: 'window', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: 320, height: 240 },
+    };
+    const handlers = renderProperties(false, source);
+    const toggle = screen.getByRole('checkbox', { name: 'Capture system audio' });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(handlers.onToggleDesktopCaptureAudio).toHaveBeenCalledWith(source, false);
   });
 });

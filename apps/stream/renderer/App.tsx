@@ -635,6 +635,8 @@ export function App() {
             onUpdateSource: sources.updateSource,
             onUpdateTextStyle: sources.updateTextStyle,
             onSwitchInputDevice: (source, deviceId) => void capture.switchInputDevice(source, deviceId),
+            onUpdateCameraAudioSettings: (source, settings) => void capture.updateCameraAudioSettings(source, settings),
+            onToggleDesktopCaptureAudio: (source, enabled) => void capture.toggleDesktopCaptureAudio(source, enabled),
             onUpdateCameraCaptureSettings: (source, settings) => void capture.updateCameraCaptureSettings(source, settings),
             onAddSystemAudioCapture: (targetSourceId) => void capture.addSystemAudioCapture(targetSourceId),
             onOpenApplicationAudioPicker: (targetSourceId) => void capture.openApplicationAudioPicker(targetSourceId),
@@ -852,6 +854,11 @@ export function App() {
       {capture.inputDevicePicker && <InputDevicePicker
         kind={capture.inputDevicePicker}
         devices={capture.inputDeviceOptions[capture.inputDevicePicker]}
+        audioDevices={capture.inputDeviceOptions.microphone}
+        captureAudioEnabled={capture.cameraAudioEnabled}
+        setCaptureAudioEnabled={capture.setCameraAudioEnabled}
+        audioDeviceId={capture.cameraAudioDeviceId}
+        setAudioDeviceId={capture.setCameraAudioDeviceId}
         working={working}
         onChoose={(device) => void capture.chooseInputDevice(device)}
         onClose={() => capture.setInputDevicePicker(null)}

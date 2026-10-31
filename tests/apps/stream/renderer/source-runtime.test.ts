@@ -24,6 +24,14 @@ describe('source runtime bindings', () => {
       .not.toBe(getSourceRuntimeId(source({ kind: 'scene', referencedSceneId: 'scene-b' })));
   });
 
+  it('allocates separate camera runtime resources when audio capture or its explicit input changes', () => {
+    const camera = source({ id: 'camera', kind: 'camera' });
+    const cameraWithAudio = { ...camera, captureAudioEnabled: true, audioDeviceId: 'audio-1' };
+    expect(getSourceRuntimeId(cameraWithAudio)).not.toBe(getSourceRuntimeId(camera));
+    expect(getSourceRuntimeId({ ...cameraWithAudio, audioDeviceId: 'audio-2' })).not.toBe(getSourceRuntimeId(cameraWithAudio));
+    expect(getSourceRuntimeId({ ...cameraWithAudio, captureAudioEnabled: false })).not.toBe(getSourceRuntimeId(cameraWithAudio));
+  });
+
   it('maps nested source trees while retaining logical identity and scene references', () => {
     const project = {
       version: 1,

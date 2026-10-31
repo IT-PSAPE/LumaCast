@@ -1,9 +1,9 @@
 import { ChevronDown, ChevronUp, Pause, Play, Plus, Square, Volume2, VolumeX, X } from 'lucide-react';
 import { Checkbox, NumberField, ReacstButton, Select, Slider, Textarea, TextField, type SelectOption } from '@lumacast/ui';
 import { canReferenceScene } from '../../shared/scene-reference-graph';
-import { textFontFamiliesForPlatform, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
+import { supportsDisplayCaptureSystemAudio, textFontFamiliesForPlatform, type DesktopAudioCaptureMode, type StreamPlatform } from '../../shared/platform-capabilities';
 import { sourceIcon, supportsSourceTransform } from '../source-ui';
-import type { InputCaptureKind, InputDeviceOption } from '../features/capture/helpers';
+import { explicitAudioInputDevices, type InputCaptureKind, type InputDeviceOption } from '../features/capture/helpers';
 import {
   AUDIO_TRACKS,
   CAMERA_FRAME_RATE_OPTIONS,
@@ -80,6 +80,8 @@ export interface SourcePropertiesProps {
   onUpdateSource: (sourceId: string, update: (source: StreamSource) => StreamSource) => void;
   onUpdateTextStyle: (sourceId: string, update: (style: StreamTextStyle) => StreamTextStyle) => void;
   onSwitchInputDevice: (source: StreamSource, deviceId: string | undefined) => void;
+  onUpdateCameraAudioSettings: (source: StreamSource, settings: Pick<StreamSource, 'captureAudioEnabled' | 'audioDeviceId'>) => void;
+  onToggleDesktopCaptureAudio: (source: StreamSource, enabled: boolean) => void;
   onUpdateCameraCaptureSettings: (source: StreamSource, settings: Pick<StreamSource, 'cameraResolution' | 'cameraFrameRate'>) => void;
   onAddSystemAudioCapture: (targetSourceId?: string) => void;
   onOpenApplicationAudioPicker: (targetSourceId?: string) => void;
@@ -127,6 +129,8 @@ export function SourceProperties({
   onUpdateSource: updateSource,
   onUpdateTextStyle: updateTextStyle,
   onSwitchInputDevice,
+  onUpdateCameraAudioSettings,
+  onToggleDesktopCaptureAudio,
   onUpdateCameraCaptureSettings,
   onAddSystemAudioCapture,
   onOpenApplicationAudioPicker,
@@ -181,6 +185,12 @@ export function SourceProperties({
         ...inputDeviceOptions[selectedSource.kind].map((device) => ({ value: device.deviceId, label: device.label })),
       ]} />}
       {selectedSource.kind === 'camera' && <>
+        <Checkbox label="Capture audio" checked={selectedSource.captureAudioEnabled === true} disabled={working} onCheckedChange={(captureAudioEnabled) => onUpdateCameraAudioSettings(selectedSource, { captureAudioEnabled, audioDeviceId: selectedSource.audioDeviceId })} />
+        {selectedSource.captureAudioEnabled === true && <Select size="sm" label="Audio input" labelPlacement="inline" disabled={working} value={selectedSource.audioDeviceId ?? ''} onValueChange={(audioDeviceId) => onUpdateCameraAudioSettings(selectedSource, { captureAudioEnabled: true, audioDeviceId: audioDeviceId || undefined })} options={[
+          ...(selectedSource.audioDeviceId && !inputDeviceOptions.microphone.some((device) => device.deviceId === selectedSource.audioDeviceId) ? [{ value: selectedSource.audioDeviceId, label: 'Saved audio input (Unavailable)' }] : []),
+          { value: '', label: 'Select an audio input' },
+          ...explicitAudioInputDevices(inputDeviceOptions.microphone).map((device) => ({ value: device.deviceId, label: device.label })),
+        ]} />}
         <Select size="sm" label="Resolution" labelPlacement="inline" disabled={working} value={selectedSource.cameraResolution ?? 'device-default'} onValueChange={(cameraResolution) => onUpdateCameraCaptureSettings(selectedSource, { cameraResolution })} options={CAMERA_RESOLUTION_OPTIONS} />
         <Select size="sm" label="FPS" labelPlacement="inline" disabled={working} value={selectedSource.cameraFrameRate === undefined ? '' : String(selectedSource.cameraFrameRate)} onValueChange={(rate) => onUpdateCameraCaptureSettings(selectedSource, { cameraFrameRate: rate ? Number(rate) as CameraFrameRatePreset : undefined })} options={[
           { value: '', label: 'Device Default' },
@@ -194,6 +204,7 @@ export function SourceProperties({
       </>}
       {(selectedSource.kind === 'display' || selectedSource.kind === 'window') && <>
         <ReacstButton size="sm" disabled={working} onClick={() => onOpenCapturePicker(selectedSource.kind === 'display' ? 'screen' : 'window', selectedSource.id)}>{runtimesSnapshot.has(selectedSource.id) ? 'Change Capture' : 'Reconnect Capture'}</ReacstButton>
+        {supportsDisplayCaptureSystemAudio(platform) && <Checkbox label="Capture system audio" checked={selectedSource.captureAudioEnabled ?? true} disabled={working} onCheckedChange={(enabled) => onToggleDesktopCaptureAudio(selectedSource, enabled)} />}
         <Select size="sm" label="Capture Cursor" labelPlacement="inline" disabled={working} value={selectedSource.cursorMode ?? 'motion'} onValueChange={(cursorMode) => onUpdateCaptureCursorMode(selectedSource.id, cursorMode)} options={CURSOR_OPTIONS} />
       </>}
       {supportsSourceTransform(selectedSource) && <details className="filter-details"><summary>Transform</summary>

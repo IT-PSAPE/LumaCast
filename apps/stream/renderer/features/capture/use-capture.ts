@@ -21,10 +21,14 @@ import { getOriginSourceId, toRuntimeSource, type RuntimeSource } from '../../so
 import { createSource, DEFAULT_AUDIO_FILTERS } from '../sources/helpers';
 import {
   applyBrowserFrame,
+  audioInputCaptureConstraints,
   browserAudioCaptureConstraints,
+  explicitAudioInputDevices,
+  getInputCaptureStream,
   inputCaptureConstraints,
   listInputDevices,
   monitoringDeviceError,
+  pairedCameraAudioDeviceId,
   type BrowserSourceConfig,
   type InputCaptureKind,
   type InputDeviceOption,
@@ -117,7 +121,7 @@ export interface UseCaptureResult {
   setIncludeSystemAudio: Dispatch<SetStateAction<boolean>>;
   captureCursorMode: CaptureCursorMode;
   setCaptureCursorMode: Dispatch<SetStateAction<CaptureCursorMode>>;
-  openCapturePicker: (kind: 'screen' | 'window' | 'audio', targetSourceId?: string) => Promise<void>;
+  openCapturePicker: (kind: 'screen' | 'window' | 'audio', targetSourceId?: string, includeSystemAudio?: boolean) => Promise<void>;
   addDesktopCapture: (option: DesktopSourceOption) => Promise<void>;
 
   applicationAudioOptions: AudioApplicationOption[] | null;
@@ -130,10 +134,16 @@ export interface UseCaptureResult {
 
   inputDevicePicker: InputCaptureKind | null;
   inputDeviceOptions: Record<InputCaptureKind, InputDeviceOption[]>;
+  cameraAudioEnabled: boolean;
+  setCameraAudioEnabled: Dispatch<SetStateAction<boolean>>;
+  cameraAudioDeviceId: string;
+  setCameraAudioDeviceId: Dispatch<SetStateAction<string>>;
   setInputDevicePicker: Dispatch<SetStateAction<InputCaptureKind | null>>;
   openInputDevicePicker: (kind: InputCaptureKind) => Promise<void>;
   chooseInputDevice: (device: InputDeviceOption) => Promise<void>;
   switchInputDevice: (source: StreamSource, deviceId: string | undefined) => Promise<void>;
+  updateCameraAudioSettings: (source: StreamSource, settings: Pick<StreamSource, 'captureAudioEnabled' | 'audioDeviceId'>) => Promise<void>;
+  toggleDesktopCaptureAudio: (source: StreamSource, enabled: boolean) => Promise<void>;
   updateCameraCaptureSettings: (source: StreamSource, settings: Pick<StreamSource, 'cameraResolution' | 'cameraFrameRate'>) => Promise<void>;
 }
 
@@ -154,6 +164,8 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   const [applicationAudioTargetSourceId, setApplicationAudioTargetSourceId] = useState<string | null>(null);
   const [inputDevicePicker, setInputDevicePicker] = useState<InputCaptureKind | null>(null);
   const [inputDeviceOptions, setInputDeviceOptions] = useState<Record<InputCaptureKind, InputDeviceOption[]>>({ camera: [], microphone: [] });
+  const [cameraAudioEnabled, setCameraAudioEnabled] = useState(true);
+  const [cameraAudioDeviceId, setCameraAudioDeviceId] = useState('');
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
   const [captureCursorMode, setCaptureCursorMode] = useState<CaptureCursorMode>('motion');
   const [audioSettings, setAudioSettings] = useState<StreamAudioSettings>(createDefaultStreamAudioSettings);
@@ -584,12 +596,17 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     });
   }, [api, attachRuntime, ensureMixer, setSourceStatus, withNativeCaptureLock]);
 
-  const openCapturePicker = async (kind: 'screen' | 'window' | 'audio', targetSourceId?: string) => {
+  const openCapturePicker = async (kind: 'screen' | 'window' | 'audio', targetSourceId?: string, includeAudioOverride?: boolean) => {
     closeSourceMenu();
     setActionError('');
     if (targetSourceId) {
       const target = findSourceByOrigin(targetSourceId);
-      if (target?.kind === 'display' || target?.kind === 'window') setCaptureCursorMode(target.cursorMode ?? 'motion');
+      if (target?.kind === 'display' || target?.kind === 'window') {
+        setCaptureCursorMode(target.cursorMode ?? 'motion');
+        setIncludeSystemAudio(includeAudioOverride ?? target.captureAudioEnabled ?? displayCaptureSystemAudio);
+      }
+    } else if (kind !== 'audio') {
+      setIncludeSystemAudio(true);
     }
     setWorking(true);
     try {
@@ -678,7 +695,8 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     setActionError('');
     let stream: MediaStream | null = null;
     try {
-      const captureAudio = captureMode === 'audio' || (includeSystemAudio && displayCaptureSystemAudio);
+      const requestedSystemAudio = captureMode !== 'audio' && includeSystemAudio;
+      const captureAudio = captureMode === 'audio' || (requestedSystemAudio && displayCaptureSystemAudio);
       // Start the media request in the picker click handler so Chromium keeps
       // the user's gesture while main validates and grants the chosen source.
       const mediaRequest = navigator.mediaDevices.getDisplayMedia({
@@ -690,6 +708,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       stream = await mediaRequest;
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
+      const audioUnavailable = captureMode !== 'audio' && captureAudio && stream.getAudioTracks().length === 0;
       let source: StreamSource;
       if (captureMode === 'audio') {
         const audioTracks = retainDesktopAudioTracks(stream);
@@ -705,18 +724,19 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       } else if (captureTargetSourceId) {
         const reconnectSource = findSourceByOrigin(captureTargetSourceId);
         if (!reconnectSource) throw new Error('The capture source is no longer available.');
-        source = bindDesktopCaptureSource(reconnectSource, option, captureCursorMode);
+        source = { ...bindDesktopCaptureSource(reconnectSource, option, captureCursorMode), captureAudioEnabled: requestedSystemAudio };
       } else {
         const kind = option.kind === 'screen' ? 'display' : 'window';
-        source = createSource(kind, project.output, option.name, { captureId: option.id, cursorMode: captureCursorMode });
+        source = createSource(kind, project.output, option.name, { captureId: option.id, cursorMode: captureCursorMode, captureAudioEnabled: requestedSystemAudio });
       }
       await attachRuntime(source, stream);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       if (captureTargetSourceId) {
-        updateSource(getOriginSourceId(source), (current) => ({ ...current, captureId: option.id, ...(source.kind === 'display' || source.kind === 'window' ? { cursorMode: source.cursorMode } : {}) }));
+        updateSource(getOriginSourceId(source), (current) => ({ ...current, captureId: option.id, ...(source.kind === 'display' || source.kind === 'window' ? { cursorMode: source.cursorMode, captureAudioEnabled: source.captureAudioEnabled } : {}) }));
       } else {
         addToActiveScene(source);
       }
+      if (audioUnavailable) setActionError('System audio was not provided. Video capture is still active.');
       setCaptureOptions(null);
       setCaptureKind(null);
       setCaptureTargetSourceId(null);
@@ -740,6 +760,12 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       permissionStream = null;
       const devices = await listInputDevices(kind);
       setInputDeviceOptions((current) => ({ ...current, [kind]: devices }));
+      if (kind === 'camera') {
+        const audioDevices = await listInputDevices('microphone').catch(() => []);
+        setInputDeviceOptions((current) => ({ ...current, microphone: audioDevices }));
+        setCameraAudioEnabled(true);
+        setCameraAudioDeviceId('');
+      }
       setInputDevicePicker(kind);
       if (devices.length === 0) setActionError(`No ${kind === 'camera' ? 'cameras' : 'microphones'} are available.`);
     } catch (error) {
@@ -751,19 +777,34 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
   const chooseInputDevice = async (device: InputDeviceOption) => {
     const kind = inputDevicePicker;
     if (!kind || !project || working) return;
+    const pairedAudioDeviceId = kind === 'camera' ? pairedCameraAudioDeviceId(device, inputDeviceOptions.microphone) : undefined;
+    const selectedAudioDeviceId = kind === 'camera' ? (cameraAudioDeviceId || pairedAudioDeviceId) : undefined;
+    if (kind === 'camera' && cameraAudioEnabled && !selectedAudioDeviceId) {
+      setActionError(explicitAudioInputDevices(inputDeviceOptions.microphone).length === 0
+        ? 'No audio input is available. Turn off Capture audio to add this camera without sound.'
+        : 'Select an audio input or turn off Capture audio.');
+      return;
+    }
     const generation = captureSessionGeneration.current;
     setWorking(true);
     setActionError('');
     let stream: MediaStream | null = null;
+    let audioError: unknown;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(inputCaptureConstraints(kind, device.deviceId || undefined));
+      const acquired = await getInputCaptureStream(kind, device.deviceId || undefined, undefined, kind === 'camera' && cameraAudioEnabled, selectedAudioDeviceId);
+      stream = acquired.stream;
+      audioError = acquired.audioError;
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
-      const label = stream.getTracks()[0]?.label || device.label;
-      const source = createSource(kind, project.output, label, device.deviceId ? { deviceId: device.deviceId } : {});
+      const label = stream.getVideoTracks()[0]?.label || stream.getTracks()[0]?.label || device.label;
+      const source = createSource(kind, project.output, label, {
+        ...(device.deviceId ? { deviceId: device.deviceId } : {}),
+        ...(kind === 'camera' ? { captureAudioEnabled: cameraAudioEnabled, ...(selectedAudioDeviceId ? { audioDeviceId: selectedAudioDeviceId } : {}) } : {}),
+      });
       await attachRuntime(source, stream);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       addToActiveScene(source);
       setInputDevicePicker(null);
+      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Could not start ${kind === 'camera' ? 'camera' : 'microphone'}: ${friendlyError(error)}`);
@@ -777,20 +818,104 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     setWorking(true);
     setActionError('');
     let stream: MediaStream | null = null;
+    let audioError: unknown;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(inputCaptureConstraints(kind, deviceId, source));
+      const acquired = await getInputCaptureStream(kind, deviceId, source, source.captureAudioEnabled === true, source.audioDeviceId);
+      stream = acquired.stream;
+      audioError = acquired.audioError;
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       const label = stream.getTracks()[0]?.label || source.name;
       const nextSource = { ...source, name: label, deviceId };
       await attachRuntime(nextSource, stream);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       updateSource(getOriginSourceId(source), (current) => ({ ...current, name: label, deviceId }));
-      const devices = await listInputDevices(kind);
+      const devices = await listInputDevices(kind).catch(() => null);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
-      setInputDeviceOptions((current) => ({ ...current, [kind]: devices }));
+      if (devices) setInputDeviceOptions((current) => ({ ...current, [kind]: devices }));
+      if (kind === 'camera') {
+        const audioDevices = await listInputDevices('microphone').catch(() => null);
+        if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
+        if (audioDevices) setInputDeviceOptions((current) => ({ ...current, microphone: audioDevices }));
+      }
+      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Could not switch ${kind === 'camera' ? 'camera' : 'microphone'}: ${friendlyError(error)}`);
+    } finally { setWorking(false); }
+  };
+
+  const updateCameraAudioSettings = async (
+    source: StreamSource,
+    settings: Pick<StreamSource, 'captureAudioEnabled' | 'audioDeviceId'>,
+  ) => {
+    if (source.kind !== 'camera' || working) return;
+    const nextSource = { ...source, ...settings };
+    const runtimeId = toRuntimeSource(source).id;
+    const currentStream = runtimes.current.get(runtimeId);
+    const videoTracks = currentStream?.getVideoTracks().map((track) => track.clone()) ?? [];
+    if (videoTracks.length === 0) {
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, ...settings }));
+      return;
+    }
+    setWorking(true);
+    setActionError('');
+    const generation = captureSessionGeneration.current;
+    let nextStream = new MediaStream(videoTracks);
+    let audioError: unknown;
+    try {
+      if (settings.captureAudioEnabled) {
+        if (!settings.audioDeviceId) {
+          audioError = new Error('Select an audio input to capture camera sound.');
+        } else {
+          try {
+            const audioInput = await navigator.mediaDevices.getUserMedia(audioInputCaptureConstraints(settings.audioDeviceId));
+            const tracks = audioInput.getAudioTracks();
+            if (tracks.length === 0) {
+              audioInput.getTracks().forEach((track) => track.stop());
+              audioError = new Error('The selected audio input did not provide an audio track.');
+            } else {
+              nextStream = new MediaStream([...videoTracks, ...tracks]);
+            }
+          } catch (error) {
+            audioError = error;
+          }
+        }
+      }
+      if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
+      await attachRuntime(nextSource, nextStream);
+      if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, ...settings }));
+      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
+    } catch (error) {
+      nextStream.getTracks().forEach((track) => track.stop());
+      if (!isCaptureOperationCancelled(error)) setActionError(`Camera audio settings could not be changed: ${friendlyError(error)}`);
+    } finally { setWorking(false); }
+  };
+
+  const toggleDesktopCaptureAudio = async (source: StreamSource, enabled: boolean) => {
+    if ((source.kind !== 'display' && source.kind !== 'window') || working) return;
+    if (enabled) {
+      await openCapturePicker(source.kind === 'display' ? 'screen' : 'window', getOriginSourceId(source), true);
+      return;
+    }
+    const generation = captureSessionGeneration.current;
+    const runtimeId = toRuntimeSource(source).id;
+    const currentStream = runtimes.current.get(runtimeId);
+    const videoTracks = currentStream?.getVideoTracks().map((track) => track.clone()) ?? [];
+    const nextSource = { ...source, captureAudioEnabled: false };
+    if (videoTracks.length === 0) {
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, captureAudioEnabled: false }));
+      return;
+    }
+    setWorking(true);
+    const nextStream = new MediaStream(videoTracks);
+    try {
+      await attachRuntime(nextSource, nextStream);
+      if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
+      updateSource(getOriginSourceId(source), (current) => ({ ...current, captureAudioEnabled: false }));
+    } catch (error) {
+      nextStream.getTracks().forEach((track) => track.stop());
+      if (!isCaptureOperationCancelled(error)) setActionError(`System audio could not be disabled: ${friendlyError(error)}`);
     } finally { setWorking(false); }
   };
 
@@ -809,12 +934,16 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     const generation = captureSessionGeneration.current;
     setActionError('');
     let stream: MediaStream | null = null;
+    let audioError: unknown;
     try {
-      stream = await navigator.mediaDevices.getUserMedia(inputCaptureConstraints('camera', source.deviceId, nextSource));
+      const acquired = await getInputCaptureStream('camera', source.deviceId, nextSource, source.captureAudioEnabled === true, source.audioDeviceId);
+      stream = acquired.stream;
+      audioError = acquired.audioError;
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       await attachRuntime(nextSource, stream);
       if (generation !== captureSessionGeneration.current) throw new CaptureOperationCancelled();
       updateSource(getOriginSourceId(source), (current) => ({ ...current, ...settings }));
+      if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
     } catch (error) {
       stream?.getTracks().forEach((track) => track.stop());
       if (!isCaptureOperationCancelled(error)) setActionError(`Could not change camera settings: ${friendlyError(error)}`);
@@ -1034,12 +1163,12 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
 
   const inputRestoreSignature = JSON.stringify(allSources
     .filter((source) => activeSourceIds.has(source.id) && (source.kind === 'camera' || source.kind === 'microphone'))
-    .map((source) => ({ id: source.id, kind: source.kind as InputCaptureKind, deviceId: source.deviceId ?? '', name: source.name, inputDeviceRevision })));
+    .map((source) => ({ id: source.id, kind: source.kind as InputCaptureKind, deviceId: source.deviceId ?? '', captureAudioEnabled: source.captureAudioEnabled === true, audioDeviceId: source.audioDeviceId ?? '', name: source.name, inputDeviceRevision })));
 
   useEffect(() => {
     if (restoreBlockedProject.current && projectRef.current === restoreBlockedProject.current) return;
     restoreBlockedProject.current = null;
-    const sources = JSON.parse(inputRestoreSignature) as Array<{ id: string; kind: InputCaptureKind; deviceId: string; name: string; inputDeviceRevision: number }>;
+    const sources = JSON.parse(inputRestoreSignature) as Array<{ id: string; kind: InputCaptureKind; deviceId: string; captureAudioEnabled: boolean; audioDeviceId: string; name: string; inputDeviceRevision: number }>;
     for (const candidate of sources) {
       const source = allSources.find((item) => item.id === candidate.id);
       if (!source || runtimes.current.has(source.id)) continue;
@@ -1051,7 +1180,7 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
       inputRestoreAttempts.current.add(attemptKey);
       inputRestoreInFlight.current.add(inFlightKey);
       setSourceStatus(source.id, { state: 'starting' });
-      void navigator.mediaDevices.getUserMedia(inputCaptureConstraints(candidate.kind, candidate.deviceId || undefined, source)).then(async (stream) => {
+      void getInputCaptureStream(candidate.kind, candidate.deviceId || undefined, source, candidate.captureAudioEnabled, candidate.audioDeviceId || undefined).then(async ({ stream, audioError }) => {
         if (generation !== captureSessionGeneration.current) {
           stream.getTracks().forEach((track) => track.stop());
           return;
@@ -1063,9 +1192,15 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
         }
         await attachRuntime(source, stream);
         if (generation !== captureSessionGeneration.current) return;
-        const devices = await listInputDevices(candidate.kind);
+        if (audioError) setActionError(`Camera sound could not be captured. Video remains active: ${friendlyError(audioError)}`);
+        const devices = await listInputDevices(candidate.kind).catch(() => null);
         if (generation !== captureSessionGeneration.current) return;
-        setInputDeviceOptions((current) => ({ ...current, [candidate.kind]: devices }));
+        if (devices) setInputDeviceOptions((current) => ({ ...current, [candidate.kind]: devices }));
+        if (candidate.kind === 'camera') {
+          const audioDevices = await listInputDevices('microphone').catch(() => null);
+          if (generation !== captureSessionGeneration.current) return;
+          if (audioDevices) setInputDeviceOptions((current) => ({ ...current, microphone: audioDevices }));
+        }
       }).catch((error) => {
         if (generation !== captureSessionGeneration.current) return;
         if (!activeSourceIdsRef.current.has(source.id)
@@ -1110,6 +1245,8 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     setApplicationAudioOptions(null);
     setApplicationAudioTargetSourceId(null);
     setInputDevicePicker(null);
+    setCameraAudioEnabled(true);
+    setCameraAudioDeviceId('');
   };
 
   return {
@@ -1122,7 +1259,8 @@ export function useCapture(params: UseCaptureParams): UseCaptureResult {
     includeSystemAudio, setIncludeSystemAudio, captureCursorMode, setCaptureCursorMode, openCapturePicker, addDesktopCapture,
     applicationAudioOptions, applicationAudioTargetSourceId, setApplicationAudioOptions, setApplicationAudioTargetSourceId,
     openApplicationAudioPicker, addSystemAudioCapture, chooseAudioApplication,
-    inputDevicePicker, inputDeviceOptions, setInputDevicePicker, openInputDevicePicker, chooseInputDevice, switchInputDevice,
+    inputDevicePicker, inputDeviceOptions, cameraAudioEnabled, setCameraAudioEnabled, cameraAudioDeviceId, setCameraAudioDeviceId,
+    setInputDevicePicker, openInputDevicePicker, chooseInputDevice, switchInputDevice, updateCameraAudioSettings, toggleDesktopCaptureAudio,
     updateCameraCaptureSettings,
   };
 }

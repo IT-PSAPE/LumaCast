@@ -69,6 +69,13 @@ named scene-collection persistence, media imports, and recording-file writes.
 The renderer uses a typed `window.streamApi` bridge and renders scene layers
 into a canvas for preview, program output, and recording.
 
+Capture audio enablement and the selected camera audio device are part of
+resource identity. Staged audio-input changes therefore preserve Program's
+current capture until Transition. Camera video and audio are acquired separately;
+audio failure leaves the video track usable. Camera audio requires an explicit
+input or one unique input with the same reported device group. Window audio
+uses Windows system loopback and is labelled accordingly in the interface.
+
 Studio Mode keeps the persisted project as the editable draft and renders
 Program from a separate, session-only snapshot of the selected root scene, its
 recursively referenced scenes, source/audio configuration, and output

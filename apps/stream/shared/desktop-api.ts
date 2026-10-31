@@ -221,6 +221,10 @@ export interface StreamSource {
   applicationPath?: string;
   cursorMode?: CaptureCursorMode;
   deviceId?: string;
+  /** Whether a capture source should include its associated audio. */
+  captureAudioEnabled?: boolean;
+  /** Explicit audioinput selected for a camera source; never falls back to the default microphone. */
+  audioDeviceId?: string;
   cameraResolution?: CameraResolutionPreset;
   cameraFrameRate?: CameraFrameRatePreset;
   url?: string;
