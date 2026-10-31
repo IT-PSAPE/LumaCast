@@ -3,13 +3,50 @@ export type NdiSenderConfig = {
   width: number;
   height: number;
   withAlpha: boolean;
+  /** Optional rational frame rate. Omit both to preserve the existing 30000/1001 default. */
+  frameRateN?: number;
+  frameRateD?: number;
 };
+
+export type NdiSource = {
+  name: string;
+  urlAddress?: string;
+};
+
+export type NdiReceiverOptions = {
+  includeAudio?: boolean;
+  receiverName?: string;
+};
+
+export type NdiReceivedVideoFrame = {
+  kind: 'video';
+  width: number;
+  height: number;
+  stride: number;
+  frameRateN: number;
+  frameRateD: number;
+  /** BGRA pixels, bounded to 8,294,400 pixels (32 MiB). */
+  data: Uint8Array;
+};
+
+export type NdiReceivedAudioFrame = {
+  kind: 'audio';
+  sampleRate: number;
+  channels: number;
+  samplesPerChannel: number;
+  channelStrideBytes: number;
+  /** Planar Float32 data, with one contiguous channel after another. */
+  data: Float32Array;
+};
+
+export type NdiReceivedFrame = NdiReceivedVideoFrame | NdiReceivedAudioFrame;
 
 export type NdiRuntimeInfo = {
   loaded: boolean;
   path: string | null;
   asyncVideoSend: boolean;
   audioSend: boolean;
+  receive: boolean;
 };
 
 export type NdiAddonInfo = {
@@ -17,6 +54,18 @@ export type NdiAddonInfo = {
 };
 
 export function initializeSender(config: NdiSenderConfig): void;
+
+/** Discover the sources currently visible to NDI-FIND, waiting no longer than timeoutMs. */
+export function discoverSources(timeoutMs?: number): Promise<NdiSource[]>;
+
+/** Create an NDI receive instance for a previously discovered source. */
+export function createReceiver(source: NdiSource, options?: NdiReceiverOptions): Promise<string>;
+
+/** Capture one video or audio frame without blocking the JavaScript thread. */
+export function receiveFrame(receiverId: string, timeoutMs?: number): Promise<NdiReceivedFrame | null>;
+
+/** Destroy a receive instance. Any current receive operation is allowed to finish first. */
+export function destroyReceiver(receiverId: string): Promise<void>;
 
 export function sendBgraFrame(senderName: string, frame: Uint8Array, width: number, height: number, stride: number): void;
 

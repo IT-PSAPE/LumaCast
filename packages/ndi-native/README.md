@@ -1,6 +1,6 @@
 # @lumacast/ndi-native
 
-Native Node-API bridge for sending renderer paint frames over NDI.
+Native Node-API bridge for sending renderer paint frames and receiving NDI sources.
 
 ## Build
 
@@ -32,13 +32,21 @@ Typical library names searched:
 
 ## API
 
-- `initializeSender({ senderName, width, height, withAlpha })`
+- `initializeSender({ senderName, width, height, withAlpha, frameRateN?, frameRateD? })`
 - `sendBgraFrame(senderName, frame, width, height, stride)`
 - `getSenderConnections(senderName, timeoutMs?)`
 - `destroySender(senderName?)`
+- `discoverSources(timeoutMs?)`
+- `createReceiver({ name, urlAddress? }, { includeAudio?, receiverName? })`
+- `receiveFrame(receiverId, timeoutMs?)`
+- `destroyReceiver(receiverId)`
 
 - `sendBgraFrame` accepts BGRA bitmap order.
 - `sendRgbaFrame` accepts RGBA bitmap order and sends RGBA or RGBX frames so the renderer's byte layout stays intact.
 - When alpha is disabled, the bridge normalizes the fourth byte to opaque `255` before NDI send.
 - When the installed NDI runtime exposes `NDIlib_send_send_video_async_v2`, frame submission uses the async send path with the addon's ping-pong buffers and falls back to synchronous send otherwise.
 - Audio frames enter a bounded, lossless FIFO per sender and are submitted from a dedicated native thread. Web Audio keeps supplying the sample clock while NDI synthesizes A/V timecodes; native audio and video clocking remain disabled so the new thread does not add a second timing source.
+- Sender frame rate defaults to `30000/1001`; Stream can provide a positive rational rate from 1 to 120 fps for program output. Both rate fields must be supplied together.
+- Discovery and receive calls run on Node-API workers. Receive waits are capped at 100 ms, copied video is limited to 8,294,400 pixels and returned as tightly packed BGRA, and planar FLTP audio is copied into a `Float32Array`.
+- Discovery collects source announcements for the requested time budget (up to 5 seconds); `0` requests an immediate snapshot. It does not stop on the first source update.
+- Source discovery and receiver creation require the corresponding optional functions in the installed NDI runtime; `getRuntimeInfo().receive` reports whether the core receive symbols are available.

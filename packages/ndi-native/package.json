@@ -2,7 +2,7 @@
   "name": "@lumacast/ndi-native",
   "version": "0.1.0",
   "private": true,
-  "description": "Native NDI sender bridge for LumaCast",
+  "description": "Native NDI sender and receiver bridge for LumaCast",
   "main": "index.js",
   "types": "index.d.ts",
   "gypfile": false,
@@ -11,9 +11,10 @@
     "clean": "node-gyp clean",
     "rebuild": "npm run clean && npm run build",
     "build:mock-ndi": "node ../../tests/packages/ndi-native/build-mock-runtime.mjs",
+    "test:loopback": "node ../../tests/packages/ndi-native/real-loopback.node-test.mjs",
     "test:gpu-pixel-copy": "node ../../tests/packages/ndi-native/run-gpu-pixel-copy-test.mjs",
     "test:gpu-texture": "node ../../tests/packages/ndi-native/run-gpu-texture-test.mjs",
-    "test": "npm run build:mock-ndi && node ../../tests/packages/ndi-native/run-pacing-test.mjs && npm run test:gpu-pixel-copy"
+    "test": "npm run build && npm run build:mock-ndi && node ../../tests/packages/ndi-native/run-pacing-test.mjs && node ../../tests/packages/ndi-native/receive.node-test.mjs && npm run test:gpu-pixel-copy"
   },
   "dependencies": {
     "node-addon-api": "^8.3.1"

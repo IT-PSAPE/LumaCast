@@ -19,6 +19,7 @@
 #include <thread>
 #include <chrono>
 #include <cmath>
+#include <atomic>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -39,6 +40,8 @@ constexpr size_t kMaxVideoFrameBytes = static_cast<size_t>(1920) * static_cast<s
 // senders are created with clock_video disabled so the host drives timing.
 constexpr int32_t kVideoFrameRateN = 30000;
 constexpr int32_t kVideoFrameRateD = 1001;
+constexpr int32_t kMaxVideoFrameRateN = 240000;
+constexpr int32_t kMaxVideoFrameRateD = 10000;
 constexpr bool kSenderClockVideo = false;
 // Preserve the existing audio timing contract: Web Audio supplies samples at
 // the device clock and NDI synthesizes matching timecodes. The worker isolates
@@ -48,6 +51,9 @@ constexpr bool kSenderClockAudio = false;
 // fills the queue, the utility host applies backpressure until the audio worker
 // catches up. At 1024 samples/48 kHz this holds about 170 ms.
 constexpr size_t kMaxQueuedAudioFrames = 8U;
+constexpr size_t kMaxReceivePixels = 8294400U;
+constexpr size_t kMaxReceiveAudioSamples = 1048576U;
+constexpr uint32_t kMaxReceiveTimeoutMs = 100U;
 
 constexpr uint32_t MakeFourCC(char a, char b, char c, char d) {
   return static_cast<uint32_t>(static_cast<uint8_t>(a)) |
@@ -88,6 +94,37 @@ struct NDIlib_tally_t {
   bool on_preview;
 };
 
+struct NDIlib_source_t {
+  const char* p_ndi_name;
+  const char* p_url_address;
+};
+
+struct NDIlib_find_create_t {
+  bool show_local_sources;
+  const char* p_groups;
+  const char* p_extra_ips;
+};
+
+struct NDIlib_recv_create_v3_t {
+  NDIlib_source_t source_to_connect_to;
+  int32_t color_format;
+  int32_t bandwidth;
+  bool allow_video_fields;
+  const char* p_ndi_name;
+};
+
+struct NDIlib_audio_frame_v3_t {
+  int32_t sample_rate;
+  int32_t no_channels;
+  int32_t no_samples;
+  int64_t timecode;
+  uint32_t FourCC;
+  uint8_t* p_data;
+  int32_t channel_stride_in_bytes;
+  const char* p_metadata;
+  int64_t timestamp;
+};
+
 // Planar 32-bit float audio. Channels are stored back-to-back: channel 0's
 // samples first, then channel 1's, separated by channel_stride_in_bytes.
 struct NDIlib_audio_frame_v2_t {
@@ -112,6 +149,27 @@ using FnNdiSendVideoAsyncV2 = void (*)(NDIlib_send_instance_t, const NDIlib_vide
 using FnNdiSendAudioV2 = void (*)(NDIlib_send_instance_t, const NDIlib_audio_frame_v2_t*);
 using FnNdiSendGetNoConnections = int32_t (*)(NDIlib_send_instance_t, uint32_t);
 using FnNdiSendGetTally = bool (*)(NDIlib_send_instance_t, NDIlib_tally_t*, uint32_t);
+using NDIlib_find_instance_t = void*;
+using NDIlib_recv_instance_t = void*;
+using FnNdiFindCreate = NDIlib_find_instance_t (*)(const NDIlib_find_create_t*);
+using FnNdiFindDestroy = void (*)(NDIlib_find_instance_t);
+using FnNdiFindWaitForSources = bool (*)(NDIlib_find_instance_t, uint32_t);
+using FnNdiFindGetCurrentSources = const NDIlib_source_t* (*)(NDIlib_find_instance_t, uint32_t*);
+using FnNdiRecvCreate = NDIlib_recv_instance_t (*)(const NDIlib_recv_create_v3_t*);
+using FnNdiRecvDestroy = void (*)(NDIlib_recv_instance_t);
+using FnNdiRecvCapture = int32_t (*)(NDIlib_recv_instance_t, NDIlib_video_frame_v2_t*, NDIlib_audio_frame_v3_t*, void*, uint32_t);
+using FnNdiRecvFreeVideo = void (*)(NDIlib_recv_instance_t, const NDIlib_video_frame_v2_t*);
+using FnNdiRecvFreeAudio = void (*)(NDIlib_recv_instance_t, const NDIlib_audio_frame_v3_t*);
+
+constexpr int32_t kNdiFrameTypeNone = 0;
+constexpr int32_t kNdiFrameTypeVideo = 1;
+constexpr int32_t kNdiFrameTypeAudio = 2;
+constexpr int32_t kNdiFrameTypeMetadata = 3;
+constexpr int32_t kNdiFrameTypeError = 4;
+constexpr int32_t kNdiFrameTypeStatusChange = 100;
+constexpr int32_t kNdiRecvColorFormatBgrxBgra = 0;
+constexpr int32_t kNdiRecvBandwidthHighest = 100;
+constexpr uint32_t kFourCCFltp = MakeFourCC('F', 'L', 'T', 'p');
 
 struct NdiSymbols {
   FnNdiInitialize initialize = nullptr;
@@ -123,6 +181,15 @@ struct NdiSymbols {
   FnNdiSendAudioV2 sendAudioV2 = nullptr;
   FnNdiSendGetNoConnections sendGetNoConnections = nullptr;
   FnNdiSendGetTally sendGetTally = nullptr;
+  FnNdiFindCreate findCreate = nullptr;
+  FnNdiFindDestroy findDestroy = nullptr;
+  FnNdiFindWaitForSources findWaitForSources = nullptr;
+  FnNdiFindGetCurrentSources findGetCurrentSources = nullptr;
+  FnNdiRecvCreate recvCreate = nullptr;
+  FnNdiRecvDestroy recvDestroy = nullptr;
+  FnNdiRecvCapture recvCapture = nullptr;
+  FnNdiRecvFreeVideo recvFreeVideo = nullptr;
+  FnNdiRecvFreeAudio recvFreeAudio = nullptr;
 };
 
 struct QueuedAudioFrame {
@@ -305,6 +372,8 @@ struct SenderInstance {
   NDIlib_send_instance_t sender = nullptr;
   int32_t width = 0;
   int32_t height = 0;
+  int32_t frameRateN = kVideoFrameRateN;
+  int32_t frameRateD = kVideoFrameRateD;
   bool withAlpha = true;
   std::vector<uint8_t> bgraScratch[kDoubleBufferCount];
   int currentBuffer = 0;
@@ -315,6 +384,17 @@ struct SenderInstance {
   ndi_gpu::Pixels gpuLastFrame{};
 };
 
+struct ReceiverInstance {
+  NDIlib_recv_instance_t receiver = nullptr;
+  bool includeAudio = true;
+  FnNdiRecvDestroy recvDestroy = nullptr;
+  FnNdiRecvCapture recvCapture = nullptr;
+  FnNdiRecvFreeVideo recvFreeVideo = nullptr;
+  FnNdiRecvFreeAudio recvFreeAudio = nullptr;
+  std::atomic<bool> closing{false};
+  std::mutex captureMutex;
+};
+
 struct SenderState {
   bool runtimeLoaded = false;
   bool ndiInitialized = false;
@@ -322,6 +402,10 @@ struct SenderState {
   DynamicLibrary runtime;
   NdiSymbols symbols;
   std::unordered_map<std::string, SenderInstance> senders;
+  std::unordered_map<std::string, std::shared_ptr<ReceiverInstance>> receivers;
+  uint64_t nextReceiverId = 0;
+  uint64_t receiverShutdownGeneration = 0;
+  size_t activeAsyncWorkers = 0;
   std::mutex mutex;
   uint64_t nextGeneration = 0;
 };
@@ -387,7 +471,9 @@ std::vector<std::string> BuildRuntimeCandidates() {
 #ifdef _WIN32
   AddCandidateIfMissing(&candidates, fileName);
   AddCandidateIfMissing(&candidates, "C:\\Program Files\\NDI\\NDI 6 Runtime\\" + std::string(fileName));
+  AddCandidateIfMissing(&candidates, "C:\\Program Files\\NDI\\NDI 6 Runtime\\v6\\" + std::string(fileName));
   AddCandidateIfMissing(&candidates, "C:\\Program Files\\NDI\\NDI 5 Runtime\\" + std::string(fileName));
+  AddCandidateIfMissing(&candidates, "C:\\Program Files\\NDI\\NDI 5 Runtime\\v5\\" + std::string(fileName));
 #elif __APPLE__
   AddCandidateIfMissing(&candidates, fileName);
   AddCandidateIfMissing(&candidates, advancedFileName);
@@ -496,6 +582,24 @@ void LoadRuntimeIfNeeded(SenderState& state) {
       ResolveOptional<FnNdiSendGetNoConnections>(state.runtime, "NDIlib_send_get_no_connections");
   state.symbols.sendGetTally =
       ResolveOptional<FnNdiSendGetTally>(state.runtime, "NDIlib_send_get_tally");
+  state.symbols.findCreate =
+      ResolveOptional<FnNdiFindCreate>(state.runtime, "NDIlib_find_create_v2");
+  state.symbols.findDestroy =
+      ResolveOptional<FnNdiFindDestroy>(state.runtime, "NDIlib_find_destroy");
+  state.symbols.findWaitForSources =
+      ResolveOptional<FnNdiFindWaitForSources>(state.runtime, "NDIlib_find_wait_for_sources");
+  state.symbols.findGetCurrentSources =
+      ResolveOptional<FnNdiFindGetCurrentSources>(state.runtime, "NDIlib_find_get_current_sources");
+  state.symbols.recvCreate =
+      ResolveOptional<FnNdiRecvCreate>(state.runtime, "NDIlib_recv_create_v3");
+  state.symbols.recvDestroy =
+      ResolveOptional<FnNdiRecvDestroy>(state.runtime, "NDIlib_recv_destroy");
+  state.symbols.recvCapture =
+      ResolveOptional<FnNdiRecvCapture>(state.runtime, "NDIlib_recv_capture_v3");
+  state.symbols.recvFreeVideo =
+      ResolveOptional<FnNdiRecvFreeVideo>(state.runtime, "NDIlib_recv_free_video_v2");
+  state.symbols.recvFreeAudio =
+      ResolveOptional<FnNdiRecvFreeAudio>(state.runtime, "NDIlib_recv_free_audio_v3");
 
   state.runtimeLoaded = true;
 }
@@ -540,8 +644,8 @@ void DestroySenderInstanceUnlocked(SenderState& state, SenderInstance* sender) {
         frame.xres = sender->width;
         frame.yres = sender->height;
         frame.FourCC = kFourCCBgrx;
-        frame.frame_rate_N = kVideoFrameRateN;
-        frame.frame_rate_D = kVideoFrameRateD;
+        frame.frame_rate_N = sender->frameRateN;
+        frame.frame_rate_D = sender->frameRateD;
         frame.picture_aspect_ratio =
             static_cast<float>(sender->width) / static_cast<float>(sender->height);
         frame.frame_format_type = kFrameFormatProgressive;
@@ -588,8 +692,25 @@ void DestroyAllSendersUnlocked(SenderState& state) {
   state.senders.clear();
 }
 
+void DestroyReceiverInstanceUnlocked(SenderState& state, const std::shared_ptr<ReceiverInstance>& receiver) {
+  if (!receiver) return;
+  receiver->closing.store(true);
+  std::lock_guard<std::mutex> guard(receiver->captureMutex);
+  if (receiver->receiver && receiver->recvDestroy) {
+    receiver->recvDestroy(receiver->receiver);
+  }
+  receiver->receiver = nullptr;
+}
+
+void DestroyAllReceiversUnlocked(SenderState& state) {
+  for (const auto& entry : state.receivers) DestroyReceiverInstanceUnlocked(state, entry.second);
+  state.receivers.clear();
+}
+
 void ShutdownRuntimeUnlocked(SenderState& state) {
   DestroyAllSendersUnlocked(state);
+  DestroyAllReceiversUnlocked(state);
+  if (state.activeAsyncWorkers > 0) return;
 
   if (state.ndiInitialized && state.symbols.destroy != nullptr) {
     state.symbols.destroy();
@@ -602,18 +723,28 @@ void ShutdownRuntimeUnlocked(SenderState& state) {
   state.symbols = NdiSymbols{};
 }
 
+void MaybeShutdownRuntimeUnlocked(SenderState& state) {
+  if (state.senders.empty() && state.receivers.empty() && state.activeAsyncWorkers == 0) {
+    ShutdownRuntimeUnlocked(state);
+  }
+}
+
 void EnsureSender(SenderState& state,
                   const std::string& senderName,
                   int32_t width,
                   int32_t height,
-                  bool withAlpha) {
+                  bool withAlpha,
+                  int32_t frameRateN,
+                  int32_t frameRateD) {
   LoadRuntimeIfNeeded(state);
   InitializeNdiIfNeeded(state);
 
   auto existing = state.senders.find(senderName);
   if (existing != state.senders.end()) {
     const SenderInstance& sender = existing->second;
-    if (sender.sender != nullptr && sender.width == width && sender.height == height && sender.withAlpha == withAlpha) {
+    if (sender.sender != nullptr && sender.width == width && sender.height == height
+        && sender.withAlpha == withAlpha && sender.frameRateN == frameRateN
+        && sender.frameRateD == frameRateD) {
       return;
     }
 
@@ -636,6 +767,8 @@ void EnsureSender(SenderState& state,
   instance.sender = sender;
   instance.width = width;
   instance.height = height;
+  instance.frameRateN = frameRateN;
+  instance.frameRateD = frameRateD;
   instance.withAlpha = withAlpha;
   instance.generation = ++state.nextGeneration;
 
@@ -748,8 +881,8 @@ class GpuFrameWorker final : public Napi::AsyncWorker {
       frame.xres = sender.width;
       frame.yres = sender.height;
       frame.FourCC = pixels.fourCC;
-      frame.frame_rate_N = kVideoFrameRateN;
-      frame.frame_rate_D = kVideoFrameRateD;
+      frame.frame_rate_N = sender.frameRateN;
+      frame.frame_rate_D = sender.frameRateD;
       frame.picture_aspect_ratio = static_cast<float>(sender.width) / sender.height;
       frame.frame_format_type = kFrameFormatProgressive;
       frame.timecode = kTimecodeSynthesize;
@@ -788,6 +921,629 @@ class GpuFrameWorker final : public Napi::AsyncWorker {
   double conversionMs_ = 0, sendMs_ = 0;
   size_t frameBytes_ = 0;
 };
+
+struct DiscoveredSource {
+  std::string name;
+  std::string urlAddress;
+};
+
+class DiscoverSourcesWorker final : public Napi::AsyncWorker {
+ public:
+  DiscoverSourcesWorker(Napi::Env env, uint32_t timeoutMs)
+      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)), timeoutMs_(timeoutMs) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    try {
+      auto& state = State();
+      NdiSymbols symbols;
+      {
+        std::lock_guard<std::mutex> guard(state.mutex);
+        LoadRuntimeIfNeeded(state);
+        InitializeNdiIfNeeded(state);
+        symbols = state.symbols;
+      }
+      if (!symbols.findCreate || !symbols.findDestroy || !symbols.findWaitForSources || !symbols.findGetCurrentSources) {
+        throw std::runtime_error("NDI source discovery is unavailable in the installed runtime.");
+      }
+      NDIlib_find_create_t settings{};
+      settings.show_local_sources = true;
+      NDIlib_find_instance_t finder = symbols.findCreate(&settings);
+      if (!finder) throw std::runtime_error("NDIlib_find_create_v2 failed.");
+      try {
+        if (timeoutMs_ > 0) {
+          // NDI wakes on each source-set change; keep this finder alive through the full budget.
+          const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs_);
+          while (true) {
+            const auto remaining = deadline - std::chrono::steady_clock::now();
+            if (remaining <= std::chrono::steady_clock::duration::zero()) break;
+
+            const auto remainingMs = std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count();
+            const uint32_t waitMs = static_cast<uint32_t>(std::max<int64_t>(1, remainingMs));
+            if (!symbols.findWaitForSources(finder, waitMs)) break;
+          }
+        }
+        uint32_t count = 0;
+        const NDIlib_source_t* current = symbols.findGetCurrentSources(finder, &count);
+        const uint32_t boundedCount = std::min<uint32_t>(count, 4096U);
+        if (current) {
+          sources_.reserve(boundedCount);
+          for (uint32_t index = 0; index < boundedCount; ++index) {
+            const char* name = current[index].p_ndi_name;
+            if (!name || !name[0]) continue;
+            DiscoveredSource source;
+            source.name = name;
+            if (source.name.size() > 2048) continue;
+            if (current[index].p_url_address) {
+              source.urlAddress = current[index].p_url_address;
+              if (source.urlAddress.size() > 2048) source.urlAddress.clear();
+            }
+            sources_.push_back(std::move(source));
+          }
+        }
+      } catch (...) {
+        symbols.findDestroy(finder);
+        throw;
+      }
+      symbols.findDestroy(finder);
+    } catch (const std::exception& error) {
+      SetError(error.what());
+    } catch (...) {
+      SetError("NDI source discovery failed.");
+    }
+  }
+
+  void OnOK() override {
+    FinishOperation();
+    Napi::Array sources = Napi::Array::New(Env(), sources_.size());
+    for (size_t index = 0; index < sources_.size(); ++index) {
+      Napi::Object source = Napi::Object::New(Env());
+      source.Set("name", Napi::String::New(Env(), sources_[index].name));
+      if (!sources_[index].urlAddress.empty()) {
+        source.Set("urlAddress", Napi::String::New(Env(), sources_[index].urlAddress));
+      }
+      sources.Set(static_cast<uint32_t>(index), source);
+    }
+    deferred_.Resolve(sources);
+  }
+
+  void OnError(const Napi::Error& error) override {
+    FinishOperation();
+    deferred_.Reject(error.Value());
+  }
+
+ private:
+  void FinishOperation() {
+    if (finished_) return;
+    finished_ = true;
+    auto& state = State();
+    std::lock_guard<std::mutex> guard(state.mutex);
+    if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+    MaybeShutdownRuntimeUnlocked(state);
+  }
+
+  Napi::Promise::Deferred deferred_;
+  uint32_t timeoutMs_;
+  std::vector<DiscoveredSource> sources_;
+  bool finished_ = false;
+};
+
+class CreateReceiverWorker final : public Napi::AsyncWorker {
+ public:
+  CreateReceiverWorker(Napi::Env env, std::string id, std::string sourceName,
+                       std::string urlAddress, std::string receiverName,
+                       bool includeAudio, uint64_t shutdownGeneration)
+      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
+        id_(std::move(id)), sourceName_(std::move(sourceName)),
+        urlAddress_(std::move(urlAddress)), receiverName_(std::move(receiverName)),
+        includeAudio_(includeAudio), shutdownGeneration_(shutdownGeneration) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    try {
+      auto& state = State();
+      NdiSymbols symbols;
+      {
+        std::lock_guard<std::mutex> guard(state.mutex);
+        if (state.receiverShutdownGeneration != shutdownGeneration_) {
+          throw std::runtime_error("NDI receiver creation was cancelled.");
+        }
+        LoadRuntimeIfNeeded(state);
+        InitializeNdiIfNeeded(state);
+        symbols = state.symbols;
+      }
+      if (!symbols.recvCreate || !symbols.recvDestroy || !symbols.recvCapture
+          || !symbols.recvFreeVideo || (includeAudio_ && !symbols.recvFreeAudio)) {
+        throw std::runtime_error("NDI receiving is unavailable in the installed runtime.");
+      }
+      NDIlib_recv_create_v3_t settings{};
+      settings.source_to_connect_to.p_ndi_name = sourceName_.c_str();
+      settings.source_to_connect_to.p_url_address = urlAddress_.empty() ? nullptr : urlAddress_.c_str();
+      settings.color_format = kNdiRecvColorFormatBgrxBgra;
+      settings.bandwidth = kNdiRecvBandwidthHighest;
+      settings.allow_video_fields = false;
+      settings.p_ndi_name = receiverName_.c_str();
+      const NDIlib_recv_instance_t nativeReceiver = symbols.recvCreate(&settings);
+      if (!nativeReceiver) throw std::runtime_error("NDIlib_recv_create_v3 failed.");
+      receiver_ = std::make_shared<ReceiverInstance>();
+      receiver_->receiver = nativeReceiver;
+      receiver_->includeAudio = includeAudio_;
+      receiver_->recvDestroy = symbols.recvDestroy;
+      receiver_->recvCapture = symbols.recvCapture;
+      receiver_->recvFreeVideo = symbols.recvFreeVideo;
+      receiver_->recvFreeAudio = symbols.recvFreeAudio;
+    } catch (const std::exception& error) {
+      SetError(error.what());
+    } catch (...) {
+      SetError("NDI receiver could not be created.");
+    }
+  }
+
+  void OnOK() override {
+    auto& state = State();
+    bool accepted = false;
+    {
+      std::lock_guard<std::mutex> guard(state.mutex);
+      if (state.receiverShutdownGeneration == shutdownGeneration_ && receiver_ && receiver_->receiver) {
+        state.receivers.emplace(id_, receiver_);
+        accepted = true;
+      } else if (receiver_) {
+        DestroyReceiverInstanceUnlocked(state, receiver_);
+      }
+      if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+      MaybeShutdownRuntimeUnlocked(state);
+    }
+    finished_ = true;
+    if (accepted) deferred_.Resolve(Napi::String::New(Env(), id_));
+    else deferred_.Reject(Napi::Error::New(Env(), "NDI receiver creation was cancelled.").Value());
+  }
+
+  void OnError(const Napi::Error& error) override {
+    auto& state = State();
+    {
+      std::lock_guard<std::mutex> guard(state.mutex);
+      if (receiver_) DestroyReceiverInstanceUnlocked(state, receiver_);
+      if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+      MaybeShutdownRuntimeUnlocked(state);
+    }
+    finished_ = true;
+    deferred_.Reject(error.Value());
+  }
+
+ private:
+  Napi::Promise::Deferred deferred_;
+  std::string id_;
+  std::string sourceName_;
+  std::string urlAddress_;
+  std::string receiverName_;
+  bool includeAudio_;
+  uint64_t shutdownGeneration_;
+  std::shared_ptr<ReceiverInstance> receiver_;
+  bool finished_ = false;
+};
+
+struct CapturedFrame {
+  enum class Kind { None, Video, Audio } kind = Kind::None;
+  int32_t width = 0;
+  int32_t height = 0;
+  int32_t stride = 0;
+  int32_t frameRateN = 0;
+  int32_t frameRateD = 0;
+  int32_t sampleRate = 0;
+  int32_t channels = 0;
+  int32_t samplesPerChannel = 0;
+  int32_t channelStrideBytes = 0;
+  std::vector<uint8_t> video;
+  std::vector<float> audio;
+};
+
+class ReceiveFrameWorker final : public Napi::AsyncWorker {
+ public:
+  ReceiveFrameWorker(Napi::Env env, std::shared_ptr<ReceiverInstance> receiver, uint32_t timeoutMs)
+      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)),
+        receiver_(std::move(receiver)), timeoutMs_(timeoutMs) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    try {
+      std::lock_guard<std::mutex> guard(receiver_->captureMutex);
+      if (receiver_->closing.load() || !receiver_->receiver) return;
+      NDIlib_video_frame_v2_t video{};
+      NDIlib_audio_frame_v3_t audio{};
+      const int32_t frameType = receiver_->recvCapture(
+          receiver_->receiver, &video, receiver_->includeAudio ? &audio : nullptr, nullptr, timeoutMs_);
+      if (frameType == kNdiFrameTypeVideo) {
+        struct VideoFrameGuard {
+          ReceiverInstance& receiver;
+          NDIlib_video_frame_v2_t& frame;
+          ~VideoFrameGuard() { receiver.recvFreeVideo(receiver.receiver, &frame); }
+        } frameGuard{*receiver_, video};
+        if (!video.p_data || video.xres <= 0 || video.yres <= 0
+            || video.frame_rate_N <= 0 || video.frame_rate_D <= 0) {
+          throw std::runtime_error("NDI source returned invalid video frame metadata.");
+        }
+        const int64_t pixels = static_cast<int64_t>(video.xres) * video.yres;
+        if (pixels <= 0 || static_cast<uint64_t>(pixels) > kMaxReceivePixels) {
+          throw std::runtime_error("NDI video frame exceeds the 8.3 megapixel receive limit.");
+        }
+        const int64_t rowBytes = static_cast<int64_t>(video.xres) * 4;
+        if (rowBytes > INT32_MAX || video.line_stride_in_bytes < rowBytes) {
+          throw std::runtime_error("NDI video frame has an invalid row stride.");
+        }
+        const int64_t frameBytes = rowBytes * video.yres;
+        if (frameBytes <= 0 || static_cast<uint64_t>(frameBytes) > kMaxReceivePixels * 4U) {
+          throw std::runtime_error("NDI video frame exceeds the 8.3 megapixel receive limit.");
+        }
+        if (video.FourCC != kFourCCBgra && video.FourCC != kFourCCBgrx) {
+          throw std::runtime_error("NDI source returned a video pixel format other than BGRA/BGRX.");
+        }
+        frame_.kind = CapturedFrame::Kind::Video;
+        frame_.width = video.xres;
+        frame_.height = video.yres;
+        frame_.stride = static_cast<int32_t>(rowBytes);
+        frame_.frameRateN = video.frame_rate_N;
+        frame_.frameRateD = video.frame_rate_D;
+        frame_.video.resize(static_cast<size_t>(frameBytes));
+        for (int32_t y = 0; y < video.yres; ++y) {
+          uint8_t* destination = frame_.video.data() + static_cast<size_t>(y) * static_cast<size_t>(rowBytes);
+          std::memcpy(destination,
+                      video.p_data + static_cast<size_t>(y) * static_cast<size_t>(video.line_stride_in_bytes),
+                      static_cast<size_t>(rowBytes));
+          if (video.FourCC == kFourCCBgrx) {
+            for (int32_t x = 0; x < video.xres; ++x) {
+              destination[static_cast<size_t>(x) * 4U + 3U] = 255;
+            }
+          }
+        }
+      } else if (frameType == kNdiFrameTypeAudio) {
+        struct AudioFrameGuard {
+          ReceiverInstance& receiver;
+          NDIlib_audio_frame_v3_t& frame;
+          ~AudioFrameGuard() { receiver.recvFreeAudio(receiver.receiver, &frame); }
+        } frameGuard{*receiver_, audio};
+        if (!audio.p_data || audio.FourCC != kFourCCFltp || audio.sample_rate <= 0
+            || audio.sample_rate > 384000 || audio.no_channels <= 0 || audio.no_channels > 64
+            || audio.no_samples <= 0) {
+          throw std::runtime_error("NDI source returned invalid audio frame metadata.");
+        }
+        const uint64_t totalSamples = static_cast<uint64_t>(audio.no_channels) * static_cast<uint64_t>(audio.no_samples);
+        const int64_t bytesPerChannel = static_cast<int64_t>(audio.no_samples) * static_cast<int64_t>(sizeof(float));
+        const int64_t sourceBytes = static_cast<int64_t>(audio.channel_stride_in_bytes) * audio.no_channels;
+        if (totalSamples == 0 || totalSamples > kMaxReceiveAudioSamples
+            || bytesPerChannel <= 0 || audio.channel_stride_in_bytes < bytesPerChannel
+            || sourceBytes <= 0 || sourceBytes > 8 * 1024 * 1024) {
+          throw std::runtime_error("NDI audio frame exceeds the bounded receive limit.");
+        }
+        frame_.kind = CapturedFrame::Kind::Audio;
+        frame_.sampleRate = audio.sample_rate;
+        frame_.channels = audio.no_channels;
+        frame_.samplesPerChannel = audio.no_samples;
+        frame_.channelStrideBytes = static_cast<int32_t>(bytesPerChannel);
+        frame_.audio.resize(static_cast<size_t>(totalSamples));
+        for (int32_t channel = 0; channel < audio.no_channels; ++channel) {
+          const uint8_t* source = audio.p_data + static_cast<size_t>(channel) * static_cast<size_t>(audio.channel_stride_in_bytes);
+          float* destination = frame_.audio.data() + static_cast<size_t>(channel) * static_cast<size_t>(audio.no_samples);
+          std::memcpy(destination, source, static_cast<size_t>(bytesPerChannel));
+        }
+      } else if (frameType == kNdiFrameTypeError) {
+        throw std::runtime_error("NDI receiver lost its connection to the source.");
+      } else if (frameType != kNdiFrameTypeNone && frameType != kNdiFrameTypeMetadata
+                 && frameType < kNdiFrameTypeStatusChange) {
+        throw std::runtime_error("NDI receiver returned an unknown frame type (" + std::to_string(frameType) + ").");
+      }
+    } catch (const std::exception& error) {
+      SetError(error.what());
+    } catch (...) {
+      SetError("NDI frame capture failed.");
+    }
+  }
+
+  void OnOK() override {
+    FinishOperation();
+    if (frame_.kind == CapturedFrame::Kind::None) {
+      deferred_.Resolve(Env().Null());
+      return;
+    }
+    Napi::Object result = Napi::Object::New(Env());
+    if (frame_.kind == CapturedFrame::Kind::Video) {
+      result.Set("kind", "video");
+      result.Set("width", frame_.width);
+      result.Set("height", frame_.height);
+      result.Set("stride", frame_.stride);
+      result.Set("frameRateN", frame_.frameRateN);
+      result.Set("frameRateD", frame_.frameRateD);
+      Napi::Uint8Array data = Napi::Uint8Array::New(Env(), frame_.video.size());
+      std::memcpy(data.Data(), frame_.video.data(), frame_.video.size());
+      result.Set("data", data);
+    } else {
+      result.Set("kind", "audio");
+      result.Set("sampleRate", frame_.sampleRate);
+      result.Set("channels", frame_.channels);
+      result.Set("samplesPerChannel", frame_.samplesPerChannel);
+      result.Set("channelStrideBytes", frame_.channelStrideBytes);
+      Napi::Float32Array data = Napi::Float32Array::New(Env(), frame_.audio.size());
+      std::memcpy(data.Data(), frame_.audio.data(), frame_.audio.size() * sizeof(float));
+      result.Set("data", data);
+    }
+    deferred_.Resolve(result);
+  }
+
+  void OnError(const Napi::Error& error) override {
+    FinishOperation();
+    deferred_.Reject(error.Value());
+  }
+
+ private:
+  void FinishOperation() {
+    if (finished_) return;
+    finished_ = true;
+    auto& state = State();
+    std::lock_guard<std::mutex> guard(state.mutex);
+    if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+    MaybeShutdownRuntimeUnlocked(state);
+  }
+
+  Napi::Promise::Deferred deferred_;
+  std::shared_ptr<ReceiverInstance> receiver_;
+  uint32_t timeoutMs_;
+  CapturedFrame frame_;
+  bool finished_ = false;
+};
+
+class DestroyReceiverWorker final : public Napi::AsyncWorker {
+ public:
+  DestroyReceiverWorker(Napi::Env env, std::shared_ptr<ReceiverInstance> receiver)
+      : Napi::AsyncWorker(env), deferred_(Napi::Promise::Deferred::New(env)), receiver_(std::move(receiver)) {}
+
+  Napi::Promise Promise() { return deferred_.Promise(); }
+
+  void Execute() override {
+    std::lock_guard<std::mutex> guard(receiver_->captureMutex);
+    if (receiver_->receiver && receiver_->recvDestroy) receiver_->recvDestroy(receiver_->receiver);
+    receiver_->receiver = nullptr;
+  }
+
+  void OnOK() override {
+    FinishOperation();
+    deferred_.Resolve(Env().Undefined());
+  }
+
+  void OnError(const Napi::Error& error) override {
+    FinishOperation();
+    deferred_.Reject(error.Value());
+  }
+
+ private:
+  void FinishOperation() {
+    if (finished_) return;
+    finished_ = true;
+    auto& state = State();
+    std::lock_guard<std::mutex> guard(state.mutex);
+    if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+    MaybeShutdownRuntimeUnlocked(state);
+  }
+
+  Napi::Promise::Deferred deferred_;
+  std::shared_ptr<ReceiverInstance> receiver_;
+  bool finished_ = false;
+};
+
+Napi::Value DiscoverSources(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() > 1 || (info.Length() == 1 && !info[0].IsNumber())) {
+    Napi::TypeError::New(env, "discoverSources expects an optional timeoutMs number").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  uint32_t timeoutMs = 1000;
+  if (info.Length() == 1) {
+    const double value = info[0].As<Napi::Number>().DoubleValue();
+    if (!std::isfinite(value) || value < 0 || std::floor(value) != value || value > 5000) {
+      Napi::TypeError::New(env, "discovery timeoutMs must be an integer from 0 to 5000").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    timeoutMs = static_cast<uint32_t>(value);
+  }
+
+  auto& state = State();
+  {
+    std::lock_guard<std::mutex> guard(state.mutex);
+    ++state.activeAsyncWorkers;
+  }
+  auto* worker = new DiscoverSourcesWorker(env, timeoutMs);
+  const Napi::Promise promise = worker->Promise();
+  try {
+    worker->Queue();
+  } catch (const std::exception& error) {
+    {
+      std::lock_guard<std::mutex> guard(state.mutex);
+      if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+      MaybeShutdownRuntimeUnlocked(state);
+    }
+    delete worker;
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  return promise;
+}
+
+Napi::Value CreateReceiver(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || info.Length() > 2 || !info[0].IsObject()
+      || (info.Length() == 2 && !info[1].IsObject())) {
+    Napi::TypeError::New(env, "createReceiver expects (source, options?)").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const Napi::Object source = info[0].As<Napi::Object>();
+  if (!source.Has("name") || !source.Get("name").IsString()) {
+    Napi::TypeError::New(env, "NDI source name must be a string").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const std::string sourceName = source.Get("name").As<Napi::String>().Utf8Value();
+  std::string urlAddress;
+  if (source.Has("urlAddress") && !source.Get("urlAddress").IsUndefined() && !source.Get("urlAddress").IsNull()) {
+    if (!source.Get("urlAddress").IsString()) {
+      Napi::TypeError::New(env, "NDI source urlAddress must be a string").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    urlAddress = source.Get("urlAddress").As<Napi::String>().Utf8Value();
+  }
+  if (sourceName.empty() || sourceName.size() > 2048 || urlAddress.size() > 2048) {
+    Napi::TypeError::New(env, "NDI source name or urlAddress is invalid").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  bool includeAudio = true;
+  std::string receiverName = "Lumacast NDI Receiver";
+  if (info.Length() == 2) {
+    const Napi::Object options = info[1].As<Napi::Object>();
+    if (options.Has("includeAudio")) {
+      if (!options.Get("includeAudio").IsBoolean()) {
+        Napi::TypeError::New(env, "includeAudio must be a boolean").ThrowAsJavaScriptException();
+        return env.Undefined();
+      }
+      includeAudio = options.Get("includeAudio").As<Napi::Boolean>().Value();
+    }
+    if (options.Has("receiverName")) {
+      if (!options.Get("receiverName").IsString()) {
+        Napi::TypeError::New(env, "receiverName must be a string").ThrowAsJavaScriptException();
+        return env.Undefined();
+      }
+      receiverName = options.Get("receiverName").As<Napi::String>().Utf8Value();
+      if (receiverName.empty() || receiverName.size() > 256) {
+        Napi::TypeError::New(env, "receiverName must contain 1 to 256 characters").ThrowAsJavaScriptException();
+        return env.Undefined();
+      }
+    }
+  }
+
+  auto& state = State();
+  std::string id;
+  uint64_t shutdownGeneration = 0;
+  {
+    std::lock_guard<std::mutex> guard(state.mutex);
+    id = "receiver-" + std::to_string(++state.nextReceiverId);
+    shutdownGeneration = state.receiverShutdownGeneration;
+    ++state.activeAsyncWorkers;
+  }
+  auto* worker = new CreateReceiverWorker(env, id, sourceName, urlAddress, receiverName, includeAudio, shutdownGeneration);
+  const Napi::Promise promise = worker->Promise();
+  try {
+    worker->Queue();
+  } catch (const std::exception& error) {
+    {
+      std::lock_guard<std::mutex> guard(state.mutex);
+      if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+      MaybeShutdownRuntimeUnlocked(state);
+    }
+    delete worker;
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  return promise;
+}
+
+Napi::Value ReceiveFrame(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || info.Length() > 2 || !info[0].IsString()
+      || (info.Length() == 2 && !info[1].IsNumber())) {
+    Napi::TypeError::New(env, "receiveFrame expects (receiverId, timeoutMs?)").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const std::string id = info[0].As<Napi::String>().Utf8Value();
+  if (id.empty() || id.size() > 64) {
+    Napi::TypeError::New(env, "receiverId is invalid").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  uint32_t timeoutMs = 30;
+  if (info.Length() == 2) {
+    const double value = info[1].As<Napi::Number>().DoubleValue();
+    if (!std::isfinite(value) || value < 0 || std::floor(value) != value || value > kMaxReceiveTimeoutMs) {
+      Napi::TypeError::New(env, "receive timeoutMs must be an integer from 0 to 100").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    timeoutMs = static_cast<uint32_t>(value);
+  }
+
+  auto& state = State();
+  std::shared_ptr<ReceiverInstance> receiver;
+  {
+    std::lock_guard<std::mutex> guard(state.mutex);
+    const auto found = state.receivers.find(id);
+    if (found == state.receivers.end() || found->second->closing.load()) {
+      Napi::Error::New(env, "NDI receiver was not found").ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    receiver = found->second;
+    ++state.activeAsyncWorkers;
+  }
+  auto* worker = new ReceiveFrameWorker(env, receiver, timeoutMs);
+  const Napi::Promise promise = worker->Promise();
+  try {
+    worker->Queue();
+  } catch (const std::exception& error) {
+    {
+      std::lock_guard<std::mutex> guard(state.mutex);
+      if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+      MaybeShutdownRuntimeUnlocked(state);
+    }
+    delete worker;
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  return promise;
+}
+
+Napi::Value DestroyReceiver(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "destroyReceiver expects a receiverId string").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const std::string id = info[0].As<Napi::String>().Utf8Value();
+  if (id.empty() || id.size() > 64) {
+    Napi::TypeError::New(env, "receiverId is invalid").ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  auto& state = State();
+  std::shared_ptr<ReceiverInstance> receiver;
+  {
+    std::lock_guard<std::mutex> guard(state.mutex);
+    const auto found = state.receivers.find(id);
+    if (found == state.receivers.end()) {
+      Napi::Promise::Deferred resolved = Napi::Promise::Deferred::New(env);
+      resolved.Resolve(env.Undefined());
+      return resolved.Promise();
+    }
+    receiver = found->second;
+    receiver->closing.store(true);
+    state.receivers.erase(found);
+    ++state.activeAsyncWorkers;
+  }
+  auto* worker = new DestroyReceiverWorker(env, receiver);
+  const Napi::Promise promise = worker->Promise();
+  try {
+    worker->Queue();
+  } catch (const std::exception& error) {
+    {
+      std::lock_guard<std::mutex> receiverGuard(receiver->captureMutex);
+      if (receiver->receiver && receiver->recvDestroy) receiver->recvDestroy(receiver->receiver);
+      receiver->receiver = nullptr;
+    }
+    {
+      std::lock_guard<std::mutex> guard(state.mutex);
+      if (state.activeAsyncWorkers > 0) --state.activeAsyncWorkers;
+      MaybeShutdownRuntimeUnlocked(state);
+    }
+    delete worker;
+    Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  return promise;
+}
 
 Napi::Value GetSharedTextureSupport(const Napi::CallbackInfo& info) {
   return Napi::Boolean::New(info.Env(), ndi_gpu::Supported());
@@ -1021,6 +1777,10 @@ Napi::Value InitializeSender(const Napi::CallbackInfo& info) {
   const int32_t width = config.Get("width").ToNumber().Int32Value();
   const int32_t height = config.Get("height").ToNumber().Int32Value();
   const bool withAlpha = config.Get("withAlpha").ToBoolean().Value();
+  const bool hasFrameRateN = config.Has("frameRateN");
+  const bool hasFrameRateD = config.Has("frameRateD");
+  int32_t frameRateN = kVideoFrameRateN;
+  int32_t frameRateD = kVideoFrameRateD;
 
   if (senderName.empty()) {
     Napi::TypeError::New(env, "senderName must be non-empty").ThrowAsJavaScriptException();
@@ -1032,11 +1792,46 @@ Napi::Value InitializeSender(const Napi::CallbackInfo& info) {
     return env.Undefined();
   }
 
+  if (hasFrameRateN != hasFrameRateD) {
+    Napi::TypeError::New(env, "frameRateN and frameRateD must be provided together")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  if (hasFrameRateN) {
+    const Napi::Value rateNValue = config.Get("frameRateN");
+    const Napi::Value rateDValue = config.Get("frameRateD");
+    if (!rateNValue.IsNumber() || !rateDValue.IsNumber()) {
+      Napi::TypeError::New(env, "frameRateN and frameRateD must be numbers")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    const double rateN = rateNValue.As<Napi::Number>().DoubleValue();
+    const double rateD = rateDValue.As<Napi::Number>().DoubleValue();
+    if (!std::isfinite(rateN) || !std::isfinite(rateD)
+        || std::floor(rateN) != rateN || std::floor(rateD) != rateD
+        || rateN <= 0 || rateD <= 0
+        || rateN > kMaxVideoFrameRateN || rateD > kMaxVideoFrameRateD
+        || rateN / rateD < 1.0 || rateN / rateD > 120.0) {
+      Napi::TypeError::New(env, "frameRateN and frameRateD must be a valid rational frame rate from 1 to 120 fps")
+          .ThrowAsJavaScriptException();
+      return env.Undefined();
+    }
+    frameRateN = static_cast<int32_t>(rateN);
+    frameRateD = static_cast<int32_t>(rateD);
+  }
+
+  if (frameRateN <= 0 || frameRateD <= 0) {
+    Napi::TypeError::New(env, "frameRateN and frameRateD must be a valid rational frame rate from 1 to 120 fps")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
   auto& state = State();
   std::lock_guard<std::mutex> guard(state.mutex);
 
   try {
-    EnsureSender(state, senderName, width, height, withAlpha);
+    EnsureSender(state, senderName, width, height, withAlpha, frameRateN, frameRateD);
   } catch (const std::exception& error) {
     Napi::Error::New(env, error.what()).ThrowAsJavaScriptException();
   }
@@ -1122,8 +1917,8 @@ Napi::Value SendBgraFrame(const Napi::CallbackInfo& info) {
   frame.xres = width;
   frame.yres = height;
   frame.FourCC = sender.withAlpha ? kFourCCBgra : kFourCCBgrx;
-  frame.frame_rate_N = kVideoFrameRateN;
-  frame.frame_rate_D = kVideoFrameRateD;
+  frame.frame_rate_N = sender.frameRateN;
+  frame.frame_rate_D = sender.frameRateD;
   frame.picture_aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
   frame.frame_format_type = kFrameFormatProgressive;
   frame.timecode = kTimecodeSynthesize;
@@ -1220,8 +2015,8 @@ Napi::Value SendRgbaFrame(const Napi::CallbackInfo& info) {
   frame.xres = width;
   frame.yres = height;
   frame.FourCC = sender.withAlpha ? kFourCCRgba : kFourCCRgbx;
-  frame.frame_rate_N = kVideoFrameRateN;
-  frame.frame_rate_D = kVideoFrameRateD;
+  frame.frame_rate_N = sender.frameRateN;
+  frame.frame_rate_D = sender.frameRateD;
   frame.picture_aspect_ratio = static_cast<float>(width) / static_cast<float>(height);
   frame.frame_format_type = kFrameFormatProgressive;
   frame.timecode = kTimecodeSynthesize;
@@ -1401,6 +2196,7 @@ Napi::Value DestroySender(const Napi::CallbackInfo& info) {
   std::lock_guard<std::mutex> guard(state.mutex);
 
   if (info.Length() == 0) {
+    ++state.receiverShutdownGeneration;
     ShutdownRuntimeUnlocked(state);
     return env.Undefined();
   }
@@ -1412,9 +2208,7 @@ Napi::Value DestroySender(const Napi::CallbackInfo& info) {
     state.senders.erase(senderIt);
   }
 
-  if (state.senders.empty()) {
-    ShutdownRuntimeUnlocked(state);
-  }
+  MaybeShutdownRuntimeUnlocked(state);
 
   return env.Undefined();
 }
@@ -1428,6 +2222,7 @@ Napi::Value GetRuntimeInfo(const Napi::CallbackInfo& info) {
   runtimeInfo.Set("loaded", Napi::Boolean::New(env, state.runtimeLoaded));
   runtimeInfo.Set("asyncVideoSend", Napi::Boolean::New(env, state.symbols.sendVideoAsyncV2 != nullptr));
   runtimeInfo.Set("audioSend", Napi::Boolean::New(env, state.symbols.sendAudioV2 != nullptr));
+  runtimeInfo.Set("receive", Napi::Boolean::New(env, state.symbols.findCreate && state.symbols.recvCreate && state.symbols.recvCapture));
   if (state.loadedRuntimePath.empty()) {
     runtimeInfo.Set("path", env.Null());
   } else {
@@ -1445,6 +2240,10 @@ void CleanupHook() {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   env.AddCleanupHook(CleanupHook);
   exports.Set("initializeSender", Napi::Function::New(env, InitializeSender));
+  exports.Set("discoverSources", Napi::Function::New(env, DiscoverSources));
+  exports.Set("createReceiver", Napi::Function::New(env, CreateReceiver));
+  exports.Set("receiveFrame", Napi::Function::New(env, ReceiveFrame));
+  exports.Set("destroyReceiver", Napi::Function::New(env, DestroyReceiver));
   exports.Set("sendBgraFrame", Napi::Function::New(env, SendBgraFrame));
   exports.Set("sendRgbaFrame", Napi::Function::New(env, SendRgbaFrame));
   exports.Set("getSharedTextureSupport", Napi::Function::New(env, GetSharedTextureSupport));

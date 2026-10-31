@@ -6,8 +6,14 @@ dist
 *.db
 packages/ndi-native/build
 tests/packages/ndi-native/fixtures/libndi_mock.dylib
+tests/packages/ndi-native/fixtures/libndi_mock.so
+tests/packages/ndi-native/fixtures/Processing.NDI.Lib.x64.dll
+tests/packages/ndi-native/fixtures/mock_ndi.exp
+tests/packages/ndi-native/fixtures/mock_ndi.lib
+tests/packages/ndi-native/fixtures/mock_ndi.obj
 tests/packages/ndi-native/fixtures/mock_report.json
 tests/packages/ndi-native/fixtures/mock_audio_report.jsonl
+tests/packages/ndi-native/fixtures/receive_mock_report.json
 .electron-dev-dist
 .npm-cache
 .env.local
