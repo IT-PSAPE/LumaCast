@@ -27,3 +27,5 @@ bun.lock
 test-results/
 apps/flux/output/
 .playwright-mcp/
+/.playwright-cli/
+/output/
