@@ -8,11 +8,6 @@ using Microsoft.Win32.SafeHandles;
 internal static class Program
 {
     private const int RequiredWindowsBuild = 20348;
-    private static readonly HashSet<string> SystemProcessNames = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "audiodg", "csrss", "ctfmon", "dwm", "fontdrvhost", "lsass", "services", "smss",
-        "spoolsv", "svchost", "System", "taskhostw", "TextInputHost", "wininit", "winlogon", "WUDFHost",
-    };
 
     [MTAThread]
     private static int Main(string[] args)
@@ -53,19 +48,39 @@ internal static class Program
 
     private static void WriteProcessList()
     {
-        var visibleProcessIds = WindowsNative.GetVisibleWindowProcessIds();
-        var processes = new List<ProcessEntry>();
-        foreach (var pid in visibleProcessIds)
+        var processParents = WindowsNative.GetProcessParents();
+        if (processParents.Count == 0)
         {
-            if (pid <= 4 || pid == Environment.ProcessId)
-            {
-                continue;
-            }
-
+            Console.Out.Write("[]");
+            return;
+        }
+        var childrenByParent = BuildProcessChildren(processParents);
+        var audioSessionProcessIds = WindowsNative.GetOutputAudioSessionProcessIds();
+        var currentSessionId = Process.GetCurrentProcess().SessionId;
+        var helperParentPid = processParents.GetValueOrDefault(Environment.ProcessId);
+        var helperProcessTree = helperParentPid > 0
+            ? GetProcessTree(helperParentPid, childrenByParent)
+            : new HashSet<int> { Environment.ProcessId };
+        var visibleRootProcessIds = new HashSet<int>();
+        foreach (var windowProcessId in WindowsNative.GetVisibleWindowProcessIds())
+        {
+            if (windowProcessId <= 4 || helperProcessTree.Contains(windowProcessId)) continue;
+            var rootPid = FindOwningProcessRoot(windowProcessId, processParents, currentSessionId);
+            if (rootPid > 4 && !helperProcessTree.Contains(rootPid)) visibleRootProcessIds.Add(rootPid);
+        }
+        var processes = new List<ProcessEntry>();
+        foreach (var pid in visibleRootProcessIds)
+        {
             try
             {
                 using var process = Process.GetProcessById(pid);
-                if (process.SessionId != Process.GetCurrentProcess().SessionId)
+                if (process.SessionId != currentSessionId)
+                {
+                    continue;
+                }
+
+                var processTree = GetProcessTree(pid, childrenByParent);
+                if (!processTree.Any(audioSessionProcessIds.Contains))
                 {
                     continue;
                 }
@@ -77,10 +92,7 @@ internal static class Program
                 }
 
                 var name = Path.GetFileNameWithoutExtension(path);
-                if (!SystemProcessNames.Contains(name))
-                {
-                    processes.Add(new ProcessEntry(pid, name, path));
-                }
+                processes.Add(new ProcessEntry(pid, name, path));
             }
             catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or
                                                 System.ComponentModel.Win32Exception or UnauthorizedAccessException)
@@ -95,6 +107,69 @@ internal static class Program
             return nameOrder != 0 ? nameOrder : left.Pid.CompareTo(right.Pid);
         });
         Console.Out.Write(JsonSerializer.Serialize(processes));
+    }
+
+    private static int FindOwningProcessRoot(int ownerPid, IReadOnlyDictionary<int, int> parentByProcess, int sessionId)
+    {
+        var ownerPath = TryGetProcessPath(ownerPid, sessionId);
+        if (string.IsNullOrWhiteSpace(ownerPath)) return ownerPid;
+
+        var rootPid = ownerPid;
+        var visited = new HashSet<int> { ownerPid };
+        while (parentByProcess.TryGetValue(rootPid, out var parentPid)
+            && parentPid > 4 && visited.Add(parentPid))
+        {
+            var parentPath = TryGetProcessPath(parentPid, sessionId);
+            if (string.IsNullOrWhiteSpace(parentPath) || !PathsMatch(parentPath, ownerPath)) break;
+            rootPid = parentPid;
+        }
+        return rootPid;
+    }
+
+    private static string? TryGetProcessPath(int pid, int sessionId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            return process.SessionId == sessionId ? WindowsNative.TryGetExecutablePath(process.Handle) : null;
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException
+            or System.ComponentModel.Win32Exception or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    private static Dictionary<int, List<int>> BuildProcessChildren(IReadOnlyDictionary<int, int> parentByProcess)
+    {
+        var childrenByParent = new Dictionary<int, List<int>>();
+        foreach (var (pid, parentPid) in parentByProcess)
+        {
+            if (!childrenByParent.TryGetValue(parentPid, out var children))
+            {
+                children = new List<int>();
+                childrenByParent.Add(parentPid, children);
+            }
+            children.Add(pid);
+        }
+        return childrenByParent;
+    }
+
+    private static HashSet<int> GetProcessTree(int rootPid, IReadOnlyDictionary<int, List<int>> childrenByParent)
+    {
+        var tree = new HashSet<int> { rootPid };
+        var pending = new Stack<int>();
+        pending.Push(rootPid);
+        while (pending.Count > 0)
+        {
+            var parentPid = pending.Pop();
+            if (!childrenByParent.TryGetValue(parentPid, out var children)) continue;
+            foreach (var childPid in children)
+            {
+                if (tree.Add(childPid)) pending.Push(childPid);
+            }
+        }
+        return tree;
     }
 
     private static void Capture(int pid, string expectedPath)
@@ -553,6 +628,11 @@ internal static class WindowsNative
 {
     public const uint Synchronize = 0x00100000;
     public const uint ProcessQueryLimitedInformation = 0x1000;
+    private const uint SnapshotProcess = 0x00000002;
+    private const uint ClsctxAll = 0x17;
+    private const int SessionStateInactive = 0;
+    private const int SessionStateActive = 1;
+    private const int SessionStateExpired = 2;
 
     [DllImport("mmdevapi.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
     public static extern int ActivateAudioInterfaceAsync(string deviceInterfacePath, ref Guid interfaceId,
@@ -565,6 +645,17 @@ internal static class WindowsNative
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool CloseHandle(IntPtr handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "Process32FirstW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32First(IntPtr snapshot, ref ProcessEntry32 entry);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "Process32NextW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool Process32Next(IntPtr snapshot, ref ProcessEntry32 entry);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -584,6 +675,10 @@ internal static class WindowsNative
     private static extern bool IsWindowVisible(IntPtr window);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr window);
+
+    [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr window, out int processId);
 
     public static string? TryGetExecutablePath(IntPtr processHandle)
@@ -598,7 +693,7 @@ internal static class WindowsNative
         var processIds = new HashSet<int>();
         EnumWindows((window, _) =>
         {
-            if (IsWindowVisible(window))
+            if (IsWindowVisible(window) && !IsIconic(window))
             {
                 GetWindowThreadProcessId(window, out var pid);
                 if (pid > 0) processIds.Add(pid);
@@ -608,5 +703,192 @@ internal static class WindowsNative
         return processIds;
     }
 
+    public static Dictionary<int, int> GetProcessParents()
+    {
+        var parents = new Dictionary<int, int>();
+        var snapshot = CreateToolhelp32Snapshot(SnapshotProcess, 0);
+        if (snapshot == new IntPtr(-1)) return parents;
+        try
+        {
+            var entry = new ProcessEntry32 { Size = (uint)Marshal.SizeOf<ProcessEntry32>() };
+            if (!Process32First(snapshot, ref entry)) return parents;
+            do
+            {
+                if (entry.ProcessId > 0 && entry.ProcessId <= int.MaxValue
+                    && entry.ParentProcessId > 0 && entry.ParentProcessId <= int.MaxValue)
+                {
+                    parents[(int)entry.ProcessId] = (int)entry.ParentProcessId;
+                }
+                entry.Size = (uint)Marshal.SizeOf<ProcessEntry32>();
+            }
+            while (Process32Next(snapshot, ref entry));
+        }
+        finally
+        {
+            CloseHandle(snapshot);
+        }
+        return parents;
+    }
+
+    /// <summary>
+    /// Returns owners of active or retained inactive render sessions. Expired sessions are
+    /// deliberately omitted; session presence is evidence of a stream, not audible samples.
+    /// </summary>
+    public static HashSet<int> GetOutputAudioSessionProcessIds()
+    {
+        var processIds = new HashSet<int>();
+        IMMDeviceEnumerator? deviceEnumerator = null;
+        IMMDeviceCollection? devices = null;
+        try
+        {
+            deviceEnumerator = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+            if (deviceEnumerator.EnumAudioEndpoints(DataFlowRender, DeviceStateActive, out devices) < 0) return processIds;
+            if (devices.GetCount(out var deviceCount) < 0) return processIds;
+
+            var sessionManagerId = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+            for (uint deviceIndex = 0; deviceIndex < deviceCount; deviceIndex++)
+            {
+                IMMDevice? device = null;
+                IAudioSessionManager2? manager = null;
+                IAudioSessionEnumerator? sessions = null;
+                try
+                {
+                    if (devices.Item(deviceIndex, out device) < 0
+                        || device.Activate(ref sessionManagerId, ClsctxAll, IntPtr.Zero, out manager) < 0
+                        || manager.GetSessionEnumerator(out sessions) < 0
+                        || sessions.GetCount(out var sessionCount) < 0) continue;
+
+                    for (int sessionIndex = 0; sessionIndex < sessionCount; sessionIndex++)
+                    {
+                        IAudioSessionControl2? session = null;
+                        try
+                        {
+                            if (sessions.GetSession(sessionIndex, out session) < 0
+                                || session.GetState(out var state) < 0
+                                || state == SessionStateExpired
+                                || state is not (SessionStateInactive or SessionStateActive)
+                                || session.GetProcessId(out var processId) < 0
+                                || processId == 0 || processId > int.MaxValue) continue;
+                            processIds.Add((int)processId);
+                        }
+                        catch (COMException)
+                        {
+                            // A process can exit while its audio session is being enumerated.
+                        }
+                        finally
+                        {
+                            if (session is not null) Marshal.ReleaseComObject(session);
+                        }
+                    }
+                }
+                catch (COMException)
+                {
+                    // An endpoint may disappear or deny access during enumeration.
+                }
+                finally
+                {
+                    if (sessions is not null) Marshal.ReleaseComObject(sessions);
+                    if (manager is not null) Marshal.ReleaseComObject(manager);
+                    if (device is not null) Marshal.ReleaseComObject(device);
+                }
+            }
+        }
+        catch (COMException)
+        {
+            // No usable render-session catalog means there is no audio evidence to list.
+        }
+        finally
+        {
+            if (devices is not null) Marshal.ReleaseComObject(devices);
+            if (deviceEnumerator is not null) Marshal.ReleaseComObject(deviceEnumerator);
+        }
+        return processIds;
+    }
+
     private delegate bool EnumWindowsProcedure(IntPtr window, IntPtr parameter);
+
+    private const int DataFlowRender = 0;
+    private const uint DeviceStateActive = 0x00000001;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ProcessEntry32
+    {
+        public uint Size;
+        public uint Usage;
+        public uint ProcessId;
+        public IntPtr DefaultHeapId;
+        public uint ModuleId;
+        public uint ThreadCount;
+        public uint ParentProcessId;
+        public int BasePriority;
+        public uint Flags;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string? ExecutableFile;
+    }
+
+    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+    private class MMDeviceEnumeratorComObject { }
+
+    [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceEnumerator
+    {
+        [PreserveSig] int EnumAudioEndpoints(int dataFlow, uint stateMask, out IMMDeviceCollection devices);
+        [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+        [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
+        [PreserveSig] int RegisterEndpointNotificationCallback(IntPtr client);
+        [PreserveSig] int UnregisterEndpointNotificationCallback(IntPtr client);
+    }
+
+    [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-C0A7B414EDC7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceCollection
+    {
+        [PreserveSig] int GetCount(out uint count);
+        [PreserveSig] int Item(uint index, out IMMDevice device);
+    }
+
+    [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDevice
+    {
+        [PreserveSig] int Activate(ref Guid interfaceId, uint classContext, IntPtr activationParameters,
+            [MarshalAs(UnmanagedType.Interface)] out IAudioSessionManager2 interfacePointer);
+        [PreserveSig] int OpenPropertyStore(int access, IntPtr properties);
+        [PreserveSig] int GetId(out IntPtr id);
+        [PreserveSig] int GetState(out uint state);
+    }
+
+    [ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioSessionManager2
+    {
+        [PreserveSig] int GetAudioSessionControl(ref Guid sessionId, uint streamFlags, IntPtr control);
+        [PreserveSig] int GetSimpleAudioVolume(ref Guid sessionId, uint streamFlags, IntPtr volume);
+        [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator sessionEnumerator);
+        [PreserveSig] int RegisterSessionNotification(IntPtr notification);
+        [PreserveSig] int UnregisterSessionNotification(IntPtr notification);
+        [PreserveSig] int RegisterDuckNotification([MarshalAs(UnmanagedType.LPWStr)] string sessionId, IntPtr notification);
+        [PreserveSig] int UnregisterDuckNotification(IntPtr notification);
+    }
+
+    [ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioSessionEnumerator
+    {
+        [PreserveSig] int GetCount(out int sessionCount);
+        [PreserveSig] int GetSession(int sessionIndex, out IAudioSessionControl2 sessionControl);
+    }
+
+    [ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioSessionControl2
+    {
+        [PreserveSig] int GetState(out int state);
+        [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string displayName);
+        [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string displayName, ref Guid eventContext);
+        [PreserveSig] int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string iconPath);
+        [PreserveSig] int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string iconPath, ref Guid eventContext);
+        [PreserveSig] int GetGroupingParam(out Guid groupingId);
+        [PreserveSig] int SetGroupingParam(ref Guid groupingId, ref Guid eventContext);
+        [PreserveSig] int RegisterAudioSessionNotification(IntPtr notification);
+        [PreserveSig] int UnregisterAudioSessionNotification(IntPtr notification);
+        [PreserveSig] int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string sessionIdentifier);
+        [PreserveSig] int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string sessionInstanceIdentifier);
+        [PreserveSig] int GetProcessId(out uint processId);
+        [PreserveSig] int IsSystemSoundsSession();
+    }
 }

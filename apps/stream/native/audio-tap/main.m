@@ -17,6 +17,7 @@
 
 #import <AppKit/AppKit.h>
 #import <AVFoundation/AVFoundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 #import <CoreAudio/AudioHardwareTapping.h>
 #import <CoreAudio/CATapDescription.h>
 #import <CoreAudio/CoreAudio.h>
@@ -117,21 +118,120 @@ static BOOL PathsMatch(NSString *actual, NSString *expected) {
 
 #pragma mark - list
 
+static pid_t HostProcessRoot(pid_t pid);
+static BOOL ProcessHasOutputAudioSession(pid_t pid);
+
+/// Parent PID for each live process, read once so catalog grouping is based on one process snapshot.
+static NSDictionary<NSNumber *, NSNumber *> *ProcessParentsByIdentifier(void) {
+  NSMutableDictionary<NSNumber *, NSNumber *> *parents = [NSMutableDictionary dictionary];
+  for (NSNumber *pid in AllProcessIdentifiers()) {
+    pid_t parent = ParentProcessIdentifier((pid_t)pid.intValue);
+    if (parent > 1) parents[pid] = @(parent);
+  }
+  return [parents copy];
+}
+
+static NSDictionary<NSNumber *, NSArray<NSNumber *> *> *ProcessChildrenByParent(
+  NSDictionary<NSNumber *, NSNumber *> *parents
+) {
+  NSMutableDictionary<NSNumber *, NSMutableArray<NSNumber *> *> *children = [NSMutableDictionary dictionary];
+  [parents enumerateKeysAndObjectsUsingBlock:^(NSNumber *pid, NSNumber *parent, BOOL *stop) {
+    (void)stop;
+    NSMutableArray<NSNumber *> *siblings = children[parent];
+    if (!siblings) {
+      siblings = [NSMutableArray array];
+      children[parent] = siblings;
+    }
+    [siblings addObject:pid];
+  }];
+  return [children copy];
+}
+
+static NSSet<NSNumber *> *ProcessTreeWithChildren(pid_t root, NSDictionary<NSNumber *, NSArray<NSNumber *> *> *childrenByParent) {
+  NSMutableSet<NSNumber *> *tree = [NSMutableSet setWithObject:@(root)];
+  NSMutableArray<NSNumber *> *queue = [NSMutableArray arrayWithObject:@(root)];
+  while (queue.count > 0) {
+    NSNumber *next = queue.lastObject;
+    [queue removeLastObject];
+    for (NSNumber *child in childrenByParent[next] ?: @[]) {
+      if ([tree containsObject:child]) continue;
+      [tree addObject:child];
+      [queue addObject:child];
+    }
+  }
+  return tree;
+}
+
+/// On-screen top-level window owners; app roots are resolved separately so helper-owned windows
+/// can be grouped with their visible application.
+static NSSet<NSNumber *> *VisibleWindowProcessIdentifiers(void) {
+  CFArrayRef copiedWindows = CGWindowListCopyWindowInfo(
+    kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+    kCGNullWindowID);
+  if (!copiedWindows) return [NSSet set];
+
+  NSArray<NSDictionary *> *windows = CFBridgingRelease(copiedWindows);
+  NSMutableSet<NSNumber *> *processes = [NSMutableSet set];
+  for (NSDictionary *window in windows) {
+    NSNumber *layer = window[(__bridge NSString *)kCGWindowLayer];
+    NSNumber *pid = window[(__bridge NSString *)kCGWindowOwnerPID];
+    if (!pid || pid.intValue <= 1 || (layer && layer.intValue != 0)) continue;
+    [processes addObject:pid];
+  }
+  return processes;
+}
+
+static BOOL ProcessTreeHasOutputAudioSession(NSSet<NSNumber *> *processes) {
+  for (NSNumber *pid in processes) {
+    if (ProcessHasOutputAudioSession((pid_t)pid.intValue)) return YES;
+  }
+  return NO;
+}
+
 static int ListApplications(void) {
   pid_t selfPid = getpid();
-  NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+  NSDictionary<NSNumber *, NSNumber *> *parentsByPid = ProcessParentsByIdentifier();
+  NSDictionary<NSNumber *, NSArray<NSNumber *> *> *childrenByParent = ProcessChildrenByParent(parentsByPid);
+  NSSet<NSNumber *> *visibleWindowPids = VisibleWindowProcessIdentifiers();
+  NSMutableDictionary<NSNumber *, NSRunningApplication *> *applicationsByPid = [NSMutableDictionary dictionary];
+
   for (NSRunningApplication *application in [NSWorkspace sharedWorkspace].runningApplications) {
-    if (application.activationPolicy == NSApplicationActivationPolicyProhibited || application.processIdentifier == selfPid || application.terminated) continue;
+    pid_t pid = application.processIdentifier;
+    if (application.activationPolicy == NSApplicationActivationPolicyProhibited || pid <= 1 || pid == selfPid || application.terminated) continue;
     NSString *executable = application.executableURL.path;
     if (executable.length == 0 || ![executable hasPrefix:@"/"]) continue;
-    // Menu-bar (accessory) apps are listed unless they are macOS's own agents (Dock, Control Centre, ...),
-    // matching the Windows helper's exclusion of system processes.
-    if (application.activationPolicy == NSApplicationActivationPolicyAccessory
-        && ([executable hasPrefix:@"/System/"] || [executable hasPrefix:@"/usr/"])) continue;
+    applicationsByPid[@(pid)] = application;
+  }
+
+  pid_t hostRoot = HostProcessRoot(selfPid);
+  NSSet<NSNumber *> *hostTree = hostRoot > 1 ? ProcessTreeWithChildren(hostRoot, childrenByParent) : [NSSet setWithObject:@(selfPid)];
+  NSMutableSet<NSNumber *> *visibleApplicationPids = [NSMutableSet set];
+  for (NSNumber *windowPid in visibleWindowPids) {
+    NSNumber *current = windowPid;
+    NSMutableSet<NSNumber *> *visited = [NSMutableSet set];
+    while (current && current.intValue > 1 && ![visited containsObject:current]) {
+      if (applicationsByPid[current]) {
+        if (![hostTree containsObject:current]) [visibleApplicationPids addObject:current];
+        break;
+      }
+      [visited addObject:current];
+      current = parentsByPid[current];
+    }
+  }
+
+  NSMutableArray<NSDictionary *> *entries = [NSMutableArray array];
+  for (NSNumber *applicationPid in visibleApplicationPids) {
+    NSRunningApplication *application = applicationsByPid[applicationPid];
+    pid_t pid = (pid_t)applicationPid.intValue;
+    if (!application || [hostTree containsObject:applicationPid]) continue;
+    NSString *executable = application.executableURL.path;
+    if (executable.length == 0 || ![executable hasPrefix:@"/"]) continue;
+    NSSet<NSNumber *> *processTree = ProcessTreeWithChildren(pid, childrenByParent);
+    if (!ProcessTreeHasOutputAudioSession(processTree)) continue;
     NSString *name = application.localizedName
       ?: application.bundleURL.URLByDeletingPathExtension.lastPathComponent
       ?: [NSURL fileURLWithPath:executable].lastPathComponent;
-    [entries addObject:@{ @"pid": @(application.processIdentifier), @"name": name, @"path": executable }];
+    [entries addObject:@{ @"pid": applicationPid, @"name": name, @"path": executable }];
   }
   [entries sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
     NSComparisonResult order = [left[@"name"] localizedCaseInsensitiveCompare:right[@"name"]];
@@ -182,6 +282,28 @@ static AudioObjectID ProcessObjectForPid(pid_t pid) {
   return status == noErr ? object : kAudioObjectUnknown;
 }
 
+/// A running output stream is active evidence. A process object with an assigned output device
+/// but no running output stream is retained inactive evidence (for example, a paused player).
+static BOOL ProcessHasOutputAudioSession(pid_t pid) {
+  AudioObjectID process = ProcessObjectForPid(pid);
+  if (process == kAudioObjectUnknown) return NO;
+
+  AudioObjectPropertyAddress runningAddress = GlobalAddress(kAudioProcessPropertyIsRunningOutput);
+  UInt32 isRunningOutput = 0;
+  UInt32 runningSize = sizeof isRunningOutput;
+  if (AudioObjectGetPropertyData(process, &runningAddress, 0, NULL, &runningSize, &isRunningOutput) == noErr
+      && isRunningOutput != 0) return YES;
+
+  AudioObjectPropertyAddress devicesAddress = {
+    kAudioProcessPropertyDevices,
+    kAudioObjectPropertyScopeOutput,
+    kAudioObjectPropertyElementMain,
+  };
+  UInt32 devicesSize = 0;
+  if (AudioObjectGetPropertyDataSize(process, &devicesAddress, 0, NULL, &devicesSize) != noErr) return NO;
+  return devicesSize >= sizeof(AudioObjectID);
+}
+
 /// Audio process objects for the given PIDs; processes that have not opened audio yet have none and are skipped.
 static NSArray<NSNumber *> *ProcessObjectsForPids(NSSet<NSNumber *> *pids) {
   NSArray<NSNumber *> *sorted = [pids.allObjects sortedArrayUsingSelector:@selector(compare:)];
@@ -191,18 +313,6 @@ static NSArray<NSNumber *> *ProcessObjectsForPids(NSSet<NSNumber *> *pids) {
     if (object != kAudioObjectUnknown) [objects addObject:@(object)];
   }
   return objects;
-}
-
-static NSString *DefaultOutputDeviceUID(NSError **error) {
-  AudioObjectPropertyAddress address = GlobalAddress(kAudioHardwarePropertyDefaultSystemOutputDevice);
-  AudioObjectID device = kAudioObjectUnknown;
-  UInt32 size = sizeof device;
-  if ((*error = CheckStatus(AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size, &device), @"Finding the default output device"))) return nil;
-  AudioObjectPropertyAddress uidAddress = GlobalAddress(kAudioDevicePropertyDeviceUID);
-  CFStringRef uid = NULL;
-  UInt32 uidSize = sizeof uid;
-  if ((*error = CheckStatus(AudioObjectGetPropertyData(device, &uidAddress, 0, NULL, &uidSize, &uid), @"Reading the default output device"))) return nil;
-  return (__bridge_transfer NSString *)uid;
 }
 
 #pragma mark - Tap session
@@ -271,17 +381,13 @@ API_AVAILABLE(macos(14.2))
     return NO;
   }
 
-  NSString *outputUID = DefaultOutputDeviceUID(error);
-  if (!outputUID) return NO;
   NSDictionary *aggregateDescription = @{
     @kAudioAggregateDeviceNameKey: @"LumaStream Audio Tap",
     @kAudioAggregateDeviceUIDKey: [NSUUID UUID].UUIDString,
-    @kAudioAggregateDeviceMainSubDeviceKey: outputUID,
     @kAudioAggregateDeviceIsPrivateKey: @YES,
     @kAudioAggregateDeviceIsStackedKey: @NO,
     @kAudioAggregateDeviceTapAutoStartKey: @YES,
-    @kAudioAggregateDeviceSubDeviceListKey: @[ @{ @kAudioSubDeviceUIDKey: outputUID } ],
-    @kAudioAggregateDeviceTapListKey: @[ @{ @kAudioSubTapDriftCompensationKey: @YES, @kAudioSubTapUIDKey: description.UUID.UUIDString } ],
+    @kAudioAggregateDeviceTapListKey: @[ @{ @kAudioSubTapUIDKey: description.UUID.UUIDString } ],
   };
   if ((*error = CheckStatus(AudioHardwareCreateAggregateDevice((__bridge CFDictionaryRef)aggregateDescription, &_aggregateID), @"Creating the capture device"))) return NO;
 
@@ -318,10 +424,38 @@ API_AVAILABLE(macos(14.2))
 }
 
 - (void)handleInput:(const AudioBufferList *)inputData {
-  if (atomic_load(&_stopped) || !_inputFormat || !_converter || inputData->mNumberBuffers == 0) return;
+  if (atomic_load(&_stopped) || !_inputFormat || !_converter || !inputData || inputData->mNumberBuffers == 0) return;
+  UInt32 expectedBufferCount = _inputFormat.isInterleaved ? 1 : _inputFormat.channelCount;
+  UInt32 expectedChannelsPerBuffer = _inputFormat.isInterleaved ? _inputFormat.channelCount : 1;
+  if (inputData->mNumberBuffers != expectedBufferCount) {
+    [self failWith:Failure(ExitFailure, @"The audio tap aggregate returned a buffer count that does not match the tap format.")];
+    return;
+  }
   UInt32 bytesPerFrame = MAX(1u, _inputFormat.streamDescription->mBytesPerFrame);
-  AVAudioFrameCount frameCount = inputData->mBuffers[0].mDataByteSize / bytesPerFrame;
+  const AudioBuffer *firstBuffer = &inputData->mBuffers[0];
+  if (firstBuffer->mNumberChannels != expectedChannelsPerBuffer) {
+    [self failWith:Failure(ExitFailure, @"The audio tap aggregate returned a channel layout that does not match the tap format.")];
+    return;
+  }
+  if (!firstBuffer->mData || firstBuffer->mDataByteSize == 0) return;
+  if (firstBuffer->mDataByteSize % bytesPerFrame != 0) {
+    [self failWith:Failure(ExitFailure, @"The audio tap aggregate returned a buffer with an invalid frame size.")];
+    return;
+  }
+  AVAudioFrameCount frameCount = firstBuffer->mDataByteSize / bytesPerFrame;
   if (frameCount == 0) return;
+  for (UInt32 index = 1; index < inputData->mNumberBuffers; index += 1) {
+    const AudioBuffer *buffer = &inputData->mBuffers[index];
+    if (buffer->mNumberChannels != expectedChannelsPerBuffer) {
+      [self failWith:Failure(ExitFailure, @"The audio tap aggregate returned a channel layout that does not match the tap format.")];
+      return;
+    }
+    if (!buffer->mData || buffer->mDataByteSize == 0) return;
+    if (buffer->mDataByteSize % bytesPerFrame != 0 || buffer->mDataByteSize / bytesPerFrame != frameCount) {
+      [self failWith:Failure(ExitFailure, @"The audio tap aggregate returned buffers with inconsistent frame sizes.")];
+      return;
+    }
+  }
   AVAudioPCMBuffer *inputBuffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:_inputFormat bufferListNoCopy:inputData deallocator:nil];
   if (!inputBuffer) return;
   inputBuffer.frameLength = frameCount;

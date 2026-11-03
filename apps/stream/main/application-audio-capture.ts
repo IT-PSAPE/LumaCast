@@ -55,15 +55,6 @@ export function validateApplicationAudioProcessList(value: unknown): Application
   return processes;
 }
 
-export function matchesApplicationAudioProcess(
-  process: ApplicationAudioProcess,
-  pid: number,
-  expectedExecutablePath: string,
-): boolean {
-  if (!Number.isSafeInteger(pid) || pid < 1 || !isAbsoluteExecutablePath(expectedExecutablePath)) return false;
-  return process.pid === pid && normalizeExecutablePath(process.path) === normalizeExecutablePath(expectedExecutablePath);
-}
-
 /** Owns helper processes and PCM message ports for application-audio sources. */
 export class ApplicationAudioCapture {
   private readonly sessions = new Map<string, CaptureSession>();
@@ -150,18 +141,25 @@ export class ApplicationAudioCapture {
     if (typeof sourceId !== 'string' || sourceId.length < 1 || sourceId.length > 256 || /[\u0000-\u001f\u007f]/.test(sourceId)) {
       throw new Error('Invalid application-audio source ID.');
     }
+    if (!Number.isSafeInteger(pid) || pid < 1 || pid > 0x7fffffff
+      || typeof expectedExecutablePath !== 'string' || expectedExecutablePath.length < 1
+      || expectedExecutablePath.length > MAX_PROCESS_PATH_LENGTH || /[\u0000-\u001f\u007f]/.test(expectedExecutablePath)
+      || !isAbsoluteExecutablePath(expectedExecutablePath)) {
+      throw new Error('Invalid application-audio process identity.');
+    }
     if (this.sessions.has(sourceId) || this.starts.has(sourceId)) throw new Error('Application audio is already active or starting for this source.');
     if (webContents.isDestroyed()) throw new Error('The Stream window is no longer available.');
 
     const reservation: StartReservation = { cancelled: false };
     this.starts.set(sourceId, reservation);
     try {
-      const listed = await this.list();
       this.throwIfStartCancelled(sourceId, reservation);
-      const match = listed.find((item) => matchesApplicationAudioProcess(item, pid, expectedExecutablePath));
-      if (!match) throw new Error('The selected application is no longer running with the expected executable.');
       if (webContents.isDestroyed()) throw new Error('The Stream window is no longer available.');
 
+      // The picker catalog is intentionally filtered to visible applications with audio
+      // output-session evidence. Do not use that list as capture authorization: paused
+      // sessions can disappear between listing and capture. The helper validates the
+      // live PID and executable path before it starts the native tap/loopback.
       this.launch(sourceId, reservation, webContents, ['capture', '--pid', String(pid), '--path', expectedExecutablePath]);
     } finally {
       if (this.starts.get(sourceId) === reservation) this.starts.delete(sourceId);
@@ -357,10 +355,4 @@ interface StartReservation {
 
 function isAbsoluteExecutablePath(value: string): boolean {
   return path.win32.isAbsolute(value) || path.posix.isAbsolute(value);
-}
-
-function normalizeExecutablePath(value: string): string {
-  const windowsPath = path.win32.isAbsolute(value);
-  const normalized = windowsPath ? path.win32.normalize(value) : path.posix.normalize(value);
-  return windowsPath ? normalized.toLowerCase() : normalized;
 }
