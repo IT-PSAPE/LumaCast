@@ -1,13 +1,18 @@
 import { desktopCapturer, session, type BrowserWindow, type DesktopCapturerSource } from 'electron';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
-import type { CaptureKind, DesktopSourceOption } from '../shared/desktop-api';
+import type { CaptureKind, DesktopCaptureTarget, DesktopSourceOption } from '../shared/desktop-api';
+import { isValidDesktopCaptureTarget, resolveDesktopCaptureOption } from '../shared/capture-target';
 import { isTrustedRendererUrl, resolveDevServerOrigin } from './navigation-policy';
+
+export type DesktopCapturePrepareMode = 'display-media' | 'automatic-restore';
 
 interface PendingCapture {
   sourceId: string;
   includeSystemAudio: boolean;
   webContentsId: number;
   expiresAt: number;
+  mode: DesktopCapturePrepareMode;
 }
 
 export class DesktopCaptureController {
@@ -23,22 +28,36 @@ export class DesktopCaptureController {
   }
 
   async list(kind: CaptureKind): Promise<DesktopSourceOption[]> {
-    const sources = await desktopCapturer.getSources({ types: [kind], thumbnailSize: { width: 240, height: 135 }, fetchWindowIcons: true });
-    for (const [id, entry] of this.listedSources) if (Date.now() - entry.listedAt > 30_000) this.listedSources.delete(id);
-    for (const source of sources) this.listedSources.set(source.id, { kind, listedAt: Date.now() });
-    return sources.map((source) => ({
-      id: source.id,
-      name: source.name || (kind === 'screen' ? 'Display' : 'Window'),
-      kind,
-      thumbnail: source.thumbnail.toDataURL(),
-    }));
+    return this.querySources(kind, { width: 240, height: 135 }, true);
   }
 
-  async prepare(webContentsId: number, sourceId: string, includeSystemAudio: boolean): Promise<void> {
-    if (typeof sourceId !== 'string' || sourceId.length > 512 || typeof includeSystemAudio !== 'boolean') throw new Error('Invalid capture request.');
+  async resolve(
+    kind: CaptureKind,
+    captureId?: string,
+    target?: DesktopCaptureTarget,
+    legacySourceName?: string,
+  ): Promise<DesktopSourceOption | null> {
+    if (kind !== 'screen' && kind !== 'window') throw new Error('Unsupported capture source type.');
+    if (captureId !== undefined && (typeof captureId !== 'string' || captureId.length > 512)) throw new Error('Invalid saved capture ID.');
+    if (target !== undefined && (!isValidDesktopCaptureTarget(target) || target.kind !== kind)) throw new Error('Invalid saved capture target.');
+    if (legacySourceName !== undefined && (typeof legacySourceName !== 'string' || legacySourceName.length > 120)) throw new Error('Invalid saved capture source name.');
+    const options = await this.querySources(kind, { width: 0, height: 0 }, false);
+    return resolveDesktopCaptureOption(options, kind, captureId, target, legacySourceName);
+  }
+
+  async prepare(
+    webContentsId: number,
+    sourceId: string,
+    includeSystemAudio: boolean,
+    mode: DesktopCapturePrepareMode = 'display-media',
+  ): Promise<void> {
+    if (typeof sourceId !== 'string' || sourceId.length > 512 || typeof includeSystemAudio !== 'boolean'
+      || (mode !== 'display-media' && mode !== 'automatic-restore')) throw new Error('Invalid capture request.');
     const listed = this.listedSources.get(sourceId);
     if (!listed || Date.now() - listed.listedAt > 30_000) throw new Error('The selected capture source is no longer available.');
-    const capture = { sourceId, includeSystemAudio, webContentsId, expiresAt: Date.now() + 15_000 };
+    // Window-only audio is unavailable; a window request must never become a
+    // system loopback capture, including requests from legacy picker state.
+    const capture = { sourceId, includeSystemAudio: includeSystemAudio && listed.kind === 'screen', webContentsId, expiresAt: Date.now() + 15_000, mode };
     if (this.pendingWaiter) {
       const resolve = this.pendingWaiter;
       this.pendingWaiter = null;
@@ -49,7 +68,23 @@ export class DesktopCaptureController {
   }
 
   isCaptureAuthorized(webContentsId: number): boolean {
-    return this.pending?.webContentsId === webContentsId && this.pending.expiresAt >= Date.now();
+    return this.pending?.mode === 'display-media'
+      && this.pending.webContentsId === webContentsId && this.pending.expiresAt >= Date.now();
+  }
+
+  isAutomaticCaptureAuthorized(webContentsId: number): boolean {
+    return this.pending?.mode === 'automatic-restore'
+      && this.pending.webContentsId === webContentsId && this.pending.expiresAt >= Date.now();
+  }
+
+  authorizeEmptyMediaTypesPermissionRequest(webContentsId: number): boolean {
+    return this.isCaptureAuthorized(webContentsId) || this.consumeAutomaticCaptureAuthorization(webContentsId);
+  }
+
+  consumeAutomaticCaptureAuthorization(webContentsId: number): boolean {
+    if (!this.isAutomaticCaptureAuthorized(webContentsId)) return false;
+    this.pending = null;
+    return true;
   }
 
   register(): void {
@@ -75,7 +110,7 @@ export class DesktopCaptureController {
     }
 
     const pending = await this.takePending(window!.webContents.id);
-    if (!pending || pending.webContentsId !== window!.webContents.id || pending.expiresAt < Date.now()) {
+    if (!pending || pending.mode !== 'display-media' || pending.webContentsId !== window!.webContents.id || pending.expiresAt < Date.now()) {
       callback({});
       return;
     }
@@ -111,4 +146,34 @@ export class DesktopCaptureController {
       this.pendingWaiter = settle;
     });
   }
+
+  private async querySources(
+    kind: CaptureKind,
+    thumbnailSize: Electron.Size,
+    includeThumbnails: boolean,
+  ): Promise<DesktopSourceOption[]> {
+    const sources = await desktopCapturer.getSources({ types: [kind], thumbnailSize, fetchWindowIcons: true });
+    const listedAt = Date.now();
+    for (const [id, entry] of this.listedSources) {
+      if (entry.kind === kind || listedAt - entry.listedAt > 30_000) this.listedSources.delete(id);
+    }
+    for (const source of sources) this.listedSources.set(source.id, { kind, listedAt });
+    return sources.map((source) => {
+      const iconHash = appIconHash(source);
+      return {
+        id: source.id,
+        name: source.name || (kind === 'screen' ? 'Display' : 'Window'),
+        kind,
+        thumbnail: includeThumbnails ? source.thumbnail.toDataURL() : '',
+        ...(source.display_id ? { displayId: source.display_id } : {}),
+        ...(iconHash ? { appIconHash: iconHash } : {}),
+      };
+    });
+  }
+}
+
+function appIconHash(source: DesktopCapturerSource): string | undefined {
+  const icon = source.appIcon;
+  if (!icon || icon.isEmpty()) return undefined;
+  return createHash('sha256').update(icon.toPNG()).digest('hex');
 }

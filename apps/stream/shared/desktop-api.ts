@@ -8,7 +8,7 @@ import type { StreamNdiAPI } from './ndi';
 import type { SerializedMenuItem } from './application-menu';
 export type CaptureKind = 'screen' | 'window';
 export type CaptureCursorMode = 'never' | 'motion' | 'always';
-export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'media' | 'browser' | 'text' | 'color' | 'group' | 'scene' | 'ndi';
+export type SourceKind = 'display' | 'window' | 'camera' | 'microphone' | 'desktop-audio' | 'application-audio' | 'image' | 'slideshow' | 'presentation' | 'media' | 'browser' | 'text' | 'color' | 'group' | 'scene' | 'ndi';
 export type MediaKind = 'image' | 'video' | 'audio';
 export type RecordingContainer = 'webm' | 'mkv' | 'mp4';
 export type AudioMonitoring = 'off' | 'monitor-only' | 'monitor-and-output';
@@ -108,6 +108,15 @@ export interface DesktopSourceOption {
   name: string;
   kind: CaptureKind;
   thumbnail: string;
+  displayId?: string;
+  appIconHash?: string;
+}
+
+export interface DesktopCaptureTarget {
+  kind: CaptureKind;
+  name: string;
+  displayId?: string;
+  appIconHash?: string;
 }
 
 export interface AudioApplicationOption {
@@ -129,6 +138,22 @@ export interface SlideshowImage {
   assetId: string;
   assetExtension: string;
   name: string;
+}
+
+export interface ImportedPresentation {
+  name: string;
+  slides: SlideshowImage[];
+}
+
+export type BrowserSourceInput =
+  | { type: 'pointer'; action: 'move' | 'down' | 'up'; x: number; y: number; button?: 'left' | 'middle' | 'right'; buttons?: number; clickCount?: number; modifiers?: number }
+  | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number; modifiers?: number }
+  | { type: 'key'; action: 'down' | 'up'; key: string; code: string; text?: string; modifiers?: number };
+
+export interface BrowserSourceActivity {
+  active: boolean;
+  programActive: boolean;
+  resetOnEntry: boolean;
 }
 
 export interface SourceCrop {
@@ -226,6 +251,11 @@ export interface StreamSource {
   deviceId?: string;
   /** Whether a capture source should include its associated audio. */
   captureAudioEnabled?: boolean;
+  captureTarget?: DesktopCaptureTarget;
+  /** Authored target generation; automatic reconnection preserves it. */
+  captureBindingId?: string;
+  captureAudioMode?: 'system' | 'application';
+  captureAudioApplicationPath?: string;
   /** Explicit audioinput selected for a camera source; never falls back to the default microphone. */
   audioDeviceId?: string;
   cameraResolution?: CameraResolutionPreset;
@@ -241,6 +271,12 @@ export interface StreamSource {
   slideshowImages?: SlideshowImage[];
   slideshowIntervalSeconds?: number;
   slideshowLoop?: boolean;
+  slideshowAutoAdvance?: boolean;
+  /** Distinguishes automatic playback sessions while reusing staged images. */
+  slideshowPlaybackId?: string;
+  presentationSlides?: SlideshowImage[];
+  /** Manual page, or starting page when automatic slideshow playback resumes. */
+  slideIndex?: number;
   text?: string;
   textStyle?: StreamTextStyle;
   color?: string;
@@ -369,6 +405,8 @@ export interface StreamRuntimeStatus {
   /** Stable destination identifier for independent output monitoring. */
   outputId?: string;
   state: 'connecting' | 'live' | 'stopped' | 'error';
+  /** Zoom SDK connection subphase while the output is still connecting. */
+  connectionPhase?: 'joining' | 'starting-output';
   bitrateKbps?: number;
   message?: string;
 }
@@ -383,6 +421,7 @@ export interface StreamAPI {
   ndi?: StreamNdiAPI;
   /** Host operating system, so the renderer can offer only the capture and encoder paths that exist there. */
   readonly platform: StreamPlatform;
+  readClipboardText(): Promise<string>;
   loadProject(): Promise<StreamWorkspace>;
   saveProject(collectionId: string, profileId: string, project: StreamProject): Promise<void>;
   loadAudioSettings(): Promise<StreamAudioSettings>;
@@ -406,7 +445,8 @@ export interface StreamAPI {
   importProfile(): Promise<StreamWorkspace | null>;
   exportProfile(id: string): Promise<boolean>;
   listDesktopSources(kind: CaptureKind): Promise<DesktopSourceOption[]>;
-  prepareDesktopCapture(sourceId: string, includeSystemAudio: boolean): Promise<void>;
+  resolveDesktopCapture(kind: CaptureKind, captureId?: string, target?: DesktopCaptureTarget, legacySourceName?: string): Promise<DesktopSourceOption | null>;
+  prepareDesktopCapture(sourceId: string, includeSystemAudio: boolean, mode?: 'display-media' | 'automatic-restore'): Promise<void>;
   listAudioApplications(): Promise<AudioApplicationOption[]>;
   startApplicationAudioCapture(sourceId: string, pid: number, applicationPath: string): Promise<void>;
   /** macOS only: capture the whole system mix through the audio helper; frames arrive on the application-audio port. */
@@ -414,6 +454,8 @@ export interface StreamAPI {
   stopApplicationAudioCapture(sourceId: string): Promise<void>;
   onApplicationAudioFrame(listener: (sourceId: string, frame: ArrayBuffer | { error: string }) => void): () => void;
   importMedia(kind: MediaKind): Promise<MediaAsset | null>;
+  importSlideshowImages(maxImages: number): Promise<MediaAsset[]>;
+  importPresentation(): Promise<ImportedPresentation | null>;
   remuxRecording(): Promise<string | null>;
   openRecording(settings: RecordingOutputSettings): Promise<{ id: string; name: string } | null>;
   writeRecordingChunk(id: string, track: RecordingTrackId, bytes: ArrayBuffer): Promise<void>;
@@ -440,6 +482,9 @@ export interface StreamAPI {
   onGlobalHotkey(listener: (action: StreamHotkeyAction) => void): () => void;
   onStreamStatus(listener: (status: StreamRuntimeStatus) => void): () => void;
   createBrowserSource(id: string, url: string, width: number, height: number): Promise<void>;
+  sendBrowserSourceInput(id: string, input: BrowserSourceInput): Promise<void>;
+  setBrowserSourceActivity(id: string, activity: BrowserSourceActivity): Promise<void>;
+  resetBrowserSource(id: string): Promise<void>;
   getBrowserSourceAudioCaptureId(id: string): Promise<string>;
   closeBrowserSource(id: string): Promise<void>;
   onBrowserSourceFrame(listener: (id: string, frame: ArrayBuffer) => void): () => void;

@@ -1,13 +1,136 @@
 import { BrowserWindow, type BrowserWindowConstructorOptions, type WebContents } from 'electron';
 import { IPC_CHANNELS } from './ipc-channels';
+import type { BrowserSourceActivity, BrowserSourceInput } from '../shared/desktop-api';
 
 interface BrowserSourceSession {
+  id: string;
   url: string;
   width: number;
   height: number;
+  viewportWidth: number;
+  viewportHeight: number;
+  active: boolean;
+  programActive: boolean;
+  resetOnEntry: boolean;
   window: BrowserWindow;
   ready: Promise<void>;
   lastFrameAt: number;
+}
+
+const MAX_POINTER_WHEEL_DELTA = 10_000;
+const MAX_KEY_LENGTH = 64;
+const MAX_KEY_TEXT_LENGTH = 256;
+const INPUT_MODIFIER_MASK = 0b1111;
+
+function validateInputModifiers(value: unknown): number {
+  if (value === undefined) return 0;
+  if (!Number.isInteger(value) || (value as number) < 0 || ((value as number) & ~INPUT_MODIFIER_MASK) !== 0) {
+    throw new Error('Invalid browser source input modifiers.');
+  }
+  return value as number;
+}
+
+function validateNormalizedCoordinate(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+    throw new Error('Invalid browser source input coordinates.');
+  }
+  return value;
+}
+
+function validateInputDelta(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || Math.abs(value) > MAX_POINTER_WHEEL_DELTA) {
+    throw new Error('Invalid browser source input delta.');
+  }
+  return value;
+}
+
+function validateInputString(value: unknown, maximumLength: number, label: string, allowEmpty = false): string {
+  if (typeof value !== 'string' || value.length > maximumLength || (!allowEmpty && value.length === 0)
+    || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new Error(`Invalid browser source ${label}.`);
+  }
+  return value;
+}
+
+function assertInputProperties(input: Record<string, unknown>, allowed: readonly string[]): void {
+  if (Object.keys(input).some((key) => !allowed.includes(key))) throw new Error('Invalid browser source input.');
+}
+
+function validateBrowserSourceInput(rawInput: unknown): BrowserSourceInput {
+  if (!rawInput || typeof rawInput !== 'object' || Array.isArray(rawInput)) {
+    throw new Error('Invalid browser source input.');
+  }
+  const input = rawInput as Record<string, unknown>;
+  const modifiers = validateInputModifiers(input.modifiers);
+  if (input.type === 'pointer') {
+    assertInputProperties(input, ['type', 'action', 'x', 'y', 'button', 'buttons', 'clickCount', 'modifiers']);
+    if (input.action !== 'move' && input.action !== 'down' && input.action !== 'up') {
+      throw new Error('Invalid browser source pointer action.');
+    }
+    if (input.button !== undefined && input.button !== 'left' && input.button !== 'middle' && input.button !== 'right') {
+      throw new Error('Invalid browser source pointer button.');
+    }
+    if (input.buttons !== undefined && (!Number.isInteger(input.buttons) || (input.buttons as number) < 0 || (input.buttons as number) > 31)) {
+      throw new Error('Invalid browser source pointer buttons.');
+    }
+    if (input.clickCount !== undefined && (!Number.isInteger(input.clickCount) || (input.clickCount as number) < 0 || (input.clickCount as number) > 3)) {
+      throw new Error('Invalid browser source pointer click count.');
+    }
+    return {
+      type: 'pointer',
+      action: input.action,
+      x: validateNormalizedCoordinate(input.x),
+      y: validateNormalizedCoordinate(input.y),
+      ...(input.button === undefined ? {} : { button: input.button }),
+      ...(input.buttons === undefined ? {} : { buttons: input.buttons }),
+      ...(input.clickCount === undefined ? {} : { clickCount: input.clickCount }),
+      modifiers,
+    } as BrowserSourceInput;
+  }
+  if (input.type === 'wheel') {
+    assertInputProperties(input, ['type', 'x', 'y', 'deltaX', 'deltaY', 'modifiers']);
+    return {
+      type: 'wheel',
+      x: validateNormalizedCoordinate(input.x),
+      y: validateNormalizedCoordinate(input.y),
+      deltaX: validateInputDelta(input.deltaX),
+      deltaY: validateInputDelta(input.deltaY),
+      modifiers,
+    };
+  }
+  if (input.type === 'key') {
+    assertInputProperties(input, ['type', 'action', 'key', 'code', 'text', 'modifiers']);
+    if (input.action !== 'down' && input.action !== 'up') throw new Error('Invalid browser source key action.');
+    const key = validateInputString(input.key, MAX_KEY_LENGTH, 'key');
+    const code = validateInputString(input.code, MAX_KEY_LENGTH, 'key code', true);
+    const text = input.text === undefined ? undefined : validateInputString(input.text, MAX_KEY_TEXT_LENGTH, 'key text', true);
+    return {
+      type: 'key',
+      action: input.action,
+      key,
+      code,
+      ...(text === undefined ? {} : { text }),
+      modifiers,
+    };
+  }
+  throw new Error('Invalid browser source input type.');
+}
+
+function validateBrowserSourceActivity(rawActivity: unknown): BrowserSourceActivity {
+  if (!rawActivity || typeof rawActivity !== 'object' || Array.isArray(rawActivity)) {
+    throw new Error('Invalid browser source activity.');
+  }
+  const activity = rawActivity as Record<string, unknown>;
+  const activityKeys = Object.keys(activity).sort();
+  if (activityKeys.length !== 3 || activityKeys[0] !== 'active' || activityKeys[1] !== 'programActive' || activityKeys[2] !== 'resetOnEntry'
+    || typeof activity.active !== 'boolean' || typeof activity.programActive !== 'boolean' || typeof activity.resetOnEntry !== 'boolean') {
+    throw new Error('Invalid browser source activity.');
+  }
+  return {
+    active: activity.active,
+    programActive: activity.programActive,
+    resetOnEntry: activity.resetOnEntry,
+  };
 }
 
 function validateBrowserSource(id: unknown, rawUrl: unknown, width: unknown, height: unknown): { id: string; url: string; width: number; height: number } {
@@ -64,7 +187,17 @@ export class BrowserSourceManager {
         partition: 'persist:stream-browser-sources',
       },
     });
-    const session: BrowserSourceSession = { ...config, window, ready: Promise.resolve(), lastFrameAt: 0 };
+    const session: BrowserSourceSession = {
+      ...config,
+      viewportWidth,
+      viewportHeight,
+      active: true,
+      programActive: false,
+      resetOnEntry: false,
+      window,
+      ready: Promise.resolve(),
+      lastFrameAt: 0,
+    };
     this.sources.set(config.id, session);
     window.webContents.setAudioMuted(true);
     window.webContents.setBackgroundThrottling(false);
@@ -92,6 +225,103 @@ export class BrowserSourceManager {
       throw new Error('The browser source could not load.');
     });
     await session.ready;
+  }
+
+  async sendInput(rawId: unknown, rawInput: unknown): Promise<void> {
+    if (typeof rawId !== 'string' || !/^[0-9a-f-]{16,128}$/i.test(rawId)) throw new Error('Invalid browser source.');
+    const source = this.sources.get(rawId);
+    if (!source) throw new Error('The browser source is not available.');
+    const input = validateBrowserSourceInput(rawInput);
+    return this.enqueue(source, async () => {
+      const debuggerSession = source.window.webContents.debugger;
+      try {
+        if (!debuggerSession.isAttached()) debuggerSession.attach('1.3');
+      } catch {
+        if (!debuggerSession.isAttached()) throw new Error('The browser source could not receive input.');
+      }
+
+      if (input.type === 'pointer') {
+        await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+          type: input.action === 'down' ? 'mousePressed' : input.action === 'up' ? 'mouseReleased' : 'mouseMoved',
+          x: Math.round(input.x * (source.viewportWidth - 1)),
+          y: Math.round(input.y * (source.viewportHeight - 1)),
+          button: input.action === 'move' ? 'none' : input.button ?? 'left',
+          ...(input.buttons === undefined ? {} : { buttons: input.buttons }),
+          ...(input.clickCount === undefined ? {} : { clickCount: input.clickCount }),
+          modifiers: input.modifiers ?? 0,
+        });
+        return;
+      }
+      if (input.type === 'wheel') {
+        await debuggerSession.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mouseWheel',
+          x: Math.round(input.x * (source.viewportWidth - 1)),
+          y: Math.round(input.y * (source.viewportHeight - 1)),
+          deltaX: input.deltaX,
+          deltaY: input.deltaY,
+          modifiers: input.modifiers ?? 0,
+        });
+        return;
+      }
+      await debuggerSession.sendCommand('Input.dispatchKeyEvent', {
+        type: input.action === 'down' ? 'keyDown' : 'keyUp',
+        key: input.key,
+        code: input.code,
+      ...(input.action === 'down' && input.text ? { text: input.text } : {}),
+        modifiers: input.modifiers ?? 0,
+      });
+    });
+  }
+
+  async reset(rawId: unknown): Promise<void> {
+    if (typeof rawId !== 'string' || !/^[0-9a-f-]{16,128}$/i.test(rawId)) throw new Error('Invalid browser source.');
+    const source = this.sources.get(rawId);
+    if (!source) throw new Error('The browser source is not available.');
+    return this.enqueue(source, async () => {
+      try {
+        await source.window.loadURL(source.url);
+      } catch {
+        throw new Error('The browser source could not be reset.');
+      }
+    });
+  }
+
+  async setActivity(rawId: unknown, rawActivity: unknown): Promise<void> {
+    if (typeof rawId !== 'string' || !/^[0-9a-f-]{16,128}$/i.test(rawId)) throw new Error('Invalid browser source.');
+    const source = this.sources.get(rawId);
+    if (!source) throw new Error('The browser source is not available.');
+    const activity = validateBrowserSourceActivity(rawActivity);
+    return this.enqueue(source, async () => {
+      const enteringProgram = !source.programActive && activity.programActive;
+      const shouldReset = enteringProgram && activity.resetOnEntry;
+      source.active = activity.active;
+      source.programActive = activity.programActive;
+      source.resetOnEntry = activity.resetOnEntry;
+      source.window.webContents.setBackgroundThrottling(!source.active);
+      source.window.webContents.setFrameRate(source.active ? 15 : 1);
+      if (shouldReset) {
+        try {
+          await source.window.loadURL(source.url);
+        } catch {
+          throw new Error('The browser source could not be reset.');
+        }
+      }
+    });
+  }
+
+  private enqueue(source: BrowserSourceSession, operation: () => Promise<void> | void): Promise<void> {
+    const assertAvailable = () => {
+      if (this.sources.get(source.id) !== source || source.window.isDestroyed() || source.window.webContents.isDestroyed()) {
+        throw new Error('The browser source is not available.');
+      }
+    };
+    const run = () => {
+      assertAvailable();
+      return operation();
+    };
+    const result = source.ready.then(run, run);
+    source.ready = result.then(() => undefined, () => undefined);
+    return result;
   }
 
   async getAudioCaptureId(rawId: unknown, requester: WebContents): Promise<string> {

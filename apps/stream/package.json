@@ -21,14 +21,18 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
+    "@hyzyla/pdfium": "3.0.0",
     "@lumacast/desktop": "file:../../packages/desktop",
     "@lumacast/ndi-native": "file:../../packages/ndi-native",
     "@lumacast/selection": "file:../../packages/selection",
     "@lumacast/ui": "file:../../packages/ui",
+    "@office-kit/pptx": "0.28.0",
+    "@office-kit/pptx-preview": "0.21.0",
     "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "lucide-react": "^1.7.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "sharp": "0.35.4",
     "yauzl": "^3.4.0",
     "yazl": "^3.3.1"
   },

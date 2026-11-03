@@ -24,6 +24,7 @@ import { applyApplicationMenu } from './application-menu';
 import { createMainWindow } from './window';
 import { applicationAudioHelperFilename, toStreamPlatform } from '../shared/platform-capabilities';
 import { registerNdiIpc } from './ndi-bridge';
+import { PresentationImporter } from './presentation-import';
 
 protocol.registerSchemesAsPrivileged([{ scheme: MEDIA_SCHEME, privileges: MEDIA_SCHEME_PRIVILEGES }]);
 app.setName('LumaStream');
@@ -38,6 +39,9 @@ const recordingPreferences = new RecordingPreferencesStore(dataDirectory);
 const streamSettings = new StreamSettingsStore(dataDirectory);
 const capture = new DesktopCaptureController(() => mainWindow);
 const mediaAssets = new MediaAssetStore(dataDirectory, () => mainWindow);
+const presentations = new PresentationImporter(mediaAssets, () => mainWindow, path.join(__dirname, 'presentation-worker.js'), {
+  fontDirectory: app.isPackaged ? path.join(process.resourcesPath, 'presentation-fonts') : undefined,
+});
 const recordings = new RecordingStore(() => mainWindow, app.getPath('videos'), recordingPreferences);
 const recordingRemuxer = new RecordingRemuxer(() => mainWindow);
 const streamOutput = new StreamOutput(() => mainWindow?.webContents ?? null);
@@ -65,7 +69,7 @@ const collectionBundles = new CollectionBundleStore(projectStore, mediaAssets, (
 const rendererFile = path.join(__dirname, '../renderer/index.html');
 const devServerOrigin = resolveDevServerOrigin(process.env.ELECTRON_RENDERER_URL);
 const isTrustedUrl = (url: string) => isTrustedRendererUrl(url, { packagedRendererFile: rendererFile, devServerOrigin });
-const unregisterIpc = registerStreamIpc(projectStore, audioSettings, recordingPreferences, capture, mediaAssets, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, streamSettings, youtubeLive, zoomLive, zoomStreaming, () => mainWindow?.webContents ?? null, isTrustedUrl);
+const unregisterIpc = registerStreamIpc(projectStore, audioSettings, recordingPreferences, capture, mediaAssets, presentations, collectionBundles, recordings, recordingRemuxer, streamOutput, browserSources, globalHotkeys, applicationAudio, streamSettings, youtubeLive, zoomLive, zoomStreaming, () => mainWindow?.webContents ?? null, isTrustedUrl);
 const ndiIpc = registerNdiIpc(
   () => mainWindow?.webContents ?? null,
   isTrustedUrl,
@@ -91,8 +95,12 @@ if (app.requestSingleInstanceLock()) {
   }).then(() => {
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
       const trusted = webContents === mainWindow?.webContents && webContents.mainFrame.url !== '' && isTrustedUrl(webContents.mainFrame.url);
+      const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined;
+      const emptyMediaPreflight = mediaTypes === undefined || mediaTypes.length === 0;
       const allowedMedia = permission === 'media' && trusted
-        && (!('mediaTypes' in details) || details.mediaTypes?.every((type) => type === 'audio' || type === 'video') !== false);
+        && ((mediaTypes !== undefined && mediaTypes.length > 0 && mediaTypes.every((type) => type === 'audio' || type === 'video'))
+          || (emptyMediaPreflight && (capture.authorizeEmptyMediaTypesPermissionRequest(webContents.id)
+            || browserSources.isAudioCaptureAuthorized(webContents.id))));
       const allowedDisplayCapture = (permission as string) === 'display-capture' && trusted
         && (capture.isCaptureAuthorized(webContents.id) || browserSources.isAudioCaptureAuthorized(webContents.id));
       const allowedSpeakerSelection = allowsSpeakerSelection(
@@ -107,7 +115,10 @@ if (app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
       const trusted = webContents === mainWindow?.webContents && isTrustedUrl(webContents.mainFrame.url);
       const allowedMedia = permission === 'media' && trusted
-        && (details.mediaType === undefined || details.mediaType === 'audio' || details.mediaType === 'video');
+        && (details.mediaType === 'audio' || details.mediaType === 'video'
+          || (details.mediaType === undefined && (capture.isCaptureAuthorized(webContents.id)
+            || capture.isAutomaticCaptureAuthorized(webContents.id)
+            || browserSources.isAudioCaptureAuthorized(webContents.id))));
       const allowedDisplayCapture = (permission as string) === 'display-capture' && trusted
         && (capture.isCaptureAuthorized(webContents.id) || browserSources.isAudioCaptureAuthorized(webContents.id));
       return allowedMedia || allowedDisplayCapture || allowsSpeakerSelection(

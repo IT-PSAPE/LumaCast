@@ -14,6 +14,10 @@ files:
 # Licensing notices ship on every platform; the media engine and audio helper
 # are platform specific and are listed under `win:` and `mac:` below.
 extraResources:
+  - from: ../../node_modules/@office-kit/pptx-preview/fonts
+    to: presentation-fonts
+  - from: third-party/presentation
+    to: third-party/presentation
   - from: vendor/ffmpeg/provenance.json
     to: third-party/ffmpeg/provenance.json
   - from: third-party/ffmpeg/NOTICE.md

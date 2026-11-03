@@ -27,6 +27,18 @@ function projectWithDisplaySource(): StreamProject {
   return project;
 }
 
+function projectWithWindowSource(): StreamProject {
+  const project = createDefaultProject();
+  const scene = project.scenes[0];
+  if (!scene) throw new Error('Default Stream project has no scene.');
+  scene.sources.push({
+    id: 'window-source', name: 'Music Player', kind: 'window', visible: true, muted: false, volume: 1,
+    transform: { x: 0, y: 0, width: project.output.width, height: project.output.height },
+    captureId: 'window:123:456',
+  });
+  return project;
+}
+
 function projectWithTextSource(): StreamProject {
   const project = createDefaultProject();
   const scene = project.scenes[0];
@@ -195,6 +207,33 @@ function projectWithMediaSource(): StreamProject {
   return project;
 }
 
+type PlaybackRestartSourceKind = 'media' | 'browser' | 'slideshow' | 'presentation';
+
+function projectWithPlaybackRestartSource(kind: PlaybackRestartSourceKind): StreamProject {
+  const project = createDefaultProject();
+  const source: StreamSource = {
+    id: `${kind}-source`,
+    name: kind,
+    kind,
+    visible: true,
+    muted: false,
+    volume: 1,
+    transform: { x: 0, y: 0, width: project.output.width, height: project.output.height },
+    ...(kind === 'media' ? { assetId: '00000000-0000-4000-8000-000000000003', assetExtension: 'mp3', mediaKind: 'audio' } : {}),
+    ...(kind === 'browser' ? { url: 'https://example.com' } : {}),
+    ...(kind === 'slideshow' ? {
+      slideshowImages: [{ assetId: '00000000-0000-4000-8000-000000000004', assetExtension: 'png', name: 'Slide' }],
+      slideIndex: 0,
+    } : {}),
+    ...(kind === 'presentation' ? {
+      presentationSlides: [{ assetId: '00000000-0000-4000-8000-000000000005', assetExtension: 'png', name: 'Slide' }],
+      slideIndex: 0,
+    } : {}),
+  };
+  project.scenes[0]!.sources.push(source);
+  return project;
+}
+
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
@@ -261,6 +300,172 @@ describe('LumaStream desktop audio persistence', () => {
   });
 });
 
+describe('LumaStream durable desktop capture settings persistence', () => {
+  it('loads legacy capture IDs and round-trips durable targets with application audio settings', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-capture-target-'));
+    temporaryDirectories.push(directory);
+    const legacyProject = projectWithDisplaySource();
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(legacyProject), 'utf8');
+
+    const store = new ProjectStore(directory);
+    const legacy = await store.load();
+    const legacySource = legacy.project.scenes[0]!.sources.find((source) => source.id === 'display-source')!;
+    expect(legacySource.captureId).toBe('screen:1');
+    expect(legacySource).not.toHaveProperty('captureTarget');
+    expect(legacySource).not.toHaveProperty('captureBindingId');
+    expect(legacySource).not.toHaveProperty('captureAudioMode');
+
+    const sourceWithSettings: StreamSource = {
+      ...legacySource,
+      captureTarget: { kind: 'screen', name: 'Office Display', displayId: 'display-12' },
+      captureAudioEnabled: false,
+      captureAudioMode: 'application',
+      captureAudioApplicationPath: 'C:\\Program Files\\Audio Capture\\capture.exe',
+    };
+    const updatedProject: StreamProject = {
+      ...legacy.project,
+      scenes: legacy.project.scenes.map((scene) => ({
+        ...scene,
+        sources: scene.sources.map((source) => source.id === sourceWithSettings.id ? sourceWithSettings : source),
+      })),
+    };
+    await store.save(legacy.activeCollectionId, legacy.activeProfileId, updatedProject);
+
+    const restored = await store.load();
+    expect(restored.project.scenes[0]!.sources.find((source) => source.id === 'display-source')).toMatchObject({
+      captureId: 'screen:1',
+      captureTarget: { kind: 'screen', name: 'Office Display', displayId: 'display-12' },
+      captureAudioEnabled: false,
+      captureAudioMode: 'application',
+      captureAudioApplicationPath: 'C:\\Program Files\\Audio Capture\\capture.exe',
+    });
+  });
+
+  it.each([
+    {
+      label: 'source and target kinds do not match', sourceKind: 'display',
+      patch: { captureTarget: { kind: 'window', name: 'Music Player', appIconHash: 'a'.repeat(64) } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'capture target has an unsupported kind', sourceKind: 'display',
+      patch: { captureTarget: { kind: 'camera', name: 'Camera' } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'capture target has the wrong value type', sourceKind: 'display',
+      patch: { captureTarget: 'screen:1' },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'capture target name is empty', sourceKind: 'display',
+      patch: { captureTarget: { kind: 'screen', name: '' } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'capture target name is too long', sourceKind: 'display',
+      patch: { captureTarget: { kind: 'screen', name: 'x'.repeat(513) } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'display ID is too long', sourceKind: 'display',
+      patch: { captureTarget: { kind: 'screen', name: 'Display', displayId: 'x'.repeat(257) } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'display ID has the wrong value type', sourceKind: 'display',
+      patch: { captureTarget: { kind: 'screen', name: 'Display', displayId: 12 } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'window icon hash is malformed', sourceKind: 'window',
+      patch: { captureTarget: { kind: 'window', name: 'Music Player', appIconHash: 'a'.repeat(63) } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'window target has a display ID', sourceKind: 'window',
+      patch: { captureTarget: { kind: 'window', name: 'Music Player', displayId: 'display-12' } },
+      error: 'Project contains an invalid saved capture target.',
+    },
+    {
+      label: 'capture binding ID is malformed', sourceKind: 'window',
+      patch: { captureBindingId: 'not-a-uuid' },
+      error: 'Project contains an invalid capture binding.',
+    },
+    {
+      label: 'capture binding ID is set on a camera', sourceKind: 'camera',
+      patch: { captureBindingId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+      error: 'Project contains an invalid capture binding.',
+    },
+    {
+      label: 'capture audio mode has the wrong value type', sourceKind: 'display',
+      patch: { captureAudioMode: true },
+      error: 'Project contains invalid desktop capture audio settings.',
+    },
+    {
+      label: 'capture audio mode is set on a camera', sourceKind: 'camera',
+      patch: { captureAudioMode: 'system' },
+      error: 'Project contains invalid desktop capture audio settings.',
+    },
+    {
+      label: 'application audio path is relative', sourceKind: 'display',
+      patch: { captureAudioMode: 'application', captureAudioApplicationPath: 'capture.exe' },
+      error: 'Project contains an invalid capture audio application.',
+    },
+    {
+      label: 'application audio path is missing', sourceKind: 'display',
+      patch: { captureAudioMode: 'application' },
+      error: 'Project contains an incomplete capture audio application.',
+    },
+    {
+      label: 'application audio path is set with system mode', sourceKind: 'display',
+      patch: { captureAudioMode: 'system', captureAudioApplicationPath: 'C:\\capture.exe' },
+      error: 'Project contains an invalid capture audio application.',
+    },
+    {
+      label: 'application audio path is set on a camera', sourceKind: 'camera',
+      patch: { captureAudioApplicationPath: 'C:\\capture.exe' },
+      error: 'Project contains an invalid capture audio application.',
+    },
+  ])('rejects invalid desktop capture metadata when $label', async ({ sourceKind, patch, error }) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-capture-target-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = sourceKind === 'window' ? projectWithWindowSource() : projectWithDisplaySource();
+    let source = project.scenes[0]!.sources.find((item) => item.kind === sourceKind);
+    if (!source && sourceKind === 'camera') {
+      source = {
+        id: 'camera-source', name: 'Camera', kind: 'camera', visible: true, muted: false, volume: 1,
+        transform: { x: 0, y: 0, width: 320, height: 240 },
+      };
+      project.scenes[0]!.sources.push(source);
+    }
+    if (!source) throw new Error(`${sourceKind} source was not created.`);
+    Object.assign(source as unknown as Record<string, unknown>, patch);
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow(error);
+  });
+
+  it.each(['display', 'window'] as const)('round-trips a valid %s capture binding UUID', async (sourceKind) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-capture-binding-'));
+    temporaryDirectories.push(directory);
+    const project = sourceKind === 'display' ? projectWithDisplaySource() : projectWithWindowSource();
+    const source = project.scenes[0]!.sources.find((item) => item.kind === sourceKind);
+    if (!source) throw new Error(`${sourceKind} source was not created.`);
+    source.captureBindingId = sourceKind === 'display'
+      ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      : 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    const store = new ProjectStore(directory);
+    const loaded = await store.load();
+    expect(loaded.project.scenes[0]!.sources.find((item) => item.id === source.id)?.captureBindingId).toBe(source.captureBindingId);
+    await store.save(loaded.activeCollectionId, loaded.activeProfileId, loaded.project);
+    const restored = await store.load();
+    expect(restored.project.scenes[0]!.sources.find((item) => item.id === source.id)?.captureBindingId).toBe(source.captureBindingId);
+  });
+});
+
 describe('LumaStream application audio persistence', () => {
   it('round-trips the selected executable path without persisting a process ID', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
@@ -308,14 +513,50 @@ describe('LumaStream media playback persistence', () => {
     expect(source?.showNothingWhenPlaybackEnds).toBe(false);
   });
 
-  it('rejects media playback settings with non-boolean values', async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-project-'));
+  it.each(['media', 'browser', 'slideshow', 'presentation'] as const)('round-trips the Program reset option on %s sources', async (kind) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-playback-reset-'));
     temporaryDirectories.push(directory);
-    const project = projectWithMediaSource();
+    const project = projectWithPlaybackRestartSource(kind);
+    project.scenes[0]!.sources[0]!.restartPlaybackWhenActive = true;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    const restored = await new ProjectStore(directory).load();
+    expect(restored.project.scenes[0]!.sources[0]).toMatchObject({ kind, restartPlaybackWhenActive: true });
+  });
+
+  it.each(['media', 'browser', 'slideshow', 'presentation'] as const)('loads legacy %s sources without a Program reset option', async (kind) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-playback-reset-legacy-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithPlaybackRestartSource(kind);
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    const restored = await new ProjectStore(directory).load();
+    const source = restored.project.scenes[0]!.sources[0]!;
+    expect(source).not.toHaveProperty('restartPlaybackWhenActive');
+    if (kind === 'slideshow' || kind === 'presentation') expect(source.slideIndex).toBe(0);
+  });
+
+  it.each(['media', 'browser', 'slideshow', 'presentation'] as const)('rejects non-boolean Program reset values on %s sources', async (kind) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-playback-reset-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = projectWithPlaybackRestartSource(kind);
     (project.scenes[0]!.sources[0] as unknown as Record<string, unknown>).restartPlaybackWhenActive = 'yes';
     await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
 
-    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid media restart setting');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid playback restart setting');
+  });
+
+  it.each([
+    { label: 'capture', project: projectWithDisplaySource(), sourceId: 'display-source' },
+    { label: 'other', project: projectWithTextSource(), sourceId: 'text-source' },
+  ])('rejects the Program reset option on $label sources', async ({ project, sourceId }) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-playback-reset-kind-'));
+    temporaryDirectories.push(directory);
+    const source = project.scenes[0]!.sources.find((item) => item.id === sourceId)!;
+    source.restartPlaybackWhenActive = true;
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid playback restart setting');
   });
 
   it('ignores a legacy loop field on image sources without rejecting the collection', async () => {
@@ -513,6 +754,9 @@ describe('LumaStream image slideshow persistence', () => {
       ],
       slideshowIntervalSeconds: 12,
       slideshowLoop: false,
+      slideIndex: 1,
+      slideshowAutoAdvance: false,
+      slideshowPlaybackId: 'f9f6a24a-f292-4e63-a16f-30b86d764fa8',
     });
 
     await store.save(workspace.activeCollectionId, workspace.activeProfileId, project);
@@ -522,6 +766,9 @@ describe('LumaStream image slideshow persistence', () => {
     expect(slideshow?.slideshowImages?.map((image) => image.name)).toEqual(['Opening', 'Closing']);
     expect(slideshow?.slideshowIntervalSeconds).toBe(12);
     expect(slideshow?.slideshowLoop).toBe(false);
+    expect(slideshow?.slideIndex).toBe(1);
+    expect(slideshow?.slideshowAutoAdvance).toBe(false);
+    expect(slideshow?.slideshowPlaybackId).toBe('f9f6a24a-f292-4e63-a16f-30b86d764fa8');
   });
 
   it('rejects slideshow settings outside their supported bounds', async () => {
@@ -535,7 +782,89 @@ describe('LumaStream image slideshow persistence', () => {
       slideshowIntervalSeconds: 0,
     });
     await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
-    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid image slideshow settings.');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('Project contains invalid slide images.');
+  });
+});
+
+describe('LumaStream presentation and manual slide persistence', () => {
+  const images = [
+    { assetId: 'f53a46ac-0bd4-4cab-8ab1-3d7c5a66f0af', assetExtension: 'png', name: 'Opening' },
+    { assetId: '6d8a9018-b77e-4c50-a172-4bc615b65ec7', assetExtension: 'png', name: 'Closing' },
+  ];
+
+  const presentation = (): StreamSource => ({
+    id: 'presentation', name: 'Sunday service', kind: 'presentation', visible: true, muted: false, volume: 1,
+    transform: { x: 0, y: 0, width: 1920, height: 1080 }, presentationSlides: images.map((image) => ({ ...image })), slideIndex: 1,
+  });
+
+  it('round-trips presentation pages and manual position through save and collection duplication', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-presentation-'));
+    temporaryDirectories.push(directory);
+    const store = new ProjectStore(directory);
+    const workspace = await store.load();
+    workspace.project.scenes[0]!.sources.push(presentation());
+    await store.save(workspace.activeCollectionId, workspace.activeProfileId, workspace.project);
+
+    const restored = await new ProjectStore(directory).load();
+    expect(restored.project.scenes[0]!.sources[0]).toMatchObject(presentation());
+    const duplicate = await store.create('Presentation copy', true);
+    const duplicateSource = duplicate.project.scenes[0]!.sources[0]!;
+    expect(duplicateSource.id).not.toBe('presentation');
+    expect(duplicateSource).toMatchObject({ kind: 'presentation', presentationSlides: images, slideIndex: 1 });
+    duplicateSource.presentationSlides![0]!.name = 'Changed copy';
+    await store.save(duplicate.activeCollectionId, duplicate.activeProfileId, duplicate.project);
+    const original = await store.activate(workspace.activeCollectionId);
+    expect(original.project.scenes[0]!.sources[0]!.presentationSlides).toEqual(images);
+  });
+
+  it.each([
+    { label: 'missing presentation pages', patch: { presentationSlides: undefined, slideIndex: undefined }, error: /incomplete or invalid source/ },
+    { label: 'empty presentation', patch: { presentationSlides: [] }, error: /invalid slide images/ },
+    { label: 'more than 100 pages', patch: { presentationSlides: Array.from({ length: 101 }, () => images[0]) }, error: /invalid slide images/ },
+    { label: 'invalid page asset ID', patch: { presentationSlides: [{ ...images[0], assetId: '../outside' }] }, error: /invalid slide images/ },
+    { label: 'unsupported page asset extension', patch: { presentationSlides: [{ ...images[0], assetExtension: 'exe' }] }, error: /invalid slide images/ },
+    { label: 'empty page label', patch: { presentationSlides: [{ ...images[0], name: '' }] }, error: /invalid slide images/ },
+    { label: 'negative slide index', patch: { slideIndex: -1 }, error: /invalid slide position/ },
+    { label: 'slide index past the end', patch: { slideIndex: 2 }, error: /invalid slide position/ },
+    { label: 'fractional slide index', patch: { slideIndex: 0.5 }, error: /invalid slide position/ },
+    { label: 'non-numeric slide index', patch: { slideIndex: '1' }, error: /invalid slide position/ },
+    { label: 'presentation pages on another source kind', patch: { kind: 'color' }, error: /invalid presentation settings/ },
+    { label: 'automatic advance on a presentation', patch: { slideshowAutoAdvance: true }, error: /invalid slideshow playback settings/ },
+    { label: 'slideshow token on a presentation', patch: { slideshowPlaybackId: 'f9f6a24a-f292-4e63-a16f-30b86d764fa8' }, error: /invalid slideshow playback settings/ },
+  ])('rejects $label', async ({ patch, error }) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-presentation-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push(Object.assign(presentation(), patch));
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow(error);
+  });
+
+  it.each([
+    { slideshowAutoAdvance: 'manual' },
+    { slideshowPlaybackId: 'not-a-uuid' },
+  ])('rejects malformed slideshow playback settings %#', async (patch) => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-slide-playback-invalid-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    const source = presentation();
+    source.kind = 'slideshow';
+    source.slideshowImages = source.presentationSlides;
+    delete source.presentationSlides;
+    project.scenes[0]!.sources.push(Object.assign(source, patch));
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    await expect(new ProjectStore(directory).load()).rejects.toThrow('invalid slideshow playback settings');
+  });
+
+  it('accepts exactly 100 presentation pages and the last valid page index', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'lumastream-presentation-limit-'));
+    temporaryDirectories.push(directory);
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push({ ...presentation(), presentationSlides: Array.from({ length: 100 }, () => ({ ...images[0]! })), slideIndex: 99 });
+    await writeFile(path.join(directory, 'scene-collection.json'), JSON.stringify(project), 'utf8');
+    const workspace = await new ProjectStore(directory).load();
+    expect(workspace.project.scenes[0]!.sources[0]!.presentationSlides).toHaveLength(100);
+    expect(workspace.project.scenes[0]!.sources[0]!.slideIndex).toBe(99);
   });
 });
 

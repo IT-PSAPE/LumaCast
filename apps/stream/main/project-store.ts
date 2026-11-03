@@ -5,11 +5,13 @@ import { CAMERA_FRAME_RATE_OPTIONS, CAMERA_RESOLUTION_OPTIONS, createDefaultProj
 import { flattenSourceNodes, MAX_SOURCE_GROUP_DEPTH } from '../shared/source-tree';
 import { getSceneReferenceValidationError } from '../shared/scene-reference-graph';
 import { normalizeSourceRotation } from '../shared/source-geometry';
+import { isValidDesktopCaptureTarget } from '../shared/capture-target';
 
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_COLLECTIONS = MAX_STREAM_SCENE_COLLECTIONS;
 const COLLECTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'media', 'browser', 'text', 'color', 'group', 'scene', 'ndi']);
+const SOURCE_KINDS = new Set(['display', 'window', 'camera', 'microphone', 'desktop-audio', 'application-audio', 'image', 'slideshow', 'presentation', 'media', 'browser', 'text', 'color', 'group', 'scene', 'ndi']);
+const PLAYBACK_RESTART_SOURCE_KINDS = new Set(['media', 'browser', 'slideshow', 'presentation']);
 const MEDIA_KINDS = new Set(['image', 'video', 'audio']);
 const MEDIA_EXTENSIONS: Record<string, string[]> = {
   image: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'],
@@ -37,6 +39,16 @@ const VIDEO_RATE_CONTROLS = new Set<VideoRateControlMode>(['cbr', 'pc_vbr', 'u_v
 const CAPTURE_CURSOR_MODES = new Set<CaptureCursorMode>(['never', 'motion', 'always']);
 const CAMERA_RESOLUTIONS = new Set<string>(CAMERA_RESOLUTION_OPTIONS.map((option) => option.value));
 const CAMERA_FRAME_RATES = new Set<number>(CAMERA_FRAME_RATE_OPTIONS);
+
+function decodeSlideImages(value: unknown): NonNullable<StreamSource['slideshowImages']> {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100
+    || value.some((item) => !isRecord(item) || typeof item.assetId !== 'string'
+      || !COLLECTION_ID_PATTERN.test(item.assetId) || typeof item.assetExtension !== 'string'
+      || !MEDIA_EXTENSIONS.image.includes(item.assetExtension) || typeof item.name !== 'string' || item.name.length < 1 || item.name.length > 120)) {
+    throw new Error('Project contains invalid slide images.');
+  }
+  return value.map((item) => ({ assetId: item.assetId, assetExtension: item.assetExtension, name: item.name }));
+}
 
 function decodeSource(value: unknown, groupDepth = 0): StreamSource {
   if (!isRecord(value) || typeof value.id !== 'string' || value.id.length > 128 || typeof value.name !== 'string' || value.name.length > 120) {
@@ -66,6 +78,37 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     crop = { top: cropValue.top as number, right: cropValue.right as number, bottom: cropValue.bottom as number, left: cropValue.left as number };
   }
   if (value.captureId !== undefined && (typeof value.captureId !== 'string' || value.captureId.length > 512)) throw new Error('Project contains an invalid capture source.');
+  let captureTarget: StreamSource['captureTarget'];
+  if (value.captureBindingId !== undefined && ((value.kind !== 'display' && value.kind !== 'window')
+    || typeof value.captureBindingId !== 'string' || !COLLECTION_ID_PATTERN.test(value.captureBindingId))) {
+    throw new Error('Project contains an invalid capture binding.');
+  }
+  if (value.captureTarget !== undefined) {
+    const target = value.captureTarget;
+    if ((value.kind !== 'display' && value.kind !== 'window') || !isValidDesktopCaptureTarget(target)
+      || target.kind !== (value.kind === 'display' ? 'screen' : 'window')) {
+      throw new Error('Project contains an invalid saved capture target.');
+    }
+    captureTarget = {
+      kind: target.kind,
+      name: target.name,
+      ...(typeof target.displayId === 'string' ? { displayId: target.displayId } : {}),
+      ...(typeof target.appIconHash === 'string' ? { appIconHash: target.appIconHash } : {}),
+    };
+  }
+  if (value.captureAudioMode !== undefined && ((value.kind !== 'display' && value.kind !== 'window')
+    || (value.captureAudioMode !== 'system' && value.captureAudioMode !== 'application'))) {
+    throw new Error('Project contains invalid desktop capture audio settings.');
+  }
+  if (value.captureAudioApplicationPath !== undefined && ((value.kind !== 'display' && value.kind !== 'window')
+    || value.captureAudioMode !== 'application' || typeof value.captureAudioApplicationPath !== 'string'
+    || value.captureAudioApplicationPath.length < 1 || value.captureAudioApplicationPath.length > 32768
+    || !isAbsoluteApplicationPath(value.captureAudioApplicationPath))) {
+    throw new Error('Project contains an invalid capture audio application.');
+  }
+  if (value.captureAudioMode === 'application' && typeof value.captureAudioApplicationPath !== 'string') {
+    throw new Error('Project contains an incomplete capture audio application.');
+  }
   if (value.applicationPath !== undefined && (value.kind !== 'application-audio' || typeof value.applicationPath !== 'string'
     || value.applicationPath.length > 32768 || !isAbsoluteApplicationPath(value.applicationPath))) throw new Error('Project contains an invalid application audio source.');
   if (value.kind === 'application-audio' && (typeof value.applicationPath !== 'string' || value.applicationPath.length === 0)) {
@@ -94,21 +137,32 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
   if (value.assetExtension !== undefined && (typeof value.assetExtension !== 'string' || !/^(png|jpg|jpeg|bmp|gif|webp|mp4|m4v|mov|webm|mkv|avi|mp3|wav|ogg|flac|m4a|aac|opus)$/.test(value.assetExtension))) throw new Error('Project contains an invalid asset extension.');
   if (value.mediaKind !== undefined && (typeof value.mediaKind !== 'string' || !MEDIA_KINDS.has(value.mediaKind))) throw new Error('Project contains an invalid media type.');
   if (value.loop !== undefined && typeof value.loop !== 'boolean') throw new Error('Project contains an invalid media loop setting.');
-  if (value.restartPlaybackWhenActive !== undefined && (value.kind !== 'media' || typeof value.restartPlaybackWhenActive !== 'boolean')) {
-    throw new Error('Project contains an invalid media restart setting.');
+  if (value.restartPlaybackWhenActive !== undefined && (!PLAYBACK_RESTART_SOURCE_KINDS.has(value.kind)
+    || typeof value.restartPlaybackWhenActive !== 'boolean')) {
+    throw new Error('Project contains an invalid playback restart setting.');
   }
   if (value.showNothingWhenPlaybackEnds !== undefined && (value.kind !== 'media' || typeof value.showNothingWhenPlaybackEnds !== 'boolean')) {
     throw new Error('Project contains an invalid media end-frame setting.');
   }
   let slideshowImages: StreamSource['slideshowImages'];
   if (value.slideshowImages !== undefined) {
-    if (value.kind !== 'slideshow' || !Array.isArray(value.slideshowImages) || value.slideshowImages.length < 1 || value.slideshowImages.length > 100
-      || value.slideshowImages.some((item) => !isRecord(item) || typeof item.assetId !== 'string'
-        || !COLLECTION_ID_PATTERN.test(item.assetId) || typeof item.assetExtension !== 'string'
-        || !MEDIA_EXTENSIONS.image.includes(item.assetExtension) || typeof item.name !== 'string' || item.name.length < 1 || item.name.length > 120)) {
-      throw new Error('Project contains invalid image slideshow settings.');
-    }
-    slideshowImages = value.slideshowImages.map((item) => ({ assetId: (item as Record<string, string>).assetId, assetExtension: (item as Record<string, string>).assetExtension, name: (item as Record<string, string>).name }));
+    if (value.kind !== 'slideshow') throw new Error('Project contains invalid image slideshow settings.');
+    slideshowImages = decodeSlideImages(value.slideshowImages);
+  }
+  let presentationSlides: StreamSource['presentationSlides'];
+  if (value.presentationSlides !== undefined) {
+    if (value.kind !== 'presentation') throw new Error('Project contains invalid presentation settings.');
+    presentationSlides = decodeSlideImages(value.presentationSlides);
+  }
+  const slideCount = slideshowImages?.length ?? presentationSlides?.length;
+  if (value.slideIndex !== undefined && (!Number.isInteger(value.slideIndex) || !finiteNumber(value.slideIndex, 0, (slideCount ?? 0) - 1))) {
+    throw new Error('Project contains an invalid slide position.');
+  }
+  if (value.slideshowAutoAdvance !== undefined && (value.kind !== 'slideshow' || typeof value.slideshowAutoAdvance !== 'boolean')) {
+    throw new Error('Project contains invalid slideshow playback settings.');
+  }
+  if (value.slideshowPlaybackId !== undefined && (value.kind !== 'slideshow' || typeof value.slideshowPlaybackId !== 'string' || !COLLECTION_ID_PATTERN.test(value.slideshowPlaybackId))) {
+    throw new Error('Project contains invalid slideshow playback settings.');
   }
   if (value.slideshowIntervalSeconds !== undefined && (value.kind !== 'slideshow' || !finiteNumber(value.slideshowIntervalSeconds, 1, 600))) {
     throw new Error('Project contains invalid image slideshow settings.');
@@ -131,7 +185,7 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     } catch { incompleteBrowser = true; }
   }
   const incompleteSlideshow = value.kind === 'slideshow' && !slideshowImages;
-  if (incompleteImage || incompleteMedia || incompleteSlideshow || incompleteBrowser || (value.kind !== 'browser' && value.url !== undefined)) {
+  if (incompleteImage || incompleteMedia || incompleteSlideshow || (value.kind === 'presentation' && !presentationSlides) || incompleteBrowser || (value.kind !== 'browser' && value.url !== undefined)) {
     throw new Error('Project contains an incomplete or invalid source.');
   }
   if (value.text !== undefined && (typeof value.text !== 'string' || value.text.length > 10000)) throw new Error('Project contains invalid text.');
@@ -303,6 +357,10 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     audioMonitoring: (value.audioMonitoring as AudioMonitoring | undefined) ?? 'off',
     audioTracks: value.audioTracks === undefined ? [1] : normalizeAudioTracks(value.audioTracks),
     ...(typeof value.captureId === 'string' ? { captureId: value.captureId } : {}),
+    ...(captureTarget ? { captureTarget } : {}),
+    ...(typeof value.captureBindingId === 'string' ? { captureBindingId: value.captureBindingId } : {}),
+    ...(value.captureAudioMode === 'system' || value.captureAudioMode === 'application' ? { captureAudioMode: value.captureAudioMode } : {}),
+    ...(typeof value.captureAudioApplicationPath === 'string' ? { captureAudioApplicationPath: value.captureAudioApplicationPath } : {}),
     ...(value.kind === 'ndi' ? { ndiSourceName: value.ndiSourceName as string,
       ...(typeof value.ndiUrlAddress === 'string' ? { ndiUrlAddress: value.ndiUrlAddress } : {}) } : {}),
     ...(value.kind === 'application-audio' && typeof value.applicationPath === 'string' ? { applicationPath: value.applicationPath } : {}),
@@ -320,6 +378,10 @@ function decodeSource(value: unknown, groupDepth = 0): StreamSource {
     ...(typeof value.restartPlaybackWhenActive === 'boolean' ? { restartPlaybackWhenActive: value.restartPlaybackWhenActive } : {}),
     ...(typeof value.showNothingWhenPlaybackEnds === 'boolean' ? { showNothingWhenPlaybackEnds: value.showNothingWhenPlaybackEnds } : {}),
     ...(slideshowImages ? { slideshowImages } : {}),
+    ...(presentationSlides ? { presentationSlides } : {}),
+    ...(typeof value.slideIndex === 'number' ? { slideIndex: value.slideIndex } : {}),
+    ...(typeof value.slideshowAutoAdvance === 'boolean' ? { slideshowAutoAdvance: value.slideshowAutoAdvance } : {}),
+    ...(typeof value.slideshowPlaybackId === 'string' ? { slideshowPlaybackId: value.slideshowPlaybackId } : {}),
     ...(typeof value.slideshowIntervalSeconds === 'number' ? { slideshowIntervalSeconds: value.slideshowIntervalSeconds } : {}),
     ...(typeof value.slideshowLoop === 'boolean' ? { slideshowLoop: value.slideshowLoop } : {}),
     ...(typeof value.browserAudioEnabled === 'boolean' ? { browserAudioEnabled: value.browserAudioEnabled } : {}),
@@ -569,6 +631,7 @@ function duplicateProject(project: StreamProject): StreamProject {
     ...(source.chromaKey ? { chromaKey: { ...source.chromaKey } } : {}),
     ...(source.audioFilters ? { audioFilters: { ...source.audioFilters } } : {}),
     ...(source.slideshowImages ? { slideshowImages: source.slideshowImages.map((image) => ({ ...image })) } : {}),
+    ...(source.presentationSlides ? { presentationSlides: source.presentationSlides.map((image) => ({ ...image })) } : {}),
     ...(source.children ? { children: source.children.map(cloneSource) } : {}),
     ...(source.kind === 'scene' && source.referencedSceneId ? { referencedSceneId: sceneIds.get(source.referencedSceneId) ?? source.referencedSceneId } : {}),
     audioTracks: [...(source.audioTracks ?? [1])],

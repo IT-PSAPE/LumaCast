@@ -66,6 +66,7 @@ function remapSourceAssets(source: StreamSource, assetMap: Map<string, string>):
     ...source,
     ...(source.assetId && assetMap.has(source.assetId) ? { assetId: assetMap.get(source.assetId)! } : {}),
     ...(source.kind === 'slideshow' ? { slideshowImages: source.slideshowImages?.map((image) => ({ ...image, assetId: assetMap.get(image.assetId) ?? image.assetId })) } : {}),
+    ...(source.kind === 'presentation' ? { presentationSlides: source.presentationSlides?.map((image) => ({ ...image, assetId: assetMap.get(image.assetId) ?? image.assetId })) } : {}),
     ...(source.kind === 'group' ? { children: (source.children ?? []).map((child) => remapSourceAssets(child, assetMap)) } : {}),
   };
 }
@@ -76,8 +77,8 @@ function collectionAssets(project: StreamProject): Map<string, ExpectedAsset> {
     for (const source of flattenSourceLeaves(scene.sources)) {
       const sourceAssets = source.kind === 'image' || source.kind === 'media'
         ? [{ id: source.assetId, extension: source.assetExtension, kind: source.kind === 'image' ? 'image' : source.mediaKind, name: source.name }]
-        : source.kind === 'slideshow'
-          ? (source.slideshowImages ?? []).map((image) => ({ id: image.assetId, extension: image.assetExtension, kind: 'image' as const, name: image.name }))
+        : source.kind === 'slideshow' || source.kind === 'presentation'
+          ? (source.slideshowImages ?? source.presentationSlides ?? []).map((image) => ({ id: image.assetId, extension: image.assetExtension, kind: 'image' as const, name: image.name }))
           : [];
       for (const asset of sourceAssets) {
         const { id, extension, kind, name } = asset;

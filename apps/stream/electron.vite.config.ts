@@ -60,6 +60,38 @@ function buildNdiHostBundlePlugin(): Plugin {
   };
 }
 
+function buildPresentationWorkerPlugin(): Plugin {
+  let inProgress = false;
+  return {
+    name: 'lumastream-presentation-worker-bundle',
+    enforce: 'post',
+    async closeBundle() {
+      if (inProgress) return;
+      inProgress = true;
+      try {
+        await viteBuild({
+          configFile: false,
+          logLevel: 'warn',
+          plugins: [externalizeDepsPlugin()],
+          build: {
+            outDir: path.resolve(__dirname, 'out/main'),
+            emptyOutDir: false,
+            ssr: true,
+            target: 'node22',
+            sourcemap: true,
+            lib: {
+              entry: path.resolve(__dirname, 'main/presentation-worker.ts'),
+              fileName: () => 'presentation-worker.js',
+              formats: ['cjs'],
+            },
+            rollupOptions: { external: [/^node:/] },
+          },
+        });
+      } finally { inProgress = false; }
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const appEnvironment = loadEnv(mode, path.resolve(__dirname, '../..'), '');
   return {
@@ -67,6 +99,7 @@ export default defineConfig(({ mode }) => {
     plugins: [
       externalizeDepsPlugin({ exclude: Object.keys(BUNDLED_MAIN_PACKAGES) }),
       buildNdiHostBundlePlugin(),
+      buildPresentationWorkerPlugin(),
     ],
     resolve: { alias: BUNDLED_MAIN_PACKAGES },
     define: {

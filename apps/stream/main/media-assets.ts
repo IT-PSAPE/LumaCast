@@ -7,7 +7,7 @@ import { dialog, type BrowserWindow } from 'electron';
 import type { MediaAsset, MediaKind } from '../shared/desktop-api';
 
 export const MEDIA_SCHEME = 'lumastream';
-export const MEDIA_SCHEME_PRIVILEGES = { standard: true, secure: true, supportFetchAPI: true, stream: true, bypassCSP: false } as const;
+export const MEDIA_SCHEME_PRIVILEGES = { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, bypassCSP: false } as const;
 
 const EXTENSIONS: Record<MediaKind, readonly string[]> = {
   image: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'],
@@ -21,6 +21,7 @@ const MIME: Record<string, string> = {
 };
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BUNDLE_ASSET_BYTES = 4 * 1024 * 1024 * 1024;
+const MEDIA_RESPONSE_CORS_HEADERS = { 'access-control-allow-origin': '*' };
 
 function parseRange(value: string, size: number): { start: number; end: number } | null {
   const match = /^bytes=(\d*)-(\d*)$/.exec(value.trim());
@@ -35,7 +36,11 @@ function parseRange(value: string, size: number): { start: number; end: number }
 export class MediaAssetStore {
   private readonly directory: string;
 
-  constructor(dataDirectory: string, private readonly getWindow: () => BrowserWindow | null) {
+  constructor(
+    dataDirectory: string,
+    private readonly getWindow: () => BrowserWindow | null,
+    private readonly dialogs: Pick<typeof dialog, 'showOpenDialog'> = dialog,
+  ) {
     this.directory = path.join(dataDirectory, 'media');
   }
 
@@ -44,16 +49,41 @@ export class MediaAssetStore {
     const window = this.getWindow();
     if (!window || window.isDestroyed()) throw new Error('The Stream window is not available.');
     const extensions = EXTENSIONS[kind];
-    const result = await dialog.showOpenDialog(window, {
+    const result = await this.dialogs.showOpenDialog(window, {
       title: `Add ${kind}`,
       properties: ['openFile'],
       filters: [{ name: kind === 'image' ? 'Images' : kind === 'video' ? 'Video' : 'Audio', extensions: [...extensions] }],
     });
     if (result.canceled || !result.filePaths[0]) return null;
 
-    const sourcePath = result.filePaths[0];
+    return this.importFile(result.filePaths[0], kind);
+  }
+
+  async chooseAndImportImages(maxImages: number): Promise<MediaAsset[]> {
+    if (!Number.isInteger(maxImages) || maxImages < 1 || maxImages > 100) throw new Error('The slideshow image limit is invalid.');
+    const window = this.getWindow();
+    if (!window || window.isDestroyed()) throw new Error('The Stream window is not available.');
+    const result = await this.dialogs.showOpenDialog(window, {
+      title: 'Add slideshow images',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Images', extensions: [...EXTENSIONS.image] }],
+    });
+    if (result.canceled || result.filePaths.length === 0) return [];
+    if (result.filePaths.length > maxImages) throw new Error(`Choose no more than ${maxImages} slideshow ${maxImages === 1 ? 'image' : 'images'}.`);
+
+    const assets: MediaAsset[] = [];
+    try {
+      for (const sourcePath of result.filePaths) assets.push(await this.importFile(sourcePath, 'image'));
+      return assets;
+    } catch (error) {
+      await Promise.all(assets.map((asset) => unlink(path.join(this.directory, `${asset.id}.${asset.extension}`)).catch(() => undefined)));
+      throw error;
+    }
+  }
+
+  private async importFile(sourcePath: string, kind: MediaKind): Promise<MediaAsset> {
     const extension = path.extname(sourcePath).slice(1).toLowerCase();
-    if (!extensions.includes(extension)) throw new Error('The selected file type is not supported.');
+    if (!EXTENSIONS[kind].includes(extension)) throw new Error('The selected file type is not supported.');
     await mkdir(this.directory, { recursive: true });
     const id = crypto.randomUUID();
     const fileName = `${id}.${extension}`;
@@ -138,6 +168,7 @@ export class MediaAssetStore {
           const range = parseRange(rangeHeader, size);
           if (!range) return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
           const headers = {
+            ...MEDIA_RESPONSE_CORS_HEADERS,
             'content-type': MIME[extension]!,
             'accept-ranges': 'bytes',
             'content-length': String(range.end - range.start + 1),
@@ -147,7 +178,7 @@ export class MediaAssetStore {
             ? new Response(null, { status: 206, headers })
             : new Response(Readable.toWeb(createReadStream(filePath, range)) as unknown as BodyInit, { status: 206, headers });
         }
-        const headers = { 'content-type': MIME[extension]!, 'accept-ranges': 'bytes', 'content-length': String(size) };
+        const headers = { ...MEDIA_RESPONSE_CORS_HEADERS, 'content-type': MIME[extension]!, 'accept-ranges': 'bytes', 'content-length': String(size) };
         return request.method === 'HEAD'
           ? new Response(null, { status: 200, headers })
           : new Response(Readable.toWeb(createReadStream(filePath)) as unknown as BodyInit, { status: 200, headers });

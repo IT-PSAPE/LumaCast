@@ -6,6 +6,7 @@ import { toStreamPlatform } from '../shared/platform-capabilities';
 
 const api: StreamAPI = {
   platform: toStreamPlatform(process.platform),
+  readClipboardText: () => ipcRenderer.invoke(IPC_CHANNELS.readClipboardText),
   loadProject: () => ipcRenderer.invoke(IPC_CHANNELS.loadProject),
   saveProject: (collectionId, profileId, project) => ipcRenderer.invoke(IPC_CHANNELS.saveProject, collectionId, profileId, project),
   loadAudioSettings: () => ipcRenderer.invoke(IPC_CHANNELS.loadAudioSettings),
@@ -28,7 +29,8 @@ const api: StreamAPI = {
   importProfile: () => ipcRenderer.invoke(IPC_CHANNELS.importProfile),
   exportProfile: (id) => ipcRenderer.invoke(IPC_CHANNELS.exportProfile, id),
   listDesktopSources: (kind) => ipcRenderer.invoke(IPC_CHANNELS.listDesktopSources, kind),
-  prepareDesktopCapture: (sourceId, includeSystemAudio) => ipcRenderer.invoke(IPC_CHANNELS.prepareDesktopCapture, sourceId, includeSystemAudio),
+  resolveDesktopCapture: (kind, captureId, target, legacySourceName) => ipcRenderer.invoke(IPC_CHANNELS.resolveDesktopCapture, kind, captureId, target, legacySourceName),
+  prepareDesktopCapture: (sourceId, includeSystemAudio, mode) => ipcRenderer.invoke(IPC_CHANNELS.prepareDesktopCapture, sourceId, includeSystemAudio, mode),
   listAudioApplications: () => ipcRenderer.invoke(IPC_CHANNELS.listAudioApplications),
   startApplicationAudioCapture: (sourceId, pid, applicationPath) => ipcRenderer.invoke(IPC_CHANNELS.startApplicationAudioCapture, sourceId, pid, applicationPath),
   startSystemAudioCapture: (sourceId) => ipcRenderer.invoke(IPC_CHANNELS.startSystemAudioCapture, sourceId),
@@ -63,6 +65,8 @@ const api: StreamAPI = {
     };
   },
   importMedia: (kind) => ipcRenderer.invoke(IPC_CHANNELS.importMedia, kind),
+  importSlideshowImages: (maxImages) => ipcRenderer.invoke(IPC_CHANNELS.importSlideshowImages, maxImages),
+  importPresentation: () => ipcRenderer.invoke(IPC_CHANNELS.importPresentation),
   remuxRecording: () => ipcRenderer.invoke(IPC_CHANNELS.remuxRecording),
   openRecording: (settings) => ipcRenderer.invoke(IPC_CHANNELS.openRecording, settings),
   writeRecordingChunk: (id, track, bytes) => ipcRenderer.invoke(IPC_CHANNELS.writeRecordingChunk, id, track, bytes),
@@ -97,6 +101,9 @@ const api: StreamAPI = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.streamStatus, handler);
   },
   createBrowserSource: (id, url, width, height) => ipcRenderer.invoke(IPC_CHANNELS.createBrowserSource, id, url, width, height),
+  sendBrowserSourceInput: (id, input) => ipcRenderer.invoke(IPC_CHANNELS.sendBrowserSourceInput, id, input),
+  setBrowserSourceActivity: (id, activity) => ipcRenderer.invoke(IPC_CHANNELS.setBrowserSourceActivity, id, activity),
+  resetBrowserSource: (id) => ipcRenderer.invoke(IPC_CHANNELS.resetBrowserSource, id),
   getBrowserSourceAudioCaptureId: (id) => ipcRenderer.invoke(IPC_CHANNELS.getBrowserSourceAudioCaptureId, id),
   closeBrowserSource: (id) => ipcRenderer.invoke(IPC_CHANNELS.closeBrowserSource, id),
   onBrowserSourceFrame(listener) {

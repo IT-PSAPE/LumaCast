@@ -10,7 +10,7 @@
     "url": "https://github.com/IT-PSAPE/LumaCast.git"
   },
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.18.0"
   },
   "packageManager": "npm@11.6.2",
   "workspaces": [

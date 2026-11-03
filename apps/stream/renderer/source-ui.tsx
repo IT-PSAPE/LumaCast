@@ -1,4 +1,4 @@
-import { FileAudio, FileVideo, Globe, Grid2X2, Headphones, Image as ImageIcon, Layers2, Mic, Monitor, PanelsTopLeft, Type, Webcam } from 'lucide-react';
+import { FileAudio, FileVideo, Globe, Grid2X2, Headphones, Image as ImageIcon, Images, Layers2, Mic, Monitor, PanelsTopLeft, Presentation, Type, Webcam } from 'lucide-react';
 import type { MediaKind, SourceKind, StreamSource } from '../shared/desktop-api';
 
 /** Icon shown for a source of the given kind in the sources dock, mixer, and source properties panel. */
@@ -9,7 +9,8 @@ export function sourceIcon(kind: SourceKind, mediaKind?: MediaKind) {
   if (kind === 'microphone') return <Mic size={15} />;
   if (kind === 'desktop-audio' || kind === 'application-audio') return <Headphones size={15} />;
   if (kind === 'image') return <ImageIcon size={15} />;
-  if (kind === 'slideshow') return <ImageIcon size={15} />;
+  if (kind === 'slideshow') return <Images size={15} />;
+  if (kind === 'presentation') return <Presentation size={15} />;
   if (kind === 'media') return mediaKind === 'audio' ? <FileAudio size={15} /> : <FileVideo size={15} />;
   if (kind === 'browser' || kind === 'ndi') return <Globe size={15} />;
   if (kind === 'text') return <Type size={15} />;

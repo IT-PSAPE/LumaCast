@@ -1,8 +1,9 @@
-import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { clipboard, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { app, BrowserWindow, dialog, shell } from 'electron';
 import { mkdir, open, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { CaptureKind, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject, StreamServiceSettings, YouTubeBroadcastDraft, ZoomMeetingDraft } from '../shared/desktop-api';
+import type { CaptureKind, DesktopCaptureTarget, MediaKind, RecordingOutputSettings, StreamAPI, StreamAudioSettings, StreamGlobalHotkeys, StreamOutputSettings, StreamProject, StreamServiceSettings, YouTubeBroadcastDraft, ZoomMeetingDraft } from '../shared/desktop-api';
+import type { BrowserSourceActivity, BrowserSourceInput } from '../shared/desktop-api';
 import type { AudioSettingsStore } from './audio-settings-store';
 import type { RecordingPreferencesStore } from './recording-preferences-store';
 import type { StreamSettingsStore } from './stream-settings-store';
@@ -11,6 +12,7 @@ import { BrowserSourceManager } from './browser-sources';
 import { applyApplicationMenu, validateSerializedMenu } from './application-menu';
 import { IPC_CHANNELS } from './ipc-channels';
 import { MediaAssetStore } from './media-assets';
+import type { PresentationImporter } from './presentation-import';
 import { ProjectStore } from './project-store';
 import { RecordingStore } from './recording-store';
 import { RecordingRemuxer } from './recording-remuxer';
@@ -60,6 +62,7 @@ export function registerStreamIpc(
   recordingPreferences: RecordingPreferencesStore,
   capture: DesktopCaptureController,
   mediaAssets: MediaAssetStore,
+  presentations: PresentationImporter,
   collectionBundles: CollectionBundleStore,
   recordings: RecordingStore,
   recordingRemuxer: RecordingRemuxer,
@@ -80,6 +83,7 @@ export function registerStreamIpc(
     return contents;
   };
   const handlers: Array<[string, (event: IpcMainInvokeEvent, ...args: any[]) => unknown]> = [
+    [IPC_CHANNELS.readClipboardText, (event) => { authorize(event); return clipboard.readText(); }],
     [IPC_CHANNELS.loadProject, (event) => { authorize(event); return projectStore.load(); }],
     [IPC_CHANNELS.saveProject, (event, collectionId: string, profileId: string, project: StreamProject) => {
       authorize(event);
@@ -202,9 +206,13 @@ export function registerStreamIpc(
       if (kind !== 'screen' && kind !== 'window') throw new Error('Unsupported capture source type.');
       return capture.list(kind);
     }],
-    [IPC_CHANNELS.prepareDesktopCapture, (event, sourceId: string, includeSystemAudio: boolean) => {
+    [IPC_CHANNELS.resolveDesktopCapture, (event, kind: CaptureKind, captureId?: string, target?: DesktopCaptureTarget, legacySourceName?: string) => {
+      authorize(event);
+      return capture.resolve(kind, captureId, target, legacySourceName);
+    }],
+    [IPC_CHANNELS.prepareDesktopCapture, (event, sourceId: string, includeSystemAudio: boolean, mode: 'display-media' | 'automatic-restore' = 'display-media') => {
       const contents = authorize(event);
-      return capture.prepare(contents.id, sourceId, includeSystemAudio);
+      return capture.prepare(contents.id, sourceId, includeSystemAudio, mode);
     }],
     [IPC_CHANNELS.listAudioApplications, (event) => { authorize(event); return applicationAudio.list(); }],
     [IPC_CHANNELS.startApplicationAudioCapture, (event, sourceId: string, pid: number, executablePath: string) => {
@@ -230,6 +238,11 @@ export function registerStreamIpc(
       if (kind !== 'image' && kind !== 'video' && kind !== 'audio') throw new Error('Unsupported media type.');
       return mediaAssets.chooseAndImport(kind);
     }],
+    [IPC_CHANNELS.importSlideshowImages, (event, maxImages: number) => {
+      authorize(event);
+      return mediaAssets.chooseAndImportImages(maxImages);
+    }],
+    [IPC_CHANNELS.importPresentation, (event) => { authorize(event); return presentations.chooseAndImport(); }],
     [IPC_CHANNELS.remuxRecording, (event) => { authorize(event); return recordingRemuxer.remux(); }],
     [IPC_CHANNELS.openRecording, (event, settings: RecordingOutputSettings) => { authorize(event); return recordings.open(settings); }],
     [IPC_CHANNELS.writeRecordingChunk, (event, id: string, track: number, bytes: ArrayBuffer) => {
@@ -290,6 +303,18 @@ export function registerStreamIpc(
     [IPC_CHANNELS.createBrowserSource, (event, id: string, url: string, width: number, height: number) => {
       authorize(event);
       return browserSources.create(id, url, width, height);
+    }],
+    [IPC_CHANNELS.sendBrowserSourceInput, (event, id: string, input: BrowserSourceInput) => {
+      authorize(event);
+      return browserSources.sendInput(id, input);
+    }],
+    [IPC_CHANNELS.setBrowserSourceActivity, (event, id: string, activity: BrowserSourceActivity) => {
+      authorize(event);
+      return browserSources.setActivity(id, activity);
+    }],
+    [IPC_CHANNELS.resetBrowserSource, (event, id: string) => {
+      authorize(event);
+      return browserSources.reset(id);
     }],
     [IPC_CHANNELS.getBrowserSourceAudioCaptureId, (event, id: string) => {
       const contents = authorize(event);

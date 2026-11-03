@@ -52,8 +52,11 @@ export function createSource(kind: SourceKind, output: StreamProject['output'], 
   const labels: Record<SourceKind, string> = {
     display: 'Display Capture', window: 'Window Capture', camera: 'Video Capture Device',
     microphone: 'Audio Input Capture', 'desktop-audio': 'Audio Output Capture', 'application-audio': 'Application Audio Capture', image: 'Image', slideshow: 'Image Slideshow', media: 'Media Source', browser: 'Browser Source', text: 'Text', color: 'Color Source',
-    group: 'Group', scene: 'Scene', ndi: 'NDI Source',
+    group: 'Group', scene: 'Scene', ndi: 'NDI Source', presentation: 'Presentation',
   };
+  const captureBindingDefault = kind === 'display' || kind === 'window'
+    ? { captureBindingId: crypto.randomUUID() }
+    : {};
   return {
     id: crypto.randomUUID(),
     name: name ?? labels[kind],
@@ -69,6 +72,7 @@ export function createSource(kind: SourceKind, output: StreamProject['output'], 
     ...(kind === 'text' ? { text: 'Text', color: '#ffffff', textStyle: createDefaultTextStyle(hostPlatform()) } : {}),
     ...(kind === 'color' ? { color: '#17191f' } : {}),
     ...(kind === 'browser' ? { browserAudioEnabled: false } : {}),
+    ...captureBindingDefault,
     ...extra,
   };
 }
@@ -77,12 +81,14 @@ export function cloneSceneSource(source: StreamSource): StreamSource {
   return {
     ...source,
     id: crypto.randomUUID(),
+    ...((source.kind === 'display' || source.kind === 'window') ? { captureBindingId: crypto.randomUUID() } : {}),
     transform: { ...source.transform },
     ...(source.crop ? { crop: { ...source.crop } } : {}),
     ...(source.filters ? { filters: { ...source.filters } } : {}),
     ...(source.chromaKey ? { chromaKey: { ...source.chromaKey } } : {}),
     ...(source.audioFilters ? { audioFilters: { ...source.audioFilters } } : {}),
     ...(source.slideshowImages ? { slideshowImages: source.slideshowImages.map((image) => ({ ...image })) } : {}),
+    ...(source.presentationSlides ? { presentationSlides: source.presentationSlides.map((image) => ({ ...image })) } : {}),
     ...(source.children ? { children: source.children.map(cloneSceneSource) } : {}),
     audioTracks: [...(source.audioTracks ?? [1])],
   };

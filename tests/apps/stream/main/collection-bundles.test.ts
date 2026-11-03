@@ -131,4 +131,39 @@ describe('LumaStream scene collection bundles', () => {
     const media = new MediaAssetStore(dataDirectory, () => null);
     await expect(bundleStore(store, media).importFromPath(archivePath)).rejects.toThrow(/invalid relative path|unexpected file path/);
   });
+
+  it('bundles every presentation page and preserves the current page when importing with fresh asset IDs', async () => {
+    const sourceData = await temporaryDirectory('lumastream-presentation-bundle-source-');
+    const sourceStore = new ProjectStore(sourceData);
+    const sourceWorkspace = await sourceStore.load();
+    const mediaDirectory = path.join(sourceData, 'media');
+    await mkdir(mediaDirectory, { recursive: true });
+    const pageIds = [sourceAssetId, '7d6a4197-07f8-4a4b-843b-593fb7849184', '0c77dd14-d8d5-48d4-abd6-690f6f0f483b'];
+    const pageBytes = pageIds.map((_, index) => Buffer.from(`presentation page ${index + 1}`));
+    await Promise.all(pageIds.map((id, index) => writeFile(path.join(mediaDirectory, `${id}.png`), pageBytes[index]!)));
+    const project = createDefaultProject();
+    project.scenes[0]!.sources.push({
+      id: 'portable-presentation', name: 'Sunday presentation', kind: 'presentation', visible: true, muted: false, volume: 1,
+      transform: { x: 0, y: 0, width: project.output.width, height: project.output.height },
+      presentationSlides: pageIds.map((assetId, index) => ({ assetId, assetExtension: 'png', name: `Page ${index + 1}` })),
+      slideIndex: 1,
+    });
+    await sourceStore.save(sourceWorkspace.activeCollectionId, sourceWorkspace.activeProfileId, project);
+    const archivePath = path.join(sourceData, 'Presentation Collection.lumacollection');
+    mockDialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: archivePath });
+    await expect(bundleStore(sourceStore, new MediaAssetStore(sourceData, () => null)).exportCollection(sourceWorkspace.activeCollectionId)).resolves.toBe(true);
+
+    const destinationData = await temporaryDirectory('lumastream-presentation-bundle-destination-');
+    const destinationStore = new ProjectStore(destinationData);
+    const imported = await bundleStore(destinationStore, new MediaAssetStore(destinationData, () => null)).importFromPath(archivePath);
+    const source = imported.project.scenes[0]!.sources.find((item) => item.id === 'portable-presentation');
+    expect(source).toMatchObject({ kind: 'presentation', slideIndex: 1 });
+    expect(source?.presentationSlides).toHaveLength(3);
+    expect(new Set(source?.presentationSlides?.map(({ assetId }) => assetId)).size).toBe(3);
+    for (const [index, page] of source!.presentationSlides!.entries()) {
+      expect(page).toMatchObject({ name: `Page ${index + 1}`, assetExtension: 'png' });
+      expect(pageIds).not.toContain(page.assetId);
+      await expect(readFile(path.join(destinationData, 'media', `${page.assetId}.png`))).resolves.toEqual(pageBytes[index]);
+    }
+  });
 });
